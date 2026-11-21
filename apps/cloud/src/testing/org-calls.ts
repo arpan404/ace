@@ -1,5 +1,9 @@
 import { GrantKeySet, encodeBase64url } from "@ace/account-grant";
-import { machineCredentialProof } from "@ace/account-grant/machine-proof";
+import {
+  ORG_ENROLL_LIFETIME_MS,
+  machineCredentialProof,
+  orgEnrollProof,
+} from "@ace/account-grant/machine-proof";
 import { hostId, keyPair } from "@ace/secure-channel";
 import type { WorkosUser } from "./fake-workos.ts";
 
@@ -86,7 +90,33 @@ export function orgCalls(http: string) {
       });
       if (issued.status !== 201 && issued.status !== 200)
         throw new Error(`Machine credential failed: ${issued.status}`);
-      return { hostId: id, credential };
+      return { hostId: id, credential, host };
     },
+    /**
+     * The machine's consent to join `org`, as its daemon gives it to a socket that proved
+     * `account` is its owner: signed with its host key, for five minutes, under a fresh nonce.
+     */
+    async consent(
+      box: { hostId: string; host: ReturnType<typeof keyPair> },
+      org: string,
+      account: string,
+    ) {
+      const terms = {
+        hostId: box.hostId,
+        org,
+        account,
+        nonce: encodeBase64url(crypto.getRandomValues(new Uint8Array(16))),
+        expiresAt: Date.now() + ORG_ENROLL_LIFETIME_MS,
+      };
+      const exchangeKey = (await keys()).exchangeKey ?? "";
+      return {
+        ...terms,
+        hostKey: encodeBase64url(box.host.publicKey),
+        proof: orgEnrollProof({ hostPrivateKey: box.host.privateKey, exchangeKey, consent: terms }),
+      };
+    },
+    /** Enrolls `box` into `org` with `consent`; the status and body. */
+    enroll: (token: string, org: string, box: { hostId: string }, consent: unknown) =>
+      call(token, "POST", `/v1/orgs/${org}/hosts`, { hostId: box.hostId, consent }),
   };
 }

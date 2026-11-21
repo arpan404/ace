@@ -51,9 +51,7 @@ async function team(name: string) {
   workos.orgs.addMember(mia.id, org, "member");
   await events();
   const box = await api.machine(worker.db, owner.id, await signIn(owner, "machine"));
-  const enrolled = await api.call(ownerToken, "POST", `/v1/orgs/${org}/hosts`, {
-    hostId: box.hostId,
-  });
+  const enrolled = await api.enroll(ownerToken, org, box, await api.consent(box, org, owner.id));
   if (enrolled.status !== 201) throw new Error(`Enrolling failed: ${enrolled.status}`);
   return { ownerToken, org, box, miaToken: await signIn(mia) };
 }
@@ -234,4 +232,47 @@ it("an org host's audit entry sent twice is one WorkOS event; another machine ca
   expect((await api.call(box.credential, "GET", `/v1/orgs/${org}/policy`)).body).toMatchObject({
     version: 0,
   });
+});
+
+it("a host is enrolled only with its machine's own consent, for that organization, once", async () => {
+  const ownerToken = await signIn();
+  const org = await api.createOrg(ownerToken, "Consent");
+  const other = await api.createOrg(ownerToken, "Elsewhere");
+  const box = await api.machine(worker.db, owner.id, await signIn(owner, "machine"));
+  const listed = async (space: string) =>
+    ((await api.call(ownerToken, "GET", `/v1/orgs/${space}/hosts`)).body.machines as {
+      hostId: string;
+    }[]).map((each) => each.hostId);
+
+  // A person with `hosts:manage` naming a host isn't enough: the machine never agreed.
+  const bare = await api.call(ownerToken, "POST", `/v1/orgs/${org}/hosts`, { hostId: box.hostId });
+  expect(bare.status).toBe(400);
+  // A consent made up without the host's key proves nothing.
+  const forged = { ...(await api.consent(box, org, owner.id)), proof: "A".repeat(43) };
+  expect((await api.enroll(ownerToken, org, box, forged)).body).toEqual({ error: "consent_invalid" });
+  // Consent for another owner (the account the machine is signed in to, say) isn't this one's.
+  const someoneElse = await api.consent(box, org, mia.id);
+  expect((await api.enroll(ownerToken, org, box, someoneElse)).body).toEqual({
+    error: "not_machine_owner",
+  });
+
+  // Consent to join one organization doesn't enroll it in another, respelled or not.
+  const forOrg = await api.consent(box, org, owner.id);
+  expect((await api.enroll(ownerToken, other, box, forOrg)).body).toEqual({
+    error: "consent_mismatch",
+  });
+  expect((await api.enroll(ownerToken, other, box, { ...forOrg, org: other })).body).toEqual({
+    error: "consent_invalid",
+  });
+  expect(await listed(other)).not.toContain(box.hostId);
+
+  // With it, once.
+  expect((await api.enroll(ownerToken, org, box, forOrg)).status).toBe(201);
+  expect(await listed(org)).toContain(box.hostId);
+  // The same consent again is spent, even after the host is released.
+  expect((await api.call(ownerToken, "DELETE", `/v1/orgs/${org}/hosts/${box.hostId}`)).status).toBe(
+    200,
+  );
+  expect((await api.enroll(ownerToken, org, box, forOrg)).body).toEqual({ error: "consent_used" });
+  expect(await listed(org)).not.toContain(box.hostId);
 });
