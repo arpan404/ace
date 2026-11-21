@@ -128,7 +128,10 @@ struct TranscriptFocusLanding: Equatable, Sendable {
             return .none
         }
         scrolls += 1
-        return .scroll(rowID: row, anchor: frame.flatMap { Self.anchor(placing: $0, in: geometry) })
+        // A measured row no anchor can centre in what the reader sees (one nearly the scrolled
+        // space's height) starts at the top of it instead: the scroll view's own centre could
+        // leave its middle behind the keyboard, and the focus would never land.
+        return .scroll(rowID: row, anchor: frame.map { Self.anchor(placing: $0, in: geometry) ?? 0 })
     }
 
     /// A new focus starts a fresh budget.
@@ -143,12 +146,14 @@ struct TranscriptFocusLanding: Equatable, Sendable {
         deadline = nil
     }
 
-    /// The row's middle is in the middle half of what the reader sees.
+    /// The row's middle is in the middle half of what the reader sees, or the row, at least as
+    /// tall as that, fills its centre.
     private static func shows(_ frame: Span, in geometry: Geometry) -> Bool {
         let height = geometry.visibleBottom - geometry.visibleTop
         guard height > 0 else { return false }
         let middle = (frame.top + frame.bottom) / 2
         let centre = (geometry.visibleTop + geometry.visibleBottom) / 2
+        if frame.bottom - frame.top >= height, frame.top <= centre, frame.bottom >= centre { return true }
         return abs(middle - centre) <= height / 4
     }
 

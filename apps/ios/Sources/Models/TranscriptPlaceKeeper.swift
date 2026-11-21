@@ -84,6 +84,9 @@ struct TranscriptPlaceKeeper: Sendable {
     /// The held row may sit off its place: check it the next time the feed is still.
     private var owed = false
 
+    /// The feed moved the scroll `delta` points itself (`TranscriptRowFrames.shifted`).
+    mutating func shifted(by delta: Double) { frames.shifted(by: CGFloat(delta)) }
+
     mutating func next(_ event: Event, facts: Facts, now: Double) -> [Action] {
         var step = Step(facts: facts)
         switch event {

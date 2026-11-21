@@ -67,3 +67,47 @@ test("a tail snapshot holds the newest items within its budget and says it holds
   expect(whole.itemOrder).toHaveLength(40);
   expect(whole.partial).toBeUndefined();
 });
+
+test("a tail snapshot measures its budget in UTF-8 bytes, as the daemon does", () => {
+  const view = createThreadView(thread, 3);
+  const creation = new Map<string, number>();
+  for (let seq = 1; seq <= 3; seq++) {
+    const item = say(`reply-${seq}-${"é".repeat(200)}`, seq);
+    view.items[item.id] = item;
+    view.itemOrder.push(item.id);
+    creation.set(item.id, seq);
+  }
+  const newest = JSON.stringify(view.items[view.itemOrder[2] ?? ""]);
+  // Two items by UTF-16 length, but each "é" is two bytes, so only the newest fits.
+  const sized = tailSnapshot(view, creation, { items: 3, bytes: newest.length * 2 + 1 }, 200, 3);
+  expect(sized.itemOrder).toEqual([view.itemOrder[2]]);
+});
+
+test("a newest item larger than the whole budget shows alone as a preview the snapshot names", () => {
+  const view = createThreadView(thread, 2);
+  const creation = new Map<string, number>();
+  const long = Item.parse({
+    id: "long",
+    agentId: "root",
+    type: "message",
+    role: "assistant",
+    createdAt: 2,
+    complete: true,
+    parts: [{ type: "text", text: "word ".repeat(2000) }],
+  });
+  [say("short", 1), long].forEach((item, index) => {
+    view.items[item.id] = item;
+    view.itemOrder.push(item.id);
+    creation.set(item.id, index + 1);
+  });
+  const snapshot = tailSnapshot(view, creation, { items: 5, bytes: 1024 }, 200, 2);
+  expect(snapshot.itemOrder).toEqual(["long"]);
+  expect(snapshot.partial).toEqual({ previews: ["long"] });
+  const shown = snapshot.items.long;
+  const part = shown?.type === "message" ? shown.parts[0] : undefined;
+  if (part?.type !== "text") throw new Error("expected a text part");
+  // The newest words, clipped, with a source naming the whole text so the client marks it.
+  expect(part.text.length).toBeLessThan(10_000);
+  expect("word ".repeat(2000).endsWith(part.text)).toBe(true);
+  expect(part.source?.bytes).toBe(10_000 * 2);
+});
