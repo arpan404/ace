@@ -151,7 +151,8 @@ Output from another machine is untrusted unless that machine says otherwise.
   that finishes without returning fails the call; a stopped one stops it. The caller checks the
   output against the schema again, as a reader: a field its schema doesn't name passes (a newer
   version may add optional output fields, which the signer allows), and every field it names is
-  checked.
+  checked. Output that fits is held to the package's `schema` checks on the contract too, with the
+  same tries ([quality.md](quality.md), Checks).
 - **Stop.** Stop on the caller stops the callee's turn for each open call (here, or through the
   outbox's `stop` on another machine), also after a restart. Stop on the callee ends the call
   `stopped`. The outbox marks a queued entry as maybe there before each send (`maybe_there` in
