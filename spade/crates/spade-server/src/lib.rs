@@ -6,6 +6,7 @@ pub mod bot_test;
 pub mod clock;
 pub mod computer;
 pub mod config;
+pub mod conform;
 pub mod engine;
 pub mod home;
 pub mod images;

@@ -1,4 +1,5 @@
 import type { PackageContract } from "@ace/protocol/marketplace";
+import { refusal, type Refusal } from "./rules.ts";
 import { readSchema, schemaMisfits, type Schema } from "./schema.ts";
 
 /*
@@ -24,7 +25,7 @@ const isFields = (value: unknown): value is Fields =>
 export interface ContractReading {
   /** The contracts as the recipe keeps them: `read` and `write_local` left out of `effects`. */
   kept: unknown[];
-  problems: string[];
+  problems: Refusal[];
 }
 
 /** Reads `contracts`; `declared` is every effect word the package declares. */
@@ -33,35 +34,44 @@ export function readContracts(raw: unknown, declared: readonly string[]): Contra
   if (!Array.isArray(raw) || raw.length > contractLimits.contracts)
     return {
       kept: [],
-      problems: [`contracts is a list of at most ${contractLimits.contracts}`],
+      problems: [
+        refusal("contracts.list", `contracts is a list of at most ${contractLimits.contracts}`),
+      ],
     };
-  const problems: string[] = [];
+  const problems: Refusal[] = [];
   const kept: unknown[] = [];
   const names: string[] = [];
   raw.forEach((item, i) => {
     const at = `contracts[${i}]`;
     if (!isFields(item)) {
-      problems.push(`${at} is an object`);
+      problems.push(refusal("contracts.field", `${at} is an object`));
       return;
     }
     // A schema file is written in before bot.json is read (`inlineContractFiles`); one still
     // named here was never read with it.
     if ("file" in item) {
       const path = typeof item["file"] === "string" ? item["file"] : "its schema file";
-      problems.push(`${at}.file: ${path} isn't in the package`);
+      problems.push(refusal("contracts.file-missing", `${at}.file: ${path} isn't in the package`));
       return;
     }
     for (const key of Object.keys(item))
-      if (!fields.has(key)) problems.push(`${at}.${key} isn't a field of a contract`);
+      if (!fields.has(key))
+        problems.push(refusal("contracts.field", `${at}.${key} isn't a field of a contract`));
     const name = item["name"];
     if (typeof name !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(name))
-      problems.push(`${at}.name is lower-case words joined by _, like cheapest_fare`);
-    else if (names.includes(name)) problems.push(`${at}: each contract has a name of its own`);
+      problems.push(
+        refusal("contracts.name", `${at}.name is lower-case words joined by _, like cheapest_fare`),
+      );
+    else if (names.includes(name))
+      problems.push(refusal("contracts.name-unique", `${at}: each contract has a name of its own`));
     else names.push(name);
     const summary = typeof item["summary"] === "string" ? item["summary"].trim() : "";
     if (!summary || [...summary].length > contractLimits.summaryChars)
       problems.push(
-        `${at}.summary says in one line of at most ${contractLimits.summaryChars} characters what it answers`,
+        refusal(
+          "contracts.summary",
+          `${at}.summary says in one line of at most ${contractLimits.summaryChars} characters what it answers`,
+        ),
       );
     const input = readSchema(item["input"] ?? null, `${at}.input`);
     const output = readSchema(item["output"] ?? null, `${at}.output`);
@@ -69,7 +79,7 @@ export function readContracts(raw: unknown, declared: readonly string[]): Contra
     const effects: string[] = [];
     const words = item["effects"];
     if (words !== undefined && !Array.isArray(words))
-      problems.push(`${at}.effects lists effect words`);
+      problems.push(refusal("contracts.effect", `${at}.effects lists effect words`));
     for (const word of Array.isArray(words) ? words : []) {
       if (word === "read" || word === "write_local") continue;
       if (typeof word === "string" && declarable.has(word)) {
@@ -77,11 +87,17 @@ export function readContracts(raw: unknown, declared: readonly string[]): Contra
           if (!effects.includes(word)) effects.push(word);
         } else
           problems.push(
-            `${at}.effects: ${word} isn't among the package's effects; a call can use only what the package declares`,
+            refusal(
+              "contracts.effect-undeclared",
+              `${at}.effects: ${word} isn't among the package's effects; a call can use only what the package declares`,
+            ),
           );
       } else
         problems.push(
-          `${at}.effects: ${JSON.stringify(word)} isn't an effect a call may use (network, publish, send_as_person, pay or change_access)`,
+          refusal(
+            "contracts.effect",
+            `${at}.effects: ${JSON.stringify(word)} isn't an effect a call may use (network, publish, send_as_person, pay or change_access)`,
+          ),
         );
     }
     const examples = item["examples"];
@@ -89,19 +105,26 @@ export function readContracts(raw: unknown, declared: readonly string[]): Contra
       examples !== undefined &&
       (!Array.isArray(examples) || examples.length > contractLimits.examples)
     )
-      problems.push(`${at}.examples is a list of at most ${contractLimits.examples}`);
+      problems.push(
+        refusal(
+          "contracts.example",
+          `${at}.examples is a list of at most ${contractLimits.examples}`,
+        ),
+      );
     else if (input.schema && output.schema)
       (examples ?? []).forEach((example: unknown, e: number) => {
         const here = `${at}.examples[${e}]`;
         if (!isFields(example) || !("input" in example) || !("output" in example)) {
-          problems.push(`${here} has an input and the output it answers`);
+          problems.push(
+            refusal("contracts.example", `${here} has an input and the output it answers`),
+          );
           return;
         }
         for (const miss of [
           ...schemaMisfits(input.schema!, example["input"], `${here}.input`),
           ...schemaMisfits(output.schema!, example["output"], `${here}.output`),
         ])
-          problems.push(`${miss.at}: ${miss.why}`);
+          problems.push(refusal("contracts.example", `${miss.at}: ${miss.why}`));
       });
     const { file: _file, ...rest } = item;
     kept.push({ ...rest, effects });

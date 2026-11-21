@@ -137,7 +137,7 @@ pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Val
     let written: Value = serde_json::from_str(&envelope.bot_json)
         .map_err(|_| "the signed bot.json isn't JSON".to_owned())?;
     let recipe = contract_files::inline(&written, |path| envelope.files.get(path).cloned())
-        .map_err(|problems| problems.join("; "))?;
+        .map_err(|problems| spade_core::rule::joined(&problems, "; "))?;
     Ok((
         PackageId {
             source: MARKET.to_owned(),

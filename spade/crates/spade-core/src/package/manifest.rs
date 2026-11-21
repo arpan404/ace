@@ -17,6 +17,7 @@ use crate::effect::{self, Effect, runtime};
 use crate::grant::{self, Scope};
 use crate::personality::Personality;
 use crate::routine::{self, AceEvent, Trigger};
+use crate::rule::{self, Problem};
 use crate::tools::Risk;
 
 use super::surfaces::Surface;
@@ -68,9 +69,11 @@ pub(crate) const EXECUTIONS: [&str; 8] = [
     "commands",
     "command",
 ];
-pub(crate) const KNOWN_V3: [&str; 22] = [
+pub(crate) const KNOWN_V3: [&str; 24] = [
+    "$schema",
     "format",
     "version",
+    "spec",
     "requires",
     "name",
     "blurb",
@@ -241,6 +244,10 @@ pub struct Limits {
 pub struct Manifest {
     /// The version the file was written at: 2 installs an unlinked copy, 3 a linked bot.
     pub version: u32,
+    /// The Spade Agent Format version it was written for (ADR 0201 §1); a missing `spec` reads
+    /// as `1.0`.
+    #[serde(default = "first_spec")]
+    pub spec: String,
     pub name: String,
     pub blurb: String,
     pub task: String,
@@ -284,38 +291,48 @@ impl Manifest {
     }
 }
 
-/// Reads `bot.json` as a package; every problem that refuses it otherwise.
-pub fn read(value: &Value, build: Build<'_>) -> Result<Manifest, Vec<String>> {
-    let mut problems = Vec::new();
-    secret_problems(value, "bot.json", &mut problems);
-    if !problems.is_empty() {
-        problems.push("a package never carries a key, token or secret".to_owned());
-        return Err(problems);
+/// Reads `bot.json` as a package; every problem that refuses it otherwise, each with its rule.
+pub fn read(value: &Value, build: Build<'_>) -> Result<Manifest, Vec<Problem>> {
+    let mut secrets = Vec::new();
+    secret_problems(value, "bot.json", &mut secrets);
+    if !secrets.is_empty() {
+        secrets.push("a package never carries a key, token or secret".to_owned());
+        return Err(secrets
+            .into_iter()
+            .map(|text| Problem::new(rule::SECRET, text))
+            .collect());
     }
     let Some(fields) = value.as_object() else {
-        return Err(vec!["bot.json isn't an object".to_owned()]);
+        return Err(vec![Problem::new(
+            rule::NOT_OBJECT,
+            "bot.json isn't an object",
+        )]);
     };
     if fields.get("format").and_then(Value::as_str) != Some(FORMAT) {
-        return Err(vec!["this isn't a Spade bot (format spade-bot)".to_owned()]);
+        return Err(vec![Problem::new(
+            rule::FORMAT,
+            "this isn't a Spade bot (format spade-bot)",
+        )]);
     }
     let version = match fields.get("version") {
         Some(Value::Number(n)) if n.as_u64() == Some(2) => 2,
         Some(Value::Number(n)) if n.as_u64() == Some(3) => 3,
         Some(Value::String(_)) => {
-            return Err(vec![
-                "version is the format's number; a package's own version comes from the market's signed manifest"
-                    .to_owned(),
-            ]);
+            return Err(vec![Problem::new(
+                rule::VERSION,
+                "version is the format's number; a package's own version comes from the market's signed manifest",
+            )]);
         }
         _ => {
-            return Err(vec![
-                "this Spade reads bot files of version 2 and 3".to_owned(),
-            ]);
+            return Err(vec![Problem::new(
+                rule::VERSION,
+                "this Spade reads bot files of version 2 and 3",
+            )]);
         }
     };
     let mut reader = Reader {
         fields,
-        problems,
+        problems: Vec::new(),
         build,
     };
     let manifest = reader.manifest(version);
@@ -353,26 +370,26 @@ pub fn secret_problems(value: &Value, path: &str, out: &mut Vec<String>) {
 
 struct Reader<'a> {
     fields: &'a Map<String, Value>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
     build: Build<'a>,
 }
 
 impl Reader<'_> {
-    fn problem(&mut self, text: impl Into<String>) {
-        self.problems.push(text.into());
+    fn problem(&mut self, rule: &'static str, text: impl Into<String>) {
+        self.problems.push(Problem::new(rule, text));
     }
 
     fn manifest(&mut self, version: u32) -> Manifest {
         for field in IDENTITY {
             if self.fields.contains_key(field) {
-                self.problem(format!(
+                self.problem(rule::IDENTITY, format!(
                     "{field}: who published a package and which version it is come from the market's signed manifest, never from bot.json"
                 ));
             }
         }
         for field in EXECUTIONS {
             if self.fields.contains_key(field) {
-                self.problem(format!(
+                self.problem(rule::EXECUTION, format!(
                     "{field}: a package never carries servers, hooks or commands; name a plugin instead"
                 ));
             }
@@ -388,13 +405,23 @@ impl Reader<'_> {
             })
             .cloned()
             .collect();
+        // An editor's pointer at the format's JSON Schema; it changes nothing the bot does.
+        if self.fields.get("$schema").is_some_and(|v| !v.is_string()) {
+            self.problem(
+                rule::FIELD,
+                "$schema is the address of the format's JSON Schema",
+            );
+        }
         let name = self.text("name", NAME_CHARS, true);
         let task = self.text("task", self.build.task_chars, false);
         let model = match self.fields.get("model") {
             None => "capable".to_owned(),
             Some(Value::String(m)) if m == "fast" || m == "capable" => m.clone(),
             Some(_) => {
-                self.problem("model is fast or capable, never a model of its own");
+                self.problem(
+                    rule::FIELD,
+                    "model is fast or capable, never a model of its own",
+                );
                 String::new()
             }
         };
@@ -421,6 +448,11 @@ impl Reader<'_> {
         };
         let manifest = Manifest {
             version,
+            spec: if version == 3 {
+                self.spec()
+            } else {
+                first_spec()
+            },
             name,
             blurb: self.text("blurb", BLURB_CHARS, false),
             task,
@@ -461,20 +493,40 @@ impl Reader<'_> {
         manifest
     }
 
+    /// `spec`: a version of the format this reader serves, `1.0` when missing. A runtime reads
+    /// every minor version of its major (ADR 0201 §6); what a later minor adds is kept unused.
+    fn spec(&mut self) -> String {
+        match self.fields.get("spec") {
+            None => first_spec(),
+            Some(Value::String(version)) if served_spec(version) => version.clone(),
+            Some(_) => {
+                self.problem(
+                    rule::SPEC,
+                    format!(
+                        "spec is the Spade Agent Format version it was written for, like \"{}\"; this Spade reads {}.x",
+                        crate::spec::VERSION,
+                        spec_major()
+                    ),
+                );
+                first_spec()
+            }
+        }
+    }
+
     fn text(&mut self, field: &str, most: usize, needed: bool) -> String {
         match self.fields.get(field) {
             None | Some(Value::Null) if !needed => String::new(),
             Some(Value::String(text)) if needed && text.trim().is_empty() => {
-                self.problem(format!("a package needs a {field}"));
+                self.problem(rule::FIELD, format!("a package needs a {field}"));
                 String::new()
             }
             Some(Value::String(text)) if text.chars().count() > most => {
-                self.problem(format!("{field} is at most {most} characters"));
+                self.problem(rule::FIELD, format!("{field} is at most {most} characters"));
                 String::new()
             }
             Some(Value::String(text)) => text.trim().to_owned(),
             _ => {
-                self.problem(format!("{field} is text"));
+                self.problem(rule::FIELD, format!("{field} is text"));
                 String::new()
             }
         }
@@ -486,6 +538,7 @@ impl Reader<'_> {
             Ok(personality) => Some(personality),
             Err(_) => {
                 self.problem(
+                    rule::FIELD,
                     "personality is a tone (concise, warm, formal or playful), humour and emoji",
                 );
                 None
@@ -499,7 +552,7 @@ impl Reader<'_> {
         match accent.and_then(self::accent) {
             Some(accent) => Some(Style { accent }),
             None => {
-                self.problem("style.accent is one colour, like #2F7BEA");
+                self.problem(rule::FIELD, "style.accent is one colour, like #2F7BEA");
                 None
             }
         }
@@ -521,7 +574,7 @@ impl Reader<'_> {
         match tools {
             Some(tools) if tools.len() <= MOST_TOOLS => Some(tools),
             _ => {
-                self.problem("needs.tools names built-in tools, at most 64");
+                self.problem(rule::FIELD, "needs.tools names built-in tools, at most 64");
                 None
             }
         }
@@ -530,7 +583,7 @@ impl Reader<'_> {
     fn uses(&mut self) -> Option<Vec<String>> {
         let items = self.fields.get("uses")?;
         let Some(items) = items.as_array() else {
-            self.problem("uses lists runtime modules");
+            self.problem(rule::USES, "uses lists runtime modules");
             return None;
         };
         let mut uses = Vec::new();
@@ -539,10 +592,11 @@ impl Reader<'_> {
                 Some(module) if runtime::Module::parse(module).is_some() => {
                     uses.push(module.to_owned());
                 }
-                Some(module) => self.problem(format!(
-                    "Needs a newer Spade: this one has no {module:?} module"
-                )),
-                None => self.problem("uses lists runtime modules by name"),
+                Some(module) => self.problem(
+                    rule::MODULE,
+                    format!("Needs a newer Spade: this one has no {module:?} module"),
+                ),
+                None => self.problem(rule::USES, "uses lists runtime modules by name"),
             }
         }
         Some(uses)
@@ -552,7 +606,10 @@ impl Reader<'_> {
         match item.get(field).and_then(Value::as_str).map(str::trim) {
             Some(text) if !text.is_empty() && text.chars().count() <= most => text.to_owned(),
             _ => {
-                self.problem(format!("{at}.{field} is text of 1 to {most} characters"));
+                self.problem(
+                    rule::TRIGGER,
+                    format!("{at}.{field} is text of 1 to {most} characters"),
+                );
                 String::new()
             }
         }
@@ -564,9 +621,10 @@ impl Reader<'_> {
             schedule: schedule.clone(),
         };
         if !read.schedule().is_ok_and(|s| s.is_some()) {
-            self.problem(format!(
-                "{at}: the routine {name:?} has a schedule Spade doesn't read"
-            ));
+            self.problem(
+                rule::TRIGGER,
+                format!("{at}: the routine {name:?} has a schedule Spade doesn't read"),
+            );
         }
         schedule
     }
@@ -576,7 +634,7 @@ impl Reader<'_> {
             None => return Vec::new(),
             Some(Value::Array(items)) => items.clone(),
             Some(_) => {
-                self.problem("routines is a list");
+                self.problem(rule::TRIGGER, "routines is a list");
                 return Vec::new();
             }
         };
@@ -602,7 +660,10 @@ impl Reader<'_> {
             None => return vec![PackageTrigger::Message],
             Some(Value::Array(items)) if items.len() <= MOST_TRIGGERS => items.clone(),
             Some(_) => {
-                self.problem(format!("triggers is a list of at most {MOST_TRIGGERS}"));
+                self.problem(
+                    rule::TRIGGERS,
+                    format!("triggers is a list of at most {MOST_TRIGGERS}"),
+                );
                 return Vec::new();
             }
         };
@@ -627,7 +688,10 @@ impl Reader<'_> {
                         .iter()
                         .any(|p: &String| p != "threads" && p != "clubs")
                     {
-                        self.problem(format!("{at}.in names threads, clubs or both"));
+                        self.problem(
+                            rule::TRIGGER,
+                            format!("{at}.in names threads, clubs or both"),
+                        );
                     }
                     PackageTrigger::Mention { places }
                 }
@@ -654,7 +718,7 @@ impl Reader<'_> {
                             let event = match known {
                                 Some((_, event)) => *event,
                                 None => {
-                                    self.problem(format!(
+                                    self.problem(rule::TRIGGER, format!(
                                         "{at}.event is thread.finished, thread.failed or thread.needs_you"
                                     ));
                                     AceEvent::ThreadDone
@@ -687,11 +751,14 @@ impl Reader<'_> {
             .map(|(name, _, _)| name)
             .collect();
         if names.len() > MOST_ROUTINES {
-            self.problem(format!("a package has at most {MOST_ROUTINES} routines"));
+            self.problem(
+                rule::ROUTINES,
+                format!("a package has at most {MOST_ROUTINES} routines"),
+            );
         }
         let unique: BTreeSet<&str> = names.iter().copied().collect();
         if unique.len() != names.len() {
-            self.problem("each routine has a name of its own");
+            self.problem(rule::ROUTINES, "each routine has a name of its own");
         }
     }
 
@@ -704,7 +771,10 @@ impl Reader<'_> {
                 .map(str::to_owned)
                 .collect(),
             Some(_) => {
-                self.problem(format!("{field} is a list of at most {MOST_REFS}"));
+                self.problem(
+                    rule::FIELD,
+                    format!("{field} is a list of at most {MOST_REFS}"),
+                );
                 Vec::new()
             }
         }
@@ -713,9 +783,10 @@ impl Reader<'_> {
     fn notes(&mut self) -> Vec<String> {
         let notes = self.refs("notes");
         if notes.len() > MOST_NOTES || notes.iter().any(|n| n.chars().count() > NOTE_CHARS) {
-            self.problem(format!(
-                "a package has at most {MOST_NOTES} notes of {NOTE_CHARS} characters"
-            ));
+            self.problem(
+                rule::FIELD,
+                format!("a package has at most {MOST_NOTES} notes of {NOTE_CHARS} characters"),
+            );
         }
         notes
     }
@@ -733,7 +804,10 @@ impl Reader<'_> {
                 })
         };
         if tests.len() > MOST_TESTS || !tests.iter().all(named) {
-            self.problem("tests name files tests/<name>.json in the package");
+            self.problem(
+                rule::FIELD,
+                "tests name files tests/<name>.json in the package",
+            );
         }
         tests
     }
@@ -743,7 +817,10 @@ impl Reader<'_> {
             None => return Vec::new(),
             Some(Value::Array(items)) if items.len() <= MOST_EFFECTS => items.clone(),
             Some(_) => {
-                self.problem(format!("effects is a list of at most {MOST_EFFECTS}"));
+                self.problem(
+                    rule::EFFECTS,
+                    format!("effects is a list of at most {MOST_EFFECTS}"),
+                );
                 return Vec::new();
             }
         };
@@ -751,7 +828,7 @@ impl Reader<'_> {
         for (i, item) in items.iter().enumerate() {
             if let Some(one) = self.declared(&format!("effects[{i}]"), item) {
                 if declared.iter().any(|d| d.key() == one.key()) {
-                    self.problem(format!("effects[{i}] is declared twice"));
+                    self.problem(rule::TWICE, format!("effects[{i}] is declared twice"));
                 }
                 declared.push(one);
             }
@@ -768,20 +845,21 @@ impl Reader<'_> {
             // Every bot has these inside its sandbox: declaring them changes nothing.
             Some(Effect::Read | Effect::WriteLocal) => return None,
             Some(Effect::Credential) => {
-                self.problem(format!(
-                    "{at}: credential can't be declared; Spade never hands a bot a secret"
-                ));
+                self.problem(
+                    rule::CREDENTIAL,
+                    format!("{at}: credential can't be declared; Spade never hands a bot a secret"),
+                );
                 return None;
             }
             Some(Effect::Drive) => {
-                self.problem(format!(
+                self.problem(rule::DRIVE, format!(
                     "{at}: driving a page or app is declared as network with a drive_app or drive_site grant"
                 ));
                 return None;
             }
             Some(e) if effect::ceiling::DECLARABLE.contains(&e) => e,
             _ => {
-                self.problem(format!(
+                self.problem(rule::WORD, format!(
                     "{at}: {word:?} isn't an effect; use network, publish, send_as_person, pay or change_access"
                 ));
                 return None;
@@ -791,14 +869,20 @@ impl Reader<'_> {
         let why = match why {
             Some(why) if !why.is_empty() && why.chars().count() <= WHY_CHARS => why.to_owned(),
             _ => {
-                self.problem(format!("{at}.why says in a sentence why it needs this"));
+                self.problem(
+                    rule::WHY,
+                    format!("{at}.why says in a sentence why it needs this"),
+                );
                 String::new()
             }
         };
         let hosts = self.hosts(at, effect, item.get("hosts"));
         let grant = item.get("grant").and_then(|g| self.grant(at, effect, g));
         if !hosts.is_empty() && grant.is_some() {
-            self.problem(format!("{at} asks for hosts or a grant, not both"));
+            self.problem(
+                rule::HOSTS_AND_GRANT,
+                format!("{at} asks for hosts or a grant, not both"),
+            );
         }
         Some(Declared {
             effect,
@@ -813,7 +897,10 @@ impl Reader<'_> {
             return Vec::new();
         };
         if effect != Effect::Network {
-            self.problem(format!("{at}: only network names hosts"));
+            self.problem(
+                rule::HOSTS_ONLY_NETWORK,
+                format!("{at}: only network names hosts"),
+            );
             return Vec::new();
         }
         let hosts: Option<Vec<String>> = value.as_array().and_then(|items| {
@@ -825,7 +912,7 @@ impl Reader<'_> {
         match hosts {
             Some(hosts) if !hosts.is_empty() && hosts.len() <= MOST_HOSTS => hosts,
             _ => {
-                self.problem(format!(
+                self.problem(rule::HOSTS, format!(
                     "{at}.hosts names 1 to {MOST_HOSTS} hosts, like api.example.com or *.example.com"
                 ));
                 Vec::new()
@@ -838,23 +925,27 @@ impl Reader<'_> {
     /// an access change, a sensitive place or a device is the person's alone.
     fn grant(&mut self, at: &str, effect: Effect, value: &Value) -> Option<Scope> {
         if !matches!(effect, Effect::Network | Effect::Publish) {
-            self.problem(format!(
-                "{at}: {} is never granted; it goes to you every time",
-                effect.name()
-            ));
+            self.problem(
+                rule::NEVER_GRANTED,
+                format!(
+                    "{at}: {} is never granted; it goes to you every time",
+                    effect.name()
+                ),
+            );
             return None;
         }
         let Ok(scope) = serde_json::from_value::<Scope>(value.clone()) else {
-            self.problem(format!(
-                "{at}.grant is a drive_site, drive_app or tool grant"
-            ));
+            self.problem(
+                rule::GRANT,
+                format!("{at}.grant is a drive_site, drive_app or tool grant"),
+            );
             return None;
         };
         if matches!(
             scope,
             Scope::GitPush { .. } | Scope::PrComment { .. } | Scope::Folder { .. }
         ) {
-            self.problem(format!(
+            self.problem(rule::PERSON_ONLY, format!(
                 "{at}: a package can't ask for a push, a comment or a folder; those are yours to give"
             ));
             return None;
@@ -865,7 +956,7 @@ impl Reader<'_> {
             effect::builtin(tool, Risk::Write).and_then(|e| effect::never_granted(Some(e)))
         };
         if let Err(why) = grant::check(&scope, &never) {
-            self.problem(format!("{at}: {why}"));
+            self.problem(rule::PERSON_ONLY, format!("{at}: {why}"));
             return None;
         }
         Some(scope)
@@ -881,7 +972,10 @@ impl Reader<'_> {
                 Some(usd) if (0.0..=MOST_SPEND_ALERT_USD).contains(&usd) => {
                     read.spend_alert_usd_per_day = Some(usd);
                 }
-                _ => self.problem("limits.spend_alert.usd_per_day is a number of dollars"),
+                _ => self.problem(
+                    rule::FIELD,
+                    "limits.spend_alert.usd_per_day is a number of dollars",
+                ),
             }
         }
         let count = |name: &str, most: u64| -> Option<Result<u32, String>> {
@@ -896,12 +990,12 @@ impl Reader<'_> {
         };
         match count("workers_at_once", MOST_WORKERS_AT_ONCE) {
             Some(Ok(n)) => read.workers_at_once = Some(n),
-            Some(Err(why)) => self.problem(why),
+            Some(Err(why)) => self.problem(rule::FIELD, why),
             None => {}
         }
         match count("workspace_mb", MOST_WORKSPACE_MB) {
             Some(Ok(n)) => read.workspace_mb = Some(n),
-            Some(Err(why)) => self.problem(why),
+            Some(Err(why)) => self.problem(rule::FIELD, why),
             None => {}
         }
         read
@@ -916,21 +1010,27 @@ impl Reader<'_> {
             None => None,
             Some(Value::String(r)) => Some(r.clone()),
             Some(_) => {
-                self.problem(format!("requires.runtime is a string, like \"{RUNTIME}\""));
+                self.problem(
+                    rule::RUNTIME_TYPE,
+                    format!("requires.runtime is a string, like \"{RUNTIME}\""),
+                );
                 None
             }
         };
         if let Some(runtime) = runtime
             && runtime != RUNTIME
         {
-            self.problem(format!(
+            self.problem(rule::RUNTIME_UNSERVED, format!(
                 "Needs a newer Spade: it asks for runtime {runtime:?}, and this one serves {RUNTIME}"
             ));
         }
         if let Some(spade) = requires.get("spade").and_then(Value::as_str)
             && newer(spade, self.build.version)
         {
-            self.problem(format!("Needs a newer Spade: {spade} or later"));
+            self.problem(
+                rule::SPADE_NEWER,
+                format!("Needs a newer Spade: {spade} or later"),
+            );
         }
     }
 
@@ -940,9 +1040,26 @@ impl Reader<'_> {
             .get("pricing")
             .map(|p| p.get("kind").and_then(Value::as_str).unwrap_or_default());
         if kind.is_some_and(|kind| kind != "free") {
-            self.problem("Paid packages aren't offered yet.");
+            self.problem(rule::PRICE, "Paid packages aren't offered yet.");
         }
     }
+}
+
+fn first_spec() -> String {
+    "1.0".to_owned()
+}
+
+fn spec_major() -> &'static str {
+    crate::spec::VERSION
+        .split_once('.')
+        .map_or(crate::spec::VERSION, |(major, _)| major)
+}
+
+/// Whether `version` is `<major>.<minor>` of the format's major this build reads.
+pub fn served_spec(version: &str) -> bool {
+    version.split_once('.').is_some_and(|(major, minor)| {
+        major == spec_major() && !minor.is_empty() && minor.chars().all(|c| c.is_ascii_digit())
+    })
 }
 
 fn connectors(needs: &Value) -> Vec<String> {

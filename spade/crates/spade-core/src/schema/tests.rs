@@ -11,11 +11,11 @@ fn both_readers_agree_on_every_schema_case() {
     for case in cases {
         let name = case["id"].as_str().unwrap_or_default();
         let read = read(&case["schema"], "input");
-        if let Some(word) = case["refused"].as_str() {
+        if let Some(rule) = case["rule"].as_str() {
             let problems = read.err().unwrap_or_default();
             assert!(
-                problems.iter().any(|p| p.contains(word)),
-                "{name}: refused for {word:?}, got {problems:?}"
+                problems.iter().any(|p| p.rule == rule),
+                "{name}: refused by {rule}, got {problems:?}"
             );
             continue;
         }

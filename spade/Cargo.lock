@@ -3408,6 +3408,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-conform"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "spade-core",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "spade-connect"
 version = "0.1.0"
 dependencies = [
@@ -3602,6 +3614,7 @@ dependencies = [
  "sha2 0.11.1",
  "spade-ace",
  "spade-classify",
+ "spade-conform",
  "spade-connect",
  "spade-core",
  "spade-docs",

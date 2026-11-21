@@ -92,6 +92,29 @@ A worker or helper under a packaged bot is held to the ceiling of every packaged
 A bot a packaged bot makes for the person is held to its maker's ceiling, as it was when it was
 made and narrowed by the maker's as it is now; it never widens again.
 
+## Rules
+
+Every refusal names its rule; a conformance case matches it by id, never by words.
+
+<!-- spec:begin rules -->
+From [`conformance/rules.json`](conformance/rules.json).
+
+| Rule | A reader MUST refuse | The JSON Schema decides it |
+| --- | --- | --- |
+| `effects.list` | `effects` isn't a list of at most 32. | yes |
+| `effects.credential` | The `credential` effect is declared. | yes |
+| `effects.drive` | `drive` is declared as an effect of its own, not as a `network` grant. | yes |
+| `effects.word` | An effect's word isn't an effect. | yes |
+| `effects.why` | An effect doesn't say why, in 1 to 500 characters. | yes |
+| `effects.hosts-only-network` | An effect other than `network` names hosts. | yes |
+| `effects.hosts` | `hosts` isn't 1 to 32 host names. | no |
+| `effects.hosts-and-grant` | An effect asks for hosts and a grant both. | yes |
+| `effects.never-granted` | A grant under an effect other than `network` or `publish`, which go to the person. | yes |
+| `effects.grant` | A grant isn't a `drive_site`, `drive_app` or `tool` grant a package may ask for. | no |
+| `effects.person-only` | A grant of what is the person's alone: a push, a comment, a folder, or a tool that sends in the person's name. | yes |
+| `effects.twice` | An effect is declared twice. | no |
+<!-- spec:end rules -->
+
 ## Conformance
 
 <!-- spec:begin cases -->
@@ -102,16 +125,16 @@ From [`conformance/effects/manifests.json`](conformance/effects/manifests.json).
 | `effects/read-and-write-local-declared-which-every-bot-has` | read and write_local declared, which every bot has | accept |
 | `effects/driving-one-site-under-network` | driving one site under network | accept |
 | `effects/declared-send-which-goes-to-the-person-each-time` | a declared send, which goes to the person each time | accept |
-| `effects/network-grant-of-git-push` | a network grant of git_push | refuse: a problem says “person” |
-| `effects/network-grant-of-send-message` | a network grant of send_message | refuse: a problem says “person” |
-| `effects/network-grant-of-issue-comment` | a network grant of issue_comment | refuse: a problem says “person” |
-| `effects/network-grant-of-pr-comment` | a network grant of pr_comment | refuse: a problem says “person” |
-| `effects/push-grant` | a push grant | refuse: a problem says “push” |
-| `effects/grant-under-a-send` | a grant under a send | refuse: a problem says “never granted” |
-| `effects/hosts-under-publish` | hosts under publish | refuse: a problem says “only network names hosts” |
-| `effects/credential` | credential | refuse: a problem says “credential” |
-| `effects/drive` | drive | refuse: a problem says “drive_site” |
-| `effects/word-that-isnt-an-effect` | a word that isn't an effect | refuse: a problem says “isn't an effect” |
-| `effects/effects-as-an-object` | effects as an object | refuse: a problem says “effects is a list” |
-| `effects/effects-as-a-word` | effects as a word | refuse: a problem says “effects is a list” |
+| `effects/network-grant-of-git-push` | a network grant of git_push | refuse by `effects.person-only` |
+| `effects/network-grant-of-send-message` | a network grant of send_message | refuse by `effects.person-only` |
+| `effects/network-grant-of-issue-comment` | a network grant of issue_comment | refuse by `effects.person-only` |
+| `effects/network-grant-of-pr-comment` | a network grant of pr_comment | refuse by `effects.person-only` |
+| `effects/push-grant` | a push grant | refuse by `effects.person-only` |
+| `effects/grant-under-a-send` | a grant under a send | refuse by `effects.never-granted` |
+| `effects/hosts-under-publish` | hosts under publish | refuse by `effects.hosts-only-network` |
+| `effects/credential` | credential | refuse by `effects.credential` |
+| `effects/drive` | drive | refuse by `effects.drive` |
+| `effects/word-that-isnt-an-effect` | a word that isn't an effect | refuse by `effects.word` |
+| `effects/effects-as-an-object` | effects as an object | refuse by `effects.list` |
+| `effects/effects-as-a-word` | effects as a word | refuse by `effects.list` |
 <!-- spec:end cases -->
