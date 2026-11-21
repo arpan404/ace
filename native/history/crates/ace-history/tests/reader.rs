@@ -282,3 +282,91 @@ fn a_reader_that_dies_while_creating_a_fresh_index_leaves_one_the_next_start_ope
     let ready = reader.next().value;
     assert_eq!(ready, json!({ "id": 0, "value": "ready" }));
 }
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_transcript_that_kills_the_reader_while_importing_is_refused_after_the_third_time() {
+    let root = tempfile::tempdir().unwrap();
+    let home = claude_home(root.path(), &session("import me"));
+    let opts = options(root.path(), vec![home]);
+    let mut reader = Reader::start(opts.clone());
+    reader.next();
+    reader.call(1, json!({ "op": "scan" }));
+    let listed = reader.call(
+        2,
+        json!({ "op": "list", "request": { "type": "history.list", "cwd": "/w" } }),
+    );
+    let source = listed.value["value"]["sessions"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    drop(reader);
+    let init = |n: i64| {
+        json!({ "op": "import.persist", "init": {
+            "sourceId": source, "threadId": format!("t{n}"), "agentId": format!("a{n}"),
+            "workspaceId": "w", "at": 1,
+        } })
+    };
+    // A start after a crash strikes the transcript and waits before reading it again; each
+    // import below runs a day after the start that struck it.
+    let day = 86_400_000.0;
+    let restart = |n: i32, hooks: Value| {
+        let mut opts = opts.clone();
+        opts["lastExit"] = json!("crash");
+        let mut struck = Reader::start_with(
+            opts.clone(),
+            &json!({ "clockShiftMs": day * f64::from(2 * n) }),
+        );
+        struck.next();
+        drop(struck);
+        let mut hooks = hooks;
+        hooks["clockShiftMs"] = json!(day * f64::from(2 * n + 1));
+        let mut reader = Reader::start_with(opts, &hooks);
+        reader.next();
+        reader
+    };
+    let mut first =
+        Reader::start_with(opts.clone(), &json!({ "crash": { "at": "import-member" } }));
+    first.next();
+    first.send(&json!({ "id": 3, "request": init(0) }));
+    assert!(!first.child.wait().unwrap().success());
+    for n in 1..3 {
+        let mut dying = restart(n, json!({ "crash": { "at": "import-member" } }));
+        dying.send(&json!({ "id": 3, "request": init(i64::from(n)) }));
+        assert!(!dying.child.wait().unwrap().success());
+    }
+    let mut reader = restart(3, json!({}));
+    let refused = reader.call(4, init(9));
+    assert_eq!(
+        refused.value["error"],
+        "This saved conversation stopped the history reader several times and is no longer read. Open it in its original app."
+    );
+}
+
+#[test]
+fn an_import_that_ends_clears_its_crash_mark() {
+    let root = tempfile::tempdir().unwrap();
+    let home = claude_home(root.path(), &session("import me"));
+    let opts = options(root.path(), vec![home]);
+    let mut reader = Reader::start(opts.clone());
+    reader.next();
+    reader.call(1, json!({ "op": "scan" }));
+    let listed = reader.call(
+        2,
+        json!({ "op": "list", "request": { "type": "history.list", "cwd": "/w" } }),
+    );
+    let source = listed.value["value"]["sessions"][0]["id"].clone();
+    let done = reader.call(
+        3,
+        json!({ "op": "import.persist", "init": {
+            "sourceId": source, "threadId": "t", "agentId": "a", "workspaceId": "w", "at": 1,
+        } }),
+    );
+    assert!(done.value.get("error").is_none(), "{}", done.value);
+    drop(reader);
+    let db = rusqlite::Connection::open(root.path().join("ace/index.sqlite")).unwrap();
+    let marks: i64 = db
+        .query_row("SELECT count(*) FROM scan_crashes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(marks, 0);
+}

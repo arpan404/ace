@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::archive::{self, Archive, Command};
 use crate::cancel::Cancel;
-use crate::catalog::{Catalog, get, list, open_reader};
+use crate::catalog::{Catalog, Mark, Verdict, get, list, open_reader};
 use crate::error::{Error, Result};
 use crate::import::{self, Member, Packet};
 use crate::options::{Home, Options};
@@ -46,6 +46,11 @@ struct Server {
     cancel: Cancel,
     out: Out,
     pull: Option<Pull>,
+    /// The transcript an import is reading, marked in the crash ledger until the import ends.
+    importing: Option<(String, String)>,
+    /// A mark to clear once the daemon's archive transaction ends: cleared inside it, a rollback
+    /// would bring it back.
+    deferred: Option<(String, String)>,
 }
 
 pub fn serve(
@@ -141,6 +146,8 @@ fn start(value: Value, cancel: &Cancel, out: &Out) -> Result<Option<Server>> {
         cancel: cancel.clone(),
         out: out.clone(),
         pull: None,
+        importing: None,
+        deferred: None,
     }))
 }
 
@@ -186,7 +193,7 @@ impl Server {
         };
         if reply.is_err() {
             // A failed import step ends the import, closing its files and plan.
-            self.pull = None;
+            self.end_pull();
         }
         (op.id, reply)
     }
@@ -213,8 +220,12 @@ impl Server {
         let value = match request {
             Request::Close => {
                 self.cancel.cancel();
-                self.pull = None;
-                self.archive.write(&self.catalog.db, Command::Rollback)?;
+                let rolled = self.archive.write(&self.catalog.db, Command::Rollback);
+                self.end_pull();
+                if let Some(mark) = self.deferred.take() {
+                    self.clear(mark);
+                }
+                rolled?;
                 Value::Null
             }
             Request::ArchiveWrite { command } => {
@@ -279,11 +290,56 @@ impl Server {
                 return self.pull_packets(16);
             }
             Request::Return => {
-                self.pull = None;
+                self.end_pull();
                 Value::Null
             }
         };
         Ok(Reply::Value(value))
+    }
+
+    /// An import ends: its producer is dropped and its crash mark cleared.
+    fn end_pull(&mut self) {
+        self.pull = None;
+        self.settle_import();
+    }
+
+    /// Mark the tree's root in the crash ledger before any of it is read, outside any archive
+    /// transaction so the mark is durable. One mark per import: a reader that dies while
+    /// importing strikes that transcript, and after the third strike it is refused, here and in
+    /// scans, instead of being retried after every restart.
+    fn mark_import(&mut self, home: &Home, members: &[Member]) -> Result<()> {
+        let Some(root) = members.first() else {
+            return Ok(());
+        };
+        let path = root.source.path.clone();
+        if let Verdict::Blocked(reason) = self.catalog.crashes.verdict(&home.id, &path, now()) {
+            return Err(Error::message(reason));
+        }
+        self.settle_import();
+        self.catalog
+            .crashes
+            .mark(&self.catalog.db, &home.id, &path, Mark::Reading)?;
+        self.importing = Some((home.id.clone(), path));
+        Ok(())
+    }
+
+    /// The import ended without killing the reader: its transcript is not a crash cause.
+    fn settle_import(&mut self) {
+        let Some(mark) = self.importing.take() else {
+            return;
+        };
+        if self.archive.active() {
+            self.deferred = Some(mark);
+        } else {
+            self.clear(mark);
+        }
+    }
+
+    fn clear(&mut self, (instance, path): (String, String)) {
+        let _ = self
+            .catalog
+            .crashes
+            .finished(&self.catalog.db, &instance, &path);
     }
 
     /// Whether this reader imports the source; an unknown one is this reader's to refuse.
@@ -308,7 +364,15 @@ impl Server {
             ArchiveCommand::Commit => Command::Commit,
             ArchiveCommand::Rollback => Command::Rollback,
         };
-        self.archive.write(db, command)
+        let ends = matches!(command, Command::Commit | Command::Rollback);
+        let outcome = self.archive.write(db, command);
+        if ends
+            && !self.archive.active()
+            && let Some(mark) = self.deferred.take()
+        {
+            self.clear(mark);
+        }
+        outcome
     }
 
     fn scan(&mut self) -> Result<Value> {
@@ -346,10 +410,12 @@ impl Server {
 
     fn persist(&mut self, init: &ImportInit) -> Result<Value> {
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
+        self.mark_import(&home, &members)?;
         // A staged import is one long transaction: a 16 MiB page cache, for its length only,
         // keeps SQLite from spilling the same pages to the WAL again and again.
         self.catalog.db.execute_batch("PRAGMA cache_size=-16384")?;
         let outcome = self.persist_tree(&home, &members, init);
+        self.settle_import();
         self.catalog.db.execute_batch("PRAGMA cache_size=-1024")?;
         outcome
     }
@@ -412,6 +478,7 @@ impl Server {
 
     fn begin_pull(&mut self, init: &ImportInit) -> Result<()> {
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
+        self.mark_import(&home, &members)?;
         // The producer makes only what each pull grants, so at most sixteen packets wait.
         let (send, packets) = mpsc::sync_channel::<Produced>(16);
         let (credits, granted) = mpsc::sync_channel::<usize>(1);
@@ -453,7 +520,7 @@ impl Server {
                 }
                 Ok(Produced::Done(Ok((count, accuracy)))) => {
                     let root = pull.root.clone();
-                    self.pull = None;
+                    self.end_pull();
                     self.catalog.update_count(&root, count, accuracy)?;
                     values.push(Packet::End { count, accuracy }.to_json(&mut bodies));
                     return Ok(Reply::Bodies(
@@ -462,11 +529,11 @@ impl Server {
                     ));
                 }
                 Ok(Produced::Done(Err(error))) => {
-                    self.pull = None;
+                    self.end_pull();
                     return Err(error);
                 }
                 Err(_) => {
-                    self.pull = None;
+                    self.end_pull();
                     return Err(Error::message("Incomplete history import"));
                 }
             }

@@ -8,6 +8,7 @@
 //! - `delay: { at, ms }` sleeps at a point, widening a window a race needs;
 //! - `pause: { at, match?, dir }` stops once at a point: it creates `dir/paused` and waits for
 //!   `dir/continue`;
+//! - `clockShiftMs` moves the reader's clock forward, past the crash ledger's waits;
 //! - `readLog` appends each transcript opened for content to a file;
 //! - `snapshotLog` appends each private database snapshot staged;
 //! - `poison: { marker, bytes, signal?, once? }` makes decoding a record containing `marker` grow
@@ -84,6 +85,13 @@ mod enabled {
         }
     }
 
+    pub fn clock_shift() -> f64 {
+        config()
+            .get("clockShiftMs")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    }
+
     pub fn read(path: &Path) {
         append("readLog", &path.display().to_string());
     }
@@ -124,7 +132,7 @@ mod enabled {
 }
 
 #[cfg(feature = "test-hooks")]
-pub use enabled::{at, at_path, decoding, read, snapshot};
+pub use enabled::{at, at_path, clock_shift, decoding, read, snapshot};
 
 #[cfg(not(feature = "test-hooks"))]
 mod disabled {
@@ -132,6 +140,10 @@ mod disabled {
     pub fn at(_point: &str) {}
     #[inline(always)]
     pub fn at_path(_point: &str, _subject: &str) {}
+    #[inline(always)]
+    pub fn clock_shift() -> f64 {
+        0.0
+    }
     #[inline(always)]
     pub fn read(_path: &std::path::Path) {}
     #[inline(always)]
@@ -141,4 +153,4 @@ mod disabled {
 }
 
 #[cfg(not(feature = "test-hooks"))]
-pub use disabled::{at, at_path, decoding, read, snapshot};
+pub use disabled::{at, at_path, clock_shift, decoding, read, snapshot};

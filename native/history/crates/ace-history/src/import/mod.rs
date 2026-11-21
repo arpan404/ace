@@ -167,6 +167,7 @@ pub fn import_history(
             agent["model"] = json!(model);
         }
         emit(Packet::Agent(agent))?;
+        crate::hooks::at_path("import-member", &member.source.path);
         let plan = plan::prepare(home, &member.source, scratch, cancel)?;
         let mut seq = 0;
         let mut ordinal = 0;
