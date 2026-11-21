@@ -74,6 +74,7 @@ pub fn from_template(
             switches,
             // ace's templates ship no panels.
             pages: std::collections::BTreeMap::new(),
+            code: std::collections::BTreeMap::new(),
         },
     )?;
     let bot = made.agent.agent.id.clone();
@@ -118,11 +119,11 @@ pub fn from_template(
 }
 
 /// The model a template's bot runs on unless the person picks one: their fast model for a fast
-/// template, else their default.
+/// template, else their default. Never a subscription (ADR 0205 §1).
 pub fn template_model(engine: &Arc<Engine>, id: &str) -> Option<String> {
     let template = package_of(id)?;
     if template.manifest.model == "fast"
-        && let Ok(Some(fast)) = engine.fast_model()
+        && let Some(fast) = engine.fast_endpoint_model()
     {
         return Some(fast);
     }

@@ -54,6 +54,7 @@ export function RunsWith(props: {
     <div className="flex max-w-full min-w-0 flex-wrap items-center justify-center gap-x-1">
       <SpadeModelPicker
         label="Model"
+        subscriptions
         value={props.model || props.newBotModel || ""}
         none={props.newBotModel ? undefined : spadeFirstUsableWords(props.firstUsable)}
         follows={props.newBotModel ? undefined : props.firstUsable}

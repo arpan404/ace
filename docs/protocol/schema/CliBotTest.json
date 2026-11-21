@@ -17,6 +17,9 @@
       },
       "type": "array"
     },
+    "replay": {
+      "$ref": "https://ace.local/protocol/v1/CliBotReplay.json"
+    },
     "scenarios": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/CliBotScenario.json"

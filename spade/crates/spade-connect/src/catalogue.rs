@@ -103,6 +103,12 @@ pub struct Entry {
     /// What every tool of the app does at least (`pay` for a payments app), read-only or not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub every_tool: Option<Value>,
+    /// ace reviewed this server and trusts its tools' annotations (ADR 0202 §2): a tool it marks
+    /// `readOnlyHint: true` reads without asking, any other annotated tool reaches outside the
+    /// bot. Without it the annotations are the server's own word and lower nothing. Only a
+    /// shipped entry carries it; a server added by URL never does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trusted_annotations: bool,
 }
 
 #[derive(Deserialize)]

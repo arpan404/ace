@@ -80,7 +80,7 @@ export const Run = z.object({
 });
 export type Run = z.infer<typeof Run>;
 
-export { ThreadStatus } from "./thread-status.ts";
+export { KnownThreadStatus, ThreadStatus } from "./thread-status.ts";
 
 export const ThreadProviderMetadata = AcpIdentity.partial().extend({
   effectiveCapabilities: Capabilities.optional(),

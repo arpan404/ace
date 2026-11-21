@@ -252,6 +252,88 @@ pub struct Worker {
     pub doing: String,
 }
 
+/// What a bot's package code used (ADR 0203 §4): its calls, the time they ran (waits on Spade not
+/// counted), their fuel, the largest memory one grew to, how many gave no answer, and the
+/// components whose last three calls each trapped or ran past a bound, which the row marks failed
+/// with the reason. Nothing turns those off on its own. Code costs no money.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct CodeUse {
+    pub calls: u64,
+    pub run_ms: u64,
+    pub fuel: u64,
+    pub peak_memory: u64,
+    pub cut_off: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failing: Vec<CodeFailing>,
+}
+
+/// A component whose last three calls failed on their own, and why the last did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CodeFailing {
+    pub component: String,
+    pub reason: String,
+}
+
+impl CodeUse {
+    pub fn is_empty(&self) -> bool {
+        self.calls == 0
+    }
+}
+
+/// How many failures in a row mark a component failed.
+const FAILING_AFTER: usize = 3;
+
+/// [`CodeUse`] from a conversation's `code_ran` events. Stop isn't a failure of the code's own.
+pub fn code_in<'a>(events: impl IntoIterator<Item = &'a Event>) -> CodeUse {
+    let mut used = CodeUse::default();
+    // Each component's latest cuts, newest last.
+    let mut recent: Vec<(String, Vec<Option<String>>)> = Vec::new();
+    for event in events {
+        let Event::Known(Known::CodeRan {
+            component,
+            run_ms,
+            fuel,
+            peak_memory,
+            cut,
+            ..
+        }) = event
+        else {
+            continue;
+        };
+        used.calls += 1;
+        used.run_ms += run_ms;
+        used.fuel += fuel;
+        used.peak_memory = used.peak_memory.max(*peak_memory);
+        if cut.is_some() {
+            used.cut_off += 1;
+        }
+        let own = cut
+            .as_deref()
+            .filter(|cut| matches!(*cut, "trap" | "deadline" | "fuel" | "memory"))
+            .map(str::to_owned);
+        match recent.iter_mut().find(|(name, _)| name == component) {
+            Some((_, cuts)) => cuts.push(own),
+            None => recent.push((component.clone(), vec![own])),
+        }
+    }
+    for (component, cuts) in recent {
+        let last: Vec<&Option<String>> = cuts.iter().rev().take(FAILING_AFTER).collect();
+        if last.len() == FAILING_AFTER && last.iter().all(|cut| cut.is_some()) {
+            let reason = match last[0].as_deref() {
+                Some("deadline") => "it ran past its deadline",
+                Some("fuel") => "it ran without yielding for too long",
+                Some("memory") => "it needed more memory than it may use",
+                _ => "it failed on its own",
+            };
+            used.failing.push(CodeFailing {
+                component,
+                reason: format!("Its last {FAILING_AFTER} calls failed: {reason}."),
+            });
+        }
+    }
+    used
+}
+
 /// What the engine knows of one bot, to fold into its row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Facts {
@@ -276,6 +358,8 @@ pub struct Facts {
     pub uses: Uses,
     pub spend: Spend,
     pub network: Network,
+    /// What its package's own code used (ADR 0203 §4), beside spend.
+    pub code: CodeUse,
     pub next_wake: Option<NextWake>,
     pub workers: Vec<Worker>,
     /// A development bot: linked to a package folder on this machine (`ace bot dev`).
@@ -316,6 +400,9 @@ pub struct Row {
     pub uses: Uses,
     pub spend: Spend,
     pub network: Network,
+    /// What its package's own code used; absent for a bot that never ran any.
+    #[serde(skip_serializing_if = "CodeUse::is_empty")]
+    pub code: CodeUse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_wake: Option<NextWake>,
     pub workers: Vec<Worker>,
@@ -422,6 +509,7 @@ fn row(facts: Facts) -> Row {
         archived: facts.archived,
         uses: facts.uses,
         spend: facts.spend,
+        code: facts.code,
         network: facts.network,
         next_wake: facts.next_wake,
         workers: facts.workers,

@@ -24,10 +24,14 @@
 
 use std::collections::BTreeMap;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::effect::Effect;
+
+/// The id a run gives a scenario's contract call, which its scripted `contract_return` names.
+pub const CALL: &str = "cc.scenario";
 
 /// Most model steps a scenario scripts.
 pub const MOST_STEPS: usize = 64;
@@ -35,7 +39,7 @@ pub const MOST_STEPS: usize = 64;
 const MOST_CALLS: usize = 16;
 
 /// What starts the run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Given {
     /// The person writes this to the bot.
@@ -50,10 +54,12 @@ pub struct Given {
 }
 
 /// A contract call a scenario gives the bot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GivenCall {
+    /// One of the package's contracts, by name.
     pub contract: String,
+    /// The call's input, which fits the contract's input schema.
     pub input: Value,
     /// The calling bot's name; "Another bot" when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,10 +67,12 @@ pub struct GivenCall {
 }
 
 /// A tool call the scripted model makes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ScriptedCall {
+    /// The tool's name.
     pub tool: String,
+    /// Its arguments, an object.
     #[serde(default = "empty_object")]
     pub arguments: Value,
 }
@@ -74,17 +82,19 @@ fn empty_object() -> Value {
 }
 
 /// One answer of the scripted model.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Step {
+    /// What the model says.
     #[serde(default)]
     pub say: String,
+    /// The tool calls it makes after saying it.
     #[serde(default)]
     pub calls: Vec<ScriptedCall>,
 }
 
 /// A fake tool's answers: one, or a list taken in turn (the last repeats).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Answers {
     One(String),
@@ -101,7 +111,7 @@ impl Answers {
 }
 
 /// What must have happened.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Expect {
     /// Tools that ran, in this order (others may run between them).
@@ -127,17 +137,27 @@ pub struct Expect {
     /// always checked against the contract's schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Value>,
+    /// Fields a tool's answer holds, by tool name, each with this value: its last answer, read
+    /// as a JSON object. How a scenario checks what a package's own code answered
+    /// (`code_<component>_<tool>`, ADR 0203 §6).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub results: BTreeMap<String, Value>,
 }
 
 /// `tests/<name>.json`, read.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Scenario {
+    /// What the scenario shows, in a few words.
     pub name: String,
+    /// What starts the run: a message, a trigger or a call, one of them.
     pub given: Given,
+    /// The scripted model: one step per model call; the last step only says something.
     pub model: Vec<Step>,
+    /// Fake results by tool name, for tools that would reach outside.
     #[serde(default)]
     pub tools: BTreeMap<String, Answers>,
+    /// What must have happened.
     #[serde(default)]
     pub expect: Expect,
 }
@@ -299,6 +319,9 @@ pub struct Observed {
     /// With `given.call`: what the call came to, once it ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub returned: Option<Returned>,
+    /// Each tool's last answer that wasn't an error, by tool name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub results: BTreeMap<String, String>,
 }
 
 /// What failed, in sentences; empty when the scenario passes.
@@ -383,7 +406,34 @@ pub fn check(scenario: &Scenario, observed: &Observed) -> Vec<String> {
     if scenario.given.call.is_some() {
         failures.extend(returned_failures(expect, observed.returned.as_ref()));
     }
+    for (tool, wanted) in &expect.results {
+        failures.extend(result_failures(tool, wanted, observed.results.get(tool)));
+    }
     failures
+}
+
+/// What failed about a tool's answer: none came, it isn't a JSON object, or a field differs.
+fn result_failures(tool: &str, wanted: &Value, answer: Option<&String>) -> Vec<String> {
+    let Some(answer) = answer else {
+        return vec![format!(
+            "{tool} gave no answer, and expect.results names it"
+        )];
+    };
+    let Ok(Value::Object(read)) = serde_json::from_str::<Value>(answer) else {
+        return vec![format!("{tool}'s answer isn't a JSON object: {answer}")];
+    };
+    wanted
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(field, value)| read.get(field.as_str()) != Some(value))
+        .map(|(field, value)| {
+            format!(
+                "{tool}'s answer has {field} {}, not {value}",
+                read.get(field.as_str()).unwrap_or(&Value::Null)
+            )
+        })
+        .collect()
 }
 
 /// What failed about a given call's answer: none came, it failed, or a field differs.

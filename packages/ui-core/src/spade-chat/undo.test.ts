@@ -82,7 +82,7 @@ describe("undo in the conversation", () => {
     expect(steps?.undo).toEqual({ from: started.get("c1"), stays: [] });
   });
 
-  test("a send can't be undone and says so, on its step and in the turn's undo", () => {
+  test("a send can't be undone and is listed in the turn's undo", () => {
     const { steps } = reply([
       {
         id: "c1",
@@ -93,26 +93,25 @@ describe("undo in the conversation", () => {
       { id: "c2", name: "send_email", arguments: { subject: "Hi" }, effect: "send_as_person" },
     ]);
     const send = steps?.steps.find((step) => step.key === "c2");
-    expect(send?.cantUndo).toBe("Can't be undone: it was sent in your name.");
     expect(send?.undoFrom).toBeUndefined();
-    expect(send?.notable).toBe(true);
     expect(steps?.undo?.stays).toEqual(["Sent an email"]);
   });
 
-  test("a payment, a publish, an access change and an app's change each say why they stay", () => {
+  test("a payment, a publish, an access change and an app's change are all outside the turn's undo", () => {
     const { steps } = reply([
+      { id: "local", name: "workspace_write", arguments: { path: "draft.md" } },
       { id: "c1", name: "stripe__create_payment", arguments: {}, effect: "pay" },
       { id: "c2", name: "npm__release", arguments: {}, effect: "publish" },
       { id: "c3", name: "github__add_collaborator", arguments: {}, effect: "change_access" },
       { id: "c4", name: "linear__update_issue", arguments: {}, risk: "write", effect: "network" },
     ]);
-    expect(steps?.steps.map((step) => step.cantUndo)).toEqual([
-      "Can't be undone: a payment can't be taken back from here.",
-      "Can't be undone: it's published.",
-      "Can't be undone here: it changed sign-ins or who has access.",
-      "Can't be undone here: it changed linear.",
+    expect(steps?.steps.slice(1).map((step) => step.undoFrom)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
     ]);
-    expect(steps?.undo).toBeUndefined();
+    expect(steps?.undo?.stays).toEqual(steps?.steps.slice(1).map((step) => step.line));
   });
 
   test("a send that failed doesn't say it was sent, only that what got through stays", () => {
@@ -123,30 +122,32 @@ describe("undo in the conversation", () => {
       type: "step_finished",
       reply: "r1",
       text: "",
-      calls: [{ id: "c1", name: "git_push", arguments: { branch: "main" } }],
+      calls: [{ id: "c1", name: "send_email", arguments: { subject: "Hello" } }],
     });
     c.stored({
       type: "tool_started",
       reply: "r1",
       call_id: "c1",
-      name: "git_push",
+      name: "send_email",
       effect: "send_as_person",
     });
     c.stored({
       type: "tool_finished",
       reply: "r1",
       call_id: "c1",
-      name: "git_push",
-      content: "no repository",
+      name: "send_email",
+      content: "Mail is offline",
       is_error: true,
     });
+    c.stored({ type: "tool_finished", reply: "r1", call_id: "local", name: "workspace_write" });
     c.stored({ type: "reply_finished", reply: "r1", text: "It failed.", cost_micros: 0 });
     const steps = c.bubbles().find((b): b is Steps => b.kind === "steps");
-    expect(steps?.steps[0]?.cantUndo).toBe("Can't be undone from here if any of it went through.");
+    expect(steps?.undo?.stays).toEqual(["Couldn't send an email"]);
   });
 
   test("what a step can't undo comes from the gate's declared effect, not the tool's name", () => {
     const { steps } = reply([
+      { id: "local", name: "workspace_write", arguments: { path: "draft.md" } },
       // Named like a payment, declared a read: nothing stays.
       { id: "c1", name: "billing__pay_invoice_preview", arguments: {}, effect: "read" },
       // Named like nothing in particular, declared a send in the person's name: it stays.
@@ -154,17 +155,12 @@ describe("undo in the conversation", () => {
       // No effect recorded (an older event): its name alone doesn't make it a send.
       { id: "c3", name: "send_email", arguments: {} },
     ]);
-    expect(steps?.steps.map((step) => step.cantUndo)).toEqual([
-      undefined,
-      "Can't be undone: it was sent in your name.",
-      undefined,
-    ]);
+    expect(steps?.undo?.stays).toEqual(["Notified you"]);
   });
 
   test("reading files has nothing to undo", () => {
     const { steps } = reply([{ id: "c1", name: "workspace_read", arguments: { path: "a.md" } }]);
     expect(steps?.steps[0]?.undoFrom).toBeUndefined();
-    expect(steps?.steps[0]?.cantUndo).toBeUndefined();
     expect(steps?.undo).toBeUndefined();
   });
 

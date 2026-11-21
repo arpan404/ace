@@ -2,6 +2,7 @@
 //! inputs, so it is tested directly.
 
 pub mod activity;
+pub mod app_page;
 pub mod autonomy;
 pub mod brain;
 pub mod card;
@@ -27,12 +28,15 @@ pub mod made;
 pub mod maintenance;
 pub mod memory;
 pub mod named_devices;
+pub mod org;
 pub mod outward;
 pub mod oversight;
 pub mod package;
 pub mod panel;
+pub mod permission;
 pub mod personality;
 pub mod provenance;
+pub mod quality;
 pub mod question;
 pub mod reach;
 pub mod redact;
@@ -40,11 +44,13 @@ pub mod research;
 pub mod review;
 pub mod routine;
 pub mod routing;
+pub mod rule;
 pub mod running;
 pub mod schema;
 pub mod self_edit;
 pub mod service;
 pub mod skills;
+pub mod spec;
 pub mod spending;
 pub mod task;
 pub mod title;

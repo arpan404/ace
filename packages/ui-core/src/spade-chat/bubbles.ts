@@ -18,6 +18,7 @@ import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 import type { SpadeTurnUndo } from "./undo.ts";
 import type { SpadeNoticeRow } from "./notices.ts";
 import type { SpadeCardRow } from "./cards.ts";
+import type { SpadeWorkersEntry } from "./delegations.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, and under each reply
@@ -64,6 +65,11 @@ type SpadeBubbleOf =
       /** What the reply's tools showed the person, after its words (ADR 0134). */
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
+      /**
+       * The reply this is the last bubble of, when that reply finished: the bubble's More menu
+       * offers Keep as a test (ADR 0204).
+       */
+      keep?: string;
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -105,6 +111,8 @@ type SpadeBubbleOf =
     }
   /** A card the bot showed (ADR 0200 §5.1): its own row, drawn from its data by ace's parts. */
   | ({ kind: "card"; key: string } & SpadeCardRow)
+  /** The bots and ace agents one call started, one row each, where the first started. */
+  | Omit<SpadeWorkersEntry, "at">
   /** A bot's own notice (`notify`): its words and where it went. */
   | ({ kind: "notice"; key: string } & SpadeNoticeRow)
   /** "Named itself Ivy", the name and face changed in place from the line. */
@@ -249,7 +257,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       bubbles.push(entry);
       continue;
     }
-    if (entry.kind === "card" || entry.kind === "notice") {
+    if (entry.kind === "card" || entry.kind === "notice" || entry.kind === "workers") {
       onlyGroups = false;
       const { at, ...row } = entry;
       bubbles.push({ ...row, ...stamp(at) });
@@ -509,6 +517,23 @@ function replyBubbles(
     if (tail()) attach();
     else say("", false);
   }
+  // A finished reply can be kept as a test, from its last words.
+  if (entry.end?.kind === "finished") {
+    const bubble = bubbles[latest];
+    if (bubble?.kind === "bot" && bubble.text) bubbles[latest] = { ...bubble, keep: entry.reply };
+  }
+  // Where it ran when its route moved it (ADR 0205 §2): once per line, the one that says why
+  // before "like the step before".
+  const served = [
+    ...new Set(entry.parts.flatMap((part) => (part.kind === "served" ? [part.line] : []))),
+  ];
+  const said = served.filter((line) => line.includes(":"));
+  for (const line of said.length ? said : served.slice(0, 1))
+    bubbles.push({
+      kind: "quiet",
+      key: `${entry.key}:served:${line}`,
+      quiet: { kind: "served", line },
+    });
   // What it did, under what it said.
   const steps = spadeReplySteps(entry);
   if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps });

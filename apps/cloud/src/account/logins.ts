@@ -15,12 +15,15 @@ const Row = z.object({
   /** Where the browser goes when the sign-in ends (return-to.ts), if the app asked. */
   return_to: z.string().nullable(),
   /** Who will hold the session (ADR 0190); NULL for sign-ins from before it was kept. */
-  holder: z.enum(["person", "machine"]).nullable().catch(null),
+  holder: z.enum(["person", "machine", "join"]).nullable().catch(null),
+  /** The organization a sign-in enters (ADR 0206 §1.4), passed to WorkOS as `organization_id`. */
+  org: z.string().nullable().optional(),
 });
 export type LoginRow = z.infer<typeof Row>;
 
 const changed = (result: D1Result) => result.meta.changes > 0;
-const columns = "id, secret, expires, phase, binding, verifier, session, issued, return_to, holder";
+const columns =
+  "id, secret, expires, phase, binding, verifier, session, issued, return_to, holder, org";
 
 /**
  * Pending sign-ins. A Worker keeps nothing between requests, so each step is a conditional
@@ -49,13 +52,15 @@ export function loginStore(db: D1Database, sealer: Sealer) {
       secret: string,
       expires: number,
       returnTo: string | null,
-      holder: "person" | "machine",
+      /** `join`: the join page's sign-in, which accepts an invitation and keeps no session. */
+      holder: "person" | "machine" | "join",
+      org: string | null = null,
     ) {
       await db
         .prepare(
-          "INSERT INTO logins (id, secret, expires, phase, return_to, holder) VALUES (?, ?, ?, 'new', ?, ?)",
+          "INSERT INTO logins (id, secret, expires, phase, return_to, holder, org) VALUES (?, ?, ?, 'new', ?, ?, ?)",
         )
-        .bind(id, secret, expires, returnTo, holder)
+        .bind(id, secret, expires, returnTo, holder, org)
         .run();
     },
     get: (id: string, now: number) =>

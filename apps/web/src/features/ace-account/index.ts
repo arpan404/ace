@@ -8,6 +8,8 @@ export {
   useAceAccount,
   useAceAccountStore,
 } from "./account-context.tsx";
+export { useConfirmPersonNotice } from "./confirm-person-notice.tsx";
+export { ConfirmPerson } from "./confirm-person.tsx";
 export type { AceAccountBackend, AceAccountStore } from "./session-store.ts";
 export { accountMachineLists, platformName, type AccountMachine } from "./account-machines.ts";
 export { useAccountMachines } from "./use-account-machines.ts";

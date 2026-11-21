@@ -1,6 +1,6 @@
 import { hasRunningForegroundCommand, type Fact, type ThreadState } from "@ace/core";
+import type { InputSource, ProviderSession } from "@ace/engine-api";
 import type { Capabilities } from "@ace/protocol";
-import type { InputSource } from "@ace/engine-api";
 import type { IntentHeader } from "./repository.ts";
 
 /**
@@ -11,6 +11,7 @@ import type { IntentHeader } from "./repository.ts";
 export interface SteerYield {
   run: string;
   state: "pending" | "refused";
+  intentId?: number;
 }
 
 /** How a waiting steer reaches the model right now, or `undefined` while it must wait. */
@@ -78,15 +79,16 @@ export function steerRoute(
   state: ThreadState,
   capabilities: Capabilities,
   yielded: SteerYield | undefined,
-  backgrounds: boolean,
+  session: Pick<ProviderSession, "steerViaCancel" | "backgroundTools">,
 ): SteerRoute {
   if (yieldInFlight(state, yielded)) return undefined;
-  if (!steer.person && steerRestartsTurn(capabilities) && rootRun(state) !== undefined)
-    return undefined;
+  const run = rootRun(state);
+  if (!steer.person && steerRestartsTurn(capabilities) && run !== undefined) return undefined;
+  if (session.steerViaCancel && run !== undefined)
+    return yielded?.run === run ? undefined : "yield";
   if (!hasRunningForegroundCommand(state)) return "native";
   if (!steerWaitsForTools(capabilities)) return steer.person ? "native" : undefined;
-  if (!steer.person || backgrounds) return "native";
-  const run = rootRun(state);
+  if (!steer.person || session.backgroundTools) return "native";
   if (run === undefined) return "native";
   // The provider refused the interrupt: its own steer lands once the command returns.
   return yielded?.run === run ? "native" : "yield";

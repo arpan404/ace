@@ -20,7 +20,6 @@ export interface DaemonHistoryOptions {
   log?: import("@ace/diagnostics").ComponentLogger;
   onError?(error: unknown, operation: string): void;
   signal?: AbortSignal;
-  spawnWorker?: Parameters<typeof import("@ace/history-import").openHistory>[1];
   spawnPublicationWorker?: HistoryPublicationWorkerFactory;
   historyRuntime?: HistoryRuntime;
   instances: HistoryOptions["instances"];
@@ -159,7 +158,6 @@ export class DaemonHistory {
   private current(): Promise<PastSessions> {
     this.session ??= PastSessions.open(this.store, this.dataDir, {
       instances: this.options.instances,
-      spawnWorker: this.options.spawnWorker,
       spawnPublicationWorker: this.options.spawnPublicationWorker,
       historyRuntime: this.options.historyRuntime,
       adapters: this.options.adapters,

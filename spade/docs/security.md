@@ -6,7 +6,10 @@ Date: 2026-11-15, amended 2026-11-16 and 2026-11-17 (Linux, Windows). As built f
 `spade-sandbox` (the sandbox, the credential deny-list and the egress proxy), `spade_core::grant`
 (grants) and `spade-server` (`security/`, `api/security.rs`, the shell, services and plugin
 servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
-[autonomy.md](autonomy.md).
+[autonomy.md](autonomy.md). A package's WebAssembly components run in `spade-wasm`, a worker
+started offline inside the bot's sandbox, which asks Spade for every effect ([code.md](code.md)):
+its `tools` calls are routed by the gate with the package's ceiling first and no earlier answer
+carried over, and its `http` goes only to declared hosts left on, through the egress proxy.
 
 ## What is built where
 
@@ -494,6 +497,20 @@ parent bot's id, once workers can pass grants down at creation).
 | `git_push`   | `repo`, `branch`    | Pushing matching branches of matching repos               | yes, by `git_push`                                  |
 | `pr_comment` | `repo`, `own_only`  | Commenting on PRs of matching repos (only its own)        | yes, by `pr_comment`; `own_only` covers nothing yet |
 
+A bot's Permissions ([ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendment 7)
+are switches over these settings, not grants: Computer use, Browser and Simulators decide driving
+steps; Apps, Send as you and Payments refuse their effect while off; Commands and Network are the
+bot's `commands` and network settings. Each is kept per bot (`security:<bot>`, `permissions`)
+over the machine's default (`security.machine`), with the apps bots never use.
+
+Every route that can loosen what a bot may do needs the person's stamp (`security::attest`) to
+loosen and nothing to tighten: the Permissions and the never-use list, `commands` (a bot's and
+the machine's), the network policies (a bot's, a bot's `DELETE` back to the machine's, the
+machine's), adding a grant, a bot's connected apps, a package's effects and autonomy. Spade
+decides whether a change loosens against what holds now; ace's daemon stamps the change over the
+SHA-256 of its body when the caller proved the person's standing and forwards it unstamped
+otherwise. A shared bot's `configure` member stands for the person (ADR 0206 §2.3).
+
 Globs: `*` within a `/` segment, `**` across. A call a `tool` grant covers runs without a review
 while nothing untrusted is in view; with untrusted content in view it is reviewed, the grant named
 as the concern. Refused at creation: a `tool` grant for a tool that declares `pay`,
@@ -636,6 +653,11 @@ consented folders, toolchains, grants, network activity and checkpoints as befor
 **Requests**: `ask: outside_sandbox` shows "Run this outside the sandbox?" with the command and
 Allow once, Always for this bot, Deny; `ask: undeclared` shows Allow and Deny, since the answer
 is kept for the bot and tool.
+
+## Org hosts
+
+On a Spade given to an organization, shared bots answer to their access lists and the
+organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.md) (ADR 0206).
 
 ## Not built yet
 

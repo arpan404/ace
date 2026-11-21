@@ -1,4 +1,7 @@
 import { spadeFullAccessSentence, type SpadeAutonomy } from "@ace/ui-core/spade-chat";
+import { isStandingRefusal } from "@/boot/person-standing.ts";
+import { ConfirmPerson } from "@/features/ace-account/index.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 import { useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -34,15 +37,20 @@ export function AutonomyChoice(props: {
   save(choice: SpadeAutonomy): Promise<unknown>;
 }) {
   const [saving, setSaving] = useState(false);
+  const client = useSpadeClient();
+  const [confirmation, setConfirmation] = useState<SpadeAutonomy>();
   const [refusal, setRefusal] = useState<string>();
   const [asking, setAsking] = useState(false);
   const choose = async (choice: SpadeAutonomy) => {
     setSaving(true);
     setRefusal(undefined);
+    setConfirmation(undefined);
     try {
       await props.save(choice);
     } catch (error) {
-      setRefusal(fault(error));
+      const message = fault(error);
+      if (isStandingRefusal(message)) setConfirmation(choice);
+      else setRefusal(message);
     } finally {
       setSaving(false);
     }
@@ -56,7 +64,13 @@ export function AutonomyChoice(props: {
     <>
       <SettingRow
         title={props.title}
-        description={refusal && <Refusal>{refusal}</Refusal>}
+        description={
+          confirmation ? (
+            <ConfirmPerson client={client} onConfirmed={() => void choose(confirmation)} />
+          ) : (
+            refusal && <Refusal>{refusal}</Refusal>
+          )
+        }
         density="compact"
         inline
       >
@@ -69,7 +83,7 @@ export function AutonomyChoice(props: {
         />
       </SettingRow>
       {/* What still asks, the row's width: too long for the description beside the choice. */}
-      {props.value === "full_access" && !refusal && (
+      {props.value === "full_access" && !refusal && !confirmation && (
         <p data-setting-slot="" className="pb-3 text-xs text-muted-foreground">
           {spadeFullAccessSentence}
         </p>

@@ -99,3 +99,30 @@ pub fn envelope_with(name: &str, version: &str, recipe: &Value, files: &[(&str, 
     }
     out
 }
+
+/// The market's terms notices (ADR 0205 §4) issued at `issued`, each `(provider, status)`, signed
+/// with the test market's key; with `forged`, signed with another key under the test key's name.
+pub fn notices(issued: i64, notices: &[(&str, &str)], forged: bool) -> Value {
+    // Keys in sorted order at every depth: the signer's canonical JSON.
+    let lines: Vec<Value> = notices
+        .iter()
+        .map(|(provider, status)| {
+            json!({ "at": issued, "note": "Read again.", "provider": provider, "status": status })
+        })
+        .collect();
+    let body = json!({
+        "format": "ace-market-notices",
+        "issued": issued,
+        "key": KEY,
+        "notices": lines,
+    });
+    let message = format!("ace-market-notices-v1\n{body}");
+    let signer = if forged {
+        ring::signature::Ed25519KeyPair::from_seed_unchecked(&[3; 32])
+            .unwrap_or_else(|e| panic!("a test key: {e}"))
+    } else {
+        pair()
+    };
+    let signature = URL_SAFE_NO_PAD.encode(signer.sign(message.as_bytes()).as_ref());
+    json!({ "body": body, "signature": signature })
+}

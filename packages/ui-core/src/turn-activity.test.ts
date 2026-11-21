@@ -215,6 +215,18 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
 
 const working: AgentStatus = { state: "working", activity: "tool" };
 
+test("the live line follows the agent's running tool outside the transcript order", () => {
+  const tool = shell("install", "bun install", "running", second);
+  const { reader } = world({ state: "working", activity: "tool", itemId: tool.id }, []);
+  expect(readTurnActivity(reader, "root").activity?.current).toBe("Using a tool");
+  const reading = readTurnActivity(
+    { ...reader, item: (id) => (id === tool.id ? tool : undefined) },
+    "root",
+  );
+  expect(reading.activity?.current).toBe("Running bun install");
+  expect(reading.watch).toContain(`item:${tool.id}`);
+});
+
 test("a working turn times its work and names the step in flight readably", () => {
   const { reader } = world(working, [
     said("ask", "user", 0),

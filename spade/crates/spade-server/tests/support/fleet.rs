@@ -23,7 +23,7 @@ use super::{Options, Result, Spade, TOKEN};
 pub const DAEMON_TOKEN: &str = "d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0";
 
 /// The key each machine's daemon shares with its Spade for the person's stamps.
-const PERSON_KEY: [u8; 32] = [7; 32];
+pub const PERSON_KEY: [u8; 32] = [7; 32];
 
 /// Ids that never collide between the machines, as UUIDs never do.
 struct MachineIds(&'static str, AtomicU64);
@@ -44,6 +44,8 @@ pub struct Fleet {
     /// host id → (Spade's address, machine name).
     pub spades: Mutex<Vec<(String, String, String)>>,
     pub offline: Mutex<HashSet<String>>,
+    /// host id → the organization that owns it, for org hosts (ADR 0206).
+    pub orgs: Mutex<std::collections::HashMap<String, String>>,
     /// Listed online, but every call is lost before it arrives.
     pub unreachable: AtomicBool,
     /// Drops one note row from the next notes part on the way.
@@ -121,6 +123,7 @@ impl Remote for Link {
                     host_id: host.clone(),
                     name: name.clone(),
                     online: !offline.contains(host),
+                    org: lock(&self.fleet.orgs).get(host).cloned(),
                 })
                 .collect())
         })
@@ -506,4 +509,11 @@ pub async fn move_ends(spade: &Spade, bot: &str) -> Result<Value> {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     Err(format!("the move never ended: {last}").into())
+}
+
+/// Which organization owns each machine, as the fleet's list says it (ADR 0206).
+pub fn lock_orgs(
+    fleet: &Fleet,
+) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, String>> {
+    lock(&fleet.orgs)
 }

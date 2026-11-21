@@ -23,8 +23,11 @@ export type SessionStanding = z.infer<typeof Row>["standing"];
 const stored = (account: AceAccount, pictureUrl: string | undefined) =>
   JSON.stringify(pictureUrl ? { ...account, pictureUrl } : account);
 
-/** ace sessions in D1, keyed by the token's digest. Refresh tokens are sealed to that digest. */
-export function sessionStore(db: D1Database, sealer: Sealer) {
+/**
+ * ace sessions in D1, keyed by the token's digest. Refresh tokens are sealed to that digest.
+ * `newLease` names each refresh lease, so only the reader that took one acts on its refresh.
+ */
+export function sessionStore(db: D1Database, sealer: Sealer, newLease: () => string) {
   const select = (retired: boolean) =>
     db.prepare(
       `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"}`,
@@ -101,25 +104,38 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
     /** The statement that retires a session's token: it opens nothing from then on. */
     retiring: (hash: string) =>
       db.prepare("UPDATE sessions SET retired = 1 WHERE token = ?").bind(hash),
-    /** Claims the right to spend the refresh token for `ms`; false while another holds it. */
-    async lease(hash: string, now: number, ms: number): Promise<boolean> {
+    /**
+     * Claims the right to spend the refresh token for `ms`: the lease's name, or undefined while
+     * another reader holds it. Read the token only after this: one read before it may already be
+     * spent by the reader that held the lease.
+     */
+    async lease(hash: string, now: number, ms: number): Promise<string | undefined> {
+      const lease = newLease();
       const result = await db
         .prepare(
-          "UPDATE sessions SET refreshing_until = ? WHERE token = ? AND expires > ? AND refreshing_until <= ?",
+          "UPDATE sessions SET refreshing_until = ?, refresh_lease = ? WHERE token = ? AND expires > ? AND refreshing_until <= ?",
         )
-        .bind(now + ms, hash, now, now)
+        .bind(now + ms, lease, hash, now, now)
         .run();
-      return result.meta.changes > 0;
+      return result.meta.changes > 0 ? lease : undefined;
     },
-    async release(hash: string) {
-      await db.prepare("UPDATE sessions SET refreshing_until = 0 WHERE token = ?").bind(hash).run();
+    /** Gives the lease back, if it is still this one: a lease that ran out may be another's now. */
+    async release(hash: string, lease: string) {
+      await db
+        .prepare(
+          "UPDATE sessions SET refreshing_until = 0, refresh_lease = NULL WHERE token = ? AND refresh_lease = ?",
+        )
+        .bind(hash, lease)
+        .run();
     },
     /**
-     * Stores a rotated refresh token and the session's renewed expiry. An UPDATE cannot revive a
-     * concurrently revoked session.
+     * Stores a rotated refresh token and the session's renewed expiry, and gives the lease back,
+     * only while `lease` still holds it. An UPDATE cannot revive a concurrently revoked session,
+     * nor overwrite the token a later lease's holder stored.
      */
     async rotate(
       hash: string,
+      lease: string,
       account: AceAccount,
       refresh: string,
       expires: number,
@@ -127,9 +143,21 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
     ): Promise<boolean> {
       const result = await db
         .prepare(
-          "UPDATE sessions SET account = ?, refresh = ?, expires = ?, refreshing_until = 0 WHERE token = ?",
+          "UPDATE sessions SET account = ?, refresh = ?, expires = ?, refreshing_until = 0, refresh_lease = NULL WHERE token = ? AND refresh_lease = ?",
         )
-        .bind(stored(account, pictureUrl), await sealer.seal(refresh, hash), expires, hash)
+        .bind(stored(account, pictureUrl), await sealer.seal(refresh, hash), expires, hash, lease)
+        .run();
+      return result.meta.changes > 0;
+    },
+    /**
+     * Ends a session on what its refresh found (WorkOS refused the token, or named another
+     * account), only while `lease` still holds it: a reader whose lease ran out spent a token
+     * another reader may already have replaced. False when it no longer held it.
+     */
+    async endLeased(hash: string, lease: string): Promise<boolean> {
+      const result = await db
+        .prepare("DELETE FROM sessions WHERE token = ? AND refresh_lease = ?")
+        .bind(hash, lease)
         .run();
       return result.meta.changes > 0;
     },

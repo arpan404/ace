@@ -38,8 +38,7 @@ decides as its bot. Raising a bot (or the machine) to Full access needs the pers
 ace's daemon (`x-ace-person`, `security::attest`); going back never does. The gate reads the mode
 as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as_person`,
 `change_access` and `unknown` to the person, a granted push under untrusted content too),
-`effect::full_access` asks for a driving step in a sensitive place, on a device, unplaced or
-unheld, a command outside the sandbox the shell classifier reads as a payment, a send or an
+`effect::full_access` asks for a command outside the sandbox the shell classifier reads as a payment, a send or an
 access change, a request to leave the sandbox, and a tool that declares nothing outside the
 sandbox or able to reach the network (once, as on the auto-review); a tool the person declined
 stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
@@ -91,8 +90,10 @@ In order, first match wins:
 | its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`                                      |
 | `pay`, `change_access`, `unknown`                                                 | the person, unless allowed always                                                     |
 | `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
-| `drive` in a sensitive place, or one Spade can't name                             | the person (`ask: drive`), even when allowed always                                   |
-| `drive` elsewhere                                                                 | runs on Always allow; otherwise the reviewer, told where it acts (below)              |
+| a switch of the bot's Permissions that covers it is off                          | refused, saying where to turn it on, before any Always allow, grant or review         |
+| `drive` with its switch on, in an app on the never-use list                       | refused                                                                               |
+| `drive` with its switch on, where it must be held and Spade can't place or hold it | refused, so the bot looks again                                                       |
+| `drive` with its switch on                                                        | runs, held to where it acts: no reviewer, classifier or request (below)               |
 | a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
 | a connector's or plugin's tool that can reach the network, in the sandbox         | decided as on the host, below (ADR 0171, amendment 4)                                 |
 | it declares nothing, in the sandbox                                               | runs                                                                                  |
@@ -122,32 +123,35 @@ decide once for this bot." or "It asks to run outside the sandbox, so you decide
 
 ### Driving a page or app
 
-[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendment 3. Right before the gate
-decides, Spade asks ace where a `drive` step acts (`spade_core::effect::drive::lookup`): the tab
-it runs in (its `tabId`, else ace's current tab) from `browser_tabs list`, or every app ace could
-open for its `app` from `screen_apps`. A step that opens an address acts there. A tab that is
-loading, missing or private, a name that matches several apps, and input on a simulator or device
-have no place, and go to the person. Right before the step runs, Spade asks again; if the place
-changed, the step isn't run and the bot looks again. It goes to the person in mail, messages or chat, a bank,
-wallet, payment, checkout or cart, a password manager, the system's settings, a sign-in, account,
-security, settings, keys or members page, a social site, a web browser driven through the screen,
-or a place Spade can't name (`drive::sensitive`). Elsewhere the reviewer is told it acts there
-as the person and to escalate a send, a payment, a purchase, an access change or a password;
-under untrusted content, to check the step serves the person's request.
+[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendments 3 and 7. A `drive` step
+runs under its family's switch in the bot's Permissions (`spade_core::permission`): Computer use
+for `screen_*`, Browser for `browser_*`, Simulators and devices for `sim_*`. Off, it is refused
+with one line saying where to turn it on; on, it runs with no reviewer, no classifier and no
+request, in both modes. The switches are kept with each bot's security settings and the
+machine's (a bot follows the default unless it sets its own; a worker is never freer than the
+bot above it), and turning one on needs the person's stamp, as Full access does.
 
-A request for a step outside those places offers "Allow \<app\> for this bot" (the request's
-`app`). It answers always and adds the grant `drive_app {app}` (the app's id) or
-`drive_site {host}` for the place the request kept (`acts_in`): the steps it covers are reviewed,
-told the person allowed the app, without asking. A drive grant is refused for a sensitive place,
-a `tool` grant never covers a driving tool, and the request never stores an Always allow.
+Right before the gate decides, Spade asks ace where the step acts
+(`spade_core::effect::drive::lookup`): the tab it runs in (its `tabId`, else ace's current tab)
+from `browser_tabs list`, or every app ace could open for its `app` from `screen_apps`. A step
+that opens an address acts there. Under Computer use, the name given and every app ace could open
+for it are read against the person's never-use list (`permission::never`, password managers and
+money apps to start); an app on it is refused. A step that must be held to its place
+(`table`'s `holds`, and every screen step) is refused when Spade can't place it (a tab loading,
+missing or private, a name that matches several apps) or ace can't hold it there (an ace from
+before `expect`). Right before the step runs, Spade asks again; if the place changed, the step
+isn't run and the bot looks again, and ace holds it there through `expect` until each input.
+
+Drive grants (`drive_app`, `drive_site`) from earlier builds stay stored but no longer decide a
+step; a `tool` grant never covers a driving tool.
 
 #### Where each operation acts
 
 One table decides (`spade_core::effect::drive::table`): a row per tool and operation, what that
 operation acts on in ace's own implementation, the only fields the gate reads to find it, and
-whether ace must hold it there (`expect`) before the reviewer alone may let it run. A field an
-operation ignores never moves the place, and a tool or operation missing from the table has no
-place, so the person decides. Read-only tools (`browser_snapshot`, `_wait_for`, `_find`,
+whether ace must hold it there (`expect`) before it runs with no one looking at the step. A field
+an operation ignores never moves the place, and a tool or operation missing from the table has no
+place, so it is refused. Read-only tools (`browser_snapshot`, `_wait_for`, `_find`,
 `_screenshot`, `_logs`, `screen_apps`, `screen_display`, `screen_windows`, `screen_ui_tree`,
 `screen_screenshot`, `sim_list`, `sim_ui`, `sim_screenshot`, `sim_logs`) are `read` and never
 reach the table.

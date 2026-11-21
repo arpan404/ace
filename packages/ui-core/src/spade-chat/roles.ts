@@ -26,9 +26,24 @@ const isRole = (value: string): value is SpadeRole =>
 /** Each role's model as the person set it, undefined where they didn't. */
 export type SpadeRoleModels = Partial<Record<SpadeRole, string>>;
 
+/** The most models a role's route holds (ADR 0205 §2). */
+export const spadeMostInRoute = 4;
+
+/**
+ * Each role's route (ADR 0205 §2): its models in order, the first that can answer serving a
+ * call; `main` is what each bot's own model falls back to. Missing where none is set.
+ */
+export type SpadeRoutes = Partial<Record<SpadeRole | "main", string[]>>;
+
+/** Whether a role's calls offer tools, so a model that can't call them can't serve it. */
+export const spadeRoleNeedsTools = (role: SpadeRole | "main") =>
+  role !== "title" && role !== "compact";
+
 /** `GET /v1/models/roles`: the person's choices for every bot. */
 export interface SpadeGlobalRoles {
   roles: SpadeRoleModels;
+  /** Every role's route; a server before routes sends none, read from `roles`. */
+  routes: SpadeRoutes;
   /** A failed helper runs once more on the bot's own model. */
   escalate: boolean;
 }
@@ -56,7 +71,27 @@ function roleModels(raw: unknown): SpadeRoleModels {
 export function parseSpadeGlobalRoles(body: string): SpadeGlobalRoles | undefined {
   const value = spadeRecord(spadeJson(body));
   if (!value) return undefined;
-  return { roles: roleModels(value.roles), escalate: value.escalate === true };
+  const roles = roleModels(value.roles);
+  return { roles, routes: routesOf(value.routes, roles), escalate: value.escalate === true };
+}
+
+/** Routes as lists of models, never a subscription; a role with none reads its one model. */
+function routesOf(raw: unknown, roles: SpadeRoleModels): SpadeRoutes {
+  const out: SpadeRoutes = {};
+  const record = spadeRecord(raw) ?? {};
+  for (const role of [...spadeRoles, "main" as const]) {
+    const list = record[role];
+    const models = Array.isArray(list)
+      ? list.filter(
+          (model): model is string =>
+            typeof model === "string" && model.length > 0 && !model.startsWith("cli:"),
+        )
+      : [];
+    const one = role === "main" ? undefined : roles[role];
+    const route = models.length ? models : one ? [one] : [];
+    if (route.length) out[role] = route.slice(0, spadeMostInRoute);
+  }
+  return out;
 }
 
 const rowShape = z.object({

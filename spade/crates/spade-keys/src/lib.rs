@@ -115,6 +115,27 @@ impl KeyStore {
         Self::remove(&self.connector_entry(id, kind)?)
     }
 
+    /// An org host's audit key (ADR 0206 §4.2), the hex Ed25519 seed that signs its log's
+    /// checkpoints, if one was made for organization `org`. Account `org-audit:<org>`.
+    pub fn audit_key(&self, org: &str) -> Result<Option<String>, KeyError> {
+        self.read(&self.audit_entry(org)?)
+    }
+
+    /// Stores the audit key for `org`, replacing any earlier one.
+    pub fn set_audit_key(&self, org: &str, seed: &str) -> Result<(), KeyError> {
+        let seed = checked(seed)?;
+        self.audit_entry(org)?
+            .set_password(seed)
+            .map_err(|error| classify(&error))
+    }
+
+    fn audit_entry(&self, org: &str) -> Result<Entry, KeyError> {
+        if org.trim().is_empty() {
+            return Err(KeyError::Invalid("the organization id is empty"));
+        }
+        self.account(&format!("org-audit:{org}"))
+    }
+
     /// A web search backend's key (Brave Search), if stored. Account `search:<id>`, apart from
     /// model endpoints' keys so neither can stand in for the other.
     pub fn search_key(&self, backend: &str) -> Result<Option<String>, KeyError> {

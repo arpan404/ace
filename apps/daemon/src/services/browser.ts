@@ -22,6 +22,7 @@ import { BrowserForget } from "../browser-forget.ts";
 import { chooseProfileScope, projectProfileScope } from "../browser-profile-scope.ts";
 import { BrowserProjectForget } from "../browser-forget-projects.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
+import { SqliteEngineMoveJournal } from "../browser-engine-moves.ts";
 import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
 import type { Store } from "../store.ts";
@@ -106,6 +107,9 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       ((threadId) => grantOfCaller(threadId) !== undefined),
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
+    // An engine move's own copy of its tabs, until it settles (ADR 0199).
+    moveJournal:
+      options.browser?.moveJournal ?? new SqliteEngineMoveJournal((sql) => store.statement(sql)),
     // A fork (not a delegated thread) starts its browser with a copy of its parent's tabs.
     forkedFrom:
       options.browser?.forkedFrom ??
@@ -248,6 +252,9 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
 
 import { sendBrowserMessage, sendBrowserStream } from "./browser-transport.ts";
 import { connectBrowser } from "@ace/browser";
+import { SettingsError } from "@ace/settings";
+import { engineSetting } from "../browser-engine-setting.ts";
+import { settingWriteRefusal } from "../answer-gate.ts";
 import { WebSocket } from "ws";
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createBrowserSession(context: SocketContext): SocketService {
@@ -274,6 +281,18 @@ export function createBrowserSession(context: SocketContext): SocketService {
     local: context.local === true,
     // Subscribes naming a media connection go to ace-media (D1) while it serves.
     media: { owner: () => mediaOwner(context), delivery: () => options.mediaDelivery?.() },
+    // An engine move keeps the thread's choice as the person's settings write would (ADR 0199).
+    ...(options.settings
+      ? {
+          engine: engineSetting(options.settings, async () => {
+            const refused = await settingWriteRefusal("browser.backend", {
+              device: context.device(),
+              unproven: context.personProven?.() !== true,
+            });
+            return refused ? new SettingsError(refused.code, refused.message) : undefined;
+          }),
+        }
+      : {}),
     // Files the person picks for a page's file input, uploaded by this device as attachments.
     attachment: async (threadId, sha256) => {
       const device = context.device();

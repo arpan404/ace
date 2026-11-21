@@ -8,6 +8,7 @@ import { print } from "../io.ts";
 import { CliFailure } from "../output.ts";
 import { maintainerWork } from "./maintainer-queue.ts";
 import { signerTestRunner } from "./sign-tests.ts";
+import { signerCodeChecker } from "./sign-code.ts";
 import { marketUrl, now, readKey, signerIo, signerToken, trustedWith } from "./maintainer-io.ts";
 
 /*
@@ -61,8 +62,11 @@ export async function maintainerCommand(args: Args): Promise<void> {
       const key = await readKey(option(args, "key"));
       // A bot package's own tests run here, on Spade's program, before it is signed.
       const testBot = await signerTestRunner(process.env, process.argv[1]);
+      // A bot package's WebAssembly components are read from their bytes, by Spade's program.
+      const checkCode = await signerCodeChecker(process.env, process.argv[1]);
       const report = await signPending(signerIo(marketUrl(args)), key, now, trustedWith(key), {
         testBot,
+        checkCode,
       });
       await print(args, report);
       if (report.failed.length > 0)

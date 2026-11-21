@@ -1,10 +1,9 @@
 import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { projectFixture } from "./projects-test-support.ts";
+import { projectFixture, projectTemporaryRoot } from "./projects-test-support.ts";
 
 test("adding a missing folder with create makes it and its missing parents, then registers it", async () => {
   const f = await projectFixture();
@@ -74,7 +73,7 @@ test.skipIf(process.getuid?.() === 0)(
 
 test("creating outside the allowed roots or through traversal makes nothing", async () => {
   const f = await projectFixture();
-  const outside = await realpath(await mkdtemp(join(tmpdir(), "ace-outside-")));
+  const outside = await realpath(await mkdtemp(join(projectTemporaryRoot(), "ace-outside-")));
   try {
     expect(
       await f.command({ type: "workspace.add", path: join(outside, "app"), create: true }),

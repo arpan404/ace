@@ -7,13 +7,23 @@ import type { AccountSetup } from "./account/config.ts";
 import { configureApps } from "./broker/apps.ts";
 import { broker, isBrokerPath } from "./broker/broker.ts";
 import { durableSignIns } from "./broker/sign-in-object.ts";
-import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER, admit } from "./admission.ts";
+import {
+  ACCOUNT_HEADER,
+  EXCHANGE_HEADER,
+  ORG_HEADER,
+  PROTOCOL_HEADER,
+  admit,
+} from "./admission.ts";
+import { orgStore } from "./account/org-store.ts";
 import type { Env } from "./env.ts";
 import { forwardPath } from "./http-path.ts";
 import type { ForwardPath } from "./http-path.ts";
 
 export { SignInObject } from "./broker/sign-in-object.ts";
 export { RelayObject } from "./relay-object.ts";
+
+/** The hourly sweep's schedule in wrangler.jsonc; the other one runs the events cron. */
+const SWEEP_CRON = "17 * * * *";
 
 const endpoints = new Set(["/host", "/client", "/join", "/serve"]);
 
@@ -147,6 +157,7 @@ export default {
     headers.delete(ACCOUNT_HEADER);
     headers.delete(PROTOCOL_HEADER);
     headers.delete(EXCHANGE_HEADER);
+    headers.delete(ORG_HEADER);
     if (url.pathname === "/host" || url.pathname === "/client") {
       const admission = admit({
         endpoint: url.pathname,
@@ -156,6 +167,12 @@ export default {
         now: Date.now(),
       });
       if (!admission.admitted) return new Response(null, { status: admission.status });
+      // A member grant opens only a host its organization holds (ADR 0206 §2.2).
+      if (admission.org !== undefined) {
+        if ((await orgStore(env.ACCOUNTS).hostOrg(hostId.data)) !== admission.org)
+          return new Response(null, { status: 403 });
+        headers.set(ORG_HEADER, admission.org);
+      }
       headers.set(ACCOUNT_HEADER, admission.account);
       headers.set(PROTOCOL_HEADER, admission.protocol);
     }
@@ -164,7 +181,12 @@ export default {
     );
   },
 
-  async scheduled(_controller, env): Promise<void> {
-    await accounts(env).api.sweep();
+  /**
+   * Hourly: drop expired sign-ins, sessions and credentials. Every minute: bring the
+   * organization members mirror up to WorkOS's Events API (ADR 0206 §6: within a minute).
+   */
+  async scheduled(controller, env): Promise<void> {
+    if (controller.cron === SWEEP_CRON) await accounts(env).api.sweep();
+    else await accounts(env).api.events();
   },
 } satisfies ExportedHandler<Env>;

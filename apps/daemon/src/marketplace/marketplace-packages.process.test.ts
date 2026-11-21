@@ -235,6 +235,42 @@ describe("agent packages", () => {
     market = await fakeMarket();
   });
 
+  it("replay the bot's kept runs on the new version for its update review, free", async () => {
+    publish("1.0.0");
+    await harness.ask({ op: "refresh" }, "sources");
+    await install();
+    const bot = (await installedBot())?.target;
+    const kept = {
+      summary: "1 of 2 kept runs replay the same. 1 doesn't: see why.",
+      passed: 1,
+      failed: 1,
+      cases: [
+        { id: "case_1", given: "Check fares", passed: true, lines: [] },
+        {
+          id: "case_2",
+          given: "Mail my agent the fare",
+          passed: false,
+          lines: ["send_message was refused: Flight watcher doesn't declare sending."],
+        },
+      ],
+    };
+    spade.setReplay(kept);
+    publish("2.0.0", version2);
+    await harness.ask({ op: "refresh" }, "sources");
+    const { review } = await harness.ask(
+      { op: "prepareUpdate", type: "spade-bot", name: "flight-watcher" },
+      "review",
+    );
+    expect(review.body).toMatchObject({ update: { bot, replay: kept } });
+    // The version replayed is the one the review would move the bot to, with no model named.
+    expect(spade.replayCalls).toEqual([
+      {
+        bot,
+        body: { recipe: expect.objectContaining({ task: version2.task }) },
+      },
+    ]);
+  });
+
   it("pause a bot whose version was withdrawn, deleting nothing", async () => {
     const first = publish("1.0.0");
     await harness.ask({ op: "refresh" }, "sources");
@@ -441,5 +477,35 @@ describe("agent packages", () => {
       previous: { version: "1.0.0", hash: first.hash },
     });
     expect(now?.held).toBeUndefined();
+  });
+});
+
+const prepareReview = async () =>
+  (
+    await harness.ask(
+      { op: "prepare", source: "market", type: "spade-bot", name: "flight-watcher" },
+      "review",
+    )
+  ).review.body;
+
+describe("a package's needs against the person's models", () => {
+  it("warns on the review when a bot using apps has no model that calls tools", async () => {
+    publish("1.0.0", { uses: ["task", "apps"] });
+    await harness.ask({ op: "refresh" }, "sources");
+    const fine = await prepareReview();
+    expect(fine.type === "spade-bot" && fine.modelWarning).toBeFalsy();
+
+    // The sample bot names `fast`: only that route counts.
+    spade.setPackageTools({ fast: false, capable: true });
+    const warned = await prepareReview();
+    expect(warned.type === "spade-bot" && warned.modelWarning).toContain("call tools");
+  });
+
+  it("doesn't warn for a bot that uses neither apps nor agents", async () => {
+    spade.setPackageTools({ fast: false, capable: false });
+    publish("1.0.0", { uses: ["task", "memory"] });
+    await harness.ask({ op: "refresh" }, "sources");
+    const body = await prepareReview();
+    expect(body.type === "spade-bot" && body.modelWarning).toBeFalsy();
   });
 });

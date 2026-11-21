@@ -14,6 +14,8 @@ export function accountGrantSocket(input: {
   /** The account the socket was admitted for. */
   account: string;
   deviceId: string;
+  /** A member's socket on an organization's host: its organization and role (ADR 0206). */
+  member?: { org: string; role: string } | undefined;
   machine: MachineAccount | undefined;
   now: () => number;
 }) {
@@ -32,6 +34,7 @@ export function accountGrantSocket(input: {
         admission,
         account: input.account,
         heldUntil: expiresAt,
+        member: input.member,
       });
       if (outcome.kind === "refused")
         return { ok: false, code: outcome.code, message: outcome.message };

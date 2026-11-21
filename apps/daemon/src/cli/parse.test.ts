@@ -36,6 +36,8 @@ describe("each command line reaches its command with its arguments and flags", (
     ["thread list -qy", "thread.list", [], { quiet: true, yes: true }],
     ["thread list --timeout=30s", "thread.list", [], { timeout: "30s" }],
     ["version", "version", [], {}],
+    ["org audit export --out a.jsonl", "org.audit.export", [], { out: "a.jsonl" }],
+    ["org audit verify a.jsonl --key k", "org.audit.verify", ["a.jsonl"], { key: "k" }],
     ["supervise --anything goes", "release.supervise", ["--anything", "goes"], {}],
   ])("ace %s", (line, id, words, flags) => {
     const parsed = parse(line);

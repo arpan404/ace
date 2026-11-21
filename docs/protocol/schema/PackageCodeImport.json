@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageCodeImport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "spade:package/tools",
+    "spade:package/http",
+    "spade:package/log",
+    "spade:package/kv",
+    "wasi:clocks/wall-clock@0.2",
+    "wasi:clocks/monotonic-clock@0.2",
+    "wasi:random/random@0.2"
+  ],
+  "type": "string"
+}

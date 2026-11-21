@@ -30,6 +30,8 @@ export async function startWorker(options: Parameters<typeof launchWorker>[0] = 
     env,
     /** A request to the Worker at any address, such as `https://cloud.acehq.dev/…`. */
     dispatch: (url: string, init?: Parameters<typeof worker.fetch>[1]) => worker.fetch(url, init),
+    /** Runs the Worker's scheduled handler as the cron with this schedule would. */
+    cron: (cron: string) => worker.scheduled({ cron }),
     /**
      * Evicts the relay object for `hostId` as the runtime does when it hibernates: its memory
      * is dropped, its sockets stay connected with their attachments, and the next event

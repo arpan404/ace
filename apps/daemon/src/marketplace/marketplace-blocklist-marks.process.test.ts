@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   sha256Hex,
   signBlocklist,
+  signNotices,
   signOfficialList,
   signVerifiedList,
   type ArchiveFile,
@@ -13,6 +14,7 @@ import {
   sampleRecipe,
   sampleSkill,
   signedVersion,
+  testKey,
   type SignedVersion,
 } from "@ace/marketplace/testing";
 import type { MarketInstallChoices } from "@ace/protocol/marketplace";
@@ -41,7 +43,7 @@ beforeEach(async () => {
       answer(200, discoverBody);
       return true;
     }
-    const name = /^\/v1\/(blocklist|verified|official)$/.exec(seen.path)?.[1];
+    const name = /^\/v1\/(blocklist|verified|official|notices)$/.exec(seen.path)?.[1];
     if (!name) return false;
     if (lists[name]) answer(200, lists[name]);
     else answer(404, { error: "not_found", message: "none" });
@@ -255,5 +257,32 @@ describe("marks on list rows", () => {
     const after = await rows();
     expect(after.search).toMatchObject({ byAce: true, verified: true });
     expect(after.discover).toMatchObject({ byAce: true, verified: true });
+  });
+});
+
+const noticesBy = (key: typeof harness.key, at: number) =>
+  signNotices(
+    {
+      format: "ace-market-notices",
+      issued: at,
+      notices: [{ provider: "codex", status: "refused", note: "Not for bots", at }],
+      key: key.id,
+    },
+    key,
+  );
+
+describe("subscriptions' terms notices", () => {
+  it("hands Spade the signed notices with every refresh, and nothing no trusted key signed", async () => {
+    lists["notices"] = noticesBy(testKey("stranger", 9), issued);
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(spade.notices).toEqual([]);
+
+    const signed = noticesBy(harness.key, issued + 1);
+    lists["notices"] = signed;
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(spade.notices).toEqual([{ signed }]);
+    // Spade keeps only a newer list, so the same one goes again on the next pass.
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(spade.notices).toEqual([{ signed }, { signed }]);
   });
 });

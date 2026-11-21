@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.acehq.dev/1.0/scenario.schema.json",
+  "title": "Spade Agent Format 1.0: A scenario test",
+  "description": "`tests/<name>.json`, read.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "description": "What the scenario shows, in a few words.",
+      "type": "string"
+    },
+    "given": {
+      "description": "What starts the run: a message, a trigger or a call, one of them.",
+      "$ref": "#/$defs/Given"
+    },
+    "model": {
+      "description": "The scripted model: one step per model call; the last step only says something.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Step"
+      }
+    },
+    "tools": {
+      "description": "Fake results by tool name, for tools that would reach outside.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Answers"
+      },
+      "default": {}
+    },
+    "expect": {
+      "description": "What must have happened.",
+      "$ref": "#/$defs/Expect",
+      "default": {
+        "calls": [],
+        "not_called": [],
+        "effects": [],
+        "refused": [],
+        "cards": [],
+        "reply_contains": []
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "given",
+    "model"
+  ],
+  "$defs": {
+    "Given": {
+      "description": "What starts the run.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "The person writes this to the bot.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trigger": {
+          "description": "One of the package's schedule, event or webhook triggers fires, by name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call": {
+          "description": "Another bot of the person's calls one of the package's contracts (ADR 0200 §7).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GivenCall"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "GivenCall": {
+      "description": "A contract call a scenario gives the bot.",
+      "type": "object",
+      "properties": {
+        "contract": {
+          "description": "One of the package's contracts, by name.",
+          "type": "string"
+        },
+        "input": {
+          "description": "The call's input, which fits the contract's input schema."
+        },
+        "from": {
+          "description": "The calling bot's name; \"Another bot\" when unset.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "input"
+      ]
+    },
+    "Step": {
+      "description": "One answer of the scripted model.",
+      "type": "object",
+      "properties": {
+        "say": {
+          "description": "What the model says.",
+          "type": "string",
+          "default": ""
+        },
+        "calls": {
+          "description": "The tool calls it makes after saying it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScriptedCall"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScriptedCall": {
+      "description": "A tool call the scripted model makes.",
+      "type": "object",
+      "properties": {
+        "tool": {
+          "description": "The tool's name.",
+          "type": "string"
+        },
+        "arguments": {
+          "description": "Its arguments, an object.",
+          "default": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "tool"
+      ]
+    },
+    "Answers": {
+      "description": "A fake tool's answers: one, or a list taken in turn (the last repeats).",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "Expect": {
+      "description": "What must have happened.",
+      "type": "object",
+      "properties": {
+        "calls": {
+          "description": "Tools that ran, in this order (others may run between them).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "not_called": {
+          "description": "Tools that must not have run.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "effects": {
+          "description": "Effects the agent asked for (`network`, `publish`, `send_as_person`, …), as the gate read\nits calls.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "refused": {
+          "description": "Tools the gate refused, because the package didn't declare their effect.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "cards": {
+          "description": "Cards shown, each by words in its title.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "reply_contains": {
+          "description": "Words the agent's reply contains, case aside.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "output": {
+          "description": "With `given.call`: fields the call's output holds, each with this value. The output is\nalways checked against the contract's schema."
+        },
+        "results": {
+          "description": "Fields a tool's answer holds, by tool name, each with this value: its last answer, read\nas a JSON object. How a scenario checks what a package's own code answered\n(`code_<component>_<tool>`, ADR 0203 §6).",
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

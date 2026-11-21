@@ -21,6 +21,25 @@ impl Security {
     }
 }
 
+impl Security {
+    /// A ticket on the egress proxy for one `http` request of `bot`'s code (ADR 0203 §2): the
+    /// policy its commands run under, issued against a narrowing as a command's is, so a switch
+    /// the person turns off ends it. None when the proxy isn't running or the bot reaches nothing.
+    pub(crate) fn code_ticket(&self, bot: &str) -> Result<spade_sandbox::egress::Ticket, String> {
+        let Some(proxy) = &self.proxy else {
+            return Err("Spade's egress proxy isn't running, so code reaches nothing".to_owned());
+        };
+        let _issuing = self.egress.lock().unwrap_or_else(|p| p.into_inner());
+        let [commands, _] = self.issued(bot);
+        let run = self.ids.next("run");
+        self.issuing(bot);
+        match commands.mode {
+            Mode::AllowList | Mode::Open => Ok(proxy.open(bot, &run, commands)),
+            _ => Err("the bot's network is off, so code reaches nothing".to_owned()),
+        }
+    }
+}
+
 impl Confine for Security {
     fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         let Some(bot) = self.bot_of(home) else {

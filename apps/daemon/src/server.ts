@@ -49,6 +49,12 @@ import { startMachineTunnel } from "./machine-tunnel/wiring.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
+import {
+  enrollRefusals,
+  hostShellMessage,
+  orgOwner,
+  orgStanding,
+} from "./account-access/org-socket.ts";
 import { provenDevice } from "./account-access/device-grant.ts";
 import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
 import {
@@ -58,6 +64,7 @@ import {
   GRANT_EXPIRED_REASON,
 } from "./account-access/grant-lease.ts";
 import { admitCommand } from "./socket-commands.ts";
+import { startOrgHost } from "./org-host/wire.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
@@ -321,6 +328,8 @@ export async function startServer(options: ServerOptions): Promise<{
         closer.gracefulClose(socket, ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON);
       }
   });
+  // An org host keeps its Spade bound, on its policy and its audit log forwarded (ADR 0206).
+  const orgHost = startOrgHost(options);
   const createServiceSessions = createSocketRegistry();
   const serviceTasks = new Set<Promise<void>>();
   const serviceSessions = new Map<MainSocket, ReturnType<typeof createServiceSessions>>();
@@ -406,12 +415,13 @@ export async function startServer(options: ServerOptions): Promise<{
     const early = relayed?.early;
     // An account device's main socket stays open only while it holds an unexpired grant.
     let grant: AccountGrantSocket | undefined;
-    const holdGrant = (expiresAt: number | undefined, deviceId: DeviceId) => {
+    const holdGrant = (expiresAt: number | undefined, actor: SessionActor) => {
       if (expiresAt === undefined || accountId === undefined) return;
       grant = accountGrantSocket({
         expiresAt,
         account: accountId,
-        deviceId,
+        deviceId: actor.id,
+        member: actor.member,
         machine: options.machineAccount,
         now: () => auth.now(),
       });
@@ -460,6 +470,32 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
+    // A member's standing on an organization's host (ADR 0206 §2.2), proven on this socket as
+    // the person's is, until its grant's expiry, under this owner.
+    const memberStanding = orgStanding({
+      // The grant's own clock: its expiry was read against it.
+      now: () => options.machineAccount?.grantClock() ?? auth.now(),
+      holds: (generation) => options.machineAccount?.standingHolds(generation) === true,
+    });
+    /** Whether this socket is the organization's host shell (ADR 0206 §2.2): its owners only. */
+    const hostShell = () =>
+      options.machineAccount?.ownerOrg() === undefined ||
+      hostCredential() ||
+      memberStanding.allows("host:shell");
+    /**
+     * Spade's own check: a member who reaches only Spade may read and change it there, while
+     * admitted; every other socket as `authorize` says.
+     */
+    const spadeAuthorize = (scope: import("@ace/protocol").DeviceScope) => {
+      const actor = authenticated.get(socket);
+      if (actor?.spadeOnly !== true) return authorize(scope);
+      return (
+        stillAdmitted() &&
+        activeDevice(actor, auth.now()) &&
+        (scope === "read" || scope === "operate") &&
+        actor.scopes.includes(scope)
+      );
+    };
     const sessions = createServiceSessions({
       options,
       // Every service write goes after what the outbox holds (`ordered-socket.ts`).
@@ -493,6 +529,9 @@ export async function startServer(options: ServerOptions): Promise<{
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential,
       personProven,
+      memberStanding: () => memberStanding.current(),
+      orgHost: () => options.machineAccount?.ownerOrg() !== undefined,
+      spadeAuthorize,
       accountDevice: () => accountId,
       access: {
         auth,
@@ -688,12 +727,17 @@ export async function startServer(options: ServerOptions): Promise<{
             socket.close(code.startsWith("machine_code") ? 4011 : 4001, code);
             return;
           }
+          // A member who reaches only Spade has the main channel and nothing else (ADR 0206).
+          if (admitted.member && message.channel !== undefined && !orgOwner(admitted.member.role)) {
+            fail("unauthorized", "Valid hello required", true);
+            return;
+          }
           auth.accountDeviceSeen(message.deviceId, message.link);
-          actor = accountDeviceActor(message.deviceId, auth.now());
+          actor = accountDeviceActor(message.deviceId, auth.now(), admitted.member);
           accountAdmitted = admitted.stillAdmitted;
           accountId = admitted.account;
           // Dedicated channels end with their main connection's access; the main socket refreshes.
-          if (message.channel === undefined) holdGrant(admitted.grantExpiresAt, message.deviceId);
+          if (message.channel === undefined) holdGrant(admitted.grantExpiresAt, actor);
         } else actor = helloActor(message, auth, isLocal);
         if (!actor) {
           fail("unauthorized", "Valid hello required", true);
@@ -702,7 +746,7 @@ export async function startServer(options: ServerOptions): Promise<{
         if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
         // An NK account session holds its grant as an XX one does: the welcome's `grantTtlMs`
         // starts the client's keeper, and the hold is a timer released with the socket.
-        if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
+        if (relayed) holdGrant(relayed.grantExpiresAt, actor);
         device = actor.id;
         tunnelOnly = message.channel === "tunnel";
         trimmer = new WireTrimmer(message.trims);
@@ -792,6 +836,18 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         return;
       }
+      // An organization's host: its shell (terminal, files) is its owners' only (ADR 0206 §2.2).
+      if (hostShellMessage(message.type) && !hostShell()) {
+        fail(
+          "forbidden",
+          "Only an owner of this organization, proven on this connection, can use this host's shell.",
+          false,
+          "requestId" in message && typeof message.requestId === "string"
+            ? { requestId: message.requestId }
+            : {},
+        );
+        return;
+      }
       for (const service of sessions) if (await service.handle?.(message, device)) return;
       const actor = device;
       switch (message.type) {
@@ -816,6 +872,44 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         case "account.standing": {
           const { requestId } = message;
+          // An organization's host takes its members' standing instead (ADR 0206 §2.2).
+          if (options.machineAccount?.ownerOrg() !== undefined) {
+            const member = stillAdmitted()
+              ? await options.machineAccount.proveMemberStanding({
+                  grant: message.grant,
+                  proof: message.proof,
+                  nonce: standingNonce,
+                  binding: channelBinding,
+                  deviceId: actor,
+                })
+              : undefined;
+            // The member this socket was admitted as, if it was admitted as one.
+            const taken =
+              member &&
+              (accountId === undefined || member.member.account === accountId) &&
+              memberStanding.prove(member)
+                ? member
+                : undefined;
+            // A grant names the policy it was minted under: a newer one is fetched (§3).
+            if (taken) orgHost?.policySeen(taken.policy);
+            if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+              send({
+                type: "account.standing.result",
+                requestId,
+                result: taken
+                  ? {
+                      ok: true,
+                      until: taken.until,
+                      member: { org: taken.member.org, role: taken.member.role },
+                    }
+                  : {
+                      ok: false,
+                      code: "unauthorized",
+                      message: "That doesn't prove a member of this organization here.",
+                    },
+              });
+            return;
+          }
           // A grant from the machine's owner only (ADR 0190), whatever account it is signed in to.
           const checked = stillAdmitted()
             ? await options.machineAccount?.proveStanding({
@@ -892,12 +986,51 @@ export async function startServer(options: ServerOptions): Promise<{
           // Only a socket that proved the owner's own grant hands the machine on (ADR 0190 §3a),
           // never a paired device; every standing proven under it, and every person's pairing,
           // ends as the release starts.
+          // On an organization's host, one of its owners, proven on this socket (ADR 0206 §2.1).
           const { requestId } = message;
           const ok =
-            personProven() && provenBy === "account" && options.machineAccount !== undefined;
+            options.machineAccount !== undefined &&
+            (options.machineAccount.ownerOrg() !== undefined
+              ? memberStanding.role() === "owner"
+              : personProven() && provenBy === "account");
           if (ok) await options.machineAccount?.releaseOwner(() => auth.dropPersonStanding());
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({ type: "account.owner.release.result", requestId, ok });
+          return;
+        }
+        case "account.owner.enroll": {
+          // The owner's own proven grant only, as a release (ADR 0206 §2.1, ADR 0190 §3a).
+          const { requestId } = message;
+          const machine = options.machineAccount;
+          const owner = machine?.ownerAccount();
+          const result =
+            machine && owner !== undefined && personProven() && provenBy === "account"
+              ? await machine.enrollConsent({
+                  org: message.org,
+                  account: owner,
+                  generation: provenUnder,
+                })
+              : ({ ok: false, code: "not_owner" } as const);
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({
+              type: "account.owner.enroll.result",
+              requestId,
+              result: result.ok
+                ? result
+                : { ok: false, code: result.code, message: enrollRefusals[result.code] },
+            });
+          return;
+        }
+        case "account.owner.enroll.confirm": {
+          const { requestId } = message;
+          const ok =
+            personProven() &&
+            provenBy === "account" &&
+            (await options.machineAccount?.confirmEnrollment(message.org, () =>
+              auth.dropPersonStanding(),
+            )) === true;
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({ type: "account.owner.enroll.confirm.result", requestId, ok });
           return;
         }
         case "command":
@@ -1021,6 +1154,7 @@ export async function startServer(options: ServerOptions): Promise<{
     stopRevocation();
     stopReplaced();
     stopAccountChange?.();
+    void orgHost?.close();
     await closeListener(local);
     if (remote) await closeListener(remote);
     await closeServers();
@@ -1072,6 +1206,7 @@ export async function startServer(options: ServerOptions): Promise<{
         stopRevocation();
         stopReplaced();
         stopAccountChange?.();
+        void orgHost?.close();
         tunnel.close();
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();

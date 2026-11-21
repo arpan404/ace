@@ -27,6 +27,10 @@ fn outside(effect: Option<Effect>) -> Call<'static> {
         classifier: true,
         ceiling: None,
         command: None,
+        destructive: false,
+        org: None,
+        permits: crate::permission::Held::default(),
+        connected: false,
     }
 }
 

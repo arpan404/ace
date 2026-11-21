@@ -14,7 +14,7 @@ import type { ClientApi } from "@ace/client";
 /** This window's device key, made once and kept in its memory only (ADR 0190). */
 let windowKey: Promise<StandingKey> | undefined;
 /** Every socket this window keeps proving on, to prove again at once after a sign-in. */
-const keepers = new Set<() => Promise<void>>();
+const keepers = new WeakMap<ClientApi, () => Promise<boolean>>();
 
 /**
  * This window's proof of the person's standing (ADR 0190): a person's grant for the challenge's
@@ -37,12 +37,12 @@ export const windowProver: StandingProver = async (challenge: StandingChallenge)
 
 /**
  * A device paired from a person's link proves with the key this browser kept for it (ADR 0190),
- * else as the window does.
+ * with its own challenge signature.
  */
 const pairedProver: StandingProver = async (challenge) => {
   const { pairedStandingKey } = await import("./paired-standing-key.ts");
   const key = await pairedStandingKey().catch(() => undefined);
-  if (!key) return windowProver(challenge);
+  if (!key) return undefined;
   return { type: "device.standing", proof: await provePaired({ challenge, key }) };
 };
 
@@ -58,12 +58,14 @@ const timers = {
  * connects as a device this browser paired.
  */
 export function proveFromWindow(client: ClientApi, paired = false): ClientApi {
-  const keeper = keepStanding(client, paired ? pairedProver : windowProver, timers);
-  keepers.add(keeper.proveNow);
+  const keeper = paired
+    ? keepStanding(client, pairedProver, timers, windowProver)
+    : keepStanding(client, windowProver, timers);
+  keepers.set(client, keeper.proveNow);
   return client;
 }
 
-/** Proves again on every socket now: the window just signed in as the person. */
-export async function proveAgain(): Promise<void> {
-  await Promise.all([...keepers].map((prove) => prove()));
+/** Proves again on the connection that needs this window's standing. */
+export async function proveAgain(client: ClientApi): Promise<boolean> {
+  return (await keepers.get(client)?.()) ?? false;
 }

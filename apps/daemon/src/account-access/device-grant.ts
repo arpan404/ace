@@ -109,30 +109,40 @@ export async function provenStanding(input: {
     claims.key === undefined
   )
     return undefined;
+  const signed = await signedByDeviceKey(
+    claims.key,
+    input.proof,
+    standingProofText({
+      host: input.host,
+      nonce: input.nonce,
+      binding: input.binding,
+      grant: input.grant,
+    }),
+  );
+  return signed ? { until: claims.exp, account: claims.account } : undefined;
+}
+
+/**
+ * Whether `proof` is the ECDSA P-256 signature of `text` by `key`, a device's raw public key in
+ * base64url. Never throws.
+ */
+export async function signedByDeviceKey(key: string, proof: string, text: string) {
   try {
-    const key = await crypto.subtle.importKey(
+    const imported = await crypto.subtle.importKey(
       "raw",
-      new Uint8Array(decodeBase64url(claims.key)),
+      new Uint8Array(decodeBase64url(key)),
       { name: "ECDSA", namedCurve: "P-256" },
       false,
       ["verify"],
     );
-    const signed = await crypto.subtle.verify(
+    return await crypto.subtle.verify(
       { name: "ECDSA", hash: "SHA-256" },
-      key,
-      new Uint8Array(decodeBase64url(input.proof)),
-      new TextEncoder().encode(
-        standingProofText({
-          host: input.host,
-          nonce: input.nonce,
-          binding: input.binding,
-          grant: input.grant,
-        }),
-      ),
+      imported,
+      new Uint8Array(decodeBase64url(proof)),
+      new TextEncoder().encode(text),
     );
-    return signed ? { until: claims.exp, account: claims.account } : undefined;
   } catch {
-    return undefined;
+    return false;
   }
 }
 
@@ -151,21 +161,5 @@ export async function provenDevice(input: {
   binding: string | undefined;
   deviceId: string;
 }): Promise<boolean> {
-  try {
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new Uint8Array(decodeBase64url(input.key)),
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"],
-    );
-    return await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      key,
-      new Uint8Array(decodeBase64url(input.proof)),
-      new TextEncoder().encode(pairedStandingText(input)),
-    );
-  } catch {
-    return false;
-  }
+  return signedByDeviceKey(input.key, input.proof, pairedStandingText(input));
 }

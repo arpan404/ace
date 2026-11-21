@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpAppToolCall.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "arguments": {
+      "additionalProperties": {},
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}
