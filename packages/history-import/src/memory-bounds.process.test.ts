@@ -1,10 +1,17 @@
 import { afterEach, expect, test } from "vitest";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { openHistory, type HistoryService } from "./index.ts";
+import { openHistory, type HistoryService, type ImportSink } from "./index.ts";
 import { readerMemoryError, readerMemoryLimitBytes } from "./reader-process.ts";
 import { residentSamplingAvailable } from "@ace/provider-kit/resident-memory";
-import { environment, claudeRecords, cwd, readerHooks, readerStarts } from "./test-support.ts";
+import {
+  environment,
+  claudeRecords,
+  cwd,
+  init,
+  readerHooks,
+  readerStarts,
+} from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -129,3 +136,49 @@ test.skipIf(!residentSamplingAvailable())(
     expect(await readerStarts(starts)).toHaveLength(settled);
   },
 );
+
+test("a record of hundreds of thousands of tiny blocks imports within the reader's memory limit", async () => {
+  const env = await environment();
+  cleanup.push(env.close);
+  const home = join(env.root, "claude");
+  // Under the 1 MiB decode limit, yet one item per block: every block is of no known type.
+  const blocks = Array.from({ length: 330_000 }, () => ({}));
+  const lines = claudeRecords("many blocks", "many-blocks").map((record) => JSON.stringify(record));
+  lines.push(
+    JSON.stringify({
+      type: "assistant",
+      sessionId: "many-blocks",
+      cwd,
+      message: { role: "assistant", content: blocks },
+    }),
+  );
+  expect(lines.at(-1)?.length).toBeLessThan(1024 * 1024);
+  await mkdir(join(home, "projects/p"), { recursive: true });
+  await writeFile(join(home, "projects/p/many.jsonl"), lines.join("\n") + "\n");
+  const service = await openHistory({
+    indexPath: join(env.root, "ace/index.sqlite"),
+    instances: [{ id: "claude", provider: "claude", homeDir: home }],
+  });
+  cleanup.push(() => service.close());
+  let restarts = 0;
+  service.subscribeRecovery((retrying) => {
+    if (retrying) restarts++;
+  });
+  await service.scan();
+  const [source] = (await service.list({ type: "history.list", cwd })).sessions;
+  if (!source) throw new Error("Missing session");
+  let items = 0;
+  const counting: ImportSink = {
+    begin: async () => {},
+    appendAgent: async () => {},
+    appendItem: async () => void items++,
+    beginBlob: async () => {},
+    appendBlob: async () => {},
+    endBlob: async () => {},
+    commit: async () => {},
+    rollback: async () => {},
+  };
+  await service.importSession(init(source.id), counting);
+  expect(items).toBeGreaterThan(330_000);
+  expect(restarts).toBe(0);
+});
