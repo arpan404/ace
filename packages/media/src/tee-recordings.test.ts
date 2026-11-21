@@ -610,3 +610,29 @@ it("asks a picture recording's encode for a keyframe regularly, and once a resum
   await m.clock.advance(pictureKeyframeMs * 2);
   expect(keys()).toBe(before + 2);
 });
+
+it("a picture clip stopped at once waits for its encode's first unit before ace-media closes it, never longer than the barrier's bound", async () => {
+  const m = media();
+  m.up();
+  const { recording } = await started(m, pictureSpec());
+  const open = m.sent.find((message) => message.type === "source.open");
+  if (open?.type !== "source.open") throw new Error("no source.open");
+  recording.push(jpeg);
+  void recording.stop();
+  await Promise.resolve();
+  const stops = () => m.sent.filter((message) => message.type === "record.stop").length;
+  expect(stops()).toBe(0);
+  // The encode handed its first unit over: the stop goes on.
+  m.recordings.message({ type: "source.status", source: open.source, status: "playing" });
+  await m.clock.advance(syncMs);
+  expect(stops()).toBe(1);
+  // One whose encode never answers is stopped at the bound.
+  const n = media();
+  n.up();
+  const late = await started(n, pictureSpec());
+  late.recording.push(jpeg);
+  void late.recording.stop();
+  await n.clock.advance(syncMs);
+  await n.clock.advance(syncMs);
+  expect(n.sent.filter((message) => message.type === "record.stop")).toHaveLength(1);
+});
