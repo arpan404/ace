@@ -1,3 +1,5 @@
+import { opensPortal } from "./org-portal.ts";
+import type { PortalRevocations } from "./org-portal.ts";
 import type { OrgStore } from "./org-store.ts";
 import { WorkosMembership, WorkosOrganization, WorkosUser } from "./workos-orgs.ts";
 import type { WorkosEvent, WorkosOrgs } from "./workos-orgs.ts";
@@ -20,13 +22,19 @@ const fullName = (first: string | null | undefined, last: string | null | undefi
  * page applied twice leaves what it left the first time. Each row keeps the time of the event it
  * reflects, so an event older than a row's state changes nothing. Any change to a membership
  * drops that member's recent org checks: the next request asks WorkOS again.
+ *
+ * Runs can overlap (a slow one, and the next minute's). Each page's batch commits only if the
+ * cursor is still where that run read it, so a slow run never moves it back nor replays older
+ * details over newer ones; it stops instead. A removal, a deactivation, or a role that opens no
+ * Admin Portal intent queues the revocation of that account's portal sessions (ADR 0206 §6).
  */
 export function orgEvents(deps: {
   orgs: OrgStore;
   workos: Pick<WorkosOrgs, "events" | "getUser">;
+  portal: Pick<PortalRevocations, "queueing">;
   now: () => number;
 }) {
-  const { orgs, now } = deps;
+  const { orgs, portal, now } = deps;
 
   async function statementsFor(
     event: WorkosEvent,
@@ -43,7 +51,16 @@ export function orgEvents(deps: {
       touched.add(org);
       const drop = orgs.droppingChecks(org, account);
       if (event.event === "organization_membership.deleted")
-        return [orgs.removingMember(org, account, membership.id, version), drop];
+        return [
+          orgs.removingMember(org, account, membership.id, version),
+          drop,
+          portal.queueing(org, account),
+        ];
+      const role = membership.role?.slug ?? "member";
+      // A new membership opened no portal yet; any later change that takes it away revokes.
+      const revokes =
+        membership.status !== "active" ||
+        (event.event === "organization_membership.updated" && !opensPortal(role));
       let email = membership.user?.email ?? undefined;
       let name = fullName(membership.user?.first_name, membership.user?.last_name);
       if (!email && lookups.left > 0 && !(await orgs.member(org, account))?.email) {
@@ -62,7 +79,7 @@ export function orgEvents(deps: {
             org,
             account,
             membership: membership.id,
-            role: membership.role?.slug ?? "member",
+            role,
             status: membership.status,
             directoryManaged: membership.directory_managed === true,
             email,
@@ -72,6 +89,7 @@ export function orgEvents(deps: {
           now(),
         ),
         drop,
+        ...(revokes ? [portal.queueing(org, account)] : []),
       ];
     }
     if (event.event.startsWith("organization.")) {
@@ -86,7 +104,12 @@ export function orgEvents(deps: {
       if (!parsed.success) return [];
       const user = parsed.data;
       return [
-        orgs.renamingAccount(user.id, user.email, fullName(user.first_name, user.last_name) ?? ""),
+        orgs.renamingAccount(
+          user.id,
+          user.email,
+          fullName(user.first_name, user.last_name) ?? "",
+          version,
+        ),
       ];
     }
     return [];
@@ -104,12 +127,19 @@ export function orgEvents(deps: {
         if (page.count === 0 || !page.after) break;
         pages++;
         const touched = new Set<string>();
-        const statements: D1PreparedStatement[] = [];
+        const [guard, unguard] = orgs.guardingCursor(MEMBERS_FEED, after);
+        const statements: D1PreparedStatement[] = [guard];
         for (const event of page.events)
           statements.push(...(await statementsFor(event, touched, lookups)));
         for (const org of touched) statements.push(orgs.flaggingOwners(org));
-        statements.push(orgs.settingCursor(MEMBERS_FEED, page.after, now()));
-        await orgs.run(statements);
+        statements.push(orgs.settingCursor(MEMBERS_FEED, page.after, now()), unguard);
+        try {
+          await orgs.run(statements);
+        } catch (error) {
+          // Another run moved the cursor since this one read it: its pages stand, this run stops.
+          if ((await orgs.cursor(MEMBERS_FEED)) !== after) break;
+          throw error;
+        }
         applied += page.events.length;
         after = page.after;
         if (page.count < PAGE_SIZE) break;
