@@ -175,3 +175,93 @@ it("starts no second move of a thread while an upgraded home's transfers are sti
   await new OutgoingRows(store).ready();
   await expect(start("c-later")).rejects.toMatchObject({ code: "thread_moving" });
 });
+
+it("never sends a transfer to another machine linked under its target's old name", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-outgoing-relinked-"));
+  const directory = join(root, "outgoing");
+  await mkdir(directory, { recursive: true });
+  const store = new Store(join(root, "store.sqlite"));
+  const rows = new OutgoingRows(store);
+  // Studio took the commit, but its answer was lost: the transfer is importing there.
+  const transfer: Transfer = {
+    transferId: "transfer-lost",
+    commandId: "c-lost" as CommandId,
+    kind: "thread",
+    threadId: "t-1" as ThreadId,
+    workspaceId: "w" as WorkspaceId,
+    target: { hostId: "studio" as HostId, name: "Studio" },
+    phase: "importing",
+    method: "bundle",
+    sentBytes: 5,
+    totalBytes: 5,
+    startedAt: 0,
+    updatedAt: 0,
+  };
+  rows.insert({
+    transfer,
+    request: {
+      hostId: "studio" as HostId,
+      profile: "studio",
+      includeChanges: true,
+      includeIgnored: false,
+      live: false,
+    },
+    plan: { source: root, name: "app" },
+    delivered: true,
+  });
+  // The person unlinked Studio and linked another machine under the free name `studio`, and
+  // an old link with no host id kept, which says it is yet another machine.
+  let profiles: { name: string; hostId?: string }[] = [
+    { name: "studio", hostId: "mini" },
+    { name: "laptop" },
+  ];
+  const asked: string[] = [];
+  const outgoing = new OutgoingTransfers({
+    store,
+    directory,
+    profiles: () => profiles,
+    transport: (profile: { name: string; hostId?: string }, route: { body: Buffer | string }) => {
+      const call = JSON.parse(String(route.body));
+      if (call.op === "probe")
+        return Promise.resolve({ hostId: profile.hostId ?? "laptop", name: "x", accepts: true });
+      asked.push(`${profile.hostId ?? profile.name}:${call.op}`);
+      return Promise.resolve({
+        transferId: "transfer-lost",
+        state: "importing",
+        method: "bundle",
+        offset: 0,
+      });
+    },
+    origin: async () => ({ hostId: "macbook" as HostId, hostName: "MacBook" }),
+    now: () => 0,
+    sleep: (_ms: number, signal: AbortSignal) =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 5);
+        signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      }),
+    nextId: () => "id",
+    log: () => {},
+  } as unknown as OutgoingDeps);
+  cleanups.push(async () => {
+    await Promise.race([outgoing.close(), new Promise((resolve) => setTimeout(resolve, 50))]);
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await outgoing.recover();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  // Nothing reached either other machine, and the transfer waits for Studio, unsettled.
+  expect(asked).toEqual([]);
+  expect(outgoing.get("transfer-lost")?.transfer.phase).toBe("importing");
+  // A cancel is never answered by another machine either: it stays unconfirmed.
+  await expect(outgoing.cancel("transfer-lost")).rejects.toMatchObject({
+    code: "cancel_unconfirmed",
+  });
+  expect(asked).toEqual([]);
+  // Studio linked again, under any name: the transfer carries on there.
+  profiles = [...profiles, { name: "studio-2", hostId: "studio" }];
+  await expect.poll(() => asked.some((call) => call.startsWith("studio:"))).toBe(true);
+  expect(asked.filter((call) => !call.startsWith("studio:"))).toEqual([]);
+});

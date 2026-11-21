@@ -311,16 +311,15 @@ export class OutgoingTransfers {
     this.running.get(transferId)?.abort();
     // Nothing more is sent while the target decides.
     await this.drives.get(transferId);
-    const profile = this.deps.profiles().find((entry) => entry.name === record.request.profile);
+    // Only the machine the transfer started on can answer for it: never another under its name.
+    const client = await this.targetClient(record).catch(() => undefined);
     let there: IncomingTransfer | undefined;
     let refusal: string | undefined;
-    if (profile)
-      there = await new TransferClient(this.deps.transport, profile)
-        .call({ op: "cancel", transferId })
-        .catch((error: unknown) => {
-          if (error instanceof MachineFailure && error.kind === "refused") refusal = error.refusal;
-          return undefined;
-        });
+    if (client)
+      there = await client.call({ op: "cancel", transferId }).catch((error: unknown) => {
+        if (error instanceof MachineFailure && error.kind === "refused") refusal = error.refusal;
+        return undefined;
+      });
     if (there?.state === "cancelled") return this.finish(record, { phase: "cancelled" });
     // The target waited for an import past its cutoff and answers with how it ended.
     if (there?.state === "completed" && there.result) return this.complete(record, there.result);
@@ -398,6 +397,35 @@ export class OutgoingTransfers {
    * Retries calls that couldn't reach the target, or that it answered while starting or stopping,
    * until it has been gone too long.
    */
+  /**
+   * A client for the machine `record` started on, found by the host id it stored at start, never
+   * by the profile name: a name freed by an unlink can since name another machine. A link that
+   * kept no host id is used only once it says it is that machine. None: `offline`, so the
+   * transfer waits for that machine to be linked again.
+   */
+  private async targetClient(record: OutgoingRecord, signal?: AbortSignal) {
+    const hostId = record.request.hostId;
+    const profiles = this.deps.profiles();
+    const known = profiles.find((entry) => entry.hostId === hostId);
+    if (known) return new TransferClient(this.deps.transport, known);
+    const named = profiles.find(
+      (entry) => entry.name === record.request.profile && entry.hostId === undefined,
+    );
+    if (named) {
+      const client = new TransferClient(this.deps.transport, named);
+      const probe = await client.probe(signal).catch(() => undefined);
+      if (probe?.hostId === hostId) return client;
+    }
+    this.deps.log("Transfer waiting for its machine to be linked again", {
+      transferId: record.transfer.transferId,
+      target: record.transfer.target.name,
+    });
+    throw new MachineFailure(
+      "offline",
+      undefined,
+      `${record.transfer.target.name} isn't linked to this machine now. Link it again to carry on.`,
+    );
+  }
   private async reach<T>(signal: AbortSignal, call: () => Promise<T>, patient = false): Promise<T> {
     const since = this.deps.now();
     for (let delay = 250; ; delay = Math.min(delay * 2, 30_000)) {
@@ -423,10 +451,13 @@ export class OutgoingTransfers {
   }
   private async drive(transferId: string, signal: AbortSignal): Promise<void> {
     let record = this.reconcileLive(this.need(transferId));
-    const profile = this.deps.profiles().find((entry) => entry.name === record.request.profile);
-    if (!profile)
-      throw new TransferError("machine_not_linked", "That machine isn't linked anymore.");
-    const client = new TransferClient(this.deps.transport, profile);
+    // The machine it started on, by its host id: one unlinked waits like one offline, and a
+    // transfer never goes on to another machine linked since under the same name.
+    const client = await this.reach(
+      signal,
+      () => this.targetClient(this.need(transferId), signal),
+      this.liveStage(record) === "handing",
+    );
     let plan = record.plan ?? { source: "", name: "" };
     let method: TransferMethod;
     if (record.transfer.method) method = record.transfer.method;
