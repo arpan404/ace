@@ -182,13 +182,15 @@ impl Scan<'_> {
         if self.tally.files.is_multiple_of(64) {
             self.report()?;
         }
+        // The fingerprint is taken with the stat, before anything can change between them: a
+        // write after it is caught by the sample's own check and read by the next scan.
         let info = std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?;
-        crate::hooks::at_path("scan-stat", &name);
         let fp = if stored {
             crate::opencode::storage::fingerprint(home, path, self.cancel)?
         } else {
             fingerprint_at(path)?
         };
+        crate::hooks::at_path("scan-stat", &name);
         if self.catalog.matches(&home.id, &name, &fp)? {
             self.tally.skipped += 1;
             return Ok(Pre::Done(Some(Write::Touch {
