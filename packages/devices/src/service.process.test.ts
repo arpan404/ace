@@ -235,7 +235,7 @@ describe("in-app device ownership", () => {
     await settled;
     expect(h.recorder.open).toBe(0);
   });
-  it("a recording whose last moment ace-media couldn't confirm is saved, and the device says what was left out", async () => {
+  it("a recording whose end ace-media couldn't confirm is saved, and the device says the end may be incomplete", async () => {
     const h = await harness();
     await bind(h);
     await h.request({ op: "start", deviceId });
@@ -244,7 +244,18 @@ describe("in-app device ownership", () => {
     h.recorder.truncate = true;
     await h.request({ op: "record.stop", deviceId });
     expect(h.publications).toHaveLength(1);
-    expect(h.service.states()[0]?.recordingNotice).toContain("left out");
+    expect(h.service.states()[0]?.recordingNotice).toContain("may be incomplete");
+  });
+  it("a stop that fails after parts closed saves them and still fails with its reason", async () => {
+    const h = await harness();
+    await bind(h);
+    await h.request({ op: "start", deviceId });
+    await h.request({ op: "record.start", deviceId });
+    h.publish(1);
+    h.recorder.stopFailure = "stop-unanswered";
+    await expect(h.request({ op: "record.stop", deviceId })).rejects.toThrow("stop-unanswered");
+    // What ace-media wrote is in the thread all the same.
+    expect(h.publications).toHaveLength(1);
   });
   it("a recording's video downloads through the artifact API as registered", async () => {
     const h = await harness(true);

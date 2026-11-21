@@ -81,13 +81,32 @@ export class DeviceRecording {
   async #published(end: RecordingEnd): Promise<PublishedRecording> {
     this.#release();
     if (end.ok && end.truncated) this.#truncated();
+    const failure = end.ok
+      ? undefined
+      : new DeviceError(
+          "command_failed",
+          `The recording failed: ${end.reason}`,
+          end.parts.length
+            ? "What was recorded before the failure is saved to this thread. Start a new recording to go on."
+            : "Keep the device on screen while recording, then try again.",
+        );
     if (!end.parts.length)
-      throw new DeviceError(
-        "command_failed",
-        end.ok ? "The recording has no video" : `The recording failed: ${end.reason}`,
-        "Keep the device on screen while recording, then try again.",
+      throw (
+        failure ??
+        new DeviceError(
+          "command_failed",
+          "The recording has no video",
+          "Keep the device on screen while recording, then try again.",
+        )
       );
-    return this.#publish({ id: this.id, directory: this.#directory, parts: end.parts });
+    const published = await this.#publish({
+      id: this.id,
+      directory: this.#directory,
+      parts: end.parts,
+    });
+    // The parts are saved, but the stop failed: its caller hears why, never a success.
+    if (failure) throw failure;
+    return published;
   }
 }
 
@@ -204,7 +223,7 @@ export async function recordDevice(
       truncated: () => {
         if (session.bindingEpoch !== epoch) return;
         session.recordingNotice =
-          "The recording's last moment couldn't be confirmed, so it was left out. The rest is saved.";
+          "The recording is saved, but ace-media couldn't confirm its last moment: the end may be incomplete.";
         changed();
       },
       publish: async (artifact) => {

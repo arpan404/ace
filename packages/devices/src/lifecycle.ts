@@ -200,11 +200,11 @@ export async function startDevice(
 }
 /** Stops the device's live view and hands back control of it. */
 export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promise<void> {
-  if (session.stopping) return session.stopping;
+  // Control goes back first, even while a capture-only cleanup is still running.
   session.leaseExpiry?.();
   delete session.leaseExpiry;
   session.lease.release();
-  return endCapture(session, owner);
+  return session.stopping ?? endCapture(session, owner);
 }
 
 /**

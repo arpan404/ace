@@ -36,6 +36,8 @@ export class FakeRecorder implements MediaRecorder {
   spec: TeeRecordingSpec | undefined;
   /** Recordings ace-media holds open now: started and not yet stopped. */
   open = 0;
+  /** The stop ends as this failure (`stop-unanswered`, an ingest loss), with what was written. */
+  stopFailure: string | undefined;
   /** ace-media couldn't confirm the stop's barrier: the end says the last epoch was left out. */
   truncate = false;
   /** While set, a start waits on it, as one waiting for ace-media to come up does. */
@@ -60,6 +62,11 @@ export class FakeRecorder implements MediaRecorder {
           const path = join(spec.directory, "part-0000.mp4");
           const bytes = Buffer.concat(units.map((unit) => unit.payload));
           await writeFile(path, bytes);
+          const written = units.length
+            ? [{ path, index: 0, bytes: bytes.length, durationMs: 1, gaps: 0 }]
+            : [];
+          if (this.stopFailure)
+            return { ok: false as const, reason: this.stopFailure, parts: written };
           return {
             ok: true as const,
             parts: units.length
