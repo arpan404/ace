@@ -9,7 +9,7 @@ struct OtherMachines {
     /// Opens that machine's thread on the Threads tab, or says why it can't yet; `opened` runs
     /// once the thread shows, also when it waited for that machine's list. Nil where nothing can
     /// be opened from (inside Settings).
-    var open: (@MainActor (InboxKey, _ opened: @escaping @MainActor () -> Void) -> OpenElsewhere)? = nil
+    var open: (@MainActor (InboxKey, _ opened: @escaping @MainActor @Sendable () -> Void) -> OpenElsewhere)? = nil
 }
 
 /// What opening another machine's thread did.
@@ -32,7 +32,7 @@ struct TransferLineView: View {
     let model: ClientModel
     let line: TransferLineRow
     /// After Open has gone to the work (the sheet closes).
-    var opened: () -> Void = {}
+    var opened: @MainActor @Sendable () -> Void = {}
     @Environment(\.otherMachines) private var others
 
     private var actions: [TransferLineRow.Action] {

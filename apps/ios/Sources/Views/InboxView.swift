@@ -343,7 +343,7 @@ struct InboxView: View {
     }
     /// Another machine's thread Open asked for before that machine listed it, and what runs once
     /// it shows (a transfer's sheet closes).
-    private struct AwaitedOpen { let key: InboxKey; let opened: @MainActor () -> Void }
+    private struct AwaitedOpen { let key: InboxKey; let opened: @MainActor @Sendable () -> Void }
     /// Whether the thread Open waits for has reached its machine's list.
     private var awaitedListed: Bool {
         awaitedOpen.map { inbox.client($0.key.machineId)?.inbox[$0.key.id] != nil } ?? false
