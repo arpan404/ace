@@ -33,6 +33,8 @@ on:
       - "package.json"
       - ".github/workflows/ios.yml"
   workflow_dispatch:
+  # The release workflow runs these tests before it uploads a build.
+  workflow_call:
 
 permissions:
   contents: read

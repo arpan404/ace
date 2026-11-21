@@ -1,42 +1,51 @@
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { releasePlan } from "./release-plan.ts";
 
+/**
+ * Archives the iOS app, and with `--upload` sends it to App Store Connect. `release-plan.ts`
+ * decides the commands; this runs them. See docs/releasing-ios-app-store.md.
+ */
 const root = resolve(import.meta.dirname, "..");
-const unsigned = process.argv.includes("--unsigned");
-const team = process.env.ACE_IOS_TEAM_ID;
-if (!unsigned && !team)
-  throw new Error(
-    "Set ACE_IOS_TEAM_ID to your Apple Developer team, or pass --unsigned for local archive verification.",
-  );
-const archive = resolve(process.env.ACE_IOS_ARCHIVE ?? `${root}/.build/Ace.xcarchive`);
-const generated = spawnSync("bun", ["run", "generate"], { cwd: root, stdio: "inherit" });
-if (generated.status !== 0) process.exit(generated.status ?? 1);
-const build = spawnSync(
-  "xcodebuild",
-  [
-    "-project",
-    "Ace.xcodeproj",
-    "-scheme",
-    "Ace",
-    "-configuration",
-    "Release",
-    "-destination",
-    "generic/platform=iOS",
-    "-archivePath",
-    archive,
-    "-jobs",
-    "4",
-    "archive",
-    ...(unsigned
-      ? ["CODE_SIGNING_ALLOWED=NO"]
-      : ["CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_STYLE=Automatic", `DEVELOPMENT_TEAM=${team}`]),
-    `CURRENT_PROJECT_VERSION=${process.env.ACE_IOS_BUILD_NUMBER ?? "1"}`,
-  ],
-  { cwd: root, stdio: "inherit" },
-);
-if (build.status !== 0) process.exit(build.status ?? 1);
+const plan = releasePlan({
+  argv: process.argv.slice(2),
+  env: process.env,
+  root,
+  nowMs: Date.now(),
+});
+
+function run(command: string, args: string[]): void {
+  const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
 console.log(
-  unsigned
-    ? `Unsigned archive verified: ${archive}. This cannot be uploaded to TestFlight.`
-    : `Signed archive: ${archive}. Validate and distribute it through Xcode Organizer.`,
+  `Archiving ace for iOS (${plan.mode}), version ${plan.version ?? "from project.yml"}, build ${plan.buildNumber}.`,
 );
+run("bun", ["run", "generate"]);
+if (plan.ownsArchive) rmSync(plan.archivePath, { recursive: true, force: true });
+else if (existsSync(plan.archivePath)) {
+  console.error(
+    `${plan.archivePath} already exists. Remove it or set ACE_IOS_ARCHIVE to a new path.`,
+  );
+  process.exit(1);
+}
+run("xcodebuild", plan.archiveArgs);
+
+if (plan.upload) {
+  const { exportPath, optionsPath, options, args } = plan.upload;
+  mkdirSync(dirname(optionsPath), { recursive: true });
+  writeFileSync(optionsPath, options);
+  rmSync(exportPath, { recursive: true, force: true });
+  run("xcodebuild", args);
+  console.log(
+    `Uploaded build ${plan.buildNumber} to App Store Connect. It shows in TestFlight once Apple has processed it.`,
+  );
+} else {
+  console.log(
+    plan.mode === "unsigned"
+      ? `Unsigned archive verified: ${plan.archivePath}. This cannot be uploaded to TestFlight.`
+      : `Signed archive: ${plan.archivePath}. Validate and distribute it through Xcode Organizer, or run with --upload.`,
+  );
+}

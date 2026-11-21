@@ -1,0 +1,150 @@
+name: iOS release
+
+# Builds the App Store version of ace for iPhone and iPad and uploads it to App Store Connect,
+# where it appears in TestFlight. Submitting for review stays a step in App Store Connect.
+# Runs on an `ios-v*` tag (the tag names the version, `ios-v1.0.0` is 1.0.0) or by hand.
+# Needs the secrets in docs/releasing-ios-app-store.md › Build and upload.
+#
+# The account backend the release build signs in to deploys separately, from a `v*` tag
+# (release.yml). Deploy it first when a build depends on a new endpoint.
+
+on:
+  push:
+    tags: ["ios-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version as 1.0.0; empty uses MARKETING_VERSION in apps/ios/project.yml
+        type: string
+        required: false
+      build_number:
+        description: Build number; empty uses the UTC time (YYYYMMDD.HHmmss)
+        type: string
+        required: false
+      skip_tests:
+        description: Skip the simulator tests (only when they already passed on this commit)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests
+    if: ${{ !inputs.skip_tests }}
+    uses: ./.github/workflows/ios.yml
+
+  upload:
+    name: Archive and upload to App Store Connect
+    needs: tests
+    # Runs after the tests pass, or straight away when they were skipped by hand.
+    if: ${{ !cancelled() && (needs.tests.result == 'success' || (needs.tests.result == 'skipped' && inputs.skip_tests)) }}
+    runs-on: macos-latest
+    timeout-minutes: 60
+    # The app-store environment holds the signing key: it requires an approval and only
+    # deploys from `ios-v*` tags and main (docs/releasing-ios-app-store.md).
+    environment: app-store
+    concurrency:
+      group: ios-release
+      cancel-in-progress: false
+    env:
+      ACE_IOS_TEAM_ID: ${{ secrets.ACE_IOS_TEAM_ID }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      ACE_IOS_VERSION: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/ios-v') && github.ref_name) || '' }}
+      ACE_IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+    steps:
+      - name: Check the signing secrets
+        shell: bash
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          missing=""
+          for name in ACE_IOS_TEAM_ID APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_KEY_P8; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Set these secrets on the app-store environment:$missing (docs/releasing-ios-app-store.md)."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Select the newest Xcode
+        run: |
+          newest=$(printf "%s\n" /Applications/Xcode*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+
+      - name: Read required Node major
+        id: node
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const { engines } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const major = engines.node.match(/\d+/)[0];
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${major}.x\n`);
+          NODE
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          package-manager-cache: false
+
+      - name: Install Bun
+        id: bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Cache Bun installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # The key never enters the repository or a log: it lives in the runner's temp folder for
+      # this job only, and automatic signing uses it to fetch certificates and profiles.
+      - name: Write the App Store Connect API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$key"
+          chmod 600 "$key"
+          echo "APPLE_API_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Archive and upload
+        working-directory: apps/ios
+        shell: bash
+        run: bun run release:upload 2>&1 | tee "$RUNNER_TEMP/upload.log"
+
+      - name: Remove the API key
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+      - name: Upload logs and symbols
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-release
+          path: |
+            ${{ runner.temp }}/upload.log
+            apps/ios/.build/Ace.xcarchive/dSYMs
+            apps/ios/.build/export/*.log
+          retention-days: 30
+          if-no-files-found: ignore

@@ -883,10 +883,11 @@ tracks verification and the remaining device work.
   to reopen ace. APNs activity updates are not implemented.
 
 For an unsigned device archive, run `bun scripts/archive.ts --unsigned` from this
-folder. For a signed archive, set `ACE_IOS_TEAM_ID` and omit `--unsigned`. Optional
-`ACE_IOS_BUILD_NUMBER` and `ACE_IOS_ARCHIVE` select the build number and output path.
-Distribution still requires the appropriate Apple team, signing and App Store
-Connect access. An unsigned archive cannot be uploaded to TestFlight.
+folder. For a signed archive, set `ACE_IOS_TEAM_ID` and omit `--unsigned`. To build and upload
+to App Store Connect (TestFlight), run `bun run release:upload` with the team and an App Store
+Connect API key set, from a Mac or through the `iOS release` workflow. The flags, variables and
+secrets are in [docs/releasing-ios-app-store.md](../../docs/releasing-ios-app-store.md). An
+unsigned archive cannot be uploaded to TestFlight.
 
 ## Browser parity and physical-phone checks
 

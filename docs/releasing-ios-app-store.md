@@ -4,6 +4,55 @@ A checklist for sending ace for iPhone and iPad to App Review. Items marked **Ow
 decision or a dashboard login that only the owner has. The desktop release is in
 [releasing.md](releasing.md).
 
+## Build and upload
+
+`apps/ios/scripts/archive.ts --upload` (`bun run release:upload` in `apps/ios`) archives a signed
+Release build and uploads it to App Store Connect, where it shows in TestFlight once Apple has
+processed it. The `iOS release` workflow (`.github/workflows/ios-release.yml`) runs the same
+script after the simulator tests pass. Submitting a build for review stays a step in App Store
+Connect.
+
+One-time setup (**Owner**):
+
+- [ ] Create the app in App Store Connect with bundle id `app.ace.ios`.
+- [ ] In the Apple Developer account, register the four App IDs (`app.ace.ios`,
+      `app.ace.ios.activity`, `app.ace.ios.share`, `app.ace.ios.notifications`). Add the
+      `group.app.ace.ios` app group to all four, and turn on Push Notifications for
+      `app.ace.ios`. Register at least one iPhone as a device: the archive signs for
+      development first, which needs a device on the team.
+- [ ] Create an App Store Connect **Team Key** (Users and Access › Integrations › Team Keys)
+      with the **Admin** role. Automatic signing uses it to create the distribution
+      certificate and the profiles. The key can act for the whole team, so keep it only in the
+      protected environment below.
+- [ ] In GitHub, create an environment named `app-store` (Settings › Environments). Add
+      yourself as a required reviewer, so every upload waits for your approval, and limit its
+      deployment branches and tags to `ios-v*` tags and `main`. Turn off administrator bypass
+      for it. Add an active tag ruleset for `ios-v*` that lets only you create, update or
+      delete those tags. Then add these secrets to the environment:
+  - `ACE_IOS_TEAM_ID`: the Apple Developer team id.
+  - `APPLE_API_KEY_P8`: the whole `AuthKey_<id>.p8` file's text.
+  - `APPLE_API_KEY_ID`: the key id.
+  - `APPLE_API_ISSUER`: the issuer id shown above the keys list.
+
+Each release:
+
+1. Deploy ace cloud first when the build needs a new endpoint: it deploys from a `v*` tag
+   (`release.yml`), not from `ios-v*`.
+2. Push a tag such as `ios-v1.0.0`, which sets the version to 1.0.0, or run the `iOS release`
+   workflow by hand with an optional version and build number.
+3. The build number defaults to the UTC time as `YYYYMMDD.HHmmss`, so each build is higher
+   than the last, from CI or a Mac, as long as their clocks are right. Two builds clash if
+   they start in the same second, and a build number you set by hand isn't checked against
+   earlier ones.
+4. Approve the upload job when GitHub asks.
+5. In App Store Connect, answer export compliance for the build if asked, add it to TestFlight
+   groups or to a version, and submit.
+
+From a Mac, without CI: set `ACE_IOS_TEAM_ID`, `APPLE_API_KEY` (the `.p8` file's path),
+`APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, then run `bun run release:upload` in `apps/ios`.
+`ACE_IOS_VERSION`, `ACE_IOS_BUILD_NUMBER` and `ACE_PUSH` (on by default for uploads) override
+the defaults.
+
 ## URLs
 
 - Privacy Policy: https://acehq.dev/privacy-policy/
