@@ -86,6 +86,21 @@ describe("agent packages", () => {
     ).toBe("network:hosts:a.example.com,b.example.com");
   });
 
+  it("run each component the review listed unless the person turned it off there", () => {
+    const code = (name: string) => ({
+      name,
+      file: `code/${name}.wasm`,
+      world: "spade:package/bot-tools@1.0.0",
+      imports: ["spade:package/tools"],
+      why: "Exact work.",
+    });
+    const recipe = read({ ...watcher, code: [code("fares"), code("dates")] }).recipe!;
+    const granted = grantedEffects(recipe, { "code:dates": false });
+    expect(granted["code:fares"]).toBe(true);
+    expect(granted["code:dates"]).toBe(false);
+    expect(granted.send_as_person).toBe(false);
+  });
+
   it("read version 2 as version 3 with nothing of version 3's", () => {
     const { recipe } = read({
       format: "spade-bot",

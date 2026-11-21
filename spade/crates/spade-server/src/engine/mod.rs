@@ -629,6 +629,7 @@ impl Engine {
                 .filter(|called| called.machine.is_some())
                 .map(|called| called.call.clone())
                 .collect(),
+            code: spade_core::running::code_in(events.iter()),
         };
         self.activity
             .lock()

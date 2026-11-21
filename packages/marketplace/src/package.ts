@@ -105,14 +105,27 @@ export function recipeEffects(recipe: Recipe): MarketEffectRow[] {
   }));
 }
 
-/** The switches the person left on: a missing switch is off, a key not declared turns nothing on. */
+/** A component's switch key, beside the effects' (`code:fares`, ADR 0203 §5). */
+export function codeSwitchKey(name: string): string {
+  return `code:${name}`;
+}
+
+/**
+ * The switches the person left on: a missing effect switch is off, a key not declared turns
+ * nothing on. A component shown on the review runs unless the person turned it off there: Install
+ * accepts the code the review listed (ADR 0203 §5).
+ */
 export function grantedEffects(
   recipe: Recipe,
   switches: Readonly<Record<string, boolean>>,
 ): Record<string, boolean> {
-  return Object.fromEntries(
-    recipeEffects(recipe).map((row) => [row.key, switches[row.key] === true]),
-  );
+  return Object.fromEntries([
+    ...recipeEffects(recipe).map((row) => [row.key, switches[row.key] === true]),
+    ...(recipe.code ?? []).map((code) => {
+      const key = codeSwitchKey(code.name);
+      return [key, switches[key] !== false];
+    }),
+  ]);
 }
 
 const versionParts = (version: string) =>
