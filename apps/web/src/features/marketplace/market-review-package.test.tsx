@@ -218,9 +218,11 @@ test("an update says how the bot's kept runs replay on the new version, and why 
     await within(market).findByText("1 of 2 kept runs replay the same. 1 doesn't: see why."),
   ).toBeTruthy();
   await userEvent.click(within(market).getByRole("button", { name: "See why" }));
-  expect(within(market).getByRole("list", { name: "Kept runs that differ" }).textContent).toBe(
-    "Mail my agent the fare: send_message was refused: Flight watcher doesn't declare sending.",
-  );
+  const differ = within(within(market).getByRole("list", { name: "Kept runs that differ" }));
+  expect(differ.getByText("Mail my agent the fare")).toBeTruthy();
+  expect(
+    differ.getByText("send_message was refused: Flight watcher doesn't declare sending."),
+  ).toBeTruthy();
 });
 
 test("a rollback says where it goes back to, from the copy on this machine", async () => {

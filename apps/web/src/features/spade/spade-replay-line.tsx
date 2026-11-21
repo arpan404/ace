@@ -46,8 +46,9 @@ export function ReplayLine(props: {
       {open && (
         <ul aria-label="Kept runs that differ" className="flex flex-col gap-1 text-ui">
           {failures.map((failure) => (
-            <li key={`${failure.given}:${failure.why}`} className="text-muted-foreground">
-              <span className="text-foreground">{failure.given}</span>: {failure.why}
+            <li key={`${failure.given}:${failure.why}`} className="flex flex-col">
+              <span className="text-foreground">{failure.given}</span>
+              <span className="text-muted-foreground">{failure.why}</span>
             </li>
           ))}
         </ul>

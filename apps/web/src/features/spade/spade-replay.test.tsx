@@ -73,10 +73,9 @@ test("an update review replays the kept runs free and says which differ, and why
   ).toBeTruthy();
   expect(review.queryByRole("list", { name: "Kept runs that differ" })).toBeNull();
   await userEvent.click(review.getByRole("button", { name: "See why" }));
-  const differ = review.getByRole("list", { name: "Kept runs that differ" });
-  expect(differ.textContent).toBe(
-    "Answer the landlord.: send_message was refused: Inbox doesn't declare sending.",
-  );
+  const differ = within(review.getByRole("list", { name: "Kept runs that differ" }));
+  expect(differ.getByText("Answer the landlord.")).toBeTruthy();
+  expect(differ.getByText("send_message was refused: Inbox doesn't declare sending.")).toBeTruthy();
   // It replayed the version on offer, on the recorded steps: no model named, nothing spent.
   expect(spade.cases.replays).toEqual([{ agent: "inbox", body: { recipe } }]);
 });
