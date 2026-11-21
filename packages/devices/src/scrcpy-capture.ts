@@ -469,8 +469,12 @@ export async function scrcpyCapture(options: {
     link = undefined;
     await restarting?.catch(() => {});
     forward?.close();
-    awaitingKey?.writer.close();
+    // Closing a writer skips its onClosed: a move still waiting for the device's keyframe is
+    // told here, so it never hangs.
+    const pending = awaitingKey;
     awaitingKey = undefined;
+    pending?.writer.close();
+    pending?.failed(new Error("Device capture stopped"));
     forward = undefined;
     scrcpyPaths?.close();
     const results = await Promise.allSettled([disconnect(current), jpeg?.stop()]);
@@ -489,9 +493,9 @@ export async function scrcpyCapture(options: {
 
   // The source opens in ace-media before the device sends its first keyframe, so that one
   // is the first unit forwarded.
-  pathsFor();
-  await connect();
   try {
+    pathsFor();
+    await connect();
     options.signal?.throwIfAborted();
     unwatch = platform.watchCaptureTransport(device, serial, (error) => fail(error));
   } catch (error) {
