@@ -77,7 +77,7 @@ export function readerMemoryError(limitBytes: number): Error {
 }
 
 /**
- * ace-history (ADR 0206) as a process of its own, behind the port a worker offers: messages are
+ * ace-history (ADR 0207) as a process of its own, behind the port a worker offers: messages are
  * framed on its stdin and stdout. A watchdog holds it to `limitBytes` of resident memory and
  * kills its process group when it goes over. The group is owned like every other child
  * (process-owner), and the reader exits by itself when stdin closes or the daemon is gone, so it

@@ -10,7 +10,7 @@ export const stagedAceHistory = (root: string, target: Target) =>
   stagedRustBinary(root, target, "history", "ace-history");
 
 /**
- * Stages ace-history, the daemon's saved-history reader (ADR 0206), in `history/` beside
+ * Stages ace-history, the daemon's saved-history reader (ADR 0207), in `history/` beside
  * `media/` and `files/`: built from `native/history` on the matching release host with the
  * workspace's pinned toolchain and lockfile, or, for signed standalone archives, the executable
  * `ACE_HISTORY_BIN` names from the signed desktop package.

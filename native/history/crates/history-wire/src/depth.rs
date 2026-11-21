@@ -7,7 +7,7 @@
 use serde_json::Value;
 
 /// The deepest nesting any message or stored row is read with: a provider record's own cap
-/// (512, ADR 0206) plus room for the item and envelope around it.
+/// (512, ADR 0207) plus room for the item and envelope around it.
 pub const WIRE_DEPTH: usize = 640;
 
 /// The deepest `[`/`{` nesting outside strings.

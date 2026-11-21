@@ -1,7 +1,7 @@
 import { RawFrameDecoder, encodeBody, encodeJson } from "@ace/files-native/frames";
 
 /**
- * ace-history's messages (ADR 0206, `native/history/crates/history-wire`) over the frames it
+ * ace-history's messages (ADR 0207, `native/history/crates/history-wire`) over the frames it
  * shares with ace-files (`@ace/files-native/frames`). A `Uint8Array` inside a message travels as
  * a body frame sent just before the JSON, tagged with the message's id, and appears in the JSON
  * as `{"$body": n}`, the n-th body of that message.

@@ -252,7 +252,7 @@ async function piHome(home: string) {
 /**
  * JSON JavaScript reads that serde_json's defaults refuse: nesting past 128 levels and integers
  * past 2^53, which the daemon parses to the same double either way. Lone surrogates and non-ISO
- * dates read differently by design (ADR 0206) and are pinned by ace-history's own tests.
+ * dates read differently by design (ADR 0207) and are pinned by ace-history's own tests.
  */
 async function edgeHome(home: string) {
   const id = "33333333-3333-4333-8333-333333333333";

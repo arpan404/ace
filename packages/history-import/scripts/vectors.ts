@@ -1,5 +1,5 @@
 /**
- * Regenerates `native/history/vectors/` from the TypeScript (ADR 0206): the wire frames both
+ * Regenerates `native/history/vectors/` from the TypeScript (ADR 0207): the wire frames both
  * sides must read and write, and the text rules shared with live code. `--check` fails instead
  * of writing when a vector file is stale.
  */

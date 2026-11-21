@@ -36,7 +36,7 @@ export interface HistoryRuntime {
   delay?: IdleWorkerRuntime["delay"];
   /** The reader process's memory watchdog: its limit, sampler and clock. */
   reader?: Partial<ReaderProcessRuntime>;
-  /** The ace-history executable (ADR 0206); found beside the daemon by default. */
+  /** The ace-history executable (ADR 0207); found beside the daemon by default. */
   readerBinary?: string;
   /** More environment for the reader process, as a development build's test hooks read. */
   readerEnv?: Readonly<Record<string, string>>;
@@ -49,7 +49,7 @@ const Progress = z.object({
   result: ScanResult,
 });
 /**
- * The saved-history reader: ace-history (ADR 0206) in a process of its own, restarted with
+ * The saved-history reader: ace-history (ADR 0207) in a process of its own, restarted with
  * backoff when it dies. One operation owns writes at a time; up to eight bounded reads may
  * overlap a scan.
  */

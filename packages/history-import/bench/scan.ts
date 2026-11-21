@@ -1,4 +1,4 @@
-// ace-history (ADR 0206) on generated homes only. The TypeScript reader it replaced was measured
+// ace-history (ADR 0207) on generated homes only. The TypeScript reader it replaced was measured
 // by this script before it was removed (BENCHMARKS.md).
 //
 //   bun packages/history-import/bench/scan.ts

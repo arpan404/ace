@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `ace-history`, the daemon's saved-history reader (ADR 0206): the reader worker's messages,
+//! `ace-history`, the daemon's saved-history reader (ADR 0207): the reader worker's messages,
 //! framed over stdin and stdout. One thread reads frames, one serves lists and reads from its own
 //! connection while a scan or import runs, and the main thread runs one operation at a time.
 

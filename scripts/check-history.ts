@@ -3,7 +3,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-// ace-history, the daemon's saved-history reader (ADR 0206): its own Cargo workspace, lockfile
+// ace-history, the daemon's saved-history reader (ADR 0207): its own Cargo workspace, lockfile
 // and pinned toolchain, with native/files' checks and licence allowlist.
 const cwd = new URL("../native/history/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(

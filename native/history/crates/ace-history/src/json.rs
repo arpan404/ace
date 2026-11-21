@@ -54,12 +54,12 @@ pub fn has(map: &Map<String, Value>, key: &str) -> bool {
 
 /// The deepest nesting a provider record is decoded with. serde_json stops at 128 levels and
 /// JavaScript goes much deeper; past 128 the record is decoded again without serde's limit, up to
-/// this depth, so the reader's stack stays bounded. Deeper records stay raw (ADR 0206).
+/// this depth, so the reader's stack stays bounded. Deeper records stay raw (ADR 0207).
 pub const MAX_DEPTH: usize = 512;
 
 /// `JSON.parse` of provider text, as close as Rust strings allow: nesting past serde's limit is
 /// read up to [`MAX_DEPTH`], and a lone UTF-16 surrogate escape, which a Rust string cannot hold,
-/// reads as U+FFFD instead of failing the record (ADR 0206).
+/// reads as U+FFFD instead of failing the record (ADR 0207).
 pub fn parse(text: &str) -> Option<Value> {
     match serde_json::from_str(text) {
         Ok(value) => Some(value),
@@ -181,7 +181,7 @@ mod tests {
             timestamp(&Value::from("2030-01-02T10:00:00.123456Z")),
             Some(1_893_578_400_123)
         );
-        // Date.parse reads these, differently per engine; the reader does not (ADR 0206).
+        // Date.parse reads these, differently per engine; the reader does not (ADR 0207).
         assert_eq!(timestamp(&Value::from("Jan 2, 2030 10:00:00 GMT")), None);
         assert_eq!(timestamp(&Value::from("2030/01/02")), None);
     }

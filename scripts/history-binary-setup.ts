@@ -5,7 +5,7 @@ import type { TestProject } from "vitest/node";
 
 declare module "vitest" {
   export interface ProvidedContext {
-    /** The ace-history the process tests run, built with its test hooks (ADR 0206). */
+    /** The ace-history the process tests run, built with its test hooks (ADR 0207). */
     historyBinary: string;
   }
 }

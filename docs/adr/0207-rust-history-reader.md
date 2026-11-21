@@ -1,4 +1,4 @@
-# 0206. The saved-history reader moves to Rust
+# 0207. The saved-history reader moves to Rust
 
 Status: accepted, 2026-11-20
 

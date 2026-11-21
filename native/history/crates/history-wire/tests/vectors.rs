@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The frames in `vectors/wire.json` come from the TypeScript side (ADR 0206): this side must
+//! The frames in `vectors/wire.json` come from the TypeScript side (ADR 0207): this side must
 //! read what the daemon writes and write, byte for byte, what the daemon reads.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]

@@ -72,7 +72,7 @@ The scan now:
 
 Synthetic worker measurements (Node v26.8.1, the production 128-MiB limit, 100 ms heap samples): 64 transcripts with six ~1-MB records each scan in 70 ms at a 34-MiB peak, against a heap exhaustion before. The worst case for the new bound, 100 transcripts with ten 130-KB records of small arrays each, also completes with the old generation capped at 52 MiB, against a 34-MiB idle baseline. `memory-bounds.process.test.ts` keeps both behaviours: the large inventory scans without a restart, and a transcript that exhausts the reader settles within two crashes and is reported rather than restarting each scan.
 
-## November 2026: TypeScript reader against ace-history (ADR 0206)
+## November 2026: TypeScript reader against ace-history (ADR 0207)
 
 `bun packages/history-import/bench/scan.ts` on Bun 1.4.4, macOS arm64, a shared and loaded
 16-core host; generated homes only. Peak is the reader processes' resident memory, sampled every
@@ -93,7 +93,7 @@ Both readers sampled the same 709,778,513 bytes of the scale home. The import is
 writes into the archive (the same rows either way); ace-history gives a persisted import a
 16 MiB page cache for its length. Its memory limit is 128 MiB (`readerMemoryLimitBytes`).
 
-## November 2026: every provider on ace-history (ADR 0206)
+## November 2026: every provider on ace-history (ADR 0207)
 
 The same script with OpenCode's legacy and SQLite stores, a Pi home and an OpenCode import added,
 release builds, Bun 1.4, the same shared host. The TypeScript column was measured on this tree

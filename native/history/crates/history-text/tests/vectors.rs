@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `vectors/text.json` holds what the shared TypeScript rules return (ADR 0206), regenerated from
+//! `vectors/text.json` holds what the shared TypeScript rules return (ADR 0207), regenerated from
 //! them; `vectors/title.json` holds what the TypeScript reader's titles were when it was removed.
 //! The ports must agree with both.
 

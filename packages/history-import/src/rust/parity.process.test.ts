@@ -14,7 +14,7 @@ afterAll(async () => {
 
 const expectedPath = new URL("./parity-expected.json.gz", import.meta.url);
 
-/** What the TypeScript reader made of the parity homes, kept when it was removed (ADR 0206). */
+/** What the TypeScript reader made of the parity homes, kept when it was removed (ADR 0207). */
 type Observation = {
   stored: { sources: { id: unknown; instance: unknown; kind: unknown }[] };
   imports: { session: string; archive: { agents: unknown[]; blobs: object } | null }[];

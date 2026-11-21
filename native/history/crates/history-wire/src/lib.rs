@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The protocol between the daemon and `ace-history` (ADR 0206).
+//! The protocol between the daemon and `ace-history` (ADR 0207).
 //!
 //! Framing is files-wire's: a `u32` little-endian length covering a kind byte and the payload,
 //! then kind 1 (UTF-8 JSON) or kind 2 (`u64` little-endian message id, then raw bytes). The JSON
