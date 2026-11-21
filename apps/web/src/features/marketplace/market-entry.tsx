@@ -19,9 +19,16 @@ import {
   versionFacts,
 } from "./market-entry-parts.tsx";
 import { faceFromReview, useInLibrary, useSuitLook } from "./market-looks.ts";
-import { canDoSentences, entryAction, failureSentence, typeWord } from "./market-model.ts";
+import {
+  canDoSentences,
+  entryAction,
+  failureSentence,
+  needCatalogue,
+  typeWord,
+} from "./market-model.ts";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
-import { AppMark, SuitPicture, Stage } from "./market-stage.tsx";
+import { AppMark } from "@/components/ui/app-mark.tsx";
+import { SuitPicture, Stage } from "./market-stage.tsx";
 import { part } from "@/lib/suit-part.ts";
 
 /*
@@ -134,7 +141,7 @@ function RecipeRows(props: { body: Recipe }) {
           </h3>
           {body.needs.map((need) => (
             <div key={need.key} className="mk-fact-row">
-              <AppMark name={need.label} size={32} />
+              <AppMark catalogue={needCatalogue(need.key)} name={need.label} size="fact" />
               <span className="mk-words">
                 <span className="mk-name">{need.label}</span>
                 <span className="mk-meta">{need.why}</span>
