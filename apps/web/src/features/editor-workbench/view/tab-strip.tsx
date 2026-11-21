@@ -136,6 +136,8 @@ export function TabStrip(props: {
         shortcut="editor.splitRight"
         size="sm"
         icon={SquareSplitHorizontalIcon}
+        // An empty group has nothing to show twice.
+        disabled={group.active === undefined}
         // ⌥-click splits down, as ⇧⌥⌘\ does.
         onClick={(event) => actions.split(event.altKey ? "down" : "right")}
       />
