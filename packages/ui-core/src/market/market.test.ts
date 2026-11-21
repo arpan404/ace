@@ -5,12 +5,17 @@ import {
   canDoSentences,
   entryAction,
   failureSentence,
+  findingRows,
   findingSentences,
   flaggedWord,
   installBlock,
   MarketFailure,
+  missingNeedsSentence,
   needCatalogue,
   needDefaults,
+  replacesLine,
+  reviewFromLine,
+  reviewHeading,
   sizeText,
   typeWord,
 } from "./index.ts";
@@ -151,4 +156,57 @@ test("sizes, lists and flagged files read in plain words", () => {
     "A script or program",
   );
   expect(flaggedWord({ path: "font.woff2", executable: false, flagged: true })).toBe("Font");
+});
+
+test("a scan's findings keep their level, in a word, blocks first", () => {
+  expect(
+    findingRows({
+      verdict: "warn",
+      findings: [
+        { rule: "a", level: "note", message: "Has a picture" },
+        { rule: "b", level: "warn", message: "Reaches api.example.com" },
+      ],
+    } as never),
+  ).toEqual([
+    { level: "warn", levelWord: "Warning", sentence: "Reaches api.example.com." },
+    { level: "note", levelWord: "Note", sentence: "Has a picture." },
+  ]);
+});
+
+const reviewOf = (extra: Record<string, unknown>, body: Record<string, unknown> = {}) =>
+  ({
+    title: "Inbox",
+    version: "1.1.0",
+    reviewed: false,
+    byAce: false,
+    body: { type: "spade-bot", ...body },
+    ...extra,
+  }) as unknown as MarketReview;
+
+test("a review is titled by what Install does: get, update or roll back", () => {
+  expect(reviewHeading(reviewOf({}))).toBe("Get Inbox");
+  expect(reviewHeading(reviewOf({ updates: "1.0.0" }))).toBe("Update Inbox");
+  expect(reviewHeading(reviewOf({ updates: "1.2.0" }, { update: { rollback: true } }))).toBe(
+    "Roll back Inbox",
+  );
+});
+
+test("a review says where it is from and what it replaces", () => {
+  expect(reviewFromLine(reviewOf({ reviewed: true }))).toBe(
+    "From market.acehq.dev, reviewed by ace.",
+  );
+  expect(reviewFromLine(reviewOf({ from: "https://git.example.com/cat" }))).toBe(
+    "From git.example.com/cat.",
+  );
+  expect(replacesLine(reviewOf({}))).toBeUndefined();
+  expect(replacesLine(reviewOf({ updates: "1.0.0" }))).toBe(
+    "Replaces version 1.0.0, which stays until you install.",
+  );
+});
+
+test("Install waits with a sentence naming each required app left off", () => {
+  expect(missingNeedsSentence("Inbox", [])).toBeUndefined();
+  expect(missingNeedsSentence("Inbox", ["Gmail", "Slack"])).toBe(
+    "Inbox can't work without Gmail and Slack.",
+  );
 });

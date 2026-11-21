@@ -3,7 +3,14 @@
  * marketplace and the phone's bridge (ADR 0168 §12) so neither copies the other's rules.
  */
 export { entryAction, installBlock, typeWord } from "./entry.ts";
-export { failureSentence, findingSentences, MarketFailure, type MarketStep } from "./failure.ts";
+export {
+  failureSentence,
+  findingRows,
+  findingSentences,
+  MarketFailure,
+  type FindingRow,
+  type MarketStep,
+} from "./failure.ts";
 export {
   codeKey,
   decidedEachTime,
@@ -12,5 +19,14 @@ export {
   limitSentences,
   triggerWhen,
 } from "./package-words.ts";
-export { canDoSentences, needCatalogue, needDefaults } from "./review.ts";
+export {
+  canDoSentences,
+  missingNeedsSentence,
+  needCatalogue,
+  needDefaults,
+  replacesLine,
+  reviewAction,
+  reviewFromLine,
+  reviewHeading,
+} from "./review.ts";
 export { andList, count, dateText, flaggedWord, readAtText, sentence, sizeText } from "./words.ts";
