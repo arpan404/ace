@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { AgentStatus, InteractionState, Item, ThreadStatus } from "@ace/protocol";
+import { AgentStatus, InteractionState, Item, KnownThreadStatus } from "@ace/protocol";
 import { z } from "zod";
 import type { ReplayResult, TimelineEntry } from "./replay.ts";
 
-const threadState = z.enum(ThreadStatus.options.map((option) => option.shape.state.value));
+const threadState = z.enum(KnownThreadStatus.options.map((option) => option.shape.state.value));
 const agentState = z.enum(AgentStatus.options.map((option) => option.shape.state.value));
 const itemType = z.enum(Item.options.map((option) => option.shape.type.value));
-const waitingOn = ThreadStatus.options[2].shape.on;
+const waitingOn = KnownThreadStatus.options[2].shape.on;
 const agentStates = z
   .custom<Record<string, unknown>>(
     (value) => typeof value === "object" && value !== null && !Array.isArray(value),

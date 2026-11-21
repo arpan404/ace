@@ -18,6 +18,7 @@ const statusOf: Record<State, ThreadStatus> = {
     state: "moved",
     to: { hostId: HostId.parse("h"), name: "Studio", threadId: ThreadId.parse("t") },
   },
+  unknown: { state: "unknown", raw: { state: "paused" } },
 };
 
 function thread(id: string, state: State, prs: Record<string, PrState> = {}): ThreadListEntry {

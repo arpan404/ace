@@ -280,6 +280,37 @@ export class FakeTransfers {
     this.cancels.add(transferId);
     return { kind: "cancelled", transfer: this.update(transfer, { phase: "cancelled" }) };
   }
+  /** A transfer as a test stages it mid-way: a thread moving to a machine no longer linked. */
+  seed(transfer: Transfer): void {
+    this.publish(Transfer.parse(transfer));
+  }
+  /**
+   * The person's choice for a moving thread whose machine isn't linked: it runs here again, and
+   * the transfer records the choice. Refused while that machine is linked, as the real one is.
+   */
+  carryOnHere(transferId: string): TransfersResult["result"] {
+    const transfer = this.transfers.get(transferId);
+    if (!transfer) return { kind: "error", code: "not_found", message: "No such transfer." };
+    const name = transfer.target.name;
+    if (!transfer.unlinked)
+      return {
+        kind: "error",
+        code: "machine_linked",
+        message: `${name} is linked again, so the move finishes or is undone by its answer.`,
+      };
+    const { unlinked: _unlinked, ...rest } = transfer;
+    this.transfers.set(transferId, Transfer.parse(rest));
+    return {
+      kind: "carriedOnHere",
+      transfer: this.update(Transfer.parse(rest), {
+        phase: "cancelled",
+        error: {
+          code: "carried_on_here",
+          message: `You carried on here while ${name} wasn't linked. If ${name} already took the thread, both may run.`,
+        },
+      }),
+    };
+  }
   /** False when the message isn't `transfers.request`. */
   handle(message: ClientMessage, push: (message: ServerMessage) => void): boolean {
     if (message.type !== "transfers.request") return false;
@@ -287,7 +318,9 @@ export class FakeTransfers {
     const result: TransfersResult["result"] =
       operation.op === "list"
         ? { kind: "list", transfers: this.list().slice(0, 100) }
-        : this.cancel(operation.transferId);
+        : operation.op === "carryOnHere"
+          ? this.carryOnHere(operation.transferId)
+          : this.cancel(operation.transferId);
     push({ type: "transfers.result", requestId: message.requestId, result });
     return true;
   }

@@ -130,6 +130,10 @@
         },
         {
           "properties": {
+            "key": {
+              "maxLength": 4096,
+              "type": "string"
+            },
             "kind": {
               "const": "origin",
               "type": "string"
@@ -154,6 +158,10 @@
         },
         {
           "properties": {
+            "keyVersion": {
+              "const": 2,
+              "type": "number"
+            },
             "kind": {
               "const": "match",
               "type": "string"

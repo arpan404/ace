@@ -32,6 +32,8 @@ export function externalAgentStatus(status: ThreadStatus, threadId: ThreadId): A
       return { state: "idle" };
     // Its work goes on on another machine: still waited on, never read as finished here.
     case "moved":
+    // A state newer than this build: never read as finished, so it stays waited on.
+    case "unknown":
       return { state: "blocked", on: "upstream", refs: [threadId] };
   }
 }
