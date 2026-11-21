@@ -41,7 +41,7 @@ it("a watched tab that will not come back keeps being retried on its own while t
   const t = await idleThread();
   await t.idleFor(defaultTabLifecycle.restAfterMs);
   t.backend.fail("show a", 1_000);
-  const viewer = await watch(t.service);
+  await watch(t.service);
   await expect.poll(() => t.service.state("thread").video?.attempts).toBe(1);
   // Waits double up to a minute and stay there; the browser stays ready all along.
   let attempts = 1;
@@ -65,75 +65,66 @@ it("a watched tab that will not come back keeps being retried on its own while t
   // A command on the failing tab fails on its own, saying the tab could not be shown.
   await expect(t.use("a")).rejects.toMatchObject({ code: "tab_unavailable" });
   await t.use("b");
-  expect(viewer.chunks).toEqual([]);
+  // Nothing was captured of a tab that wasn't shown.
+  expect(t.backend.captures).toEqual([]);
 
-  // Once the window shows again, the next try brings the tab back and its video starts at a keyframe.
+  // Once the window shows again, the next try brings the tab back and its capture opens on it.
   t.backend.heal("show a");
   t.navigationClock.advance(60_000);
   await expect.poll(() => t.service.state("thread").video).toBeUndefined();
   expect(t.backend.steps("a")).toEqual(["hide a", "show a"]);
   const opened = await capture(t.backend, 0);
-  opened.send(1, false);
-  opened.send(2, true);
-  await expect.poll(() => viewer.chunks.map((chunk) => chunk.bytes[0])).toEqual([2]);
+  expect(opened.opened.page).toBe(t.backend.tabPages.get("a")?.cdp);
+  expect(t.backend.captures).toHaveLength(1);
   expect(healthy(t)).toEqual({ status: "ready", lost: false });
 });
 
 it("an agent working in a tab someone keeps watching never stops, reopens or re-keys its video", async () => {
   const t = await idleThread();
-  const viewer = await watch(t.service);
+  await watch(t.service);
   const playing = await capture(t.backend, 0);
   playing.send(1, true);
-  // The viewer acks what it shows, as every client does: a chunk left unacked past its deadline
-  // counts as lost, and its deltas would wait for a keyframe.
-  const shown = async (count: number) => {
-    await expect.poll(() => viewer.chunks.length).toBe(count);
-    await viewer.ack(viewer.chunks.at(-1)?.sequence ?? 0);
-  };
-  await shown(1);
+  await expect.poll(() => t.service.state("thread").video).toBeUndefined();
   const keyframes = playing.opened.keyframes;
   for (let command = 0; command < 5; command++) {
     await t.use("a");
     await t.idleFor(defaultTabLifecycle.restAfterMs);
     playing.send(command + 2, false);
-    await shown(command + 2);
+    await settle();
+    // Still the same capture, playing, and nothing asked it for a keyframe.
+    expect(playing.opened.closed).toBe(false);
+    expect(t.service.state("thread").video).toBeUndefined();
   }
-  await expect.poll(() => viewer.chunks.map((chunk) => chunk.bytes[0])).toEqual([1, 2, 3, 4, 5, 6]);
   expect(t.backend.captures).toHaveLength(1);
   expect(playing.opened.closed).toBe(false);
   expect(playing.opened.keyframes).toBe(keyframes);
   expect(t.backend.steps("a").filter((step) => !step.startsWith("use"))).toEqual([]);
 });
 
-it("two viewers with different backlogs both lose what was queued when a restore starts, and each starts again at a keyframe", async () => {
+it("two viewers watching through a restore: the capture stops as it starts, none opens while it runs, and the video comes back from a new capture", async () => {
   const t = await idleThread();
   const hidden = t.backend.hold("hide a");
   t.lookAfter(defaultTabLifecycle.restAfterMs);
   await settle();
-  const caughtUp = await watch(t.service, "caught-up");
-  const behind = await watch(t.service, "behind");
+  await watch(t.service, "caught-up");
+  await watch(t.service, "behind");
   const before = await capture(t.backend, 0);
   before.send(1, true);
-  await expect.poll(() => caughtUp.chunks.length + behind.chunks.length).toBe(2);
-  await caughtUp.ack(caughtUp.chunks.at(-1)?.sequence ?? 0);
-  // The second viewer's link pushes back: its chunks wait in its queue.
-  behind.link.blocked = true;
-  for (let marker = 2; marker < 6; marker++) before.send(marker, false);
-  await expect.poll(() => caughtUp.chunks.map((chunk) => chunk.bytes[0])).toEqual([1, 2, 3, 4, 5]);
-  expect(behind.chunks.map((chunk) => chunk.bytes[0])).toEqual([1]);
+  await expect.poll(() => t.service.state("thread").video).toBeUndefined();
+  // ace-media holds each viewer's backlog (X3): the daemon's part is the capture. One capture
+  // serves both viewers.
+  expect(t.backend.captures).toHaveLength(1);
 
   hidden();
   const after = await capture(t.backend, 1);
   expect(before.opened.closed).toBe(true);
-  behind.link.blocked = false;
-  after.send(6, false);
-  after.send(7, true);
-  await expect
-    .poll(() => [caughtUp.chunks.at(-1)?.bytes[0], behind.chunks.at(-1)?.bytes[0]])
-    .toEqual([7, 7]);
-  // Nothing queued from before the restore arrived, and no delta came before the keyframe.
-  expect(caughtUp.chunks.map((chunk) => chunk.bytes[0])).toEqual([1, 2, 3, 4, 5, 7]);
-  expect(behind.chunks.map((chunk) => chunk.bytes[0])).toEqual([1, 7]);
+  expect(after.opened).not.toBe(before.opened);
+  // A late unit of the closed capture never stands for the new one.
+  before.send(2, true);
+  after.send(3, true);
+  await expect.poll(() => t.service.state("thread").video).toBeUndefined();
+  expect(after.opened.closed).toBe(false);
+  expect(t.backend.captures).toHaveLength(2);
 });
 
 it("a viewer who leaves and comes back while the tab is being shown gets it once, at a keyframe", async () => {
@@ -143,16 +134,16 @@ it("a viewer who leaves and comes back while the tab is being shown gets it once
   const first = await watch(t.service, "first");
   await settle();
   first.leave();
-  const back = await watch(t.service, "back");
+  await watch(t.service, "back");
   await settle();
   showing();
   const opened = await capture(t.backend, 0);
-  opened.send(1, false);
-  opened.send(2, true);
-  await expect.poll(() => back.chunks.map((chunk) => chunk.bytes[0])).toEqual([2]);
+  opened.send(1, true);
+  // Shown once, and captured once: the viewer who left and came back opened nothing twice.
+  await expect.poll(() => t.service.state("thread").video).toBeUndefined();
   expect(t.backend.steps("a")).toEqual(["hide a", "show a"]);
-  expect(t.service.state("thread").video).toBeUndefined();
-  expect(first.chunks).toEqual([]);
+  expect(t.backend.captures).toHaveLength(1);
+  expect(opened.opened.closed).toBe(false);
 });
 
 it("a dropped tab the person switches to while watching reopens at its address and its video comes from the new page", async () => {

@@ -245,28 +245,17 @@ export const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 /**
  * A person's video viewer of the thread, on a media connection ace-media delivers (X3): the
- * capture runs for it. `chunks` stays empty: nothing comes on the main socket any more.
+ * capture runs for it. Its pictures go to ace-media, never back on the main socket, so what a
+ * test can see of its video here is the capture (`capture`) and the thread's `video` status.
  */
 export async function watch(service: BrowserService, connectionId = "viewer") {
-  const chunks: BrowserVideoChunk[] = [];
-  const assembler = new StreamAssembler();
-  /** While set, the viewer's transport pushes back: chunks wait in its queue. */
-  const link = { blocked: false };
   const delivery = fakeDelivery();
   const bridge = connectBrowser(service, {
     connectionId,
     authorize: () => true,
     send: () => true,
     media: { owner: () => phoneOwner, delivery: () => delivery.port },
-    sendStream: (pieces) => {
-      if (link.blocked) return false;
-      for (const piece of pieces) {
-        const envelope = assembler.push(piece);
-        const message = envelope && decodeStreamMessage(envelope);
-        if (message?.kind === "browser.video") chunks.push(message.chunk);
-      }
-      return true;
-    },
+    sendStream: () => true,
   });
   let closed = false;
   const leave = () => {
@@ -284,15 +273,7 @@ export async function watch(service: BrowserService, connectionId = "viewer") {
     video: { codecs: ["vp8"] },
     media: { connection: "mc_viewerconnection" },
   });
-  const ack = (sequence: number) =>
-    bridge.handle({
-      type: "browser.ack",
-      threadId: "thread",
-      requestId: `ack-${sequence}`,
-      sequence,
-      video: true,
-    });
-  return { chunks, ack, leave, link };
+  return { leave };
 }
 
 /** The tab capture the live video opened `index`th, once it was told what to encode. */
