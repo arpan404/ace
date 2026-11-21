@@ -28,7 +28,8 @@ import { connectHere } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { LoadingRows } from "./spade-settings-loading.tsx";
-import { CouldNotRead } from "./spade-settings-rows.tsx";
+import { CouldNotRead, Refusal } from "./spade-settings-rows.tsx";
+import { isStandingRefusal } from "@/boot/person-standing.ts";
 
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
@@ -139,13 +140,18 @@ function ConnectorRow(props: {
     if (outcome.kind !== "done")
       toast.error({ title: `Couldn't reconnect ${connector.name}`, description: outcome.message });
   };
+  // A disconnect only the person may make shows its refusal in the row, with Confirm it's you.
+  const [refused, setRefused] = useState<string>();
   const remove = async () => {
     setBusy(true);
+    setRefused(undefined);
     try {
       await disconnect(client, connector.id);
       await refresh();
     } catch (error) {
-      toast.error({ title: `Couldn't disconnect ${connector.name}`, description: fault(error) });
+      if (isStandingRefusal(fault(error))) setRefused(fault(error));
+      else
+        toast.error({ title: `Couldn't disconnect ${connector.name}`, description: fault(error) });
     } finally {
       setBusy(false);
     }
@@ -164,7 +170,13 @@ function ConnectorRow(props: {
       leading={<AppMark catalogue={connector.catalogue} name={connector.name} />}
       description={
         <>
-          <span className="block">{connect.status ?? state}</span>
+          <span className="block">
+            {refused ? (
+              <Refusal onConfirmed={() => void remove()}>{refused}</Refusal>
+            ) : (
+              (connect.status ?? state)
+            )}
+          </span>
           <span className="block">
             {[
               users.length > 0 ? `Used by ${users.join(", ")}` : "No bot uses it",

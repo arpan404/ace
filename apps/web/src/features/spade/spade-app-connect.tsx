@@ -1,10 +1,11 @@
 import type { SpadeAppReady, SpadeConnector } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { openExternal } from "@/boot/open-external.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { ConnectProgress } from "./spade-connect-progress.tsx";
+import { Refusal } from "./spade-settings-rows.tsx";
 import { connectProgress, useConnectApp } from "./use-connect-app.ts";
 
 /*
@@ -41,6 +42,7 @@ export function useAppConnect(props: {
     onConnected: (connector) => props.onConnected?.(connector),
   });
   const [keyOpen, setKeyOpen] = useState(false);
+  const retry = useRef<(() => void) | undefined>(undefined);
   const [key, setKey] = useState("");
   const reconnecting = app.connector !== undefined;
   const byKey = reconnecting ? app.connector?.signIn === "token" : app.ready === "key";
@@ -49,6 +51,9 @@ export function useAppConnect(props: {
   const busy = progress !== undefined;
   const start = (token?: string) => {
     const typed = token?.trim();
+    // A change only the person makes: kept (without a key, which is never kept) so it can be
+    // made again once they confirm it's them.
+    retry.current = typed ? undefined : () => start();
     void flow.start(
       reconnecting && app.connector
         ? { reconnect: app.connector.id, ...(typed ? { token: typed } : {}) }
@@ -122,9 +127,7 @@ export function useAppConnect(props: {
   const status: ReactNode = progress ? (
     <ConnectProgress phase={flow.phase} name={app.name} onCancel={flow.cancel} />
   ) : failure ? (
-    <p role="alert" className="text-destructive">
-      {failure}
-    </p>
+    <Refusal onConfirmed={retry.current}>{failure}</Refusal>
   ) : keyForm ? (
     keyForm
   ) : null;

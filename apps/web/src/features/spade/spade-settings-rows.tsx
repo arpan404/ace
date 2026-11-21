@@ -3,6 +3,9 @@ import { Link } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { SettingCard, SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { isStandingRefusal } from "@/boot/person-standing.ts";
+import { ConfirmPerson } from "@/features/ace-account/index.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
@@ -54,7 +57,26 @@ export function CouldNotRead(props: { what: string; error: Error; retry(): void 
 }
 
 /** A refusal under the control it came from. */
-export function Refusal(props: { children: ReactNode }) {
+/**
+ * Why a change was refused, in the row. A change only the person may make, refused because this
+ * window hasn't shown it is theirs, offers Confirm it's you instead of the bare refusal; once they
+ * confirm, `onConfirmed` makes the change again (without one, they make it again themselves).
+ */
+export function Refusal(props: { children: ReactNode; onConfirmed?: (() => void) | undefined }) {
+  const client = useSpadeClient();
+  const [confirmed, setConfirmed] = useState(false);
+  if (isStandingRefusal(props.children))
+    return confirmed ? (
+      <span role="status">Confirmed. Make the change again.</span>
+    ) : (
+      <ConfirmPerson
+        client={client}
+        onConfirmed={() => {
+          if (props.onConfirmed) props.onConfirmed();
+          else setConfirmed(true);
+        }}
+      />
+    );
   return (
     <span role="alert" className="text-destructive">
       {props.children}

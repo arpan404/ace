@@ -262,9 +262,9 @@ function Detail(props: { detail: SpadeRequestDetail }) {
       return <MessagePreview heads={[["To", detail.to] as const]} body={detail.text} />;
     case "task":
       return (
-        <div className="-ml-3 flex flex-col gap-1">
-          {detail.why && <p className="ml-3 text-ui text-foreground">{detail.why}</p>}
-          <TaskDiff before={detail.before} after={detail.after} />
+        <div className="flex flex-col gap-2">
+          {detail.why && <p className="text-ui text-foreground">{detail.why}</p>}
+          <TaskDiff before={detail.before} after={detail.after} className="ml-0 max-w-none" />
         </div>
       );
     case "fields":
