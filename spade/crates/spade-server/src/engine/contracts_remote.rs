@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use spade_core::contract::{self, Called, Outcome, Request};
+use spade_core::contract::{Called, Outcome, Request};
 use spade_core::event::FromAgent;
 use spade_core::package::contract::Contract;
 use spade_store::{Agent, Delivered, Delivery, InboxEntry, OutboxEntry};
@@ -357,13 +357,11 @@ impl Engine {
         }
     }
 
-    /// Whether the callee in `conversation` waits on the person while call `call` is open.
-    pub(super) fn call_waiting(&self, conversation: &str, call: &str) -> bool {
-        let open = self
-            .load(conversation)
-            .is_ok_and(|events| contract::open(&events).iter().any(|r| r.call == call));
-        open && self
-            .activity(conversation)
+    /// Whether the callee of `conversation` waits on the person now, for a call already known
+    /// to be open (its outcome read from its delivery found none). Read from the conversation's
+    /// activity, folded once per change, never from its history.
+    pub(super) fn callee_waiting(&self, conversation: &str) -> bool {
+        self.activity(conversation)
             .is_ok_and(|a| a.state == super::roster::State::Waiting)
     }
 
@@ -396,12 +394,13 @@ impl Engine {
         let known = body["waiting"].as_bool() == Some(true);
         let mut frames = self.live(&agent.conversation).frames.subscribe();
         let until = tokio::time::Instant::now() + Duration::from_millis(wait);
-        let mut from = None;
+        // From where the call was delivered: a read costs the call's events, not history.
+        let mut from = Some(entry.seq - 1);
         loop {
             if let Some(outcome) = self.call_outcome(&agent.conversation, key, &mut from) {
                 return (200, answer_of(&outcome));
             }
-            let waiting = self.call_waiting(&agent.conversation, key);
+            let waiting = self.callee_waiting(&agent.conversation);
             let left = until.saturating_duration_since(tokio::time::Instant::now());
             if left.is_zero() || waiting != known {
                 return (200, json!({ "status": "pending", "waiting": waiting }));

@@ -39,6 +39,7 @@ mod knowledge_api;
 mod learned;
 mod ledger;
 mod local;
+mod outside_admit;
 pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
 mod made;
@@ -109,6 +110,10 @@ pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use outside_admit::{
+    WAITS_AT_ONCE as OUTSIDE_WAITS_AT_ONCE, WAITS_PER_GRANT as OUTSIDE_WAITS_PER_GRANT,
+    WaitSlot as OutsideWaitSlot,
+};
 pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
@@ -205,9 +210,9 @@ pub struct Engine {
     /// What a test runs right before a call is screened.
     screening_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
-    /// The outside MCP requests making a call now, by grant and request id, to their call
-    /// (ADR 0202 §3): a legacy client's cancel names its request.
-    outside_requests: Mutex<HashMap<String, String>>,
+    /// What outside callers hold at once (ADR 0202 §3, §6): their MCP requests' calls, their
+    /// waits and the stamps' nonces (`outside_admit`).
+    outside: outside_admit::Shared,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
@@ -392,6 +397,8 @@ impl Engine {
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
         let decisions = classify::Decisions::new(data.join("classifier"));
+        // Stamps ace signed before now can't be checked against nonces this run saw.
+        let started_ms = setup.clock.now_ms();
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -410,7 +417,7 @@ impl Engine {
                 u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
             ),
             live: Mutex::default(),
-            outside_requests: Mutex::default(),
+            outside: outside_admit::Shared::new(started_ms),
             record_lock: Mutex::default(),
             app_forms: app_forms::Open::default(),
             package_busy: crate::packages::Changing::default(),

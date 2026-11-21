@@ -11,6 +11,7 @@ pub mod contracts;
 pub mod fleet;
 pub mod gated;
 pub mod market;
+pub mod outside;
 pub mod packaged;
 pub mod plugins;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
