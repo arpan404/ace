@@ -83,6 +83,8 @@ pub fn copy_snapshot(
     cancel: &Cancel,
 ) -> Result<()> {
     let base = safe_open(home, source)?;
+    // Everything from here reads the checked handle, whatever the path names next.
+    crate::hooks::at_path("snapshot-source-opened", &source.to_string_lossy());
     let info = base.metadata()?;
     let before = fingerprint(&info);
     let wal_bytes = match wal {

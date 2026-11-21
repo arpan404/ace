@@ -6,7 +6,9 @@
 
 mod support;
 
-use serde_json::json;
+use std::path::Path;
+
+use serde_json::{Value, json};
 use support::*;
 
 #[test]
@@ -232,4 +234,72 @@ fn a_transcript_replaced_after_it_was_opened_streams_its_raw_bytes_from_the_file
         !raw.contains("REPLACED"),
         "the raw blob came from the replacement"
     );
+}
+
+/// An OpenCode v1 database with one session, `title`: in WAL mode with its writer closed, the kind
+/// that used to be read in place.
+fn opencode_db(path: &Path, title: &str) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         CREATE TABLE session(id TEXT PRIMARY KEY,directory TEXT,title TEXT,time_updated INTEGER,parent_id TEXT);
+         CREATE TABLE message(id TEXT PRIMARY KEY,session_id TEXT,time_created INTEGER,data TEXT);
+         CREATE TABLE part(id TEXT PRIMARY KEY,message_id TEXT,data TEXT);",
+    )
+    .unwrap();
+    db.execute("INSERT INTO session VALUES('s1','/w',?1,1,NULL)", [title])
+        .unwrap();
+    db.execute_batch(
+        r#"INSERT INTO message VALUES('m1','s1',1,'{"role":"user"}');
+           INSERT INTO part VALUES('p1','m1','{"type":"text","text":"hello"}');"#,
+    )
+    .unwrap();
+}
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_database_redirected_outside_its_home_after_its_check_is_never_read() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("opencode");
+    std::fs::create_dir(&home).unwrap();
+    let path = home.join("opencode.db");
+    opencode_db(&path, "checked");
+    let other = root.path().join("other.db");
+    opencode_db(&other, "swapped in");
+    let pause = root.path().join("pause");
+    std::fs::create_dir(&pause).unwrap();
+    let hooks = json!({ "pause": { "at": "snapshot-source-opened", "dir": pause } });
+    let opts = options(
+        root.path(),
+        vec![json!({ "id": "oc", "provider": "opencode", "homeDir": home })],
+    );
+    let mut reader = Reader::start_with(opts, &hooks);
+    reader.next();
+    reader.send(&json!({ "id": 1, "request": { "op": "scan" } }));
+    while !pause.join("paused").exists() {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // After the reader checked and opened it, the path becomes a link to a database outside the
+    // home.
+    std::fs::rename(&path, home.join("moved.db.bak")).unwrap();
+    std::os::unix::fs::symlink(&other, &path).unwrap();
+    std::fs::write(pause.join("continue"), "").unwrap();
+    loop {
+        if reader.next().value.get("id") == Some(&json!(1)) {
+            break;
+        }
+    }
+    let listed = reader.call(
+        2,
+        json!({ "op": "list", "request": { "type": "history.list", "cwd": "/w" } }),
+    );
+    assert!(!path.with_extension("db-wal").exists());
+    let titles: Vec<Value> = listed.value["value"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["title"].clone())
+        .collect();
+    // The checked file's rows, or none at all: never the file outside the home.
+    assert!(!titles.contains(&json!("swapped in")), "{titles:?}");
 }

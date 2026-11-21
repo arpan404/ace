@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `openProviderDb`: a provider database read without touching it. A WAL database whose WAL is
-//! empty is read in place with `immutable=1` and fenced by its fingerprint; anything else is read
-//! from a private snapshot.
+//! `openProviderDb`: a provider database read without touching it, always from a private
+//! snapshot made from the handles `safe_open` checked: cloned copy-on-write where the filesystem
+//! can (`fclonefileat`, `FICLONE`), else copied within the scratch cap. Nothing is opened by path
+//! after the check: SQLite resolves a `/dev/fd` path back to a pathname on Linux, and Windows has
+//! no file identity to prove a path still names the checked file.
 
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
@@ -14,7 +15,6 @@ use super::scratch::{SnapshotScratch, Stage};
 use crate::cancel::Cancel;
 use crate::error::{Error, Result, io_at};
 use crate::fsread::stat::fingerprint;
-use crate::fsread::{read_at, safe_open};
 use crate::options::Home;
 
 fn sibling(path: &Path, suffix: &str) -> PathBuf {
@@ -47,17 +47,10 @@ pub fn database_fingerprint(path: &Path) -> Result<String> {
     Ok(parts.join("|"))
 }
 
-fn wal_mode(home: &Path, path: &Path) -> Result<bool> {
-    let file = safe_open(home, path)?;
-    let mut header = [0u8; 100];
-    let read = read_at(&file, &mut header, 0)?;
-    Ok(read == 100 && header[18] == 2 && header[19] == 2)
-}
-
 /// A `file:` URI for SQLite, its reserved characters escaped.
-fn uri(path: &str) -> String {
+fn uri(path: &Path) -> String {
     let mut out = String::from("file:");
-    for byte in path.bytes() {
+    for byte in path.to_string_lossy().bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
                 out.push(byte as char)
@@ -69,62 +62,21 @@ fn uri(path: &str) -> String {
     out
 }
 
-/// The database opened read-only with `immutable=1`, pinned to the file `safe_open` checked:
-/// SQLite opens the checked descriptor through `/dev/fd`, so no path swapped in after the check
-/// is what it reads. The file stays open beside the connection.
-#[cfg(unix)]
-fn open_immutable(home: &Path, path: &Path) -> Result<(Connection, Option<File>)> {
-    use std::os::fd::AsRawFd;
-    let file = safe_open(home, path)?;
-    let db = connect(&format!("/dev/fd/{}", file.as_raw_fd()))?;
-    Ok((db, Some(file)))
-}
-
-/// Windows: the checked path, then its identity proven against the checked handle.
-#[cfg(not(unix))]
-fn open_immutable(home: &Path, path: &Path) -> Result<(Connection, Option<File>)> {
-    let file = safe_open(home, path)?;
-    let db = connect(&path.to_string_lossy())?;
-    let now = safe_open(home, path)?;
-    if fingerprint(&now.metadata()?) != fingerprint(&file.metadata()?) {
-        return Err(Error::message(super::CHANGED));
-    }
-    Ok((db, Some(file)))
-}
-
-fn connect(path: &str) -> Result<Connection> {
-    Ok(Connection::open_with_flags(
-        uri(path),
-        OpenFlags::SQLITE_OPEN_READ_ONLY
-            | OpenFlags::SQLITE_OPEN_URI
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?)
-}
-
 /// An open provider database and how to check the rows read from it form one committed state.
 pub struct ProviderDb {
     pub db: Connection,
-    fence: Option<(PathBuf, String)>,
-    /// The checked file an in-place read is pinned to.
-    _pinned: Option<File>,
-    _stage: Option<Stage>,
+    _stage: Stage,
 }
 
 impl ProviderDb {
-    /// Fails with the snapshot-changed message when a checkpoint changed the file meanwhile.
+    /// The rows read form one committed state: they were read from a private snapshot.
     pub fn verify(&self) -> Result<()> {
-        if let Some((path, before)) = &self.fence {
-            let now = fingerprint(&std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?);
-            if &now != before || size(&sibling(path, "-journal"))?.is_some() {
-                return Err(Error::message(super::CHANGED));
-            }
-        }
         Ok(())
     }
 
     /// Closes the database, then removes its snapshot, if it had one.
     pub fn close(self) {
-        let ProviderDb { db, _stage, .. } = self;
+        let ProviderDb { db, _stage } = self;
         drop(db);
         drop(_stage);
     }
@@ -147,31 +99,6 @@ fn attempt(
             "Provider has an active rollback journal; retry after its writer settles",
         ));
     }
-    if home.offline_snapshot {
-        let (db, pinned) = open_immutable(&home.home_dir, path)?;
-        return Ok(ProviderDb {
-            db,
-            fence: None,
-            _pinned: pinned,
-            _stage: None,
-        });
-    }
-    if wal_bytes.unwrap_or(0) == 0 && wal_mode(&home.home_dir, path)? {
-        // Fingerprint first: a commit landing after the empty-WAL check reaches this file only
-        // through a checkpoint, which changes the fingerprint and fails verify().
-        let before = fingerprint(&std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?);
-        if size(&sibling(path, "-wal"))?.unwrap_or(0) == 0
-            && size(&sibling(path, "-journal"))?.is_none()
-        {
-            let (db, pinned) = open_immutable(&home.home_dir, path)?;
-            return Ok(ProviderDb {
-                db,
-                fence: Some((path.to_owned(), before)),
-                _pinned: pinned,
-                _stage: None,
-            });
-        }
-    }
     let stage = scratch.acquire(cancel)?;
     let target = stage.dir.join("snapshot.sqlite");
     let staged = (|| -> Result<Connection> {
@@ -187,20 +114,22 @@ fn attempt(
         if wal != size(&wal_path)?.is_some() || size(&sibling(path, "-journal"))?.is_some() {
             return Err(Error::message(super::CHANGED));
         }
-        Ok(Connection::open_with_flags(
-            &target,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?)
+        // A copy with a WAL replays it; one without is never written by anyone.
+        Ok(if wal {
+            Connection::open_with_flags(
+                &target,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )?
+        } else {
+            Connection::open_with_flags(
+                uri(&target),
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | OpenFlags::SQLITE_OPEN_URI
+                    | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )?
+        })
     })();
-    match staged {
-        Ok(db) => Ok(ProviderDb {
-            db,
-            fence: None,
-            _pinned: None,
-            _stage: Some(stage),
-        }),
-        Err(error) => Err(error),
-    }
+    staged.map(|db| ProviderDb { db, _stage: stage })
 }
 
 /// Retry only checkpoint races, a bounded number of times.

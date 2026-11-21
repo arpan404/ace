@@ -97,15 +97,22 @@ took 157 ms. Mapping is about three quarters of an import's CPU and most of its 
 - Lists and reads are answered on their own thread, so a list sent while a scan is stuck is
   answered rather than failing with the scan's memory error.
 - Session files are opened through `files-safe` (native/files): every component is looked up from
-  the folder handle above it with no link followed. In-place SQLite reads open the checked
-  descriptor through `/dev/fd`; copy-on-write snapshots clone the checked descriptor
-  (`fclonefileat`, `FICLONE`), never a path.
-- Scratch directories hold an owner lock the operating system releases when their process exits,
-  so a dead reader's snapshot is swept whatever its pid now names; directories without one fall
-  back to a pid check, which on Windows is `OpenProcess` and `GetExitCodeProcess`.
+  the folder handle above it with no link followed, and a record's raw bytes are read from the
+  handle it was decoded from. Provider databases are always read from a private snapshot made
+  from the checked handles (`fclonefileat`, `FICLONE`, else a bounded copy), never opened in
+  place: SQLite resolves a `/dev/fd` path back to a pathname on Linux, and Windows has no file
+  identity to prove a path still names the checked file.
+- Each scratch directory has a sibling `<name>.lock` its owner takes before the directory exists
+  and the operating system releases when it exits, so a dead reader's snapshot is swept whatever
+  its pid now names, and a live one's never is; a lock that cannot be checked keeps its
+  directory. Directories without one fall back to a pid check, which on Windows is `OpenProcess`
+  and `GetExitCodeProcess`.
 - An import marks its tree's root in the crash ledger before reading it, outside any archive
-  transaction, and clears the mark when it ends; a transcript that kills the reader three times
-  while imported is refused, as one that kills a scan is.
+  transaction, and clears the mark when it ends; a suspect is marked `verifying`, as a scan's
+  isolated read is, so a memory-limit kill strikes it. Strikes hold for the content they were
+  made on: a transcript replaced since is read again.
+- Records are mapped as a stream, each item leaving as it is made, so a record of many small
+  blocks never holds them all; each mapped call carries its own native id.
 - The index's freshness check, schema and format marker are one transaction, so a crash between
   them leaves a fresh file.
 - On Windows, std has no stable file index, so fingerprints carry no device or inode there and
