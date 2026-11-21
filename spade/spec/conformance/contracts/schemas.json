@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "part": "contracts",
-  "about": "The bounded schema subset a contract's input and output, a panel's state and an action's value are written in. Spade's reader (spade_core::schema) and the marketplace's (readSchema in @ace/marketplace) both run every case. A case with `refused` expects the schema itself refused, with a problem containing those words. Otherwise each value in `fits` fits, and each entry of `misfits` doesn't, at the place `at` names. `id` names the case in reports and never changes.",
+  "about": "The bounded schema subset a contract's input and output, a panel's state and an action's value are written in. Spade's reader (spade_core::schema) and the marketplace's (readSchema in @ace/marketplace) both run every case. A case with `rule` expects the schema itself refused, with a problem naming that rule (`rules.json`). Otherwise each value in `fits` fits, and each entry of `misfits` doesn't, at the place `at` names. `id` names the case in reports and never changes.",
   "cases": [
     {
       "id": "contracts/schema-fare-question",
@@ -245,7 +245,7 @@
     {
       "id": "contracts/schema-seven-levels-deep",
       "name": "seven levels deep",
-      "refused": "6 levels",
+      "rule": "schema.depth",
       "schema": {
         "type": "object",
         "properties": {
@@ -282,7 +282,7 @@
     {
       "id": "contracts/schema-string-with-no-length",
       "name": "a string with no length",
-      "refused": "maxLength",
+      "rule": "schema.max-length",
       "schema": {
         "type": "object",
         "properties": {
@@ -295,7 +295,7 @@
     {
       "id": "contracts/schema-list-with-no-size",
       "name": "a list with no size",
-      "refused": "maxItems",
+      "rule": "schema.max-items",
       "schema": {
         "type": "array",
         "items": {
@@ -306,7 +306,7 @@
     {
       "id": "contracts/schema-keyword-outside-the-subset",
       "name": "a keyword outside the subset",
-      "refused": "pattern",
+      "rule": "schema.keyword",
       "schema": {
         "type": "string",
         "maxLength": 10,
@@ -316,7 +316,7 @@
     {
       "id": "contracts/schema-object-open-to-any-field",
       "name": "an object open to any field",
-      "refused": "additionalProperties",
+      "rule": "schema.closed",
       "schema": {
         "type": "object",
         "properties": {},
@@ -326,7 +326,7 @@
     {
       "id": "contracts/schema-reference-to-another-schema",
       "name": "a reference to another schema",
-      "refused": "$ref",
+      "rule": "schema.keyword",
       "schema": {
         "$ref": "#/definitions/fare"
       }
@@ -334,7 +334,7 @@
     {
       "id": "contracts/schema-required-naming-a-field-it-doesnt-have",
       "name": "required naming a field it doesn't have",
-      "refused": "required",
+      "rule": "schema.required",
       "schema": {
         "type": "object",
         "properties": {
@@ -348,7 +348,7 @@
     {
       "id": "contracts/schema-null-type",
       "name": "a null type",
-      "refused": "type",
+      "rule": "schema.type",
       "schema": {
         "type": "null"
       }

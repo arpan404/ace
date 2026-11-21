@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "part": "effects",
-  "about": "The effects part's cases: which effect words a package declares, the hosts and grants under them, and what is the person's alone. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "about": "The effects part's cases: which effect words a package declares, the hosts and grants under them, and what is the person's alone. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
   "base": {
     "format": "spade-bot",
     "version": 3,
@@ -83,7 +83,7 @@
           }
         ]
       },
-      "refused": "person"
+      "rule": "effects.person-only"
     },
     {
       "id": "effects/network-grant-of-send-message",
@@ -100,7 +100,7 @@
           }
         ]
       },
-      "refused": "person"
+      "rule": "effects.person-only"
     },
     {
       "id": "effects/network-grant-of-issue-comment",
@@ -117,7 +117,7 @@
           }
         ]
       },
-      "refused": "person"
+      "rule": "effects.person-only"
     },
     {
       "id": "effects/network-grant-of-pr-comment",
@@ -134,7 +134,7 @@
           }
         ]
       },
-      "refused": "person"
+      "rule": "effects.person-only"
     },
     {
       "id": "effects/push-grant",
@@ -152,7 +152,7 @@
           }
         ]
       },
-      "refused": "push"
+      "rule": "effects.person-only"
     },
     {
       "id": "effects/grant-under-a-send",
@@ -169,7 +169,7 @@
           }
         ]
       },
-      "refused": "never granted"
+      "rule": "effects.never-granted"
     },
     {
       "id": "effects/hosts-under-publish",
@@ -183,7 +183,7 @@
           }
         ]
       },
-      "refused": "only network names hosts"
+      "rule": "effects.hosts-only-network"
     },
     {
       "id": "effects/credential",
@@ -196,7 +196,7 @@
           }
         ]
       },
-      "refused": "credential"
+      "rule": "effects.credential"
     },
     {
       "id": "effects/drive",
@@ -209,7 +209,7 @@
           }
         ]
       },
-      "refused": "drive_site"
+      "rule": "effects.drive"
     },
     {
       "id": "effects/word-that-isnt-an-effect",
@@ -222,7 +222,7 @@
           }
         ]
       },
-      "refused": "isn't an effect"
+      "rule": "effects.word"
     },
     {
       "id": "effects/effects-as-an-object",
@@ -230,7 +230,7 @@
       "with": {
         "effects": {}
       },
-      "refused": "effects is a list"
+      "rule": "effects.list"
     },
     {
       "id": "effects/effects-as-a-word",
@@ -238,7 +238,7 @@
       "with": {
         "effects": "network"
       },
-      "refused": "effects is a list"
+      "rule": "effects.list"
     }
   ]
 }

@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgCreateRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}

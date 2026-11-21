@@ -226,6 +226,35 @@ async fn an_endpoint_an_agent_uses_cannot_be_deleted_and_no_key_is_ever_answered
 }
 
 #[tokio::test]
+async fn an_endpoint_named_local_keeps_its_models_beside_the_local_server_list() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    spade.engine.set_local_servers(Vec::new());
+    spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Local", "format": "openai-chat", "base_url": "http://127.0.0.1:9",
+                    "needs_key": false }),
+        )
+        .await?;
+    let (status, body) = spade
+        .post("/v1/endpoints/local/models", json!({ "id": "llama" }))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["endpoint"]["models"][0]["id"], "llama", "{body}");
+    let (status, body) = spade.get("/v1/endpoints/local").await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["servers"],
+        json!([]),
+        "still the servers on this computer"
+    );
+    let (status, _) = spade.delete("/v1/endpoints/local/models?id=llama").await?;
+    assert_eq!(status, 204);
+    assert_eq!(endpoint(&spade, "local").await?["models"], json!([]));
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_persons_endpoint_carries_the_conversations_session_id_and_spades_user_agent() -> Result {
     let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
     let routed = spade_testkit::FakeProvider::start("Routed.").await?;

@@ -111,6 +111,14 @@ export const AceLoginRequest = z.object({
    * `returnTo` is an app's and one without is a daemon's, as older apps and daemons send them.
    */
   holder: z.enum(["person", "machine"]).optional(),
+  /**
+   * Sign in to enter this organization (ADR 0206 §1.4), after `org_sign_in_required`: WorkOS
+   * applies the organization's sign-in policy (SSO, MFA). The session is the same account's.
+   */
+  org: z
+    .string()
+    .regex(/^org_[A-Za-z0-9]{1,64}$/)
+    .optional(),
   returnTo: z
     .string()
     .max(2048)
@@ -135,7 +143,19 @@ export const AceLoginStatus = z.discriminatedUnion("status", [
 export const AceGrantRequest = z.object({
   /** `spade-cloud` is a machine's (ADR 0140); `market-publish` a publisher's (ADR 0168). */
   purpose: z.enum(["spade-cloud", "market-publish"]).optional(),
-  kind: z.enum(["machine", "device"]),
+  /**
+   * `member`: a member's standing on an organization's host (ADR 0206 §2.2), with `org`, `host`
+   * and `key`, only for the person's own session.
+   */
+  kind: z.enum(["machine", "device", "member"]),
+  /**
+   * The organization a `member` grant is for, or a `market-publish` grant acts in (ADR 0206).
+   * Minted only after WorkOS answered, at most 60 seconds earlier, that the account is a member.
+   */
+  org: z
+    .string()
+    .regex(/^org_[A-Za-z0-9]{1,64}$/)
+    .optional(),
   /** The machine's host id, or the requesting device's device id. */
   subject: z.string().min(1).max(128),
   /**

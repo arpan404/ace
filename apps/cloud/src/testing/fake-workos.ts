@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { fakeWorkosOrgs } from "./fake-workos-orgs.ts";
 
 function reply(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { "Content-Type": "application/json" });
@@ -29,7 +30,8 @@ export const FAKE_PICTURE = Buffer.from(
  * their PKCE challenge, and single-use refresh tokens that rotate on every refresh.
  */
 export async function fakeWorkos() {
-  const codes = new Map<string, { user: WorkosUser; challenge: string }>();
+  const orgs = fakeWorkosOrgs("client_test");
+  const codes = new Map<string, { user: WorkosUser; challenge: string; invitation?: string }>();
   const refreshTokens = new Map<string, WorkosUser>();
   let failure: "invalid_grant" | "unavailable" | undefined;
   let barrier: Promise<void> | undefined;
@@ -48,14 +50,32 @@ export async function fakeWorkos() {
         }
         if (request.url === "/pictures/not-an-image")
           return reply(response, 200, { message: "not an image" });
-        if (request.url !== "/user_management/authenticate" || request.method !== "POST")
-          return reply(response, 404, { message: "Not found" });
+        if (request.url !== "/user_management/authenticate" || request.method !== "POST") {
+          // The JWKS is public; every other WorkOS API needs the API key.
+          const publicPath = request.url === "/sso/jwks/client_test";
+          if (!publicPath && request.headers.authorization !== "Bearer sk_test_backend")
+            return reply(response, 401, { message: "Unauthorized" });
+          const parsed: unknown = raw ? JSON.parse(raw) : {};
+          const answer = orgs.handle(
+            request.method ?? "GET",
+            new URL(request.url ?? "/", "http://fake"),
+            typeof parsed === "object" && parsed !== null
+              ? (parsed as Record<string, unknown>)
+              : {},
+            request.headers,
+          );
+          return answer
+            ? reply(response, answer.status, answer.body)
+            : reply(response, 404, { message: "Not found" });
+        }
         const body = JSON.parse(raw) as Record<string, string>;
         if (body.client_id !== "client_test" || body.client_secret !== "sk_test_backend")
           return reply(response, 401, { error: "invalid_client" });
         if (failure === "unavailable") return reply(response, 503, { message: "Unavailable" });
         if (failure === "invalid_grant") return reply(response, 400, { error: "invalid_grant" });
         let user: WorkosUser | undefined;
+        let organization: string | undefined;
+        let accessToken = "access";
         if (body.grant_type === "authorization_code") {
           const entry = codes.get(body.code ?? "");
           codes.delete(body.code ?? "");
@@ -63,16 +83,30 @@ export async function fakeWorkos() {
             .update(body.code_verifier ?? "")
             .digest("base64url");
           if (entry?.challenge === challenge) user = entry.user;
+          if (user && entry?.invitation)
+            organization = orgs.acceptInvitation(entry.invitation, user.id);
           entered?.();
           if (barrier) await barrier;
         } else if (body.grant_type === "refresh_token") {
           user = refreshTokens.get(body.refresh_token ?? "");
+          if (user && body.organization_id) {
+            // A refusal leaves the refresh token as it was.
+            const into = orgs.refreshInto(user.id, body.organization_id);
+            if (!("accessToken" in into)) return reply(response, into.status, into.body);
+            accessToken = into.accessToken;
+            organization = body.organization_id;
+          }
           refreshTokens.delete(body.refresh_token ?? "");
         }
         if (!user) return reply(response, 400, { error: "invalid_grant" });
         const refresh = `workos-refresh-${++issued}`;
         refreshTokens.set(refresh, user);
-        reply(response, 200, { user, access_token: "access", refresh_token: refresh });
+        reply(response, 200, {
+          user,
+          access_token: accessToken,
+          refresh_token: refresh,
+          ...(organization ? { organization_id: organization } : {}),
+        });
       })();
     });
   });
@@ -83,9 +117,22 @@ export async function fakeWorkos() {
     /** The person signs in at WorkOS: the authorization URL's challenge gets a code. */
     authorize(authorizeUrl: string, user: WorkosUser, code: string) {
       const url = new URL(authorizeUrl);
-      codes.set(code, { user, challenge: url.searchParams.get("code_challenge") ?? "" });
+      const invitation = url.searchParams.get("invitation_token") ?? undefined;
+      codes.set(code, {
+        user,
+        challenge: url.searchParams.get("code_challenge") ?? "",
+        ...(invitation ? { invitation } : {}),
+      });
+      orgs.knowUser({
+        id: user.id,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+      });
       return url.searchParams.get("state") ?? "";
     },
+    /** WorkOS's organization APIs and what they recorded. */
+    orgs,
     fail(mode?: "invalid_grant" | "unavailable") {
       failure = mode;
     },

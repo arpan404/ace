@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
+use crate::rule::{self, Problem};
+
 /// The deepest a schema nests: the top value is level one.
 pub const MOST_DEPTH: usize = 6;
 /// The most fields an object names, values an enum lists, and the longest string or list.
@@ -66,12 +68,12 @@ impl std::fmt::Display for Misfit {
 
 /// Reads `value` as a schema of the subset; every problem, each at its place (`at` names the
 /// schema, `contracts[0].input`).
-pub fn read(value: &Value, at: &str) -> Result<Schema, Vec<String>> {
+pub fn read(value: &Value, at: &str) -> Result<Schema, Vec<Problem>> {
     let mut problems = Vec::new();
     if value.to_string().len() > MOST_SCHEMA_BYTES {
-        return Err(vec![format!(
-            "{at} is longer than {} KiB",
-            MOST_SCHEMA_BYTES / 1024
+        return Err(vec![Problem::new(
+            rule::SCHEMA_SIZE,
+            format!("{at} is longer than {} KiB", MOST_SCHEMA_BYTES / 1024),
         )]);
     }
     let schema = node(value, at, 1, &mut problems);
@@ -110,11 +112,12 @@ const EVERY_KEYWORD: [&str; 11] = [
     "minItems",
 ];
 
-fn keywords(fields: &Map<String, Value>, at: &str, allowed: &[&str], out: &mut Vec<String>) {
+fn keywords(fields: &Map<String, Value>, at: &str, allowed: &[&str], out: &mut Vec<Problem>) {
     for key in fields.keys() {
         if !COMMON.contains(&key.as_str()) && !allowed.contains(&key.as_str()) {
-            out.push(format!(
-                "{at}: {key:?} isn't in the schema subset contracts use"
+            out.push(Problem::new(
+                rule::SCHEMA_KEYWORD,
+                format!("{at}: {key:?} isn't in the schema subset contracts use"),
             ));
         }
     }
@@ -122,31 +125,41 @@ fn keywords(fields: &Map<String, Value>, at: &str, allowed: &[&str], out: &mut V
         match fields.get(key) {
             None => {}
             Some(Value::String(text)) if text.chars().count() <= DESCRIPTION_CHARS => {}
-            Some(_) => out.push(format!(
-                "{at}.{key} is text of at most {DESCRIPTION_CHARS} characters"
+            Some(_) => out.push(Problem::new(
+                rule::SCHEMA_TEXT,
+                format!("{at}.{key} is text of at most {DESCRIPTION_CHARS} characters"),
             )),
         }
     }
 }
 
-fn count(fields: &Map<String, Value>, key: &str, at: &str, out: &mut Vec<String>) -> Option<u64> {
+fn count(fields: &Map<String, Value>, key: &str, at: &str, out: &mut Vec<Problem>) -> Option<u64> {
     let value = fields.get(key)?;
     match value.as_u64() {
         Some(n) => Some(n),
         None => {
-            out.push(format!("{at}.{key} is a whole number"));
+            out.push(Problem::new(
+                rule::SCHEMA_BOUND,
+                format!("{at}.{key} is a whole number"),
+            ));
             None
         }
     }
 }
 
-fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<Schema> {
+fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<Problem>) -> Option<Schema> {
     if depth > MOST_DEPTH {
-        out.push(format!("{at}: a schema nests at most {MOST_DEPTH} levels"));
+        out.push(Problem::new(
+            rule::SCHEMA_DEPTH,
+            format!("{at}: a schema nests at most {MOST_DEPTH} levels"),
+        ));
         return None;
     }
     let Some(fields) = value.as_object() else {
-        out.push(format!("{at} is a schema object"));
+        out.push(Problem::new(
+            rule::SCHEMA_OBJECT,
+            format!("{at} is a schema object"),
+        ));
         return None;
     };
     let kind = match fields.get("type") {
@@ -156,8 +169,9 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
         _ => {
             // A keyword of another kind of schema (`$ref`, `oneOf`) says so first.
             keywords(fields, at, &EVERY_KEYWORD, out);
-            out.push(format!(
-                "{at}.type is object, string, number, integer, boolean or array"
+            out.push(Problem::new(
+                rule::SCHEMA_TYPE,
+                format!("{at}.type is object, string, number, integer, boolean or array"),
             ));
             return None;
         }
@@ -167,11 +181,14 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
         "string" => string(fields, at, out),
         "number" | "integer" => {
             keywords(fields, at, &NUMBER_KEYWORDS, out);
-            let bound = |key: &str, out: &mut Vec<String>| match fields.get(key) {
+            let bound = |key: &str, out: &mut Vec<Problem>| match fields.get(key) {
                 None => None,
                 Some(n) if n.is_number() => n.as_f64(),
                 Some(_) => {
-                    out.push(format!("{at}.{key} is a number"));
+                    out.push(Problem::new(
+                        rule::SCHEMA_BOUND,
+                        format!("{at}.{key} is a number"),
+                    ));
                     None
                 }
             };
@@ -179,7 +196,10 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
             if let (Some(min), Some(max)) = (min, max)
                 && min > max
             {
-                out.push(format!("{at}: minimum is more than maximum"));
+                out.push(Problem::new(
+                    rule::SCHEMA_BOUND,
+                    format!("{at}: minimum is more than maximum"),
+                ));
             }
             Some(Schema::Number {
                 integer: kind == "integer",
@@ -198,19 +218,26 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
             let max = match max {
                 Some(max) if (1..=MOST_ITEMS).contains(&max) => max,
                 _ => {
-                    out.push(format!(
-                        "{at}.maxItems says how long the list may be, 1 to {MOST_ITEMS}"
+                    out.push(Problem::new(
+                        rule::SCHEMA_MAX_ITEMS,
+                        format!("{at}.maxItems says how long the list may be, 1 to {MOST_ITEMS}"),
                     ));
                     1
                 }
             };
             if min > max {
-                out.push(format!("{at}: minItems is more than maxItems"));
+                out.push(Problem::new(
+                    rule::SCHEMA_BOUND,
+                    format!("{at}: minItems is more than maxItems"),
+                ));
             }
             let items = match fields.get("items") {
                 Some(items) => node(items, &format!("{at}.items"), depth + 1, out)?,
                 None => {
-                    out.push(format!("{at}.items says what the list holds"));
+                    out.push(Problem::new(
+                        rule::SCHEMA_MAX_ITEMS,
+                        format!("{at}.items says what the list holds"),
+                    ));
                     return None;
                 }
             };
@@ -221,8 +248,11 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<String>) -> Option<
             })
         }
         other => {
-            out.push(format!(
-                "{at}.type {other:?} isn't object, string, number, integer, boolean or array"
+            out.push(Problem::new(
+                rule::SCHEMA_TYPE,
+                format!(
+                    "{at}.type {other:?} isn't object, string, number, integer, boolean or array"
+                ),
             ));
             None
         }
@@ -233,21 +263,23 @@ fn object(
     fields: &Map<String, Value>,
     at: &str,
     depth: usize,
-    out: &mut Vec<String>,
+    out: &mut Vec<Problem>,
 ) -> Option<Schema> {
     keywords(fields, at, &OBJECT_KEYWORDS, out);
     match fields.get("additionalProperties") {
         None | Some(Value::Bool(false)) => {}
-        Some(_) => out.push(format!(
-            "{at}.additionalProperties is false: an object has only the fields it names"
+        Some(_) => out.push(Problem::new(
+            rule::SCHEMA_CLOSED,
+            format!("{at}.additionalProperties is false: an object has only the fields it names"),
         )),
     }
     let properties = match fields.get("properties") {
         None => Map::new(),
         Some(Value::Object(properties)) if properties.len() <= MOST_FIELDS => properties.clone(),
         Some(_) => {
-            out.push(format!(
-                "{at}.properties names at most {MOST_FIELDS} fields"
+            out.push(Problem::new(
+                rule::SCHEMA_FIELDS,
+                format!("{at}.properties names at most {MOST_FIELDS} fields"),
             ));
             return None;
         }
@@ -255,8 +287,11 @@ fn object(
     let mut read = BTreeMap::new();
     for (name, value) in &properties {
         if !field_name(name) {
-            out.push(format!(
-                "{at}.properties: {name:?} is a field name of 1 to 64 letters, digits and _"
+            out.push(Problem::new(
+                rule::SCHEMA_FIELDS,
+                format!(
+                    "{at}.properties: {name:?} is a field name of 1 to 64 letters, digits and _"
+                ),
             ));
             continue;
         }
@@ -271,13 +306,19 @@ fn object(
             .filter_map(|name| match name.as_str() {
                 Some(name) if properties.contains_key(name) => Some(name.to_owned()),
                 _ => {
-                    out.push(format!("{at}.required names fields its properties have"));
+                    out.push(Problem::new(
+                        rule::SCHEMA_REQUIRED,
+                        format!("{at}.required names fields its properties have"),
+                    ));
                     None
                 }
             })
             .collect(),
         Some(_) => {
-            out.push(format!("{at}.required is a list of field names"));
+            out.push(Problem::new(
+                rule::SCHEMA_REQUIRED,
+                format!("{at}.required is a list of field names"),
+            ));
             Vec::new()
         }
     };
@@ -287,7 +328,7 @@ fn object(
     })
 }
 
-fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Option<Schema> {
+fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<Problem>) -> Option<Schema> {
     keywords(fields, at, &STRING_KEYWORDS, out);
     let one_of = match fields.get("enum") {
         None => None,
@@ -301,14 +342,18 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Optio
                 })
                 .collect();
             if words.is_none() {
-                out.push(format!(
-                    "{at}.enum lists words of at most {ENUM_CHARS} characters"
+                out.push(Problem::new(
+                    rule::SCHEMA_ENUM,
+                    format!("{at}.enum lists words of at most {ENUM_CHARS} characters"),
                 ));
             }
             words
         }
         Some(_) => {
-            out.push(format!("{at}.enum lists 1 to {MOST_ENUM} words"));
+            out.push(Problem::new(
+                rule::SCHEMA_ENUM,
+                format!("{at}.enum lists 1 to {MOST_ENUM} words"),
+            ));
             None
         }
     };
@@ -320,15 +365,19 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<String>) -> Optio
         // An enum's length is its longest word's.
         (None, Some(longest)) => longest.max(1),
         _ => {
-            out.push(format!(
-                "{at}.maxLength says how long the text may be, 1 to {LONGEST_STRING}"
+            out.push(Problem::new(
+                rule::SCHEMA_MAX_LENGTH,
+                format!("{at}.maxLength says how long the text may be, 1 to {LONGEST_STRING}"),
             ));
             1
         }
     };
     let min = count(fields, "minLength", at, out).unwrap_or(0);
     if min > max {
-        out.push(format!("{at}: minLength is more than maxLength"));
+        out.push(Problem::new(
+            rule::SCHEMA_BOUND,
+            format!("{at}: minLength is more than maxLength"),
+        ));
     }
     Some(Schema::String { min, max, one_of })
 }

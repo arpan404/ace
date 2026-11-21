@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgPolicyVersion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "body": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "org": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgId.json"
+    },
+    "setAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "setBy": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "statement": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "version": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "org",
+    "version",
+    "body"
+  ],
+  "type": "object"
+}

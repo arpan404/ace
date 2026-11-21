@@ -2,7 +2,7 @@
 //! and `spade_core::card` check, and the card parts `card_show` offers.
 
 use super::conformance;
-use super::markdown::{bytes, cases, code_list, table};
+use super::markdown::{bytes, cases, code_list, level_cases, rules, table};
 use crate::card;
 use crate::package::surfaces as declared;
 use crate::panel;
@@ -12,6 +12,11 @@ pub fn regions() -> Vec<(&'static str, String)> {
         ("bounds", bounds()),
         ("blocks", blocks()),
         ("card-bounds", card_bounds()),
+        (
+            "level-cases",
+            level_cases(&[&conformance::LEVELS[2], &conformance::LEVELS[3]]),
+        ),
+        ("rules", rules("surfaces")),
         ("cases", cases(&conformance::MANIFESTS[3])),
     ]
 }

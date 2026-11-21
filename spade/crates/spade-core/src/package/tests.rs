@@ -57,7 +57,7 @@ fn with(mut base: Value, field: &str, value: Value) -> Value {
 fn refused(value: &Value) -> Vec<String> {
     match read(value, BUILD) {
         Ok(_) => panic!("read a package it should refuse"),
-        Err(problems) => problems,
+        Err(problems) => crate::rule::texts(problems),
     }
 }
 
@@ -359,8 +359,8 @@ fn a_worker_is_held_to_every_packaged_bot_above_it() {
 }
 
 /// Every manifest case of the conformance suite (`spade/spec/conformance/<part>/manifests.json`),
-/// which the marketplace's reader runs too: accepted, or refused with a problem saying the
-/// case's words.
+/// which the marketplace's reader runs too: accepted, or refused with a problem naming the case's
+/// rule, whatever its words.
 #[test]
 fn the_conformance_suites_manifests_are_accepted_and_refused_as_the_marketplaces_reader_does() {
     let mut read_cases = 0;
@@ -377,16 +377,14 @@ fn the_conformance_suites_manifests_are_accepted_and_refused_as_the_marketplaces
             let manifest = super::contract_files::inline(&manifest, read_file);
             match (
                 manifest.and_then(|m| read(&m, BUILD)),
-                case["refused"].as_str(),
+                case["rule"].as_str(),
             ) {
                 (Ok(_), None) => {}
-                (Err(problems), Some(word)) if problems.iter().any(|p| p.contains(word)) => {}
-                (Err(problems), Some(word)) => {
-                    wrong.push(format!("{id}: {problems:?} says nothing of {word:?}"));
+                (Err(problems), Some(rule)) if problems.iter().any(|p| p.rule == rule) => {}
+                (Err(problems), Some(rule)) => {
+                    wrong.push(format!("{id}: {problems:?} names no {rule}"));
                 }
-                (Ok(_), Some(word)) => {
-                    wrong.push(format!("{id}: accepted, but refused for {word:?}"))
-                }
+                (Ok(_), Some(rule)) => wrong.push(format!("{id}: accepted, but refused by {rule}")),
                 (Err(problems), None) => wrong.push(format!("{id}: refused: {problems:?}")),
             }
         }

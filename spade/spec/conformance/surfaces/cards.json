@@ -1,0 +1,76 @@
+{
+  "license": "Apache-2.0",
+  "part": "surfaces",
+  "level": "surfaces",
+  "about": "The Surfaces level's cases over a runtime's HTTP API, in the shape Spade's speaks (`/v1/conversations/{id}/panels`, `/v1/panels/pages/{hash}`, `/panels/{surface}/actions`). Each case installs the base manifest with `with` merged over it, its `pages` beside it, then takes its steps: `page` (fetch the panel's page as a client would) and `act {action, value?, confirmed?}` (an action as the panel's page sends it, or as the person confirmed it outside the page). `expect`: `served_as_text` (the page comes back as text that can't run as a page of its own), `refused` (the action never reaches the bot), `taken` (it does). Scenario cases run through the scenario door as the runtime part's do, with `cards`: each card title the run showed. `id` names the case in reports and never changes.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "spec": "1.0",
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      },
+      {
+        "effect": "send_as_person",
+        "why": "Drafts a mail to your travel agent. You send it."
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    }
+  },
+  "cases": [
+    {
+      "id": "surfaces/a-card-is-drawn-from-data",
+      "name": "a card the bot shows is drawn from its data",
+      "scenario": {
+        "name": "Shows a fare card",
+        "given": {
+          "message": "Show me the fare."
+        },
+        "model": [
+          {
+            "calls": [
+              {
+                "tool": "card_show",
+                "arguments": {
+                  "data": {
+                    "title": "KTM to DEL",
+                    "blocks": [
+                      {
+                        "kind": "metric",
+                        "label": "Fare",
+                        "value": "182",
+                        "unit": "USD"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "say": "Here it is."
+          }
+        ],
+        "expect": {
+          "cards": ["KTM to DEL"]
+        }
+      },
+      "expect": {
+        "ran": ["card_show"],
+        "cards": ["KTM to DEL"]
+      }
+    }
+  ]
+}
