@@ -24,9 +24,39 @@ shape; whether the CLI is there is ace's to say when a turn runs.
 ## Listing
 
 `GET /v1/subscriptions` answers `{"providers": [...], "error": null}`, each provider
-`{provider, name, accounts: [{id, label}], models: [{id, name}]}`, as ace lists them: providers
-whose CLI is installed and turned on and that have a read-only mode, with every account not known
-to be signed out. While ace is away it answers `{"providers": [], "error": "<one line>"}`.
+`{provider, name, accounts: [{id, label}], models: [{id, name}], terms}`, as ace lists them:
+providers whose CLI is installed and turned on and that have a read-only mode, with every account
+not known to be signed out. While ace is away it answers `{"providers": [], "error": "<one line>"}`.
+
+## Terms (ADR 0205)
+
+A subscription is only ever the person's informed choice for one bot: never the first usable
+model, a template's, a recipe's, the fast model, the model for new bots or part of a route
+(`PUT /v1/settings` refuses one for `fast_model` and `new_bot_model`; one stored by an older
+build is passed over).
+
+- **The record.** `spade/config/cli-terms.json`, shipped with each build:
+  `{version, providers: [{provider, name, status, checked, source, note}]}`. `status` is
+  `allowed`, `unclear` or `refused`; a record with `allowed` or `refused` must name the terms it
+  was read from (`source`) and when (`checked`), or the file doesn't load. Every provider reads
+  `unclear` until its record is written from the vendor's own terms. A provider with no record
+  reads `unclear`.
+- **`terms` in the listing:** `{status, checked, source, note, version, acknowledgement,
+acknowledged}`. `acknowledgement` is what the person reads: "This bot will run in your <name>
+  CLI on your subscription. Its maker's terms apply to how you use it. If they change, Spade may
+  stop offering it.", plus "Its terms don't say whether this is allowed." while `unclear`.
+- **Acknowledging.** `PUT /v1/subscriptions/{provider}/terms {"use": true}` stores
+  `cli_terms_ack:<provider>` with the date, the record's version and the status acknowledged; it
+  holds until that provider's status changes. `POST /v1/agents` and `PATCH /v1/agents/{id}` with
+  a `cli:` model of a provider not acknowledged answer `409 {"error", "terms": {provider,
+acknowledgement}}`.
+- **Refused.** A `refused` provider is offered to no new bot (`400`, and its acknowledgement is
+  refused). A bot already on it waits: messages are stored and no turn starts, as for a paused
+  bot; a reply left open on it ends with the refusal. Its roster row carries `terms_hold:
+{provider, name, text, choices}`, `text` being "<name>'s terms no longer allow this. Pick another
+  model for this bot." and `choices` the person's own endpoint models (the bot's `main` route,
+  else the global one, then the first usable model), and `problem` says the same. Nothing changes
+  the bot's model for the person; once they pick one, what waited is answered on it.
 
 ## A turn
 
