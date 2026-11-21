@@ -243,6 +243,14 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     var wholeState: String? = nil
     /// Whether a failed whole-request read can be retried.
     var wholeRetryable: Bool? = nil
+    /// The whole-request version on screen once loaded; answers name it so a tap on an older
+    /// version is refused.
+    var wholeVersion: String? = nil
+    /// `action` naming the version this card shows, when it loaded one.
+    func seen(_ action: [String: Any]) -> [String: Any] {
+        guard let wholeVersion else { return action }
+        var named = action; named["version"] = wholeVersion; return named
+    }
     var tooLargeToApprove: Bool { !(summarized ?? "").isEmpty }
 }
 struct PendingRow: Codable, Sendable, Identifiable {

@@ -229,12 +229,14 @@ export class WholeRequests {
 
   /**
    * Build a resolution against the interaction's current state, pairing affirmative answers to a
-   * summarized request with the exact loaded `version` (`readWhole`) and refusing them whenever
-   * the current summary hasn't finished loading.
+   * summarized request with the exact loaded `version` (`readWhole`). `seen` is the version the
+   * card showed when the person tapped: any answer naming another one is refused (the request
+   * changed under the tap), and a yes needs `seen` to be the version loaded now.
    */
   resolution(
     interactionId: string,
     build: (interaction: Interaction, readWhole: boolean) => InteractionResolution | undefined,
+    seen?: string,
   ):
     | {
         resolution: InteractionResolution;
@@ -247,11 +249,12 @@ export class WholeRequests {
     const summarized = sentSummarized(summary);
     const whole = this.state(summary);
     const loaded = whole?.status === "loaded" ? whole : undefined;
+    if (summarized && seen !== undefined && seen !== loaded?.version) return undefined;
     const interaction = loaded ? withWholeRequest(summary, loaded) : summary;
     const resolution = build(interaction, loaded !== undefined);
     if (!resolution) return undefined;
     if (summarized && affirms(interaction.request, resolution)) {
-      if (!loaded) return undefined;
+      if (!loaded || seen !== loaded.version) return undefined;
       return { resolution, readWhole: loaded.version, summarized: true };
     }
     return { resolution, summarized };

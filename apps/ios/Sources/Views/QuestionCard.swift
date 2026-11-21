@@ -44,9 +44,13 @@ struct QuestionDraftState: Equatable {
 /// whether they answer it.
 struct QuestionReply {
     let interactionId: String
+    /// The whole-request version the card showed (`ApprovalRow.wholeVersion`).
+    var version: String? = nil
     let draft: QuestionDraftState
     var payload: [String: Any] {
-        ["interactionId": interactionId, "picked": draft.answers.picked, "written": draft.answers.written, "at": draft.page]
+        var reply: [String: Any] = ["interactionId": interactionId, "picked": draft.answers.picked, "written": draft.answers.written, "at": draft.page]
+        if let version { reply["version"] = version }
+        return reply
     }
 }
 

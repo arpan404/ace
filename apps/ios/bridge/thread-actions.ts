@@ -12,10 +12,13 @@ import { RequestAnswer } from "./thread-requests.ts";
 
 const requestId = z.string().min(1).max(64);
 const words = z.string().max(8192);
+/** The whole-request version the card showed (`wholeVersion`), when it had loaded one. */
+const version = z.string().min(1).max(128).optional();
 
 /** The question card's state: options picked and words typed per question, the one on screen. */
 export const QuestionReply = z.object({
   interactionId: z.string().min(1),
+  version,
   picked: z.record(z.string(), z.array(words).max(64)),
   written: z.record(z.string(), words),
   at: z.number().int().nonnegative(),
@@ -45,6 +48,7 @@ export const ThreadAction = z.discriminatedUnion("type", [
     type: z.literal("approve"),
     interactionId: z.string().min(1),
     optionId: z.string().min(1),
+    version,
     requestId,
   }),
   /** Read a summarized interaction's full payload (`interaction.read`), or retry a failed read. */
@@ -58,6 +62,7 @@ export const ThreadAction = z.discriminatedUnion("type", [
     interactionId: z.string().min(1),
     answers: z.record(z.string(), z.array(z.string().max(8192)).max(64)),
     dismissed: z.boolean(),
+    version,
     requestId,
   }),
   /** A plan review, form or browser request answered on its card. */
@@ -65,6 +70,7 @@ export const ThreadAction = z.discriminatedUnion("type", [
     type: z.literal("resolve"),
     interactionId: z.string().min(1),
     answer: RequestAnswer,
+    version,
     requestId,
   }),
   z.object({ type: z.literal("retrySend"), id: z.string().min(1), requestId }),

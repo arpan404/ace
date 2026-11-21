@@ -182,6 +182,8 @@ export function interactionRow(
     ...(summarized ? { truncated: true } : {}),
     ...(wholeState ? { wholeState } : {}),
     ...(wholeRetryable !== undefined ? { wholeRetryable } : {}),
+    // The version on screen: an answer names it, so a tap on an older one is refused.
+    ...(whole?.status === "loaded" ? { wholeVersion: whole.version } : {}),
     summarized,
     // Questions past what a phone card shows, or summarized and not yet loaded, are unanswerable.
     unanswerable:

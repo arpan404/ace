@@ -11,7 +11,7 @@ extension ClientModel {
         let id = admissions.nextId()
         approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = interaction.id
-        if !threadAction(["type": "resolve", "interactionId": interaction.id, "answer": answer, "requestId": id]) {
+        if !threadAction(interaction.seen(["type": "resolve", "interactionId": interaction.id, "answer": answer, "requestId": id])) {
             approvalSubmissions[interaction.id] = nil
             approvalRequests[id] = nil
         }

@@ -315,6 +315,7 @@ describe("a summarized request read whole on the phone", () => {
 
     session.handle({ type: "request.read", interactionId: id });
     const whole = await card("approval", "loaded");
+    const version = String(whole.wholeVersion);
     expect(whole.summarized).toBe("");
     expect(whole.description).toBe(manifest);
     expect((whole.options as { id: string }[]).map((option) => option.id)).toEqual([
@@ -322,13 +323,19 @@ describe("a summarized request read whole on the phone", () => {
       "deny",
     ]);
 
-    session.handle({ type: "approve", interactionId: id, optionId: "allow", requestId: "read" });
+    session.handle({
+      type: "approve",
+      interactionId: id,
+      optionId: "allow",
+      version,
+      requestId: "read",
+    });
     expect((await until(() => latest("receipt", "read"), "the receipt")).ok).toBe(true);
     expect(commands("interaction.resolve")).toEqual([
       expect.objectContaining({
         interactionId: id,
         resolution: { kind: "approval", optionId: "allow" },
-        readWhole: expect.stringMatching(/^[0-9a-f]{64}$/),
+        readWhole: version,
       }),
     ]);
     expect(daemon.interactionOf("t-allow", id)?.state).toBe("resolved");
@@ -385,14 +392,22 @@ describe("a summarized request read whole on the phone", () => {
     session.handle({ type: "request.read", interactionId: questionId });
     const whole = await card("plan_review", "loaded");
     expect(whole.plan).toMatchObject({ markdown, truncated: false });
-    expect((await card("question", "loaded")).unanswerable).toBe(false);
+    const asked = await card("question", "loaded");
+    expect(asked.unanswerable).toBe(false);
 
-    session.handle({ type: "resolve", interactionId: planId, answer: approve, requestId: "p1" });
+    session.handle({
+      type: "resolve",
+      interactionId: planId,
+      answer: approve,
+      version: String(whole.wholeVersion),
+      requestId: "p1",
+    });
     session.handle({
       type: "answer",
       interactionId: questionId,
       answers: { target: ["all"] },
       dismissed: false,
+      version: String(asked.wholeVersion),
       requestId: "q1",
     });
     expect((await until(() => latest("receipt", "p1"), "the plan's receipt")).ok).toBe(true);
@@ -411,7 +426,7 @@ describe("a summarized request read whole on the phone", () => {
     const { daemon, session } = asking("t-changed", [approvalAsk(manifest)]);
     const id = String((await card("approval", "unread")).id);
     session.handle({ type: "request.read", interactionId: id });
-    await card("approval", "loaded");
+    const read = String((await card("approval", "loaded")).wholeVersion);
 
     // The request changes on the machine after the phone read it.
     const changed = `${manifest}\nPartition 901 added`;
@@ -419,20 +434,81 @@ describe("a summarized request read whole on the phone", () => {
     if (stored?.request.kind !== "approval") throw new Error("No stored approval");
     stored.request.description = changed;
 
-    session.handle({ type: "approve", interactionId: id, optionId: "allow", requestId: "old" });
+    session.handle({
+      type: "approve",
+      interactionId: id,
+      optionId: "allow",
+      version: read,
+      requestId: "old",
+    });
     const refused = await until(() => latest("receipt", "old"), "the refusal");
     expect(refused.ok).toBe(false);
     expect(refused.message).toBe(wholeRequestNotRead);
     expect(daemon.interactionOf("t-changed", id)?.state).toBe("pending");
 
     // The refusal reads it again, so the card shows what the machine now asks.
-    await until(
+    const shown = await until(
       () => rows("thread.interaction").find((row) => row.description === changed),
       "the new version on the card",
     );
-    session.handle({ type: "approve", interactionId: id, optionId: "allow", requestId: "new" });
+    session.handle({
+      type: "approve",
+      interactionId: id,
+      optionId: "allow",
+      version: String(shown.wholeVersion),
+      requestId: "new",
+    });
     expect((await until(() => latest("receipt", "new"), "the receipt")).ok).toBe(true);
     expect(daemon.interactionOf("t-changed", id)?.state).toBe("resolved");
+  });
+
+  it("refuses a tap made on an older version once a newer one has loaded", async () => {
+    const { daemon, session } = asking("t-stale", [approvalAsk(manifest)]);
+    const id = String((await card("approval", "unread")).id);
+    session.handle({ type: "request.read", interactionId: id });
+    const seen = String((await card("approval", "loaded")).wholeVersion);
+    expect(seen).toMatch(/^[0-9a-f]{64}$/);
+
+    const changed = `${manifest}\nPartition 902 added`;
+    const stored = daemon.interactionOf("t-stale", id);
+    if (stored?.request.kind !== "approval") throw new Error("No stored approval");
+    stored.request.description = changed;
+    // A refused answer makes the phone read the new version, as any change would.
+    session.handle({
+      type: "approve",
+      interactionId: id,
+      optionId: "allow",
+      version: seen,
+      requestId: "first",
+    });
+    await until(() => latest("receipt", "first"), "the first refusal");
+    const fresh = await until(
+      () => rows("thread.interaction").find((row) => row.description === changed),
+      "the new version on the card",
+    );
+    expect(fresh.wholeVersion).not.toBe(seen);
+
+    // A tap the person made on the old card, arriving after the new one loaded.
+    for (const [requestId, action] of [
+      ["approve", { type: "approve", optionId: "allow" }],
+      ["deny", { type: "approve", optionId: "deny" }],
+    ] as const) {
+      session.handle({ ...action, interactionId: id, version: seen, requestId });
+      expect(await admitted(requestId)).toBe(false);
+    }
+    session.handle({ type: "approve", interactionId: id, optionId: "allow", requestId: "bare" });
+    expect(await admitted("bare")).toBe(false);
+    expect(daemon.interactionOf("t-stale", id)?.state).toBe("pending");
+
+    session.handle({
+      type: "approve",
+      interactionId: id,
+      optionId: "allow",
+      version: String(fresh.wholeVersion),
+      requestId: "seen",
+    });
+    expect((await until(() => latest("receipt", "seen"), "the receipt")).ok).toBe(true);
+    expect(daemon.interactionOf("t-stale", id)?.state).toBe("resolved");
   });
 
   it("answers nothing from a copy the machine hasn't confirmed", async () => {

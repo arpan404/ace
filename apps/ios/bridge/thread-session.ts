@@ -402,6 +402,7 @@ export class ThreadSession {
         this.#resolve(
           action.interactionId,
           (interaction, readWhole) => approvalResolution(interaction, action.optionId, readWhole),
+          action.version,
           action.requestId,
           "That option is no longer available. Check the request.",
         );
@@ -411,6 +412,7 @@ export class ThreadSession {
           action.interactionId,
           (interaction, readWhole) =>
             answerResolution(interaction, action.answers, action.dismissed, readWhole),
+          action.version,
           action.requestId,
           "That answer doesn't fit the question. Check your choices.",
         );
@@ -419,6 +421,7 @@ export class ThreadSession {
         this.#resolve(
           action.interactionId,
           (interaction, readWhole) => requestResolution(interaction, action.answer, readWhole),
+          action.version,
           action.requestId,
           "That doesn't fit the request. Check what you entered.",
         );
@@ -631,6 +634,7 @@ export class ThreadSession {
       interaction: Interaction,
       readWhole: boolean,
     ) => Extract<CommandPayload, { type: "interaction.resolve" }>["resolution"] | undefined,
+    seen: string | undefined,
     id: string,
     refused: string,
   ): void {
@@ -638,7 +642,7 @@ export class ThreadSession {
       this.#admission(id, false, "Wait for this thread to finish syncing, then answer.");
       return;
     }
-    const built = this.#whole.resolution(interactionId, build);
+    const built = this.#whole.resolution(interactionId, build, seen);
     if (!built) {
       this.#admission(id, false, refused);
       return;
@@ -673,8 +677,14 @@ export class ThreadSession {
     const build = (interaction: Interaction, readWhole: boolean) =>
       phoneAnswer(interaction, composerReply(interaction, draft, text), readWhole);
     // Words that can't answer it (or a yes to one not read whole) go as a message instead.
-    if (!this.#whole.resolution(reply.interactionId, build)) return false;
-    this.#resolve(reply.interactionId, build, id, "That answer doesn't fit the question.");
+    if (!this.#whole.resolution(reply.interactionId, build, reply.version)) return false;
+    this.#resolve(
+      reply.interactionId,
+      build,
+      reply.version,
+      id,
+      "That answer doesn't fit the question.",
+    );
     return true;
   }
   /** `/goal <objective>` sets the provider's own goal; true when it did (or was refused). */
