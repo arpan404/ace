@@ -76,3 +76,28 @@ test("opting into stderr drops keeps the process and its later stderr lines", as
   expect(dropped).toEqual([64]);
   expect(lines).toEqual(["after"]);
 });
+
+test("dropped stderr lines still count toward the total output budget", async () => {
+  const dropped: number[] = [];
+  const child = spawnSupervised({
+    command: process.execPath,
+    args: [
+      "-e",
+      'for (let i = 0; i < 8; i++) process.stderr.write("x".repeat(64) + "\\n"); setInterval(() => {}, 1000);',
+    ],
+    env: {},
+    name: "stderr-drop-total",
+    maxLineBytes: 8,
+    maxOutputBytes: 256,
+    onStderrLineDropped(line) {
+      dropped.push(line.bytes);
+    },
+  });
+  onTestFinished(async () => {
+    await child.stop({ graceMs: 0 });
+  });
+  expect(await child.exited).toMatchObject({ reason: "output-limit", signal: "SIGKILL" });
+  // Each dropped line is 65 bytes with its newline, so at most three fit in the budget.
+  expect(dropped.length).toBeGreaterThan(0);
+  expect(dropped.length).toBeLessThanOrEqual(3);
+});
