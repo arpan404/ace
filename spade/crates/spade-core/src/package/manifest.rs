@@ -804,9 +804,7 @@ impl Reader<'_> {
                 }
                 Some(Value::Bool(true)) => self.problem(
                     rule::TRIGGER,
-                    format!(
-                        "triggers[{i}].verify is for a schedule, event or webhook trigger"
-                    ),
+                    format!("triggers[{i}].verify is for a schedule, event or webhook trigger"),
                 ),
                 Some(_) => self.problem(
                     rule::TRIGGER,

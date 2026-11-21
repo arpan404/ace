@@ -102,11 +102,17 @@ fn kind_of(keyword: &str) -> Option<&'static str> {
 
 fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<Problem>) -> Option<Rule> {
     if depth > MOST_DEPTH {
-        out.push(Problem::new(rules::RULE_DEPTH, format!("{at}: a rule nests at most {MOST_DEPTH} levels")));
+        out.push(Problem::new(
+            rules::RULE_DEPTH,
+            format!("{at}: a rule nests at most {MOST_DEPTH} levels"),
+        ));
         return None;
     }
     let Some(fields) = value.as_object() else {
-        out.push(Problem::new(rules::RULE_OBJECT, format!("{at} is a rule object")));
+        out.push(Problem::new(
+            rules::RULE_OBJECT,
+            format!("{at} is a rule object"),
+        ));
         return None;
     };
     let before = out.len();
@@ -116,9 +122,15 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<Problem>) -> Option
             continue;
         }
         match kind_of(key) {
-            None => out.push(Problem::new(rules::RULE_KEYWORD, format!("{at}: {key:?} isn't in the rule subset checks use"))),
+            None => out.push(Problem::new(
+                rules::RULE_KEYWORD,
+                format!("{at}: {key:?} isn't in the rule subset checks use"),
+            )),
             Some(kind) if narrowed.is_some_and(|k| k != kind) => {
-                out.push(Problem::new(rules::RULE_MIXED, format!("{at} mixes keywords of different types")));
+                out.push(Problem::new(
+                    rules::RULE_MIXED,
+                    format!("{at} mixes keywords of different types"),
+                ));
             }
             Some(kind) => narrowed = Some(kind),
         }
@@ -129,27 +141,30 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<Problem>) -> Option
                 .is_some_and(|t| t.chars().count() <= DESCRIPTION_CHARS)
         };
         if fields.get(key).is_some_and(|v| !fits(v)) {
-            out.push(Problem::new(rules::RULE_TEXT, format!(
-                "{at}.{key} is text of at most {DESCRIPTION_CHARS} characters"
-            )));
+            out.push(Problem::new(
+                rules::RULE_TEXT,
+                format!("{at}.{key} is text of at most {DESCRIPTION_CHARS} characters"),
+            ));
         }
     }
     let kind = match fields.get("type") {
         None => None,
         Some(Value::String(kind)) if TYPES.contains(&kind.as_str()) => Some(kind.clone()),
         Some(_) => {
-            out.push(Problem::new(rules::RULE_TYPE, format!(
-                "{at}.type is object, string, number, integer, boolean or array"
-            )));
+            out.push(Problem::new(
+                rules::RULE_TYPE,
+                format!("{at}.type is object, string, number, integer, boolean or array"),
+            ));
             None
         }
     };
     if let (Some(kind), Some(narrowed)) = (&kind, narrowed) {
         let same = kind == narrowed || (kind == "integer" && narrowed == "number");
         if !same {
-            out.push(Problem::new(rules::RULE_TYPE, format!(
-                "{at}: a {kind} takes none of the {narrowed} keywords"
-            )));
+            out.push(Problem::new(
+                rules::RULE_TYPE,
+                format!("{at}: a {kind} takes none of the {narrowed} keywords"),
+            ));
         }
     }
     if out.len() > before {
@@ -167,7 +182,10 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<Problem>) -> Option
             if let (Some(min), Some(max)) = (min, max)
                 && min > max
             {
-                out.push(Problem::new(rules::RULE_BOUND, format!("{at}: minimum is more than maximum")));
+                out.push(Problem::new(
+                    rules::RULE_BOUND,
+                    format!("{at}: minimum is more than maximum"),
+                ));
             }
             Narrows::Number { min, max }
         }
@@ -177,7 +195,10 @@ fn node(value: &Value, at: &str, depth: usize, out: &mut Vec<Problem>) -> Option
             if let (Some(min), Some(max)) = (min, max)
                 && min > max
             {
-                out.push(Problem::new(rules::RULE_BOUND, format!("{at}: minItems is more than maxItems")));
+                out.push(Problem::new(
+                    rules::RULE_BOUND,
+                    format!("{at}: minItems is more than maxItems"),
+                ));
             }
             let items = match fields.get("items") {
                 None => None,
@@ -199,7 +220,10 @@ fn number(fields: &Map<String, Value>, key: &str, at: &str, out: &mut Vec<Proble
         None => None,
         Some(n) if n.is_number() => n.as_f64(),
         Some(_) => {
-            out.push(Problem::new(rules::RULE_BOUND, format!("{at}.{key} is a number")));
+            out.push(Problem::new(
+                rules::RULE_BOUND,
+                format!("{at}.{key} is a number"),
+            ));
             None
         }
     }
@@ -216,7 +240,10 @@ fn count(
     match value.as_u64() {
         Some(n) if n <= most => Some(n),
         _ => {
-            out.push(Problem::new(rules::RULE_BOUND, format!("{at}.{key} is a whole number up to {most}")));
+            out.push(Problem::new(
+                rules::RULE_BOUND,
+                format!("{at}.{key} is a whole number up to {most}"),
+            ));
             None
         }
     }
@@ -248,9 +275,10 @@ fn object(
                 }
             }
         }
-        Some(_) => out.push(Problem::new(rules::RULE_FIELDS, format!(
-            "{at}.properties names at most {MOST_FIELDS} fields"
-        ))),
+        Some(_) => out.push(Problem::new(
+            rules::RULE_FIELDS,
+            format!("{at}.properties names at most {MOST_FIELDS} fields"),
+        )),
     }
     let required = match fields.get("required") {
         None => Vec::new(),
@@ -265,7 +293,10 @@ fn object(
                 .collect()
         }
         Some(_) => {
-            out.push(Problem::new(rules::RULE_REQUIRED, format!("{at}.required is a list of field names")));
+            out.push(Problem::new(
+                rules::RULE_REQUIRED,
+                format!("{at}.required is a list of field names"),
+            ));
             Vec::new()
         }
     };
@@ -281,7 +312,10 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<Problem>) -> Opti
     if let (Some(min), Some(max)) = (min, max)
         && min > max
     {
-        out.push(Problem::new(rules::RULE_BOUND, format!("{at}: minLength is more than maxLength")));
+        out.push(Problem::new(
+            rules::RULE_BOUND,
+            format!("{at}: minLength is more than maxLength"),
+        ));
     }
     let one_of = match fields.get("enum") {
         None => None,
@@ -295,14 +329,18 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<Problem>) -> Opti
                 })
                 .collect();
             if words.is_none() {
-                out.push(Problem::new(rules::RULE_ENUM, format!(
-                    "{at}.enum lists words of at most {ENUM_CHARS} characters"
-                )));
+                out.push(Problem::new(
+                    rules::RULE_ENUM,
+                    format!("{at}.enum lists words of at most {ENUM_CHARS} characters"),
+                ));
             }
             words
         }
         Some(_) => {
-            out.push(Problem::new(rules::RULE_ENUM, format!("{at}.enum lists 1 to {MOST_ENUM} words")));
+            out.push(Problem::new(
+                rules::RULE_ENUM,
+                format!("{at}.enum lists 1 to {MOST_ENUM} words"),
+            ));
             None
         }
     };
@@ -310,20 +348,29 @@ fn string(fields: &Map<String, Value>, at: &str, out: &mut Vec<Problem>) -> Opti
         None => None,
         Some(Value::String(text)) => match pattern_problem(text) {
             Some(why) => {
-                out.push(Problem::new(rules::RULE_PATTERN, format!("{at}.pattern {why}")));
+                out.push(Problem::new(
+                    rules::RULE_PATTERN,
+                    format!("{at}.pattern {why}"),
+                ));
                 None
             }
             // `(?s)`: `.` takes any character, as JavaScript's `s` flag reads it.
             None => match Regex::new(&format!("(?s){text}")) {
                 Ok(regex) => Some((text.clone(), regex)),
                 Err(_) => {
-                    out.push(Problem::new(rules::RULE_PATTERN, format!("{at}.pattern isn't a pattern this subset reads")));
+                    out.push(Problem::new(
+                        rules::RULE_PATTERN,
+                        format!("{at}.pattern isn't a pattern this subset reads"),
+                    ));
                     None
                 }
             },
         },
         Some(_) => {
-            out.push(Problem::new(rules::RULE_PATTERN, format!("{at}.pattern is text")));
+            out.push(Problem::new(
+                rules::RULE_PATTERN,
+                format!("{at}.pattern is text"),
+            ));
             None
         }
     };
