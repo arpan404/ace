@@ -50,8 +50,8 @@ to compare operating systems. The event measures clicks on the website.
 
 To verify a deployment, open the site in a fresh browser profile, allow analytics, and click a
 download link. Check Live Events for `$pageview` and `marketing_download_clicked`, and Session
-Replay for the visit. Reopen **Cookie settings** in the footer and reject optional tracking to
-stop capture.
+Replay for the visit. Reopen **Cookie settings** in the footer and choose **Decline** to stop
+capture.
 
 ## Download links
 

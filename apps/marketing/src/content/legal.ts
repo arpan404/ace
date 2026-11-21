@@ -206,12 +206,10 @@ export const privacyPolicy: LegalDocument = {
 };
 
 export const analyticsConsent = {
-  title: "Cookies and privacy",
-  description:
-    "We use optional browser storage for traffic analytics and session recordings. Form inputs are masked.",
+  title: "Allow analytics and session replay?",
   privacyLink: "Privacy policy",
-  accept: "Accept all",
-  decline: "Reject optional",
+  accept: "Allow",
+  decline: "Decline",
   settings: "Cookie settings",
 };
 

@@ -17,12 +17,9 @@ const host = region === "eu" ? "https://eu.i.posthog.com" : "https://us.i.postho
       hidden
     >
       <div class="page consent-inner">
-        <div>
+        <div class="consent-copy">
           <h2 id="analytics-consent-title" tabindex="-1">{analyticsConsent.title}</h2>
-          <p>
-            {analyticsConsent.description}{" "}
-            <a href={privacyPolicy.path}>{analyticsConsent.privacyLink}</a>
-          </p>
+          <a href={privacyPolicy.path}>{analyticsConsent.privacyLink}</a>
         </div>
         <div class="choices">
           <button class="button button-secondary" type="button" data-analytics-choice="off">
@@ -43,32 +40,33 @@ const host = region === "eu" ? "https://eu.i.posthog.com" : "https://us.i.postho
     z-index: 50;
     inset-inline: 0;
     inset-block-end: 0;
-    padding-block: 16px calc(16px + env(safe-area-inset-bottom));
+    padding-block: 12px calc(12px + env(safe-area-inset-bottom));
     border-block-start: 1px solid var(--border-strong);
     background: var(--surface);
   }
 
   .consent-inner {
     display: grid;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
   }
 
-  h2 {
-    font-size: 15px;
-    font-weight: 600;
+  .consent-copy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 12px;
   }
 
-  p {
-    margin-block-start: 4px;
-    color: var(--muted);
+  h2 {
     font-size: 14px;
-    line-height: 1.45;
-    text-wrap: pretty;
+    font-weight: 500;
   }
 
   a {
-    color: var(--foreground);
+    color: var(--muted);
+    font-size: 13px;
+    text-underline-offset: 3px;
     white-space: nowrap;
   }
 
@@ -87,14 +85,16 @@ const host = region === "eu" ? "https://eu.i.posthog.com" : "https://us.i.postho
     white-space: normal;
   }
 
-  @media (min-width: 768px) {
+  @media (min-width: 600px) {
     .consent-inner {
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 24px;
     }
 
     button {
-      padding-inline: 20px;
+      min-block-size: 36px;
+      min-inline-size: 88px;
+      padding: 6px 16px;
     }
   }
 </style>
