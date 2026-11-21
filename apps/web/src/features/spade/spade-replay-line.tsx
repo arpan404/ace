@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button.tsx";
 export function ReplayLine(props: {
   replay: Pick<SpadeReplay, "summary" | "cases"> | undefined;
   /** The replay is still running. */
-  pending?: boolean;
+  pending?: boolean | undefined;
   /** Why it couldn't run. */
   error?: string | undefined;
 }) {
