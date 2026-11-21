@@ -106,12 +106,17 @@ it("lands every spelling of a public forge's repository in the one checkout of i
   expect(await here.landing("https://github.com/o/r.git", "github.com/o/r")).toBe(project);
 });
 
-it("re-checks a project chosen before an upgrade, and never lands in one whose origin isn't the sender's", async () => {
+/**
+ * A transfer begun under an older build, which chose the checkout here (origin
+ * `git@forge:team/app.git`) for the sender's `url` and kept the sender's own key, `senderKey`,
+ * with no `v2:`. Its commit comes after the upgrade: what Git was asked, by folder, and every
+ * new folder the landing went for.
+ */
+async function chosenBeforeUpgrade(url: string, senderKey: string) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-incoming-rechoose-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const store = new Store(join(root, "events.sqlite"));
   cleanup.push(async () => store.close());
-  // The checkout here clones `team/app` from its home on the forge.
   const path = join(root, "app");
   const origin = "git@forge:team/app.git";
   /** Every Git call, by the folder it was for. */
@@ -144,15 +149,13 @@ it("re-checks a project chosen before an upgrade, and never lands in one whose o
     log: () => {},
   });
   cleanup.push(() => incoming.close());
-  // Begun under an older build, which keyed `/team/app` from the root as the same repository
-  // and chose the checkout here for it.
   const begin: TransferBegin = {
     op: "begin",
     transferId: "t-before",
     origin: { hostId: HostId.parse("host-macbook"), hostName: "MacBook" },
     method: "remote",
     name: "app",
-    remote: { url: "ssh://git@forge/team/app.git", normalized: "forge/team/app" },
+    remote: { url, normalized: senderKey },
   };
   store
     .statement(
@@ -160,9 +163,29 @@ it("re-checks a project chosen before an upgrade, and never lands in one whose o
     )
     .run("t-before", device.id, "receiving", "remote", 1, JSON.stringify(begin), project, 1, 1);
   await incoming.call(device, { op: "commit", transferId: "t-before", head: "a".repeat(40) });
-  await expect.poll(() => newFolders.length).toBe(1);
+  return {
+    path,
+    touched,
+    newFolders,
+    here: () => touched.filter((call) => call.endsWith(` ${path}`)),
+  };
+}
+
+it("re-checks a project chosen before an upgrade, and never lands in one whose origin isn't the sender's", async () => {
+  // `/team/app` from the root: another repository than the checkout's, from a home.
+  const landing = await chosenBeforeUpgrade("ssh://git@forge/team/app.git", "forge/team/app");
+  await expect.poll(() => landing.newFolders.length).toBe(1);
   // Its origin was read, and nothing else was done there: the work went for a new folder.
-  expect(touched.filter((call) => call.endsWith(` ${path}`))).toEqual([`transferOrigin ${path}`]);
+  expect(landing.here()).toEqual([`transferOrigin ${landing.path}`]);
+});
+
+it("re-checks by URL alone, so an older sender's key without v2 still lands in the same repository", async () => {
+  // The same repository, spelled from the home; the older sender's key has no `v2:`.
+  const landing = await chosenBeforeUpgrade("ssh://git@forge/~/team/app.git", "forge/team/app");
+  await expect.poll(() => landing.here().length).toBeGreaterThan(1);
+  // The checkout here was kept: past its origin, the landing went on in it.
+  expect(landing.here()[0]).toBe(`transferOrigin ${landing.path}`);
+  expect(landing.newFolders).toEqual([]);
 });
 
 it("a self-hosted forge's SSH origin never lands in its HTTPS checkout, and is sent whole instead", async () => {
