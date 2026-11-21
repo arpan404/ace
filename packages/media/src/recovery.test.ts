@@ -25,7 +25,7 @@ function world(random: number) {
   const runtime = new MediaRuntime({
     ...options,
     id: () => `s${++ids}`,
-    capabilities: { ingest: sourceKinds, recordings: false, stills: false, delivery: false },
+    capabilities: { ingest: sourceKinds, delivery: false },
   });
   const points: { at: number; address: IngestAddress | undefined }[] = [];
   const stops: string[] = [];
@@ -34,7 +34,7 @@ function world(random: number) {
     kind: "tab",
     origin: { kind: "tab" },
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     point: (address) => {
       points.push({ at: h.clock.now(), address });
       return Promise.resolve();

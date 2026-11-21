@@ -35,7 +35,14 @@ import {
   type MediaSettings,
 } from "./supervision-policy.ts";
 import { secureRandomBytes, type MediaClock, type MediaHost } from "./supervisor-host.ts";
-import { controlLane, decodeFromMedia, type FromMedia, type ToMedia } from "./wire.ts";
+import {
+  controlLane,
+  decodeFromMedia,
+  unknownFromMedia,
+  type FromMedia,
+  type MediaFeature,
+  type ToMedia,
+} from "./wire.ts";
 
 export * from "./diagnostics.ts";
 export * from "./grants.ts";
@@ -151,6 +158,11 @@ export class MediaSupervisor {
    */
   ingest(): Ready["ingest"] | undefined {
     return this.#accepting() ? this.#run?.ready?.ingest : undefined;
+  }
+
+  /** Whether the running ace-media agreed to speak `feature` (`ready.features`). */
+  speaks(feature: MediaFeature): boolean {
+    return this.#accepting() && (this.#run?.ready?.features?.includes(feature) ?? false);
   }
 
   /** ace-media's direct listener for clients (D1), while it takes grants. */
@@ -309,6 +321,13 @@ export class MediaSupervisor {
     try {
       decoded = decodeFromMedia(frame, lane);
     } catch (error) {
+      // A newer ace-media's message type is skipped (decode leniently); anything else is fatal.
+      if (unknownFromMedia(frame, lane)) {
+        this.#options.log("debug", "ace-media sent a message type this daemon doesn't know", {
+          lane,
+        });
+        return;
+      }
       this.#options.log("error", "ace-media sent an invalid frame", { lane, error: String(error) });
       return this.#kill(run, "protocol");
     }

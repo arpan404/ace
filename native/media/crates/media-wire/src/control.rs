@@ -442,6 +442,20 @@ pub enum ToMedia {
         #[serde(rename = "source")]
         source: Id,
     },
+    /// An ingest barrier (X1): answered by `source.synced` once ace-media has taken `frames`
+    /// frames from the source's producer connection since its hello, and its recording, if any,
+    /// has decided epoch `decided`, so a `record.stop` after it finds every frame in place.
+    #[serde(rename = "source.sync")]
+    SourceSync {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "seq")]
+        seq: Sequence,
+        #[serde(rename = "frames")]
+        frames: Sequence,
+        #[serde(rename = "decided")]
+        decided: u32,
+    },
     /// Whether ace-media sends this source's frames back on the egress lane (G1). Off until
     /// the daemon turns it on.
     #[serde(rename = "source.egress")]
@@ -704,6 +718,15 @@ pub enum FromMedia {
         control: Control,
         #[serde(rename = "listen")]
         listen: Listen,
+        /// The optional features the daemon offered at spawn (`ACE_MEDIA_FEATURES`) that this
+        /// build speaks; absent when none were offered, so an older daemon never sees it.
+        #[serde(
+            rename = "features",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        features: Option<Vec<String>>,
     },
     /// The whole list again, after a trial finished late or a backend changed.
     #[serde(rename = "capabilities.changed")]
@@ -747,6 +770,20 @@ pub enum FromMedia {
         written: Sequence,
         #[serde(rename = "dropped")]
         dropped: Sequence,
+    },
+    /// A producer's ingest connection presented the source's token and was bound to it.
+    #[serde(rename = "source.ingest")]
+    SourceIngest {
+        #[serde(rename = "source")]
+        source: Id,
+    },
+    /// The barrier `source.sync` asked for holds.
+    #[serde(rename = "source.synced")]
+    SourceSynced {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "seq")]
+        seq: Sequence,
     },
     #[serde(rename = "source.status")]
     SourceStatus {
@@ -935,6 +972,23 @@ pub fn lane(kind: &str) -> Lane {
 }
 #[derive(Debug, PartialEq)]
 pub struct InvalidControl;
+
+/// The optional features this build speaks when a daemon offers them (`ready.features`):
+/// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers.
+pub const FEATURES: [&str; 2] = ["source.ingest", "source.sync"];
+
+/// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own
+/// order; `None` when nothing was offered.
+pub fn agreed_features(offered: Option<&str>) -> Option<Vec<String>> {
+    let offered: Vec<&str> = offered?.split(',').map(str::trim).collect();
+    Some(
+        FEATURES
+            .iter()
+            .filter(|feature| offered.contains(feature))
+            .map(|feature| (*feature).to_owned())
+            .collect(),
+    )
+}
 pub struct ControlFrame<M> {
     pub message: M,
     pub payload: zeroize::Zeroizing<Vec<u8>>,
@@ -988,6 +1042,31 @@ impl<M: Message> ControlFrame<M> {
         b.extend_from_slice(&(json.len() as u32).to_be_bytes());
         b.extend(json);
         Ok(b)
+    }
+    /// Whether a frame `decode` refused is a well-formed message of a type this build doesn't
+    /// know: a newer peer's. Such a frame is skipped, never fatal (decode leniently); a known
+    /// type that is malformed still is.
+    pub fn unknown_type(b: &[u8]) -> bool
+    where
+        M: serde::de::DeserializeOwned,
+    {
+        let Some(json) = b
+            .get(4..8)
+            .map(|j| u32::from_be_bytes([j[0], j[1], j[2], j[3]]) as usize)
+            .and_then(|j| b.get(8..8 + j))
+        else {
+            return false;
+        };
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(json) else {
+            return false;
+        };
+        if !value.get("type").is_some_and(serde_json::Value::is_string) {
+            return false;
+        }
+        match serde_json::from_value::<M>(value) {
+            Ok(_) => false,
+            Err(error) => error.to_string().starts_with("unknown variant"),
+        }
     }
     pub fn decode(b: &[u8], lane: Lane) -> Result<Self, InvalidControl> {
         if b.len() < 8 {

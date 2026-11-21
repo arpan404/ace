@@ -106,7 +106,7 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
     runtimeDir,
     dataDir: runtimeDir,
     settings: () => ({ ...defaultMediaSettings, encode: "auto", delivery: "auto" }),
-    capabilities: { ingest: ["tab"], recordings: false, stills: false, delivery: true },
+    capabilities: { ingest: ["tab"], delivery: true },
     host: nodeMediaHost(
       { ...process.env, ...(tls ? { SSL_CERT_FILE: tls.trust } : {}) },
       (path) => ({ command: path, args: [] }),

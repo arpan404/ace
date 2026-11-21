@@ -201,8 +201,8 @@ describe.runIf(binary && executablePath)("live video through ace-media", () => {
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const m = media(settings);
     const f = await fixture({ media: m.browser });
@@ -263,8 +263,8 @@ describe.runIf(binary && executablePath)("live video through ace-media", () => {
       const settings: MediaSettings = {
         encode: "auto",
         delivery: "legacy",
-        recordings: "legacy",
-        stills: "legacy",
+        recordings: "auto",
+        stills: "auto",
       };
       const m = media(settings);
       const f = await fixture({ media: m.browser, profilePreference: () => "ephemeral" });

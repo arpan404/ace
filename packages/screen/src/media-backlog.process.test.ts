@@ -77,8 +77,8 @@ it.runIf(!!binary)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const runtime = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
@@ -95,7 +95,7 @@ it.runIf(!!binary)(
       id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
-      capabilities: { ingest: ["screen"], recordings: false, stills: false, delivery: false },
+      capabilities: { ingest: ["screen"], delivery: false },
     });
     onTestFinished(() => runtime.dispose());
 

@@ -4,7 +4,7 @@ import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { logError, logFields } from "@ace/diagnostics";
 import { installScreenHelper } from "@ace/screen";
 import { ThreadId, AgentId, ItemId } from "@ace/protocol";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, realpath } from "node:fs/promises";
 import type { ServiceContext } from "./types.ts";
@@ -15,7 +15,7 @@ import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import { writeDeviceMessage } from "./device-write.ts";
-import { startMedia } from "./media.ts";
+import { noMediaRecorder, startMedia } from "./media.ts";
 
 export async function startDevices(context: ServiceContext): Promise<void> {
   const { resources, services, options } = context;
@@ -38,8 +38,7 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
   const directory = join(config.dataDir, "artifacts");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const root = await realpath(directory);
-  const { DevicesService, DevicePlatform, renderDeviceVideo, consumeDeviceRecording } =
-    await import("@ace/devices");
+  const { DevicesService, DevicePlatform, publishDeviceRecording } = await import("@ace/devices");
   const frameEncoder = await deviceHelper(context);
   const media = startMedia(context);
   return new DevicesService({
@@ -83,19 +82,20 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
       ),
     recordingDirectory: root,
     recordingAvailable: () => services.files !== undefined,
+    // Every recording is ace-media's (X1); without it a recording refuses, saying why.
+    recorder: media?.recorder ?? noMediaRecorder,
     async publishArtifact(artifact, threadId) {
-      return consumeDeviceRecording(artifact, async () => {
+      return publishDeviceRecording(artifact, root, async (part) => {
         if (!context.store.getThread(ThreadId.parse(threadId)))
           throw new Error("Recording thread no longer exists");
         if (!services.files)
           throw new Error("Configure ACE_WORKSPACE_ROOT to publish device artifacts");
-        const video = await renderDeviceVideo(artifact, process.env);
         await services.files.registerArtifact({
           root,
-          path: basename(video.path),
-          name: `${artifact.id}.mp4`,
+          path: part.file,
+          name: part.name,
           category: "recording",
-          id: artifact.id,
+          id: part.id,
         });
         await context.store.write(() =>
           context.store.appendEvents(ThreadId.parse(threadId), [
@@ -104,19 +104,18 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
               item: {
                 type: "artifact",
                 source: "device",
-                artifactId: artifact.id,
+                artifactId: part.id,
                 id: ItemId.parse(id()),
                 createdAt: now(),
                 complete: true,
-                filename: "Device recording.mp4",
-                path: video.path,
-                mimeType: video.mimeType,
-                bytes: video.bytes,
+                filename: part.name,
+                path: part.path,
+                mimeType: "video/mp4",
+                bytes: part.bytes,
               },
             },
           ]),
         );
-        return video;
       });
     },
   });

@@ -66,8 +66,8 @@ it.runIf(runs)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const producers = mediaRuntime(runtimeDir, settings, "darwin");
     onTestFinished(() => producers.dispose());
@@ -179,8 +179,6 @@ function observe(producers: MediaRuntime) {
             counted(unit);
             producer.consumers.deliver(unit);
           },
-          record: producer.consumers.record,
-          still: producer.consumers.still,
         },
       }),
   };
@@ -305,8 +303,8 @@ it.runIf(windowsRuns)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const producers = mediaRuntime(runtimeDir, settings, "win32");
     onTestFinished(() => producers.dispose());

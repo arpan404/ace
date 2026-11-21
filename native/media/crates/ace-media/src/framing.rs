@@ -41,24 +41,29 @@ async fn fill<R: AsyncRead + Unpin>(reader: &mut R, buffer: &mut [u8]) -> io::Re
 }
 
 /// The next control frame, `None` at a clean end of stream.
+/// A message of a type this build doesn't know (a newer daemon's) is skipped.
 pub async fn read_control<R: AsyncRead + Unpin>(
     reader: &mut R,
     lane: Lane,
 ) -> io::Result<Option<ControlFrame<ToMedia>>> {
-    let mut prefix = [0u8; 4];
-    if !fill(reader, &mut prefix).await? {
-        return Ok(None);
+    loop {
+        let mut prefix = [0u8; 4];
+        if !fill(reader, &mut prefix).await? {
+            return Ok(None);
+        }
+        let length = u32::from_be_bytes(prefix) as usize;
+        if !(4..=lane_limit(lane)).contains(&length) {
+            return Err(invalid("control frame length"));
+        }
+        let mut frame = Zeroizing::new(vec![0u8; 4 + length]);
+        frame[..4].copy_from_slice(&prefix);
+        reader.read_exact(&mut frame[4..]).await?;
+        match ControlFrame::decode(&frame, lane) {
+            Ok(frame) => return Ok(Some(frame)),
+            Err(_) if ControlFrame::<ToMedia>::unknown_type(&frame) => continue,
+            Err(_) => return Err(invalid("control frame")),
+        }
     }
-    let length = u32::from_be_bytes(prefix) as usize;
-    if !(4..=lane_limit(lane)).contains(&length) {
-        return Err(invalid("control frame length"));
-    }
-    let mut frame = Zeroizing::new(vec![0u8; 4 + length]);
-    frame[..4].copy_from_slice(&prefix);
-    reader.read_exact(&mut frame[4..]).await?;
-    ControlFrame::decode(&frame, lane)
-        .map(Some)
-        .map_err(|_| invalid("control frame"))
 }
 
 /// Encodes a message without payload for `lane`.
@@ -181,6 +186,35 @@ mod tests {
                 read_control(&mut reader, Lane::Normal).await,
                 Ok(None)
             ));
+        });
+    }
+
+    /// A control frame of this JSON with no payload, as any peer writes it.
+    fn raw_frame(json: &str) -> Vec<u8> {
+        let mut bytes = ((4 + json.len()) as u32).to_be_bytes().to_vec();
+        bytes.extend((json.len() as u32).to_be_bytes());
+        bytes.extend(json.as_bytes());
+        bytes
+    }
+
+    #[test]
+    fn skips_a_newer_peers_message_type_but_never_a_malformed_known_one() {
+        let mut bytes = raw_frame(r#"{"type":"source.someday","source":"s1"}"#);
+        bytes.extend(ping_frame());
+        let mut reader = bytes.as_slice();
+        run(async {
+            assert!(matches!(
+                read_control(&mut reader, Lane::Normal).await,
+                Ok(Some(ControlFrame {
+                    message: ToMedia::Ping { .. },
+                    ..
+                }))
+            ));
+        });
+        let malformed = raw_frame(r#"{"type":"source.close"}"#);
+        let mut reader = malformed.as_slice();
+        run(async {
+            assert!(read_control(&mut reader, Lane::Normal).await.is_err());
         });
     }
 

@@ -16,8 +16,6 @@ import type { ToMedia } from "./wire.ts";
 
 const capabilities: RouteCapabilities = {
   ingest: ["tab", "tab-pictures", "screen", "simulator"],
-  recordings: false,
-  stills: false,
   delivery: false,
 };
 
@@ -49,8 +47,8 @@ function world() {
     settings: {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     } as MediaSettings,
     health: "healthy" as MediaHealth,
     up: true,
@@ -132,8 +130,6 @@ function producer(kind: SourceKind = "tab", source = "p") {
     epoch: () => 0,
     consumers: {
       deliver: (unit) => void units.push(unit),
-      record: () => {},
-      still: () => {},
     },
     point: (address) => {
       events.push(address ? "point" : "unpoint");

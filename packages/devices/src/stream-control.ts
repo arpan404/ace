@@ -1,7 +1,6 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { DeviceError } from "./sdk.ts";
 import { deviceFrameRate } from "./stream-profile.ts";
-import { recordingImages } from "./recording-feed.ts";
 import { commonStream, sameStream, StreamOwners } from "@ace/screen";
 
 /**
@@ -20,6 +19,17 @@ export const deviceImageStream: ScreenStreamSettings = {
  * (`DeviceCapture.still`) and streams nothing in between. The budget sizes each still.
  */
 export const deviceStillStream: ScreenStreamSettings = { ...deviceImageStream, fps: 2 };
+/**
+ * A recording nobody watches: H.264, which ace-media records as it comes (X1). A watched device
+ * records its viewers' video instead.
+ */
+export const deviceRecordingStream: ScreenStreamSettings = {
+  codec: "h264",
+  maxWidth: 1280,
+  maxHeight: 2560,
+  fps: 30,
+  bitrate: 4000000,
+};
 /** A live view that hasn't sized its stream yet: H.264 at 60 fps in a phone-sized box. */
 export const deviceVideoStream: ScreenStreamSettings = {
   codec: "h264",
@@ -49,10 +59,10 @@ export const sameDeviceStream = sameStream;
 
 /**
  * Coalesce reconfiguration while a native update is outstanding. No queue of old sizes. While
- * anyone watches, the capture streams H.264 at the viewers' common budget, recording or not
- * (a recording decodes that video itself); a capture that can't is refused, never downgraded.
- * The owners' arbitration is the shared `StreamOwners` (`@ace/screen`); this adds the device's
- * rules: live views are H.264 only, and a recording's images while nobody watches.
+ * anyone watches, the capture streams H.264 at the viewers' common budget, recording or not; a
+ * capture that can't is refused, never downgraded. The owners' arbitration is the shared
+ * `StreamOwners` (`@ace/screen`); this adds the device's rules: live views are H.264 only, and
+ * a recording's video while nobody watches.
  */
 export class DeviceStreamControl {
   readonly #owners: StreamOwners;
@@ -64,7 +74,7 @@ export class DeviceStreamControl {
   ) {
     this.#owners = new StreamOwners({
       apply,
-      idle: () => (this.#recordings ? { ...deviceImageStream, ...recordingImages } : idle()),
+      idle: () => (this.#recordings ? deviceRecordingStream : idle()),
       check: (next, result) => {
         if (next.codec === "h264" && result.codec !== "h264")
           throw new DeviceError(

@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from "node:net";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { nodeBinary } from "@ace/provider-kit/testing";
@@ -96,7 +96,6 @@ export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: b
 export async function fixture(
   cleanup: Cleanup,
   options: {
-    ffmpeg?: boolean;
     /** The device resets both sockets once control connects, before naming itself. */
     resetAtControl?: boolean;
     media?: DeviceMedia;
@@ -112,18 +111,8 @@ export async function fixture(
   // The long-running `adb shell app_process ...` stays up until ace stops it.
   await nodeBinary(join(root, "sdk/platform-tools"), "adb", "process.stdin.resume();");
   await nodeBinary(join(root, "sdk/emulator"), "emulator", "");
-  // An ffmpeg that notes its pid and runs until its input ends, as one decoding stills does.
-  const pids = join(root, "ffmpeg.pids");
-  // PATH holds only this folder: a system one could carry a real ffmpeg (Linux puts it in
-  // /usr/bin), and a host without ffmpeg must not find one.
+  // PATH holds only this folder, so no tool from the host is found.
   await mkdir(join(root, "bin"));
-  if (options.ffmpeg) {
-    await nodeBinary(
-      join(root, "bin"),
-      "ffmpeg",
-      `require("fs").appendFileSync(${JSON.stringify(pids)}, process.pid + "\\n"); process.stdin.resume();`,
-    );
-  }
   const jar = join(root, "scrcpy-server");
   await writeFile(jar, "server");
   const device = await fakeDevice(cleanup, { resetAtControl: options.resetAtControl ?? false });
@@ -185,7 +174,5 @@ export async function fixture(
     media: options.media ?? (await loopbackMedia(cleanup)),
   });
   cleanup.push(() => capture.stop());
-  const ffmpegPids = async () =>
-    (await readFile(pids, "utf8").catch(() => "")).split("\n").filter(Boolean).map(Number);
-  return { capture, device, frames, failures, commands, ffmpegPids };
+  return { capture, device, frames, failures, commands };
 }

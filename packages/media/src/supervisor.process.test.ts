@@ -83,7 +83,7 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
     binary: target.binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => ({ ...defaultMediaSettings, stills: "auto" }),
+    settings: () => defaultMediaSettings,
     host: remember(
       (hooks.host ?? ((host) => host))(nodeMediaHost({ ...process.env, ...env }, target.launch)),
     ),

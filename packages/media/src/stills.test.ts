@@ -1,14 +1,9 @@
 import { expect, it } from "vitest";
-import { MediaStills, stillRoute, type StillRequest } from "./stills.ts";
-import {
-  defaultMediaSettings,
-  type MediaHealth,
-  type MediaSettings,
-} from "./supervision-policy.ts";
+import { MediaStills, type StillRequest } from "./stills.ts";
+import type { MediaHealth } from "./supervision-policy.ts";
 import { ManualClock } from "./supervisor-test-support.ts";
 import type { ToMedia } from "./wire.ts";
 
-const auto: MediaSettings = { ...defaultMediaSettings, stills: "auto" };
 const request: StillRequest = {
   source: "s1",
   maxWidth: 1568,
@@ -23,13 +18,12 @@ const steps = [
   { step: "jpeg-encode", backend: "vt", hardware: true, readbacks: 0, uploads: 0 },
 ] as const;
 
-function stills(options: { settings?: MediaSettings; health?: MediaHealth; up?: boolean } = {}) {
+function stills(options: { health?: MediaHealth; up?: boolean } = {}) {
   const clock = new ManualClock();
   const sent: ToMedia[] = [];
   let next = 0;
-  let legacyCalls = 0;
+  let sourceCalls = 0;
   const media = new MediaStills({
-    settings: () => options.settings ?? auto,
     health: () => options.health ?? "healthy",
     send: (message) => {
       if (options.up === false) return false;
@@ -43,31 +37,26 @@ function stills(options: { settings?: MediaSettings; health?: MediaHealth; up?: 
     media.take(
       request,
       async () => {
-        legacyCalls++;
-        return "legacy";
+        sourceCalls++;
+        return "source";
       },
       (still) =>
         `ace-media ${still.width}x${still.height} ${still.jpeg.length}B ${still.steps.length} steps`,
     );
-  return { media, clock, sent, take, legacyCalls: () => legacyCalls };
+  return { media, clock, sent, take, sourceCalls: () => sourceCalls };
 }
 
-it("routes a still to ace-media only when the setting is auto and ace-media is healthy", () => {
-  expect(stillRoute(defaultMediaSettings, "healthy")).toBe("legacy");
-  expect(stillRoute(auto, "healthy")).toBe("ace-media");
-  expect(stillRoute(auto, "restarting")).toBe("legacy");
-  expect(stillRoute(auto, "unavailable")).toBe("legacy");
-});
-
-it("leaves stills to the legacy maker by default, sending nothing to ace-media", async () => {
-  const { take, sent, legacyCalls } = stills({ settings: defaultMediaSettings });
-  await expect(take()).resolves.toBe("legacy");
-  expect(sent).toEqual([]);
-  expect(legacyCalls()).toBe(1);
+it("takes the still from the source's own capture while ace-media isn't healthy, sending nothing", async () => {
+  for (const health of ["restarting", "unavailable"] as const) {
+    const { take, sent, sourceCalls } = stills({ health });
+    await expect(take()).resolves.toBe("source");
+    expect(sent).toEqual([]);
+    expect(sourceCalls()).toBe(1);
+  }
 });
 
 it("answers with ace-media's JPEG and its path when still.done arrives in time", async () => {
-  const { media, take, sent, legacyCalls } = stills();
+  const { media, take, sent, sourceCalls } = stills();
   const still = take();
   expect(sent).toEqual([{ type: "still.take", request: "still-1", ...request }]);
   const payload = new Uint8Array([0xff, 0xd8, 1, 2, 0xff, 0xd9]);
@@ -78,35 +67,35 @@ it("answers with ace-media's JPEG and its path when still.done arrives in time",
   // The supervisor may reuse its buffer afterwards; the still keeps its own copy.
   payload.fill(0);
   await expect(still).resolves.toBe("ace-media 722x1568 6B 3 steps");
-  expect(legacyCalls()).toBe(0);
+  expect(sourceCalls()).toBe(0);
   expect(media.pending).toBe(0);
 });
 
-it("falls back to the legacy maker when ace-media fails the still", async () => {
+it("falls back to the source's own capture when ace-media fails the still", async () => {
   const { media, take } = stills();
   const still = take();
   media.message(
     { type: "still.failed", request: "still-1", reason: "decode-unavailable" },
     new Uint8Array(),
   );
-  await expect(still).resolves.toBe("legacy");
+  await expect(still).resolves.toBe("source");
 });
 
 it("falls back at the deadline and ignores the still that arrives after it", async () => {
-  const { media, clock, take, legacyCalls } = stills();
+  const { media, clock, take, sourceCalls } = stills();
   let answer: string | undefined;
   void take().then((value) => (answer = value));
   await clock.advance(499);
   expect(answer).toBeUndefined();
   await clock.advance(1);
-  expect(answer).toBe("legacy");
+  expect(answer).toBe("source");
   media.message(
     { type: "still.done", request: "still-1", width: 2, height: 2, steps: [] },
     new Uint8Array(4),
   );
   await clock.advance(1);
-  expect(answer).toBe("legacy");
-  expect(legacyCalls()).toBe(1);
+  expect(answer).toBe("source");
+  expect(sourceCalls()).toBe(1);
 });
 
 it("falls back at once when ace-media can't take the request", async () => {
@@ -114,16 +103,16 @@ it("falls back at once when ace-media can't take the request", async () => {
   let answer: string | undefined;
   void take().then((value) => (answer = value));
   await clock.advance(0);
-  expect(answer).toBe("legacy");
+  expect(answer).toBe("source");
 });
 
-it("makes every waiting still the legacy way when ace-media goes away, and each only once", async () => {
-  const { media, take, legacyCalls } = stills();
+it("takes every waiting still from its source when ace-media goes away, and each only once", async () => {
+  const { media, take, sourceCalls } = stills();
   const first = take();
   const second = take();
   media.lost();
   media.message({ type: "still.failed", request: "still-1", reason: "shutdown" }, new Uint8Array());
-  await expect(Promise.all([first, second])).resolves.toEqual(["legacy", "legacy"]);
-  expect(legacyCalls()).toBe(2);
+  await expect(Promise.all([first, second])).resolves.toEqual(["source", "source"]);
+  expect(sourceCalls()).toBe(2);
   expect(media.pending).toBe(0);
 });

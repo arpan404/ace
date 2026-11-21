@@ -46,6 +46,16 @@ module.exports = {
       to: { path: "^(apps/(?!android/)|packages/(fake-daemon|provider-kit|core)/)" },
     },
     {
+      name: "no-legacy-media",
+      severity: "error",
+      comment:
+        "ace-media is the only media pipeline (ADR 0147, X1): the daemon's ffmpeg recording and still paths and its Bun.Image frame transcodes are gone. Record through @ace/media/tee-recordings and take stills from ace-media or the source's own capture.",
+      from: {},
+      to: {
+        path: "^packages/devices/src/(video|recording-feed|h264-jpeg|android-screenrecord)\\.ts$",
+      },
+    },
+    {
       name: "no-circular",
       severity: "error",
       comment: "Circular imports, type-only ones included, hide a missing seam.",

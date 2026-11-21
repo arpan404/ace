@@ -41,7 +41,7 @@ export function tabProducer(threadId: string): IngestProducer & { stop(): void }
     origin: { kind: "tab" },
     threadId,
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     keyframe: () => {},
     stop,
     point: (address) => {

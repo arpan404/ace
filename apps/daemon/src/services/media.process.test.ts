@@ -49,7 +49,7 @@ function producer(stops: string[]): IngestProducer {
     kind: "tab",
     origin: { kind: "tab" },
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     point: () => Promise.resolve(),
     keyframe: () => {},
     stopped: (reason) => void stops.push(reason),

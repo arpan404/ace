@@ -150,8 +150,6 @@ function wire(address: IngestAddress): VideoIngestTarget {
 
 const consumers = (deliver: (unit: EgressUnit) => void) => ({
   deliver,
-  record: () => {},
-  still: () => {},
 });
 
 /** The routed host for each backend host, one per inner host. */

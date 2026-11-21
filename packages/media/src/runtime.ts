@@ -7,6 +7,9 @@ import { IngestSources, restartingReason } from "./ingest-sources.ts";
 import { MediaConnections, MediaIssue } from "./media-connections.ts";
 import { MediaViewers, type MediaDeliveryPort } from "./media-viewers.ts";
 import { SessionLinks, pumpSessionLinks } from "./session-link.ts";
+import { MediaStills } from "./stills.ts";
+import { nodeIngestConnect, type IngestSocket } from "./tee.ts";
+import { TeeRecordings } from "./tee-recordings.ts";
 import {
   MediaSupervisor,
   secureRandomBytes,
@@ -39,6 +42,8 @@ export type MediaRuntimeOptions = Omit<
   platform?: string;
   /** The store to keep what ace-media runs on in; one of its own unless given. */
   acceleration?: MediaAccelerationStore;
+  /** How a recording's tee reaches ace-media's ingest; `node:net` unless a test says. */
+  connect?: (path: string) => IngestSocket;
 };
 
 export class MediaRuntime {
@@ -54,6 +59,10 @@ export class MediaRuntime {
   readonly #stopLinks: () => void;
   /** What ace-media runs on: its probe's list and each source's steps. */
   readonly acceleration: MediaAccelerationStore;
+  /** Recordings, which ace-media makes of frames the daemon tees into it (X1). */
+  readonly recordings: TeeRecordings;
+  /** Agent stills of sources ace-media has. */
+  readonly stills: MediaStills;
 
   readonly #encoders: readonly string[];
 
@@ -66,9 +75,12 @@ export class MediaRuntime {
       replay: () => {
         this.routes.update();
         this.sources.replay();
+        this.recordings.replay();
       },
       onMessage: (message, payload) => {
         this.acceleration.message(message);
+        this.recordings.message(message);
+        this.stills.message(message, payload);
         this.sources.message(message);
         this.connections.received(message);
         this.viewers.received(message, payload);
@@ -83,6 +95,8 @@ export class MediaRuntime {
         this.viewers.exited();
         this.links.restarted();
         this.acceleration.exited();
+        this.recordings.exited();
+        this.stills.lost();
         this.routes.update();
         options.onExit?.(exit);
       },
@@ -116,6 +130,25 @@ export class MediaRuntime {
       acceleration: (subject, acceleration) => this.acceleration.report(subject, acceleration),
     });
     const randomBytes = options.randomBytes ?? secureRandomBytes;
+    this.recordings = new TeeRecordings({
+      send: (message, payload) => this.supervisor.send(message, payload),
+      ingest: () => this.supervisor.ingest()?.socket,
+      need: () => this.supervisor.need(),
+      health: () => this.supervisor.health(),
+      reason: () => this.supervisor.snapshot().unavailableReason,
+      speaks: (feature) => this.supervisor.speaks(feature),
+      connect: options.connect ?? nodeIngestConnect,
+      handle: () => this.egress.reserve(),
+      randomBytes,
+      id: options.id,
+      clock: options.clock,
+    });
+    this.stills = new MediaStills({
+      health: () => this.supervisor.health(),
+      send: (message) => this.supervisor.send(message),
+      clock: options.clock,
+      nextId: options.id,
+    });
     this.connections = new MediaConnections({
       port: {
         send: (message, payload) => this.supervisor.send(message, payload),

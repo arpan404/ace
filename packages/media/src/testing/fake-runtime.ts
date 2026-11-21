@@ -22,13 +22,18 @@ export function fakeMediaRuntime(random = 0.5) {
       return Uint8Array.from({ length }, (_, i) => (i * 7 + draws * 13) & 0xff);
     },
   });
-  const { replay: _replay, onMessage: _message, onEgress: _egress, onExit: _exit, ...options } =
-    h.options;
+  const {
+    replay: _replay,
+    onMessage: _message,
+    onEgress: _egress,
+    onExit: _exit,
+    ...options
+  } = h.options;
   let ids = 0;
   const runtime = new MediaRuntime({
     ...options,
     id: () => `m${++ids}`,
-    capabilities: { ingest: sourceKinds, recordings: false, stills: false, delivery: false },
+    capabilities: { ingest: sourceKinds, delivery: false },
   });
   const answered = new Set<string>();
   /** The live source id ace-media gave each producer, by the daemon's name, and its handle. */

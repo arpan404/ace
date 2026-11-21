@@ -72,7 +72,7 @@ export class ScreenPictureSource {
       origin: { kind: "screen-pictures", platform: options.platform },
       sessionId: options.sessionId,
       epoch: () => screenOpeningEpoch,
-      consumers: { deliver: unit, record: unit, still: unit },
+      consumers: { deliver: unit },
       point: (address) => {
         address?.token.fill(0);
         this.#streaming = address !== undefined;

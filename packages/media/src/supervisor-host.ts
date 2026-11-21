@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
+import { mediaFeatures } from "./wire.ts";
 import {
   connectLane,
   nodeByteSink,
@@ -40,7 +41,9 @@ export function nodeMediaHost(
   return {
     spawn(binary) {
       const { command, args } = launch(binary);
-      const child = spawnRawSupervised({ command, args, env, name: "ace-media" });
+      // Offered, not assumed: an older binary ignores the variable and never lists them.
+      const offered = { ...env, ACE_MEDIA_FEATURES: mediaFeatures.join(",") };
+      const child = spawnRawSupervised({ command, args, env: offered, name: "ace-media" });
       return {
         pid: child.pid,
         stdin: nodeByteSink(child.stdin),

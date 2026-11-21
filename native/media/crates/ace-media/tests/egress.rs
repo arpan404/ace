@@ -70,6 +70,10 @@ fn the_egress_lane_idles_until_a_source_needs_it_then_carries_its_units_under_it
     open_source(&mut media, "b", 22, 2);
     let mut a = producer(&ingest, 1);
     let mut b = producer(&ingest, 2);
+    // ace-media reports each producer's hello bound, whichever it read first.
+    let mut bound = [ingest_of(media.read()), ingest_of(media.read())];
+    bound.sort();
+    assert_eq!(bound, ["a", "b"]);
     let _ = a.write_all(&media_frame(1, 1, vec![1; 64]));
     assert_eq!(status_of(media.read()), ("a".into(), Status::Playing));
     assert!(read_egress(&mut egress).is_none(), "idle while off");

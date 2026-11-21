@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { framePacket, type Frame } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device, DeviceInput } from "@ace/protocol/devices";
-import { findExecutable as discoverExecutable } from "@ace/provider-kit/discovery";
 import type { DeviceCapture } from "./capture.ts";
 import type { DevicePlatform } from "./platform.ts";
 import type { DeviceRuntime } from "./runtime.ts";
@@ -19,7 +18,6 @@ import {
 import { ScrcpyVideoUnits, type VideoUnit } from "./scrcpy-video.ts";
 import { HeldPointers, scrcpyInputPlan } from "./scrcpy-input.ts";
 import { startScrcpyServer, type ScrcpyConnection } from "./scrcpy-server.ts";
-import { H264Jpeg } from "./h264-jpeg.ts";
 import { ScrcpyClipboard } from "./scrcpy-clipboard.ts";
 import type { EmulatorGrpc } from "./emulator-discovery.ts";
 import { startHostFrames, type HostFrames } from "./host-frames.ts";
@@ -118,7 +116,6 @@ export async function scrcpyCapture(options: {
       : { width: shortEdge, height: longEdge };
   let settings: ScreenStreamSettings = { ...deviceImageStream, codec: "h264", fps: options.fps };
   let link: Link | undefined;
-  let jpeg: H264Jpeg | undefined;
   let stopped = false;
   let terminated = false;
   let sequence = 0;
@@ -164,10 +161,6 @@ export async function scrcpyCapture(options: {
   };
   const publishVideo = (unit: VideoUnit) => {
     if (unit.keyframe) keyframeAsked = -Infinity;
-    if (jpeg) {
-      if (!jpeg.push(unit)) keyframe();
-      return;
-    }
     const display = displayFor(unit.width, unit.height);
     const header = {
       version: 1 as const,
@@ -278,23 +271,6 @@ export async function scrcpyCapture(options: {
     // Opens the source in ace-media, which points the capture at its ingest once it has it.
     pathsFor();
   };
-  const publishImage = (payload: Buffer, width: number, height: number) => {
-    const display = displayFor(width, height);
-    const header = {
-      version: 1 as const,
-      sessionId: options.streamId,
-      sequence: sequence++,
-      timestamp: runtime.now(),
-      width,
-      height,
-      scale: width / display.width,
-      codec: "jpeg" as const,
-      bytes: payload.length,
-    };
-    const packet = framePacket(header, payload);
-    options.publish({ header, payload: packet.subarray(packet.length - payload.length), packet });
-  };
-
   /** Starts a server run and makes it the current link before any of its video is read. */
   const connect = async (): Promise<void> => {
     let current: Link | undefined;
@@ -436,31 +412,6 @@ export async function scrcpyCapture(options: {
     current.paths?.close();
     await Promise.all([current.frames?.stop(), current.connection.close()]);
   };
-  const setImages = async (images: boolean) => {
-    if (images && !jpeg) {
-      const ffmpeg = await discoverExecutable("ffmpeg", options.env);
-      // Without ffmpeg the capture stays H.264, and agents' stills come from the device instead.
-      // Stopped meanwhile (or another switch got there first): start nothing that would outlive it.
-      if (!ffmpeg || stopped || jpeg) return Boolean(jpeg);
-      // scrcpy's encoder already keeps to the stream's rate: every picture it sends is one to make.
-      jpeg = new H264Jpeg({
-        ffmpeg,
-        runtime,
-        env: options.env,
-        image: (payload, width, height) => {
-          if (!stopped) publishImage(payload, width, height);
-        },
-        failure: fail,
-      });
-      keyframe();
-    } else if (!images && jpeg) {
-      const previous = jpeg;
-      jpeg = undefined;
-      await previous.stop();
-      keyframe();
-    }
-    return images;
-  };
   async function stop() {
     if (stopped) return;
     stopped = true;
@@ -477,8 +428,7 @@ export async function scrcpyCapture(options: {
     pending?.failed(new Error("Device capture stopped"));
     forward = undefined;
     scrcpyPaths?.close();
-    const results = await Promise.allSettled([disconnect(current), jpeg?.stop()]);
-    jpeg = undefined;
+    const results = await Promise.allSettled([disconnect(current)]);
     terminated = true;
     const errors = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],
@@ -525,9 +475,6 @@ export async function scrcpyCapture(options: {
         current &&
         scrcpyRestartWorthIt(current.profile, wanted, runtime.now() - current.startedAt)
       ) {
-        const previousJpeg = jpeg;
-        jpeg = undefined;
-        await previousJpeg?.stop();
         // The server's size, rate and bitrate are fixed per run: start a fresh one.
         restarting = (async () => {
           link = undefined;
@@ -543,8 +490,8 @@ export async function scrcpyCapture(options: {
           restarting = undefined;
         }
       }
-      const images = await setImages(next.codec === "jpeg");
-      return { codec: images ? "jpeg" : "h264" };
+      // The capture is always H.264 (X1): agents' stills come from the device itself.
+      return { codec: "h264" };
     },
     async keyframe() {
       keyframe();

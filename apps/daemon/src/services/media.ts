@@ -11,6 +11,7 @@ import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections
 import type { MediaDeliveryPort } from "@ace/media/media-viewers";
 import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
+import { refusingRecorder, type MediaRecorder } from "@ace/media/tee-recordings";
 import {
   defaultMediaSettings,
   mediaBinaryPath,
@@ -24,9 +25,9 @@ import type { MediaRelayPort } from "../media-relay/port.ts";
 import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
- * The daemon's ace-media for live video (ADR 0147): one `MediaRuntime`, made once the binary is
- * found. ace-media is the only encoder: without the binary, or while ace-media isn't healthy,
- * live views say they are retrying and why.
+ * The daemon's ace-media (ADR 0147): one `MediaRuntime`, made once the binary is found. ace-media
+ * is the only encoder and the only recorder: without the binary, or while ace-media isn't
+ * healthy, live views say they are retrying and why, and a recording refuses to start, saying why.
  */
 
 const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
@@ -79,6 +80,8 @@ export type DaemonMedia = BrowserMedia & {
   acceleration: MediaAccelerationStore;
   /** ace-media's process while it runs. */
   pid(): number | undefined;
+  /** Every recording goes through ace-media (X1). */
+  recorder: MediaRecorder;
 };
 
 /** A long-lived producer waiting for the runtime, and what it told its source meanwhile. */
@@ -87,6 +90,11 @@ type Waiting = {
   codecs?: string[] | undefined;
   encodes?: Parameters<IngestSource["encodes"]>[0] | undefined;
 };
+
+/** The recorder producers use on a daemon that has no ace-media at all. */
+export const noMediaRecorder: MediaRecorder = refusingRecorder(
+  "it isn't installed for this computer",
+);
 
 /** One per daemon: the browser and the screen share it. */
 const started = new WeakMap<object, DaemonMedia | undefined>();
@@ -143,6 +151,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         onMessage: (message, payload) => relayPort?.message(message, payload),
         onExit: () => relayPort?.exit(),
       });
+      failed = undefined;
       relayPort = new RuntimeRelayPort(runtime, () => settings.delivery === "auto");
       for (const [producer, slot] of waiting) {
         slot.source = runtime.sources.add(producer);
@@ -177,6 +186,16 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   });
 
   return {
+    recorder: {
+      start: async (spec) => {
+        await start();
+        if (!runtime)
+          return refusingRecorder(closed ? "the daemon is stopping" : "it didn't start").start(
+            spec,
+          );
+        return runtime.recordings.start(spec);
+      },
+    },
     delivery: () =>
       runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
     acceleration,
