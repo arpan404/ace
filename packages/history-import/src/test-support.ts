@@ -105,7 +105,6 @@ export async function environment(instances: HistoryOptions["instances"] = []): 
           instances: homes,
           snapshot: roomySnapshots,
         },
-        undefined,
         runtime,
       );
       services.push(service);

@@ -7,13 +7,11 @@ import { afterAll, expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { openHistory, type HistoryService } from "../index.ts";
 import { cwd, init, memorySink, roomySnapshots } from "../test-support.ts";
-import { readFile, writeFile } from "node:fs/promises";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { readFile } from "node:fs/promises";
+import { gunzipSync } from "node:zlib";
 import { parityHomes } from "./parity-fixture.ts";
 import { normalize, parityRoot, stamp } from "./parity-normalize.ts";
-import { findHistoryBinary } from "./reader-binary.ts";
 
-const binary = findHistoryBinary();
 const roots: string[] = [];
 afterAll(async () => {
   for (const root of roots) await rm(root, { recursive: true, force: true });
@@ -71,17 +69,13 @@ async function imported(service: HistoryService, threadId: ThreadId) {
 }
 
 /** What one reader makes of the homes: its scan, lists, reads, stored rows and imports. */
-async function observe(
-  root: string,
-  homes: Awaited<ReturnType<typeof parityHomes>>,
-  readerBinary: string | null,
-) {
-  const indexPath = join(root, readerBinary ? "rust" : "ts", "index.sqlite");
-  const service = await openHistory(
-    { indexPath, instances: homes.instances, snapshot: roomySnapshots },
-    undefined,
-    { readerBinary },
-  );
+async function observe(root: string, homes: Awaited<ReturnType<typeof parityHomes>>) {
+  const indexPath = join(root, "rust", "index.sqlite");
+  const service = await openHistory({
+    indexPath,
+    instances: homes.instances,
+    snapshot: roomySnapshots,
+  });
   try {
     const scan = await service.scan();
     const pages = [];
@@ -157,58 +151,49 @@ async function observe(
 
 const expectedPath = new URL("./parity-expected.json.gz", import.meta.url);
 
-test.skipIf(!binary)(
-  "ace-history stores, lists and imports the same history as the TypeScript reader",
-  async () => {
-    const root = parityRoot;
-    await rm(root, { recursive: true, force: true });
-    roots.push(root);
-    const homes = await parityHomes(join(root, "homes"));
-    await stamp(join(root, "homes"));
-    const typescript = await observe(root, homes, null);
-    const rust = await observe(root, homes, binary ?? null);
-    // The fixture exercises what it means to: sessions listed, imports made, subagents, blobs.
-    expect(typescript.stored.sources.length).toBeGreaterThan(homes.recorded);
-    expect(typescript.imports.filter((i) => i.archive !== null).length).toBeGreaterThan(5);
-    expect(typescript.imports.some((i) => (i.archive?.agents.length ?? 0) > 1)).toBe(true);
-    expect(typescript.imports.some((i) => Object.keys(i.archive?.blobs ?? {}).length > 1)).toBe(
-      true,
-    );
-    // Every provider's homes are listed and imported, OpenCode's three stores and Pi included.
-    const kinds = new Set(
-      typescript.stored.sources.map((row) => `${String(row.instance)}:${String(row.kind)}`),
-    );
-    for (const kind of [
-      "opencode-storage:storage",
-      "opencode-v1:database",
-      "opencode-v2:database",
-      "pi-home:jsonl",
-    ])
-      expect(kinds).toContain(kind);
-    const importedFrom = (instance: string) =>
-      typescript.imports.filter(
+/** What the TypeScript reader made of the parity homes, kept when it was removed (ADR 0206). */
+type Observation = {
+  stored: { sources: { id: unknown; instance: unknown; kind: unknown }[] };
+  imports: { session: string; archive: { agents: unknown[]; blobs: object } | null }[];
+};
+
+test("ace-history stores, lists and imports the parity homes as the TypeScript reader did", async () => {
+  const root = parityRoot;
+  await rm(root, { recursive: true, force: true });
+  roots.push(root);
+  const homes = await parityHomes(join(root, "homes"));
+  await stamp(join(root, "homes"));
+  const expected = JSON.parse(
+    gunzipSync(await readFile(expectedPath)).toString("utf8"),
+  ) as Observation;
+  // The kept observation exercises what it means to: every provider's homes listed and imported,
+  // subagents and blobs.
+  expect(expected.stored.sources.length).toBeGreaterThan(homes.recorded);
+  expect(expected.imports.some((i) => (i.archive?.agents.length ?? 0) > 1)).toBe(true);
+  expect(expected.imports.some((i) => Object.keys(i.archive?.blobs ?? {}).length > 1)).toBe(true);
+  const kinds = new Set(
+    expected.stored.sources.map((row) => `${String(row.instance)}:${String(row.kind)}`),
+  );
+  for (const kind of [
+    "opencode-storage:storage",
+    "opencode-v1:database",
+    "opencode-v2:database",
+    "pi-home:jsonl",
+  ])
+    expect(kinds).toContain(kind);
+  for (const instance of ["opencode-storage", "opencode-v1", "opencode-v2", "pi-home"])
+    expect(
+      expected.imports.filter(
         (i) =>
           i.archive !== null &&
-          typescript.stored.sources.some(
-            (row) => row.id === i.session && row.instance === instance,
-          ),
-      ).length;
-    for (const instance of ["opencode-storage", "opencode-v1", "opencode-v2", "pi-home"])
-      expect(importedFrom(instance), instance).toBeGreaterThan(0);
-    expect(rust.scan).toEqual(typescript.scan);
-    expect(rust.stored).toEqual(typescript.stored);
-    expect(rust.pages).toEqual(typescript.pages);
-    expect(rust.openable).toEqual(typescript.openable);
-    expect(rust.searched).toEqual(typescript.searched);
-    expect(rust.reads).toEqual(typescript.reads);
-    for (const [index, expected] of typescript.imports.entries())
-      expect(rust.imports[index]).toEqual(expected);
-    expect(rust.counts).toEqual(typescript.counts);
-    // What the TypeScript reader made of these homes, kept for when it is gone.
-    if (process.env.ACE_HISTORY_PARITY_WRITE === "1")
-      await writeFile(expectedPath, gzipSync(JSON.stringify(normalize(typescript))));
-    const expected: unknown = JSON.parse(gunzipSync(await readFile(expectedPath)).toString("utf8"));
-    expect(normalize(rust)).toEqual(expected);
-  },
-  30_000,
-);
+          expected.stored.sources.some((row) => row.id === i.session && row.instance === instance),
+      ).length,
+      instance,
+    ).toBeGreaterThan(0);
+  const rust = normalize(await observe(root, homes)) as Observation & Record<string, unknown>;
+  const kept = expected as Observation & Record<string, unknown>;
+  for (const key of ["scan", "stored", "pages", "openable", "searched", "reads", "counts"])
+    expect(rust[key], key).toEqual(kept[key]);
+  for (const [index, imported] of expected.imports.entries())
+    expect(rust.imports[index], imported.session).toEqual(imported);
+});

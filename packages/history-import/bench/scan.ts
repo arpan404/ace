@@ -1,6 +1,7 @@
-// The TypeScript reader against ace-history (ADR 0206), on generated homes only.
+// ace-history (ADR 0206) on generated homes only. The TypeScript reader it replaced was measured
+// by this script before it was removed (BENCHMARKS.md).
 //
-//   bun packages/history-import/bench/scan.ts [typescript|rust]...
+//   bun packages/history-import/bench/scan.ts
 //
 // Per reader: 5,000 small transcripts cold and warm; the scale home (5,352 Codex and 1,027
 // Claude transcripts at measured sizes, up to a sparse 1.9 GB rollout, 6,000 OpenCode legacy
@@ -22,10 +23,8 @@ import { DatabaseSync } from "node:sqlite";
 import { databaseFixture } from "./database-fixture.ts";
 import { scaleFixture } from "./scale-fixture.ts";
 
-const modes = process.argv.slice(2).filter((m) => m === "typescript" || m === "rust");
 const binary = findHistoryBinary();
-if (modes.includes("rust") && !binary)
-  throw new Error("Build native/history first (cargo build --release)");
+if (!binary) throw new Error("Build native/history first (cargo build --release)");
 
 /** Peak resident memory of this process's children, the readers, while `run` runs. */
 async function measured<T>(
@@ -214,8 +213,7 @@ async function open(
       instances,
       snapshot: { minFreeBytes: 0, minFreeRatio: 0 },
     },
-    undefined,
-    { readerBinary: mode === "rust" ? (binary ?? null) : null },
+    { readerBinary: binary },
   );
 }
 
@@ -284,7 +282,7 @@ try {
   const pi = await piHome(root);
   const large = await largeTranscript(root);
   const opencode = await openCodeSession(root);
-  for (const mode of modes.length ? modes : ["typescript", "rust"]) {
+  for (const mode of ["rust"]) {
     await scans(root, mode, "5000-files", small);
     await scans(root, mode, "scale-home", scale.instances);
     await scans(root, mode, "pi-2000", pi);
