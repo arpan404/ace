@@ -4,11 +4,20 @@ import {
   ForgeReviewAction,
   WorkspaceId,
 } from "@ace/protocol";
-import { can, actionErrorText, lockedKinds, lockedText, reviewLostText } from "@ace/ui-core";
+import {
+  can,
+  actionErrorText,
+  lockedKinds,
+  lockedText,
+  reviewLostText,
+  suggestionHeadMovedText,
+  suggestionUncertainText,
+  uncertainWriteCodes,
+} from "@ace/ui-core";
 import { z } from "zod";
 import { capabilitySource } from "./forge-features.ts";
 import { shownKey, type ShownBodies } from "./forge-conversation.ts";
-import { lockedOut, prLifecycle } from "./forge-pr-reads.ts";
+import { lockedOut, prDetail, prLifecycle } from "./forge-pr-reads.ts";
 import type { ForgeOwner, ForgeReads } from "./forge-reads.ts";
 
 /*
@@ -74,6 +83,12 @@ function completed(
   return parsed.success ? parsed.data : "That change can't be sent. Check it and try again.";
 }
 
+/** Whether the pull request's head, read afresh, is no longer `shown`. */
+async function headMoved(reads: ForgeReads, request: ForgeReviewRequest, shown: string) {
+  const detail = await prDetail(reads, request);
+  return detail.status.headSha.toLowerCase() !== shown.toLowerCase();
+}
+
 export async function writeReview(
   owner: ForgeOwner,
   reads: ForgeReads,
@@ -88,6 +103,9 @@ export async function writeReview(
     !can(await capabilitySource(reads, request.project, request.repository), "reviews.suggestions")
   )
     return refuse("Suggested changes aren't supported for this repository.");
+  // A commit goes only on the head the phone showed: past it, the person reads the new commits.
+  if (action.kind === "suggestions.apply" && (await headMoved(reads, request, action.headSha)))
+    return refuse(suggestionHeadMovedText);
   // A locked conversation refuses comments from someone who can't push: say so, send nothing.
   if (lockedKinds.has(action.kind) && lockedOut(await prLifecycle(reads, request)))
     return refuse(lockedText);
@@ -100,7 +118,20 @@ export async function writeReview(
   try {
     const result = await owner.command(command);
     reads.forget(request.project);
-    if (!result.ok) return refuse(actionErrorText(result.error));
+    // Lost track of, not refused: it may have reached GitHub, so it is reconciled, never redone.
+    if (!result.ok && uncertainWriteCodes.has(result.error ?? ""))
+      return {
+        type: "forge.write",
+        ok: false,
+        message: action.kind === "suggestions.apply" ? suggestionUncertainText : reviewLostText,
+        uncertain: true,
+      };
+    if (!result.ok)
+      return refuse(
+        action.kind === "suggestions.apply" && result.error === "forge_head_moved"
+          ? suggestionHeadMovedText
+          : actionErrorText(result.error),
+      );
     return { type: "forge.write", ok: true, message: "", uncertain: false };
   } catch {
     // No answer: the write may have reached GitHub. It is reconciled, never sent again.

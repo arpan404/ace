@@ -61,6 +61,8 @@ import QuartzCore
     @ObservationIgnored private var scope: MachineScope?
     @ObservationIgnored let liveActivity: ThreadLiveActivity
     let inbox = InboxRowStore()
+    /// Each pull request's suggestion batch, shared by its Timeline and Code pages.
+    @ObservationIgnored let suggestionBatches = ForgeSuggestionBatches()
     var pending: [String: PendingRow] = [:]
     var connection = "connecting" {
         didSet { if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 } }

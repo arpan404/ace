@@ -425,6 +425,7 @@ export * from "./merge-run-words.ts";
 export * from "./start-from-rows.ts";
 export * from "./pr-check-model.ts";
 export * from "./pr-fix-requests.ts";
+export * from "./pr-suggestions.ts";
 export * from "./pr-conflicts-model.ts";
 export * from "./pr-stack-labels.ts";
 export * from "./pr-stack-controls.ts";

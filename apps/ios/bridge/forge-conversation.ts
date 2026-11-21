@@ -11,6 +11,10 @@ import {
   hiddenWord,
   lockedText,
   quoted,
+  suggestionBatchMessage,
+  suggestionCommitMessage,
+  suggestionFixRequest,
+  suggestionOffer,
   threadPlace,
 } from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
@@ -58,6 +62,21 @@ export interface CommentView {
   tasks: boolean;
   /** What "Fix with agent" puts in the thread's composer; null for a comment with no text. */
   fix: string | null;
+  /** Its suggested change, when it holds one this host can apply; null otherwise. */
+  suggestion: SuggestionView | null;
+}
+/** A reviewer's suggested change: committed by GitHub while on the diff, or handed to an agent. */
+export interface SuggestionView {
+  /** Commit suggestion and Add to batch; false once outdated, leaving Ask the agent. */
+  commit: boolean;
+  /** The head the phone shows, which a commit is made on and refused past. */
+  headSha: string;
+  /** The commit message, prefilled as GitHub prefills it. */
+  message: string;
+  /** A batch's commit message, prefilled the same way. */
+  batchMessage: string;
+  /** What Ask the agent puts in the thread's composer. */
+  agent: string;
 }
 export interface ThreadView {
   id: string;
@@ -81,6 +100,11 @@ export const shownKey = (source: CommentSource, id: number) => `${source}:${id}`
 
 export interface Conversation {
   state: ForgeReviewState | undefined;
+  /**
+   * The head of the pull request read this page shows: what a suggestion is committed at. The
+   * review state is read after it and may already name a newer head.
+   */
+  head: string;
   capabilities?: ForgeCapabilitySource;
   /** The pull request's address, under which each comment has its own. */
   url: string;
@@ -122,7 +146,33 @@ function reactionsOf(conversation: Conversation, comment: ForgeComment): Reactio
   });
 }
 
-export function commentView(conversation: Conversation, comment: ForgeComment): CommentView {
+function suggestionView(
+  conversation: Conversation,
+  comment: ForgeComment,
+  outdated: boolean,
+): SuggestionView | null {
+  const { state } = conversation;
+  const offer = state && suggestionOffer(comment, outdated, conversation.capabilities);
+  if (!state || !offer) return null;
+  const pr = { number: conversation.number, url: conversation.url };
+  return {
+    commit: offer.commit,
+    headSha: conversation.head,
+    message: conversation.preview(suggestionCommitMessage(comment.author), 4_096),
+    batchMessage: suggestionBatchMessage,
+    agent: conversation.preview(suggestionFixRequest(comment, offer.lines, pr), 200_000),
+  };
+}
+
+/**
+ * One comment as the phone draws it. `outdated` says its lines left the diff; a line comment
+ * outside a conversation is outdated when it has no line, as the web reads it.
+ */
+export function commentView(
+  conversation: Conversation,
+  comment: ForgeComment,
+  outdated = comment.line === null,
+): CommentView {
   const { state } = conversation;
   const source = comment.kind === "review" ? undefined : comment.kind;
   const reason = hiddenReasonOf(state, comment);
@@ -157,6 +207,7 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
             // The whole request, as the web's: a 64k comment quoted line by line can pass 90k.
             200_000,
           ),
+    suggestion: suggestionView(conversation, comment, outdated),
   };
 }
 
@@ -177,6 +228,8 @@ export function threadView(conversation: Conversation, thread: ReviewThread): Th
     canResolve: !!state?.resolvableThreads.includes(thread.id),
     canReply: answers,
     replyOff: conversation.locked ? lockedText : null,
-    comments: thread.comments.slice(0, 200).map((comment) => commentView(conversation, comment)),
+    comments: thread.comments
+      .slice(0, 200)
+      .map((comment) => commentView(conversation, comment, thread.outdated)),
   };
 }
