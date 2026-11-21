@@ -139,6 +139,8 @@ pub fn router(state: AppState) -> Router {
                 .delete(endpoints::delete_local_model),
         )
         .route("/endpoints/local/{server}", post(endpoints::use_local))
+        .route("/endpoints/local/probe", post(endpoints::probe_local))
+        .route("/endpoints/{id}/probe", post(endpoints::probe))
         .route(
             "/endpoints/{id}",
             axum::routing::patch(endpoints::update).delete(endpoints::delete),

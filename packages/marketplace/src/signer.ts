@@ -356,6 +356,7 @@ export { type BotTestOutcome, type BotTestRunner } from "./signer-tests.ts";
 export { type CodeCheckOutcome, type CodeChecker } from "./signer-code.ts";
 export {
   signBlocklistChange,
+  signNoticeChange,
   signOfficialChange,
   signVerifiedChange,
   signWithdrawAll,

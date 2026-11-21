@@ -8,7 +8,8 @@ import { fileReport } from "./store/reports.ts";
 
 /*
  * Discover and the open writes and lists (ADR 0174 §6, §7, §8, §13, §14): `/v1/discover`, the
- * anonymous report, and the signed blocklist, verified and official lists. No sign-in, no
+ * anonymous report, and the signed blocklist, verified and official lists and the terms
+ * notices (ADR 0205 §4). No sign-in, no
  * cookie; a report keeps no address or account, and the REPORTS binding limits callers in its
  * own memory before this runs.
  */
@@ -41,6 +42,7 @@ export async function discoverRoute(
     case "blocklist":
     case "verified":
     case "official":
+    case "notices":
       return list(request, context, route.kind);
     case "report": {
       const report = MarketReportRequest.safeParse(await readJson(request, 16 * 1024));

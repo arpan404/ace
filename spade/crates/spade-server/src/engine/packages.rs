@@ -65,6 +65,8 @@ impl Engine {
     /// Trusts `keys` in place of the shipped market keys: a test's own signer.
     pub fn trust_market_keys(&self, keys: Vec<crate::packages::envelope::MarketKey>) {
         *self.market_keys.write().unwrap_or_else(|p| p.into_inner()) = keys;
+        // Notices are believed by the keys trusted now.
+        self.reload_terms_notices();
     }
 
     /// Whether bot `agent` is still being installed from its package: nothing is scheduled

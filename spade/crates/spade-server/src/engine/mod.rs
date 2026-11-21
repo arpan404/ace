@@ -39,6 +39,7 @@ mod knowledge_api;
 mod learned;
 mod ledger;
 mod local;
+mod local_probes;
 mod outside_admit;
 mod replays;
 pub(crate) use app_forms::Given;
@@ -75,6 +76,7 @@ mod speech;
 mod style;
 mod suggest;
 mod terms;
+mod terms_notices;
 mod thread_asks;
 mod trim;
 mod try_again;
@@ -121,6 +123,7 @@ pub use reach::ReachError;
 pub use replays::{ReplayError, ReplayInput};
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 pub use suggest::{MarketBots, MarketFuture};
+pub use terms_notices::{Applied, Notices, verify_notices};
 pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
@@ -307,6 +310,8 @@ pub struct Engine {
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
     /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
     local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
+    /// Local models whose checks run now (ADR 0205 §3, `local_probes`).
+    probing: local_probes::Probing,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
@@ -458,6 +463,7 @@ impl Engine {
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
             local_servers: Mutex::new(None),
+            probing: local_probes::Probing::default(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
             reach: reach::Shared::default(),
@@ -473,6 +479,8 @@ impl Engine {
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
+        // The shipped terms record, tightened by the newest signed notices (ADR 0205 §4).
+        engine.reload_terms_notices();
         // Levels Spade no longer has move forward to the auto-review (ADR 0163); then Spade exists
         // from the first answer, whatever setup does later.
         engine.retire_levels()?;

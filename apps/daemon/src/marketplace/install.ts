@@ -128,6 +128,16 @@ export interface SpadePort {
    */
   bots(): Promise<SpadeBots>;
   deleteBot(id: string): Promise<void>;
+  /**
+   * Hands Spade the market's signed terms notices (ADR 0205 §4). Spade verifies them itself and
+   * lets them only tighten what its build ships.
+   */
+  termsNotices(signed: unknown): Promise<void>;
+  /**
+   * Whether any model a package's bot naming `fast` or `capable` would think with calls tools
+   * (ADR 0205 §3), which a bot using apps or agents needs.
+   */
+  packageTools(): Promise<{ fast: boolean; capable: boolean }>;
 }
 
 /** A bot Spade says is linked to a package, and the version it has. */

@@ -227,7 +227,10 @@ pub fn from_recipe(
     }
     let (granted, mut left_out) = connector_grants(connectors, &input.grants.connectors);
     let model = match recipe.model.as_str() {
-        "fast" => engine.fast_endpoint_model(),
+        // A fast model that can't call tools writes titles; the bot runs on the capable one.
+        "fast" => engine
+            .fast_endpoint_model()
+            .filter(|m| engine.model_usable(m)),
         _ => None,
     }
     .unwrap_or_else(|| engine.new_bot_default());

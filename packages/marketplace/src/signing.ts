@@ -3,6 +3,7 @@ import type { z } from "zod";
 import {
   MarketBlocklist,
   MarketKeyId,
+  MarketNotices,
   MarketOfficialList,
   MarketVerifiedList,
   ReviewMark,
@@ -38,6 +39,7 @@ const labels = {
   blocklist: "ace-market-blocklist-v1",
   verified: "ace-market-verified-v1",
   official: "ace-market-official-v1",
+  notices: "ace-market-notices-v1",
 } as const;
 type Kind = keyof typeof labels;
 
@@ -115,6 +117,11 @@ export const signOfficialList = (body: MarketOfficialList, key: MarketSigningKey
   sign("official", MarketOfficialList.parse(body), key);
 export const verifyOfficialList = (signed: unknown, keys: MarketKeySet) =>
   verify("official", signed, MarketOfficialList, keys);
+/** Subscriptions' terms changes between builds (ADR 0205 §4). */
+export const signNotices = (body: MarketNotices, key: MarketSigningKey) =>
+  sign("notices", MarketNotices.parse(body), key);
+export const verifyNotices = (signed: unknown, keys: MarketKeySet) =>
+  verify("notices", signed, MarketNotices, keys);
 
 /** The public half of a signing key, as a build ships it. */
 export function marketPublicKey(key: MarketSigningKey): MarketKeySet["keys"][number] {
