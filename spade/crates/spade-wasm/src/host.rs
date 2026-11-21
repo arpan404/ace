@@ -86,11 +86,18 @@ impl CallState {
             call,
         };
         {
-            let mut out = self
-                .out
-                .lock()
-                .map_err(|_| wasmtime::Error::msg("the pipe to Spade is gone"))?;
-            frame::write(&mut *out, &message)?;
+            let Ok(mut out) = self.out.lock() else {
+                std::process::exit(1);
+            };
+            match frame::write(&mut *out, &message) {
+                Ok(()) => {}
+                // Too large to ask: the component reads why, and runs on.
+                Err(error) if frame::too_large(&error) => {
+                    return Ok(Err(format!("the request {}", crate::serve::TOO_LARGE)));
+                }
+                // The pipe broke: the worker ends, and Spade reads the call as lost.
+                Err(_) => std::process::exit(1),
+            }
         }
         self.clock.pause();
         let answer = loop {

@@ -91,12 +91,45 @@ fn start(out: Out) -> wasmtime::Result<Worker> {
     Ok(worker)
 }
 
+/// Sends `message`. A call's answer too large for the pipe is sent as a small failure instead,
+/// so the call reads failed and never waits for an answer that can't come. A pipe that broke
+/// ends the worker: Spade reads its open calls as stopped or lost.
 fn send(out: &Out, message: &FromWorker) {
-    if let Ok(mut out) = out.lock() {
-        // A pipe Spade closed ends the worker on its next read; nothing to do here.
-        let _ = frame::write(&mut *out, message);
+    let Ok(mut out) = out.lock() else {
+        std::process::exit(1);
+    };
+    match frame::write(&mut *out, message) {
+        Ok(()) => {}
+        Err(error) if frame::too_large(&error) => {
+            let small = match message {
+                FromWorker::Done { id, stats, .. } | FromWorker::Failed { id, stats, .. } => {
+                    FromWorker::Failed {
+                        id: *id,
+                        cut: Cut::Trap,
+                        message: TOO_LARGE.to_owned(),
+                        stats: *stats,
+                        logs: Vec::new(),
+                    }
+                }
+                FromWorker::LoadFailed { component, .. } | FromWorker::Loaded { component } => {
+                    FromWorker::LoadFailed {
+                        component: component.clone(),
+                        reason: TOO_LARGE.to_owned(),
+                    }
+                }
+                // A request too large is answered in the call itself (`host`); nothing else is.
+                FromWorker::Ready { .. } | FromWorker::Host { .. } => return,
+            };
+            if frame::write(&mut *out, &small).is_err() {
+                std::process::exit(1);
+            }
+        }
+        Err(_) => std::process::exit(1),
     }
 }
+
+/// Why a call's answer or request didn't cross the pipe.
+pub const TOO_LARGE: &str = "it is larger than the 16 MiB the pipe to Spade carries";
 
 impl Worker {
     fn send(&self, message: &FromWorker) {
@@ -144,7 +177,10 @@ impl Worker {
         let out = Arc::clone(&self.out);
         let path = path.to_owned();
         std::thread::spawn(move || {
-            let message = match compile(&engine, &linker, &component, &path) {
+            // Nothing is compiled outside the sandbox Spade set up.
+            let compiled = crate::confine::confined()
+                .and_then(|()| compile(&engine, &linker, &component, &path));
+            let message = match compiled {
                 Ok(ready) => {
                     if let Ok(mut loaded) = loaded.lock() {
                         loaded.insert(component.clone(), Arc::new(ready));
