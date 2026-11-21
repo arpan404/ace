@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 
 use super::plan::{CompactSummary, Plan};
 use super::tools::tool_detail;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::json::{field, is_true, object, present, string, timestamp};
 use crate::options::Provider;
 
@@ -26,7 +26,12 @@ pub struct Mapped {
     pub item: Value,
     /// Whether this item counts as one native message.
     pub message: bool,
+    /// For a tool call, the native id its result names, when the provider wrote one.
+    pub native: Option<String>,
 }
+
+/// Where mapped items go, one at a time, as they are made.
+pub type Sink<'s> = &'s mut dyn FnMut(Mapped) -> Result<()>;
 
 struct Mapper<'a, 'b> {
     ctx: &'b Context<'a>,
@@ -35,7 +40,12 @@ struct Mapper<'a, 'b> {
     seq: usize,
     raw_taken: bool,
     linked_call: Option<String>,
-    out: Vec<Mapped>,
+    /// Items leave as they are made: a record of many small blocks never holds them all.
+    sink: Sink<'b>,
+    /// The sink's first error (cancellation among them); nothing more is made after it.
+    failed: Option<Error>,
+    /// The native id of the call item being pushed.
+    native: Option<String>,
 }
 
 fn token_count(value: &Value) -> Option<i64> {
@@ -71,10 +81,22 @@ impl Mapper<'_, '_> {
     }
 
     fn push(&mut self, item: Map<String, Value>, message: bool) {
-        self.out.push(Mapped {
+        let native = self.native.take();
+        if self.failed.is_some() {
+            return;
+        }
+        let mapped = Mapped {
             item: Value::Object(item),
             message,
-        });
+            native,
+        };
+        if let Err(error) = (self.sink)(mapped) {
+            self.failed = Some(error);
+        }
+    }
+
+    fn finish(self) -> Result<()> {
+        self.failed.map_or(Ok(()), Err)
     }
 
     fn notice(&mut self, text: &str) {
@@ -168,6 +190,13 @@ impl Mapper<'_, '_> {
             "raw": self.raw(),
         });
         item.insert("call".into(), call);
+        // Only these block types name a call their result points back to.
+        if matches!(
+            string(block, "type"),
+            Some("tool_use" | "function_call" | "custom_tool_call")
+        ) {
+            self.native = super::tools::native_call_id(block).map(str::to_owned);
+        }
         self.push(item, false);
         id.as_str().unwrap_or_default().to_owned()
     }
@@ -223,7 +252,7 @@ impl Mapper<'_, '_> {
 }
 
 /// Map one record. Plan lookups resolve tool results and compaction summaries.
-pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
+pub fn map_history(value: &Value, ctx: &Context<'_>, sink: Sink<'_>) -> Result<()> {
     let r = object(value);
     let p = if ctx.provider == Provider::Codex && string(r, "type") == Some("response_item") {
         object(field(r, "payload"))
@@ -251,12 +280,14 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
         seq: 0,
         raw_taken: false,
         linked_call: None,
-        out: Vec::new(),
+        sink,
+        failed: None,
+        native: None,
     };
     let kind = string(p, "type");
     if ctx.provider == Provider::Pi && string(r, "type") != Some("message") {
         m.raw_only(false);
-        return Ok(m.out);
+        return m.finish();
     }
     if ctx.provider == Provider::Codex {
         if matches!(
@@ -264,11 +295,11 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
             Some("event_msg" | "turn_context" | "session_meta")
         ) {
             m.raw_only(false);
-            return Ok(m.out);
+            return m.finish();
         }
         if matches!(kind, Some("function_call" | "custom_tool_call")) {
             m.tool(p);
-            return Ok(m.out);
+            return m.finish();
         }
         if matches!(
             kind,
@@ -282,7 +313,7 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
                 Some(output) => m.texts("notice", output, false),
                 None => m.notice("Native tool result"),
             }
-            return Ok(m.out);
+            return m.finish();
         }
         if kind == Some("reasoning") {
             let mut readable = false;
@@ -297,12 +328,12 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
             if !readable {
                 m.raw_only(false);
             }
-            return Ok(m.out);
+            return m.finish();
         }
         if string(r, "type") == Some("compacted") {
             m.compaction();
             m.notice("Native compaction record");
-            return Ok(m.out);
+            return m.finish();
         }
     }
     if ctx.provider == Provider::Opencode && kind == Some("tool") {
@@ -312,20 +343,20 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
         {
             m.texts("notice", output, false);
         }
-        return Ok(m.out);
+        return m.finish();
     }
     if matches!(kind, Some("reasoning" | "thinking")) {
         let text = string(p, "text")
             .or_else(|| string(p, "thinking"))
             .unwrap_or("");
         m.texts("reasoning", text, false);
-        return Ok(m.out);
+        return m.finish();
     }
     if ctx.provider == Provider::Opencode && kind == Some("text") {
         if !is_true(p, "synthetic") {
             m.texts("message", string(p, "text").unwrap_or(""), false);
         }
-        return Ok(m.out);
+        return m.finish();
     }
     let user = role.as_deref() == Some("user");
     // Claude's compaction summary is provider-internal text, never the person's words.
@@ -333,11 +364,11 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
         && is_true(p, "isCompactSummary")
         && ctx.plan.folds_summary(string(p, "uuid").unwrap_or(""))?
     {
-        return Ok(m.out);
+        return m.finish();
     }
     if user && (is_true(p, "isMeta") || is_true(p, "synthetic") || is_true(p, "isCompactSummary")) {
         m.raw_only(false);
-        return Ok(m.out);
+        return m.finish();
     }
     let mut content = present(message.get("content"))
         .or_else(|| present(p.get("content")))
@@ -357,25 +388,25 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
         }
         if matches!(role.as_deref(), Some("user" | "assistant")) && content.is_none() {
             m.raw_only(true);
-            return Ok(m.out);
+            return m.finish();
         }
     }
     if matches!(role.as_deref(), Some("user" | "assistant")) {
         match &content {
             Some(Value::String(text)) => {
                 m.texts("message", text, true);
-                return Ok(m.out);
+                return m.finish();
             }
             Some(Value::Array(parts)) => {
                 blocks(&mut m, parts)?;
-                return Ok(m.out);
+                return m.finish();
             }
             _ => {}
         }
     }
     if ctx.provider == Provider::Opencode && kind == Some("compaction") {
         m.compaction();
-        return Ok(m.out);
+        return m.finish();
     }
     if ctx.provider == Provider::Claude
         && kind == Some("system")
@@ -402,15 +433,18 @@ pub fn map_history(value: &Value, ctx: &Context<'_>) -> Result<Vec<Mapped>> {
         }
         item.insert("raw".into(), Value::Array(raw));
         m.push(item, false);
-        return Ok(m.out);
+        return m.finish();
     }
     m.raw_only(false);
-    Ok(m.out)
+    m.finish()
 }
 
 fn blocks(m: &mut Mapper<'_, '_>, parts: &[Value]) -> Result<()> {
     let mut counted = false;
     for part in parts {
+        if m.failed.is_some() {
+            return Ok(());
+        }
         let block = object(part);
         let kind = string(block, "type");
         let text = string(block, "text").filter(|t| !t.is_empty());

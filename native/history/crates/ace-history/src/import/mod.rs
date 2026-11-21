@@ -27,7 +27,7 @@ use crate::snapshot::SnapshotScratch;
 use map::{Context, map_history};
 use plan::INLINE_RAW_BYTES;
 use source::{current_fingerprint, import_records};
-use tools::{blocks, complete, native_call_id};
+use tools::complete;
 
 pub use reference::native_reference;
 
@@ -206,18 +206,6 @@ pub fn import_history(
                 })))?;
                 continue;
             };
-            let calls: Vec<String> = blocks(value, home.provider)
-                .into_iter()
-                .map(object)
-                .filter(|b| {
-                    matches!(
-                        string(b, "type"),
-                        Some("tool_use" | "function_call" | "custom_tool_call")
-                    )
-                })
-                .filter_map(|b| native_call_id(b).map(str::to_owned))
-                .collect();
-            let mut calls = calls.into_iter();
             let ctx = Context {
                 provider: home.provider,
                 agent_id: &member.agent_id,
@@ -226,22 +214,26 @@ pub fn import_history(
                 raw,
                 plan: &plan,
             };
-            for mapped in map_history(value, &ctx)? {
+            let root = member.parent_id.is_none();
+            // Each item leaves as it is made, its call registered before the record's later
+            // items are mapped, so a result in the same record finds its call.
+            map_history(value, &ctx, &mut |mapped| {
+                cancel.check()?;
                 let mut item = mapped.item;
                 if item["type"] == "tool_call"
-                    && let Some(native) = calls.next()
+                    && let Some(native) = &mapped.native
                 {
                     let id = item["id"].as_str().unwrap_or_default().to_owned();
-                    plan.record_call(&native, &id)?;
-                    if let Some(completion) = plan.completion(&native)? {
+                    plan.record_call(native, &id)?;
+                    if let Some(completion) = plan.completion(native)? {
                         item = complete(item, &completion, emit)?;
                     }
                 }
-                if member.parent_id.is_none() && mapped.message {
+                if root && mapped.message {
                     root_count += 1;
                 }
-                emit(Packet::Item(item))?;
-            }
+                emit(Packet::Item(item))
+            })?;
         }
     }
     emit(Packet::Barrier)?;
