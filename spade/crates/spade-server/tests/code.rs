@@ -159,7 +159,7 @@ async fn a_send_from_code_goes_to_the_person_every_time() -> Result {
             .unwrap_or_default();
         assert_eq!(request["name"], "send_message", "{request}");
         let id = request["call_id"].as_str().unwrap_or_default().to_owned();
-        assert!(id.contains("/code-asks/"), "{id}");
+        assert!(id.contains("-code-ask-"), "{id}");
         assert!(
             request["reviewer_reason"]
                 .as_str()

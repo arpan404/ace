@@ -425,8 +425,9 @@ impl Engine {
     }
 }
 
-/// What a request code asked the person for is named: `<call id>/code-asks/<n>`.
-const ASKED: &str = "/code-asks/";
+/// What a request code asked the person for is named: `<call id>-code-ask-<n>`, with no `/`, so
+/// it is answered at the approvals path like any call.
+const ASKED: &str = "-code-ask-";
 
 /// The person's answer to `asked`, once given.
 fn answer_to(events: &[Event], asked: &str) -> Option<bool> {
