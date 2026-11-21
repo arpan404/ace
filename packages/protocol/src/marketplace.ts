@@ -147,6 +147,25 @@ export const MarketEffectRow = z.strictObject({
 });
 export type MarketEffectRow = z.infer<typeof MarketEffectRow>;
 
+/** The free replay of the bot's kept runs on the version a review would move it to (ADR 0204 §2). */
+export const MarketBotReplay = z.object({
+  /** Spade's sentence: "18 of 20 kept runs replay the same. 2 don't: see why." */
+  summary: z.string().max(500),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  cases: z
+    .array(
+      z.object({
+        id: z.string().max(80),
+        given: z.string().max(300),
+        passed: z.boolean(),
+        lines: z.array(z.string().max(2000)).max(20),
+      }),
+    )
+    .max(200),
+});
+export type MarketBotReplay = z.infer<typeof MarketBotReplay>;
+
 /** What an update or rollback of a linked bot does, for its review (ADR 0200 §6.1). */
 export const MarketBotUpdate = z.strictObject({
   bot: z.string().min(1).max(80),
@@ -156,6 +175,8 @@ export const MarketBotUpdate = z.strictObject({
   plan: PackagePlan,
   /** What the new version asks for that the old one didn't, besides effects; it starts off. */
   asksMore: z.array(z.string().max(500)).max(64),
+  /** Its kept runs replayed free on the new version; absent with none, or when Spade couldn't. */
+  replay: MarketBotReplay.optional(),
 });
 export type MarketBotUpdate = z.infer<typeof MarketBotUpdate>;
 
