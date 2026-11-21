@@ -4,7 +4,7 @@
 //! form and checks one thing. A market package's files come only as its signed manifest lists
 //! them (`spade-server`'s envelope checks each one's bytes against its sha256 there), so the
 //! signature covers the schemas as it covers `bot.json`. The matching step is
-//! `inlineContractFiles` in `@ace/marketplace`; `rules.json` holds both to the same refusals.
+//! `inlineContractFiles` in `@ace/marketplace`; the conformance suite (`spade/spec/conformance/`) holds both to the same refusals.
 
 use serde_json::{Map, Value};
 
