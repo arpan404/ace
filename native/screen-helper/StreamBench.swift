@@ -123,10 +123,10 @@ for bitrate in [1_200_000, 2_500_000, 6_000_000] {
     let lock = NSLock(), done = DispatchSemaphore(value: 0)
     var drops = 0
     #if REFINE
-    let encoder = VideoEncoder(sessionId: "bench", version: 2, publish: { packet in lock.lock(); packets.append(packet); lock.unlock() },
+    let encoder = VideoEncoder(units: { unit in if let packet = unit.packet(Data()) { lock.lock(); packets.append(packet); lock.unlock() } },
         completed: { done.signal() }, dropped: { _ in drops += 1 })
     #else
-    let encoder = VideoEncoder(sessionId: "bench", version: 2, publish: { packet in lock.lock(); packets.append(packet); lock.unlock() }, completed: { done.signal() })
+    let encoder = VideoEncoder(units: { unit in if let packet = unit.packet(Data()) { lock.lock(); packets.append(packet); lock.unlock() } }, completed: { done.signal() })
     #endif
     encoder.configure(bitrate: bitrate, fps: 60)
     var sequence: UInt64 = 0

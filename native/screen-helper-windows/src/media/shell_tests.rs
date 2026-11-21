@@ -31,7 +31,6 @@ impl Cancel for Shut {
 struct Harness {
     path: PathBuf,
     listener: std::os::unix::net::UnixListener,
-    legacy: Arc<Mutex<Vec<u64>>>,
     closed: Arc<Mutex<Vec<Option<u64>>>>,
     shell: IngestShell,
 }
@@ -40,9 +39,8 @@ fn harness(name: &str) -> Harness {
     let path = std::env::temp_dir().join(format!("e1-{name}-{}.sock", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-    let legacy = Arc::new(Mutex::new(Vec::new()));
     let closed = Arc::new(Mutex::new(Vec::new()));
-    let (l, c) = (legacy.clone(), closed.clone());
+    let c = closed.clone();
     let start = Instant::now();
     let shell = IngestShell::new(
         Box::new(|socket, _| {
@@ -51,7 +49,6 @@ fn harness(name: &str) -> Harness {
             Ok((Box::new(UnixLink(stream)) as Box<dyn Link>, cancel))
         }),
         Sinks {
-            legacy: Box::new(move |unit| l.lock().unwrap().push(unit.sequence)),
             closed: Box::new(move |boundary| c.lock().unwrap().push(boundary)),
             keyframe: Box::new(|| {}),
         },
@@ -60,7 +57,6 @@ fn harness(name: &str) -> Harness {
     Harness {
         path,
         listener,
-        legacy,
         closed,
         shell,
     }
@@ -109,7 +105,7 @@ fn read_all(mut stream: UnixStream) -> Vec<(u8, Option<u64>)> {
 }
 
 #[test]
-fn a_round_trip_to_ace_media_and_back_loses_and_repeats_nothing() {
+fn units_before_and_after_an_ingest_go_nowhere_and_the_ingest_gets_every_unit_between() {
     let h = harness("flip");
     h.shell.publish(&unit(0, true));
     h.shell.publish(&unit(1, false));
@@ -118,7 +114,7 @@ fn a_round_trip_to_ace_media_and_back_loses_and_repeats_nothing() {
         routed,
         Routed {
             switched: true,
-            boundary: Some(1),
+            boundary: None,
             ingesting: true
         }
     );
@@ -142,12 +138,11 @@ fn a_round_trip_to_ace_media_and_back_loses_and_repeats_nothing() {
     assert_eq!(frames.last(), Some(&(4, None)));
     let ingested: Vec<u64> = frames.iter().filter_map(|f| f.1).collect();
     assert_eq!(ingested, (2..50).collect::<Vec<_>>());
-    assert_eq!(*h.legacy.lock().unwrap(), vec![0, 1, 50]);
     assert!(h.closed.lock().unwrap().is_empty());
 }
 
 #[test]
-fn ace_media_going_away_sends_video_back_to_the_daemon_within_the_poll() {
+fn ace_media_going_away_stops_video_and_is_told_within_the_poll() {
     let h = harness("gone");
     h.shell.configure(Some(h.address()), None).unwrap();
     let (server, _) = h.listener.accept().unwrap();
@@ -163,19 +158,15 @@ fn ace_media_going_away_sends_video_back_to_the_daemon_within_the_poll() {
     }
     assert_eq!(*h.closed.lock().unwrap(), vec![Some(0)]);
     assert!(!h.shell.ingesting());
-    h.shell.publish(&unit(1, true));
-    assert_eq!(*h.legacy.lock().unwrap(), vec![1]);
 }
 
 #[test]
-fn a_connection_that_cannot_open_leaves_video_where_it_is() {
+fn a_connection_that_cannot_open_leaves_video_stopped() {
     let h = harness("refused");
     let mut address = h.address();
     address.socket.push_str(".missing");
     assert!(h.shell.configure(Some(address), None).is_err());
     assert!(!h.shell.ingesting());
-    h.shell.publish(&unit(0, true));
-    assert_eq!(*h.legacy.lock().unwrap(), vec![0]);
 }
 
 /// A link like a Windows pipe to a reader that stopped reading: the first write goes through,
@@ -258,7 +249,6 @@ fn a_cut_between_two_writes_still_ends_the_next_write_and_drops_the_queue() {
             ))
         }),
         Sinks {
-            legacy: Box::new(|_| {}),
             closed: Box::new(move |boundary| c.lock().unwrap().push(boundary)),
             keyframe: Box::new(|| {}),
         },
@@ -376,7 +366,6 @@ fn a_finish_whose_reader_stopped_reading_is_cancelled_past_its_deadline() {
             ))
         }),
         Sinks {
-            legacy: Box::new(|_| {}),
             closed: Box::new(|_| {}),
             keyframe: Box::new(|| {}),
         },

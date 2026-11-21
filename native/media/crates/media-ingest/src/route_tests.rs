@@ -58,23 +58,22 @@ fn ack(route: &mut Route, out: &[RouteAction], generation: u64) -> Vec<RouteActi
 }
 
 #[test]
-fn video_starts_on_the_daemon_path() {
+fn without_a_connection_video_goes_nowhere() {
     let mut route = Route::new(Config::default());
     let mut out = Vec::new();
     route.publish(&unit(0, true), 0, 0, &mut out);
-    assert_eq!(out, vec![RouteAction::Legacy(unit(0, true))]);
+    assert_eq!(out, vec![]);
     assert_eq!(route.begin(None, 0, &mut out), Switch::Same);
 }
 
 #[test]
-fn a_switch_to_ace_media_has_the_daemon_path_last_sequence_as_its_boundary() {
+fn a_first_connection_claims_no_boundary_and_takes_units_after_its_hello() {
     let mut route = Route::new(Config::default());
     let mut out = Vec::new();
     route.publish(&unit(0, true), 0, 0, &mut out);
-    route.legacy_still(1);
     route.publish(&unit(2, false), 0, 0, &mut out);
     let (generation, switch) = connect(&mut route, 1, 0, &mut out);
-    assert_eq!(switch, Switch::Switched { boundary: Some(2) });
+    assert_eq!(switch, Switch::Switched { boundary: None });
     route.publish(&unit(3, true), 0, 0, &mut out);
     assert_eq!(
         frames(&out, generation)
@@ -105,8 +104,13 @@ fn switching_back_finishes_the_old_connection_cleanly_after_its_units() {
             .collect::<Vec<_>>(),
         vec![5, 1, 1, 4]
     );
+    let written = out.len();
     route.publish(&unit(2, true), 0, 0, &mut out);
-    assert!(out.contains(&RouteAction::Legacy(unit(2, true))));
+    assert_eq!(
+        out.len(),
+        written,
+        "with no connection the unit goes nowhere"
+    );
     assert_eq!(route.retiring(), 1);
     let done = ack(&mut route, &out, generation);
     assert_eq!(done, vec![RouteAction::Shutdown { generation }]);
@@ -131,7 +135,7 @@ fn a_retired_connection_failing_never_touches_the_current_one() {
 }
 
 #[test]
-fn the_current_connection_cut_sends_video_back_once_with_its_boundary() {
+fn the_current_connection_cut_stops_video_once_with_its_boundary() {
     let mut route = Route::new(Config::default());
     let mut out = Vec::new();
     let (generation, _) = connect(&mut route, 1, 0, &mut out);
@@ -153,7 +157,7 @@ fn the_current_connection_cut_sends_video_back_once_with_its_boundary() {
     assert!(!route.ingesting());
     let mut after = Vec::new();
     route.publish(&unit(5, true), 0, 0, &mut after);
-    assert_eq!(after, vec![RouteAction::Legacy(unit(5, true))]);
+    assert_eq!(after, vec![]);
 }
 
 #[test]
@@ -242,34 +246,14 @@ fn close_destroys_every_connection() {
 }
 
 #[test]
-fn a_still_after_the_last_video_unit_never_moves_the_boundary() {
-    // The daemon merges stills on their own, and its path ends when the boundary's video unit
-    // arrives: a still's sequence there would hold the switch until its timeout.
+fn leaving_ingest_reports_the_last_video_unit_it_took() {
     let mut route = Route::new(Config::default());
     let mut out = Vec::new();
-    route.publish(&unit(0, true), 0, 0, &mut out);
-    route.publish(&unit(1, false), 0, 0, &mut out);
-    route.legacy_still(2);
-    let (_, switch) = connect(&mut route, 1, 0, &mut out);
-    assert_eq!(switch, Switch::Switched { boundary: Some(1) });
-    // Back again: a still while on ace-media leaves the boundary at its last video unit too.
+    connect(&mut route, 1, 0, &mut out);
     route.publish(&unit(3, true), 0, 0, &mut out);
-    route.legacy_still(4);
     assert_eq!(
         route.begin(None, 0, &mut out),
         Switch::Switched { boundary: Some(3) }
     );
     assert_eq!(route.retiring(), 1);
-}
-
-#[test]
-fn with_only_stills_on_the_daemon_path_the_boundary_is_none() {
-    let mut route = Route::new(Config::default());
-    let mut out = Vec::new();
-    route.legacy_still(0);
-    route.legacy_still(1);
-    assert_eq!(
-        connect(&mut route, 1, 0, &mut out).1,
-        Switch::Switched { boundary: None }
-    );
 }

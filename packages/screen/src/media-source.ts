@@ -17,17 +17,17 @@ import { wireFrame, type Frame } from "./frames.ts";
 import type { HelperPort } from "./helper-session.ts";
 import { StreamOwners } from "./stream-owners.ts";
 import { PathMerge } from "@ace/media/path-merge";
-import { helperEncodesHevc, hevcMain, videoOnlyToMedia, wantedCodec } from "./helper-codecs.ts";
+import { helperEncodesHevc, hevcMain, wantedCodec } from "./helper-codecs.ts";
 
 /**
  * A Mac, Windows or Linux screen session as an ace-media producer (docs/media/plan.md, E3, E1,
- * E2). When the route sends screens to ace-media, the helper is given the ingest socket with
- * each `stream.configure` and writes its H.264 there (a Mac whose HEVC trial worked writes HEVC
- * while ace-media's views all want it and nobody on the daemon's side needs H.264). On Linux the daemon's path keeps today's
- * JPEG pictures, which the daemon encodes for viewers as before, so only the ace-media route
- * runs the helper's encoder; ace-media's egress brings the units back as the frames the helper's
- * socket would have carried, header for header, for the daemon's legacy viewer, recorder and
- * stills. Both paths go through one ordered merge, so a route change loses or repeats nothing.
+ * E2, X2). ace-media is the only place its video goes: the helper is given the ingest socket
+ * with each `stream.configure` and writes its H.264 there (a Mac whose HEVC trial worked writes
+ * HEVC while ace-media's views all want it and nobody on the daemon's side needs H.264). Without
+ * an ingest the helper runs stills only. ace-media's egress brings the units back as the frames
+ * the helper's socket used to carry, header for header, for the daemon's legacy viewer, recorder
+ * and stills; the helper's socket carries only stills. Each ace-media path (a reconnect, a
+ * restart) goes through one ordered merge, so moving between them loses or repeats nothing.
  */
 
 /** Where screen sources are opened in ace-media: the daemon's `IngestSources`. */
@@ -93,8 +93,7 @@ export function wantedStreamSettings(
 
 export type ScreenMediaSourceOptions = {
   sessionId: string;
-  /** The helper's platform, as its hello names it (`macos`, `windows`, `linux-wayland`): ace-media's
-   * origin, and whether the daemon's path carries video (`videoOnlyToMedia`). */
+  /** The helper's platform, as its hello names it (`macos`, `windows`, `linux-wayland`): ace-media's origin. */
   platform: string;
   /** The codecs the helper's hello lists (`codecs`): `hevc` on a Mac whose HEVC trial worked. */
   codecs?: readonly string[];
@@ -103,19 +102,20 @@ export type ScreenMediaSourceOptions = {
   daemonNeedsVideo?: () => boolean;
   helper: HelperPort;
   media: ScreenMedia;
-  /** A frame from either path, video in sequence order and stills in theirs. */
+  /** A frame: video off egress in sequence order, stills off the helper's socket in theirs. */
   accept: (frame: Frame) => void;
   schedule: (callback: () => void, milliseconds: number) => () => void;
 };
 
-const daemonPath = "daemon";
+/** The merge's name for "video goes nowhere": nothing is ever delivered on it. */
+const offPath = "off";
 /** The two demands on the helper's stream. */
 const legacyOwner = "legacy";
 const mediaOwner = "ace-media";
 
 export class ScreenMediaSource {
   readonly #options: ScreenMediaSourceOptions;
-  /** Video only: it is what moves between the helper socket and ace-media. */
+  /** Video only: it is what moves between ace-media paths. */
   readonly #merge: PathMerge<Frame>;
   readonly #source: IngestSource;
   #settings: ScreenStreamSettings | undefined;
@@ -128,11 +128,12 @@ export class ScreenMediaSource {
   });
   /** The current ace-media address, as the helper takes it, and its path's name. */
   #address: { ingest: ScreenStreamIngest; path: string } | undefined;
-  /** Where the helper sends video now: the daemon's path or an ace-media path. */
-  #onPath = daemonPath;
-  /** Switching off the helper socket: its last video sequence there, not yet delivered. */
-  #daemonBoundary: number | undefined;
-  #lastDaemonVideo = -1;
+  /** Where the helper sends video now: an ace-media path, or nowhere. */
+  #onPath = offPath;
+  /** The paths whose end has come (interrupted?): the merge moves on from them at once. */
+  readonly #ended = new Map<string, boolean>([[offPath, false]]);
+  /** The path the merge last moved to: video stopping never moves it. */
+  #mergeOn = offPath;
   /** The last video and still handed on: each keeps its own order. */
   #lastVideo = -1;
   #lastStill = -1;
@@ -150,7 +151,7 @@ export class ScreenMediaSource {
   constructor(options: ScreenMediaSourceOptions) {
     this.#options = options;
     this.#hevc = helperEncodesHevc({ platform: options.platform, codecs: options.codecs ?? [] });
-    this.#merge = new PathMerge<Frame>(daemonPath, {
+    this.#merge = new PathMerge<Frame>(offPath, {
       emit: (frame) => this.#hand(frame),
       // One encode per session: the helper restarts it at a keyframe.
       stream: () => "video",
@@ -169,14 +170,13 @@ export class ScreenMediaSource {
       // socket feeds, so each unit goes in once whichever of them egress serves.
       consumers: { deliver: unit, record: unit, still: unit },
       point: (address) => {
-        // Back on the helper socket (a route flip, ace-media gone): ace-media's views no longer
-        // ask for anything.
+        // ace-media is gone: its views no longer ask for anything, and the helper runs stills.
         if (!address) void this.#owners.remove(mediaOwner).catch(() => {});
         return this.#point(address);
       },
       keyframe: () => void options.helper.request({ op: "stream.keyframe" }).catch(() => {}),
       // ace-media's end marker for a path, after its last unit.
-      pathEnded: (path, interrupted) => this.#merge.ended(path, interrupted),
+      pathEnded: (path, interrupted) => this.#pathEnded(path, interrupted),
       // ace-media's plan for the views it delivers (D1): the helper runs one encode, the
       // largest wanted, held to what `stream.configure` takes.
       // One owner of the helper's stream beside the legacy viewers', removed when its plan is
@@ -223,11 +223,10 @@ export class ScreenMediaSource {
     });
   }
 
-  /** The request the helper gets for `settings` on the current route. A Linux helper's video
-   * goes to ace-media only: on the daemon's path it sends the JPEG pictures the daemon has
-   * always encoded itself. */
+  /** The request the helper gets for `settings` on the current route: without an ace-media
+   * address there is nowhere for video to go, so the helper runs stills. */
   #wire(settings: ScreenStreamSettings): ScreenHelperStreamSettings {
-    if (!this.#address && videoOnlyToMedia(this.#options)) return { ...settings, codec: "jpeg" };
+    if (!this.#address) return { ...settings, codec: "jpeg" };
     return settings.codec === "h264" && this.#wantsHevc()
       ? { ...settings, codec: "hevc" }
       : settings;
@@ -235,7 +234,7 @@ export class ScreenMediaSource {
 
   /** Whether the helper sends video to ace-media now (its stills then come only on request). */
   get ingesting(): boolean {
-    return this.#onPath !== daemonPath;
+    return this.#onPath !== offPath;
   }
 
   /** Frames dropped as older than one already handed on, or lost to a cut path. */
@@ -243,21 +242,15 @@ export class ScreenMediaSource {
     return this.#stale + this.#merge.stale;
   }
 
-  /** A frame off the helper's own socket. */
+  /** A still off the helper's own socket; video never comes that way. */
   daemonFrame(frame: Frame): void {
-    if (this.#closed) return;
-    // Stills always take the helper socket, whichever path video is on. They are ordered among
-    // themselves, so a still arriving during a switch never makes held video stale.
-    if (frame.header.codec === "jpeg") {
-      if (frame.header.sequence > this.#lastStill) {
-        this.#lastStill = frame.header.sequence;
-        this.#options.accept(frame);
-      } else this.#stale++;
-      return;
-    }
-    this.#lastDaemonVideo = Math.max(this.#lastDaemonVideo, frame.header.sequence);
-    this.#merge.deliver(daemonPath, frame);
-    this.#daemonReached();
+    if (this.#closed || frame.header.codec !== "jpeg") return;
+    // Stills are ordered among themselves, so a still arriving during a switch never makes held
+    // video stale.
+    if (frame.header.sequence > this.#lastStill) {
+      this.#lastStill = frame.header.sequence;
+      this.#options.accept(frame);
+    } else this.#stale++;
   }
 
   /**
@@ -276,7 +269,8 @@ export class ScreenMediaSource {
     } else result = await this.#owners.set(legacyOwner, settings);
     // A legacy viewer decodes H.264 only: the stream is H.264 before its request returns.
     await this.recodec();
-    return result;
+    // Video is on its way once ace-media takes the source, whatever the helper runs meanwhile.
+    return settings.codec === "h264" ? { codec: "h264" } : result;
   }
 
   /** `stream.configure` with the current route's ingest and epoch. */
@@ -287,7 +281,7 @@ export class ScreenMediaSource {
         return await this.#send(settings);
       } catch (error) {
         if (!this.#address) throw error;
-        // ace-media's socket refused the helper: video stays on the daemon's.
+        // ace-media's socket refused the helper: stills until the source is opened again.
         this.#address = undefined;
         const result = await this.#send(settings);
         this.#source.reconnect();
@@ -296,15 +290,13 @@ export class ScreenMediaSource {
     });
   }
 
-  /** The helper's ingest connection failed; it is back on the daemon's socket already. */
+  /** The helper's ingest connection failed; its video has stopped already. */
   ingestClosed(): void {
-    if (this.#closed || this.#onPath === daemonPath) return;
-    const lost = this.#onPath;
-    this.#onPath = daemonPath;
+    if (this.#closed || this.#onPath === offPath) return;
+    this.#onPath = offPath;
     this.#address = undefined;
-    // Units it had sent may be missing: video starts again at the helper's next keyframe.
-    this.#merge.switching(daemonPath);
-    this.#merge.ended(lost, true);
+    // Units it had sent may be missing: the next path starts at the helper's next keyframe once
+    // ace-media's marker for this one comes. The source is opened again.
     this.#source.reconnect();
   }
 
@@ -326,12 +318,10 @@ export class ScreenMediaSource {
     this.#options.accept(frame);
   }
 
-  /** The helper socket has delivered its boundary: that path's end, in order. */
-  #daemonReached(): void {
-    const boundary = this.#daemonBoundary;
-    if (boundary === undefined || this.#lastDaemonVideo < boundary) return;
-    this.#daemonBoundary = undefined;
-    this.#merge.ended(daemonPath, false);
+  /** ace-media's end marker for a path, after its last unit. */
+  #pathEnded(path: string, interrupted: boolean): void {
+    this.#ended.set(path, interrupted);
+    this.#merge.ended(path, interrupted);
   }
 
   #egress(unit: EgressUnit): void {
@@ -368,38 +358,27 @@ export class ScreenMediaSource {
   async #send(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
     const address = this.#address;
     const from = this.#onPath;
-    const to = address ? address.path : daemonPath;
-    if (to !== from) this.#merge.switching(to);
-    let reply: ScreenStreamConfigured;
     const sent = this.#wire(settings);
-    try {
-      reply = ScreenStreamConfigured.parse(
-        await this.#options.helper.request({
-          op: "stream.configure",
-          settings: sent,
-          epoch: screenOpeningEpoch,
-          ...(address ? { ingest: address.ingest } : {}),
-        }),
-      );
-    } catch (error) {
-      // The helper didn't move: the switch is abandoned and the current path goes on.
-      if (to !== from) this.#merge.switching(from);
-      throw error;
-    }
-    const now = reply.ingest === "on" && address ? address.path : daemonPath;
+    // A helper that doesn't move leaves the current path going on.
+    const reply = ScreenStreamConfigured.parse(
+      await this.#options.helper.request({
+        op: "stream.configure",
+        settings: sent,
+        epoch: screenOpeningEpoch,
+        ...(address ? { ingest: address.ingest } : {}),
+      }),
+    );
+    const now = reply.ingest === "on" && address ? address.path : offPath;
     this.#onPath = now;
     this.#sentCodec = sent.codec;
-    if (now === from) {
-      if (to !== from) this.#merge.switching(from);
-    } else if (from === daemonPath) {
-      // Off the helper socket: its end is its boundary arriving there. A path into ace-media
-      // ends with ace-media's marker instead (`pathEnded`).
-      const boundary = reply.switched ? (reply.boundary ?? null) : null;
-      if (boundary === null) this.#merge.ended(daemonPath, false);
-      else {
-        this.#daemonBoundary = boundary;
-        this.#daemonReached();
-      }
+    if (now !== from && now !== offPath && now !== this.#mergeOn) {
+      // Onto a new ace-media path: its units wait for the old path's marker (`pathEnded`), or
+      // go on at once from one already ended, or from none.
+      const previous = this.#mergeOn;
+      this.#mergeOn = now;
+      this.#merge.switching(now);
+      const end = this.#ended.get(previous);
+      if (end !== undefined) this.#merge.ended(previous, end);
     }
     // The daemon's side sees video either way: HEVC goes to ace-media's views only.
     return { codec: reply.codec === "jpeg" ? "jpeg" : "h264" };

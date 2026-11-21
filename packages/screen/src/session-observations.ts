@@ -6,7 +6,7 @@ import type { Session } from "./session.ts";
 import type { ScreenOptions } from "./options.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { bundles } from "./policy.ts";
-import { helperEncodesVideo, videoOnlyToMedia } from "./helper-codecs.ts";
+import { helperEncodesVideo } from "./helper-codecs.ts";
 import { readTree, findElements } from "./semantic.ts";
 const StreamCodec = z.object({ codec: z.enum(["jpeg", "h264"]) });
 type ObservationPorts = {
@@ -21,8 +21,8 @@ function streamsOnRequest(session: Session): boolean {
   const capabilities = session.helper.capabilities;
   if (capabilities?.platform === "macos") return true;
   if (!helperEncodesVideo(capabilities)) return false;
-  // A Linux helper streams video only while it goes to ace-media; otherwise it sends stills.
-  return !videoOnlyToMedia(capabilities) || session.media?.ingesting === true;
+  // Video goes only to ace-media: without it the helper sends stills.
+  return session.media?.ingesting === true;
 }
 /** Pixel leases and fresh semantic reads do not acquire an agent controller. */
 export class SessionObservations {
@@ -111,16 +111,12 @@ export class SessionObservations {
     const session = this.live(id);
     this.authorize(session.state.target);
     const capabilities = session.helper.capabilities;
-    // A Linux helper encodes video only into ace-media: without a media source it stays on
-    // today's JPEG pictures (its media source decides the path).
-    if (!helperEncodesVideo(capabilities) || (videoOnlyToMedia(capabilities) && !session.media))
-      return { codec: "jpeg" };
-    const result = session.media
-      ? await session.media.configure(settings)
-      : StreamCodec.parse(await session.helper.request({ op: "stream.configure", settings }));
+    // Video comes only from ace-media: a helper that makes none, or a session without a media
+    // source, stays on stills.
+    if (!helperEncodesVideo(capabilities) || !session.media) return { codec: "jpeg" };
+    const result = await session.media.configure(settings);
     // A view may ask just before its subscription lands; the last one leaving switches back.
-    if (result.codec === "h264" || (session.media && settings.codec === "h264"))
-      session.viewerVideo = true;
+    if (result.codec === "h264" || settings.codec === "h264") session.viewerVideo = true;
     return result;
   }
   /**

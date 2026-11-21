@@ -219,52 +219,67 @@ it.each(["macos", "windows", "linux-wayland"])(
   },
 );
 
-it("a still on the helper socket during a switch into ace-media neither waits for nor drops the held video", async () => {
-  const s = session();
-  await s.source.configure(settings);
-  s.source.daemonFrame(s.video(1, true));
-  s.source.daemonFrame(s.video(2));
-  s.replies.push({ ingest: "on", boundary: 3 });
-  await s.producer().point(s.address("p1"));
-  // ace-media's path is faster than the helper socket: its keyframe overtakes delta 3.
-  s.egress("p1", 4, true);
-  s.egress("p1", 5);
-  // A still (stills always take the helper socket) with a sequence past the held video.
-  s.source.daemonFrame(s.still(6));
-  s.source.daemonFrame(s.video(3));
-  s.egress("p1", 7);
-  expect(order(s.accepted, "h264")).toEqual([1, 2, 3, 4, 5, 7]);
-  expect(order(s.accepted, "jpeg")).toEqual([6]);
-  expect(s.source.stale).toBe(0);
-});
-
-it("a flip back to the helper socket while ace-media still has the old path's units loses and repeats nothing", async () => {
+it("a still on the helper socket during a switch between ace-media paths neither waits for nor drops the held video", async () => {
   const s = session();
   await s.source.configure(settings);
   s.replies.push({ ingest: "on", boundary: null });
   await s.producer().point(s.address("p1"));
   s.egress("p1", 1, true);
   s.egress("p1", 2);
-  // The route moves back while units 3..5 are still queued on the old connection and in
-  // ace-media: the helper's new keyframe on its own socket arrives first.
-  s.replies.push({ ingest: "off", boundary: 5 });
-  await s.producer().point(undefined);
-  s.source.daemonFrame(s.video(6, true));
-  s.source.daemonFrame(s.video(7));
+  // ace-media reopened the source: the new path's keyframe overtakes the old one's last delta.
+  s.replies.push({ ingest: "on", boundary: 3 });
+  await s.producer().point(s.address("p2"));
+  s.egress("p2", 4, true);
+  s.egress("p2", 5);
+  // A still (stills always take the helper socket) with a sequence past the held video.
+  s.source.daemonFrame(s.still(6));
   s.egress("p1", 3);
-  s.egress("p1", 4);
-  s.egress("p1", 5);
-  expect(order(s.accepted, "h264")).toEqual([1, 2, 3, 4, 5]);
-  // ace-media's end marker, after the path's last unit: the held frames follow in order.
   s.producer().pathEnded?.("p1", false);
-  s.source.daemonFrame(s.video(8));
-  expect(order(s.accepted, "h264")).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  s.egress("p2", 7);
+  expect(order(s.accepted, "h264")).toEqual([1, 2, 3, 4, 5, 7]);
+  expect(order(s.accepted, "jpeg")).toEqual([6]);
   expect(s.source.stale).toBe(0);
+});
+
+it("video on the helper's own socket is never handed on: only ace-media's egress carries it", async () => {
+  const s = session();
+  await s.source.configure(settings);
+  s.source.daemonFrame(s.video(1, true));
+  s.source.daemonFrame(s.video(2));
+  expect(s.accepted).toEqual([]);
+  s.source.daemonFrame(s.still(3));
+  expect(order(s.accepted, "jpeg")).toEqual([3]);
+});
+
+it("ace-media killed: the helper runs stills, the old path's units still arrive, and a new ace-media's path starts at its keyframe", async () => {
+  const s = session();
+  expect(await s.source.configure(settings)).toEqual({ codec: "h264" });
+  // Nowhere for video to go yet: stills, without an ingest.
+  expect(s.sent.at(-1)).toMatchObject({ settings: { ...settings, codec: "jpeg" } });
+  expect(s.sent.at(-1)).not.toHaveProperty("ingest");
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point(s.address("p1"));
+  expect(s.sent.at(-1)).toMatchObject({ settings, ingest: { socket: "/run/m1i.sock" } });
+  s.egress("p1", 1, true);
+  s.egress("p1", 2);
+  await s.producer().point(undefined);
+  expect(s.source.ingesting).toBe(false);
+  expect(s.sent.at(-1)).toMatchObject({ settings: { ...settings, codec: "jpeg" } });
+  expect(s.sent.at(-1)).not.toHaveProperty("ingest");
+  s.producer().pathEnded?.("p1", true);
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point(s.address("p2"));
+  s.egress("p2", 7);
+  s.egress("p2", 8, true);
+  s.egress("p2", 9);
+  expect(order(s.accepted, "h264")).toEqual([1, 2, 8, 9]);
 });
 
 it("ace-media's plan for the views it delivers reaches the helper, within its settings' bounds", async () => {
   const s = session();
   await s.source.configure(settings);
+  s.replies.push({ ingest: "on", boundary: null }, { ingest: "on", boundary: null });
+  await s.producer().point(s.address("p1"));
   s.producer().want?.([
     { id: 0, codec: "avc1.42E033", width: 1280, height: 800, fps: 15, bitrate: 600_000 },
   ]);
@@ -284,40 +299,31 @@ it("ace-media's plan for the views it delivers reaches the helper, within its se
   });
 });
 
-it("a Linux helper is asked for H.264 only toward ace-media and keeps its JPEG pictures on the daemon's path", async () => {
-  const s = session("linux-wayland");
-  expect(s.producer().origin).toEqual({ kind: "screen", platform: "linux-wayland" });
-  expect(await s.source.configure(settings)).toEqual({ codec: "jpeg" });
-  expect(s.sent.at(-1)).toMatchObject({ settings: { ...settings, codec: "jpeg" } });
-  expect(s.sent.at(-1)).not.toHaveProperty("ingest");
-  expect(s.source.ingesting).toBe(false);
-  // The route moves the screen to ace-media: the view's own H.264 request, with the address.
-  s.replies.push({ ingest: "on", boundary: null });
-  await s.producer().point(s.address("p1"));
-  expect(s.sent.at(-1)).toMatchObject({ settings, ingest: { socket: "/run/m1i.sock" } });
-  expect(s.source.ingesting).toBe(true);
-  // No video ever went to the daemon's path, so ace-media's units are handed on at once.
-  s.egress("p1", 4, true);
-  s.egress("p1", 5);
-  expect(order(s.accepted, "h264")).toEqual([4, 5]);
-  // And back: JPEG pictures on the daemon's path again.
-  await s.producer().point(undefined);
-  expect(s.sent.at(-1)).toMatchObject({ settings: { ...settings, codec: "jpeg" } });
-  expect(s.sent.at(-1)).not.toHaveProperty("ingest");
-});
-
-it("a Mac helper is asked for H.264 on either path", async () => {
-  const s = session("macos");
-  expect(await s.source.configure(settings)).toEqual({ codec: "h264" });
-  expect(s.sent.at(-1)).toMatchObject({ settings });
-});
+it.each(["linux-wayland", "windows", "macos"])(
+  "a %s helper is asked for H.264 only toward ace-media, and for stills without it",
+  async (platform) => {
+    const s = session(platform);
+    expect(s.producer().origin).toEqual({ kind: "screen", platform });
+    await s.source.configure(settings);
+    expect(s.sent.at(-1)).toMatchObject({ settings: { ...settings, codec: "jpeg" } });
+    expect(s.source.ingesting).toBe(false);
+    s.replies.push({ ingest: "on", boundary: null });
+    await s.producer().point(s.address("p1"));
+    expect(s.sent.at(-1)).toMatchObject({ settings, ingest: { socket: "/run/m1i.sock" } });
+    expect(s.source.ingesting).toBe(true);
+    // No video went anywhere before, so ace-media's units are handed on at once.
+    s.egress("p1", 4, true);
+    s.egress("p1", 5);
+    expect(order(s.accepted, "h264")).toEqual([4, 5]);
+  },
+);
 
 const helper = (platform: string, codecs: ("jpeg" | "h264")[]) => ({ platform, codecs });
 
 it("a helper streams its own video only where it encodes H.264: the Mac, Windows with a Media Foundation encoder, and Linux with an encoder that worked", () => {
   expect(helperEncodesVideo(helper("macos", ["jpeg", "h264"]))).toBe(true);
   expect(helperEncodesVideo(helper("windows", ["jpeg", "h264"]))).toBe(true);
-  // No MFT: JPEG only, so the daemon's last-resort encoder makes the video.
+  // No MFT: JPEG only, so there is no live video; stills still serve agents.
   expect(helperEncodesVideo(helper("windows", ["jpeg"]))).toBe(false);
   expect(helperEncodesVideo(helper("linux-wayland", ["jpeg", "h264"]))).toBe(true);
   expect(helperEncodesVideo(helper("linux-wayland", ["jpeg"]))).toBe(false);
@@ -348,6 +354,7 @@ it("legacy viewers and ace-media's views share the helper's one stream, and neit
     fps: 60,
     bitrate: 8_000_000,
   });
+  await s.producer().point(s.address("p1"));
   s.producer().want?.([
     { id: 0, codec: "avc1.42E033", width: 1920, height: 1200, fps: 15, bitrate: 600_000 },
   ]);
@@ -410,11 +417,11 @@ it("ace-media's plan in HEVC runs the Mac helper's stream in HEVC toward its ing
     settings: { codec: "hevc", maxWidth: 1280, maxHeight: 800, fps: 30, bitrate: 900_000 },
     ingest: { socket: "/run/m1i.sock" },
   });
-  // Back on the daemon's socket, which carries H.264 only.
+  // ace-media gone: nowhere for video to go, so the helper runs stills.
   await s.producer().point(undefined);
   await settled();
   expect(s.sent.at(-1)).not.toHaveProperty("ingest");
-  expect(lastCodec(s.sent)).toBe("h264");
+  expect(lastCodec(s.sent)).toBe("jpeg");
 });
 
 it("the shared stream stays H.264 while a legacy viewer watches, and turns HEVC when it leaves", async () => {

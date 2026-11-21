@@ -4,10 +4,10 @@
  */
 
 /**
- * Whether a screen helper makes its own video: the Mac's (VideoToolbox), Windows' where its
- * start-up trial found a Media Foundation H.264 encoder, and Linux's where one of its encoders
- * (VA-API, NVENC or the last resort) worked. A helper offering only JPEG gets its video from the
- * daemon's last-resort encoder instead.
+ * Whether a screen helper makes its own video, which it writes only to ace-media's ingest: the
+ * Mac's (VideoToolbox), Windows' where its start-up trial found a Media Foundation H.264
+ * encoder, and Linux's where one of its encoders (VA-API, NVENC or the last resort) worked. A
+ * helper offering only JPEG has no live video; its stills still serve agents.
  */
 export function helperEncodesVideo(
   capabilities: { platform: string; codecs: readonly string[] } | undefined,
@@ -20,18 +20,7 @@ export function helperEncodesVideo(
   );
 }
 
-/**
- * Whether a helper's video goes to ace-media only (Linux, E2): on the daemon's path it sends the
- * JPEG pictures the daemon has always encoded itself, so `media.encode: legacy` keeps today's path.
- */
-export function videoOnlyToMedia(capabilities: { platform: string } | undefined): boolean {
-  return capabilities?.platform.startsWith("linux") === true;
-}
-
-/**
- * Whether a helper encodes HEVC toward ace-media's ingest: the Mac's, where its hardware HEVC
- * encode trial worked. Its socket to the daemon stays H.264.
- */
+/** Whether a helper encodes HEVC toward ace-media's ingest: the Mac's, where its hardware HEVC encode trial worked. */
 export function helperEncodesHevc(
   capabilities: { platform: string; codecs: readonly string[] } | undefined,
 ): boolean {

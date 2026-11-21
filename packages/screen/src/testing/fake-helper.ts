@@ -258,7 +258,8 @@ function processRequest(request: ScreenHelperRequest) {
   if (request.op === "stream.configure") {
     // No hardware HEVC here: HEVC runs as H.264, as on such a Mac.
     codec = request.settings.codec === "hevc" ? "h264" : request.settings.codec;
-    data = { codec };
+    // Given ace-media's ingest, video goes there (the test hands it back as egress).
+    data = request.ingest ? { codec, ingest: "on", switched: true } : { codec, ingest: "off" };
     // As the real helper does (markInitial), a capturing stream starts over with a fresh picture.
     if (capturing) frame();
   }

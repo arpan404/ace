@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ScreenManager, type ScreenOptions } from "../index.ts";
 import { framePacket, type Frame } from "../frames.ts";
+import * as producerStamp from "@ace/media/producer-stamp";
 export const target = { kind: "window", bundleId: "dev.ace.test", windowId: 1 } as const;
 export function ids() {
   let id = 0;
@@ -105,6 +106,79 @@ export async function helperFixture(platform: "win32", overrides: Partial<Screen
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
+    },
+  };
+}
+
+/**
+ * ace-media at the screen manager's edge, for tests without the binary: each session's source
+ * is recorded, `stream(sessionId)` points it at an ingest (as ace-media does once it has the
+ * source), and `unit(sessionId, …)` hands back one H.264 unit as egress would. Video reaches a
+ * session only this way, as it does in the daemon.
+ */
+export function fakeScreenMedia() {
+  const producers = new Map<string, import("@ace/media/ingest-sources").IngestProducer>();
+  let paths = 0;
+  const media: NonNullable<ScreenOptions["media"]> = {
+    add: (producer) => {
+      if (producer.sessionId) producers.set(producer.sessionId, producer);
+      return {
+        streaming: () => false,
+        reconnect: () => {},
+        codecs: () => {},
+        encodes: () => {},
+        key: () => {},
+        picture: () => false,
+        close: () => {
+          if (producer.sessionId) producers.delete(producer.sessionId);
+        },
+      };
+    },
+  };
+  const producer = (sessionId: string) => {
+    const found = producers.get(sessionId);
+    if (!found) throw new Error(`no media source for ${sessionId}`);
+    return found;
+  };
+  const path = new Map<string, string>();
+  return {
+    media,
+    async stream(sessionId: string) {
+      const name = `path-${++paths}`;
+      path.set(sessionId, name);
+      await producer(sessionId).point({
+        url: "ws://127.0.0.1:1/ingest",
+        socket: "/tmp/fake-ingest.sock",
+        token: new Uint8Array(32).fill(1),
+        epoch: 1,
+        path: name,
+      });
+    },
+    unit(sessionId: string, sequence: number, keyframe: boolean) {
+      const { encodeProducerStamp } = producerStamp;
+      producer(sessionId).consumers.deliver({
+        source: path.get(sessionId) ?? "",
+        sequence,
+        gap: false,
+        frame: {
+          kind: 1,
+          flags: keyframe ? 1 : 0,
+          ageUs: 0,
+          width: 320,
+          height: 200,
+          displayWidth: 320,
+          displayHeight: 200,
+          scale: 1000,
+          rotation: 0,
+          codec: 1,
+          encode: 0,
+          epoch: 1,
+          codecString: keyframe ? "avc1.640033" : "",
+          description: new Uint8Array(0),
+          extension: encodeProducerStamp({ sequence, timestamp: sequence, scale: 1 }),
+          payload: new Uint8Array([0, 0, 0, 1, keyframe ? 0x65 : 0x41, 0x88]),
+        },
+      });
     },
   };
 }

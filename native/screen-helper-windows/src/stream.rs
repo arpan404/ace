@@ -7,7 +7,6 @@ use crate::{
 };
 use media_ingest::epochs::EpochLedger;
 pub use media_ingest::epochs::{CaptureTime, Epoch};
-use media_ingest::VideoUnit;
 /// Caller supplies event time. A denied pacing slot never updates hashes, so a final change survives.
 pub struct Stream {
     tiles: Tiles,
@@ -115,25 +114,6 @@ impl Stream {
         let seq = self.seq;
         self.seq += 1;
         seq
-    }
-    /// A video unit as a frame packet on the daemon's pipe.
-    pub fn video_packet(&self, unit: &VideoUnit) -> Result<Vec<u8>> {
-        let header = Header {
-            version: 2,
-            session_id: self.session.clone(),
-            seq: unit.sequence,
-            capture_generation: Some(self.generation),
-            ts: unit.timestamp_ms,
-            width: unit.width,
-            height: unit.height,
-            scale: unit.scale,
-            codec: "h264".into(),
-            keyframe: Some(unit.key),
-            video_codec: if unit.key { unit.codec.clone() } else { None },
-            bytes: unit.payload.len(),
-            dirty_rects: None,
-        };
-        packet(&header, &unit.payload)
     }
     pub fn generation(&mut self, generation: u64) {
         self.generation = generation;
@@ -266,21 +246,6 @@ mod video {
         }
     }
 
-    fn unit(sequence: u64, key: bool) -> VideoUnit {
-        VideoUnit {
-            sequence,
-            timestamp_ms: 10.0,
-            scale: 1.25,
-            width: 640,
-            height: 360,
-            key,
-            codec: Some("avc1.42C01E".into()),
-            epoch: 2,
-            captured_us: 0,
-            payload: vec![0, 0, 0, 1, 0x65],
-        }
-    }
-
     fn header(packet: &[u8]) -> serde_json::Value {
         let size = u32::from_be_bytes(packet[..4].try_into().unwrap()) as usize;
         serde_json::from_slice(&packet[4..4 + size]).unwrap()
@@ -316,29 +281,6 @@ mod video {
         assert!(stream.take_image());
         let still = stream.frame(&[0; 12], 2, 2, 1.0, 200.0).unwrap().unwrap();
         assert_eq!(header(&still)["seq"], 2);
-    }
-
-    #[test]
-    fn a_video_unit_on_the_daemon_pipe_is_an_h264_frame_with_its_keyframe_and_codec() {
-        let mut stream = Stream::new("s".into(), 2, 10);
-        stream.generation(3);
-        let key = header(&stream.video_packet(&unit(5, true)).unwrap());
-        assert_eq!(key["codec"], "h264");
-        assert_eq!(
-            (key["keyframe"].as_bool(), key["videoCodec"].as_str()),
-            (Some(true), Some("avc1.42C01E"))
-        );
-        assert_eq!(
-            (
-                key["seq"].as_u64(),
-                key["captureGeneration"].as_u64(),
-                key["scale"].as_f64()
-            ),
-            (Some(5), Some(3), Some(1.25))
-        );
-        let delta = header(&stream.video_packet(&unit(6, false)).unwrap());
-        assert_eq!(delta["keyframe"], false);
-        assert!(delta.get("videoCodec").is_none());
     }
 }
 

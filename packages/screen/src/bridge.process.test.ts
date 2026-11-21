@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, screenConnection, Simulators } from "./index.ts";
-import { manager, ready } from "./testing/support.ts";
+import { fakeScreenMedia, manager, ready } from "./testing/support.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import type { ScreenServerMessage } from "@ace/protocol";
 import {
@@ -140,9 +140,11 @@ it("an enablement observer cannot prevent the global stop from releasing live ta
 });
 
 it("a subscribed session's pictures arrive as stream kind screenFrame, named by the session", async () => {
-  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  const ace = fakeScreenMedia();
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" }, { media: ace.media });
   cleanups.push(test.close);
   const state = await ready(test.screen);
+  await ace.stream(state.sessionId);
   const assembler = new StreamAssembler();
   const pictures: StreamMessage[] = [];
   const first = Promise.withResolvers<void>();
@@ -177,6 +179,8 @@ it("a subscribed session's pictures arrive as stream kind screenFrame, named by 
       settings: { codec: "h264", maxWidth: 1280, maxHeight: 800, fps: 60, bitrate: 8_000_000 },
     },
   });
+  // The session's video, back from ace-media's egress.
+  ace.unit(state.sessionId, 1, true);
   await first.promise;
   const [picture] = pictures;
   expect(

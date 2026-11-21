@@ -3,6 +3,7 @@ import { WebSocket } from "ws";
 import { afterEach, expect, it } from "vitest";
 import { ScreenState, ServerMessage } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
+import { fakeScreenMedia } from "@ace/screen/testing/support";
 import {
   decodeStreamMessage,
   isStreamPiece,
@@ -20,7 +21,10 @@ afterEach(async () => {
 it("authenticated devices receive visible screen state and stream pictures and disconnect relinquishes control", async () => {
   const directory = await mkdtemp(join(tmpdir(), "daemon-screen-"));
   let id = 0;
+  // The session's video comes only from ace-media's egress, handed back here.
+  const ace = fakeScreenMedia();
   const screen = new ScreenManager({
+    media: ace.media,
     command: process.execPath,
     args: [
       new URL("../../../packages/screen/src/testing/fake-helper.ts", import.meta.url).pathname,
@@ -84,6 +88,7 @@ it("authenticated devices receive visible screen state and stream pictures and d
   if (started.type !== "screen.result") throw new Error("Expected screen result");
   expect(started, JSON.stringify(started)).toMatchObject({ ok: true });
   const state = ScreenState.parse(started.data);
+  await ace.stream(state.sessionId);
   await request({ op: "subscribe", sessionId: state.sessionId });
   expect(
     await request({
@@ -100,6 +105,7 @@ it("authenticated devices receive visible screen state and stream pictures and d
       action: { kind: "type", text: "hello" },
     }),
   ).toMatchObject({ ok: true });
+  ace.unit(state.sessionId, 1, true);
   expect((await frameReady).sourceId).toBe(state.sessionId);
   // The session's stills never reached the viewer: only its video did.
   expect(frames.every((frame) => frame.frame.codec !== "jpeg")).toBe(true);

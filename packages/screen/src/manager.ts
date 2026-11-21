@@ -71,8 +71,10 @@ export class ScreenManager {
       ...options,
       onFrame: (frame) => {
         const session = this.sessions.get(frame.header.sessionId);
-        if (session?.media) session.media.daemonFrame(frame);
-        else if (session) this.acceptFrame(session, frame);
+        // The helper's socket carries stills only: video goes to ace-media and back on egress.
+        if (!session || frame.header.codec !== "jpeg") return;
+        if (session.media) session.media.daemonFrame(frame);
+        else this.acceptFrame(session, frame);
       },
       onStreamIngestClosed: (id) => this.sessions.get(id)?.media?.ingestClosed(),
       onPermissionsChanged: (permissions) => {
