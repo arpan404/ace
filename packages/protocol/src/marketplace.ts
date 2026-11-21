@@ -175,6 +175,14 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     description: z.string().max(1024),
     files: z.number().int().nonnegative(),
     flagged: z.number().int().nonnegative(),
+    /** SKILL.md's `license`, shown as it says (ADR 0202 §1). */
+    license: z.string().max(200).optional(),
+    /** `compatibility`, shown; never a reason to refuse. */
+    compatibility: z.string().max(500).optional(),
+    /** `allowed-tools`: what the skill asks to run without asking. It grants nothing. */
+    allowedTools: z.array(z.string().max(120)).max(64).optional(),
+    /** Front matter fields this ace keeps but doesn't use. */
+    unused: z.array(z.string().max(120)).max(64).optional(),
   }),
   z.strictObject({
     type: z.literal("spade-plugin"),
