@@ -144,15 +144,15 @@ test("a proof signed for a socket that was replaced meanwhile is never sent", as
   const key = await enclaveKey();
   const m = machine((proof, asked) => key.verifies(proof, asked));
   const reports: PairedStanding[] = [];
-  let release: () => void = () => {};
-  const slow = (text: string) =>
-    new Promise<string>((resolve) => {
-      release = () => void key.sign(text).then(resolve);
-    });
+  const signing = Promise.withResolvers<void>();
+  const slow = async (text: string) => {
+    await signing.promise;
+    return key.sign(text);
+  };
   m.socket(socket("nonce-1"));
   keepPairedStanding(m.api as never, slow, (state) => reports.push(state));
   m.socket(undefined);
-  release();
+  signing.resolve();
   await settle();
   await settle();
   expect(m.sent).toEqual([]);
