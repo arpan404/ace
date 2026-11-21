@@ -6,9 +6,7 @@
 
 mod support;
 
-use std::path::Path;
-
-use serde_json::{Value, json};
+use serde_json::json;
 use support::*;
 
 #[test]
@@ -236,9 +234,10 @@ fn a_transcript_replaced_after_it_was_opened_streams_its_raw_bytes_from_the_file
     );
 }
 
+#[cfg(all(feature = "test-hooks", unix))]
 /// An OpenCode v1 database with one session, `title`: in WAL mode with its writer closed, the kind
 /// that used to be read in place.
-fn opencode_db(path: &Path, title: &str) {
+fn opencode_db(path: &std::path::Path, title: &str) {
     let db = rusqlite::Connection::open(path).unwrap();
     db.execute_batch(
         "PRAGMA journal_mode=WAL;
@@ -294,7 +293,7 @@ fn a_database_redirected_outside_its_home_after_its_check_is_never_read() {
         json!({ "op": "list", "request": { "type": "history.list", "cwd": "/w" } }),
     );
     assert!(!path.with_extension("db-wal").exists());
-    let titles: Vec<Value> = listed.value["value"]["sessions"]
+    let titles: Vec<serde_json::Value> = listed.value["value"]["sessions"]
         .as_array()
         .unwrap()
         .iter()

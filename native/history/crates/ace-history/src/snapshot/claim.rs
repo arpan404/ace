@@ -31,11 +31,16 @@ impl Drop for Claim {
     }
 }
 
+#[cfg(unix)]
 fn private_dir(path: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
     builder.create(path)
+}
+
+#[cfg(not(unix))]
+fn private_dir(path: &Path) -> std::io::Result<()> {
+    std::fs::create_dir(path)
 }
 
 /// Claim a new directory named `<prefix><random>` in `root`.

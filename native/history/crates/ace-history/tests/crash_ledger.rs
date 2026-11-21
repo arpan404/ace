@@ -2,6 +2,7 @@
 
 //! The crash ledger across reader deaths: what is struck, what is read alone, what is refused.
 
+#![cfg(feature = "test-hooks")]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 mod support;
