@@ -14,11 +14,8 @@ import {
 } from "./supervision-policy.ts";
 
 // ace-media always encodes (X2) and always records and makes stills (X1): only delivery chooses.
-const settingsTable: MediaSettings[] = (["legacy", "auto"] as const).map((delivery) => ({
-  ...defaultMediaSettings,
-  delivery,
-}));
 const auto: MediaSettings = { ...defaultMediaSettings, delivery: "auto" };
+const settingsTable: MediaSettings[] = [{ ...defaultMediaSettings, delivery: "legacy" }, auto];
 const healths: MediaHealth[] = ["healthy", "restarting", "unavailable"];
 const everything: RouteCapabilities = { ingest: sourceKinds, delivery: true };
 const capabilityTable: [string, RouteCapabilities][] = [
