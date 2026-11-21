@@ -1,22 +1,23 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { WordChoice } from "@/components/ui/word-choice.tsx";
 import type { EditorHost, StatusNotice } from "./editor-host.ts";
 import {
   evenSplit,
   focusedGroup,
   focusGroup,
+  groupsFit,
   groupsOf,
   resizeSplit,
+  roomNeeded,
   type GroupNode,
 } from "@ace/ui-core/editor-workbench";
 import { bindGroupActions, groupContext, type EditorLayoutProps } from "./group-actions.ts";
 import { GroupView } from "./group-view.tsx";
-import { fileName } from "./paths.ts";
 import { SplitGrid } from "./split-grid.tsx";
 import { StatusLine } from "./status-line.tsx";
 import { createStatusStore, useStatusReport, type StatusStore } from "./status-store.ts";
 
-/** Spec 5: under this width the editor shows only the focused group. */
+/** Spec 5: under this width the editor panel lays its explorer over the code. */
 export const compactBelowPx = 760;
 
 export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLayoutProps {
@@ -25,8 +26,16 @@ export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLay
    * 2 open files" with Next change, once change marks exist).
    */
   statusNotice?: StatusNotice | undefined;
-  /** Compact layout's way to the explorer ("Show files"), at the strip's left. */
+  /**
+   * The way to an explorer that stepped aside ("Show files"), at the first strip's left. The
+   * panel passes it only while the explorer isn't docked beside the code.
+   */
   explorerToggle?: ReactNode;
+  /**
+   * The groups don't fit side by side: the editor needs this much width to show them all. The
+   * panel widens if it can; until then one group shows, the others a click away.
+   */
+  onNeedRoom?: ((width: number) => void) | undefined;
 }
 
 /**
@@ -36,8 +45,15 @@ export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLay
 export function Editor(props: EditorProps) {
   const { layout, onLayoutChange } = props;
   const root = useRef<HTMLDivElement>(null);
-  const compact = useCompact(root);
+  const box = useBox(root);
   const groups = groupsOf(layout);
+  // A split the person asked for shows whenever each group gets its room (spec 5).
+  const sideBySide = groupsFit(layout.root, box);
+  const needed = sideBySide ? undefined : roomNeeded(layout.root).width;
+  const { onNeedRoom } = props;
+  useEffect(() => {
+    if (needed !== undefined) onNeedRoom?.(needed);
+  }, [needed, onNeedRoom]);
   const context = groupContext(props);
   const focused = focusedGroup(layout);
   // Status lives outside the editor's state: a caret move redraws the status line alone.
@@ -53,7 +69,28 @@ export function Editor(props: EditorProps) {
     );
   }, [focused.id]);
 
-  const renderGroup = (group: GroupNode, others?: ReactNode) => {
+  const leadOf = (group: GroupNode) => {
+    // The explorer's toggle sits at the left of the first strip on screen.
+    const first = sideBySide ? groups[0]?.id === group.id : true;
+    const toggle = first ? props.explorerToggle : undefined;
+    const switcher = !sideBySide && groups.length > 1 && (
+      <WordChoice
+        label="Groups"
+        value={focused.id}
+        options={groups.map((each, index) => ({ value: each.id, label: `Group ${index + 1}` }))}
+        onValueChange={(id) => onLayoutChange(focusGroup(layout, id))}
+        className="mr-1 shrink-0"
+      />
+    );
+    return toggle || switcher ? (
+      <>
+        {toggle}
+        {switcher}
+      </>
+    ) : undefined;
+  };
+
+  const renderGroup = (group: GroupNode) => {
     const number = groups.indexOf(group) + 1;
     const isFocused = group.id === focused.id;
     return (
@@ -65,8 +102,7 @@ export function Editor(props: EditorProps) {
         last={groups.length === 1}
         host={host}
         actions={bindGroupActions(group.id, context)}
-        stripLead={compact && isFocused ? props.explorerToggle : undefined}
-        groupMenu={others}
+        stripLead={leadOf(group)}
       />
     );
   };
@@ -77,7 +113,7 @@ export function Editor(props: EditorProps) {
       role="group"
       aria-label="Editor"
       data-part="editor"
-      data-compact={compact ? "" : undefined}
+      data-compact={sideBySide ? undefined : ""}
       className="flex h-full min-h-0 min-w-0 flex-col bg-background"
       onKeyDown={(event) => {
         const number = groupKey(event);
@@ -98,32 +134,15 @@ export function Editor(props: EditorProps) {
       }}
     >
       <div className="flex min-h-0 flex-1">
-        {compact ? (
-          renderGroup(
-            focused,
-            groups.length > 1 && (
-              <>
-                {groups.map((group, index) =>
-                  group.id === focused.id ? null : (
-                    <MenuItem
-                      key={group.id}
-                      onClick={() => onLayoutChange(focusGroup(layout, group.id))}
-                    >
-                      {`Group ${index + 1}: ${group.active ? fileName(group.active) : "empty"}`}
-                    </MenuItem>
-                  ),
-                )}
-                <MenuSeparator />
-              </>
-            ),
-          )
-        ) : (
+        {sideBySide ? (
           <SplitGrid
             node={layout.root}
-            renderGroup={(group) => renderGroup(group)}
+            renderGroup={renderGroup}
             onResize={(at, sizes) => onLayoutChange(resizeSplit(layout, at, sizes))}
             onEven={(at) => onLayoutChange(evenSplit(layout, at))}
           />
+        ) : (
+          renderGroup(focused)
         )}
       </div>
       <FocusedStatusLine store={status} group={focused.id} notice={props.statusNotice} />
@@ -158,19 +177,21 @@ function focusInside(group: HTMLElement | null | undefined): void {
   target?.focus();
 }
 
-function useCompact(root: React.RefObject<HTMLDivElement | null>): boolean {
-  const [compact, setCompact] = useState(false);
+/** The editor's measured size; zero until it has been laid out. */
+function useBox(root: React.RefObject<HTMLDivElement | null>): { width: number; height: number } {
+  const [box, setBox] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const element = root.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
+    if (!element) return;
     const measure = () => {
-      const width = element.getBoundingClientRect().width;
-      setCompact(width > 0 && width < compactBelowPx);
+      const { width, height } = element.getBoundingClientRect();
+      setBox((was) => (was.width === width && was.height === height ? was : { width, height }));
     };
     measure();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
   }, [root]);
-  return compact;
+  return box;
 }

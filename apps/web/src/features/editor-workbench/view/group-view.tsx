@@ -6,7 +6,7 @@ import { noticeClash, useSnapshot } from "./editor-buffers.ts";
 import { BufferEditor } from "./buffer-editor.tsx";
 import type { EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { BufferEditorProps, EditorHost } from "./editor-host.ts";
-import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
+import { carriesGroupDrag, copiesOnDrop, readGroupDrag } from "./drag.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
 import { MarkdownChoice, markdownShow } from "./markdown-choice.tsx";
@@ -33,7 +33,6 @@ export function GroupView(props: {
   host: EditorHost;
   actions: GroupActions;
   stripLead?: ReactNode;
-  groupMenu?: ReactNode;
 }) {
   const { group, host, actions } = props;
   const path = group.active;
@@ -75,8 +74,8 @@ export function GroupView(props: {
         buffers={host.buffers}
         actions={actions}
         lead={props.stripLead}
-        groupMenu={props.groupMenu}
         tabMenuItems={host.tabMenuItems}
+        threadId={host.threadId}
       />
       <Breadcrumbs
         path={path}
@@ -107,10 +106,17 @@ export function GroupView(props: {
       )}
       <div
         data-part="buffer-editor"
-        className="relative flex min-h-0 flex-1 flex-col"
-        onDragOver={(event) => {
-          if (!carriesTab(event.dataTransfer)) return;
+        // Only the focused group draws its caret: the keyboard is in one place (spec 19).
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col",
+          !props.focused && "[&_[data-caret]]:invisible",
+        )}
+        // Captured, so a tab or file dropped on the code reaches the drop zones and never the
+        // text input under the pointer, which would paste its path.
+        onDragOverCapture={(event) => {
+          if (!carriesGroupDrag(event.dataTransfer)) return;
           event.preventDefault();
+          event.stopPropagation();
           event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
           const box = event.currentTarget.getBoundingClientRect();
           const next = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
@@ -120,13 +126,14 @@ export function GroupView(props: {
           const into = event.relatedTarget;
           if (!(into instanceof Node && event.currentTarget.contains(into))) setZone(undefined);
         }}
-        onDrop={(event) => {
-          const drag = readTabDrag(event.dataTransfer);
+        onDropCapture={(event) => {
+          if (!carriesGroupDrag(event.dataTransfer)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const drag = readGroupDrag(event.dataTransfer, host.threadId);
           const at = zone ?? "center";
           setZone(undefined);
-          if (!drag) return;
-          event.preventDefault();
-          actions.dropOnEditor(drag, at, copiesOnDrop(event));
+          if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
         }}
       >
         {path === undefined ? (

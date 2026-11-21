@@ -1,10 +1,10 @@
-import { CaretDownIcon, DotsThreeIcon } from "@ace/icons";
+import { CaretDownIcon, DotsThreeIcon, SquareSplitHorizontalIcon } from "@ace/icons";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { EditorTabView } from "./editor-tab.tsx";
 import type { EditorBuffers } from "./editor-buffers.ts";
-import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
+import { carriesGroupDrag, copiesOnDrop, readGroupDrag } from "./drag.ts";
 import type { GroupActions } from "./group-actions.ts";
 import { tabLabels, type GroupNode } from "@ace/ui-core/editor-workbench";
 import { fileName, folderOf } from "./paths.ts";
@@ -12,7 +12,8 @@ import { TabMenu } from "./tab-menu.tsx";
 
 /**
  * One group's strip: its tabs (one tab stop; arrows move, Delete closes), a drop slot while a
- * tab is dragged over it, a ⌄ listing every tab while they overflow, and the group's ⋯.
+ * tab is dragged over it, a ⌄ listing every tab while they overflow, Split right (⌥: down) and
+ * the group's ⋯.
  */
 export function TabStrip(props: {
   group: GroupNode;
@@ -21,10 +22,10 @@ export function TabStrip(props: {
   actions: GroupActions;
   /** Room before the tabs (compact layout's "Show files"). */
   lead?: ReactNode;
-  /** Extra items for the ⋯ menu (compact layout lists the other groups). */
-  groupMenu?: ReactNode;
   /** The host's items at the end of each tab's menu. */
   tabMenuItems?: ((path: string) => ReactNode) | undefined;
+  /** Whose explorer's files may be dropped here. */
+  threadId?: string | undefined;
 }) {
   const { group, actions } = props;
   const scroller = useRef<HTMLDivElement>(null);
@@ -79,7 +80,7 @@ export function TabStrip(props: {
         aria-label="Open files"
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
         onDragOver={(event) => {
-          if (!carriesTab(event.dataTransfer)) return;
+          if (!carriesGroupDrag(event.dataTransfer)) return;
           event.preventDefault();
           if (event.target === event.currentTarget) setDrop(group.tabs.length);
         }}
@@ -88,7 +89,7 @@ export function TabStrip(props: {
           if (!(into instanceof Node && event.currentTarget.contains(into))) setDrop(undefined);
         }}
         onDrop={(event) => {
-          const drag = readTabDrag(event.dataTransfer);
+          const drag = readGroupDrag(event.dataTransfer, props.threadId);
           const index = drop ?? group.tabs.length;
           setDrop(undefined);
           if (!drag) return;
@@ -120,7 +121,7 @@ export function TabStrip(props: {
                 onClose={() => actions.close([tab.path])}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 onDragOver={(event, after) => {
-                  if (!carriesTab(event.dataTransfer)) return;
+                  if (!carriesGroupDrag(event.dataTransfer)) return;
                   event.preventDefault();
                   setDrop(after ? index + 1 : index);
                 }}
@@ -130,10 +131,17 @@ export function TabStrip(props: {
         ))}
       </div>
       {overflowing && <OverflowMenu group={group} actions={actions} />}
+      <IconButton
+        label="Split right"
+        shortcut="editor.splitRight"
+        size="sm"
+        icon={SquareSplitHorizontalIcon}
+        // ⌥-click splits down, as ⇧⌥⌘\ does.
+        onClick={(event) => actions.split(event.altKey ? "down" : "right")}
+      />
       <Menu>
         <MenuTrigger render={<IconButton label="Group actions" size="sm" icon={DotsThreeIcon} />} />
         <MenuContent align="end">
-          {props.groupMenu}
           <MenuItem
             disabled={!group.active}
             onClick={() => group.active && actions.splitTab(group.active, "right")}
