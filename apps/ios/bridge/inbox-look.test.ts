@@ -90,8 +90,25 @@ test("a row whose work moved says where it went and opens it there, never its ag
     meaning: "Moved to Studio",
     icon: "background",
     state: "moved",
-    moved: to,
+    moved: { ...to, unpaired: expect.any(String), waiting: expect.any(String) },
   });
   // Every other row says nothing about a move.
   expect(inboxLook(thread({ snoozeWoke: undefined }), 0, now).moved).toBeNull();
+});
+
+test("a moved row says why Open can't reach its machine yet, naming it and the way on", () => {
+  const to = { hostId: "studio", name: "Studio", threadId: "there" };
+  const { moved } = inboxLook(
+    thread({ status: { state: "moved", to }, snoozeWoke: undefined, readAt: now }),
+    0,
+    now,
+  );
+  // Not paired with this phone: pair it first.
+  expect(moved?.unpaired).toBe(
+    "This phone isn't paired with Studio. Pair it in Settings › Machines to open the thread there.",
+  );
+  // Paired, but its list hasn't caught up: the thread opens by itself once it does.
+  expect(moved?.waiting).toBe(
+    "Studio's threads are still loading. The thread opens once they arrive.",
+  );
 });

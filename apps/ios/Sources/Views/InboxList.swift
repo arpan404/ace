@@ -329,6 +329,8 @@ private struct InboxThreadCell: View {
     private func swiped() { swipes += 1 }
     /// Answers sent from the row, for the approve haptic.
     @State private var decided = 0
+    /// Why Open on a moved row's machine couldn't show the thread yet.
+    @State private var movedNote: MovedNote?
 
     var body: some View {
         if let row = inbox.row(key) { threadRow(row) }
@@ -405,6 +407,9 @@ private struct InboxThreadCell: View {
         }
         .sensoryFeedback(AceDesign.Haptic.rowAction, trigger: swipes)
         .sensoryFeedback(AceDesign.Haptic.approve, trigger: decided)
+        .alert(movedNote?.title ?? "", isPresented: Binding(get: { movedNote != nil }, set: { if !$0 { movedNote = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(movedNote?.words ?? "") }
         .accessibilityActions {
             if let moved = row.look?.moved { openMoved(moved) }
             ForEach(answers) { answer in Button(answer.label, action: answer.run) }
@@ -436,13 +441,22 @@ private struct InboxThreadCell: View {
         }
     }
 
-    /// Opens the thread its work moved to, while this phone shows that machine's threads.
+    /// Opens the thread its work moved to. When this phone can't show it there yet it says why:
+    /// it isn't paired with that machine, or that machine's list hasn't caught up, when the
+    /// thread opens by itself once it does.
     @ViewBuilder private func openMoved(_ moved: RowLook.Moved) -> some View {
         if let go = others.open {
-            Button("Open on \(moved.name)", ace: .arrowSquareOut) { _ = go(InboxKey(machineId: moved.hostId, id: moved.threadId)) }
-                .accessibilityIdentifier("row.openMoved")
+            Button("Open on \(moved.name)", ace: .arrowSquareOut) {
+                switch go(InboxKey(machineId: moved.hostId, id: moved.threadId)) {
+                case .opened: break
+                case .waiting: movedNote = MovedNote(title: "Opening on \(moved.name)", words: moved.waiting)
+                case .unpaired: movedNote = MovedNote(title: "Can't open on \(moved.name)", words: moved.unpaired)
+                }
+            }
+            .accessibilityIdentifier("row.openMoved")
         }
     }
+    private struct MovedNote: Equatable { let title: String; let words: String }
 
     private func pinButton(_ row: ThreadRow, _ pinned: Bool) -> some View {
         Button(pinned ? "Unpin" : "Pin", ace: pinned ? .pushPinSlash : .pushPin) { swiped(); actions.pin(row, key, !pinned) }
