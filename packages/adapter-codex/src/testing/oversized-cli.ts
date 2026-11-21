@@ -144,6 +144,9 @@ for await (const line of createInterface({ input: process.stdin })) {
         write({ padding: "readable ".repeat(600), method: "turn/completed", params });
       else notify("turn/completed", params);
     } else {
+      // A chatty MCP server's log line, passed through on stderr, over a test's line limit.
+      if (text === "stderr-flood")
+        process.stderr.write(`${`${"x".repeat(8 * 1024)}\n`.repeat(200)}still here\n`);
       turn.status = "completed";
       notify("item/completed", {
         threadId: thread,
