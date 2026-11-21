@@ -212,6 +212,7 @@ pub fn from_recipe(
         transaction: input.from_recipe.transaction.clone(),
         routine_ids: BTreeMap::new(),
         notes: Vec::new(),
+        code: BTreeMap::new(),
     });
     let plugin_names: BTreeSet<String> = input
         .grants

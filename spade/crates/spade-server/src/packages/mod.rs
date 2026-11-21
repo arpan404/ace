@@ -183,6 +183,8 @@ pub struct Linking<'a> {
     pub transaction: Option<String>,
     pub routine_ids: BTreeMap<String, String>,
     pub notes: Vec<MadeNote>,
+    /// Its components' pins (name to sha256), their bytes kept before the bot is made.
+    pub code: BTreeMap<String, String>,
 }
 
 /// The link a bot from a version 3 package is made with, in the bot's own transaction: its
@@ -202,6 +204,7 @@ pub fn installing(manifest: &Manifest, linking: &Linking<'_>) -> Link {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: true,
+        code: linking.code.clone(),
     }
 }
 

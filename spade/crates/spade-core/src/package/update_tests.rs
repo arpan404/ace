@@ -101,6 +101,7 @@ fn installed() -> Link {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
+        code: Default::default(),
     }
 }
 

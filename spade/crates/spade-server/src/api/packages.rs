@@ -221,6 +221,7 @@ async fn update(
                     proof: body.envelope.as_ref().and_then(packages::proof::kept),
                     transaction: body.transaction,
                     time_zone: body.time_zone,
+                    code: std::collections::BTreeMap::new(),
                 },
             )?;
             // Its pages are the accepted version's from now on, also while the step is held for

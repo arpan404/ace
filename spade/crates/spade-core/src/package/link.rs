@@ -94,6 +94,10 @@ pub struct Pending {
     /// only on it; a local package's has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proof: Option<Value>,
+    /// The step's components, by name, each pinned to the sha256 of the bytes accepted with it
+    /// (ADR 0203 §5): what the link holds once the step commits.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub code: BTreeMap<String, String>,
 }
 
 /// The link, as stored under `package:<bot>`.
@@ -126,6 +130,11 @@ pub struct Link {
     /// start, before any work.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub installing: bool,
+    /// Its components, by name, each pinned to the sha256 of the bytes accepted with its version
+    /// (ADR 0203 §5: for a market version, the bytes the signed manifest lists). Only these bytes
+    /// are ever loaded for it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub code: BTreeMap<String, String>,
 }
 
 impl Link {
