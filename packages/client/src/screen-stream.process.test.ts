@@ -83,7 +83,7 @@ function transport() {
   };
 }
 
-it("authenticates a dedicated screen socket, correlates results and acks the live pictures it shows", async () => {
+it("authenticates a dedicated screen socket, correlates results, and draws no live picture the channel sends", async () => {
   const server = new WebSocketServer({ port: 0 });
   onTestFinished(
     () =>
@@ -95,12 +95,12 @@ it("authenticates a dedicated screen socket, correlates results and acks the liv
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing address");
   const hello = Promise.withResolvers<unknown>();
-  const acked = Promise.withResolvers<unknown>();
+  const acks: unknown[] = [];
   const subscribed = Promise.withResolvers<unknown>();
   server.on("connection", (socket) =>
     socket.on("message", (raw) => {
       const request = ClientMessage.parse(JSON.parse(raw.toString()));
-      if (request.type === "screen.ack") acked.resolve(request);
+      if (request.type === "screen.ack") acks.push(request);
       else if (request.type === "hello") {
         hello.resolve(request);
         socket.send(
@@ -157,8 +157,8 @@ it("authenticates a dedicated screen socket, correlates results and acks the liv
   expect(client.getSnapshot().states).toEqual([]);
   expect(await client.request({ op: "sessions" })).toEqual([state]);
   expect(client.getSnapshot().states).toEqual([state]);
-  const received = Promise.withResolvers<SourcePicture>();
-  const stop = client.watchPictures("app", (shown) => received.resolve(shown));
+  const shown: SourcePicture[] = [];
+  const stop = client.watchPictures("app", (picture) => void shown.push(picture));
   onTestFinished(stop);
   await client.request({
     op: "subscribe",
@@ -166,16 +166,11 @@ it("authenticates a dedicated screen socket, correlates results and acks the liv
     codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
   });
   expect(await subscribed.promise).toMatchObject({ codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] });
-  const shown = await received.promise;
-  expect(shown.bytes).toEqual(new Uint8Array([255, 216, 255, 217]));
-  expect(shown.sourceId).toBe("app");
-  client.ack(shown);
-  expect(await acked.promise).toMatchObject({
-    type: "screen.ack",
-    sessionId: "app",
-    streamId: "app",
-    sequence: 1,
-  });
+  // The picture this server sent on the channel belongs to no delivery: only ace-media's, on a
+  // media connection, are drawn (X3), so none shows and none is acked here.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(shown).toEqual([]);
+  expect(acks).toEqual([]);
   expect(client.getSnapshot().states).toEqual([state]);
   await expect(
     client.request({

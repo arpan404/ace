@@ -9,7 +9,6 @@ import {
   type StreamMessage,
 } from "@ace/browser/stream";
 import {
-  channelPath,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
@@ -130,6 +129,10 @@ export class DeviceClient {
    * Hears each device's delivery as it changes (`MediaSubscriptions.watchDeliveries`): for a
    * viewer whose pictures arrive outside this client, which stamps and gates them itself.
    */
+  /** Why deviceId's live view gets no pictures now, for the person; undefined while they come. */
+  undelivered(deviceId: string): string | undefined {
+    return this.media.undelivered(deviceId)?.reason;
+  }
   watchDeliveries(listener: (state: DeliveryState) => void): () => void {
     return this.media.watchDeliveries(listener);
   }
@@ -376,15 +379,10 @@ export class DeviceClient {
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
     };
-    const way = this.media.way(picture.sourceId, picture.generation);
-    // A picture of an earlier subscribe: its ack belongs to a delivery that is gone.
-    if (way === "stale") return;
-    if (way === "media") return void this.media.route?.ack(message);
-    try {
-      void Promise.resolve(transport.send(message)).catch(() => {});
-    } catch {
-      /* The channel is closing; its close resets the view. */
-    }
+    // Only ace-media delivers (X3), so acks go on the media connection; one of an earlier
+    // subscribe belongs to a delivery that is gone.
+    if (this.media.way(picture.sourceId, picture.generation) === "media")
+      this.media.route?.ack(message);
   }
 
   private readonly liveStreams = new SharedStreams();
@@ -422,10 +420,7 @@ export class DeviceClient {
     // What the earlier subscribe delivered and nobody drew yet is stale now.
     this.pictures.discardSource(deviceId);
     void this.send({ op: "subscribe", deviceId, ...fields }, generation).catch((error: unknown) => {
-      const next = this.media.failed(deviceId, generation, error);
-      // A connection the daemon won't bind here: the stream goes on this channel instead.
-      if (next === "resubscribe") return this.subscribe(deviceId);
-      if (next === "retry") this.retryLater(deviceId);
+      if (this.media.failed(deviceId, generation, error) === "retry") this.retryLater(deviceId);
     });
   }
   private receiveMedia(message: StreamMessage): void {
@@ -559,7 +554,7 @@ export class DeviceClient {
           if (message.ok)
             this.release(
               late.sourceId,
-              this.media.subscribed(late.sourceId, late.generation, message.media),
+              this.media.subscribed(late.sourceId, late.generation, message.media, message.undelivered),
             );
           return;
         }
@@ -585,7 +580,7 @@ export class DeviceClient {
           if (pending.operation.op === "subscribe" && pending.generation !== undefined) {
             this.release(
               pending.operation.deviceId,
-              this.media.subscribed(pending.operation.deviceId, pending.generation, message.media),
+              this.media.subscribed(pending.operation.deviceId, pending.generation, message.media, message.undelivered),
             );
             if (this.media.poster(pending.operation.deviceId)) this.notify();
           }
@@ -626,8 +621,9 @@ export class DeviceClient {
     const message = envelope && decodeStreamMessage(envelope);
     if (message?.kind !== "device.frame") return;
     const picture = { ...message.frame, sourceId: message.sourceId };
+    // Only a person's screenshot comes on this channel; a live picture here, from an older
+    // daemon, belongs to no delivery (X3).
     if (picture.still) this.screenshots.retain(picture);
-    else this.publishPicture(message.sourceId, message.frame, channelPath);
   }
   private putState(state: DeviceState): void {
     const previous = this.states.get(state.device.id);

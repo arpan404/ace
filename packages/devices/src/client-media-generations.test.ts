@@ -188,16 +188,18 @@ describe("device pictures across a media rebind", () => {
     const view = setup();
     view.client.retainStream(deviceId);
     const [subscribe] = view.subscribes;
+    view.deliver(frame(1));
     view.timeOut();
     await flush();
-    view.onChannel(frame(1));
+    // What was held for it goes, and nothing comes by the channel instead (X3).
+    view.onChannel(frame(2));
     await flush();
-    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    expect(view.drawn).toEqual([]);
     view.reply(subscribe!);
     await flush();
-    view.deliver(frame(2));
+    view.deliver(frame(3));
     await flush();
-    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1, 2]);
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([3]);
   });
 
   it("a subscribe that fails for another reason stops holding pictures and tries again later", async () => {
@@ -207,7 +209,7 @@ describe("device pictures across a media rebind", () => {
     await flush();
     view.onChannel(frame(1));
     await flush();
-    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    expect(view.drawn).toEqual([]);
     view.timeOut();
     await flush();
     expect(view.subscribes).toHaveLength(2);

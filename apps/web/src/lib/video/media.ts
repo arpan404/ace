@@ -4,6 +4,7 @@ import {
   MediaConnection,
   type OpenMediaRelay,
   type OpenMediaSocket,
+  unavailableReason,
 } from "@ace/client/media";
 import type { MediaRoute } from "@ace/browser/live-view";
 import { webCodecsSupport, within, type VideoSupport } from "./codecs.ts";
@@ -21,7 +22,7 @@ export interface WebMedia {
   readonly route: MediaRoute;
   /**
    * How this client reaches the daemon through the relay, from whichever view knows its
-   * endpoint; a grant without a `url` opens a relay stream with it, and goes legacy without.
+   * endpoint; a grant without a `url` opens a relay stream with it, and is unavailable without.
    */
   relayWith(open: OpenMediaRelay | undefined): void;
 }
@@ -75,6 +76,7 @@ export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebM
     watch: (listener) => connection.watch(listener),
     onStream: (listener) => connection.onStream(listener),
     ack: (message) => connection.ack(message),
+    unavailable: () => unavailableReason(connection.state),
   };
   const made: WebMedia = {
     connection,

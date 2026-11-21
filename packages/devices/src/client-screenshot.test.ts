@@ -72,7 +72,7 @@ it("a screenshot resolves with the still picture its result names, without a sub
   host.client.disconnect();
 });
 
-it("a screenshot's still never reaches the live view, which only draws paced pictures", async () => {
+it("a screenshot's still never reaches the live view, nor does a live picture on the channel", async () => {
   const host = setup();
   const drawn: number[] = [];
   host.client.watchPictures(deviceId, async (next) => void drawn.push(next.bytes[0] ?? -1));
@@ -84,7 +84,8 @@ it("a screenshot's still never reaches the live view, which only draws paced pic
   host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: result });
   expect([...(await shot).bytes]).toEqual([5]);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(drawn).toEqual([6]);
+  // Live pictures come only from ace-media on the media connection (X3).
+  expect(drawn).toEqual([]);
   host.client.disconnect();
 });
 

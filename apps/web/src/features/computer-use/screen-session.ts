@@ -88,6 +88,10 @@ export interface ScreenSession {
   current: ScreenStreamClient["current"];
   /** A session's view couldn't decode `codec`: that session alone asks again without it. */
   fallBack: ScreenStreamClient["fallBack"];
+  /** Why a session's live view gets no pictures now (X3: only ace-media delivers them). */
+  undelivered: ScreenStreamClient["undelivered"];
+  /** Hears each session's delivery as it changes. */
+  watchDeliveries: ScreenStreamClient["watchDeliveries"];
   close(): void;
 }
 
@@ -233,6 +237,8 @@ function openSession(
     ack: (picture, keyframe) => client.ack(picture, keyframe),
     retainStream: (sessionId) => client.retainStream(sessionId),
     poster: (sessionId) => client.poster(sessionId),
+    undelivered: (sessionId) => client.undelivered(sessionId),
+    watchDeliveries: (listener) => client.watchDeliveries(listener),
     fallBack: (sessionId, codec) => client.fallBack(sessionId, codec),
     current: (picture) => client.current(picture),
     close() {

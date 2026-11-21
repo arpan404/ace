@@ -44,6 +44,7 @@ import {
   CertificateWarning,
   Disconnected,
   LoadFailed,
+  NoLiveVideo,
   NoVideo,
   Offline,
   Opening,
@@ -321,8 +322,16 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   else if (!online) content = <Offline />;
   else if (page.loading || unopened) content = <Opening download={page.download} />;
   else if (live && shown && !blank)
-    // No picture yet: the first keyframe is on its way, unless this client can't decode any.
-    content = page.decodesVideo === false ? <NoVideo /> : <Opening download={page.download} />;
+    // No picture yet: the first keyframe is on its way, unless this client can't decode any or
+    // nothing will deliver it (the view says why).
+    content =
+      page.decodesVideo === false ? (
+        <NoVideo />
+      ) : page.undelivered ? (
+        <NoLiveVideo reason={page.undelivered} />
+      ) : (
+        <Opening download={page.download} />
+      );
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
   return (

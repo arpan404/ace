@@ -187,7 +187,7 @@ describe("screen pictures by the media connection", () => {
     ).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined, { connection: "mc_bbbbbbbbbb" }]);
   });
 
-  it("keeps legacy delivery on the channel while the media connection has no binding", async () => {
+  it("without a binding, subscribes naming none and draws nothing the channel sends", async () => {
     const { client, sent, server, drawn } = harness();
     const media = fakeRoute(undefined);
     client.useMedia(media.route);
@@ -195,17 +195,12 @@ describe("screen pictures by the media connection", () => {
     expect(subscribes(sent)).toEqual([{ op: "subscribe", sessionId: "app" }]);
     for (const piece of picture(4, "avc1.42E033")) server(piece);
     await flush();
-    client.ack(drawn[0]!);
+    // Only ace-media delivers live pictures (X3): one on the channel is no delivery's.
+    expect(drawn).toEqual([]);
     expect(media.acks).toEqual([]);
-    expect(sent.at(-1)).toEqual({
-      type: "screen.ack",
-      sessionId: "app",
-      streamId: "capture-1",
-      sequence: 4,
-    });
   });
 
-  it("keeps acks on the channel when the daemon serves the stream there itself", async () => {
+  it("a subscribe the daemon answers without the connection draws nothing the channel sends", async () => {
     const { client, sent, server, drawn } = harness("serves here");
     const media = fakeRoute("mc_aaaaaaaaaa");
     client.useMedia(media.route);
@@ -213,19 +208,18 @@ describe("screen pictures by the media connection", () => {
     await flush();
     for (const piece of picture(5, "avc1.42E033")) server(piece);
     await flush();
-    client.ack(drawn[0]!);
-    expect(media.acks).toEqual([]);
-    expect(sent.at(-1)).toMatchObject({ type: "screen.ack", sequence: 5 });
+    expect(drawn).toEqual([]);
+    expect(JSON.stringify(sent)).not.toContain("screen.ack");
   });
 
-  it("subscribes on the channel when the daemon refuses the connection", async () => {
+  it("a connection the daemon refuses isn't named again for the session at once", async () => {
     const { client, sent } = harness("refuses");
     client.useMedia(fakeRoute("mc_aaaaaaaaaa").route);
     client.retainStream("app");
     await flush();
     expect(
       subscribes(sent).map((operation) => ("media" in operation ? operation.media : undefined)),
-    ).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined]);
+    ).toEqual([{ connection: "mc_aaaaaaaaaa" }]);
   });
 
   it("a viewer that can't decode HEVC moves only its own session to H.264", async () => {

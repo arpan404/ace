@@ -184,19 +184,19 @@ describe("media connection", () => {
     });
   });
 
-  it("stays legacy when the daemon has no media connection to give", async () => {
+  it("is unavailable, with the daemon's reason, when the daemon has no media connection to give", async () => {
     const unavailable = {
       type: "media.connect.result",
       requestId: "r1",
-      result: { ok: false, code: "unavailable", message: "media.delivery is legacy" },
+      result: { ok: false, code: "unavailable", message: "ace-media is not running" },
     };
     const { media, sockets, clock, asked } = harness([unavailable]);
     media.start();
     await media.settled();
-    expect(media.state).toEqual({ state: "legacy", reason: "unavailable" });
+    expect(media.state).toEqual({ state: "unavailable", reason: "unavailable", message: "ace-media is not running" });
     expect(media.binding()).toBeUndefined();
     expect(sockets).toHaveLength(0);
-    // A setting may change: it asks again later.
+    // ace-media may come back: it asks again later.
     await clock.advance(30_000);
     expect(asked()).toBe(2);
   });
@@ -207,7 +207,7 @@ describe("media connection", () => {
     ]);
     media.start();
     await media.settled();
-    expect(media.state).toEqual({ state: "legacy", reason: "unsupported" });
+    expect(media.state).toEqual({ state: "unavailable", reason: "unsupported" });
     expect(sockets).toHaveLength(0);
   });
 
@@ -215,7 +215,7 @@ describe("media connection", () => {
     const { media, sockets } = harness([granted("mc_aaaaaaaaaa", null)]);
     media.start();
     await media.settled();
-    expect(media.state).toEqual({ state: "legacy", reason: "relay" });
+    expect(media.state).toEqual({ state: "unavailable", reason: "relay" });
     expect(sockets).toHaveLength(0);
   });
 
@@ -361,7 +361,7 @@ describe("media connection", () => {
     media.start();
     await flush();
     relays[0]!.events.close(4401);
-    expect(media.state).toEqual({ state: "legacy", reason: "relay-refused" });
+    expect(media.state).toEqual({ state: "unavailable", reason: "relay-refused" });
     expect(media.binding()).toBeUndefined();
     // A refused ticket isn't retried at once: the next ask is the legacy interval's.
     await clock.advance(29_999);
@@ -390,7 +390,7 @@ describe("media connection", () => {
     await flush();
     sockets[0]!.events.open();
     sockets[0]!.events.close(4401);
-    expect(media.state).toEqual({ state: "legacy", reason: "refused" });
+    expect(media.state).toEqual({ state: "unavailable", reason: "refused" });
     await clock.advance(29_999);
     expect(asked()).toBe(1);
     await clock.advance(1);
