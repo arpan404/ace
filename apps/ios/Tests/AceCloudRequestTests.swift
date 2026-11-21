@@ -29,6 +29,8 @@ private final class CloudStubServer: @unchecked Sendable {
     var keepLoginPending = false
     /// The status `DELETE /v1/account` answers, with `{"error":"person_session_required"}` on 403.
     var deleteAccountStatus = 200
+    /// The status `GET /v1/account/session` answers, with `{"error":"deletion_pending"}` on 409.
+    var sessionStatus = 200
 
     init() throws {
         listener = try NWListener(using: .tcp, on: .any)
@@ -101,7 +103,8 @@ private final class CloudStubServer: @unchecked Sendable {
                     return
                 }
                 let (contentType, body) = response(method: method, path: path)
-                let status = method == "DELETE" && path == "/v1/account" ? lock.withLock { deleteAccountStatus } : 200
+                let status = method == "DELETE" && path == "/v1/account" ? lock.withLock { deleteAccountStatus }
+                    : method == "GET" && path == "/v1/account/session" ? lock.withLock { sessionStatus } : 200
                 let reply = "HTTP/1.1 \(status) Status\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(reply.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
                 return
@@ -136,6 +139,7 @@ private final class CloudStubServer: @unchecked Sendable {
             return ("application/json", Data(#"{"ok":true}"#.utf8))
         }
         if method == "GET", path == "/v1/account/session" {
+            if lock.withLock({ sessionStatus }) == 409 { return ("application/json", Data(#"{"error":"deletion_pending"}"#.utf8)) }
             let json = #"{"account":{"id":"acct_1","email":"ada@example.com","name":"Ada","picture":true},"expiresAt":\#(Int64(future))}"#
             return ("application/json", Data(json.utf8))
         }
@@ -404,6 +408,21 @@ private final class CloudStubServer: @unchecked Sendable {
         server.deleteAccountStatus = 200
         #expect(await model.deleteAccount())
         #expect(model.account == nil)
+    }
+
+    @MainActor
+    @Test func reopeningWithADeletionStillFinishingSaysItFinishesOnItsOwnAndForgetsTheSession() async throws {
+        let server = try CloudStubServer()
+        let origin = try await server.start()
+        defer { server.stop() }
+        server.sessionStatus = 409
+        let secrets = MemorySecrets()
+        try secrets.set(origin.absoluteString, testToken43)
+        let model = AceAccountModel(secrets: secrets, origin: origin, allowLoopback: true)
+        await model.restore()
+        #expect(model.account == nil)
+        #expect(model.error == "Your account is being deleted. ace finishes deleting it on its own within the hour.")
+        #expect(try secrets.get(origin.absoluteString) == nil)
     }
 
     @Test func relaySocketSendsAceClientOnDaemonAndMediaUpgradesAndWorksWithoutIt() async throws {
