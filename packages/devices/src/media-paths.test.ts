@@ -24,6 +24,7 @@ function device() {
           streaming: () => false,
           reconnect: () => {},
           codecs: (told) => void codecs.push([...told]),
+          page: () => {},
           encodes: () => {},
           key: () => {},
           picture: () => false,

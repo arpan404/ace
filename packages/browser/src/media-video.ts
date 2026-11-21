@@ -23,7 +23,7 @@ import type { VideoEncode } from "./backend.ts";
 /** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
 export type BrowserMediaSource = Pick<
   IngestSource,
-  "streaming" | "codecs" | "encodes" | "key" | "picture" | "reconnect" | "close"
+  "streaming" | "codecs" | "page" | "encodes" | "key" | "picture" | "reconnect" | "close"
 >;
 
 /** What the browser needs of the daemon's ace-media. */
@@ -217,6 +217,7 @@ async function streamed(
     },
     keyframe: (key) => handle.keyframe(key),
     codecs: (codecs) => source.codecs([...codecs]),
+    page: (page) => source.page(page),
     ...(handle.audio ? { audio: (on: boolean) => handle.audio?.(on) } : {}),
     close: () => {
       source.close();
@@ -406,6 +407,7 @@ function pictureCapture(options: {
       if (id !== undefined) opened.key(id);
     },
     codecs: (codecs) => opened.codecs([...codecs]),
+    page: (page) => opened.page(page),
     pictures: {
       width: options.width,
       height: options.height,

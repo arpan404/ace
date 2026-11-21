@@ -258,6 +258,8 @@ export class LiveVideo {
     }
     const open = this.capture;
     if (!open) return;
+    // ace-media plans its views at the page's shape: a resize reaches it (unchanged: no message).
+    open.handle.page?.(this.page);
     if (runnable.join(",") !== this.told) {
       this.told = runnable.join(",");
       open.handle.codecs?.(runnable);

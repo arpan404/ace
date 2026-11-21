@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { BrowserMedia } from "@ace/browser";
 import { MediaAccelerationStore } from "@ace/media/acceleration";
-import type { IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import type { IngestPage, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
 import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections";
 import type { MediaDeliveryPort } from "@ace/media/media-viewers";
 import { platformRouteCapabilities } from "@ace/media/routes";
@@ -175,7 +175,11 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
   /** Long-lived producers waiting for the runtime, with the source they get then. */
   const waiting = new Map<
     IngestProducer,
-    { source: IngestSource | undefined; codecs?: string[] | undefined }
+    {
+      source: IngestSource | undefined;
+      codecs?: string[] | undefined;
+      page?: IngestPage | undefined;
+    }
   >();
   /** The runtime's relay port (D2): one for the runtime's life. */
   let relayPort: RuntimeRelayPort | undefined;
@@ -223,6 +227,7 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       for (const [producer, slot] of waiting) {
         slot.source = runtime.sources.add(producer);
         if (slot.codecs) slot.source.codecs(slot.codecs);
+        if (slot.page) slot.source.page(slot.page);
       }
       failure = undefined;
       failures = 0;
@@ -271,9 +276,11 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
     endpoint: () => runtime?.sources.endpoint(),
     attach: (producer) => {
       if (runtime) return runtime.sources.add(producer);
-      const slot: { source: IngestSource | undefined; codecs?: string[] | undefined } = {
-        source: undefined,
-      };
+      const slot: {
+        source: IngestSource | undefined;
+        codecs?: string[] | undefined;
+        page?: IngestPage | undefined;
+      } = { source: undefined };
       waiting.set(producer, slot);
       return {
         streaming: () => slot.source?.streaming() ?? false,
@@ -281,6 +288,10 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
         codecs: (codecs) => {
           slot.codecs = [...codecs];
           slot.source?.codecs(codecs);
+        },
+        page: (page) => {
+          slot.page = { ...page };
+          slot.source?.page(page);
         },
         encodes: (encodes) => slot.source?.encodes(encodes),
         key: (encode) => slot.source?.key(encode),

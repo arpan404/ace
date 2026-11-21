@@ -49,6 +49,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         streaming: () => state.routed,
         encodes: (encodes) => void record.encodes.push(encodes),
         codecs: (codecs) => void record.codecs.push([...codecs]),
+        page: () => {},
         key: (encode) => void record.keys.push(encode),
         reconnect: () => void record.reconnects++,
         picture: (base64) => {

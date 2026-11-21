@@ -370,6 +370,34 @@ describe("IngestSources", () => {
     ]);
   });
 
+  it("the page a producer shows reaches ace-media when it changes, and on every open after a restart", () => {
+    const w = world();
+    const l = producer("tab");
+    const source = w.sources.add(l.p);
+    source.page({ width: 800, height: 600, scale: 1 });
+    // The same size again tells ace-media nothing new.
+    source.page({ width: 800, height: 600, scale: 1 });
+    source.page({ width: 1024, height: 600, scale: 2 });
+    w.sources.exited();
+    w.sources.replay();
+    const told = w.sent.flatMap(({ message }) =>
+      message.type === "source.page" || message.type === "source.open"
+        ? [
+            message.type === "source.page"
+              ? `source.page ${message.source} ${message.width}x${message.height}@${message.scale}`
+              : `source.open ${message.source}`,
+          ]
+        : [],
+    );
+    expect(told).toEqual([
+      "source.open s1",
+      "source.page s1 800x600@1",
+      "source.page s1 1024x600@2",
+      "source.open s2",
+      "source.page s2 1024x600@2",
+    ]);
+  });
+
   it("asks the producer for a keyframe when ace-media does, and closing ends everything", () => {
     const w = world();
     const l = producer();

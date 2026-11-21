@@ -126,6 +126,7 @@ function session(platform = "macos", helperCodecs: string[] = ["jpeg", "h264"]) 
           streaming: () => false,
           reconnect: () => {},
           codecs: (told) => void codecs.push([...told]),
+          page: () => {},
           encodes: () => {},
           key: () => {},
           picture: () => false,
