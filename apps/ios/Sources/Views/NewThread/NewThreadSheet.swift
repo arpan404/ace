@@ -315,13 +315,13 @@ struct NewThreadSheet: View {
     /// Mentions, the project's files, and instructions or a profile, out of the main path.
     private var moreOptions: some View {
         Menu {
-            Button("Mention a file", systemImage: "at") { path.append(.mention) }
+            Button("Mention a file", ace: .at) { path.append(.mention) }
                 .disabled(draft.projectId == nil || draft.isChat).accessibilityIdentifier("newThread.mention")
-            Button("Browse files", systemImage: "folder") { browsing = true }
+            Button("Browse files", ace: .folder) { browsing = true }
                 .disabled(draft.projectId == nil || draft.isChat).accessibilityIdentifier("newThread.files")
-            Button("Instructions and profile", systemImage: "person.text.rectangle") { path.append(.instructions) }
+            Button("Instructions and profile", ace: .userCircle) { path.append(.instructions) }
                 .accessibilityIdentifier("newThread.instructionsPage")
-        } label: { Image(systemName: "ellipsis") }
+        } label: { Image(ace: .dotsThree) }
         .accessibilityLabel("More options").accessibilityIdentifier("newThread.options")
     }
     /// The chosen project's own folder, read-only, before the thread exists.
@@ -332,7 +332,7 @@ struct NewThreadSheet: View {
                             mention: { file in mentionFile(file.path); browsing = false })
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button { browsing = false } label: { Image(systemName: "xmark") }
+                            Button { browsing = false } label: { Image(ace: .x) }
                                 .accessibilityLabel("Close").accessibilityIdentifier("files.close")
                         }
                     }

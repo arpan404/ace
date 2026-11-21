@@ -16,7 +16,7 @@ struct AccountPicker: View {
                 Button { shown = entry.id } label: {
                     Text(entry.name)
                     if let note = entry.note { Text(note) }
-                    if entry.id == shown { Image(systemName: "checkmark") }
+                    if entry.id == shown { Image(ace: .check) }
                 }
                 .accessibilityAddTraits(entry.id == shown ? .isSelected : [])
                 .accessibilityIdentifier("tab.\(entry.id)")
@@ -26,7 +26,7 @@ struct AccountPicker: View {
                 if let provider = tab?.provider {
                     ProviderMark(provider: provider, size: AceDesign.Size.icon, quiet: tab?.note != nil)
                 } else {
-                    Image(systemName: "star").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
+                    AceIcon(.star, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                 }
                 Text(tab?.name ?? "").multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                 AceIcon(.caretDown, size: AceDesign.Size.caret, relativeTo: .caption)

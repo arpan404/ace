@@ -177,8 +177,7 @@ struct SpadeConversationView: View {
             .accessibilityIdentifier("spade.stop")
         } else {
             Button { send() } label: {
-                Image(systemName: "arrow.up")
-                    .font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong))
+                AceIcon(.arrowUp, size: AceDesign.Size.icon, relativeTo: .body)
                     .foregroundStyle(AceDesign.Surface.background)
                     .frame(width: AceDesign.Size.navButton, height: AceDesign.Size.navButton)
                     .background(typed ? AceDesign.Ink.accent : AceDesign.Ink.faint, in: Circle())

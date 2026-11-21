@@ -292,7 +292,7 @@ private struct SidebarButton: View {
         let hidden = visibility == .detailOnly
         Button {
             withAnimation { visibility = hidden ? .all : .detailOnly }
-        } label: { Image(systemName: "sidebar.left") }
+        } label: { Image(ace: .sidebarSimple) }
             .accessibilityLabel(hidden ? "Show Sidebar" : "Hide Sidebar")
             .accessibilityIdentifier("split.sidebar")
             .phoneShortcut("toggleSidebar")

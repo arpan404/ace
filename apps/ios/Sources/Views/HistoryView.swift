@@ -54,7 +54,7 @@ struct HistoryView: View {
                 Text("All projects").tag("")
                 ForEach(projects) { Text($0.name).tag($0.id) }
             }
-        } label: { Image(systemName: project.isEmpty ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill") }
+        } label: { Image(ace: .funnelSimple, weight: project.isEmpty ? .regular : .fill) }
         .accessibilityLabel(project.isEmpty ? "Project, all projects" : "Project, \(chosenName ?? project)")
         .accessibilityIdentifier("history.project")
         .onChange(of: projects, initial: true) { _, now in remember(now) }

@@ -48,7 +48,7 @@ struct NeedsRun: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(ace: .x) }
                         .accessibilityLabel("Close").accessibilityIdentifier("run.close")
                 }
                 if !queue.atEnd {

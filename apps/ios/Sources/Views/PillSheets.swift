@@ -42,7 +42,7 @@ struct GoalSheet: View {
             .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(ace: .x) }
                         .accessibilityLabel("Close").accessibilityIdentifier("goal.close")
                 }
             }
@@ -122,7 +122,7 @@ struct QueueSheet: View {
             .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(ace: .x) }
                         .accessibilityLabel("Close").accessibilityIdentifier("queue.close")
                 }
             }

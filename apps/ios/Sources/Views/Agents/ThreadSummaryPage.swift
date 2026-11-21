@@ -228,8 +228,7 @@ private struct SummaryPlanSection: View {
                 .accessibilityValue(plan.count)
             ForEach(plan.todos) { todo in
                 QuietSectionRow {
-                    Image(systemName: todo.status == "completed" ? "checkmark.square" : "square")
-                        .font(AceDesign.Typeface.meta)
+                    AceIcon(todo.status == "completed" ? .checkSquare : .square, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.subtle)
                         .accessibilityHidden(true)
                     Text(todo.text)
