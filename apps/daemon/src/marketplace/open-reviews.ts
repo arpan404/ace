@@ -28,6 +28,7 @@ import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
 import { bytesJson, packageAsksMore } from "./package-diff.ts";
 import { checkFiles, panelPageTexts } from "@ace/marketplace/checks";
 import { badgesOf, type Trust } from "./trust.ts";
+import type { RegistryReview } from "./org-registry.ts";
 
 /*
  * The reviews the service holds open between `prepare` and `install` (ADR 0168): each names the
@@ -72,6 +73,20 @@ export class OpenReviews {
     this.#ports = ports;
   }
 
+  /** What the open review `id` installs from an organization's registry, if it does. */
+  registryReview(id: string): RegistryReview | undefined {
+    const review = this.#pending.get(id)?.review;
+    if (!review?.registry) return undefined;
+    return {
+      org: review.registry,
+      type: review.type,
+      name: review.name,
+      version: review.version,
+      hash: review.hash,
+      signedManifest: review.signedManifest,
+    };
+  }
+
   /** One page of an open review's items. */
   read(id: string, offset: number): MarketResult {
     const pending = this.#pending.get(id);
@@ -90,13 +105,17 @@ export class OpenReviews {
     version: string | undefined,
     /** An update of this linked bot (ADR 0200 §6.1). */
     bot?: string,
+    /** From an organization's registry, read as a member (ADR 0206 §5.4). */
+    registry?: PreparePorts["registry"],
   ): Promise<MarketResult> {
     const { store } = this.#ports;
     const source = store.source(sourceId);
     if (!source || !source.enabled) return error("not_found", "That source isn't on");
+    if (registry && source.kind !== "market")
+      return error("invalid", "Only market.acehq.dev has organizations' registries");
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
-    const ports = await this.#preparePorts(source.id);
+    const ports = { ...(await this.#preparePorts(source.id)), registry };
     const { entry, brings } = await prepareWithBrings(
       ports,
       store,
@@ -148,7 +167,11 @@ export class OpenReviews {
    * A review of the version a linked bot had before (ADR 0200 §6.1), from the bytes pinned here:
    * checked again, and needing no network. Installing it is the person's, as an update is.
    */
-  async prepareRollback(install: StoredInstall): Promise<MarketResult> {
+  async prepareRollback(
+    install: StoredInstall,
+    /** The registry the earlier version came from, once its checks passed (ADR 0206 §5.4). */
+    registry?: string,
+  ): Promise<MarketResult> {
     const { store } = this.#ports;
     if (install.type !== "spade-bot" || !install.linked || !install.target)
       return error("invalid", "Only a bot from a version 3 package rolls back");
@@ -177,6 +200,7 @@ export class OpenReviews {
       byAce: false,
       checked,
       previous: { version: install.version, files: current },
+      ...(registry ? { registry } : {}),
     };
     return this.#open(entry, [], { bot: install.target, rollback: true });
   }
@@ -323,6 +347,11 @@ export class OpenReviews {
     hash: string,
     choices: Parameters<typeof installReview>[2],
     by: Installer,
+    /**
+     * Throws when what authorized this install no longer holds (a registry's membership, its
+     * grant's lifetime): run last, after every await before the install lands.
+     */
+    stillAllowed?: () => void,
   ): Promise<MarketResult> {
     const { store, trust } = this.#ports;
     const pending = this.#pending.get(id);
@@ -363,6 +392,9 @@ export class OpenReviews {
       await this.cancel(id);
       return error("blocked", `Blocked by ace's market: ${blocked}`);
     }
+    // Recovery and the lists' refreshes above took time: authorization is judged as it is now,
+    // with nothing awaited between it and the install.
+    stillAllowed?.();
     let installed;
     try {
       installed = await installReview(

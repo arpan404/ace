@@ -21,6 +21,9 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
   person_only: ["needs-human", "person_only"],
   // The CLI never holds the person's session (ADR 0190): only an app they signed in on can.
   person_grant: ["needs-human", "person_only"],
+  // An organization's registry needs the person's app: its membership check and its key trust.
+  not_member: ["needs-human", "person_only"],
+  registry_trust: ["needs-human", "person_only"],
   blocked: ["failed", "blocked"],
   suspended: ["refused", "suspended"],
   quota: ["refused", "quota"],
@@ -40,6 +43,9 @@ const hints: Partial<Record<MarketError["code"], string>> = {
   signed_out: "Sign in with ace login, then run it again.",
   reauth: "Do this in the ace app signed in as you: the CLI can't prove it's you.",
   person_grant: "Do this in an ace app you're signed in on: the market takes it only from you.",
+  not_member:
+    "Install from an organization's registry in an ace app signed in to that organization.",
+  registry_trust: "Trust the organization's registry key in an ace app, on this machine.",
   unavailable:
     "Nothing was changed. Try again shortly; ace account status shows whether this machine is signed in.",
   expired: "The review ran out; run the command again for a fresh one.",

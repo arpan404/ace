@@ -46,4 +46,52 @@ export const orgCommands: readonly CommandSpec[] = [
     exits: [{ code: 1, when: "the log doesn't verify" }],
     seeAlso: ["org audit export"],
   },
+  {
+    id: "org.registry.key",
+    words: ["org", "registry", "key"],
+    summary: "Make an organization's registry key in this machine's keychain",
+    description:
+      "The registry key signs what the organization's private registry offers (ADR 0206 §5.2). It is made and kept in this machine's keychain and never leaves it. Prints the upload an owner publishes from their own ace app, which countersigns it; with --rotate, the next key, signed by the one before it. Make it on the machine that will sign: an org host signs while people sleep.",
+    group: "spade-market",
+    flags: [
+      { name: "org", value: "ORG", summary: "The organization's id (org_…)" },
+      { name: "owner", value: "ACCOUNT", summary: "The owner's account id who will publish it" },
+      { name: "rotate", summary: "Make the next key, signed by the current one" },
+      {
+        name: "dev-market",
+        value: "URL",
+        summary: "A development market instead of market.acehq.dev",
+      },
+    ],
+    examples: [
+      {
+        command: "ace org registry key --org org_01ACME --owner user_01OWNER",
+        summary: "The first key, for an owner to publish",
+      },
+    ],
+    seeAlso: ["org registry sign"],
+    mutates: true,
+    offline: true,
+  },
+  {
+    id: "org.registry.sign",
+    words: ["org", "registry", "sign"],
+    summary: "Sign what waits in an organization's registry with this machine's key",
+    description:
+      "Pulls the registry's versions that passed ace's scan, checks them again on the stored bytes (format, scan, contracts, a bot package's own tests) and signs each with registry: ORG and the key the market's chain ends with (ADR 0206 §5.2). A version that fails is held or blocked, never signed. An org host whose keychain holds the key runs this on its own every ten minutes.",
+    group: "spade-market",
+    flags: [
+      { name: "org", value: "ORG", summary: "The organization's id (org_…)" },
+      {
+        name: "dev-market",
+        value: "URL",
+        summary: "A development market instead of market.acehq.dev",
+      },
+    ],
+    examples: [{ command: "ace org registry sign --org org_01ACME", summary: "Sign what waits" }],
+    exits: [{ code: 1, when: "the market refused a signature" }],
+    seeAlso: ["org registry key"],
+    mutates: true,
+    offline: true,
+  },
 ];

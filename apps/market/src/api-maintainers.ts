@@ -9,6 +9,7 @@ import {
   BlockDecision,
   CollectionsUpload,
   HoldDecision,
+  MarketOrgId,
   ListingDecision,
   PublisherDecision,
   ReportResolution,
@@ -42,6 +43,7 @@ import {
 } from "./store/maintainers.ts";
 import { setBlocklist, setNotices, setOfficial, setVerified, signedText } from "./store/lists.ts";
 import { markUsageDirty } from "./store/me-limits.ts";
+import { storedName } from "./store/registries.ts";
 import { listReports, resolveReport } from "./store/reports.ts";
 
 /*
@@ -59,6 +61,18 @@ const decided = (result: Decided, conflict: string) =>
       ? notFound()
       : failure(409, "conflict", conflict);
 
+/**
+ * The version a maintainer's hold or block names: a registry's when `?registry=<org>` says so
+ * (the queue says which), as it is stored under its organization's own name.
+ */
+function heldKey<Key extends { type: string; name: string; version: string }>(
+  request: Request,
+  key: Key,
+): Key {
+  const org = MarketOrgId.safeParse(new URL(request.url).searchParams.get("registry")).data;
+  return org === undefined ? key : { ...key, name: storedName(key.name, org) };
+}
+
 export async function maintainerRoute(
   request: Request,
   route: Route,
@@ -74,26 +88,29 @@ export async function maintainerRoute(
     case "signer-queue":
       return json(await queue(dbs, context.env.OBJECTS, context.now));
     case "signer-scan-context":
-      return json(await scanContext(dbs, context.now));
+      // ace's signer compares with the public market only.
+      return json(await scanContext(dbs, context.now, ["public"]));
     case "signer-hold": {
       const decision = HoldDecision.safeParse(await body());
       if (!decision.success) return malformed();
       if (!catalogue) return notFound();
-      const result = await decideHold(catalogue, route, decision.data.decision, context.now);
-      if (result === "done") await usageChanged(context, catalogue, route);
+      const key = heldKey(request, route);
+      const result = await decideHold(catalogue, key, decision.data.decision, context.now);
+      if (result === "done") await usageChanged(context, catalogue, key);
       // The signer's own re-scan that held it is the report a maintainer reads in the queue.
       if (result === "done" && decision.data.decision === "hold" && decision.data.scan)
-        await context.env.OBJECTS.put(versionReportKey(route), JSON.stringify(decision.data.scan));
+        await context.env.OBJECTS.put(versionReportKey(key), JSON.stringify(decision.data.scan));
       return decided(result, "That version is listed or blocked; it can't be held or released.");
     }
     case "signer-block": {
       const decision = BlockDecision.safeParse(await body());
       if (!decision.success) return malformed();
       if (!catalogue) return notFound();
-      const result = await blockVersion(catalogue, route, decision.data.reason, context.now);
-      if (result === "done") await usageChanged(context, catalogue, route);
+      const key = heldKey(request, route);
+      const result = await blockVersion(catalogue, key, decision.data.reason, context.now);
+      if (result === "done") await usageChanged(context, catalogue, key);
       if (result === "done" && decision.data.scan)
-        await context.env.OBJECTS.put(versionReportKey(route), JSON.stringify(decision.data.scan));
+        await context.env.OBJECTS.put(versionReportKey(key), JSON.stringify(decision.data.scan));
       return decided(result, "That version is listed; revoke it instead.");
     }
     case "signer-listing": {
@@ -163,7 +180,7 @@ export async function maintainerRoute(
 }
 
 /** A hold, release or block changes what counts against the owner's quota: reconcile it. */
-async function usageChanged(
+export async function usageChanged(
   context: Context,
   catalogue: D1Database,
   key: { type: string; name: string },

@@ -63,6 +63,12 @@ export interface SignerOptions {
   testBot?: BotTestRunner | undefined;
   /** Reads a bot package's components; without it, a bot package with code isn't signed. */
   checkCode?: CodeChecker | undefined;
+  /**
+   * Signing for an organization's registry (ADR 0206 §5.2): each manifest names it, and earlier
+   * versions are read back against its chain's keys. The signed lists are still ace's, checked
+   * against `trusted`.
+   */
+  registry?: { org: string; keys: MarketKeySet } | undefined;
 }
 
 /** Signs every pending version that passes the checks again, and any pending withdrawals. */
@@ -153,7 +159,12 @@ export async function signPending(
     // A bot package may not break the bots that call its contracts (ADR 0200 §7): a version
     // whose contracts break the latest signed one's is refused for good, with each change.
     if (version.type === "spade-bot") {
-      const compared = await compareContracts(io, version, checked.files, trusted);
+      const compared = await compareContracts(
+        io,
+        version,
+        checked.files,
+        options.registry?.keys ?? trusted,
+      );
       if ("refused" in compared) {
         report.refused.push({ version: label(version), problems: [compared.refused] });
         continue;
@@ -196,6 +207,7 @@ export async function signPending(
         size: checked.size,
         published: version.published,
         key: key.id,
+        ...(options.registry ? { registry: options.registry.org } : {}),
       },
       key,
     );

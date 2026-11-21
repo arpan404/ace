@@ -155,10 +155,12 @@ export function directoryRoutes(deps: {
         // Only the person's own session may name a sensitive market request.
         if (action !== undefined && !person) return fail(403, "person_required");
         // Acting in an organization needs the person's session and WorkOS's answer, fresh.
+        let orgRole: string | undefined;
         if (org !== undefined) {
           if (!person || !deps.orgs) return fail(403, "person_required");
           const check = await deps.orgs.checker.check(principal, org);
           if (!check.ok) return orgRefusal(org, check.error);
+          orgRole = check.role;
         }
         const exp = iat + GRANT_LIFETIME_MS;
         const claims = { kind, account: account.id, subject, iat, exp };
@@ -175,6 +177,8 @@ export function directoryRoutes(deps: {
               authAt: signedInAt,
               ...(action !== undefined ? { action } : {}),
               ...(org !== undefined ? { org } : {}),
+              // The role from the same WorkOS answer, for the registry's writes (ADR 0206 §5.1).
+              ...(orgRole !== undefined ? { orgRole } : {}),
             },
             signingKey,
           );

@@ -3,6 +3,7 @@ import {
   MarketEntryType,
   type MarketProblem,
   type MarketPublisher,
+  type MarketResult,
   type MarketScanReport,
 } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
@@ -23,7 +24,8 @@ import { EntryBody, VersionBody, type MarketKeySet } from "@ace/protocol/marketp
 import { checkFiles } from "@ace/marketplace/checks";
 import { scanEntry, type ScanContext } from "@ace/marketplace/scan";
 import type { GitCatalogs } from "./git.ts";
-import type { MarketHttp } from "./http.ts";
+import type { EntryReads, MarketHttp } from "./http.ts";
+import { verifyRegistryManifest, type VerifiedChain } from "@ace/marketplace/registry";
 import type { PreparedEntry } from "./review.ts";
 import type { MarketStore, StoredSource } from "./store.ts";
 import type { Badges } from "./trust.ts";
@@ -37,20 +39,36 @@ import { TurnedOff } from "./turned-off.ts";
  * runs: bytes are read into memory and checked, never executed.
  */
 
+/** For `registry_trust`: the registry's first key the person is asked to trust. */
+export type RegistryKeyAsk = NonNullable<Extract<MarketResult, { op: "error" }>["registryKey"]>;
+
 export class Refused extends Error {
   override name = "Refused";
   readonly problems: MarketProblem[];
-  readonly code: "refused" | "not_found" | "unavailable" | "blocked";
+  readonly code:
+    | "refused"
+    | "not_found"
+    | "unavailable"
+    | "blocked"
+    | "not_member"
+    | "registry_trust";
   /** The device's scan, when it is what refused (`blocked`). */
   readonly scan: MarketScanReport | undefined;
+  readonly registryKey: RegistryKeyAsk | undefined;
   constructor(
     message: string,
-    options: { problems?: MarketProblem[]; code?: Refused["code"]; scan?: MarketScanReport } = {},
+    options: {
+      problems?: MarketProblem[];
+      code?: Refused["code"];
+      scan?: MarketScanReport;
+      registryKey?: RegistryKeyAsk;
+    } = {},
   ) {
     super(message);
     this.problems = options.problems ?? [];
     this.code = options.code ?? "refused";
     this.scan = options.scan;
+    this.registryKey = options.registryKey;
   }
 }
 
@@ -68,6 +86,11 @@ export interface PreparePorts {
   scanContext: (publisher: MarketPublisher | undefined) => ScanContext;
   /** The running Spade's version, which a package's `requires.spade` is checked against. */
   spade?: string | undefined;
+  /**
+   * Reading an organization's registry (ADR 0206 §5.3): with a member's reads, and its key chain
+   * as this device trusts it. Its manifests verify against that chain, never ace's keys.
+   */
+  registry?: { org: string; reads: EntryReads; chain: VerifiedChain } | undefined;
 }
 
 /** What ADR 0014's manager needs to review a plugin from bytes the marketplace verified. */
@@ -169,6 +192,7 @@ export async function prepareEntry(
     scan,
     ...(fetched.deprecated ? { deprecated: fetched.deprecated } : {}),
     ...(fetched.unlisted ? { unlisted: true } : {}),
+    ...(fetched.registry ? { registry: fetched.registry } : {}),
   };
 }
 
@@ -188,6 +212,7 @@ interface Fetched {
   origin: { repository: string; ref: string };
   deprecated?: string | undefined;
   unlisted?: boolean | undefined;
+  registry?: string | undefined;
 }
 
 async function fromMarket(
@@ -196,8 +221,10 @@ async function fromMarket(
   name: string,
   wanted: string | undefined,
 ): Promise<Fetched> {
-  const http = ports.http;
-  if (!http) throw new Refused("market.acehq.dev is turned off", { code: "unavailable" });
+  const registry = ports.registry;
+  const turnedOn = ports.http;
+  if (!turnedOn) throw new Refused("market.acehq.dev is turned off", { code: "unavailable" });
+  const http: EntryReads = registry?.reads ?? turnedOn;
   const page = EntryBody.safeParse(await http.entry(type, name));
   if (!page.success) throw new Refused("The market's entry page isn't in a form this build reads");
   const summary = readFeedEntry(page.data.entry);
@@ -214,10 +241,19 @@ async function fromMarket(
     throw new Refused("The market's version page isn't in a form this build reads");
   let manifest;
   try {
-    manifest = verifyManifest(body.data.manifest, ports.keys);
+    manifest = registry
+      ? verifyRegistryManifest(body.data.manifest, registry.chain)
+      : verifyManifest(body.data.manifest, ports.keys);
+    // A registry's manifest is the organization's word, never the public market's.
+    if (!registry && manifest.registry !== undefined)
+      throw new SignatureError("It was signed for an organization's registry");
   } catch (error) {
     if (error instanceof SignatureError)
-      throw new Refused(`Not signed by ace's market: ${error.message}`);
+      throw new Refused(
+        registry
+          ? `Not signed by ${registry.org}'s registry: ${error.message}`
+          : `Not signed by ace's market: ${error.message}`,
+      );
     throw error;
   }
   if (manifest.type !== type || manifest.name !== name || manifest.version !== version)
@@ -225,7 +261,8 @@ async function fromMarket(
   const reason = withdrawn({ version, hash: manifest.hash });
   if (reason) throw new Refused(`This version was withdrawn: ${reason}`);
   let reviewed = false;
-  if (body.data.review) {
+  // A review mark is ace's, for the public market; a registry's version carries none.
+  if (body.data.review && !registry) {
     let mark;
     try {
       mark = verifyReviewMark(body.data.review, ports.keys);
@@ -239,7 +276,7 @@ async function fromMarket(
     reviewed = mark.reviewed;
   }
   // "By ace" only for the official list's publisher (ADR 0174 §14); the mark's flag is display.
-  const byAce = ports.badges.official(manifest.publisher.id);
+  const byAce = !registry && ports.badges.official(manifest.publisher.id);
   let files: ArchiveFile[];
   try {
     files = readArchive(await http.object(manifest.hash), typeLimits[type]);
@@ -262,7 +299,9 @@ async function fromMarket(
     commit: manifest.hash.slice(0, 40),
     origin: { repository: `${http.origin}/v1/entries/${type}/${name}`, ref: version },
     deprecated: page.data.versions.find((item) => item.version === version)?.deprecated,
-    unlisted: page.data.unlisted,
+    // A registry's entry is unlisted by being the organization's, not by its publisher's choice.
+    unlisted: registry ? false : page.data.unlisted,
+    ...(registry ? { registry: registry.org } : {}),
   };
 }
 

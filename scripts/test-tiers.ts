@@ -50,6 +50,9 @@ export const nodeOnlySuites = [
   // Content-only market installs and turning a skill on for bots (ADR 0178 §12.8): the person's
   // standing is proven against ace's account backend, which runs under Miniflare on Node.
   "apps/daemon/src/marketplace-content-install.process.test.ts",
+  // An organization's private registry (ADR 0206 §5): its signer, and a device's membership and
+  // key-chain checks, against the market Worker under Miniflare on Node.
+  "apps/daemon/src/marketplace-registry.process.test.ts",
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
   "apps/relay/src/abuse.process.test.ts",

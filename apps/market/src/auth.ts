@@ -5,11 +5,13 @@ import {
   verifyMarketGrant,
   type MarketGrantClaims,
 } from "@ace/account-grant";
+import { orgAllows } from "@ace/account-grant/org-roles";
 import type { MarketPublisherState } from "@ace/protocol/marketplace";
 import type { Context } from "./context.ts";
 import { bearer, failure } from "./http.ts";
 import { liveVersionsOf } from "./store/copies.ts";
 import type { Databases } from "./store/databases.ts";
+import { namedPublisher, registryOf } from "./store/registries.ts";
 
 /*
  * Who is writing (ADR 0174 §2). Every write route calls `authenticate` first: a market grant from
@@ -37,8 +39,13 @@ export interface Authed {
   claims: MarketGrantClaims;
   /** The WorkOS account id the grant names. */
   account: string;
-  /** The account's publisher; absent before it makes a profile. */
+  /**
+   * The account's publisher; absent before it makes a profile. For a grant acting in an
+   * organization (`org: "publisher"`), the organization's registry publisher.
+   */
   publisher: AuthedPublisher | undefined;
+  /** The organization the grant acts in (ADR 0206 §5.1), checked by the account backend. */
+  org: string | undefined;
   /**
    * The grant came from the person's own session and names this very request (ADR 0190): a
    * `device` grant whose `action` is `METHOD /path <SHA-256 of the body>`, spent by this request.
@@ -55,7 +62,10 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-/** `METHOD /path <base64url SHA-256 of the body>`, as `@ace/client/market-intent` builds it. */
+/**
+ * `METHOD /path?query <base64url SHA-256 of the body>`, as `@ace/client/market-intent` builds
+ * it: the query is part of the target, so a grant for one `version` publishes no other.
+ */
 async function requestIntent(method: string, path: string, body: Uint8Array): Promise<string> {
   return `${method} ${path} ${await sha256(body)}`;
 }
@@ -94,7 +104,8 @@ const columns = "p.id, p.name, p.state, p.created, p.verified";
 
 /**
  * The publisher an account writes as: the `ace` publisher for an official account, else its own.
- * Its live versions are summed over the catalogues (ADR 0174 §16).
+ * Its live versions are summed over the catalogues (ADR 0174 §16). An organization's registry
+ * publisher is found the same way by the organization's id, which its row keeps as `account`.
  */
 async function publisherFor(dbs: Databases, account: string): Promise<AuthedPublisher | undefined> {
   const db = dbs.publishers;
@@ -129,6 +140,19 @@ export interface AuthOptions {
   sensitive?: boolean;
   /** Writes by a suspended or deleted publisher are refused unless this is set (reads of /v1/me). */
   allowInactive?: boolean;
+  /**
+   * What a grant acting in an organization may do here (ADR 0206 §5.1). Unset, it is refused:
+   * the account's own profile, drafts and entries take only its own grant. `publisher`: write
+   * as the organization's registry publisher, which needs `registry:publish` or an owner's
+   * naming. `claims`: the route decides from the claims, with no publisher.
+   */
+  org?: "publisher" | "claims";
+}
+
+/** Whether an organization's grant may publish to its registry: by role, or named by an owner. */
+async function mayPublishFor(dbs: Databases, claims: MarketGrantClaims, org: string) {
+  if (orgAllows(claims.orgRole ?? "", "registry:publish")) return true;
+  return dbs.orgs ? namedPublisher(dbs.orgs, org, claims.account) : false;
 }
 
 /** The authenticated account and its publisher, or the response refusing the request. */
@@ -165,19 +189,40 @@ export async function authenticate(
     claims.action ===
       (await requestIntent(
         request.method,
-        url.pathname,
+        `${url.pathname}${url.search}`,
         new Uint8Array(await request.clone().arrayBuffer()),
       ));
+  // A grant naming one request is good for that request alone: anywhere else, a grant captured
+  // or read on the way would act as the person who asked for it.
+  if (claims.action !== undefined && !personAction)
+    return failure(401, "person_grant", "That sign-in was made for another request.");
   if (options.sensitive && !personAction) return personGrantNeeded();
   if (options.sensitive && !(context.now - claims.authAt <= reauthMs))
     return failure(401, "reauth", "Sign in again to do this.");
   // Once: a person's grant captured on the way and sent again does nothing.
   if (personAction && !(await spend(context, token, claims.exp)))
     return failure(401, "person_grant", "That sign-in was used already. Do it again in the app.");
-  const publisher = await publisherFor(context.dbs, claims.account);
+  const org = claims.org;
+  if (org !== undefined && options.org === undefined)
+    return failure(403, "org_grant", "That sign-in acts in an organization; use your own here.");
+  if (org !== undefined && options.org === "claims")
+    return { claims, account: claims.account, publisher: undefined, org, personAction };
+  let publisher: AuthedPublisher | undefined;
+  if (org !== undefined) {
+    // An organization without a registry, or one this market doesn't know, names nothing.
+    const registry = await registryOf(context.dbs, org);
+    if (!registry) return failure(404, "not_found", "This organization has no registry.");
+    if (!(await mayPublishFor(context.dbs, claims, org)))
+      return failure(
+        403,
+        "forbidden",
+        "Publishing to this organization's registry needs the registry:publish role.",
+      );
+    publisher = await publisherFor(context.dbs, org);
+  } else publisher = await publisherFor(context.dbs, claims.account);
   if (publisher && publisher.state !== "active" && !options.allowInactive)
     return failure(403, "suspended", "This account can't publish right now.");
-  return { claims, account: claims.account, publisher, personAction };
+  return { claims, account: claims.account, publisher, org, personAction };
 }
 
 /** The refusal for an entry another publisher owns: never says who. */
