@@ -37,8 +37,9 @@ import { isSecondClick } from "./second-click.ts";
 import { FileTreeRowView, type RowMark } from "./file-tree-row.tsx";
 import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
-import { useExplorerFollows, useRevealRows } from "./file-tree-follow.ts";
+import { useExplorerFollows, useRevealRows, type RevealTarget } from "./file-tree-follow.ts";
 import { useInlineRename } from "./file-tree-rename.tsx";
+import { draftKey, rowsWithDraft, useInlineCreate } from "./file-tree-create.ts";
 import { useFolderTree } from "./use-folder-tree.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
 import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
@@ -107,7 +108,19 @@ export function FileTree(props: {
     [props.expanded, follows, currentPath],
   );
   const tree = useFolderTree({ threadId: props.threadId, expanded: opened, paused: searching });
-  const rows = useMemo(() => (searching ? [] : tree.rows), [searching, tree.rows]);
+  // New file and New folder are named in a field at the top of their folder.
+  const revealLater = useRef<(target: RevealTarget) => void>(() => {});
+  const create = useInlineCreate({
+    threadId: props.threadId,
+    opened,
+    onExpanded,
+    reveal: (target) => revealLater.current(target),
+    onFile: (path) => props.onOpen(path, "keep"),
+  });
+  const rows = useMemo(
+    () => (searching ? [] : rowsWithDraft(tree.rows, create.draft)),
+    [searching, tree.rows, create.draft],
+  );
   const [focusKey, setFocusKey] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
   const navigable = useMemo(
@@ -186,6 +199,9 @@ export function FileTree(props: {
       if (key !== currentPath) selection.only(key);
     },
   });
+  useEffect(() => {
+    revealLater.current = reveal;
+  });
   const rename = useInlineRename(props.threadId, reveal);
   /** A folder the filter found: the filter clears and the tree opens down to it. */
   const showFolder = (path: string) => {
@@ -222,8 +238,10 @@ export function FileTree(props: {
       });
     },
     open: props.onOpen,
-    // Rename happens in the row; every other operation is the tab's dialog.
+    // Rename and New file or folder happen in the tree; every other operation is the tab's dialog.
     operation: (operation) => {
+      if (operation.kind === "create" || operation.kind === "mkdir")
+        return create.start(operation.kind === "create" ? "file" : "folder", operation.folder);
       if (operation.kind !== "rename") return props.onOperation(operation);
       const path = cleanPath(operation.path);
       rename.start(path, operation.path.endsWith("/") || byKey.has(folderKey(path)));
@@ -297,7 +315,7 @@ export function FileTree(props: {
           pending={searching && search.pending}
           folder={currentFolder}
           disabled={!online}
-          onOperation={props.onOperation}
+          onOperation={commands.operation}
           onUpload={props.onUpload}
           onFirstRow={() => (searching ? moveMatch(1) : focusRow(navigable[0]?.key))}
           onPrevious={() => searching && moveMatch(-1)}
@@ -368,7 +386,13 @@ export function FileTree(props: {
                   onHoverEnd={hoverEnd}
                   onRetry={tree.retry}
                   onMore={tree.showMore}
-                  renaming={rename.key === row.key ? rename : undefined}
+                  renaming={
+                    row.key === draftKey
+                      ? create.field
+                      : rename.key === row.key
+                        ? rename
+                        : undefined
+                  }
                   mark={props.marks?.get(row.key)}
                 />
               )}

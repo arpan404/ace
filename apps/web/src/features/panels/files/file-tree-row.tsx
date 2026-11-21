@@ -12,7 +12,7 @@ import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 import type { TreeDrag } from "./use-tree-drag.ts";
 import { MiddleName } from "./middle-name.tsx";
-import { RenameField, type InlineRename } from "./file-tree-rename.tsx";
+import { RenameField, type RowField } from "./file-tree-rename.tsx";
 
 const rowClass =
   "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent";
@@ -66,8 +66,8 @@ export interface FileTreeRowViewProps {
   onHoverEnd(): void;
   onRetry(folder: string): void;
   onMore(folder: string): void;
-  /** This row is being renamed: its name is a field. */
-  renaming?: InlineRename | undefined;
+  /** This row is being renamed, or is a new entry being named: its name is a field. */
+  renaming?: RowField | undefined;
   /** The agent's mark, as the file's tab carries it. */
   mark?: RowMark | undefined;
 }
@@ -127,7 +127,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
     );
   if (row.kind === "more") return <MoreRow row={row} index={index} props={props} indent={indent} />;
   const folder = row.kind === "folder";
-  if (props.renaming)
+  const field = props.renaming;
+  if (field)
     return (
       <div
         role="treeitem"
@@ -147,12 +148,14 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           className="shrink-0 self-start mt-2 text-subtle-foreground"
         />
         <RenameField
-          name={row.name}
+          name={field.name ?? row.name}
           folder={folder}
-          onCommit={props.renaming.commit}
+          label={field.label}
+          onCommit={field.commit}
           onCancel={(keyboard) => {
-            props.renaming?.cancel();
-            if (keyboard) requestAnimationFrame(() => props.onRefocus(row.key));
+            field.cancel();
+            const back = field.refocus ?? row.key;
+            if (keyboard) requestAnimationFrame(() => props.onRefocus(back));
           }}
         />
       </div>
