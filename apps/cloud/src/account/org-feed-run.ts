@@ -15,8 +15,8 @@ const keyOf = (org: string, account: string) => `${org}\u0000${account}`;
 export type FeedRunDeps = {
   orgs: OrgStore;
   workos: Pick<WorkosOrgs, "getUser">;
-  portal: Pick<PortalRevocations, "queueing">;
-  outbox: Pick<AuditOutbox, "queueing">;
+  portal: Pick<PortalRevocations, "queueing" | "queueingAccount">;
+  outbox: Pick<AuditOutbox, "queueing" | "queueingAccountRemovals">;
   now: () => number;
 };
 
@@ -35,10 +35,16 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
   const rows = new Map<string, Row>();
   const users = new Map<string, { read: string | null; known: string | undefined }>();
   const memberships = new Map<string, { read: boolean; known: boolean }>();
-  const accounts = new Map<string, number>();
   const touched = new Set<string>();
   const writes: D1PreparedStatement[] = [];
 
+  /** A row as a user deletion earlier in this run left it (`removingAccount`'s rule). */
+  const afterDeletion = (account: string, known: KnownMember | undefined) => {
+    const deleted = users.get(account)?.known;
+    return known && deleted !== undefined && known.status !== "removed" && known.version <= deleted
+      ? { ...known, status: "removed", version: deleted }
+      : known;
+  };
   async function row(org: string, account: string): Promise<Row> {
     const key = keyOf(org, account);
     let found = rows.get(key);
@@ -47,6 +53,7 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
       found = { read: state?.seq ?? null, known: state };
       rows.set(key, found);
     }
+    found.known = afterDeletion(account, found.known);
     return found;
   }
   async function deletedUser(account: string) {
@@ -170,21 +177,19 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
     const version = event.created_at;
     const tombstone = await deletedUser(account);
     if (tombstone.known !== undefined && tombstone.known >= version) return;
-    if (!accounts.has(account)) {
-      const stored = await orgs.accountMemberships(account);
-      accounts.set(account, stored.length);
-      for (const state of stored)
-        if (!rows.has(keyOf(state.org, account)))
-          rows.set(keyOf(state.org, account), { read: state.seq, known: state });
-    }
-    // Every row of the account this run knows: those in D1 and those made earlier in the run.
-    for (const [key, each] of rows) {
-      const [org = "", owner = ""] = key.split("\u0000");
-      if (owner !== account || !each.known || each.known.status === "removed") continue;
-      await remove(event, org, account, { ...each.known, status: "removed", version });
-    }
+    // Every membership of the account at or before the deletion, however many, in set-based
+    // statements: those in D1 and those this batch made earlier alike. Entries and revocations
+    // are read from the rows before they move.
+    writes.push(
+      deps.outbox.queueingAccountRemovals(account, event),
+      portal.queueingAccount(account, version),
+      ...orgs.removingAccount(account, version),
+      orgs.deletingUser(account, version),
+    );
     tombstone.known = version;
-    writes.push(orgs.deletingUser(account, version));
+    // What this run knows of the account follows, so later events on the page see it.
+    for (const [key, each] of rows)
+      if (key.endsWith(`\u0000${account}`)) each.known = afterDeletion(account, each.known);
   }
 
   return {
@@ -233,7 +238,6 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
       for (const [account, each] of users) guards.push(orgs.guards.deletedUser(account, each.read));
       for (const [membership, each] of memberships)
         guards.push(orgs.guards.deletedMembership(membership, each.read));
-      for (const [account, count] of accounts) guards.push(orgs.guards.accountRows(account, count));
       return guards;
     },
     /** The run's writes, owners flagged again in every organization it changed. */

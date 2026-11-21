@@ -208,6 +208,42 @@ export function orgStore(db: D1Database) {
            WHERE excluded.version > org_deleted_users.version`,
         )
         .bind(account, version),
+    /**
+     * WorkOS deleted the user at `version`: every membership of theirs at or before it is
+     * removed, in any number of organizations, in set-based statements for the caller's batch:
+     * tombstones, org checks dropped, rows removed, owners flagged again. Audit entries and
+     * portal revocations for the same rows go before these.
+     */
+    removingAccount: (account: string, version: string) => {
+      const affected =
+        "SELECT org_id FROM org_members WHERE account_id = ?1 AND status != 'removed' AND version <= ?2";
+      return [
+        db
+          .prepare(
+            `INSERT INTO org_deleted_memberships (membership_id, version)
+             SELECT membership_id, ?2 FROM org_members
+             WHERE account_id = ?1 AND status != 'removed' AND version <= ?2
+             ON CONFLICT (membership_id) DO NOTHING`,
+          )
+          .bind(account, version),
+        db
+          .prepare(`DELETE FROM org_checks WHERE account_id = ?1 AND org_id IN (${affected})`)
+          .bind(account, version),
+        // Flagged again below: the organizations whose rows this removes, read before it does.
+        db
+          .prepare(
+            `UPDATE orgs SET no_owner = 1 WHERE org_id IN (${affected}) AND NOT EXISTS (
+               SELECT 1 FROM org_members m WHERE m.org_id = orgs.org_id AND m.role = 'owner'
+                 AND m.status = 'active' AND m.account_id != ?1)`,
+          )
+          .bind(account, version),
+        db
+          .prepare(
+            "UPDATE org_members SET status = 'removed', version = ?2, seq = seq + 1 WHERE account_id = ?1 AND status != 'removed' AND version <= ?2",
+          )
+          .bind(account, version),
+      ];
+    },
     /** When WorkOS deleted the user, if it did. */
     async deletedUser(account: string): Promise<string | undefined> {
       const raw = await db
@@ -232,8 +268,6 @@ export function orgStore(db: D1Database) {
           [org, account],
           seq,
         ),
-      accountRows: (account: string, count: number) =>
-        guarding("SELECT COUNT(*) FROM org_members WHERE account_id = ?1", [account], count),
       deletedUser: (account: string, version: string | null) =>
         guarding("SELECT version FROM org_deleted_users WHERE account_id = ?1", [account], version),
       deletedMembership: (membership: string, deleted: boolean) =>
@@ -281,16 +315,6 @@ export function orgStore(db: D1Database) {
         .bind(org, account)
         .first();
       return raw ? memberState(raw) : undefined;
-    },
-    /** Every row the mirror holds for the account, in any organization and status. */
-    async accountMemberships(account: string): Promise<MemberState[]> {
-      const { results } = await db
-        .prepare(
-          "SELECT org_id, membership_id, role, status, directory_managed, version, seq FROM org_members WHERE account_id = ? LIMIT 1000",
-        )
-        .bind(account)
-        .all();
-      return results.map(memberState);
     },
     /** The account's spaces: every organization it is an active member of. */
     async spaces(account: string): Promise<AceOrgSpace[]> {

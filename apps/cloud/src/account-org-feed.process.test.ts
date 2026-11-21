@@ -238,3 +238,30 @@ it("deleting another membership at the same WorkOS time as the row changes nothi
   expect(auditsFor(org, "org.member.removed")).toEqual([]);
   expect((await world.api.memberGrant(token, org, box.hostId)).status).toBe(200);
 });
+
+it("a user with more than a thousand memberships on record is deleted from every one", async () => {
+  const ivy = workosUser("user_ivy", "Ivy");
+  const { ownerToken, org } = await team("Many", ivy);
+  // Years of history: 1,200 older memberships of hers, in other organizations.
+  await world.worker.db
+    .prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1200)
+       INSERT INTO org_members (org_id, account_id, membership_id, role, status, directory_managed, version, joined_at, profile_version)
+       SELECT 'org_01OLD' || i, ?1, 'om_01OLD' || i, 'member', 'inactive', 0, '2026-01-01T00:00:00.000Z', 0, '' FROM n`,
+    )
+    .bind(ivy.id)
+    .run();
+  world.workos.orgs.deleteUser(ivy.id);
+  expect(await deliver(lastEvent())).toBe(200);
+  const left = await world.worker.db
+    .prepare("SELECT COUNT(*) AS n FROM org_members WHERE account_id = ? AND status != 'removed'")
+    .bind(ivy.id)
+    .first<{ n: number }>();
+  expect(left?.n).toBe(0);
+  expect(await memberRow(ownerToken, org, ivy.id)).toBeUndefined();
+  // Her directory-managed membership's removal is on the organization's record, once.
+  await cron();
+  expect(auditsFor(org, "org.member.removed")).toEqual([
+    expect.objectContaining({ actor: { type: "idp", id: "directory" } }),
+  ]);
+});

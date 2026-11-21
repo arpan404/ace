@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { digest } from "./crypto.ts";
 import type { DirectoryEntry } from "./org-directory.ts";
 import type { WorkosOrgs } from "./workos-orgs.ts";
 
@@ -24,6 +23,10 @@ const OutboxRow = z.object({
  * so it exists exactly when the change committed, and is sent, with an idempotency key derived
  * from the WorkOS event, until WorkOS takes it: a replay or a retry writes nothing more.
  */
+/** One entry per WorkOS event, organization and member: the outbox's key and WorkOS's. */
+const entryKey = (event: string, org: string, account: string) =>
+  `workos-event:${event}:${org}:${account}`;
+
 export function auditOutbox(deps: {
   db: D1Database;
   workos: Pick<WorkosOrgs, "createAuditEvent">;
@@ -33,7 +36,7 @@ export function auditOutbox(deps: {
   return {
     /** The statement that queues `entry`; names and digests only, never a person's details. */
     async queueing(entry: DirectoryEntry): Promise<D1PreparedStatement> {
-      const key = await digest(`workos-event:${entry.event}:${entry.org}:${entry.account}`);
+      const key = entryKey(entry.event, entry.org, entry.account);
       const event = {
         action: entry.action,
         occurred_at: entry.occurredAt,
@@ -49,6 +52,29 @@ export function auditOutbox(deps: {
         )
         .bind(key, entry.org, JSON.stringify(event), now());
     },
+    /**
+     * The `org.member.removed` entries WorkOS's deletion of the user at `event.created_at` makes
+     * in one statement, one per directory-managed membership it removes, shaped and keyed as
+     * `queueing` makes them; runs in its batch before the rows move (`OrgStore.removingAccount`).
+     */
+    queueingAccountRemovals: (account: string, event: { id: string; created_at: string }) =>
+      db
+        .prepare(
+          `INSERT INTO org_audit_outbox (key, org_id, event, tries, next_at)
+           SELECT 'workos-event:' || ?1 || ':' || org_id || ':' || account_id, org_id,
+             json_object(
+               'action', 'org.member.removed',
+               'occurred_at', ?2,
+               'actor', json_object('type', 'idp', 'id', 'directory'),
+               'targets', json_array(json_object('type', 'member', 'id', account_id)),
+               'context', json_object('location', '0.0.0.0', 'user_agent', 'workos-events'),
+               'metadata', json_object('role_before', role, 'workos_event', ?1)
+             ), 0, ?4
+           FROM org_members
+           WHERE account_id = ?3 AND status != 'removed' AND version <= ?2 AND directory_managed = 1
+           ON CONFLICT (key) DO NOTHING`,
+        )
+        .bind(event.id, event.created_at, account, now()),
     /** Sends what is due; what WorkOS doesn't take waits for a later drain. Never throws. */
     async drain(): Promise<void> {
       let rows;

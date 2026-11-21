@@ -34,7 +34,7 @@ export function orgEvents(
   deps: Omit<FeedRunDeps, "workos" | "outbox"> & {
     orgs: OrgStore;
     workos: Pick<WorkosOrgs, "events" | "getUser">;
-    outbox: Pick<AuditOutbox, "queueing" | "drain">;
+    outbox: Pick<AuditOutbox, "queueing" | "queueingAccountRemovals" | "drain">;
   },
 ) {
   const { orgs, now } = deps;
