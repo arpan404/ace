@@ -18,39 +18,55 @@ nothing: shared bots stay, held to nothing outward, and stay the organization's.
 host's Ed25519 audit key, base64url, which enrollment registers (`org_hosts.audit_key`). Its seed
 lives in the keychain (`spade-keys`, account `org-audit:<org>`) and is made on first use.
 
-## The member stamp
+## The member stamps
 
-Every write to a shared bot carries the daemon's stamp of the member who asked, over the request
-itself, so the daemon stamps any request it forwards without knowing each route:
+ace's daemon adds a member's stamp only from a socket whose member standing is current. It holds
+no access list, so it stamps any current member: Spade checks the member's right on the bot
+itself (`security::member`). Both stamps use the person stamp's key (`spade-person.key`), in
+domains of their own, so none stands in for another or for a person's.
+
+**An answer** to a shared bot's request, as the daemon makes it (ADR 0206 WP2,
+`apps/daemon/src/spade/member-stamp.ts`; `src/security/member-vector.json` is its output):
 
 ```
-x-ace-member:      v1.<ms>.<nonce>.<account>.<hex HMAC-SHA256>
-x-ace-member-role: <role slug from the member grant>      (signed; absent is signed as member)
-x-ace-member-name: <name>                                 (recorded only; never authorizes)
-
-HMAC key:  spade-person.key (the person stamp's key)
-message:   ace-spade-member/1\n<METHOD> <path>\n<hex SHA-256 of the body>\n<account>\n<role>\n<ms>\n<nonce>
+x-ace-member: v1.<ms>.<nonce>.<account>.<hex HMAC-SHA256>
+message:      ace-spade-member/1\n<target>\n<value>\n<account>\n<ms>\n<nonce>
+target:       approval:<conversation>:<call>   or   outside:<conversation>:<ask>
+value:        allowed=<bool>;always=<bool>
 ```
 
-`<path>` is the full path the daemon sends (`/v1/conversations/c_1/approvals/k_1`), without the
-query. The stamp is good for 60 s either side of Spade's clock and once (its nonce is claimed with
-the person stamps'). A person stamp is never a member's, and counts for nothing on a shared bot.
+It carries no role, so Spade reads its member as `member`: an approver answers, but where the
+policy keeps letting commands run outside the sandbox for admins, an answer stamp can't.
+
+**Any other write** to a shared bot. The daemon doesn't send these yet, so until it does Spade
+refuses these writes on a shared bot (fail closed):
+
+```
+x-ace-member-request: v1.<ms>.<nonce>.<account>.<hex HMAC-SHA256>
+x-ace-member-role:    <role slug from the member grant>   (signed; absent is signed as member)
+message: ace-spade-member-request/1\n<METHOD> <path>\n<hex SHA-256 of the body>\n<account>\n<role>\n<ms>\n<nonce>
+```
+
+`<path>` is the full path sent (`/v1/agents/a_1/grants`), without the query. `x-ace-member-name`
+is recorded only. Every stamp is good for 60 s either side of Spade's clock, and once.
 
 Which right a write needs (`api::org_guard`):
 
-| Write                                                         | Right                                       |
-| ------------------------------------------------------------- | ------------------------------------------- |
-| `POST /v1/conversations/{c}/approvals/{call}`                 | `approve` (and the policy's outside rule)   |
-| `PUT /v1/agents/{id}/access`                                  | `configure`                                 |
-| `POST /v1/agents/{id}/move`                                   | `move` (admins)                             |
-| any other write under `/v1/agents/{id}/`                      | `configure`                                 |
-| any other write under `/v1/conversations/{c}/` (a message)    | `talk`                                      |
-| `POST /v1/groups/{id}/messages`, `/stop` of a shared club     | `talk` on its lead                          |
-| any other write to a shared club                              | `configure` on its lead                     |
-| `PUT /v1/moves/{id}/accept` on an org host                    | an admin's stamp                            |
-| `POST /v1/org/bots {name, task, model?}`                      | any member, admins only unless the policy lets members make bots |
+| Write                                                      | Stamp   | Right                                                            |
+| ---------------------------------------------------------- | ------- | ---------------------------------------------------------------- |
+| `POST /v1/conversations/{c}/approvals/{call}`              | answer  | `approve` (and the policy's outside rule)                        |
+| `POST /v1/conversations/{c}/plugin_outside/{ask}`          | answer  | `approve`; only a no is taken                                    |
+| `PUT /v1/agents/{id}/access`                               | request | `configure`                                                      |
+| `POST /v1/agents/{id}/move`                                | request | `move` (admins)                                                  |
+| `PUT /v1/agents/{id}/security/autonomy` to Full access     | request | the policy's leave, an owner or admin who configures it          |
+| any other write under `/v1/agents/{id}/`                   | request | `configure`                                                      |
+| any other write under `/v1/conversations/{c}/` (a message) | request | `talk`                                                           |
+| `POST /v1/groups/{id}/messages`, `/stop` of a shared club  | request | `talk` on its lead                                               |
+| any other write to a shared club                           | request | `configure` on its lead                                          |
+| `PUT /v1/moves/{id}/accept` on an org host                 | request | an owner's or admin's                                            |
+| `POST /v1/org/bots {name, task, model?}`                   | request | any member; admins only unless the policy lets members make bots |
 
-The daemon reads a bot's list (`GET /v1/agents/{id}/access`) to decide whether to stamp at all.
+The daemon can read a bot's list (`GET /v1/agents/{id}/access`) to refuse early.
 
 ## Shared bots and their access lists
 
@@ -80,7 +96,9 @@ package ceiling, for a shared bot's call:
 
 The policy (`spade_core::org::Policy`) is read leniently and authorizes strictly: a word this
 build doesn't know reads as the narrowest rule of its kind. Members never turn on `pay`,
-`send_as_person` or `publish`; Full access needs the policy's leave and the listed role. A
+`send_as_person` or `publish`. Full access needs the policy's leave (`full_access: admins` or
+`approvers`) and an owner or admin who configures the bot, stamped; even then no outward step
+runs without a member's say (above). A
 shared bot's step fails, saying why, when its model is a coding subscription or an endpoint the
 policy doesn't list. Package rules (`package_refusal`, `blocked`) are pure and tested; installs
 don't call them yet (below).
@@ -96,12 +114,12 @@ exact body, names this organization, and is newer than the one held: `409` other
 each entry chained to the one before (`spade_core::org::audit::hash`). Entries are written in
 the same transaction as what they record:
 
-| Entry                   | Written with                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `bot.effect`            | the call's `tool_started`, before it runs: a step whose entry can't be written never runs |
-| `bot.approval.answered` | the `approval_answered` event                                                     |
-| `bot.created`, `bot.access_changed` | the bot's `org_bot:` setting                                          |
-| `audit.checkpoint`      | the checkpoint row                                                                |
+| Entry                               | Written with                                                                              |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| `bot.effect`                        | the call's `tool_started`, before it runs: a step whose entry can't be written never runs |
+| `bot.approval.answered`             | the `approval_answered` event                                                             |
+| `bot.created`, `bot.access_changed` | the bot's `org_bot:` setting                                                              |
+| `audit.checkpoint`                  | the checkpoint row                                                                        |
 
 `bot.effect` names `effect`, `allowed_by` (`answer:<call>`, `always:<call>`, `grant:<id>`),
 `allowed_by_account`, `tool`, `args_sha256` (unless the policy keeps targets only), and
@@ -132,8 +150,9 @@ host's own), and a personal bot never moves onto an org host.
 
 ## Not built yet
 
-- The daemon side (WP2): member standing, adding the stamp, forwarding the outbox, fetching the
-  policy, `ace org audit export|verify` calling the routes and flag above.
+- The daemon's request stamp (above), so members can message, configure and move shared bots
+  and raise one to Full access; forwarding the outbox, fetching the policy, binding this Spade
+  at enrollment, and `ace org audit export|verify` calling the routes and flag above.
 - Package policy on installs and updates onto an org host, and pausing a running bot whose
   version the policy blocks: the rules are in `Policy`, not called from the install path.
 - Switch changes on a packaged shared bot checked against `Policy::switch_refusal` (today any
