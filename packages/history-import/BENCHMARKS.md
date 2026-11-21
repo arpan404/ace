@@ -91,4 +91,23 @@ Synthetic worker measurements (Node v26.8.1, the production 128-MiB limit, 100 m
 
 Both readers sampled the same 709,778,513 bytes of the scale home. The import is bound by SQLite
 writes into the archive (the same rows either way); ace-history gives a persisted import a
-16 MiB page cache for its length. Its memory limit is 128 MiB (`rustReaderMemoryLimitBytes`).
+16 MiB page cache for its length. Its memory limit is 128 MiB (`readerMemoryLimitBytes`).
+
+## November 2026: every provider on ace-history (ADR 0206)
+
+The same script with OpenCode's legacy and SQLite stores, a Pi home and an OpenCode import added,
+release builds, Bun 1.4, the same shared host. The TypeScript column was measured on this tree
+just before that reader was removed; the bench now runs ace-history only.
+
+| Measurement                                                      |         TypeScript |      ace-history |
+| ---------------------------------------------------------------- | -----------------: | ---------------: |
+| 5,000 small Claude transcripts, cold                             |  1,407 ms, 121 MiB |   693 ms, 10 MiB |
+| 5,000 small Claude transcripts, warm                             |    161 ms, 123 MiB |   115 ms, 10 MiB |
+| Scale home with 6,000 OpenCode legacy sessions and a v2 DB, cold | 28,548 ms, 196 MiB | 4,256 ms, 14 MiB |
+| Scale home, warm                                                 |    815 ms, 192 MiB |   637 ms, 14 MiB |
+| 2,000 Pi sessions, cold                                          |    824 ms, 127 MiB |   219 ms, 11 MiB |
+| 2,000 Pi sessions, warm                                          |    108 ms, 128 MiB |    49 ms, 11 MiB |
+| 300 MB Claude transcript, 200,000 records, persisted import      | 13,137 ms, 292 MiB | 8,686 ms, 34 MiB |
+| OpenCode v1 database session, 20,000 messages, persisted import  |    868 ms, 257 MiB |   917 ms, 31 MiB |
+
+Peaks are the reader processes' resident memory. ace-history's watchdog limit is 128 MiB.

@@ -71,30 +71,29 @@ took 157 ms. Mapping is about three quarters of an import's CPU and most of its 
       double the TypeScript reader made, and timestamps still require a safe integer;
     - only the ISO date-time format is a date. `Date.parse` accepts more, differently per engine
       (Bun and Node disagree), and providers write ISO.
-    Each choice is pinned by a test in `json.rs`.
+      Each choice is pinned by a test in `json.rs`.
 
 ## Consequences
 
 - Measured on generated homes (`bench/scan.ts`, BENCHMARKS.md, release build, Bun 1.4, shared
   M-series Mac), TypeScript reader before it was removed against ace-history:
 
-  | Benchmark | TypeScript | ace-history |
-  | --- | ---: | ---: |
-  | 5,000 small transcripts, cold scan | 1,407 ms, 121 MiB | 1,277 ms, 16 MiB |
-  | 5,000 small transcripts, warm scan | 161 ms, 123 MiB | 158 ms, 16 MiB |
-  | Scale home (Claude, Codex, 6,000 OpenCode legacy sessions, an 802-session v2 database), cold | 28.5 s, 196 MiB | 32.6 s, 24 MiB |
-  | Scale home, warm | 815 ms, 192 MiB | 823 ms, 24 MiB |
-  | 2,000 Pi sessions, cold | 824 ms, 127 MiB | 764 ms, 12 MiB |
-  | 2,000 Pi sessions, warm | 108 ms, 128 MiB | 62 ms, 12 MiB |
-  | 300 MB, 200,000-record Claude import | 13.1 s, 292 MiB | 9.8 s, 33 MiB |
-  | 20,000-message OpenCode database import | 868 ms, 257 MiB | 1,173 ms, 31 MiB |
+  | Benchmark                                                                                    |        TypeScript |    ace-history |
+  | -------------------------------------------------------------------------------------------- | ----------------: | -------------: |
+  | 5,000 small transcripts, cold scan                                                           | 1,407 ms, 121 MiB | 693 ms, 10 MiB |
+  | 5,000 small transcripts, warm scan                                                           |   161 ms, 123 MiB | 115 ms, 10 MiB |
+  | Scale home (Claude, Codex, 6,000 OpenCode legacy sessions, an 802-session v2 database), cold |   28.5 s, 196 MiB |  4.3 s, 14 MiB |
+  | Scale home, warm                                                                             |   815 ms, 192 MiB | 637 ms, 14 MiB |
+  | 2,000 Pi sessions, cold                                                                      |   824 ms, 127 MiB | 219 ms, 11 MiB |
+  | 2,000 Pi sessions, warm                                                                      |   108 ms, 128 MiB |  49 ms, 11 MiB |
+  | 300 MB, 200,000-record Claude import                                                         |   13.1 s, 292 MiB |  8.7 s, 34 MiB |
+  | 20,000-message OpenCode database import                                                      |   868 ms, 257 MiB | 917 ms, 31 MiB |
 
-  Memory falls by an order of magnitude everywhere. The scale home's cold scan and the OpenCode
-  database import are slower in Rust: the first is dominated by sampling 710 MB of sparse
-  rollouts and by OpenCode's legacy storage, read one message file at a time; the second reads
-  every row through one bounded channel. Both are follow-ups, not regressions in what a person
-  waits on (warm scans, lists and Claude imports are as fast or faster). The reader's watchdog
-  limit is 128 MiB.
+  OpenCode legacy sessions sort their messages in memory and spill to a private SQLite file past
+  256 messages or 1 MiB. The OpenCode database import is as fast as before: it is bound by the
+  rows it reads, handed over one at a time from the thread that owns the connection. The
+  reader's watchdog limit is 128 MiB.
+
 - Lists and reads are answered on their own thread, so a list sent while a scan is stuck is
   answered rather than failing with the scan's memory error.
 - Session files are opened through `files-safe` (native/files): every component is looked up from
