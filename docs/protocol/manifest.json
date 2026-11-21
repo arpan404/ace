@@ -220,6 +220,10 @@
       "bytes": 919,
       "sha256": "cc25d0891c6f25c5753cd8ab3e699f0752d47c0e907947aa26c495b01f659b94"
     },
+    "schema/AceOrgHostCredentialRequest.json": {
+      "bytes": 626,
+      "sha256": "5f26973119cb5e68a8ceebed834105d53119b791c980f8204046a721d77e6610"
+    },
     "schema/AceOrgHostEnrollRequest.json": {
       "bytes": 490,
       "sha256": "4bcbf6d6c8baaa95eab996fb90b06b995375d86da51a9f1b7759bf131517db4a"
@@ -6857,10 +6861,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1390047,
-      "sha256": "3438bd72ea769233791bdc1396b9f894c6d3855269360008fb50d15ff6acb594"
+      "bytes": 1390706,
+      "sha256": "ecad7d2da94b4281436f9325ff32ad82746102cd8bba47a51d33889f78f2c324"
     }
   },
-  "input": "a4afb6d33de965d1ef581f97376d2f6cf29228c80a9dae1c62f21148ca48c5a6",
+  "input": "8b544de2634a30a7eb7f7dfb02d0b47ec723a904fbc7d75bea5601a2bc4ff7eb",
   "version": 1
 }

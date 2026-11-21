@@ -1,5 +1,7 @@
+import { AceAccountGrant } from "@ace/protocol/ace-account";
 import {
   AceOrgAuditEntry,
+  AceOrgHostCredentialRequest,
   AceOrgHostEnrollRequest,
   AceOrgId,
   AceOrgPolicySetRequest,
@@ -7,10 +9,17 @@ import {
 } from "@ace/protocol/ace-org";
 import { orgRole } from "@ace/account-grant/org-roles";
 import { decodeBase64url, policyBodySha256, signOrgPolicy } from "@ace/account-grant";
-import { ORG_ENROLL_LIFETIME_MS, orgEnrollProofValid } from "@ace/account-grant/machine-proof";
+import {
+  ORG_ENROLL_LIFETIME_MS,
+  ORG_HOST_CREDENTIAL_SKEW_MS,
+  orgEnrollProofValid,
+  orgHostCredentialProofValid,
+} from "@ace/account-grant/machine-proof";
 import { hostId as hostIdOf } from "@ace/secure-channel";
 import type { GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
+import { ORG_CREDENTIAL_LIFETIME_MS, type MachineCredentialStore } from "./credentials.ts";
+import { digest } from "./crypto.ts";
 import type { OrgAccess } from "./org-access.ts";
 import type { OrgAudit } from "./org-audit.ts";
 import type { OrgStore } from "./org-store.ts";
@@ -30,6 +39,7 @@ export function orgHostRoutes(deps: {
   principals: PrincipalReader;
   access: OrgAccess;
   orgs: OrgStore;
+  credentials: Pick<MachineCredentialStore, "issueOrg" | "renewOrg">;
   audit: OrgAudit;
   signingKey: GrantSigningKey;
   /** The key a machine's consent is checked against (ADR 0190's exchange key). */
@@ -175,6 +185,62 @@ export function orgHostRoutes(deps: {
         });
         return json(200, { ok: true });
       }),
+
+    /**
+     * POST /v1/orgs/{org}/hosts/{hostId}/credential — an org host's organization credential
+     * (ADR 0206 §2.1), proven with its host key alone: no person's session is behind it, so the
+     * host stays on the relay whatever becomes of the member who enrolled it. A credential this
+     * enrollment already issued is renewed; otherwise it is issued, once per enrollment. Either
+     * only while `org` holds the host. A retry after a lost answer renews what was issued.
+     */
+    async credential(request: Request, org: string, hostId: string): Promise<Response> {
+      const id = AceOrgId.safeParse(org);
+      if (!id.success || !HostId.safeParse(hostId).success) return fail(404, "not_found");
+      const parsed = AceOrgHostCredentialRequest.safeParse(await jsonBody(request, 2048));
+      if (!parsed.success) return fail(400, "invalid_request");
+      const body = parsed.data;
+      const at = now();
+      let named = false;
+      try {
+        named = hostIdOf(decodeBase64url(body.hostKey)) === hostId;
+      } catch {
+        named = false;
+      }
+      const proven =
+        named &&
+        Math.abs(at - body.at) <= ORG_HOST_CREDENTIAL_SKEW_MS &&
+        orgHostCredentialProofValid({
+          exchangePrivateKey: deps.exchangeKey.privateKey,
+          hostKey: body.hostKey,
+          terms: { hostId, org: id.data, credential: body.credential, at: body.at },
+          proof: body.proof,
+        });
+      if (!proven) return fail(403, "host_key");
+      const hash = await digest(body.credential);
+      const expiresAt = at + ORG_CREDENTIAL_LIFETIME_MS;
+      const answer = (status: number) =>
+        deps.principals.read(body.credential).then((principal) =>
+          principal?.kind === "machine" && principal.org === id.data
+            ? json(
+                status,
+                AceAccountGrant.parse({
+                  token: body.credential,
+                  expiresAt: principal.expiresAt,
+                  account: principal.account,
+                }),
+              )
+            : fail(403, "not_org_host"),
+        );
+      if (await deps.credentials.renewOrg(hash, hostId, id.data, expiresAt)) return answer(200);
+      // Issued as part of the enrollment, which is audited already (`org.host.enrolled`).
+      if (await deps.credentials.issueOrg(hash, { hostId, org: id.data, expiresAt }, at))
+        return answer(201);
+      // Not this organization's host (released, or never enrolled), or this enrollment's
+      // credential is another one: the host enrolls again to get a new one.
+      return (await orgs.hostOrg(hostId)) === id.data
+        ? fail(409, "credential_issued")
+        : fail(403, "not_org_host");
+    },
 
     /**
      * GET /v1/orgs/{org}/policy — the current version and the backend's signed statement over

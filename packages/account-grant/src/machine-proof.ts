@@ -108,6 +108,54 @@ export function orgEnrollProofValid(input: {
 }
 
 /**
+ * How far an organization credential proof's time may be from the backend's clock (ADR 0206
+ * §2.1): a captured proof renews that one credential again only within this.
+ */
+export const ORG_HOST_CREDENTIAL_SKEW_MS = 5 * 60_000;
+
+/**
+ * An org host's request for its organization credential (ADR 0206 §2.1), issued at enrollment
+ * and renewed while the host is enrolled. No person's session is behind it: the host key is what
+ * proves the machine, so the MAC names the host, the organization, the credential and the time
+ * it was made. Only this machine makes it and only the backend checks it.
+ */
+export type OrgHostCredentialTerms = {
+  hostId: string;
+  org: string;
+  credential: string;
+  at: number;
+};
+const orgCredentialText = (terms: OrgHostCredentialTerms) =>
+  encoder.encode(
+    `ace-org-host-credential/v1\n${terms.hostId}\n${terms.org}\n${terms.credential}\n${terms.at}`,
+  );
+
+/** The daemon's MAC over its organization credential request, base64url. */
+export function orgHostCredentialProof(input: {
+  hostPrivateKey: Uint8Array;
+  exchangeKey: string;
+  terms: OrgHostCredentialTerms;
+}): string {
+  const shared = x25519.getSharedSecret(input.hostPrivateKey, decodeBase64url(input.exchangeKey));
+  return encodeBase64url(hmac(sha256, shared, orgCredentialText(input.terms)));
+}
+
+/** Whether `proof` is this host key's request, exactly as made. Never throws. */
+export function orgHostCredentialProofValid(input: {
+  exchangePrivateKey: Uint8Array;
+  hostKey: string;
+  terms: OrgHostCredentialTerms;
+  proof: string;
+}): boolean {
+  return macValid(
+    input.exchangePrivateKey,
+    input.hostKey,
+    orgCredentialText(input.terms),
+    input.proof,
+  );
+}
+
+/**
  * The backend's exchange key pair, derived from a secret it already keeps (the account
  * encryption key), so a deployment configures nothing new and rotating that secret rotates it.
  */

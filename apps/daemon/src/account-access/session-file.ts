@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AceAccount, AceAccountGrant, StoredAceAccountOrigin } from "@ace/protocol/ace-account";
+import { AceOrgId } from "@ace/protocol/ace-org";
 
 /**
  * The daemon's one ace sign-in (ADR 0111): its machine credential (ADR 0190), bound to this
@@ -16,10 +17,15 @@ export const StoredSession = z.object({
   token: AceAccountGrant.shape.token,
   account: AceAccount,
   expiresAt: z.number().int().positive(),
-  /** `login`: `ace login` created it, so signing out ends it at the backend too. */
-  source: z.enum(["handover", "login"]),
+  /**
+   * `login`: `ace login` created it, so signing out ends it at the backend too. `org`: this org
+   * host's organization credential (ADR 0206 §2.1), with no person's session behind it.
+   */
+  source: z.enum(["handover", "login", "org"]),
   /** `machine`: `token` is this machine's credential. Absent: an ace session, still to exchange. */
   kind: z.literal("machine").optional(),
+  /** With `source: "org"`: the organization whose credential it is. */
+  org: AceOrgId.optional(),
 });
 export type StoredSession = z.infer<typeof StoredSession>;
 
@@ -68,6 +74,8 @@ export const PendingCredential = z.object({
    * for none. Recovered only while that is still the machine's sign-in; otherwise it is stale.
    */
   predecessor: AceAccountGrant.shape.token.nullable(),
+  /** With `source: "org"`: the organization credential asked for is this organization's. */
+  org: AceOrgId.optional(),
 });
 export type PendingCredential = z.infer<typeof PendingCredential>;
 

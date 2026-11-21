@@ -1343,6 +1343,28 @@ Example:
 }
 ```
 
+## AceOrgHostCredentialRequest
+
+[JSON Schema](schema/AceOrgHostCredentialRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hostKey | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+| credential | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+| at | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| proof | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+
+Example:
+
+```json
+{
+  "at": 6,
+  "credential": "2ungytp4d1q1BFtaxvnJDKF0rk7r_IgEB8MuWmMFbuO",
+  "hostKey": "B9ev5bPvL1xbC-In6BkSd4EmFWlPM8YoJhNHZ1lJUKG",
+  "proof": "d5PDrq4WusDfxPeoBGYvfdJDA9pIxBA2fvre8qJ3hgo"
+}
+```
+
 ## AceOrgHostEnrollRequest
 
 [JSON Schema](schema/AceOrgHostEnrollRequest.json), input validation.
