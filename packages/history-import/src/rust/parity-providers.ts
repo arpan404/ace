@@ -76,13 +76,37 @@ function v1Schema(db: DatabaseSync) {
 }
 
 /** OpenCode SQLite, schema v1: messages and parts as JSON rows. */
-function v1Home(home: string, name: string, wal: boolean) {
+function v1Home(home: string, name: string, wal: boolean, ids = "") {
   const db = new DatabaseSync(join(home, name));
   if (wal) db.exec("PRAGMA journal_mode=WAL");
   v1Schema(db);
-  const session = db.prepare("INSERT INTO session VALUES(?,?,?,?,?)");
-  const message = db.prepare("INSERT INTO message VALUES(?,?,?,?)");
-  const part = db.prepare("INSERT INTO part VALUES(?,?,?)");
+  // Each database's rows get their own ids: two copies of one session would list as either.
+  const sessions = db.prepare("INSERT INTO session VALUES(?,?,?,?,?)");
+  const messages = db.prepare("INSERT INTO message VALUES(?,?,?,?)");
+  const parts = db.prepare("INSERT INTO part VALUES(?,?,?)");
+  const session = {
+    run: (
+      id: string,
+      dir: string,
+      title: string | null,
+      at: number | string,
+      parent: string | null,
+    ) =>
+      sessions.run(
+        ids + id,
+        dir,
+        title === id ? ids + id : title,
+        at,
+        parent ? ids + parent : parent,
+      ),
+  };
+  const message = {
+    run: (id: string, of: string, at: number, data: string) =>
+      messages.run(ids + id, ids + of, at, data),
+  };
+  const part = {
+    run: (id: string, of: string, data: string | null) => parts.run(ids + id, ids + of, data),
+  };
   session.run("s1", cwd, "Database session", 1767225900000, null);
   message.run(
     "m1",
@@ -258,7 +282,7 @@ export async function providerHomes(root: string) {
   await mkdir(v1, { recursive: true });
   v1Home(v1, "opencode.db", false);
   // A WAL database whose writer has closed: read in place, pinned to the checked file.
-  v1Home(v1, "opencode-dev.db", true);
+  v1Home(v1, "opencode-dev.db", true, "dev-");
   await writeFile(join(v1, "opencode-notes.txt"), "never opened");
   const v2 = join(root, "opencode-v2");
   await mkdir(v2, { recursive: true });
