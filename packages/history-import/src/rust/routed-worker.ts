@@ -1,3 +1,4 @@
+/* oxlint-disable unicorn/require-post-message-target-origin -- reader ports, not windows: no targetOrigin. */
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import { Envelope, ScanResult } from "../contracts.ts";
