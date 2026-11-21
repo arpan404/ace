@@ -3080,6 +3080,10 @@
       "bytes": 722,
       "sha256": "ff0ed82b8f5b62a2fa4daab3e1495b2a3394694803898863d1a6c13171c3dbca"
     },
+    "schema/MarketCodeRow.json": {
+      "bytes": 667,
+      "sha256": "d04aee446292259333d4c71127a4344ea86b725ba75b41d2d9dcefd1eaacdd30"
+    },
     "schema/MarketCollection.json": {
       "bytes": 1120,
       "sha256": "17acaf4c38eac4975a4b2c0cf2de094e576bb01ed35ae6f084f74fb332cbc729"
@@ -3293,8 +3297,8 @@
       "sha256": "5f53d25fa86abf1afc3891656055ecaa67b49a414b8464397eda47abaf12989f"
     },
     "schema/MarketProblem.json": {
-      "bytes": 483,
-      "sha256": "98849bc1074f65c854c433ab4ba949bd18abc5bd72bacc63b5d7c2f3f2fdca4d"
+      "bytes": 550,
+      "sha256": "9d823c87b9ef2584eb29719d9429fb4f5be7383da7840d75bab074350d2b8e0e"
     },
     "schema/MarketProfile.json": {
       "bytes": 1469,
@@ -3373,8 +3377,8 @@
       "sha256": "c47c3bb7e4bfe5e003c0d2b66f396bc5b42168874062f662e58d223d86422b88"
     },
     "schema/MarketReviewBody.json": {
-      "bytes": 6379,
-      "sha256": "dd4b84cec139470fe0212578005f821dd6120e8bba6412db800959cee3d1f4f4"
+      "bytes": 6564,
+      "sha256": "21b167a3abced42bf1c6d3a3af3bcf06746b76696cdfce099f633a7e4a3e8fa2"
     },
     "schema/MarketReviewId.json": {
       "bytes": 183,
@@ -3995,6 +3999,14 @@
     "schema/OutsideState.json": {
       "bytes": 632,
       "sha256": "cd958bc1b5485813264b7d6aad88adb36a5a106b387b4546b1821628a82517ae"
+    },
+    "schema/PackageCode.json": {
+      "bytes": 1101,
+      "sha256": "d4beb408e882c7c78a66f061cb572dfea7f23dc45870f708ce288ff6f6078d0f"
+    },
+    "schema/PackageCodeImport.json": {
+      "bytes": 370,
+      "sha256": "3c9a114385b4d2ec064b70a54f49ca8c6b45f4753ea4c8b610ef46ac09038a42"
     },
     "schema/PackageContract.json": {
       "bytes": 1353,
@@ -4713,8 +4725,8 @@
       "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
     },
     "schema/Recipe.json": {
-      "bytes": 6842,
-      "sha256": "eea8fe092d7650127df7ba03a5c8706194a164b4af231d3a7e20b70e129cee34"
+      "bytes": 7074,
+      "sha256": "1f5220995b7cfc32b6d7dbf627bf294644cbbba5569981e7ebc57b4535669c90"
     },
     "schema/RecipeConnectorId.json": {
       "bytes": 193,
@@ -6841,10 +6853,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1383733,
-      "sha256": "a3cc95037fd7716dd3963dcfe1a0b96104e435582f0ec736851e127f83e5681e"
+      "bytes": 1386099,
+      "sha256": "caca3c370565241c739d978d111a8157da5e907f046516c44c1a3386f700ac5c"
     }
   },
-  "input": "c411db79ce7666d19bfa83df2ed9b2537f7a55d5152470286e456385cdfb3cfb",
+  "input": "19975a2b5f0323da9196a99b78c5319b1b5f51c4c14029cab4e20e0c95deae98",
   "version": 1
 }

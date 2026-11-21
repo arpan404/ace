@@ -2,7 +2,7 @@ import { createServer, type IncomingHttpHeaders } from "node:http";
 import { expect, it } from "vitest";
 import { GRANT_LIFETIME_MS, standingProofText } from "@ace/account-grant";
 import { orgCalls, signInThroughWorker, workosUser } from "@ace/cloud/testing";
-import { DeviceId, type ServerMessage } from "@ace/protocol";
+import { DeviceId, ThreadId, type ServerMessage } from "@ace/protocol";
 import type { SpadeAccess } from "./services/spade-session.ts";
 import type { SpadeLink } from "./spade/link.ts";
 import type { Client } from "./socket-test-support.ts";
@@ -127,7 +127,7 @@ async function helloWith(home: Awaited<ReturnType<typeof signedInDaemon>>, grant
   for (;;) {
     const message: ServerMessage = await client.next();
     if (message.type === "welcome") return { client, nonce: message.standingNonce ?? "" };
-    if (message.type === "error") return { client, refused: message.code };
+    if (message.type === "error") return { client, nonce: "", refused: message.code };
   }
 }
 
@@ -152,6 +152,7 @@ async function answers(client: Client, requestId: string) {
     method: "POST",
     path: approval,
     body: JSON.stringify({ allowed: true }),
+    encoding: "text",
   });
   for (;;) {
     const message = await answer(client, "spade.http.result");
@@ -193,7 +194,7 @@ it("an org host admits its own members and refuses another organization's grant 
   admitted.client.send({
     type: "terminal.request",
     requestId: "shell",
-    operation: { op: "list", threadId: "t_none" },
+    operation: { op: "list", threadId: ThreadId.parse("t_none") },
   });
   expect(await answer(admitted.client, "error")).toMatchObject({
     code: "forbidden",
@@ -232,7 +233,7 @@ it("a member's standing ends at their grant's expiry, and with it an owner's use
     admitted.client.send({
       type: "terminal.request",
       requestId,
-      operation: { op: "list", threadId: "t_none" },
+      operation: { op: "list", threadId: ThreadId.parse("t_none") },
     });
     for (;;) {
       const message: ServerMessage = await admitted.client.next();

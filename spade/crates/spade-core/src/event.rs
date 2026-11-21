@@ -204,6 +204,10 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seen: Option<usize>,
     },
+    /// Which model of the bot's route served the step that follows, and why the earlier ones
+    /// didn't (ADR 0205 §2). Stored only for a route of more than one model. The model never
+    /// reads it.
+    StepServed(crate::routing::fallback::Served),
     /// The gate stopped a tool call to ask the person.
     ApprovalRequested {
         reply: String,

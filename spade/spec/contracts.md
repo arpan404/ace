@@ -114,6 +114,44 @@ field gone or no longer always there, or an output that may now be longer, wider
 callers never saw. A new optional output field is compatible. A breaking change takes a new
 contract name.
 
+## Rules
+
+Every refusal names its rule; a conformance case matches it by id, never by words. The
+`schema.*` rules are the bounded schema subset's, and hold for a panel's state and an action's
+value too.
+
+<!-- spec:begin rules -->
+From [`conformance/rules.json`](conformance/rules.json).
+
+| Rule | A reader MUST refuse | The JSON Schema decides it |
+| --- | --- | --- |
+| `contracts.list` | `contracts` isn't a list of at most 16. | yes |
+| `contracts.field` | A contract isn't an object, or holds a field contracts don't have. | yes |
+| `contracts.name` | A contract's name isn't lower-case words joined by `_`. | yes |
+| `contracts.name-unique` | Two contracts have one name. | no |
+| `contracts.summary` | A contract doesn't say in one line of at most 200 characters what it answers. | yes |
+| `contracts.effect` | A contract's effects name a word a call may not use. | yes |
+| `contracts.effect-undeclared` | A contract's effect isn't among the package's effects. | no |
+| `contracts.example` | A contract's example isn't an input and output that fit its schemas. | no |
+| `contracts.file` | A contract's schema file isn't `contracts/<name>.json`. | yes |
+| `contracts.file-missing` | A contract's schema file isn't in the package. | no |
+| `contracts.file-and-inline` | A contract writes its schemas both in bot.json and in a file. | yes |
+| `contracts.file-content` | A contract's schema file isn't a JSON object of only `input` and `output`, of at most 40 KiB. | no |
+| `schema.size` | A schema is longer than 16 KiB. | no |
+| `schema.object` | A schema isn't a JSON object. | yes |
+| `schema.keyword` | A schema uses a keyword outside the bounded subset. | yes |
+| `schema.text` | A schema's `description` or `title` isn't text of at most 500 characters. | yes |
+| `schema.type` | A schema's `type` isn't object, string, number, integer, boolean or array. | yes |
+| `schema.depth` | A schema nests more than 6 levels. | no |
+| `schema.closed` | An object's `additionalProperties` isn't false. | yes |
+| `schema.fields` | An object names more than 64 fields, or a field name that isn't 1 to 64 letters, digits and `_`. | no |
+| `schema.required` | `required` names a field the object doesn't have. | no |
+| `schema.max-length` | A string doesn't say how long it may be (`maxLength`, 1 to 65,536). | yes |
+| `schema.max-items` | A list doesn't say how long it may be (`maxItems`, 1 to 1,000), or what it holds. | yes |
+| `schema.enum` | An enum isn't 1 to 64 words of at most 200 characters. | yes |
+| `schema.bound` | A bound isn't a number, or a lower bound is past its upper one. | no |
+<!-- spec:end rules -->
+
 ## Conformance
 
 <!-- spec:begin cases -->
@@ -123,22 +161,22 @@ From [`conformance/contracts/manifests.json`](conformance/contracts/manifests.js
 | --- | --- | --- |
 | `contracts/contract-with-an-example` | a contract with an example | accept |
 | `contracts/contract-that-may-reach-the-hosts-the-package-declares` | a contract that may reach the hosts the package declares | accept |
-| `contracts/contract-that-may-publish-which-the-package-doesnt-declare` | a contract that may publish, which the package doesn't declare | refuse: a problem says “isn't among the package's effects” |
-| `contracts/contract-with-a-credential-effect` | a contract with a credential effect | refuse: a problem says “isn't an effect a call may use” |
-| `contracts/two-contracts-of-one-name` | two contracts of one name | refuse: a problem says “a name of its own” |
-| `contracts/contract-named-in-capitals` | a contract named in capitals | refuse: a problem says “lower-case words” |
-| `contracts/contract-with-no-summary` | a contract with no summary | refuse: a problem says “summary” |
-| `contracts/contract-whose-string-has-no-length` | a contract whose string has no length | refuse: a problem says “maxLength” |
-| `contracts/contract-whose-example-doesnt-fit-its-output` | a contract whose example doesn't fit its output | refuse: a problem says “examples[0].output.fare” |
+| `contracts/contract-that-may-publish-which-the-package-doesnt-declare` | a contract that may publish, which the package doesn't declare | refuse by `contracts.effect-undeclared` |
+| `contracts/contract-with-a-credential-effect` | a contract with a credential effect | refuse by `contracts.effect` |
+| `contracts/two-contracts-of-one-name` | two contracts of one name | refuse by `contracts.name-unique` |
+| `contracts/contract-named-in-capitals` | a contract named in capitals | refuse by `contracts.name` |
+| `contracts/contract-with-no-summary` | a contract with no summary | refuse by `contracts.summary` |
+| `contracts/contract-whose-string-has-no-length` | a contract whose string has no length | refuse by `schema.max-length` |
+| `contracts/contract-whose-example-doesnt-fit-its-output` | a contract whose example doesn't fit its output | refuse by `contracts.example` |
 | `contracts/contract-whose-schemas-live-in-its-file` | a contract whose schemas live in its file | accept |
-| `contracts/contract-whose-schema-file-isnt-in-the-package` | a contract whose schema file isn't in the package | refuse: a problem says “contracts/cheapest-fare.json isn't in the package” |
-| `contracts/contract-schema-file-outside-contracts` | a contract schema file outside contracts/ | refuse: a problem says “contracts[0].file is contracts/<name>.json” |
-| `contracts/contract-with-schemas-both-in-bot-json-and-in-a-file` | a contract with schemas both in bot.json and in a file | refuse: a problem says “either in bot.json or in contracts/cheapest-fare.json” |
-| `contracts/contract-schema-file-with-another-field` | a contract schema file with another field | refuse: a problem says “it holds only input and output” |
-| `contracts/contract-schema-file-that-isnt-json` | a contract schema file that isn't JSON | refuse: a problem says “isn't a JSON object of input and output” |
-| `contracts/contract-schema-file-whose-schema-is-outside-the-subset` | a contract schema file whose schema is outside the subset | refuse: a problem says “contracts[0].input” |
-| `contracts/contracts-as-an-object` | contracts as an object | refuse: a problem says “contracts is a list” |
-| `contracts/contract-with-a-field-contracts-dont-have` | a contract with a field contracts don't have | refuse: a problem says “isn't a field of a contract” |
+| `contracts/contract-whose-schema-file-isnt-in-the-package` | a contract whose schema file isn't in the package | refuse by `contracts.file-missing` |
+| `contracts/contract-schema-file-outside-contracts` | a contract schema file outside contracts/ | refuse by `contracts.file` |
+| `contracts/contract-with-schemas-both-in-bot-json-and-in-a-file` | a contract with schemas both in bot.json and in a file | refuse by `contracts.file-and-inline` |
+| `contracts/contract-schema-file-with-another-field` | a contract schema file with another field | refuse by `contracts.file-content` |
+| `contracts/contract-schema-file-that-isnt-json` | a contract schema file that isn't JSON | refuse by `contracts.file-content` |
+| `contracts/contract-schema-file-whose-schema-is-outside-the-subset` | a contract schema file whose schema is outside the subset | refuse by `schema.max-length` |
+| `contracts/contracts-as-an-object` | contracts as an object | refuse by `contracts.list` |
+| `contracts/contract-with-a-field-contracts-dont-have` | a contract with a field contracts don't have | refuse by `contracts.field` |
 <!-- spec:end cases -->
 
 ### The schema subset
@@ -151,12 +189,12 @@ From [`conformance/contracts/schemas.json`](conformance/contracts/schemas.json).
 | `contracts/schema-fare-question` | a fare question | accept |
 | `contracts/schema-numbers-whole-numbers-enums-and-lists` | numbers, whole numbers, enums and lists | accept |
 | `contracts/schema-six-levels-deep` | six levels deep | accept |
-| `contracts/schema-seven-levels-deep` | seven levels deep | refuse: a problem says “6 levels” |
-| `contracts/schema-string-with-no-length` | a string with no length | refuse: a problem says “maxLength” |
-| `contracts/schema-list-with-no-size` | a list with no size | refuse: a problem says “maxItems” |
-| `contracts/schema-keyword-outside-the-subset` | a keyword outside the subset | refuse: a problem says “pattern” |
-| `contracts/schema-object-open-to-any-field` | an object open to any field | refuse: a problem says “additionalProperties” |
-| `contracts/schema-reference-to-another-schema` | a reference to another schema | refuse: a problem says “$ref” |
-| `contracts/schema-required-naming-a-field-it-doesnt-have` | required naming a field it doesn't have | refuse: a problem says “required” |
-| `contracts/schema-null-type` | a null type | refuse: a problem says “type” |
+| `contracts/schema-seven-levels-deep` | seven levels deep | refuse by `schema.depth` |
+| `contracts/schema-string-with-no-length` | a string with no length | refuse by `schema.max-length` |
+| `contracts/schema-list-with-no-size` | a list with no size | refuse by `schema.max-items` |
+| `contracts/schema-keyword-outside-the-subset` | a keyword outside the subset | refuse by `schema.keyword` |
+| `contracts/schema-object-open-to-any-field` | an object open to any field | refuse by `schema.closed` |
+| `contracts/schema-reference-to-another-schema` | a reference to another schema | refuse by `schema.keyword` |
+| `contracts/schema-required-naming-a-field-it-doesnt-have` | required naming a field it doesn't have | refuse by `schema.required` |
+| `contracts/schema-null-type` | a null type | refuse by `schema.type` |
 <!-- spec:end schema-cases -->

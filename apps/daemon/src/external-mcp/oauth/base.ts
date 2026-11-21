@@ -20,6 +20,23 @@ export function outsideBase(path: ReachPath, url: string): OutsideBase {
 export function resourceOf(base: OutsideBase): string {
   return `${base.url}/mcp`;
 }
+/**
+ * The paths of the base's other resources: Spade's contracts over MCP and over A2A (ADR 0202
+ * §3, §6). A client may name either at sign-in; the code and tokens it gets are bound to the
+ * base's resource, `resourceOf(base)`, and work at all three.
+ */
+export const spadePaths = ["/spade/mcp", "/spade/a2a"] as const;
+export type SpadePath = (typeof spadePaths)[number];
+/** Every path Spade's contracts are served at below a base: its two resources, the key that
+ * signs the Agent Card, and the card at A2A's well-known address. */
+export const spadeContractPaths = [
+  ...spadePaths,
+  "/spade/jwks.json",
+  "/.well-known/agent-card.json",
+];
+export function isSpadeContractPath(path: string | undefined): boolean {
+  return spadeContractPaths.some((known) => known === path);
+}
 /** The base a resource URL belongs to; the inverse of `resourceOf`. */
 export function baseOfResource(path: ReachPath, resource: string): OutsideBase {
   return outsideBase(path, resource.replace(/\/mcp$/, ""));
@@ -29,10 +46,10 @@ export function baseOfResource(path: ReachPath, resource: string): OutsideBase {
  * inserted before the resource's path, at the origin. ace's relay forwards that form to the host
  * whose prefix follows it.
  */
-export function resourceMetadataUrl(base: OutsideBase): string {
+export function resourceMetadataUrl(base: OutsideBase, path: "/mcp" | SpadePath = "/mcp"): string {
   const url = new URL(base.url);
   const prefix = url.pathname === "/" ? "" : url.pathname;
-  return `${url.origin}/.well-known/oauth-protected-resource${prefix}/mcp`;
+  return `${url.origin}/.well-known/oauth-protected-resource${prefix}${path}`;
 }
 /**
  * The request's path below its base, such as `/token`, or undefined when it isn't under it.
@@ -58,5 +75,6 @@ export function namesResource(given: string, base: OutsideBase): boolean {
   }
   if (url.search || url.hash || url.username || url.password) return false;
   const path = url.pathname.replace(/\/$/, "");
-  return `${url.origin}${path}` === resourceOf(base);
+  const named = `${url.origin}${path}`;
+  return named === resourceOf(base) || spadePaths.some((spade) => named === `${base.url}${spade}`);
 }

@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use spade_core::routing::{Defaults, Models, Overrides, Role, Routing};
+use spade_core::brain::CliModel;
+use spade_core::routing::{Defaults, MOST_IN_ROUTE, Models, Overrides, Role, Route, Routing};
 use spade_models::Endpoint;
 use spade_store::StoreError;
 
@@ -46,10 +47,11 @@ impl Models for Person {
     }
 }
 
-/// A change to overrides: `Some(None)` clears a value, `None` keeps it.
+/// A change to overrides: `Some(None)` clears a value, `None` keeps it. A role takes a route: a
+/// list of models in order, or one model (a list of one).
 #[derive(Debug, Default)]
 pub struct RolesChange {
-    pub roles: BTreeMap<String, Option<String>>,
+    pub roles: BTreeMap<String, Option<Route>>,
     pub allowed: Option<Option<Vec<String>>>,
     pub escalate: Option<Option<bool>>,
 }
@@ -88,13 +90,18 @@ impl Engine {
     /// place: ADR 0162).
     fn global_overrides(&self) -> Overrides {
         let mut global = self.read_overrides(GLOBAL).unwrap_or_default();
-        global.roles.remove(&Role::Review);
+        let stored = global.roles.remove(&Role::Review);
         if let Ok(super::oversight::Global {
             review_model: Some(model),
             ..
         }) = self.oversight()
         {
-            global.roles.insert(Role::Review, model);
+            // The rest of a review route is kept here; its first model is oversight's.
+            let route = match stored {
+                Some(route) if route.first() == Some(model.as_str()) => route,
+                _ => Route::one(&model),
+            };
+            global.roles.insert(Role::Review, route);
         }
         global
     }
@@ -124,6 +131,69 @@ impl Engine {
             global: self.global_overrides(),
             defaults: self.defaults(),
             person: Person(self.models.endpoints()),
+        }
+    }
+
+    /// The models a step of `conversation` that began on `turn_model` tries, in order (ADR 0205
+    /// §2): for a bot, its `main` route led by the reply's model; for a helper, the `helper`
+    /// route from the helper's model on, when that model is on it, else the helper's model
+    /// alone. A subscription runs alone.
+    pub(crate) fn step_route(&self, conversation: &str, turn_model: &str) -> Vec<String> {
+        if CliModel::is(turn_model) {
+            return vec![turn_model.to_owned()];
+        }
+        let (route, role) = match self.helper_of(conversation) {
+            Some(helper) => (
+                self.facts(&helper.parent).routing().route(Role::Helper),
+                Role::Helper,
+            ),
+            None => {
+                let mut facts = self.facts(conversation);
+                turn_model.clone_into(&mut facts.own);
+                (facts.routing().route(Role::Main), Role::Main)
+            }
+        };
+        match route.iter().position(|m| m == turn_model) {
+            Some(at) => route[at..].to_vec(),
+            None if role == Role::Main => {
+                let mut led = vec![turn_model.to_owned()];
+                led.extend(route.into_iter().filter(|m| m != turn_model));
+                led.truncate(MOST_IN_ROUTE);
+                led
+            }
+            None => vec![turn_model.to_owned()],
+        }
+    }
+
+    /// A model's name as the person's endpoints list it, else its id.
+    pub(crate) fn model_name(&self, model: &str) -> String {
+        self.models
+            .resolve(model)
+            .map_or_else(|| model.to_owned(), |(_, facts)| facts.name)
+    }
+
+    /// Whether `model`'s endpoint runs on this computer.
+    pub(crate) fn is_local_model(&self, model: &str) -> bool {
+        self.models
+            .resolve(model)
+            .is_some_and(|(endpoint, _)| spade_models::base_url::is_loopback(&endpoint.base_url))
+    }
+
+    /// What `model` can do, as the person's endpoints list it. A model they don't list is taken
+    /// to do everything, so its own call says what is wrong.
+    pub(crate) fn can_of(&self, model: &str) -> spade_core::routing::fallback::Can {
+        use spade_models::Capability;
+        match self.models.resolve(model) {
+            Some((_, facts)) => spade_core::routing::fallback::Can {
+                tools: facts.can(Capability::Tools),
+                images: facts.can(Capability::Images),
+                context: facts.context,
+            },
+            None => spade_core::routing::fallback::Can {
+                tools: true,
+                images: true,
+                context: None,
+            },
         }
     }
 
@@ -208,6 +278,7 @@ impl Engine {
         let global = self.global_overrides();
         Ok(json!({
             "roles": routed_json(&global),
+            "routes": routes_json(&global),
             "escalate": global.escalate,
         }))
     }
@@ -224,13 +295,19 @@ impl Engine {
             .table()
             .into_iter()
             .map(|(role, choice)| {
-                json!({"role": role.name(), "model": choice.model, "source": choice.source.name()})
+                json!({
+                    "role": role.name(),
+                    "model": choice.model,
+                    "source": choice.source.name(),
+                    "route": routing.route(role),
+                })
             })
             .collect();
         Ok(Some(json!({
             "roles": roles,
             "overrides": {
                 "roles": routed_json(&facts.bot),
+                "routes": routes_json(&facts.bot),
                 "allowed": facts.bot.allowed,
                 "escalate": facts.bot.escalate,
             },
@@ -241,7 +318,11 @@ impl Engine {
 
     /// `PUT /v1/models/roles`. The review model is oversight's own setting, changed there.
     pub fn set_global_roles(&self, change: RolesChange) -> Result<Value, OversightError> {
-        let review = change.roles.get(Role::Review.name()).cloned();
+        let review = change
+            .roles
+            .get(Role::Review.name())
+            .cloned()
+            .map(|route| route.and_then(|r| r.first().map(str::to_owned)));
         if change.allowed.is_some() {
             return Err(OversightError::Invalid(
                 "an allowed list is set per bot".to_owned(),
@@ -251,7 +332,6 @@ impl Engine {
             let _held = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
             let mut global = self.read_overrides(GLOBAL)?;
             self.apply(&mut global, change)?;
-            global.roles.remove(&Role::Review);
             self.store.set_setting(GLOBAL, Some(&to_json(&global)))?;
         }
         if let Some(model) = review {
@@ -286,22 +366,26 @@ impl Engine {
     /// Applies `change` to `overrides`, checking each model names one the person configured.
     fn apply(&self, overrides: &mut Overrides, change: RolesChange) -> Result<(), OversightError> {
         let invalid = |text: String| OversightError::Invalid(text);
-        for (name, model) in change.roles {
+        for (name, route) in change.roles {
             let role = Role::parse(&name)
                 .ok_or_else(|| invalid(format!("there is no role named {name}")))?;
-            if !role.routed() {
-                return Err(invalid(
-                    "main is the bot's own model; change it on the bot".to_owned(),
-                ));
+            let models = route.map(|r| r.0).unwrap_or_default();
+            if models.len() > MOST_IN_ROUTE {
+                return Err(invalid(format!(
+                    "a route holds at most {MOST_IN_ROUTE} models"
+                )));
             }
-            match model {
-                Some(model) => {
-                    let model = self.one_shot_model(&model)?;
-                    overrides.roles.insert(role, model);
+            let mut checked: Vec<String> = Vec::new();
+            for model in models {
+                let model = self.route_model(&model)?;
+                if !checked.contains(&model) {
+                    checked.push(model);
                 }
-                None => {
-                    overrides.roles.remove(&role);
-                }
+            }
+            if checked.is_empty() {
+                overrides.roles.remove(&role);
+            } else {
+                overrides.roles.insert(role, Route(checked));
             }
         }
         if let Some(allowed) = change.allowed {
@@ -328,10 +412,23 @@ impl Engine {
         Ok(())
     }
 
+    /// `model` checked as one a route can hold (ADR 0205 §2): on the person's endpoints, never a
+    /// subscription, which is only ever a bot's own model, alone.
+    fn route_model(&self, model: &str) -> Result<String, OversightError> {
+        if CliModel::is(model.trim()) {
+            return Err(OversightError::Invalid(
+                "a route never holds a subscription: one is only ever a bot's own model, alone; \
+                 give this role models from your endpoints"
+                    .to_owned(),
+            ));
+        }
+        self.one_shot_model(model)
+    }
+
     /// `model` checked as one a role can run on: on the person's endpoints, never a CLI.
     fn one_shot_model(&self, model: &str) -> Result<String, OversightError> {
         let model = model.trim();
-        if spade_core::brain::CliModel::is(model) {
+        if CliModel::is(model) {
             return Err(OversightError::Invalid(
                 "a subscription runs whole sessions; give this role a model from an endpoint"
                     .to_owned(),
@@ -346,13 +443,36 @@ impl Engine {
     }
 }
 
-/// Every routed role with its override, `null` for none.
+/// Every routed role with its override's first model, `null` for none: what clients from
+/// before routes read.
 fn routed_json(overrides: &Overrides) -> Value {
     let mut map = serde_json::Map::new();
     for role in Role::ALL.into_iter().filter(|r| r.routed()) {
         map.insert(
             role.name().to_owned(),
-            overrides.roles.get(&role).map_or(Value::Null, |m| json!(m)),
+            overrides
+                .roles
+                .get(&role)
+                .and_then(Route::first)
+                .map_or(Value::Null, |m| json!(m)),
+        );
+    }
+    Value::Object(map)
+}
+
+/// Every role with its route, `[]` for none; `main`'s are the bot's model's fallbacks.
+fn routes_json(overrides: &Overrides) -> Value {
+    let mut map = serde_json::Map::new();
+    for role in Role::ALL {
+        map.insert(
+            role.name().to_owned(),
+            json!(
+                overrides
+                    .roles
+                    .get(&role)
+                    .map(|r| r.0.clone())
+                    .unwrap_or_default()
+            ),
         );
     }
     Value::Object(map)

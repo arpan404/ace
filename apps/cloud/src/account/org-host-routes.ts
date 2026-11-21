@@ -35,15 +35,20 @@ export function orgHostRoutes(deps: {
   /** The key a machine's consent is checked against (ADR 0190's exchange key). */
   exchangeKey: { privateKey: Uint8Array };
   now: () => number;
+  /** Names each enrollment of a host, which its machine credentials are bound to. */
+  newEnrollment: () => string;
 }) {
   const { access, orgs, audit, now } = deps;
 
-  /** The org host a machine credential belongs to, if it is `org`'s. */
+  /**
+   * The org host a machine credential belongs to, if it is `org`'s: the credential must be bound
+   * to the host's current enrollment in `org`, never just name a host that `org` owns now.
+   */
   async function orgHost(request: Request, org: string) {
     const token = bearer(request);
     const principal = token ? await deps.principals.read(token) : undefined;
     if (principal?.kind !== "machine") return undefined;
-    return (await orgs.hostOrg(principal.hostId)) === org ? principal : undefined;
+    return (await orgs.credentialOrg(principal.hash)) === org ? principal : undefined;
   }
 
   async function currentPolicy(org: string) {
@@ -140,6 +145,7 @@ export function orgHostRoutes(deps: {
             hostId: body.data.hostId,
             org: member.org,
             account: member.principal.account.id,
+            enrollment: deps.newEnrollment(),
             auditKey: body.data.auditKey,
           },
           now(),
@@ -153,7 +159,10 @@ export function orgHostRoutes(deps: {
         return json(201, { ok: true });
       }),
 
-    /** DELETE /v1/orgs/{org}/hosts/{hostId} — an owner releases an org host. */
+    /**
+     * DELETE /v1/orgs/{org}/hosts/{hostId} — an owner releases an org host. Its credentials from
+     * this enrollment are revoked: the machine signs in again before it speaks for anyone.
+     */
     release: (request: Request, org: string, hostId: string) =>
       access.member(request, org, undefined, async (member) => {
         if (orgRole(member.role) !== "owner") return fail(403, "forbidden");

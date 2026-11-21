@@ -3,7 +3,7 @@
 //! tools from `spade.v1`'s table.
 
 use super::conformance;
-use super::markdown::{bytes, cases, code_list, number, table};
+use super::markdown::{bytes, cases, code_list, number, rules, table};
 use crate::effect::runtime;
 use crate::package::{contract, contract_files};
 use crate::schema;
@@ -15,6 +15,7 @@ pub fn regions() -> Result<Vec<(&'static str, String)>, Vec<String>> {
         ("subset", subset()),
         ("subset-bounds", subset_bounds()),
         ("tools", tools()?),
+        ("rules", rules("contracts")),
         ("cases", cases(&conformance::MANIFESTS[2])),
         ("schema-cases", cases(&conformance::SCHEMAS)),
     ])

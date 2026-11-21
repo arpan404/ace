@@ -24,6 +24,7 @@ export const outsideScopeOrder: readonly OutsideScope[] = [
   "threads:stop",
   "browser",
   "computer",
+  "spade-contracts",
 ];
 
 /** Each scope as its tick reads. */
@@ -34,6 +35,7 @@ export const outsideScopeLabels: Record<OutsideScope, string> = {
   "threads:stop": "Stop threads",
   browser: "Use the browser",
   computer: "Use the screen",
+  "spade-contracts": "Call your bots' contracts",
 };
 
 /** What each scope allows, said under its tick. */
@@ -44,6 +46,8 @@ export const outsideScopeNotes: Record<OutsideScope, string> = {
   "threads:stop": "Stop a thread's work.",
   browser: "Open and drive pages in its own browser tabs.",
   computer: "Use apps on this computer's screen, as agents in ace do.",
+  "spade-contracts":
+    "Call the contracts of your Spade bots that take calls. Each call runs as that bot's work, under its own rules.",
 };
 
 /** Every tick the person can change, in display order. Read is fixed on, so it isn't one. */
@@ -81,6 +85,7 @@ export function scopeWords(scopes: readonly OutsideScope[]): string {
   const tools = [
     has.has("browser") ? "use the browser" : undefined,
     has.has("computer") ? "use the screen" : undefined,
+    has.has("spade-contracts") ? "call your bots' contracts" : undefined,
   ].filter((word): word is string => word !== undefined);
   const sentence = list([threads, ...tools]);
   return sentence.charAt(0).toUpperCase() + sentence.slice(1);

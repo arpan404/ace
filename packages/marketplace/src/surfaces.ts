@@ -1,3 +1,4 @@
+import { refusal, type Refusal } from "./rules.ts";
 import { readSchema } from "./schema.ts";
 
 const schemaProblems = (value: unknown, at: string) => readSchema(value, at).problems;
@@ -41,52 +42,67 @@ export function panelFiles(surfaces: unknown): Map<string, string> {
 }
 
 /** Every problem with `surfaces`; none when it reads. */
-export function surfaceProblems(value: unknown): string[] {
+export function surfaceProblems(value: unknown): Refusal[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > mostSurfaces)
-    return [`surfaces is a list of at most ${mostSurfaces}`];
-  const problems: string[] = [];
+    return [refusal("surfaces.list", `surfaces is a list of at most ${mostSurfaces}`)];
+  const problems: Refusal[] = [];
   const ids = new Set<string>();
   let panels = 0;
   value.forEach((item: unknown, i) => {
     const at = `surfaces[${i}]`;
     if (!isFields(item)) {
-      problems.push(`${at} is an object`);
+      problems.push(refusal("surfaces.field", `${at} is an object`));
       return;
     }
     const id = item["id"];
     if (!surfaceId(id)) {
-      problems.push(`${at}.id is a short name: lower-case letters, digits and dashes`);
+      problems.push(
+        refusal("surfaces.id", `${at}.id is a short name: lower-case letters, digits and dashes`),
+      );
       return;
     }
-    if (ids.has(id)) problems.push(`${at}: each surface has an id of its own`);
+    if (ids.has(id))
+      problems.push(refusal("surfaces.id-unique", `${at}: each surface has an id of its own`));
     ids.add(id);
     const file = typeof item["file"] === "string" ? item["file"] : "";
     const kind = item["kind"];
     if (kind === "card") {
       if (!/^cards\/[A-Za-z0-9._-]+\.json$/.test(file))
-        problems.push(`${at}.file is cards/<name>.json`);
+        problems.push(refusal("surfaces.card-file", `${at}.file is cards/<name>.json`));
     } else if (kind === "panel") {
       const before = problems.length;
       panelProblems(item, at, id, file, problems);
       if (problems.length === before) panels++;
     } else if (typeof kind === "string")
-      problems.push(`${at}: Needs a newer Spade: this one has no ${JSON.stringify(kind)} surface`);
-    else problems.push(`${at}.kind is card or panel`);
+      problems.push(
+        refusal(
+          "surfaces.kind",
+          `${at}: Needs a newer Spade: this one has no ${JSON.stringify(kind)} surface`,
+        ),
+      );
+    else problems.push(refusal("surfaces.kind", `${at}.kind is card or panel`));
   });
-  if (panels > mostPanels) problems.push(`a package has at most ${mostPanels} panels`);
+  if (panels > mostPanels)
+    problems.push(refusal("surfaces.panels", `a package has at most ${mostPanels} panels`));
   return problems;
 }
 
-function panelProblems(item: Fields, at: string, id: string, file: string, problems: string[]) {
-  if (file !== panelFile(id)) problems.push(`${at}.file is ${panelFile(id)}`);
+function panelProblems(item: Fields, at: string, id: string, file: string, problems: Refusal[]) {
+  if (file !== panelFile(id))
+    problems.push(refusal("surfaces.panel-file", `${at}.file is ${panelFile(id)}`));
   if (!words(item["title"], titleChars))
-    problems.push(`${at}.title names the panel in a few words (at most ${titleChars} characters)`);
+    problems.push(
+      refusal(
+        "surfaces.title",
+        `${at}.title names the panel in a few words (at most ${titleChars} characters)`,
+      ),
+    );
   if (item["state"] !== undefined) problems.push(...schemaProblems(item["state"], `${at}.state`));
   const actions = item["actions"];
   if (actions === undefined) return;
   if (!Array.isArray(actions) || actions.length > mostActions) {
-    problems.push(`${at}.actions is a list of at most ${mostActions}`);
+    problems.push(refusal("surfaces.actions", `${at}.actions is a list of at most ${mostActions}`));
     return;
   }
   const names = new Set<string>();
@@ -95,16 +111,32 @@ function panelProblems(item: Fields, at: string, id: string, file: string, probl
     const fields = isFields(action) ? action : {};
     const name = fields["name"];
     if (!actionName(name)) {
-      problems.push(`${where}.name is a short name: lower-case letters, digits and underscores`);
+      problems.push(
+        refusal(
+          "surfaces.action-name",
+          `${where}.name is a short name: lower-case letters, digits and underscores`,
+        ),
+      );
       return;
     }
-    if (names.has(name)) problems.push(`${where}: each action of a panel has a name of its own`);
+    if (names.has(name))
+      problems.push(
+        refusal(
+          "surfaces.action-name-unique",
+          `${where}: each action of a panel has a name of its own`,
+        ),
+      );
     names.add(name);
     if (fields["label"] !== undefined && !words(fields["label"], labelChars))
-      problems.push(`${where}.label is a few words (at most ${labelChars} characters)`);
+      problems.push(
+        refusal(
+          "surfaces.action-label",
+          `${where}.label is a few words (at most ${labelChars} characters)`,
+        ),
+      );
     if (fields["value"] !== undefined)
       problems.push(...schemaProblems(fields["value"], `${where}.value`));
     if (fields["confirm"] !== undefined && typeof fields["confirm"] !== "boolean")
-      problems.push(`${where}.confirm is true or false`);
+      problems.push(refusal("surfaces.confirm", `${where}.confirm is true or false`));
   });
 }

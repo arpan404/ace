@@ -59,8 +59,8 @@ export function directoryRoutes(deps: {
   }
   /**
    * A member grant (ADR 0206 §2.2): only for the person's own session, with WorkOS's answer
-   * under 60 seconds old that the account is an active member, an active mirror row, and `host`
-   * one of that organization's hosts. It carries the organization's policy version.
+   * under 60 seconds old that the account is an active member, an active mirror row unchanged
+   * since that answer, and `host` one of that organization's hosts. It carries the organization's policy version.
    */
   async function member(principal: Principal, request: AceGrantRequest): Promise<Response> {
     const { org, host, key, subject } = request;
@@ -71,8 +71,11 @@ export function directoryRoutes(deps: {
     const check = await deps.orgs.checker.check(principal, org);
     if (!check.ok) return orgRefusal(org, check.error);
     const store = deps.orgs.store;
-    if ((await store.member(org, principal.account.id))?.status !== "active")
-      return fail(403, "not_member");
+    const row = await store.member(org, principal.account.id);
+    if (row?.status !== "active") return fail(403, "not_member");
+    // The role is signed only if the membership is as WorkOS's answer found it: a demotion or
+    // removal since then means that answer no longer stands.
+    if (row.seq !== check.seq) return fail(503, "busy");
     if ((await store.hostOrg(host)) !== org) return fail(403, "not_org_host");
     const policy = (await store.policy(org))?.version ?? 0;
     const iat = now();

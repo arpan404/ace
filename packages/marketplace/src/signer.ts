@@ -14,6 +14,7 @@ import type { ArchiveFile } from "./archive.ts";
 import { checkArchive } from "./checks/index.ts";
 import { disposition, scanEntry, type ScanContext } from "./scan/index.ts";
 import { failedTestsReport, hasBotTests, testsReason, type BotTestRunner } from "./signer-tests.ts";
+import { codeReason, hasCode, readCode, type CodeChecker } from "./signer-code.ts";
 import {
   signManifest,
   signReviewMark,
@@ -34,6 +35,10 @@ import {
  * Before signing it scans again (ADR 0174 §8) with the newest blocklist and the market's scan
  * context: a block is refused for good, a warn a maintainer hasn't approved is held for one, and
  * so is every version by the official publisher (and a new publisher's strict notes).
+ *
+ * A bot package's WebAssembly components are read first, by Spade's own program (ADR 0203 §5):
+ * a component outside Spade's world, or whose imports differ from its entry, refuses the version
+ * for good; when this machine can't read them, it isn't signed and waits for one that can.
  *
  * A bot package's own tests run last, before it is signed (ADR 0200 §8): failing, the version is
  * refused with each failure in its report; when this machine can't run them, it isn't signed and
@@ -56,6 +61,8 @@ export interface SignerReport {
 export interface SignerOptions {
   /** Runs a bot package's scenarios; without it, a bot package with tests isn't signed. */
   testBot?: BotTestRunner | undefined;
+  /** Reads a bot package's components; without it, a bot package with code isn't signed. */
+  checkCode?: CodeChecker | undefined;
 }
 
 /** Signs every pending version that passes the checks again, and any pending withdrawals. */
@@ -88,6 +95,22 @@ export async function signPending(
     if (problems.length > 0) {
       report.refused.push({ version: label(version), problems });
       continue;
+    }
+    // Its code, read from the binary before a maintainer is asked to look at it.
+    if (hasCode(checked.inspection)) {
+      const code = await readCode(options.checkCode, checked.files);
+      if ("refused" in code) {
+        report.refused.push({ version: label(version), problems: [code.refused] });
+        continue;
+      }
+      if (code.problems.length > 0) {
+        const reason = codeReason(code);
+        const answer = await io.put(versionPath("blocks", version), { reason });
+        if (answer.status >= 200 && answer.status < 300)
+          report.blocked.push({ version: label(version), reason });
+        else report.failed.push({ what: label(version), ...answer });
+        continue;
+      }
     }
     let scan: MarketScanReport | undefined;
     if (scanning) {
@@ -330,6 +353,7 @@ export async function signReview(
 
 export { type SignerIo } from "./signer-io.ts";
 export { type BotTestOutcome, type BotTestRunner } from "./signer-tests.ts";
+export { type CodeCheckOutcome, type CodeChecker } from "./signer-code.ts";
 export {
   signBlocklistChange,
   signOfficialChange,

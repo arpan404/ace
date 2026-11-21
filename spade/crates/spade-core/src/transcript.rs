@@ -325,6 +325,7 @@ impl Transcript {
             | Known::WorkerReported(_)
             | Known::WorkerDetached { .. }
             | Known::DecisionMade(_)
+            | Known::StepServed(_)
             | Known::Arrived { .. }
             | Known::CardShown(_)
             | Known::CardAction { .. }

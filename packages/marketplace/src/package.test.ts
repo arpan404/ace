@@ -225,16 +225,17 @@ interface ManifestCases {
     with: Record<string, unknown>;
     /** The package's other files: a contract's schema file, written in first. */
     files?: Record<string, string>;
-    refused?: string;
+    /** The rule a reader refuses it by (`spade/spec/conformance/rules.json`). */
+    rule?: string;
   }[];
 }
 
 /**
  * The conformance suite's manifest cases (`spade/spec/conformance/<part>/manifests.json`), which
  * Spade's reader runs too (`spade_core::package::read`): accepted, or refused with a problem
- * saying the case's words.
+ * naming the case's rule, whatever its words.
  */
-const suites = ["package", "effects", "contracts", "surfaces"].map((part) => {
+const suites = ["package", "effects", "contracts", "surfaces", "code"].map((part) => {
   const url = new URL(`../../../spade/spec/conformance/${part}/manifests.json`, import.meta.url);
   return [part, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
 });
@@ -244,8 +245,8 @@ describe.each(suites)("the conformance suite's %s manifests", (_part, suite) => 
     const problems = readRecipe(JSON.stringify({ ...suite.base, ...rule.with }), new Set(), {
       spade: "0.0.25",
       files: (path) => rule.files?.[path],
-    }).problems.map((problem) => problem.message);
-    if (rule.refused === undefined) expect(problems).toEqual([]);
-    else expect(problems.some((problem) => problem.includes(rule.refused!))).toBe(true);
+    }).problems;
+    if (rule.rule === undefined) expect(problems).toEqual([]);
+    else expect(problems.map((problem) => problem.rule)).toContain(rule.rule);
   });
 });

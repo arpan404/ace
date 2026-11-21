@@ -10,6 +10,8 @@ import type { SpadeWorkerState } from "./wire-capabilities.ts";
 /** An event the chat shows as a quiet line, as the fold keeps it. */
 export type SpadeQuiet =
   | { kind: "goal"; title: string }
+  /** A step ran on another model of the bot's route, with why (ADR 0205 §2). */
+  | { kind: "served"; line: string }
   /** The bot's panel sent an action, or the person confirmed one there (ADR 0200 §5.2). */
   | { kind: "panel-action"; label: string; by: "page" | "person" }
   | { kind: "checked"; verdict: "done" | "not_yet" | "unchecked"; missing: readonly string[] }
@@ -74,6 +76,8 @@ const line = (lead: SpadeQuietLead, words: SpadeQuietWords[]): SpadeQuietLine =>
 
 export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
   switch (quiet.kind) {
+    case "served":
+      return line({ kind: "none" }, [plain(quiet.line)]);
     case "panel-action":
       return line({ kind: "none" }, [
         plain(quiet.by === "person" ? "You confirmed " : "The panel sent "),

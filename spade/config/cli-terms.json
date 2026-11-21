@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "provider": "claude",
+      "name": "Claude Code",
+      "status": "unclear",
+      "checked": null,
+      "source": null,
+      "note": "Not written yet from the vendor's terms."
+    },
+    {
+      "provider": "codex",
+      "name": "Codex",
+      "status": "unclear",
+      "checked": null,
+      "source": null,
+      "note": "Not written yet from the vendor's terms."
+    },
+    {
+      "provider": "opencode",
+      "name": "OpenCode",
+      "status": "unclear",
+      "checked": null,
+      "source": null,
+      "note": "Not written yet from the vendor's terms."
+    },
+    {
+      "provider": "cursor",
+      "name": "Cursor",
+      "status": "unclear",
+      "checked": null,
+      "source": null,
+      "note": "Not written yet from the vendor's terms."
+    },
+    {
+      "provider": "antigravity",
+      "name": "Antigravity",
+      "status": "unclear",
+      "checked": null,
+      "source": null,
+      "note": "Not written yet from the vendor's terms."
+    },
+    {
+      "provider": "acp",
+      "name": "ACP agent",
+      "status": "unclear",
+      "checked": null,
+      "source": null,
+      "note": "Not written yet from the vendor's terms."
+    },
+    {
+      "provider": "pi",
+      "name": "Pi",
+      "status": "unclear",
+      "checked": null,
+      "source": null,
+      "note": "Not written yet from the vendor's terms."
+    }
+  ]
+}

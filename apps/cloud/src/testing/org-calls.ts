@@ -48,7 +48,12 @@ export function orgCalls(http: string) {
         typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {},
     };
   }
-  const keys = async () => GrantKeySet.parse(await (await fetch(`${http}/v1/keys`)).json());
+  // The Worker's keys don't change while it runs: read once, so tests stay inside its rate limit.
+  let published: Promise<GrantKeySet> | undefined;
+  const keys = () =>
+    (published ??= fetch(`${http}/v1/keys`)
+      .then((response) => response.json())
+      .then((body) => GrantKeySet.parse(body)));
   return {
     call,
     keys,
@@ -70,6 +75,7 @@ export function orgCalls(http: string) {
     /**
      * A machine signed in to the account (its directory row, as the relay writes it) with a
      * machine credential its daemon would keep; `session` is the session it exchanges.
+     * `exchange` issues it another credential from another session, as signing in again would.
      */
     async machine(db: Directory, account: string, session: string) {
       const host = keyPair();
@@ -80,22 +86,25 @@ export function orgCalls(http: string) {
         )
         .bind(id, account)
         .run();
-      const credential = encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
-      const exchangeKey = (await keys()).exchangeKey ?? "";
-      const issued = await call(session, "POST", "/v1/machine-credentials", {
-        hostId: id,
-        hostKey: encodeBase64url(host.publicKey),
-        credential,
-        proof: machineCredentialProof({
-          hostPrivateKey: host.privateKey,
-          exchangeKey,
+      const exchange = async (from: string) => {
+        const credential = encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
+        const exchangeKey = (await keys()).exchangeKey ?? "";
+        const issued = await call(from, "POST", "/v1/machine-credentials", {
           hostId: id,
+          hostKey: encodeBase64url(host.publicKey),
           credential,
-        }),
-      });
-      if (issued.status !== 201 && issued.status !== 200)
-        throw new Error(`Machine credential failed: ${issued.status}`);
-      return { hostId: id, credential, host };
+          proof: machineCredentialProof({
+            hostPrivateKey: host.privateKey,
+            exchangeKey,
+            hostId: id,
+            credential,
+          }),
+        });
+        if (issued.status !== 201 && issued.status !== 200)
+          throw new Error(`Machine credential failed: ${issued.status}`);
+        return credential;
+      };
+      return { hostId: id, credential: await exchange(session), exchange, host };
     },
     /**
      * The machine's consent to join `org`, as its daemon gives it to a socket that proved

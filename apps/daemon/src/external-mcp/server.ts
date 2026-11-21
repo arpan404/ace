@@ -43,6 +43,10 @@ import { OutsideAccess } from "./outside.ts";
 import { grantOfCaller } from "./principals.ts";
 import { missingScope, shorthandScopes, withheldTools } from "./scopes.ts";
 import { tokenFiles } from "./token-files.ts";
+import { loadCardKey } from "./card-key.ts";
+import type { CardKey } from "./card-signature.ts";
+import { spadeContracts } from "./spade-contracts.ts";
+import { readLocalToken } from "../local-token.ts";
 import { externalTools } from "./tools.ts";
 
 function shellQuote(value: string): string {
@@ -101,8 +105,24 @@ export async function externalMcp(context: ServiceContext) {
     listening = server;
   });
   const reachSettings = await outsideReachSettings(context);
+  let card: CardKey | undefined;
+  const spade = spadeContracts({
+    verify: (token, resource) => outside.tokens.verify(token, resource),
+    touch: (grant) => outside.grants.touch(grant),
+    spade: () => context.services.spade?.ready()?.connection,
+    key: () => {
+      try {
+        return readLocalToken(context.config.dataDir);
+      } catch {
+        return undefined;
+      }
+    },
+    cardKey: () => (card ??= loadCardKey(context.config.dataDir)),
+    now: () => context.now(),
+  });
   const oauth = outsideOAuth({
     outside,
+    spade,
     sql,
     now: context.now,
     random: randomBytes,

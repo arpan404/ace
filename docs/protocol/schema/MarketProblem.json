@@ -15,6 +15,10 @@
     "path": {
       "maxLength": 512,
       "type": "string"
+    },
+    "rule": {
+      "maxLength": 80,
+      "type": "string"
     }
   },
   "required": [

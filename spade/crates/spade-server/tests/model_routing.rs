@@ -291,7 +291,7 @@ async fn roles_follow_the_bots_choice_then_the_global_one_and_refuse_what_cannot
     let (_, view) = spade.get(&path).await?;
     assert_eq!(
         role(&view, "main"),
-        json!({"role": "main", "model": "fake/m", "source": "own"})
+        json!({"role": "main", "model": "fake/m", "source": "own", "route": ["fake/m"]})
     );
     assert_eq!(role(&view, "helper")["model"], "fake/cheap");
     assert_eq!(role(&view, "helper")["source"], "default");
@@ -321,7 +321,7 @@ async fn roles_follow_the_bots_choice_then_the_global_one_and_refuse_what_cannot
     assert_eq!(view["escalate"], true, "the global setting holds");
 
     for refused in [
-        json!({ "roles": { "main": "fake/cheap" } }),
+        json!({ "roles": { "main": "cli:codex/gpt-6.1-sol" } }),
         json!({ "roles": { "helper": "nope/x" } }),
         json!({ "roles": { "helper": "cli:codex/gpt-6.1-sol" } }),
         json!({ "roles": { "advisor": "fake/m" } }),
