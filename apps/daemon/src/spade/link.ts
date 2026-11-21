@@ -12,6 +12,7 @@ import {
   type SpadeFacts,
   type SpadeServiceState,
 } from "./rules.ts";
+import { spadePreviewGate } from "./image-preview.ts";
 
 /** Everything the link reads of the outside world, so tests can substitute any of it. */
 export interface SpadeLinkRuntime {
@@ -94,6 +95,8 @@ export class SpadeLink {
   private cancelTimer: (() => void) | undefined;
   private stopWatch: (() => void) | undefined;
   private closed = false;
+  /** Pictures' previews, two at a time for every socket of this daemon (`image-preview.ts`). */
+  readonly previews = spadePreviewGate();
   constructor(options: SpadeLinkOptions) {
     this.options = options;
   }

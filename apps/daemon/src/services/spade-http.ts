@@ -25,7 +25,12 @@ import {
   type PersonOnlyWrite,
 } from "../spade/person-stamp.ts";
 import { checkSpadePath, scopeFor } from "../spade/rules.ts";
-import { limitedRenders, renderSpadePreview, spadePreviewSource } from "../spade/image-preview.ts";
+import {
+  PreviewBusy,
+  spadePreviewGate,
+  spadePreviewSource,
+  type SpadePreviewGate,
+} from "../spade/image-preview.ts";
 import {
   answerRoute,
   answerWrite,
@@ -87,11 +92,16 @@ export function createSpadeHttp(context: {
    * bot).
    */
   requestStamp?(write: MemberRequest): Record<string, string> | undefined;
-  /** A picture's preview from its bytes (`spade/image-preview.ts`); Bun's decoder by default. */
-  preview?(bytes: Buffer): Promise<Buffer>;
+  /**
+   * The daemon's places for pictures' previews, shared by every socket (`spade/image-preview.ts`);
+   * this socket's own when the host has none (a test's).
+   */
+  previews?: SpadePreviewGate | undefined;
 }) {
   const uploads = new Map<string, Upload>();
-  const preview = limitedRenders(context.preview ?? renderSpadePreview);
+  const previews = context.previews ?? spadePreviewGate();
+  /** Aborted when the socket closes: its previews still waiting leave the line. */
+  const closing = new AbortController();
   /** Long answers' pieces, read one at a time so no reply outgrows the socket's frame cap. */
   const held = new Map<string, { pieces: string[]; timer: ReturnType<typeof setTimeout> }>();
   const release = (requestId: string) => {
@@ -226,43 +236,51 @@ export function createSpadeHttp(context: {
       ...(answered ? { [memberHeader]: answered.stamp } : {}),
       ...member,
     };
-    // A picture's preview is the daemon's: Spade is asked for the image itself.
+    const forward = (path: string, signal: AbortSignal) =>
+      spadeRequest(
+        admitted.connection,
+        {
+          method: message.method,
+          path,
+          body,
+          ...(message.contentType ? { contentType: message.contentType } : {}),
+          ...(Object.keys(headers).length ? { headers } : {}),
+        },
+        { signal, maxBytes: responseBodyLimit(message.method, path) },
+      ).catch(() => undefined);
+    // A picture's preview is the daemon's: Spade is asked for the image itself, in a place.
     const previewed = spadePreviewSource(message.method, admitted.path);
-    const path = previewed ?? admitted.path;
-    const answer = await spadeRequest(
-      admitted.connection,
-      {
-        method: message.method,
-        path,
-        body,
-        ...(message.contentType ? { contentType: message.contentType } : {}),
-        ...(Object.keys(headers).length ? { headers } : {}),
-      },
-      {
-        signal: AbortSignal.timeout(requestTimeoutMs),
-        maxBytes: responseBodyLimit(message.method, path),
-      },
-    ).catch(() => undefined);
-    respond(message.requestId, previewed ? await previewOf(answer) : answer);
+    if (previewed) return respond(message.requestId, await previewOf(previewed, forward));
+    respond(message.requestId, await forward(admitted.path, AbortSignal.timeout(requestTimeoutMs)));
   }
 
-  /** Spade's image as its preview; Spade's own refusal as it is; 422 for bytes no picture. */
-  async function previewOf(answer: SpadeAnswer | undefined): Promise<SpadeAnswer | undefined> {
-    if (answer?.kind !== "response" || answer.status < 200 || answer.status > 299) return answer;
+  /**
+   * Spade's image as its preview, read and decoded in one of the daemon's places; Spade's own
+   * refusal as it is; 503 while the places are full or the decode is late; 422 for bytes that
+   * aren't a picture; nothing once the socket has closed.
+   */
+  async function previewOf(
+    path: string,
+    forward: (path: string, signal: AbortSignal) => Promise<SpadeAnswer | undefined>,
+  ): Promise<SpadeAnswer | undefined> {
+    let answer: SpadeAnswer | undefined;
+    const signal = AbortSignal.any([closing.signal, AbortSignal.timeout(requestTimeoutMs)]);
     try {
-      return {
-        kind: "response",
-        status: 200,
-        body: await preview(answer.body),
-        contentType: "image/png",
-      };
-    } catch {
-      return {
-        kind: "response",
-        status: 422,
-        body: Buffer.from(JSON.stringify({ title: "This picture can't be previewed." })),
-        contentType: "application/json",
-      };
+      const png = await previews.preview(
+        closing.signal,
+        async () => {
+          answer = await forward(path, signal);
+          const shown = answer?.kind === "response" && answer.status >= 200 && answer.status < 300;
+          return shown && answer?.kind === "response" ? answer.body : undefined;
+        },
+        later,
+      );
+      if (!png) return answer;
+      return { kind: "response", status: 200, body: png, contentType: "image/png" };
+    } catch (error) {
+      if (closing.signal.aborted) return undefined;
+      if (error instanceof PreviewBusy) return problemAnswer(503, error.message);
+      return problemAnswer(422, "This picture can't be previewed.");
     }
   }
 
@@ -382,6 +400,7 @@ export function createSpadeHttp(context: {
     part,
     read,
     close() {
+      closing.abort();
       // Deleting the entry being visited is safe while iterating a Map.
       for (const requestId of held.keys()) release(requestId);
       for (const requestId of uploads.keys()) drop(requestId)?.controller.abort();
@@ -392,4 +411,21 @@ export function createSpadeHttp(context: {
 function decodeWhole(body: string): Buffer {
   const stream = base64Stream();
   return Buffer.concat([stream.push(body), stream.finish()]);
+}
+
+/** An answer of the daemon's own, in Spade's problem shape. */
+function problemAnswer(status: number, title: string): SpadeAnswer {
+  return {
+    kind: "response",
+    status,
+    body: Buffer.from(JSON.stringify({ title })),
+    contentType: "application/json",
+  };
+}
+
+/** A timer that never keeps the daemon alive, and its cancel. */
+function later(ms: number, callback: () => void): () => void {
+  const timer = setTimeout(callback, ms);
+  timer.unref?.();
+  return () => clearTimeout(timer);
 }
