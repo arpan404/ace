@@ -24,7 +24,35 @@ export interface SpadePanel {
   confirm: readonly { name: string; label: string }[];
   /** The state its bot last set, as Spade had it when listed. */
   state: unknown;
+  /**
+   * For an MCP app's page shown as a panel (ADR 0202 §4), its app; undefined for a package's
+   * panel. Its state is the tool's `input` and `result`.
+   */
+  app: SpadeAppPage | undefined;
 }
+
+/** An MCP app's page, as its panel says. */
+export interface SpadeAppPage {
+  name: string;
+  /** The tool whose call showed it. */
+  tool: string;
+  /** Why it isn't drawn (a page that needs the network), if it isn't. */
+  refused: string | undefined;
+  /** The app's tools, and whether each is offered to the page. */
+  tools: readonly { name: string; app: boolean }[];
+  /** What the page asked for and doesn't get (outside images, the camera). */
+  withheld: readonly string[];
+}
+
+const AppPage = z
+  .object({
+    name: z.string().catch("App"),
+    tool: z.string().catch(""),
+    refused: z.string().nullish().catch(undefined),
+    tools: z.array(z.object({ name: z.string(), app: z.boolean().catch(false) })).catch([]),
+    withheld: z.array(z.string()).catch([]),
+  })
+  .transform((app): SpadeAppPage => ({ ...app, refused: app.refused ?? undefined }));
 
 const Listed = z.object({
   panels: z
@@ -34,7 +62,7 @@ const Listed = z.object({
       items.flatMap((item) => {
         const read = z
           .object({
-            id: z.string().min(1).max(40),
+            id: z.string().min(1).max(160),
             title: z.string().catch(""),
             page: z
               .string()
@@ -46,11 +74,12 @@ const Listed = z.object({
             // without the person.
             confirm: z.array(z.object({ name: z.string(), label: z.string() })).catch([]),
             state: z.unknown().optional(),
+            app: AppPage.optional().catch(undefined),
           })
           .safeParse(item);
         if (!read.success) return [];
-        const { id, title, page, actions, confirm, state } = read.data;
-        return [{ id, title: title || id, page: page ?? undefined, actions, confirm, state }];
+        const { id, title, page, actions, confirm, state, app } = read.data;
+        return [{ id, title: title || id, page: page ?? undefined, actions, confirm, state, app }];
       }),
     ),
 });
