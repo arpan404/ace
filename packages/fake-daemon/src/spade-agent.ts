@@ -18,7 +18,7 @@ export interface FakeSpadeAgent {
   /** When it was pinned (ms), as Spade sends it; null or absent when it isn't. */
   pinned_at?: number | null;
   state: "idle" | "working" | "waiting" | "paused";
-  waiting_for: "approval" | "question" | null;
+  waiting_for: "approval" | "question" | "worker" | "callee" | null;
   /** Its cards left for later, not yet answered or dismissed (ADR 0154). */
   questions_for_later?: number;
   status: string | null;

@@ -69,3 +69,10 @@ export { userBubble } from "./items/user-bubble.ts";
 /** Scroll to end over a transcript, and Esc twice to stop (Spade's conversations reuse them). */
 export { LivePill } from "./long/live-pill.tsx";
 export { useStopKey } from "./composer/stop-key.ts";
+
+/** A delegated child's row, a group of them and its answerable request (Spade's worker cards). */
+export { AgentRowContents, agentRowStyles, type AgentRowParts } from "./items/agent-row.tsx";
+export { SubagentFold, SubagentSection } from "./items/subagent-fold.tsx";
+export { DeferredInteractionCard } from "./interactions/deferred-card.ts";
+export { useOpenRequest } from "./composer/descendant-request.ts";
+export { subagentDetailLine } from "./items/live-words.ts";

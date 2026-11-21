@@ -112,22 +112,38 @@ describe("quiet lines", () => {
     expect(lines(c)).toEqual(["bot: I'll start with Linux.", "Goal set · Get #2081 merged"]);
   });
 
-  test("a worker made and its report read in the maker's chat, by name, with its face", () => {
+  test("the workers one call starts share one card where the first started, the reply's words after it", () => {
     const c = conversation();
-    c.stored({
-      type: "worker_started",
-      worker: "w1",
-      kind: "bot",
-      name: "Linux repro",
-      call: "k1",
-    });
-    c.stored({
-      type: "worker_started",
-      worker: "t1",
-      kind: "ace",
-      name: "Fix the timer",
-      call: "k2",
-    });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "Starting four research agents." });
+    for (const [worker, name] of [
+      ["t1", "Research-pricing"],
+      ["t2", "Research-reviews"],
+      ["t3", "Research-features"],
+      ["t4", "Research-support"],
+    ])
+      c.stored({ type: "worker_started", worker, kind: "ace", name, call: "k1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "They wait on your approval." });
+    c.stored({ type: "reply_finished", reply: "r1", text: "They wait on your approval." });
+    const bubbles = spadeBubbles(c.view());
+    expect(lines(c)).toEqual([
+      "bot: Starting four research agents.",
+      "workers",
+      "bot: They wait on your approval.",
+    ]);
+    const card = bubbles.find((bubble) => bubble.kind === "workers");
+    expect(card?.kind === "workers" && card.workers.map((worker) => worker.name)).toEqual([
+      "Research-pricing",
+      "Research-reviews",
+      "Research-features",
+      "Research-support",
+    ]);
+  });
+
+  test("a worker started here reports on its card, not in a line; one started elsewhere keeps its line", () => {
+    const c = conversation();
+    c.stored({ type: "worker_started", worker: "w1", kind: "bot", name: "Linux repro", call: "k1" });
+    c.stored({ type: "worker_started", worker: "t1", kind: "ace", name: "Fix the timer", call: "k2" });
     c.stored({ type: "worker_started", worker: "h1", kind: "helper", name: "helper", call: "k3" });
     c.stored({
       type: "worker_reported",
@@ -143,29 +159,25 @@ describe("quiet lines", () => {
       worker: "w1",
       kind: "bot",
       name: "Linux repro",
-      state: "stopping",
-      epoch: "e",
-      summary: "",
-    });
-    c.stored({
-      type: "worker_reported",
-      worker: "w1",
-      kind: "bot",
-      name: "Linux repro",
       state: "done",
       epoch: "e2",
       summary: "",
     });
-    expect(lines(c)).toEqual([
-      "Made Linux repro",
-      "Started Fix the timer",
-      "Fix the timer needs you in Threads",
-      "Linux repro is done",
-    ]);
+    c.stored({
+      type: "worker_reported",
+      worker: "w9",
+      kind: "bot",
+      name: "Older worker",
+      state: "done",
+      epoch: "e3",
+      summary: "",
+    });
+    // Two calls, two cards; the helper is its own line (ADR 0152).
+    expect(lines(c)).toEqual(["workers", "workers", "Older worker is done"]);
     const report = spadeBubbles(c.view()).at(-1);
     expect(report?.kind === "quiet" && spadeQuietLine(report.quiet).lead).toEqual({
       kind: "face",
-      bot: "w1",
+      bot: "w9",
       pose: "done",
     });
   });

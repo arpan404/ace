@@ -217,6 +217,12 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
       return { kind: "note", text: bubble.text };
     case "quiet":
       return { kind: "note", text: spadeQuietLine(bubble.quiet).label };
+    // The workers a call started, by name, until the iPhone draws their cards.
+    case "workers":
+      return {
+        kind: "note",
+        text: `Started ${bubble.workers.map((worker) => worker.name).join(", ")}`,
+      };
     case "remembered":
       return { kind: "note", text: `Remembered: ${bubble.note.text}` };
     // The iPhone doesn't show which notes a reply had in mind yet.
