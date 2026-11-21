@@ -341,6 +341,8 @@ export function Conversation(props: {
                 });
             }}
             onOpenWork={() => go({ profile: "work" })}
+            // A notice or the bot list opened it while a worker waits on the person.
+            revealWorkers={props.request === "workers" || bot.waitingFor === "worker"}
             onSetUpModel={setUpModel}
             onRetry={(reply) =>
               conversation.tryAgain(reply).then(() => true, failed(`Couldn't try again`))

@@ -50,8 +50,7 @@ export function spadeJoinWorkers(
   return false;
 }
 
-const isWorkers = (entry: { kind: string }): entry is SpadeWorkersEntry =>
-  entry.kind === "workers";
+const isWorkers = (entry: { kind: string }): entry is SpadeWorkersEntry => entry.kind === "workers";
 
 /** An ace child's state in the bot's tree (`AceState`), in ace's words for a delegated child. */
 const aceStates: Record<string, SubagentState> = {
@@ -109,4 +108,22 @@ export function spadeWaitingWorkers<T extends SpadeStartedWorker>(
       if (stateOf(worker) === "human") waiting.push(worker);
     }
   return waiting;
+}
+
+/**
+ * What an ace agent waits on the person for, from its thread's oldest open request (`live.asking`
+ * kind): its plan to approve, a question, an approval; plain "Waiting for you" otherwise.
+ */
+export function spadeAskingWords(kind: string | undefined): string {
+  switch (kind) {
+    case "plan_review":
+      return "Waiting for you to approve its plan";
+    case "question":
+    case "elicitation":
+      return "Waiting for your answer";
+    case "approval":
+      return "Waiting for your approval";
+    default:
+      return "Waiting for you";
+  }
 }
