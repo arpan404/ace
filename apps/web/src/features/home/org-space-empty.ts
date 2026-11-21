@@ -2,13 +2,15 @@ import { useSpace } from "@/features/ace-account/index.ts";
 import { usePoolProjects } from "@/lib/pool-projects.ts";
 
 /**
- * The window's organization while its hosts hold no projects (ADR 0206 §2.4), once their lists
- * are read; undefined in Personal, while a list is out, or with any project there.
+ * The window's organization while its hosts hold no projects (ADR 0206 §2.4), once its hosts and
+ * their lists are read; undefined in Personal, while a list is out, or with any project there.
  */
 export function useEmptyOrgSpace(): string | undefined {
-  const org = useSpace().shown?.org;
+  const { shown, hostsOf } = useSpace();
+  const org = shown?.org;
   const { lists, loaded } = usePoolProjects();
-  if (!org || !loaded) return undefined;
+  // Until its hosts are known it has no machines yet, not no projects.
+  if (!org || !hostsOf.has(org.id) || !loaded) return undefined;
   return lists.some((list) => list.projects.length > 0) ? undefined : org.name;
 }
 

@@ -158,10 +158,11 @@ function NeedsYouToast(props: { threadId: string }) {
   const { threadId } = props;
   const toast = useToast();
   const navigate = useNavigate();
+  const space = useOwnNoticeSpace();
   // The toast API changes with every toast shown; the effects below must not re-run for that.
-  const latest = useRef({ toast, navigate });
+  const latest = useRef({ toast, navigate, space });
   useEffect(() => {
-    latest.current = { toast, navigate };
+    latest.current = { toast, navigate, space };
   });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const thread = useSidebarThread(threadId);
@@ -186,7 +187,11 @@ function NeedsYouToast(props: { threadId: string }) {
       title,
       actionProps: {
         children: "Review",
-        onClick: () => void latest.current.navigate({ to: "/t/$threadId", params: { threadId } }),
+        // In the thread's own space (ADR 0206 §1.5), as the toast's first Review opens it.
+        onClick: () => {
+          latest.current.space.enter();
+          void latest.current.navigate({ to: "/t/$threadId", params: { threadId } });
+        },
       },
     });
   }, [left, title, first, id, threadId]);

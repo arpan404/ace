@@ -28,6 +28,7 @@ import { useSettledSearch, useThreadHits, type SearchHit } from "./use-panel-sea
 import { FoundHits } from "./found-row.tsx";
 import { PanelPagingContext, usePanelRows } from "./use-panel-rows.ts";
 import { ThreadsTabs } from "./threads-tabs.tsx";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 import { useEmptyOrgSpace, useSpaceChecking } from "./org-space-empty.ts";
 import { PanelTitleSearch } from "@/components/ui/panel-title-search.tsx";
 import {
@@ -83,6 +84,7 @@ export function HomeSidebar() {
   const checking = useSpaceChecking();
   const loaded = useSidebarLoaded() && !checking;
   const emptyOrg = useEmptyOrgSpace();
+  const space = spaceKey(useSpaceScope());
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
   const { rows, paging, onNearEnd } = usePanelRows({
@@ -191,6 +193,8 @@ export function HomeSidebar() {
           <PanelPagingContext value={paging}>
             <FoundHits value={older.hits}>
               <ThreadList
+                // A new space draws its own list at once: no row of the last one fades out here.
+                key={space}
                 rows={rows}
                 needsYou={list.needsYou}
                 pinned={list.pinned}

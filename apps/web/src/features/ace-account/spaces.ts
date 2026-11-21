@@ -50,27 +50,28 @@ export function spaceAllows(space: ShownSpace | undefined, permission: OrgPermis
  * only its hosts; Personal every machine that isn't a host of one of the person's organizations.
  * `hostsOf` maps each organization to its hosts' ids, or is missing one still loading: until an
  * organization's hosts are known, Personal shows none of the machines it can't place, and the
- * organization's own space shows nothing.
+ * organization's own space shows nothing. `orgs` is undefined while the list of organizations
+ * itself is on its way: Personal then places only the machines with no relay id.
  */
 export function machinesInSpace<T>(
   machines: readonly T[],
   hostIdOf: (machine: T) => string | undefined,
   space: ShownSpace | undefined,
   hostsOf: ReadonlyMap<string, ReadonlySet<string>>,
-  orgs: readonly string[],
+  orgs: readonly string[] | undefined,
 ): T[] {
   if (space === undefined) return [];
   if (space.org) {
     const hosts = hostsOf.get(space.id);
     return hosts ? machines.filter((machine) => hosts.has(hostIdOf(machine) ?? "")) : [];
   }
-  const known = orgs.every((org) => hostsOf.has(org));
+  const known = orgs !== undefined && orgs.every((org) => hostsOf.has(org));
   return machines.filter((machine) => {
     const id = hostIdOf(machine);
     // A machine with no relay id (paired over the LAN) is never an org host's account entry.
     if (id === undefined) return true;
     if (!known) return false;
-    return !orgs.some((org) => hostsOf.get(org)?.has(id));
+    return !orgs?.some((org) => hostsOf.get(org)?.has(id));
   });
 }
 

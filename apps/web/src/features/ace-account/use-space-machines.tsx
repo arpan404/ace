@@ -13,7 +13,13 @@ import { machinesInSpace } from "./spaces.ts";
 export function useSpaceMachines(): Machine[] {
   const machines = useMachines();
   const own = useDaemonConnection().account?.hostId;
-  const { shown, hostsOf, spaces } = useSpace();
+  const { shown, hostsOf, spaces, calls, error } = useSpace();
+  // Signed in, the list of organizations decides what Personal leaves out: until it answers no
+  // account machine is placed in Personal, as none is before its organization's hosts are known.
+  const orgs = useMemo(
+    () => (!calls || error ? [] : spaces?.map((space) => space.id)),
+    [calls, error, spaces],
+  );
   return useMemo(
     () =>
       machinesInSpace(
@@ -21,9 +27,9 @@ export function useSpaceMachines(): Machine[] {
         (machine) => (machine.primary ? own : machine.id),
         shown,
         hostsOf,
-        (spaces ?? []).map((space) => space.id),
+        orgs,
       ),
-    [machines, own, shown, hostsOf, spaces],
+    [machines, own, shown, hostsOf, orgs],
   );
 }
 
