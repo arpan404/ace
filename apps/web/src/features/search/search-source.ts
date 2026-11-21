@@ -10,6 +10,8 @@ import { ThreadId, type ProviderKind, type SearchQuery } from "@ace/protocol";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { usePrimaryInSpace } from "@/lib/machines.ts";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 
 export type SearchKind = "thread" | "message" | "tool_call" | "artifact" | "html";
 export interface SearchHit {
@@ -90,9 +92,13 @@ async function readPage(
   };
 }
 
+const noHits: SearchHit[] = [];
+
 /**
  * The hits for `text`, a page at a time. While a new query loads the last results stay, marked
- * `updating`, so the list never blanks between keystrokes.
+ * `updating`, so the list never blanks between keystrokes. This daemon is searched only in the
+ * space it belongs to (ADR 0206 §2.4): elsewhere nothing is found, and the hits are kept per
+ * space, so one space's never show in another.
  */
 export function useSearch(
   text: string,
@@ -102,6 +108,8 @@ export function useSearch(
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const query = text.trim();
+  const shown = usePrimaryInSpace();
+  const space = spaceKey(useSpaceScope());
   const progress = useDaemonQuery({
     queryKey: ["search-status"],
     read: async (api, signal) => {
@@ -112,8 +120,8 @@ export function useSearch(
     refetchInterval: (state) => (state.state.data?.ready ? 30_000 : 1_000),
   });
   const result = useInfiniteQuery({
-    queryKey: ["search", query, kind ?? "all", filters, progress.data?.generation],
-    enabled: ready && query.length > 0,
+    queryKey: ["search", space, query, kind ?? "all", filters, progress.data?.generation],
+    enabled: ready && shown && query.length > 0,
     placeholderData: keepPreviousData,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: Page) => last.cursor ?? undefined,
@@ -121,7 +129,7 @@ export function useSearch(
   });
   const hits = useMemo(() => result.data?.pages.flatMap((page) => page.hits), [result.data]);
   return {
-    hits,
+    hits: shown ? hits : noHits,
     progress: progress.data,
     error: result.error,
     isError: result.isError,

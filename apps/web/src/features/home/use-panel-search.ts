@@ -10,6 +10,7 @@ import { useIsChat, useIsChatThread } from "@/lib/projects.ts";
 import { useProjectScope } from "./use-project-scope.ts";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
 import type { HomeList, SettledEntry } from "./use-home-threads.ts";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 
 /** One daemon search hit. */
 export type SearchHit = SearchResults["hits"][number];
@@ -21,13 +22,15 @@ const noIds: readonly string[] = [];
  * The daemon's thread search for what the person typed in the Threads panel, settled once
  * typing pauses (as the palette's): one hit per thread, its latest. Threads the list holds are
  * matched by their titles locally; this finds the settled ones it hasn't paged in, and loaded
- * ones whose messages match.
+ * ones whose messages match. Only in this machine's space (ADR 0206 §2.4), kept per space.
  */
 export function useThreadHits(query: string): ReadonlyMap<string, SearchHit> {
   const text = useDebouncedValue(query.trim(), searchSettleMs);
+  const ownShown = usePrimaryInSpace();
+  const space = spaceKey(useSpaceScope());
   const found = useDaemonQuery({
-    queryKey: ["panel-threads", text],
-    enabled: text.length > 0,
+    queryKey: ["panel-threads", space, text],
+    enabled: ownShown && text.length > 0,
     read: async (client, signal) => {
       const reply = await client.request(
         { type: "search.query", scope: "threads", text, limit: 100 },
@@ -37,14 +40,14 @@ export function useThreadHits(query: string): ReadonlyMap<string, SearchHit> {
     },
   });
   return useMemo(() => {
-    if (!text || !found.data?.length) return noHits;
+    if (!ownShown || !text || !found.data?.length) return noHits;
     const byThread = new Map<string, SearchHit>();
     for (const hit of found.data) {
       const known = byThread.get(hit.threadId);
       if (!known || hit.createdAt > known.createdAt) byThread.set(hit.threadId, hit);
     }
     return byThread;
-  }, [text, found.data]);
+  }, [ownShown, text, found.data]);
 }
 
 export interface SettledSearch {

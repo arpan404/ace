@@ -28,6 +28,7 @@ import { useSettledSearch, useThreadHits, type SearchHit } from "./use-panel-sea
 import { FoundHits } from "./found-row.tsx";
 import { PanelPagingContext, usePanelRows } from "./use-panel-rows.ts";
 import { ThreadsTabs } from "./threads-tabs.tsx";
+import { useEmptyOrgSpace, useSpaceChecking } from "./org-space-empty.ts";
 import { PanelTitleSearch } from "@/components/ui/panel-title-search.tsx";
 import {
   useOrganizer,
@@ -78,7 +79,10 @@ export function HomeSidebar() {
   const deviceName = scopeNames(useScopeMachines(device));
   useThreadsWindowSync();
   const organizer = useOrganizer();
-  const loaded = useSidebarLoaded();
+  // While a chosen organization is checked, no space's rows are drawn (ADR 0206 §1.5).
+  const checking = useSpaceChecking();
+  const loaded = useSidebarLoaded() && !checking;
+  const emptyOrg = useEmptyOrgSpace();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
   const { rows, paging, onNearEnd } = usePanelRows({
@@ -133,6 +137,13 @@ export function HomeSidebar() {
         )}
         {!loaded ? (
           skeleton && <ListSkeleton label="threads" shape="thread" />
+        ) : empty && emptyOrg && none && !narrowed && !searching ? (
+          <EmptyState
+            className="shrink-0 justify-start pt-6"
+            icon={TrayIcon}
+            title={`No projects in ${emptyOrg} yet`}
+            description={`Projects on ${emptyOrg}'s machines show here.`}
+          />
         ) : empty && searching ? (
           <div className="px-2">
             <PanelNoMatch>No threads match.</PanelNoMatch>

@@ -17,7 +17,7 @@ import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { newThreadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
-import { useMachines, type Machine } from "@/lib/machines.ts";
+import { useMachinesInSpace, type Machine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { CommandShortcut } from "@/components/ui/command.tsx";
@@ -57,7 +57,8 @@ export function NewThreadIn(props: {
   /** Add project, on the machine whose projects are listed. */
   onAddProject(machine: Chosen): void;
 }) {
-  const machines = useMachines();
+  // Only the window's space's machines (ADR 0206 §2.4).
+  const machines = useMachinesInSpace();
   const navigate = useNavigate();
   const { storage } = useLayout();
   const [chosen, setChosen] = useState<Chosen | undefined>(() => {
