@@ -5,6 +5,9 @@
     "blocklist": {
       "$ref": "https://ace.local/protocol/v1/Signed.json"
     },
+    "notices": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    },
     "official": {
       "$ref": "https://ace.local/protocol/v1/Signed.json"
     },

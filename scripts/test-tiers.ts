@@ -42,6 +42,8 @@ export const nodeOnlySuites = [
   "apps/daemon/src/org-host.process.test.ts",
   // That host's own organization credential (ADR 0206 §2.1), on a backend of its own.
   "apps/daemon/src/org-host-credential.process.test.ts",
+  // That host with a real Spade (ADR 0206): stamps, policy, audit forwarding, binding.
+  "apps/daemon/src/org-host-spade.process.test.ts",
   // `ace bot publish` and the maintainer's signer against the market Worker (ADR 0200 §8, §9):
   // the same harness, so the same reason.
   "apps/daemon/src/cli-bot-publish-market.process.test.ts",

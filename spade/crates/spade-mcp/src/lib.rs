@@ -17,9 +17,10 @@ pub mod serve;
 pub mod stdio;
 
 pub use ask::{AskFuture, Asker, Form, Reply};
+pub use client::{MCP_APP_MIME, MCP_APPS_EXTENSION};
 pub use client::{McpClient, McpConfig};
 pub use errors::ToolsError;
-pub use map::{McpTool, McpToolResult, Part, Risk};
+pub use map::{McpTool, McpToolResult, Part, Risk, page_link, result_json};
 pub use reqwest::header::{HeaderName, HeaderValue};
 pub use secret::Secret;
 pub use stdio::{RestartBudget, StdioCommand};

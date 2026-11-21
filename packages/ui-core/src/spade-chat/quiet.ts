@@ -15,7 +15,6 @@ export type SpadeQuiet =
   /** The bot's panel sent an action, or the person confirmed one there (ADR 0200 §5.2). */
   | { kind: "panel-action"; label: string; by: "page" | "person" }
   | { kind: "checked"; verdict: "done" | "not_yet" | "unchecked"; missing: readonly string[] }
-  | { kind: "worker-started"; worker: string; ace: boolean; name: string }
   | {
       kind: "worker-reported";
       worker: string;
@@ -104,13 +103,6 @@ export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
         plain("Says done, "),
         strong("not checked"),
       ]);
-    case "worker-started":
-      return quiet.ace
-        ? line({ kind: "none" }, [plain("Started "), strong(quiet.name)])
-        : line({ kind: "face", bot: quiet.worker, pose: "idle" }, [
-            plain("Made "),
-            strong(quiet.name),
-          ]);
     case "worker-reported": {
       const words = [
         strong(quiet.name),

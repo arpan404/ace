@@ -640,18 +640,57 @@ impl Engine {
             for agent in &selection.agents {
                 access.insert(agent.clone(), none.clone());
             }
-            Value::Object(access).to_string()
+            Some(Value::Object(access).to_string())
         };
+        // On an org host, a bot arriving on a version its organization's policy blocks arrives
+        // paused, its link saying why, recorded as the policy's step (ADR 0206 §3), all in the
+        // cutover's transaction: it never runs here on that version.
+        let policy = self.org_binding().map(|_| self.org_policy());
+        let blocked = std::cell::RefCell::new(Vec::<String>::new());
+        let links: Vec<(String, LinkMerge<'_>)> = policy
+            .as_ref()
+            .map(|policy| {
+                selection
+                    .agents
+                    .iter()
+                    .map(|agent| {
+                        let (blocked, agent_id) = (&blocked, agent.clone());
+                        let mark = move |held: Option<&str>| {
+                            blocked_link(policy, held).inspect(|_| {
+                                blocked.borrow_mut().push(agent_id.clone());
+                            })
+                        };
+                        let boxed: LinkMerge<'_> = Box::new(mark);
+                        (spade_store::package_key(agent), boxed)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         // A bot that was paused arrives paused, its held wakes and slots with it, in the same
         // transaction: it is never anyone's unpaused.
         let paused = &manifest["extras"]["paused"];
         let pause = |held: Option<&str>| {
-            super::super::pause::merged_pauses(held, paused, &selection.agents)
+            let blocked = blocked.borrow();
+            if !paused.is_object() && blocked.is_empty() {
+                return None;
+            }
+            let carried = if paused.is_object() {
+                super::super::pause::merged_pauses(held, paused, &selection.agents)
+            } else {
+                held.unwrap_or("{}").to_owned()
+            };
+            Some(super::super::pause::with_new_pauses(
+                Some(&carried),
+                &blocked,
+                now,
+            ))
         };
         let mut merges: Vec<spade_store::Merge<'_>> = vec![(APP_ACCESS, &deny)];
-        if paused.is_object() {
-            merges.push((super::super::pause::PAUSED_BOTS, &pause));
+        // The links first: the pauses read which of them the policy blocks.
+        for (key, mark) in &links {
+            merges.push((key.as_str(), mark.as_ref()));
         }
+        merges.push((super::super::pause::PAUSED_BOTS, &pause));
         self.at_point("placed");
         let cutover = Cutover {
             move_id: &entry.id,
@@ -673,7 +712,10 @@ impl Engine {
             arrival: &arrival,
             merges: &merges,
         };
-        match self.store.move_arrive_cutover(&cutover) {
+        let cut = crate::org::acting::acting(Some(spade_core::org::steps::Actor::Policy), || {
+            self.store.move_arrive_cutover(&cutover)
+        });
+        match cut {
             Ok(Ok(_)) => {}
             Ok(Err(problem)) => return Err(self.abandon(&entry.id, &problem)),
             Err(error) => return Err(placing(error.to_string())),
@@ -842,6 +884,24 @@ impl Engine {
 }
 
 /// What needs the person since the bot arrived, as its profile shows it.
+/// One arriving bot's package link as the cutover may change it.
+type LinkMerge<'a> = Box<dyn Fn(Option<&str>) -> Option<String> + 'a>;
+
+/// The link `held` with why `policy` blocks it, if it is a link the policy blocks and isn't
+/// paused for already; `None` leaves it as it is. Pure.
+fn blocked_link(policy: &spade_core::org::Policy, held: Option<&str>) -> Option<String> {
+    let mut link: spade_core::package::link::Link = serde_json::from_str(held?).ok()?;
+    if link.withdrawn.is_some() {
+        return None;
+    }
+    let why = policy.blocked(&link.package.name, &link.package.hash)?;
+    link.withdrawn = Some(spade_core::package::link::Withdrawn {
+        reason: why.chars().take(500).collect(),
+        paused: Vec::new(),
+    });
+    Some(crate::engine::packages::link_text(&link))
+}
+
 fn arrival_json(
     entry: &StoredMove,
     now: i64,

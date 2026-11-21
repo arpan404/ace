@@ -208,6 +208,10 @@ pub fn from_recipe(
     )
     .map_err(invalid)?;
     let package = package.map(|package| envelope::with_code(package, &pins));
+    // An org host installs only what its organization's policy allows (ADR 0206 §3).
+    if let Some(why) = package.as_ref().and_then(|p| engine.org_package_refusal(p)) {
+        return Err(PortableError::Refused(why));
+    }
     let pages = packages::panels::pages(&recipe, &input.pages)
         .map_err(|error| invalid(error.to_string()))?;
     // A package from the market answers the bots' cards that suggested it (ADR 0200 §8).

@@ -14,8 +14,9 @@
 //! - **Any other write** to a shared bot (a message, a grant, its access list, Full access, a
 //!   move): `x-ace-member-request: v1.<ms>.<nonce>.<account>.<hex>` over
 //!   `ace-spade-member-request/1\n<METHOD> <path>\n<hex SHA-256 of the body>\n<account>\n<role>\n<ms>\n<nonce>`,
-//!   with the role signed from `x-ace-member-role` (absent is signed as `member`). The daemon
-//!   doesn't make these yet: until it does, Spade refuses those writes on a shared bot.
+//!   with the role signed from `x-ace-member-role` (absent is signed as `member`), as the
+//!   daemon's `memberRequestStamp` makes it (the vector's `requests`). Spade refuses an
+//!   unstamped write to a shared bot.
 //!
 //! `x-ace-member-name` is recorded only and never authorizes. Each nonce is claimed once in
 //! Spade's store, with the person stamps'.

@@ -1,6 +1,6 @@
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import { expect, it } from "vitest";
-import { GRANT_LIFETIME_MS, standingProofText } from "@ace/account-grant";
+import { GRANT_LIFETIME_MS } from "@ace/account-grant";
 import { ThreadId, type ServerMessage } from "@ace/protocol";
 import type { SpadeAccess } from "./services/spade-session.ts";
 import type { SpadeLink } from "./spade/link.ts";
@@ -12,7 +12,7 @@ import {
   person,
   useAccountBackend,
 } from "./machine-standing-test-support.ts";
-import { helloWith, mia, orgTeamHost } from "./org-host-test-support.ts";
+import { helloWith, mia, orgTeamHost, provesMember } from "./org-host-test-support.ts";
 
 // ADR 0206 §2.1–§2.3 end to end: a real daemon signed in through ace's account backend (the
 // Worker and D1 under Miniflare, against a fake WorkOS), given to an organization by its owner,
@@ -32,7 +32,9 @@ async function recordingSpade(): Promise<{
   const server = createServer((request, response) => {
     request.resume();
     request.on("end", () => {
-      seen.push({ path: request.url ?? "", headers: request.headers });
+      // The daemon's own org-host link keeps Spade bound; only what a socket forwards counts.
+      if (!(request.url ?? "").startsWith("/v1/org"))
+        seen.push({ path: request.url ?? "", headers: request.headers });
       response.writeHead(202, { "content-type": "application/json" });
       response.end("{}");
     });
@@ -79,19 +81,6 @@ async function changesSetting(client: Client): Promise<boolean> {
     if (message.type === "settings.result") return message.ok;
     if (message.type === "error" && message.requestId === "ask") return false;
   }
-}
-
-/** Proves `grant` on `client` with `key`'s signature over its nonce. */
-async function provesMember(
-  client: Client,
-  host: string,
-  nonce: string,
-  grant: string,
-  key: Awaited<ReturnType<typeof deviceKey>>,
-) {
-  const proof = await key.sign(standingProofText({ host, nonce, binding: undefined, grant }));
-  client.send({ type: "account.standing", requestId: "member", grant, proof });
-  return (await answer(client, "account.standing.result")).result;
 }
 
 /** Answers the raised request at `approval` over `client`: what came back. */

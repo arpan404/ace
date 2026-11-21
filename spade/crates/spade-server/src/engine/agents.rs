@@ -366,7 +366,10 @@ impl Engine {
         self.forget_wakes(&conversation);
         let deleted = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let deleted = self.store.delete_agent(id);
+            // A shared bot's deletion is on the host's log, in the same write (ADR 0206 §4.1).
+            let deleted = self
+                .store
+                .delete_agent_audited(id, &self.deleted_entries(id));
             self.forget_activity(&conversation);
             deleted
         };

@@ -26,6 +26,7 @@ import {
   type SpadeCapabilityState,
 } from "./fold-capabilities.ts";
 import type { SpadeQuiet } from "./quiet.ts";
+import { spadeJoinWorkers, type SpadeWorkersEntry } from "./delegations.ts";
 import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
 import { spadeCardChosen, spadeCardShown, type SpadeCardRow } from "./cards.ts";
 import { spadeNoticeSent, type SpadeNoticeRow } from "./notices.ts";
@@ -263,6 +264,8 @@ export type SpadeEntry =
   | ({ kind: "request"; key: string; at?: number } & SpadeRequest)
   /** An event that is nobody's words, as one quiet line where it happened (`spadeQuietLine`). */
   | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number }
+  /** The bots and ace agents one call started, as one card where the first started. */
+  | SpadeWorkersEntry
   /**
    * A card the bot showed (ADR 0200 §5.1): its own row where it was first shown, updated in
    * place by each later version.
@@ -544,8 +547,13 @@ function countWaiting(state: SpadeConversationState, at: number) {
 
 function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored: SpadeStored) {
   const key = `s${stored.seq}`;
-  const capability = foldSpadeCapability(state.capabilities, event, (quiet) =>
-    steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
+  const capability = foldSpadeCapability(
+    state.capabilities,
+    event,
+    (quiet) => steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
+    (call, worker) =>
+      spadeJoinWorkers(state.entries, call, worker) ||
+      steer(state, { kind: "workers", key, call, workers: [worker], ...stamp(stored) }),
   );
   if (capability !== undefined) return capability;
   switch (event.type) {

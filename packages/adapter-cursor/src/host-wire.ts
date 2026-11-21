@@ -1,12 +1,12 @@
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { HostRefusal } from "./host-refusal.ts";
 import { createTextRedactor } from "@ace/redaction";
-import { Console } from "node:console";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
 import { z } from "zod";
 import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
+import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
 
 const Request = z.object({
   id: z.union([z.string().max(128), z.number().int()]),
@@ -23,36 +23,6 @@ const ReplyError = z.object({ message: z.string() });
 function refusal(error: unknown): string {
   const reply = ReplyError.safeParse(error);
   return reply.success ? reply.data.message.slice(0, 512) : "ace refused a Cursor SDK frame";
-}
-const consoleMethods = [
-  "log",
-  "error",
-  "warn",
-  "info",
-  "debug",
-  "dir",
-  "dirxml",
-  "table",
-  "trace",
-  "group",
-  "groupCollapsed",
-  "groupEnd",
-  "count",
-  "countReset",
-  "time",
-  "timeEnd",
-  "timeLog",
-  "assert",
-] as const;
-/**
- * Stdout is the JSON-RPC channel, and stderr is patched to redact and bound each line. Bun's
- * console writes to fds 1 and 2 directly, past both patches, so every console method is sent
- * through the patched stderr instead.
- */
-function routeConsoleToStderr() {
-  const sink = new Console({ stdout: process.stderr, stderr: process.stderr });
-  for (const method of consoleMethods)
-    Object.assign(console, { [method]: sink[method].bind(sink) });
 }
 /** All writes await the shared bounded pipe writer, including onDelta callbacks. */
 export function hostWire(
@@ -82,6 +52,7 @@ export function hostWire(
     oversizedStderr = false;
   };
   process.on("exit", flushStderr);
+  // Stdout is the JSON-RPC channel; console goes through the redacting, bounded stderr below.
   routeConsoleToStderr();
   process.stderr.write = (
     chunk: string | Uint8Array,
