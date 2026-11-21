@@ -8,6 +8,7 @@ import { FileRowMenu } from "./file-menu.tsx";
 import { FileRowItems } from "./file-row-items.tsx";
 import { MiddleName, MiddleText } from "./middle-name.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
+import { writeTreeDrag } from "./use-tree-drag.ts";
 
 /** The id of the match at `index`, for the filter field's `aria-activedescendant`. */
 export const matchId = (list: string, index: number) => `${list}-${index}`;
@@ -74,6 +75,12 @@ export function FileMatches(props: {
               title={clean}
               data-path={path}
               data-state={clean === props.current ? "selected" : undefined}
+              draggable
+              onDragStart={(event) =>
+                writeTreeDrag(event.dataTransfer, props.commands.threadId, [
+                  { path: clean, folder },
+                ])
+              }
               onPointerMove={() => index !== active && props.onActive(index)}
               onClick={(event) => activate(event.altKey ? "side" : "preview")}
               onDoubleClick={() => !folder && activate("keep")}
