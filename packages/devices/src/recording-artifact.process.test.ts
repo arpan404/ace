@@ -32,11 +32,28 @@ it("publishes every part ace-media wrote, in order, under the recording's id, an
   expect((await readdir(root)).toSorted()).toEqual(["r1-2.mp4", "r1.mp4"]);
 });
 
-it("a failed publication still removes the recording's directory", async () => {
-  const { root, artifact } = await recorded(1);
+it("a publication that fails on part 0 deletes no video: every part is still on disk, and the error says where", async () => {
+  const { root, artifact } = await recorded(3);
   const publication = publishDeviceRecording(artifact, root, async () => {
     throw new Error("Thread is gone");
   });
-  await expect(publication).rejects.toThrow("Thread is gone");
-  await expect(readdir(artifact.directory)).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(publication).rejects.toThrow(artifact.directory);
+  // Part 0 was moved to its artifact name before the failure; the rest never left.
+  await expect(readFile(join(root, "r1.mp4"), "utf8")).resolves.toBe("part 0");
+  await expect(readFile(join(artifact.directory, "part-0001.mp4"), "utf8")).resolves.toBe("part 1");
+  await expect(readFile(join(artifact.directory, "part-0002.mp4"), "utf8")).resolves.toBe("part 2");
+});
+
+it("a part ace-media never reported (a stop that timed out) survives, and the result says where it is", async () => {
+  const { root, artifact } = await recorded(2);
+  // Only part 0 was reported before the stop timed out; part 1 is on disk all the same.
+  const reported = { ...artifact, parts: artifact.parts.slice(0, 1) };
+  const result = await publishDeviceRecording(reported, root, async () => {});
+  expect(result).toEqual({
+    id: "r1",
+    bytes: 6,
+    mimeType: "video/mp4",
+    kept: { directory: artifact.directory, files: ["part-0001.mp4"] },
+  });
+  await expect(readFile(join(artifact.directory, "part-0001.mp4"), "utf8")).resolves.toBe("part 1");
 });

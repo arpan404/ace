@@ -18,7 +18,13 @@ export type DeviceRecordingArtifact = {
 };
 
 /** What a published recording reports to its caller. */
-export type PublishedRecording = { id: string; bytes: number; mimeType: string };
+export type PublishedRecording = {
+  id: string;
+  bytes: number;
+  mimeType: string;
+  /** Video ace-media wrote but never reported, left where it is rather than deleted. */
+  kept?: { directory: string; files: string[] };
+};
 
 /** MediaFrame codec 1: H.264 Annex B, a keyframe carrying its parameter sets in front. */
 const H264AnnexB = 1;
@@ -233,7 +239,13 @@ export async function recordDevice(
             bytes: artifact.parts.reduce((sum, part) => sum + part.bytes, 0),
             mimeType: "video/mp4",
           };
-          if (session.bindingEpoch === epoch) session.recordingArtifact = result;
+          if (session.bindingEpoch === epoch) {
+            session.recordingArtifact = result;
+            if (result.kept) {
+              session.recordingNotice = `Part of the recording couldn't be confirmed and wasn't added to the thread; it is kept in ${result.kept.directory}.`;
+              changed();
+            }
+          }
           return result;
         } catch (error) {
           if (session.bindingEpoch === epoch) {

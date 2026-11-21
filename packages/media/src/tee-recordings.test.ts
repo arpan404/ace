@@ -393,3 +393,25 @@ it("a stop during an unexplained ingest loss stays a failure, even when a restar
   m.recordings.message({ type: "record.done", recording: id, parts: [part(0)] });
   await expect(stopping).resolves.toEqual({ ok: false, reason: "ingest-closed", parts: [part(0)] });
 });
+
+it("ingest lost while the stop's barrier is pending stays a failure when ace-media then exits and recovers", async () => {
+  const m = media();
+  m.up();
+  const { recording, id } = await started(m);
+  recording.push(video);
+  m.state.synced = false;
+  const stopping = recording.stop();
+  // The stop is waiting on source.sync when the video drops, with ace-media still running: the
+  // barrier settles false at once and record.stop goes out.
+  m.sockets[0]?.drop();
+  await m.clock.advance(0);
+  expect(m.types()).toContain("record.stop");
+  // Then, inside the loss's grace, ace-media exits before answering it, and comes back to
+  // recover the part.
+  m.crash();
+  m.up();
+  await m.clock.advance(200);
+  m.recordings.message({ type: "record.part", recording: id, ...part(0) });
+  m.recordings.message({ type: "record.done", recording: id, parts: [] });
+  await expect(stopping).resolves.toEqual({ ok: false, reason: "ingest-closed", parts: [part(0)] });
+});

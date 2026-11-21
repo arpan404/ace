@@ -316,6 +316,12 @@ export class TeeRecording implements ActiveRecording {
   /** The ingest connection went away: unless ace-media accepts a replacement in time, it fails. */
   #lost(reason: string): void {
     if (this.#done || this.#loss || this.#failure) return;
+    // Lost during a stop while ace-media still runs: latched now, before an exit could make it
+    // look explained and a replay clear it.
+    if (this.#stopping && !this.#down) {
+      this.#failure = reason;
+      return;
+    }
     // Lost while ace-media is already down: the restart may replace it.
     const restarting = this.#down;
     this.#loss = {
