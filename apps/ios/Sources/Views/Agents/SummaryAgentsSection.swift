@@ -3,7 +3,8 @@ import SwiftUI
 /// The Summary's agents, ordered for a phone: who waits on the person first, each with its ask and
 /// Answer; then what works, its provider's mark and what it does in one line with its running
 /// time; then what failed, in the failure colour; then the finished folded into one "N done" line
-/// that opens in place. A nested agent indents under one above it in its group, two levels at
+/// that opens in place, and the agents whose status isn't loaded yet folded into "N more agents",
+/// so a long tree never reads as a wall of "Not loaded". A nested agent indents under one above it in its group, two levels at
 /// most; past that, or when its parent sits in another group, it names its parent. The whole tree
 /// is one more tap away. The grouping and every word are the bridge's (`summaryAgents` in
 /// ui-core), so phone and desktop never disagree on an agent's state.
@@ -15,16 +16,30 @@ struct SummaryAgentsSection: View {
     let openTree: (() -> Void)?
     /// Tells the bridge the fold opened or closed: its rows cross only while it is open.
     let foldDone: (Bool) -> Void
+    /// The same for the fold of agents not loaded yet.
+    let foldUnsure: (Bool) -> Void
     @State private var showDone = false
+    @State private var showUnsure = false
 
     var body: some View {
         QuietSection("Agents") {
             ForEach(agents.asks) { agent in SummaryAgentRow(agent: agent, open: { open(agent) }) }
             ForEach(agents.working) { agent in SummaryAgentRow(agent: agent, open: { open(agent) }) }
             ForEach(agents.failed) { agent in SummaryAgentRow(agent: agent, open: { open(agent) }) }
-            if let words = agents.doneWords { doneFold(words) }
+            if let words = agents.doneWords {
+                SummaryAgentsFold(words: words, icon: "done", hint: "the finished agents", id: "summary.agents.done",
+                                  shown: $showDone, changed: foldDone)
+            }
             if showDone {
                 ForEach(agents.done) { agent in SummaryAgentRow(agent: agent, open: { open(agent) }) }
+            }
+            if let words = agents.unsureWords {
+                SummaryAgentsFold(words: words, detail: "Status not loaded yet", icon: "waiting",
+                                  hint: "the agents not loaded yet", id: "summary.agents.unsure",
+                                  shown: $showUnsure, changed: foldUnsure)
+            }
+            if showUnsure {
+                ForEach(agents.unsure ?? []) { agent in SummaryAgentRow(agent: agent, open: { open(agent) }) }
             }
             if let openTree {
                 // Rows past the bridge's budget are counted here; the tree has them all.
@@ -37,30 +52,51 @@ struct SummaryAgentsSection: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("summary.agentList")
     }
+}
 
-    private func doneFold(_ words: String) -> some View {
+/// A fold over a group of agent rows ("12 done", "173 more agents"), opening in place: the
+/// bridge sends its rows only while it is open.
+private struct SummaryAgentsFold: View {
+    let words: String
+    var detail: String? = nil
+    /// The status icon it shows, muted.
+    let icon: String
+    /// What it shows or hides, for VoiceOver ("the finished agents").
+    let hint: String
+    let id: String
+    @Binding var shown: Bool
+    let changed: (Bool) -> Void
+
+    var body: some View {
         Button {
-            withAnimation(.default) { showDone.toggle() }
-            foldDone(showDone)
+            withAnimation(.default) { shown.toggle() }
+            changed(shown)
         } label: {
             QuietSectionRow {
-                RowStatusIcon(kind: "done", tone: "muted")
+                RowStatusIcon(kind: icon, tone: "muted")
                     .frame(minWidth: AceDesign.Size.lead)
                     .accessibilityHidden(true)
-                Text(words).aceFont(AceDesign.TextRole.rowTitle)
-                    .foregroundStyle(AceDesign.Ink.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
+                    Text(words).aceFont(AceDesign.TextRole.rowTitle)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                    if let detail {
+                        Text(detail).aceFont(AceDesign.TextRole.meta)
+                            .foregroundStyle(AceDesign.Ink.subtle)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 AceIcon(.caretDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                     .foregroundStyle(AceDesign.Ink.subtle)
-                    .rotationEffect(.degrees(showDone ? 180 : 0))
+                    .rotationEffect(.degrees(shown ? 180 : 0))
                     .accessibilityHidden(true)
             }
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(words)
-        .accessibilityValue(showDone ? "Shown" : "Hidden")
-        .accessibilityHint(showDone ? "Hides the finished agents" : "Shows the finished agents")
-        .accessibilityIdentifier("summary.agents.done")
+        .accessibilityValue(shown ? "Shown" : "Hidden")
+        .accessibilityHint(shown ? "Hides \(hint)" : "Shows \(hint)")
+        .accessibilityIdentifier(id)
     }
 }
 

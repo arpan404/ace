@@ -1,5 +1,6 @@
 import type { Interaction, Item } from "@ace/protocol";
 import type { AgentForest, AgentForestNode, ForestNode, ThreadWork } from "./agent-forest.ts";
+import { attentionOrder } from "./agent-order.ts";
 import { agentOutcome } from "./agent-prs.ts";
 import { agentStep } from "./agent-step.ts";
 import { isRunning } from "./agents.ts";
@@ -11,7 +12,9 @@ import { askWords } from "./summary-now.ts";
 /*
  * The Summary's agents, as words and as groups. `forestAgentWords` is what one agent row says
  * (the web's tree and the phone's groups read the same words); `summaryAgents` sorts the tree
- * for a phone: who waits on the person first, then what works, what failed, and what finished.
+ * for a phone: who waits on the person first, then what works, what failed, what finished, and
+ * apart from them the settled-looking agents whose facts aren't loaded or confirmed yet. Within
+ * a group siblings read newest first, as the Agents page lists them (`attentionOrder`).
  * Pure: the forest is built by `agentForest`, which already keeps every branch with live work
  * under it out of done.
  */
@@ -105,7 +108,7 @@ export function forestAgentWords(
   };
 }
 
-export type SummaryAgentGroup = "asks" | "working" | "failed" | "done";
+export type SummaryAgentGroup = "asks" | "working" | "failed" | "done" | "unsure";
 
 export interface SummaryAgentEntry {
   node: AgentForestNode;
@@ -126,6 +129,11 @@ export interface SummaryAgents {
   working: SummaryAgentEntry[];
   failed: SummaryAgentEntry[];
   done: SummaryAgentEntry[];
+  /**
+   * Settled-looking, but its facts (or something under it) aren't loaded or confirmed yet: maybe
+   * working again, so never done, yet nothing says it works. A long tree has many of these.
+   */
+  unsure: SummaryAgentEntry[];
   /** Every agent listed. */
   total: number;
   /** Those in `done`. */
@@ -145,17 +153,31 @@ function groupOf(node: AgentForestNode, request: Interaction | undefined): Summa
   // A request on a copy that isn't current may already be answered: it waits with the rest.
   if (!node.stale && (request || (status.state === "blocked" && status.on === "human")))
     return "asks";
-  // Live work under it, or facts not confirmed: never done.
-  if (node.live || node.stale) return "working";
+  if (node.live) return "working";
+  // Its own facts behind: whatever they last said, it may be working again.
+  if (node.stale) return "unsure";
   if (troubled(node)) return "failed";
-  if (node.unconfirmed) return "working";
+  // A remote child in doubt says why in its own words, among the working.
+  if (node.unconfirmed) return remoteContactStep(node.agent) ? "working" : "unsure";
   return "done";
 }
 
+/** Siblings as a phone reads them: needs you, working, then the rest newest first. */
+const bySiblingOrder = attentionOrder(
+  (node: AgentForestNode) => node,
+  (node) => node.agent.createdAt,
+);
+const agentsOf = (nodes: readonly ForestNode[]) =>
+  nodes
+    .filter((node): node is AgentForestNode => node.kind === "agent")
+    // Reversed before the stable sort, so agents started in the same millisecond read latest first.
+    .toReversed()
+    .toSorted(bySiblingOrder);
+
 /**
  * The tree for a phone's Summary: every agent but the thread's own main agent (the page is
- * that agent), sorted into who waits on the person, what works, what failed and what finished,
- * each in tree order. A row indents under agents above it in its own group, up to
+ * that agent), sorted into who waits on the person, what works, what failed, what finished and
+ * what isn't known yet, each depth first with siblings newest first. A row indents under agents above it in its own group, up to
  * `summaryIndentLimit`; past that, or when its parent sits in another group, it names its parent.
  * Undefined when there is no agent besides the main one.
  */
@@ -170,13 +192,19 @@ export function summaryAgents(
     working: [],
     failed: [],
     done: [],
+    unsure: [],
   };
   /** The listed agents above the one being placed, with the group each went to. */
   const above: { node: AgentForestNode; group: SummaryAgentGroup }[] = [];
   /** How many of `above` sit in each group, kept as the walk goes down and back up. */
-  const inGroup: Record<SummaryAgentGroup, number> = { asks: 0, working: 0, failed: 0, done: 0 };
-  const visit = (node: ForestNode) => {
-    if (node.kind !== "agent") return;
+  const inGroup: Record<SummaryAgentGroup, number> = {
+    asks: 0,
+    working: 0,
+    failed: 0,
+    done: 0,
+    unsure: 0,
+  };
+  const visit = (node: AgentForestNode) => {
     const request = forestRequest(node, requests);
     const group = groupOf(node, request);
     const parent = above.at(-1);
@@ -192,17 +220,22 @@ export function summaryAgents(
     });
     above.push({ node, group });
     inGroup[group]++;
-    for (const child of node.children) visit(child);
+    for (const child of agentsOf(node.children)) visit(child);
     inGroup[group]--;
     above.pop();
   };
   for (const root of forest.roots) {
-    const main =
-      root.kind === "agent" && root.threadId === threadId && root.agent.origin === "root";
-    if (main) for (const child of root.children) visit(child);
+    if (root.kind !== "agent") continue;
+    const main = root.threadId === threadId && root.agent.origin === "root";
+    if (main) for (const child of agentsOf(root.children)) visit(child);
     else visit(root);
   }
-  const total = lists.asks.length + lists.working.length + lists.failed.length + lists.done.length;
+  const total =
+    lists.asks.length +
+    lists.working.length +
+    lists.failed.length +
+    lists.done.length +
+    lists.unsure.length;
   if (!total) return undefined;
   return { ...lists, total, finished: lists.done.length };
 }
