@@ -2,6 +2,7 @@ import type { MarketEntryDetail, MarketReview } from "@ace/protocol/marketplace"
 import { expect, test } from "vitest";
 import {
   andList,
+  changeTitle,
   canDoSentences,
   entryAction,
   failureSentence,
@@ -16,6 +17,8 @@ import {
   replacesLine,
   reviewFromLine,
   reviewHeading,
+  runDetail,
+  runTitle,
   sizeText,
   typeWord,
 } from "./index.ts";
@@ -209,4 +212,17 @@ test("Install waits with a sentence naming each required app left off", () => {
   expect(missingNeedsSentence("Inbox", ["Gmail", "Slack"])).toBe(
     "Inbox can't work without Gmail and Slack.",
   );
+});
+
+test("a plugin's runs and an update's changes read as rows", () => {
+  expect(runTitle({ kind: "stdio", name: "notes", command: "node", args: ["s.js"] } as never)).toBe(
+    "Server notes",
+  );
+  expect(
+    runDetail({ kind: "stdio", name: "notes", command: "node", args: ["s.js"] } as never),
+  ).toBe("node s.js");
+  expect(runDetail({ kind: "remote", name: "search", url: "https://x.dev/mcp" } as never)).toBe(
+    "https://x.dev/mcp",
+  );
+  expect(changeTitle({ change: "added", path: "run.sh" })).toBe("Added run.sh");
 });

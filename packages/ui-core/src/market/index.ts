@@ -29,4 +29,5 @@ export {
   reviewFromLine,
   reviewHeading,
 } from "./review.ts";
+export { changeTitle, runDetail, runTitle } from "./review-items.ts";
 export { andList, count, dateText, flaggedWord, readAtText, sentence, sizeText } from "./words.ts";

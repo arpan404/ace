@@ -5,6 +5,7 @@
 export {
   andList,
   canDoSentences,
+  changeTitle,
   count,
   dateText,
   entryAction,
@@ -21,6 +22,8 @@ export {
   reviewAction,
   reviewFromLine,
   reviewHeading,
+  runDetail,
+  runTitle,
   sizeText,
   typeWord,
   type MarketStep,
