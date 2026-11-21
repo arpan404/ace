@@ -1,9 +1,13 @@
 import { Fragment, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
-import type { GroupNode, SplitNode, NodePath } from "@ace/ui-core/editor-workbench";
-
-/** A group never gets narrower or shorter than this by dragging an edge. */
-const minGroupPx = 160;
+import {
+  groupMinHeight,
+  groupMinWidth,
+  roomNeeded,
+  type GroupNode,
+  type SplitNode,
+  type NodePath,
+} from "@ace/ui-core/editor-workbench";
 
 /**
  * The editor area's split tree: each split lays its children out by weight, with an edge
@@ -34,7 +38,17 @@ export function SplitGrid(props: {
               onEven={() => props.onEven(path)}
             />
           )}
-          <div className="flex min-h-0 min-w-0" style={{ flex: `${node.sizes[index] ?? 1} 1 0px` }}>
+          <div
+            className="flex min-h-0 min-w-0"
+            style={{
+              flex: `${node.sizes[index] ?? 1} 1 0px`,
+              // The split shows only while every group has its room (spec 5), so each child
+              // keeps that room whatever its stored share.
+              ...(row
+                ? { minWidth: roomNeeded(child).width }
+                : { minHeight: roomNeeded(child).height }),
+            }}
+          >
             <SplitGrid
               node={child}
               path={[...path, index]}
@@ -66,7 +80,9 @@ function SplitEdge(props: {
   const shift = (from: readonly number[], delta: number, px: number) => {
     const a = from[props.before] ?? 0;
     const b = from[props.before + 1] ?? 0;
-    const floor = px > 0 ? (minGroupPx / px) * total : 0;
+    // A group never gets narrower or shorter by dragging than the room it shows in.
+    const least = props.row ? groupMinWidth : groupMinHeight;
+    const floor = px > 0 ? (least / px) * total : 0;
     const moved = Math.min(Math.max(delta, floor - a), b - floor);
     const next = [...from];
     next[props.before] = a + moved;
