@@ -74,6 +74,14 @@ export const MarketGrantClaims = GrantClaims.extend({
     .string()
     .regex(/^org_[A-Za-z0-9]{1,64}$/)
     .optional(),
+  /**
+   * The account's role in `org`, as that same WorkOS answer gave it (a role slug; authorize with
+   * `@ace/account-grant/org-roles`). The market reads it for who may publish to the
+   * organization's registry or change its key (ADR 0206 §5.1). Only with `org`.
+   */
+  orgRole: z.string().min(1).max(64).optional(),
+}).refine((claims) => claims.orgRole === undefined || claims.org !== undefined, {
+  message: "An organization role comes with its organization",
 });
 export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
 /** The market grant's issuer, `cloud.acehq.dev`, unless a deployment configures its own. */
@@ -292,7 +300,7 @@ function signClaims(claims: object, key: GrantSigningKey): string {
 
 export function signMarketGrant(
   claims: Omit<GrantClaims, "v" | "kid"> &
-    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action" | "org">,
+    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action" | "org" | "orgRole">,
   key: GrantSigningKey,
 ): string {
   const full = MarketGrantClaims.parse({
@@ -408,6 +416,15 @@ export function verifyMarketGrant(
   const claims = verifySigned(token, keys, now, undefined, MarketGrantClaims);
   if (claims.iss !== issuer) throw new GrantError("Wrong grant issuer");
   return claims;
+}
+
+/**
+ * A market grant's claims as the backend signed them, whatever its lifetime: for a device
+ * reading, long after, an owner's grant kept as the countersignature of the request it named
+ * (ADR 0206 §5.3). It proves the backend minted those claims, never that they still hold.
+ */
+export function verifyMarketGrantSignature(token: string, keys: GrantKeySet): MarketGrantClaims {
+  return verifySignature(token, keys, MarketGrantClaims);
 }
 
 /** A signed statement's claims, once its signature verified against a published key. */

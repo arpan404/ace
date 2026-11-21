@@ -4,7 +4,9 @@ import type {
   MarketPublisher,
   Signed,
 } from "@ace/protocol/marketplace";
+import { GRANT_LIFETIME_MS, signMarketGrant, type GrantSigningKey } from "@ace/account-grant";
 import { writeArchive, type ArchiveFile } from "./archive.ts";
+import { registryKeyAction, signRegistryKey } from "./registry.ts";
 import { contentHash, hashFiles } from "./hash.ts";
 import {
   marketPublicKey,
@@ -172,6 +174,8 @@ export function signedVersion(input: {
   reviewed?: boolean;
   byAce?: boolean;
   published?: number;
+  /** Signed for this organization's registry (ADR 0206 §5.2). */
+  registry?: string;
 }): SignedVersion {
   const key = input.key ?? testKey();
   const hashed = hashFiles(input.files);
@@ -189,6 +193,7 @@ export function signedVersion(input: {
       size: hashed.reduce((sum, file) => sum + file.bytes, 0),
       published: input.published ?? 1_700_000_000_000,
       key: key.id,
+      ...(input.registry ? { registry: input.registry } : {}),
     },
     key,
   );
@@ -256,4 +261,56 @@ export function signedWithdrawn(
     },
     key,
   );
+}
+
+/**
+ * A registry key as the market serves it (ADR 0206 §5.3): the upload, signed by the key and, after
+ * the first, by `previous`, with an owner's grant naming it, signed by `grantKey`.
+ */
+export function registryLink(input: {
+  org: string;
+  position: number;
+  key: MarketSigningKey;
+  previous?: MarketSigningKey;
+  owner: string;
+  at: number;
+  grantKey: GrantSigningKey;
+  /** The owner's role as the grant carries it; `owner` unless a test says otherwise. */
+  role?: string;
+  issuer?: string;
+}): { upload: string; grant: string } {
+  const own = marketPublicKey(input.key);
+  const upload = JSON.stringify(
+    signRegistryKey(
+      {
+        format: "ace-registry-key",
+        org: input.org,
+        position: input.position,
+        key: own.id,
+        publicKey: own.publicKey,
+        ...(input.previous ? { previous: input.previous.id } : {}),
+        addedBy: input.owner,
+        at: input.at,
+      },
+      input.key,
+      input.previous,
+    ),
+  );
+  const grant = signMarketGrant(
+    {
+      kind: "device",
+      account: input.owner,
+      subject: "owner-laptop",
+      iss: input.issuer ?? "cloud.acehq.dev",
+      emailVerified: true,
+      authAt: input.at,
+      iat: input.at,
+      exp: input.at + GRANT_LIFETIME_MS,
+      action: registryKeyAction(input.org, upload),
+      org: input.org,
+      orgRole: input.role ?? "owner",
+    },
+    input.grantKey,
+  );
+  return { upload, grant };
 }

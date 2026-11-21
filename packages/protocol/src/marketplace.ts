@@ -26,6 +26,7 @@ import {
   PackageTrigger,
 } from "./marketplace-package.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
+import { MarketKeyId, MarketOrgId } from "./marketplace-signed.ts";
 
 export * from "./marketplace-base.ts";
 export * from "./marketplace-publish-pick.ts";
@@ -37,6 +38,7 @@ export * from "./marketplace-publisher.ts";
 export * from "./marketplace-scan.ts";
 export * from "./marketplace-service.ts";
 export * from "./marketplace-signed.ts";
+export * from "./marketplace-registry.ts";
 
 /*
  * ace's marketplace on the wire (ADR 0168): the entry model both sources produce, the review a
@@ -82,6 +84,13 @@ export const MarketInstalled = z.strictObject({
    * bot's turn ends. `version` above stays the one running until then.
    */
   held: z.strictObject({ version: z.string().max(64) }).optional(),
+  /** From this organization's private registry (ADR 0206 §5.4), not the public market. */
+  registry: MarketOrgId.optional(),
+  /**
+   * Why its updates stopped, as a sentence: the account here is no longer a member of the
+   * registry's organization. It stays installed and on; nothing was deleted.
+   */
+  updatesStopped: z.string().max(300).optional(),
 });
 export type MarketInstalled = z.infer<typeof MarketInstalled>;
 
@@ -375,7 +384,31 @@ export const MarketOperation = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("home") }),
   z.strictObject({ op: z.literal("read"), ...entryKey }),
-  z.strictObject({ op: z.literal("prepare"), ...entryKey, version: MarketVersion.optional() }),
+  z.strictObject({
+    op: z.literal("prepare"),
+    ...entryKey,
+    version: MarketVersion.optional(),
+    /**
+     * An entry of this organization's private registry (ADR 0206 §5.4), read with the message's
+     * `orgGrant`. Only the market source has registries.
+     */
+    registry: MarketOrgId.optional(),
+    /**
+     * The person trusts the registry's key chain starting at this key on this machine (ADR 0206
+     * §5.3): their answer to `registry_trust`. Needed once per chain.
+     */
+    trustKey: MarketKeyId.optional(),
+  }),
+  /**
+   * Reads which installed entries of an organization's registry have newer versions, with the
+   * message's `orgGrant`; a valid one also resumes updates stopped earlier.
+   */
+  z.strictObject({ op: z.literal("registryRefresh"), registry: MarketOrgId }),
+  /**
+   * The account here is no longer a member of the organization: its registry's installs stop
+   * updating and stay as they are (ADR 0206 §5.4). It only narrows, so any client may say it.
+   */
+  z.strictObject({ op: z.literal("registryLeft"), registry: MarketOrgId }),
   z.strictObject({
     op: z.literal("readReview"),
     id: MarketReviewId,
@@ -477,6 +510,17 @@ export const MarketErrorCode = z.enum([
    * with it as `personGrant`.
    */
   "person_grant",
+  /**
+   * An organization's registry needs a fresh proof of membership (ADR 0206 §5.3): the client
+   * sends the request again with an `orgGrant` for that organization, or the account isn't a
+   * member.
+   */
+  "not_member",
+  /**
+   * The device hasn't trusted this registry's key chain yet, or its first key was reset: the
+   * person answers with `trustKey`. `registryKey` names the key.
+   */
+  "registry_trust",
 ]);
 
 export const MarketResult = z.discriminatedUnion("op", [
@@ -532,6 +576,17 @@ export const MarketResult = z.discriminatedUnion("op", [
     request: z.string().max(200).optional(),
     /** For `person_grant`: the market request, `METHOD /path`, a person's grant must name. */
     action: z.string().min(1).max(512).optional(),
+    /** For `registry_trust`: the first key of the chain to trust, who added it and when. */
+    registryKey: z
+      .strictObject({
+        org: MarketOrgId,
+        key: MarketKeyId,
+        addedBy: z.string().max(128),
+        at: z.number().int().nonnegative(),
+        /** A device that trusted another first key before: the chain was reset. */
+        reset: z.boolean(),
+      })
+      .optional(),
   }),
 ]);
 export type MarketResult = z.infer<typeof MarketResult>;
@@ -550,6 +605,12 @@ export const MarketClientMessage = z.strictObject({
    * call (ADR 0190): the market takes a sensitive action only with it. Never a machine's.
    */
   personGrant: z.string().min(1).max(4096).optional(),
+  /**
+   * A market grant acting in an organization (`org` claim), which the client got with the
+   * person's own session after the account backend's fresh membership check (ADR 0206 §5.3). The
+   * daemon reads that organization's registry with it, and installs from it only with it.
+   */
+  orgGrant: z.string().min(1).max(4096).optional(),
 });
 export type MarketClientMessage = z.infer<typeof MarketClientMessage>;
 

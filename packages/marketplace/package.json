@@ -12,6 +12,7 @@
     "./profile": "./src/profile.ts",
     "./image": "./src/image.ts",
     "./signer": "./src/signer.ts",
+    "./registry": "./src/registry.ts",
     "./testing": "./src/testing.ts"
   },
   "scripts": {

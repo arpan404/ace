@@ -17,6 +17,10 @@ import {
 export const MarketKeyId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const Signature = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
+/** An Ed25519 public key and signature, base64url. */
+export { PublicKey as MarketPublicKey, Signature as MarketSignature };
+/** A WorkOS organization id, ace's org id (ADR 0206 §1.1). */
+export const MarketOrgId = z.string().regex(/^org_[A-Za-z0-9]{1,64}$/);
 
 /** The market's public keys a build ships: two at a time, so one can rotate. */
 export const MarketKeySet = z.object({
@@ -43,6 +47,12 @@ export const VersionManifest = z.strictObject({
   size: z.number().int().nonnegative(),
   published: z.number().int().nonnegative(),
   key: MarketKeyId,
+  /**
+   * An organization's private registry signed this, with its own key (ADR 0206 §5.2): the
+   * version is the organization's, verified against its pinned key chain, never ace's keys.
+   * Absent on everything the market's signer signs.
+   */
+  registry: MarketOrgId.optional(),
 });
 export type VersionManifest = z.infer<typeof VersionManifest>;
 
