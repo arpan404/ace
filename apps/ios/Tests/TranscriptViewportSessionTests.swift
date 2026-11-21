@@ -340,6 +340,16 @@ import Testing
         #expect(controller.sessionRestoreFraction(viewport: 800, topInset: 100, bottomInset: 100, rowHeight: 50) == -0.1)
     }
 
+    @Test func aRowNearlyAsTallAsTheScreenIsNeverPlacedByAnAnchorFraction() {
+        // A long chat answer 590 tall in 600 that shows, its top 300 above the header: the
+        // fraction would be -30, so one point of measuring error would land it 30 points off,
+        // and each correction would throw the reader again.
+        #expect(TranscriptAnchorPlacement.fraction(top: -300, viewport: 800, topInset: 100, bottomInset: 100, rowHeight: 590) == nil)
+        #expect(TranscriptAnchorPlacement.fraction(top: -300, viewport: 800, topInset: 100, bottomInset: 100, rowHeight: 610) == nil)
+        // A row well clear of the screen's height still has one.
+        #expect(TranscriptAnchorPlacement.fraction(top: -300, viewport: 800, topInset: 100, bottomInset: 100, rowHeight: 1_350) == 0.4)
+    }
+
     @Test func layoutChangesKeepTheSavedMessageAndPixelOffset() {
         var controller = TranscriptViewportController()
         controller.userLeftEnd()

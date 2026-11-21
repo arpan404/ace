@@ -21,11 +21,13 @@ struct TranscriptFeedRow: Identifiable {
 /// Changing `stack` lays every row out again (ADR 0157).
 struct TranscriptRowsStack<Content: View>: View {
     let stack: TranscriptStackChoice.Stack
+    /// Between rows; the transcript's rows carry their own room.
+    var spacing: CGFloat = AceTheme.Spacing.none
     @ViewBuilder let content: () -> Content
     var body: some View {
         switch stack {
-        case .eager: VStack(alignment: .leading, spacing: AceTheme.Spacing.none, content: content)
-        case .lazy: LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none, content: content)
+        case .eager: VStack(alignment: .leading, spacing: spacing, content: content)
+        case .lazy: LazyVStack(alignment: .leading, spacing: spacing, content: content)
         }
     }
 }
