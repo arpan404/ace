@@ -118,8 +118,11 @@ impl ConnectorCall {
         .max();
         Mcp {
             read_only: self.def.risk == Risk::Read,
+            destructive: self.def.risk == Risk::Destructive,
             annotated: self.tool.tool.annotated,
             declared,
+            // Only an entry ace reviewed vouches for its server's annotations (ADR 0202 §2).
+            trusted: entry.is_some_and(|entry| entry.trusted_annotations),
         }
     }
 }
@@ -241,6 +244,7 @@ mod tests {
                     read_only,
                     annotated: true,
                     declared,
+                    ..Mcp::default()
                 });
                 assert_eq!(effect, Some(want), "{id} read_only={read_only}");
             }

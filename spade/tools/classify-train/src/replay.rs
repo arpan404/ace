@@ -300,6 +300,9 @@ pub fn replay(calls: &[Call], model: &Model, decide: Decide<'_>, with_workspace:
                     // ace's own tools: none reaches a server as an app's tool does.
                     remote: false,
                     classifier: true,
+                    ceiling: None,
+                    command: None,
+                    destructive: false,
                 });
                 // ace's tools declare what they do: the classifier isn't shown them.
                 count_route(&mut o, &route);
@@ -363,6 +366,9 @@ fn shell_call(
         mode: autonomy::Mode::AutoReview,
         remote: false,
         classifier: true,
+        ceiling: None,
+        command: None,
+        destructive: false,
     });
     let Route::Review(concern) = route else {
         count_route(o, &route);

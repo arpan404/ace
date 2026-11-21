@@ -233,6 +233,7 @@ impl Tool for FakeTool {
             declared: self
                 .declared
                 .or(annotated.then_some(spade_core::effect::Effect::Network)),
+            ..spade_core::effect::Mcp::default()
         })
     }
 

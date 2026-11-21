@@ -33,6 +33,7 @@ fn full(tool: &str, effect: Option<Effect>) -> Call<'_> {
         classifier: true,
         ceiling: None,
         command: None,
+        destructive: false,
     }
 }
 

@@ -318,6 +318,7 @@ fn call(family: &ToolFamily, base: &str, half: Half, held_style: bool, rng: &mut
             read_only,
             annotated: rng.chance(0.8),
             declared,
+            ..Mcp::default()
         },
     }
 }
