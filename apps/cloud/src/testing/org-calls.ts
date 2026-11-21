@@ -3,6 +3,7 @@ import {
   ORG_ENROLL_LIFETIME_MS,
   machineCredentialProof,
   orgEnrollProof,
+  orgHostCredentialProof,
 } from "@ace/account-grant/machine-proof";
 import { hostId, keyPair } from "@ace/secure-channel";
 import type { WorkosUser } from "./fake-workos.ts";
@@ -128,6 +129,29 @@ export function orgCalls(http: string) {
         hostKey: encodeBase64url(box.host.publicKey),
         proof: orgEnrollProof({ hostPrivateKey: box.host.privateKey, exchangeKey, consent: terms }),
       };
+    },
+    /**
+     * `box`'s request for `credential` as its organization credential in `org` (ADR 0206 §2.1),
+     * proven with its host key (or `proofHost`'s, to forge one) at `at`; the status and body.
+     */
+    async orgCredential(
+      box: { hostId: string; host: ReturnType<typeof keyPair> },
+      org: string,
+      credential: string,
+      options: { at?: number; proofHost?: ReturnType<typeof keyPair> } = {},
+    ) {
+      const at = options.at ?? Date.now();
+      const exchangeKey = (await keys()).exchangeKey ?? "";
+      return call(undefined, "POST", `/v1/orgs/${org}/hosts/${box.hostId}/credential`, {
+        hostKey: encodeBase64url(box.host.publicKey),
+        credential,
+        at,
+        proof: orgHostCredentialProof({
+          hostPrivateKey: (options.proofHost ?? box.host).privateKey,
+          exchangeKey,
+          terms: { hostId: box.hostId, org, credential, at },
+        }),
+      });
     },
     /** Enrolls `box` into `org` with `consent`; the status and body. */
     enroll: (token: string, org: string, box: { hostId: string }, consent: unknown) =>

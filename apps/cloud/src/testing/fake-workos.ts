@@ -186,6 +186,14 @@ export async function fakeWorkos() {
     fail(mode?: "invalid_grant" | "unavailable") {
       failure = mode;
     },
+    /**
+     * Revokes every session of one user, as WorkOS does when the user is deactivated or their
+     * directory deprovisions them: each of their refresh tokens is refused from then on.
+     */
+    revokeSessions(userId: string) {
+      for (const [token, user] of refreshTokens)
+        if (user.id === userId) refreshTokens.delete(token);
+    },
     /** Holds the next code exchange until `release`; resolves once WorkOS has it. */
     hold() {
       const held = Promise.withResolvers<void>();
