@@ -107,7 +107,7 @@ export function parseSpadeCaseReview(body: string): readonly SpadeCaseReviewLine
     ...given.messages.map((text, i) => ({ key: `given:${i}`, label: "Asked", text })),
     ...results.map((r, i) => ({
       key: `answer:${i}`,
-      label: r.is_error ? `${r.tool} failed` : r.tool,
+      label: r.is_error ? `${r.tool || "Outside answer"} failed` : r.tool || "Outside answer",
       text: r.content,
     })),
     { key: "outcome", label: "Answered", text: outcome.text },

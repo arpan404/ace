@@ -107,6 +107,7 @@ describe("a bot's cases", () => {
           tool_results: [
             { tool: "lookup", content: "Order ••• ships Friday" },
             { tool: "mail", content: "timed out", is_error: true },
+            { tool: "", content: "Proposed." },
           ],
           outcome: { text: "It ships Friday." },
         },
@@ -116,6 +117,7 @@ describe("a bot's cases", () => {
       "Asked: Where is my order?",
       "lookup: Order ••• ships Friday",
       "mail failed: timed out",
+      "Outside answer: Proposed.",
       "Answered: It ships Friday.",
     ]);
   });
