@@ -197,7 +197,9 @@ impl Scan<'_> {
             })));
         }
         if let Verdict::Blocked(reason) =
-            self.catalog.crashes.verdict(&home.id, &name, (self.now)())
+            self.catalog
+                .crashes
+                .verdict(&home.id, &name, Some(&fp), (self.now)())
         {
             self.tally.unsupported(&home.id, &reason);
             self.tally.skipped += 1;
@@ -216,7 +218,7 @@ impl Scan<'_> {
         let now = (self.now)();
         // Suspects from a crashed scan are read on their own, so another crash names its cause.
         let (alone, together): (Vec<PathBuf>, Vec<PathBuf>) = paths.into_iter().partition(|p| {
-            self.catalog.crashes.verdict(&home.id, &text(p), now) == Verdict::Isolate
+            self.catalog.crashes.verdict(&home.id, &text(p), None, now) == Verdict::Isolate
         });
         for path in alone {
             let write = match self.precheck(home, &path) {
@@ -228,6 +230,7 @@ impl Scan<'_> {
                         &home.id,
                         &name,
                         Mark::Verifying,
+                        &job.fingerprint,
                     )?;
                     let outcome = self.read_jobs(home, std::slice::from_ref(&job));
                     self.catalog
@@ -253,9 +256,13 @@ impl Scan<'_> {
             let group: Vec<Job> = jobs.by_ref().take(16).collect();
             self.catalog.transaction(|catalog| {
                 for job in &group {
-                    catalog
-                        .crashes
-                        .mark(&catalog.db, &home.id, &text(&job.path), Mark::Reading)?;
+                    catalog.crashes.mark(
+                        &catalog.db,
+                        &home.id,
+                        &text(&job.path),
+                        Mark::Reading,
+                        &job.fingerprint,
+                    )?;
                 }
                 Ok(())
             })?;

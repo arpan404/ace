@@ -82,7 +82,10 @@ fn database(scan: &mut Scan<'_>, home: &Home, epoch: i64, path: &std::path::Path
         }
         return Ok(());
     }
-    let verdict = scan.catalog.crashes.verdict(&home.id, &name, now);
+    let verdict = scan
+        .catalog
+        .crashes
+        .verdict(&home.id, &name, Some(&fp), now);
     if let Verdict::Blocked(reason) = &verdict {
         scan.catalog.preserve_path(&home.id, &name, epoch)?;
         scan.tally.skipped += 1;
@@ -97,7 +100,7 @@ fn database(scan: &mut Scan<'_>, home: &Home, epoch: i64, path: &std::path::Path
     };
     scan.catalog
         .crashes
-        .mark(&scan.catalog.db, &home.id, &name, mark)?;
+        .mark(&scan.catalog.db, &home.id, &name, mark, &fp)?;
     scan.catalog.db.execute_batch("SAVEPOINT provider_scan")?;
     let mut opened = None;
     let outcome = (|| -> Result<()> {

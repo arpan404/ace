@@ -316,13 +316,25 @@ impl Server {
             return Ok(());
         };
         let path = root.source.path.clone();
-        if let Verdict::Blocked(reason) = self.catalog.crashes.verdict(&home.id, &path, now()) {
-            return Err(Error::message(reason));
+        let fingerprint = root.source.fingerprint.clone();
+        let verdict = self
+            .catalog
+            .crashes
+            .verdict(&home.id, &path, Some(&fingerprint), now());
+        if let Verdict::Blocked(reason) = &verdict {
+            return Err(Error::message(reason.clone()));
         }
+        // A suspect is read alone, and marked so: after a memory-limit kill only such a mark is
+        // struck, since memory another read used may have pushed the reader over.
+        let mark = if verdict == Verdict::Isolate {
+            Mark::Verifying
+        } else {
+            Mark::Reading
+        };
         self.settle_import();
         self.catalog
             .crashes
-            .mark(&self.catalog.db, &home.id, &path, Mark::Reading)?;
+            .mark(&self.catalog.db, &home.id, &path, mark, &fingerprint)?;
         self.importing = Some((home.id.clone(), path));
         Ok(())
     }

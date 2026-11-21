@@ -33,10 +33,16 @@ struct Entry {
     struck: bool,
     strikes: i64,
     retry_at: f64,
+    /// The source's fingerprint when it was marked: strikes belong to that content only.
+    fingerprint: Option<String>,
 }
 
 /// Marks are written before a read and cleared after it, whatever its outcome. Marks left at
-/// start were in flight when the reader died; see crash-ledger.ts for the rules.
+/// start were in flight when the reader died. One mark left after an ordinary crash strikes its
+/// source; after a memory-limit kill only a source read alone (`verifying`) is struck, since
+/// memory another read used may have pushed the reader over; several marks make every one a
+/// suspect, read alone next time. A strike holds for the content it was made on: a source whose
+/// fingerprint changed is read again.
 pub struct CrashLedger {
     entries: HashMap<(String, String), Entry>,
 }
@@ -52,6 +58,16 @@ impl CrashLedger {
         db.execute_batch(
             "CREATE TABLE IF NOT EXISTS scan_crashes(instance TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,strikes INTEGER NOT NULL,retry_at REAL NOT NULL,PRIMARY KEY(instance,path))",
         )?;
+        // A small table of in-flight and struck sources: adding the column is constant work.
+        let has_fingerprint = db
+            .prepare("PRAGMA table_info(scan_crashes)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .iter()
+            .any(|c| c == "fingerprint");
+        if !has_fingerprint {
+            db.execute_batch("ALTER TABLE scan_crashes ADD COLUMN fingerprint TEXT")?;
+        }
         let own_json = serde_json::to_string(own).unwrap_or_else(|_| "[]".to_owned());
         let mine = "instance IN (SELECT value FROM json_each(?2))";
         let count = |state: &str| -> Result<i64> {
@@ -91,8 +107,8 @@ impl CrashLedger {
             suspect()?;
         }
         let mut entries = HashMap::new();
-        let mut statement =
-            db.prepare("SELECT instance,path,state,strikes,retry_at FROM scan_crashes")?;
+        let mut statement = db
+            .prepare("SELECT instance,path,state,strikes,retry_at,fingerprint FROM scan_crashes")?;
         let rows = statement.query_map([], |row| {
             Ok((
                 (row.get::<_, String>(0)?, row.get::<_, String>(1)?),
@@ -100,6 +116,7 @@ impl CrashLedger {
                     struck: row.get::<_, String>(2)? == "struck",
                     strikes: row.get(3)?,
                     retry_at: row.get(4)?,
+                    fingerprint: row.get(5)?,
                 },
             ))
         })?;
@@ -110,10 +127,23 @@ impl CrashLedger {
         Ok(CrashLedger { entries })
     }
 
-    pub fn verdict(&self, instance: &str, path: &str, now: f64) -> Verdict {
+    /// What to do with a source about to be read. `fingerprint` is its content now, when known:
+    /// a source replaced since its strikes is read as new.
+    pub fn verdict(
+        &self,
+        instance: &str,
+        path: &str,
+        fingerprint: Option<&str>,
+        now: f64,
+    ) -> Verdict {
         let Some(entry) = self.entries.get(&(instance.to_owned(), path.to_owned())) else {
             return Verdict::Read;
         };
+        if let (Some(then), Some(now)) = (entry.fingerprint.as_deref(), fingerprint)
+            && then != now
+        {
+            return Verdict::Read;
+        }
         if !entry.struck {
             return Verdict::Isolate;
         }
@@ -127,14 +157,27 @@ impl CrashLedger {
     }
 
     /// Mark before reading content; the mark must be durable before the read can crash.
-    pub fn mark(&self, db: &Connection, instance: &str, path: &str, mark: Mark) -> Result<()> {
+    /// Mark before reading content (of `fingerprint`); a mark on new content starts its strikes
+    /// over.
+    pub fn mark(
+        &self,
+        db: &Connection,
+        instance: &str,
+        path: &str,
+        mark: Mark,
+        fingerprint: &str,
+    ) -> Result<()> {
         let state = match mark {
             Mark::Reading => "reading",
             Mark::Verifying => "verifying",
         };
         db.execute(
-            "INSERT INTO scan_crashes VALUES(?1,?2,?3,0,0) ON CONFLICT(instance,path) DO UPDATE SET state=?3",
-            params![instance, path, state],
+            "INSERT INTO scan_crashes(instance,path,state,strikes,retry_at,fingerprint) VALUES(?1,?2,?3,0,0,?4)
+             ON CONFLICT(instance,path) DO UPDATE SET state=?3,
+               strikes=CASE WHEN fingerprint IS ?4 THEN strikes ELSE 0 END,
+               retry_at=CASE WHEN fingerprint IS ?4 THEN retry_at ELSE 0 END,
+               fingerprint=?4",
+            params![instance, path, state, fingerprint],
         )?;
         Ok(())
     }
