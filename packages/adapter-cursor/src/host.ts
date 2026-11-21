@@ -124,7 +124,15 @@ export class CursorHost {
       const frame = Envelope.parse(payload.data);
       if (frame.generation !== this.generation && !(frame.replayed && frame.boundaryOffset))
         throw new Error("SDK generation mismatch");
-      await onFrame(frame, payload);
+      try {
+        await onFrame(frame, payload);
+      } catch (error) {
+        // The frame was valid; ace's own storage failed. Say so, never blame Cursor.
+        throw new Error(
+          `ace could not store a Cursor SDK frame: ${safeCursorErrorMessage(error, options.env)}`,
+          { cause: error },
+        );
+      }
       if (frame.kind === "error") {
         const error = HostErrorBody.safeParse(frame.body);
         if (error.success)
@@ -144,9 +152,14 @@ export class CursorHost {
           throw new Error("Unsafe login URL");
         onLoginUrl(url);
       } else if (method === "frame")
+        // An unacknowledged frame that was not stored leaves the turn's record incomplete, so
+        // the host stops either way; the cause says whose fault it was.
         void receiveFrame(params).catch((error: unknown) => {
+          const reason = safeCursorErrorMessage(error, options.env);
           this.fail(
-            `Cursor SDK host frame was rejected: ${safeCursorErrorMessage(error, options.env)}`,
+            reason.startsWith("ace could not store")
+              ? reason
+              : `Cursor SDK host frame was rejected: ${reason}`,
           );
         });
       else throw new Error("Unknown host notification");

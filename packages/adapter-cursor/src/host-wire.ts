@@ -18,6 +18,12 @@ const Reply = z.object({
   result: z.unknown().optional(),
   error: z.unknown().optional(),
 });
+const ReplyError = z.object({ message: z.string() });
+/** ace's own words for why it did not store a frame, bounded; this is the turn's fence notice. */
+function refusal(error: unknown): string {
+  const reply = ReplyError.safeParse(error);
+  return reply.success ? reply.data.message.slice(0, 512) : "ace refused a Cursor SDK frame";
+}
 const consoleMethods = [
   "log",
   "error",
@@ -111,7 +117,7 @@ export function hostWire(
   let outbound = 0;
   const acknowledgements = new Map<
     string,
-    { resolve(): void; reject(): void; timer: ReturnType<typeof setTimeout> }
+    { resolve(): void; reject(reason: string): void; timer: ReturnType<typeof setTimeout> }
   >();
   const confirmed = async (method: string, params: unknown, timeoutMs = 300_000) => {
     if (acknowledgements.size >= 32) throw new Error("SDK storage acknowledgements exceed budget");
@@ -120,11 +126,13 @@ export function hostWire(
     void completion.promise.catch(() => {});
     const timer = setTimeout(() => {
       acknowledgements.delete(id);
-      completion.reject(new Error("SDK storage acknowledgement expired"));
+      completion.reject(
+        new Error("ace took too long to store a Cursor SDK frame (acknowledgement expired)"),
+      );
     }, timeoutMs);
     acknowledgements.set(id, {
       resolve: () => completion.resolve(),
-      reject: () => completion.reject(new Error("SDK storage refused frame")),
+      reject: (reason) => completion.reject(new Error(reason)),
       timer,
     });
     try {
@@ -156,7 +164,7 @@ export function hostWire(
       // turn, and a late answer from a busy daemon is no reason to stop the host.
       const acknowledgement = acknowledgements.get(reply.data.id);
       if (!acknowledgement) return;
-      if (reply.data.error !== undefined) acknowledgement.reject();
+      if (reply.data.error !== undefined) acknowledgement.reject(refusal(reply.data.error));
       else acknowledgement.resolve();
       return;
     }
