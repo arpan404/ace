@@ -65,6 +65,7 @@ fn watch_parent() {
 /// Serve the daemon until stdin closes. Returns the exit code.
 pub fn run() -> i32 {
     hooks::started();
+    hooks::at("startup");
     let out = Out::new();
     let fault = out.clone();
     std::panic::set_hook(Box::new(move |info| {

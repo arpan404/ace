@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { AgentId, ThreadId, WorkspaceId, type Item, type Agent, type Thread } from "@ace/protocol";
@@ -156,4 +156,18 @@ export function text(items: Item[]): string {
       i.type === "message" ? i.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])) : [],
     )
     .join(" ");
+}
+
+/** ace-history's test hooks (`ACE_HISTORY_TEST_HOOKS`, native/history hooks.rs) as reader env. */
+export function readerHooks(hooks: Record<string, unknown>): { readerEnv: Record<string, string> } {
+  return { readerEnv: { ACE_HISTORY_TEST_HOOKS: JSON.stringify(hooks) } };
+}
+
+/** The pids of the reader processes started so far, from a `startLog` hook's file. */
+export async function readerStarts(log: string): Promise<number[]> {
+  try {
+    return (await readFile(log, "utf8")).split("\n").filter(Boolean).map(Number);
+  } catch {
+    return [];
+  }
 }

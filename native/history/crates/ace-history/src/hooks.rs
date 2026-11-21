@@ -3,8 +3,9 @@
 //! Test hooks (the `test-hooks` feature, never in a release): the races, crashes and observations
 //! the process tests need, set by `ACE_HISTORY_TEST_HOOKS` as one JSON object:
 //!
-//! - `crash: { at, match? }` aborts the process at a named point, optionally only for a path
-//!   containing `match`;
+//! - `crash: { at, match?, times?, counter? }` aborts the process at a named point, optionally only
+//!   for a path containing `match`, and with `times` only that many times across processes,
+//!   counted by lines in the `counter` file;
 //! - `delay: { at, ms }` sleeps at a point, widening a window a race needs;
 //! - `pause: { at, match?, dir }` stops once at a point: it creates `dir/paused` and waits for
 //!   `dir/continue`;
@@ -45,6 +46,28 @@ mod enabled {
                 .is_none_or(|m| subject.contains(m))
     }
 
+    /// Whether a counted hook has turns left, taking one.
+    fn spend(hook: &Value) -> bool {
+        let (Some(times), Some(counter)) = (
+            hook.get("times").and_then(Value::as_u64),
+            hook.get("counter").and_then(Value::as_str),
+        ) else {
+            return true;
+        };
+        let used = std::fs::read_to_string(counter).map_or(0, |t| t.lines().count() as u64);
+        if used >= times {
+            return false;
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(counter)
+        {
+            let _ = writeln!(file, "{}", std::process::id());
+        }
+        true
+    }
+
     pub fn at(point: &str) {
         at_path(point, "");
     }
@@ -53,6 +76,7 @@ mod enabled {
         let config = config();
         if let Some(crash) = config.get("crash")
             && matches(crash, point, subject)
+            && spend(crash)
         {
             std::process::abort();
         }
