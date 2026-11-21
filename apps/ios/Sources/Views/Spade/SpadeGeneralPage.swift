@@ -13,7 +13,7 @@ struct SpadeGeneralPage: View {
     }
 
     var body: some View {
-        SpadeSettingsPageFrame(load: load) { answer in
+        SpadeSettingsPageFrame(client: client, load: load) { answer in
             if let general = answer.general { rows(general) }
         }
     }
@@ -118,7 +118,7 @@ struct SpadeModelChoices: View {
                 Text(name).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
                 Spacer(minLength: AceDesign.Space.related)
                 if value == setting.value {
-                    Image(systemName: "checkmark").foregroundStyle(AceDesign.Ink.action).accessibilityHidden(true)
+                    AceIcon(.check).foregroundStyle(AceDesign.Ink.action).accessibilityHidden(true)
                 }
             }
             .contentShape(Rectangle())

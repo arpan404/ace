@@ -15,12 +15,13 @@ enum SpadeSettings {
             case .apps: "Apps"
             }
         }
-        var symbol: String {
+        /// Its glyph, from ace's own icon set.
+        var icon: AceIcon.Name {
             switch self {
-            case .general: "gearshape"
-            case .models: "key"
-            case .search: "globe"
-            case .apps: "puzzlepiece.extension"
+            case .general: .gear
+            case .models: .key
+            case .search: .globe
+            case .apps: .puzzlePiece
             }
         }
     }
@@ -83,11 +84,18 @@ enum SpadeSettings {
         let set: Bool
         let words: String
         let canSet: Bool
+        /// Only a key in the keychain can be removed here; one from the environment stays.
+        let canRemove: Bool
     }
     struct Search: Decodable, Equatable, Sendable {
         let searxng: String?
         let brave: Brave
         let keychain: Bool
+    }
+    /// A device sign-in waiting on the person: the code, and the page to enter it on.
+    struct Device: Decodable, Equatable, Sendable {
+        let code: String
+        let url: String
     }
     struct App: Decodable, Equatable, Sendable, Identifiable {
         let id: String
@@ -96,6 +104,9 @@ enum SpadeSettings {
         let ok: Bool
         let account: String?
         let line: String
+        /// Its sign-in ended: `token` (pasted here) or `sign_in`; nil while it works.
+        let reconnect: String?
+        let device: Device?
     }
     struct Skill: Decodable, Equatable, Sendable, Hashable {
         let name: String
@@ -112,6 +123,9 @@ enum SpadeSettings {
         let title: String?
         let message: String?
         let line: SpadeModel.Line?
+        /// Beside the page: a write that went through when the page couldn't be read again, or
+        /// where to finish an app's sign-in.
+        var notice: String? = nil
         let general: General?
         let models: Models?
         let search: Search?
@@ -120,6 +134,8 @@ enum SpadeSettings {
         static func failed(_ title: String, _ message: String?) -> Answer {
             Answer(ok: false, title: title, message: message, line: nil, general: nil, models: nil, search: nil, apps: nil)
         }
+        /// It carries a page to show, not only Spade's state or a word.
+        var hasPage: Bool { general != nil || models != nil || search != nil || apps != nil }
         /// Why it failed, in one line; nil when it went.
         var problem: String? {
             guard !ok else { return nil }
@@ -136,6 +152,8 @@ struct SpadeNewBotAnswer: Decodable, Equatable, Sendable {
         let name: String
         let blurb: String
         let face: SpadeModel.Face
+        /// Its routines and their schedules in one line; nil when it has none.
+        let routines: String?
     }
     let ok: Bool
     let title: String?
@@ -163,8 +181,10 @@ struct SpadeSettingsReads: Equatable {
     private(set) var answer: SpadeSettings.Answer?
     /// Why the page couldn't be read, while there is none to show.
     private(set) var problem: String?
-    /// Why the last change was refused, under the page.
+    /// Why the last change was refused, at the page's top.
     private(set) var refusal: String?
+    /// What the last change said beside the page: saved without a fresh page, or where to finish.
+    private(set) var notice: String?
     private var generation = 0
 
     mutating func begin() -> Int {
@@ -189,9 +209,14 @@ struct SpadeSettingsReads: Equatable {
             return
         }
         refusal = nil
-        guard ticket == generation else { return }
+        notice = fresh.notice
+        // Saved, but the page couldn't be read again: the page shown stays, with the word.
+        guard ticket == generation, fresh.hasPage else { return }
         answer = fresh
         problem = nil
     }
-    mutating func clearRefusal() { refusal = nil }
+    mutating func clearRefusal() {
+        refusal = nil
+        notice = nil
+    }
 }

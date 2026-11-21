@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Settings › Spade › Web search: the person's own SearXNG address, and a Brave Search key kept
 /// in the machine's keychain, never shown.
@@ -13,7 +14,7 @@ struct SpadeSearchPage: View {
     }
 
     var body: some View {
-        SpadeSettingsPageFrame(load: load) { answer in
+        SpadeSettingsPageFrame(client: client, load: load) { answer in
             if let search = answer.search { SpadeSearchRows(client: client, search: search, load: load, keying: $keying) }
         }
         .sheet(item: $keying) { target in
@@ -68,13 +69,14 @@ private struct SpadeSearchRows: View {
             SpadeSettingRow(title: "Key", value: search.brave.words)
                 .accessibilityIdentifier("spade.search.brave")
             if search.brave.canSet {
-                Button(search.brave.set ? "Replace key" : "Add key") {
-                    keying = SpadeKeyTarget(id: "brave", name: "Brave Search", replacing: search.brave.set)
+                // A key from the environment stays; one kept here is used instead of it.
+                Button(search.brave.canRemove ? "Replace key" : "Add key") {
+                    keying = SpadeKeyTarget(id: "brave", name: "Brave Search", replacing: search.brave.canRemove)
                 }
                 .disabled(load.busy)
                 .accessibilityIdentifier("spade.search.setKey")
             }
-            if search.brave.set && search.keychain {
+            if search.brave.canRemove {
                 Button("Remove key", role: .destructive) {
                     load.change { await client.spadeSettingsBrave(key: nil) }
                 }
@@ -98,13 +100,17 @@ private struct SpadeSearchRows: View {
     }
 }
 
-/// Settings › Spade › Apps: each app Spade is connected to, with whether it works, the account,
-/// the bots that use it and when one last did; Disconnect, after asking. Then the skills the
+/// Settings › Spade › Apps (docs/design/spade.md): each app Spade is connected to, with whether it
+/// works, the account, the bots that use it and when one last did; Reconnect when its sign-in
+/// ended, and Disconnect, after asking. A token app takes a token pasted here; a device sign-in
+/// shows its code and opens its page; a browser sign-in says where to finish. Then the skills the
 /// bots use or wrote. New apps connect on the computer, where the person signs in.
 struct SpadeAppsPage: View {
     let client: ClientModel
     @State private var load: SpadeSettingsLoad
     @State private var leaving: SpadeSettings.App?
+    @State private var token: SpadeKeyTarget?
+    @Environment(\.openURL) private var openURL
 
     init(client: ClientModel) {
         self.client = client
@@ -112,7 +118,7 @@ struct SpadeAppsPage: View {
     }
 
     var body: some View {
-        SpadeSettingsPageFrame(load: load) { answer in
+        SpadeSettingsPageFrame(client: client, load: load) { answer in
             if let apps = answer.apps { rows(apps) }
         }
         .confirmationDialog(leaving.map { "Disconnect \($0.name)?" } ?? "", isPresented: leavingShown,
@@ -122,6 +128,11 @@ struct SpadeAppsPage: View {
             }
         } message: { _ in
             Text("Bots can't use it until it's connected again from the computer.")
+        }
+        .sheet(item: $token) { target in
+            SpadeKeySheet(target: target) { pasted in
+                await load.awaiting { await client.spadeSettingsReconnect(target.id, token: pasted) }
+            }
         }
     }
 
@@ -141,7 +152,9 @@ struct SpadeAppsPage: View {
                         Button("Disconnect", role: .destructive) { leaving = app }
                     }
                     .contextMenu {
-                        Button("Disconnect", systemImage: "xmark.circle", role: .destructive) { leaving = app }
+                        Button(role: .destructive) { leaving = app } label: {
+                            Label { Text("Disconnect") } icon: { AceIcon(.xCircle) }
+                        }
                     }
                     .disabled(load.busy)
                     .accessibilityIdentifier("spade.app.\(app.id)")
@@ -171,8 +184,38 @@ struct SpadeAppsPage: View {
                 .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(app.ok ? AceDesign.Ink.muted : AceTheme.StatusText.needsYou)
             Text(app.line).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
+            appActions(app)
         }
         .padding(.vertical, AceDesign.Space.tight)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+    }
+
+    /// Reconnect while its sign-in has ended; while a device sign-in waits, its page and code.
+    @ViewBuilder private func appActions(_ app: SpadeSettings.App) -> some View {
+        if let device = app.device {
+            HStack(spacing: AceDesign.Space.group) {
+                if let page = URL(string: device.url) {
+                    Button("Open sign-in page") { openURL(page) }
+                        .accessibilityIdentifier("spade.app.open.\(app.id)")
+                }
+                Button("Copy code") { UIPasteboard.general.string = device.code }
+                    .accessibilityIdentifier("spade.app.copy.\(app.id)")
+            }
+            .buttonStyle(.borderless)
+            .aceFont(AceDesign.TextRole.action)
+            .padding(.top, AceDesign.Space.tight)
+        } else if let reconnect = app.reconnect {
+            Button("Reconnect") {
+                if reconnect == "token" {
+                    token = SpadeKeyTarget(id: app.id, name: app.name, replacing: true, secret: "token")
+                } else {
+                    load.change { await client.spadeSettingsReconnect(app.id, token: nil) }
+                }
+            }
+            .buttonStyle(.borderless)
+            .aceFont(AceDesign.TextRole.action)
+            .padding(.top, AceDesign.Space.tight)
+            .accessibilityIdentifier("spade.app.reconnect.\(app.id)")
+        }
     }
 }

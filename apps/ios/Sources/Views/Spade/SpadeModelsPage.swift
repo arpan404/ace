@@ -15,7 +15,7 @@ struct SpadeModelsPage: View {
     }
 
     var body: some View {
-        SpadeSettingsPageFrame(load: load) { answer in
+        SpadeSettingsPageFrame(client: client, load: load) { answer in
             if let models = answer.models { rows(models) }
         }
         .sheet(item: $keying) { target in
@@ -74,13 +74,17 @@ struct SpadeModelsPage: View {
         if endpoint.key.canSet || endpoint.key.canRemove {
             Menu {
                 if endpoint.key.canSet {
-                    Button(endpoint.key.set ? "Replace key" : "Add key", systemImage: "key") {
+                    Button {
                         keying = SpadeKeyTarget(id: endpoint.id, name: endpoint.name, replacing: endpoint.key.set)
+                    } label: {
+                        Label { Text(endpoint.key.set ? "Replace key" : "Add key") } icon: { AceIcon(.key) }
                     }
                 }
                 if endpoint.key.canRemove {
-                    Button("Remove key", systemImage: "trash", role: .destructive) {
+                    Button(role: .destructive) {
                         load.change { await client.spadeSettingsKey(endpoint.id, key: nil) }
+                    } label: {
+                        Label { Text("Remove key") } icon: { AceIcon(.trash) }
                     }
                 }
             } label: {
@@ -105,8 +109,7 @@ struct SpadeModelsPage: View {
             HStack(spacing: AceDesign.Space.tight) {
                 InsetValue(text: endpoint.key.words)
                 if chevron {
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.semibold))
+                    AceIcon(.caretUpDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                         .foregroundStyle(AceDesign.Ink.subtle)
                         .accessibilityHidden(true)
                 }
@@ -126,6 +129,8 @@ struct SpadeKeyTarget: Identifiable, Hashable {
     let id: String
     let name: String
     let replacing: Bool
+    /// What is pasted: an API "key", or an app's "token" (kept by Spade, never here).
+    var secret = "key"
 }
 
 /// A key, pasted once: a secure field, Save, and where the key goes. It leaves the phone on Save
@@ -145,7 +150,7 @@ struct SpadeKeySheet: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("Paste the key", text: $key)
+                    SecureField("Paste the \(target.secret)", text: $key)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($focused)
@@ -156,11 +161,11 @@ struct SpadeKeySheet: View {
                     if let problem {
                         Text(problem).foregroundStyle(AceTheme.StatusText.failed)
                     } else {
-                        Text("It goes straight to this machine's keychain. The phone doesn't keep it, and it can't be read back here.")
+                        Text("It goes straight to Spade on this machine. The phone doesn't keep it, and it can't be read back here.")
                     }
                 }
             }
-            .navigationTitle(target.replacing ? "Replace \(target.name) key" : "\(target.name) key")
+            .navigationTitle(target.replacing ? "Replace \(target.name) \(target.secret)" : "\(target.name) \(target.secret)")
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(saving)
             .toolbar {

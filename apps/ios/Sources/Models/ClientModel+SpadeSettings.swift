@@ -42,6 +42,13 @@ extension ClientModel {
         await spadeSettings(["type": "spade.settings.disconnect", "connector": connector], failing: "Couldn't disconnect it")
     }
 
+    /// Signs an app in again; a token app's `token` is handed over once and never kept here.
+    func spadeSettingsReconnect(_ connector: String, token: String?) async -> SpadeSettings.Answer {
+        var payload: [String: Any] = ["type": "spade.settings.reconnect", "connector": connector]
+        if let token { payload["token"] = token }
+        return await spadeSettings(payload, failing: "Couldn't reconnect")
+    }
+
     private func spadeNewBot(_ payload: [String: Any], failing title: String) async -> SpadeNewBotAnswer {
         do { return try await service(payload, as: SpadeNewBotAnswer.self, timeout: .seconds(70)) }
         catch is CancellationError { return .failed("", nil) }
@@ -50,10 +57,14 @@ extension ClientModel {
     func spadeNewBotRead() async -> SpadeNewBotAnswer {
         await spadeNewBot(["type": "spade.newbot.read"], failing: "Couldn't read New bot")
     }
-    /// A bot from `text`, or from a template with `text` as its first job.
-    func spadeNewBotCreate(text: String, template: String?, model: String?) async -> SpadeNewBotAnswer {
+    /// A bot from `text`, or from a template with `text` as its first job; `startRoutines`
+    /// false keeps a template's routines paused.
+    func spadeNewBotCreate(text: String, template: String?, model: String?, startRoutines: Bool = true) async -> SpadeNewBotAnswer {
         var payload: [String: Any] = ["type": "spade.newbot.create", "text": text, "timeZone": TimeZone.current.identifier]
-        if let template { payload["template"] = template }
+        if let template {
+            payload["template"] = template
+            payload["startRoutines"] = startRoutines
+        }
         if let model, !model.isEmpty { payload["model"] = model }
         return await spadeNewBot(payload, failing: "Couldn't make the bot")
     }

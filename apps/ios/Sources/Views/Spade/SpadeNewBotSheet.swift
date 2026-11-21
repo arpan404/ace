@@ -3,8 +3,10 @@ import SwiftUI
 /// New bot (ADR 0197, docs/design/spade.md §5): one question, "What should this bot do?", and
 /// the person's answer is its task and its first message. It names itself and picks its face as
 /// it starts. A template brings its own name, face and task, and the message becomes its first
-/// job. The model is optional; untouched, it is Settings' model for new bots. Made, the sheet
-/// closes on the bot's conversation.
+/// job, and its routines show with their schedules, to start now or keep paused (ADR 0132). The
+/// model is optional; untouched, it is Settings' model for new bots. Made, the sheet closes on
+/// the bot's conversation. A bot made whose first message didn't go is never made again: the
+/// message is sent to it (`SpadeNewBotProgress`).
 struct SpadeNewBotSheet: View {
     let client: ClientModel
     /// The bot was made: its conversation opens.
@@ -15,11 +17,20 @@ struct SpadeNewBotSheet: View {
     @State private var template: SpadeNewBotAnswer.Template?
     @State private var model = ""
     @State private var making = false
-    @State private var problem: String?
+    @State private var progress = SpadeNewBotProgress()
+    /// A template's routines start on their schedules unless the person keeps them paused.
+    @State private var startRoutines = true
     @FocusState private var focused: Bool
 
     private var typed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canMake: Bool { !making && (!typed.isEmpty || template != nil) }
+    private var problem: String? { progress.problem }
+    /// The bot is made already: only its first message is left to send.
+    private var madeAlready: String? {
+        if case .send(let conversation) = progress.next { conversation } else { nil }
+    }
+    private var canMake: Bool {
+        !making && (madeAlready == nil ? !typed.isEmpty || template != nil : !typed.isEmpty)
+    }
 
     var body: some View {
         NavigationStack {
@@ -41,14 +52,28 @@ struct SpadeNewBotSheet: View {
                         Text("It picks its own name and face as it starts.")
                     }
                 }
-                if let templates = offer?.templates, !templates.isEmpty {
+                if let routines = template?.routines {
+                    Section {
+                        Toggle(isOn: $startRoutines) {
+                            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                                Text("Start its routines").aceFont(AceDesign.TextRole.rowTitle)
+                                Text(routines).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                            }
+                        }
+                        .disabled(making || madeAlready != nil)
+                        .accessibilityIdentifier("spade.newbot.routines")
+                    } footer: {
+                        if !startRoutines { Text("They wait, paused, until you start them from its profile on the computer.") }
+                    }
+                }
+                if madeAlready == nil, let templates = offer?.templates, !templates.isEmpty {
                     Section {
                         ForEach(templates) { templateRow($0) }
                     } header: {
                         InsetHeader("Or start from a template")
                     }
                 }
-                if let setting = offer?.model, let groups = offer?.groups, !groups.isEmpty {
+                if madeAlready == nil, let setting = offer?.model, let groups = offer?.groups, !groups.isEmpty {
                     Section {
                         NavigationLink {
                             SpadeModelChoices(setting: chosen(setting), groups: groups, more: 0) { model = $0 }
@@ -65,11 +90,16 @@ struct SpadeNewBotSheet: View {
             .interactiveDismissDisabled(making || !typed.isEmpty)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(making).accessibilityIdentifier("spade.newbot.cancel")
+                    if let conversation = madeAlready {
+                        // Made already: leaving opens it, the message still in this field's words.
+                        Button("Open") { open(conversation) }.disabled(making).accessibilityIdentifier("spade.newbot.open")
+                    } else {
+                        Button("Cancel") { dismiss() }.disabled(making).accessibilityIdentifier("spade.newbot.cancel")
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if making { ProgressView() } else {
-                        Button("Create", action: create)
+                        Button(madeAlready == nil ? "Create" : "Send again", action: create)
                             .fontWeight(AceDesign.Typeface.strong)
                             .disabled(!canMake)
                             .accessibilityIdentifier("spade.newbot.create")
@@ -100,6 +130,7 @@ struct SpadeNewBotSheet: View {
         let picked = template?.id == each.id
         return Button {
             template = picked ? nil : each
+            startRoutines = true
         } label: {
             HStack(spacing: AceDesign.Space.row) {
                 SpadeFaceView(face: each.face)
@@ -110,7 +141,7 @@ struct SpadeNewBotSheet: View {
                     }
                 }
                 Spacer(minLength: AceDesign.Space.related)
-                if picked { Image(systemName: "checkmark").foregroundStyle(AceDesign.Ink.action).accessibilityHidden(true) }
+                if picked { AceIcon(.check).foregroundStyle(AceDesign.Ink.action).accessibilityHidden(true) }
             }
             .contentShape(Rectangle())
         }
@@ -143,17 +174,24 @@ struct SpadeNewBotSheet: View {
     private func create() {
         guard canMake else { return }
         making = true
-        problem = nil
         focused = false
         Task {
-            let answer = await client.spadeNewBotCreate(text: typed, template: template?.id, model: model.isEmpty ? nil : model)
-            making = false
-            guard answer.ok, let conversation = answer.conversation else {
-                problem = answer.problem
-                return
+            let opening: String?
+            switch progress.next {
+            case .create:
+                let answer = await client.spadeNewBotCreate(text: typed, template: template?.id,
+                                                            model: model.isEmpty ? nil : model, startRoutines: startRoutines)
+                opening = progress.land(answer)
+            case .send(let conversation):
+                opening = progress.sent(await client.spadeSend(conversation, text: typed), to: conversation)
             }
-            dismiss()
-            made(conversation)
+            making = false
+            if let opening { open(opening) }
         }
+    }
+
+    private func open(_ conversation: String) {
+        dismiss()
+        made(conversation)
     }
 }

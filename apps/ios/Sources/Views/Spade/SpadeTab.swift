@@ -33,10 +33,10 @@ struct SpadeTab<Bar: View>: View {
                 if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarLeading) { machineMenu } }
                 if session?.client.spade.shown == true {
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { settings = true } label: { Image(systemName: "gearshape") }
+                        Button { settings = true } label: { AceIcon(.gear) }
                             .accessibilityLabel("Spade settings")
                             .accessibilityIdentifier("spade.openSettings")
-                        Button { making = true } label: { Image(systemName: "square.and.pencil") }
+                        Button { making = true } label: { AceIcon(.notePencil) }
                             .accessibilityLabel("New bot")
                             .accessibilityIdentifier("spade.newBot")
                             .disabled(session?.client.spade.line?.ready != true)

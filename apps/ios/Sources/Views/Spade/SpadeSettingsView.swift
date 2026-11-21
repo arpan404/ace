@@ -11,7 +11,7 @@ struct SpadeSettingsView: View {
             Section {
                 ForEach(SpadeSettings.Page.allCases) { page in
                     NavigationLink { destination(page) } label: {
-                        InsetRow(page.title, systemImage: page.symbol)
+                        InsetRow(page.title, icon: page.icon)
                     }
                     .accessibilityIdentifier("spade.settings.\(page.rawValue)")
                 }
@@ -39,33 +39,59 @@ struct SpadeSettingsView: View {
 /// change runs while the page's controls wait, landing as the page as it now is or as the reason
 /// it was refused.
 @MainActor @Observable final class SpadeSettingsLoad {
-    let client: ClientModel
     let page: SpadeSettings.Page
     private(set) var reads = SpadeSettingsReads()
     /// A change is out: the page's controls wait for it.
-    private(set) var busy = false
+    var busy: Bool { writing > 0 }
+    private let read: @MainActor () async -> SpadeSettings.Answer
+    /// Changes out or waiting their turn; each runs after the one before it.
+    private var writing = 0
+    private var tail: Task<Void, Never>?
+    /// A read asked for while changes were out: it runs once they settle.
+    private var readWanted = false
 
-    init(client: ClientModel, page: SpadeSettings.Page) {
-        self.client = client
+    init(page: SpadeSettings.Page, read: @escaping @MainActor () async -> SpadeSettings.Answer) {
         self.page = page
+        self.read = read
+    }
+    convenience init(client: ClientModel, page: SpadeSettings.Page) {
+        self.init(page: page) { await client.spadeSettingsRead(page) }
     }
 
+    /// Reads the page. While a change is out the read waits for it, so it can never land older
+    /// facts over what a change just confirmed.
     func load() async {
+        guard writing == 0 else {
+            readWanted = true
+            return
+        }
         let ticket = reads.begin()
-        reads.land(await client.spadeSettingsRead(page), ticket: ticket)
+        reads.land(await read(), ticket: ticket)
     }
     /// Make the change and let the page show what it came to.
     func change(_ write: @escaping @MainActor () async -> SpadeSettings.Answer) {
         Task { _ = await awaiting(write) }
     }
-    /// The same, for a sheet that waits on the outcome itself.
+    /// The same, for a sheet that waits on the outcome itself. Changes run one at a time, in the
+    /// order they were made.
     func awaiting(_ write: @escaping @MainActor () async -> SpadeSettings.Answer) async -> SpadeSettings.Answer {
-        busy = true
-        reads.clearRefusal()
-        let ticket = reads.begin()
-        let answer = await write()
-        reads.changed(answer, ticket: ticket)
-        busy = false
+        writing += 1
+        let before = tail
+        let turn = Task { @MainActor () -> SpadeSettings.Answer in
+            await before?.value
+            reads.clearRefusal()
+            let ticket = reads.begin()
+            let answer = await write()
+            reads.changed(answer, ticket: ticket)
+            return answer
+        }
+        tail = Task { _ = await turn.value }
+        let answer = await turn.value
+        writing -= 1
+        if writing == 0, readWanted {
+            readWanted = false
+            await load()
+        }
         return answer
     }
 }
@@ -75,6 +101,7 @@ struct SpadeSettingsView: View {
 /// page that needs Spade running, Spade's state while it isn't. A refused change says why at
 /// the top. Sheets and dialogs go on the frame, which is the page's list.
 struct SpadeSettingsPageFrame<Rows: View>: View {
+    let client: ClientModel
     let load: SpadeSettingsLoad
     @ViewBuilder let rows: (SpadeSettings.Answer) -> Rows
 
@@ -82,6 +109,15 @@ struct SpadeSettingsPageFrame<Rows: View>: View {
 
     var body: some View {
         List {
+            if let notice = load.reads.notice {
+                Section {
+                    Text(notice)
+                        .aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .accessibilityIdentifier("spade.settings.notice")
+                }
+                .insetRowBackground()
+            }
             if let refusal = load.reads.refusal {
                 Section {
                     Text(refusal)
@@ -107,7 +143,7 @@ struct SpadeSettingsPageFrame<Rows: View>: View {
         .refreshable { await load.load() }
         .nativeTitle(page.title)
         .task { await load.load() }
-        .onChange(of: load.client.spade.line) { Task { await load.load() } }
+        .onChange(of: client.spade.line) { Task { await load.load() } }
         .accessibilityIdentifier("spade.settings.page.\(page.rawValue)")
     }
 
