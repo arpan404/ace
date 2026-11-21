@@ -6,6 +6,7 @@
 //! [`ToolsError::OutcomeUnknown`] and [`ToolsError::Timeout`] mean it may have. Credentials are
 //! kept in [`Secret`] and never appear in errors or debug output.
 
+pub mod ask;
 mod client;
 mod errors;
 mod http;
@@ -13,6 +14,7 @@ pub mod map;
 mod secret;
 pub mod stdio;
 
+pub use ask::{AskFuture, Asker, Form, Reply};
 pub use client::{McpClient, McpConfig};
 pub use errors::ToolsError;
 pub use map::{McpTool, McpToolResult, Part, Risk};
