@@ -56,7 +56,7 @@ export async function openCursorSession(
   const started = now();
   const frame = (
     dir: "send" | "note",
-    kind: "cancel" | "host-exit" | "snapshot",
+    kind: "cancel" | "host-exit" | "host-output" | "snapshot",
     body: unknown,
     operationId: string,
     segment: number,
@@ -120,6 +120,9 @@ export async function openCursorSession(
         payload,
       });
     },
+    undefined,
+    // Stray host stdout is diagnostics: kept as raw data, which the translator does not show.
+    (text) => frame("note", "host-output", { text }, operation, segment),
   );
   let deliberate = false;
   let exited = false;

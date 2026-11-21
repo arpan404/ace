@@ -25,6 +25,14 @@ import {
 } from "./contracts.ts";
 
 const HostErrorBody = z.object({ message: z.string() });
+function isJson(line: string): boolean {
+  try {
+    JSON.parse(line);
+    return true;
+  } catch {
+    return false;
+  }
+}
 export interface HostOptions {
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   env: NodeJS.ProcessEnv;
@@ -57,6 +65,7 @@ export class CursorHost {
   private stopReason: string | undefined;
   private metadataFailureDetail: string | undefined;
   private metadataFailureCode: DiscoveryFailureCode | undefined;
+  private strayLines = 0;
   /** A definite cause: the host's own fatal error, or ace's reason for stopping it. */
   get stopCause(): string | undefined {
     return this.fatalMessage ?? this.stopReason;
@@ -69,6 +78,7 @@ export class CursorHost {
     options: HostOptions,
     onFrame: (frame: CursorEnvelope, payload: ProviderPayload) => void | Promise<void>,
     onLoginUrl: (url: string) => void = () => {},
+    onStrayOutput: (text: string) => void = () => {},
   ) {
     this.generation = (options.generation ?? randomUUID)();
     this.limits = Limits.parse(options.limits ?? {});
@@ -110,8 +120,12 @@ export class CursorHost {
       maxMessageBytes: this.limits.maxFrameBytes,
       maxQueuedBytes: this.limits.maxPendingBytes,
       maxPendingRequests: 16,
-      onMalformed: () => {
-        this.fail("Cursor SDK host sent a malformed message");
+      // Text that is not JSON is stray output (a console write that slipped past the host's
+      // routing): kept as bounded, redacted diagnostics, never fatal. JSON that is not a
+      // JSON-RPC message comes from ace's own host, so the protocol itself broke.
+      onMalformed: (line) => {
+        if (isJson(line)) this.fail("Cursor SDK host sent a malformed message");
+        else if (this.strayLines++ < 64) onStrayOutput(safeCursorErrorMessage(line, options.env));
       },
       onError: (error: unknown) => {
         this.fail(
