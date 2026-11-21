@@ -3,7 +3,8 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { effectStartsOn, updateSentences } from "@ace/ui-core/spade-chat";
 import { decidedEachTime, effectWords, triggerWhen } from "./market-package-words.ts";
-import { AppMark } from "./market-stage.tsx";
+import { needCatalogue } from "./market-model.ts";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 
 /*
  * A bot's part of its review (ADR 0168 §8, ADR 0200 §3.4, §6.1). For an install: what it may do,
@@ -131,7 +132,7 @@ export function RecipeChoices(props: {
           <Head>Apps</Head>
           {recipe.needs.map((need) => (
             <div key={need.key} className="mk-fact-row">
-              <AppMark name={need.label} size={32} />
+              <AppMark catalogue={needCatalogue(need.key)} name={need.label} size="fact" />
               <span className="mk-words">
                 <span className="mk-name">{need.label}</span>
                 <span className="mk-meta">
