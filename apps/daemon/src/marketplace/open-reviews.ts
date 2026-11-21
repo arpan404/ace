@@ -72,6 +72,11 @@ export class OpenReviews {
     this.#ports = ports;
   }
 
+  /** The organization whose registry the open review `id` installs from, if any. */
+  registryOf(id: string): string | undefined {
+    return this.#pending.get(id)?.review.registry;
+  }
+
   /** One page of an open review's items. */
   read(id: string, offset: number): MarketResult {
     const pending = this.#pending.get(id);
@@ -90,13 +95,17 @@ export class OpenReviews {
     version: string | undefined,
     /** An update of this linked bot (ADR 0200 §6.1). */
     bot?: string,
+    /** From an organization's registry, read as a member (ADR 0206 §5.4). */
+    registry?: PreparePorts["registry"],
   ): Promise<MarketResult> {
     const { store } = this.#ports;
     const source = store.source(sourceId);
     if (!source || !source.enabled) return error("not_found", "That source isn't on");
+    if (registry && source.kind !== "market")
+      return error("invalid", "Only market.acehq.dev has organizations' registries");
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
-    const ports = await this.#preparePorts(source.id);
+    const ports = { ...(await this.#preparePorts(source.id)), registry };
     const { entry, brings } = await prepareWithBrings(
       ports,
       store,

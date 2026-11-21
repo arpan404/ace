@@ -6,6 +6,7 @@ import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
 import { agentMarketRequest } from "./agent-requests.ts";
+import type { Membership } from "./org-registry.ts";
 import { MarketPersonRequests } from "./person-requests.ts";
 import type { MarketplaceService } from "./service.ts";
 
@@ -46,6 +47,21 @@ export interface MarketAgentDeps {
  * actions become requests in its thread. A `publish` mints a market grant through this
  * machine's ace account for that request alone (ADR 0174 §2).
  */
+/**
+ * Who this machine answers to, for a registry's membership check (ADR 0206 §5.3): an org host is
+ * its organization's, any other machine the account signed in on it.
+ */
+export function membershipOf(
+  account: Pick<MachineAccount, "grantKeys" | "ownerOrg" | "account">,
+): Membership {
+  const org = account.ownerOrg();
+  return {
+    keys: account.grantKeys(),
+    machine:
+      org === undefined ? { kind: "personal", account: account.account()?.id } : { kind: "org-host", org },
+  };
+}
+
 export class MarketAgent {
   readonly requests: MarketPersonRequests;
   private readonly deps: MarketAgentDeps;
@@ -76,6 +92,8 @@ export class MarketAgent {
     operation: MarketOperation,
     personGrant?: string,
     by: "person" | "without-person" = "person",
+    /** A member's market grant for an organization's registry (ADR 0206 §5.3). */
+    orgGrant?: string,
   ): Promise<MarketResult> {
     const bound = this.account;
     const grant = bound ? () => bound.account.marketGrant() : undefined;
@@ -88,7 +106,12 @@ export class MarketAgent {
       operation,
       operation.op === "publish"
         ? { grant, names, personGrant }
-        : { names, withoutPerson: by === "without-person" },
+        : {
+            names,
+            withoutPerson: by === "without-person",
+            ...(orgGrant ? { orgGrant } : {}),
+            ...(bound ? { membership: membershipOf(bound.account) } : {}),
+          },
     );
   }
 

@@ -24,6 +24,8 @@ import { MarketStore } from "./store.ts";
 import { badgesOf, Trust } from "./trust.ts";
 import { TurnedOff } from "./turned-off.ts";
 import { markUpdates, turnOffWithdrawn } from "./upkeep.ts";
+import { refreshRegistry, requireMember, stopUpdates, trustedChain } from "./org-registry.ts";
+import { Refused, type PreparePorts } from "./prepare.ts";
 import { holdsUpdates, reconcileBots, settleHeldUpdates } from "./arrived-bots.ts";
 
 export type { MarketPluginPort, MarketplaceOptions, MarketRequestPorts } from "./options.ts";
@@ -252,17 +254,27 @@ export class MarketplaceService {
           operation.name,
         );
       case "prepare":
-        return this.#serial(() =>
+        return this.#serial(async () =>
           this.#reviews.prepare(
             operation.source,
             operation.type,
             operation.name,
             operation.version,
+            undefined,
+            operation.registry === undefined
+              ? undefined
+              : await this.#registryRead(
+                  { org: operation.registry, trustKey: operation.trustKey },
+                  ports,
+                ),
           ),
         );
       case "readReview":
         return this.#reviews.read(operation.id, operation.offset);
-      case "install":
+      case "install": {
+        // Membership is checked again at the moment of installing, not only at the review.
+        const org = this.#reviews.registryOf(operation.id);
+        if (org !== undefined) requireMember(ports.orgGrant, org, ports.membership, this.#options.now());
         return this.#serial(() =>
           this.#reviews.install(
             operation.id,
@@ -271,6 +283,7 @@ export class MarketplaceService {
             ports.withoutPerson === true ? "without-person" : "person",
           ),
         );
+      }
       case "cancel":
         await this.#reviews.cancel(operation.id);
         return { op: "done" };
@@ -298,10 +311,33 @@ export class MarketplaceService {
         if ("op" in install) return install;
         // A linked bot's update moves that bot (ADR 0200 §6.1).
         const bot = install.type === "spade-bot" && install.linked ? install.target : undefined;
-        return this.#serial(() =>
-          this.#reviews.prepare(install.source, install.type, install.name, install.update, bot),
+        const org = install.registry;
+        return this.#serial(async () =>
+          this.#reviews.prepare(
+            install.source,
+            install.type,
+            install.name,
+            install.update,
+            bot,
+            org === undefined ? undefined : await this.#registryRead({ org }, ports),
+          ),
         );
       }
+      case "registryRefresh":
+        return this.#serial(async () => {
+          const org = operation.registry;
+          requireMember(ports.orgGrant, org, ports.membership, this.#options.now());
+          const http = this.#http();
+          if (!http || !ports.orgGrant)
+            return error("unavailable", "market.acehq.dev is turned off");
+          if (await refreshRegistry(http.member(ports.orgGrant), this.#store, org)) this.#emit();
+          return { op: "installed", installed: this.#installed() };
+        });
+      case "registryLeft":
+        return this.#serial(async () => {
+          if (stopUpdates(this.#store, operation.registry)) this.#emit();
+          return { op: "installed", installed: this.#installed() };
+        });
       case "prepareRollback": {
         const install = this.#installOf(operation);
         if ("op" in install) return install;
@@ -387,6 +423,28 @@ export class MarketplaceService {
         return this.#pictures.read(http, operation.kind, operation.hash);
       }
     }
+  }
+
+  /**
+   * What reading an organization's registry needs for one request: proof, now, that this
+   * machine's account is a member, then the registry's key chain as this device trusts it.
+   */
+  async #registryRead(
+    request: { org: string; trustKey?: string | undefined },
+    ports: MarketRequestPorts,
+  ): Promise<NonNullable<PreparePorts["registry"]>> {
+    requireMember(ports.orgGrant, request.org, ports.membership, this.#options.now());
+    const http = this.#http();
+    if (!http || !ports.orgGrant || !ports.membership)
+      throw new Refused("market.acehq.dev is turned off", { code: "unavailable" });
+    const reads = http.member(ports.orgGrant);
+    const chain = await trustedChain(
+      reads,
+      this.#store,
+      { org: request.org, grant: ports.orgGrant, trustKey: request.trustKey },
+      ports.membership,
+    );
+    return { org: request.org, reads, chain };
   }
 
   /**

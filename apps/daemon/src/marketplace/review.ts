@@ -55,6 +55,8 @@ export interface PreparedEntry {
   /** Its publisher deprecated this version, with this note. */
   deprecated?: string | undefined;
   unlisted?: boolean | undefined;
+  /** From this organization's registry, verified against its pinned key chain (ADR 0206 §5.3). */
+  registry?: string | undefined;
 }
 
 export interface PreparedReview extends PreparedEntry {

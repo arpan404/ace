@@ -195,6 +195,7 @@ function record(
       inspection?.type === "spade-skill" ? inspection.description : entry.checked.listing.line,
     signed: entry.signed,
     ...(entry.publisher ? { publisher: entry.publisher.id } : {}),
+    ...(entry.registry ? { registry: entry.registry } : {}),
     ...extra,
   };
 }

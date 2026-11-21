@@ -29,7 +29,9 @@ export async function turnOffWithdrawn(
 export async function markUpdates(store: MarketStore): Promise<void> {
   const listings = new Map<string, Awaited<ReturnType<MarketStore["listing"]>>>();
   for (const install of store.installs()) {
-    if ((install.type === "spade-bot" && !install.linked) || install.bundledBy) continue;
+    // A registry's installs are offered updates from its own list, read as a member.
+    if ((install.type === "spade-bot" && !install.linked) || install.bundledBy || install.registry)
+      continue;
     const listing = listings.get(install.source) ?? (await store.listing(install.source));
     listings.set(install.source, listing);
     const listed = listing.entries.find(

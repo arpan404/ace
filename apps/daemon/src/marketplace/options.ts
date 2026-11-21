@@ -3,6 +3,7 @@ import type { GitRuntime } from "@ace/plugins";
 import type { MarketFetch } from "./http.ts";
 import type { PluginPort, SpadePort, SuitPort } from "./install.ts";
 import type { PickPorts } from "./pick.ts";
+import type { Membership } from "./org-registry.ts";
 import type { MarketGrantPort } from "./publish.ts";
 
 /* What the marketplace service (`service.ts`) is opened with, and what one request adds. */
@@ -48,4 +49,12 @@ export interface MarketRequestPorts {
    * §12.8): a Spade skill it installs waits for the person to turn it on for their bots.
    */
   withoutPerson?: boolean | undefined;
+  /**
+   * A market grant acting in an organization that the client got with the person's own session
+   * (ADR 0206 §5.3): the request reads that organization's registry with it, and installs from it
+   * only with it.
+   */
+  orgGrant?: string | undefined;
+  /** What checking `orgGrant` needs: the backend's keys and who this machine answers to. */
+  membership?: Membership | undefined;
 }
