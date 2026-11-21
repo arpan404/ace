@@ -129,7 +129,7 @@ function OpenEditorRow(props: {
 
 /**
  * The row's folder in subtle ink, giving way in its middle by whole folders: the longest of
- * `folderVariants` that fits the row's room, measured as the room changes. TODO: switch to
+ * `folderVariants` that fits the row's room, measured as the room changes, or none. TODO: switch to
  * `MiddleText` from panels/files/middle-name.tsx once #2519 is on main.
  */
 function FolderHint(props: { folder: string }) {
@@ -144,10 +144,14 @@ function FolderHint(props: { folder: string }) {
     // Called once on observe and on every resize: the first form whose text fits the room.
     const observer = new ResizeObserver(() => {
       if (!context) return;
-      context.font = getComputedStyle(box).font;
+      // Built from its parts: the `font` shorthand reads empty where variants are set.
+      const style = getComputedStyle(box);
+      context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      if ("letterSpacing" in context) context.letterSpacing = style.letterSpacing;
       const room = box.clientWidth;
       const fits = all.findIndex((form) => context.measureText(form).width <= room);
-      setShown(fits === -1 ? all.length - 1 : fits);
+      // Nothing fits: no folder at all rather than a chopped one (the row's title has the path).
+      setShown(fits);
     });
     observer.observe(box);
     return () => observer.disconnect();
@@ -158,7 +162,7 @@ function FolderHint(props: { folder: string }) {
       ref={setBox}
       className="min-w-0 flex-1 truncate text-xs whitespace-nowrap text-subtle-foreground"
     >
-      {forms[Math.min(shown, forms.length - 1)]}
+      {shown === -1 ? "" : forms[Math.min(shown, forms.length - 1)]}
     </span>
   );
 }
