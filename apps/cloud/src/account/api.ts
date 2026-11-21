@@ -1,7 +1,7 @@
 import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
-import { sealer } from "./crypto.ts";
+import { opaqueToken, sealer } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
@@ -24,6 +24,8 @@ import { orgAudit } from "./org-audit.ts";
 import { orgChecker } from "./org-check.ts";
 import { orgEvents } from "./org-events.ts";
 import { orgHostRoutes } from "./org-host-routes.ts";
+import { orgLocks } from "./org-locks.ts";
+import { portalRevocations } from "./org-portal.ts";
 import { orgRoutes } from "./org-routes.ts";
 import { orgStore } from "./org-store.ts";
 
@@ -40,6 +42,8 @@ const orgPath =
   /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/(members|invitations|portal|policy|hosts|audit)(?:\/([A-Za-z0-9_-]{1,128}))?$/;
 const loginClaim = /^\/v1\/account\/login\/([A-Za-z0-9_-]{43})$/;
 const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
+const orgHostCredentialPath =
+  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/hosts\/([A-Z2-7]{52})\/credential$/;
 
 /**
  * The account HTTP API. One instance per isolate: it holds the in-flight session refreshes
@@ -72,7 +76,7 @@ export function accountApi(
   );
   const keys = { ...setup.keys, exchangeKey: exchangeKey.publicKey };
   const seal = sealer(config.encryptionKey, random);
-  const sessions = sessionStore(deps.db, seal);
+  const sessions = sessionStore(deps.db, seal, () => opaqueToken(random));
   const provider = workos(config, deps.fetch);
   const reader = sessionReader({ store: sessions, provider, now });
   const credentials = machineCredentialStore(deps.db);
@@ -94,6 +98,10 @@ export function accountApi(
   // Organizations (ADR 0206).
   const orgs = orgStore(deps.db);
   const workosOrg = workosOrgs(config, deps.fetch);
+  const sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const newId = () => opaqueToken(random);
+  const locks = orgLocks(deps.db, { now, newHolder: newId, sleep });
+  const portal = portalRevocations({ db: deps.db, locks, workos: workosOrg, now });
   const checker = orgChecker({
     store: sessions,
     provider,
@@ -105,20 +113,32 @@ export function accountApi(
     orgs,
     workos: workosOrg,
     now,
-    sleep: deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    sleep,
   });
   const access = orgAccess({ principals, sessionStore: sessions, checker, now });
   const audit = orgAudit({ workos: workosOrg, now });
-  const orgApi = orgRoutes({ principals, access, orgs, workos: workosOrg, audit, now });
+  const orgApi = orgRoutes({
+    principals,
+    access,
+    orgs,
+    workos: workosOrg,
+    audit,
+    locks,
+    portal,
+    now,
+  });
   const hostApi = orgHostRoutes({
     principals,
     access,
     orgs,
+    credentials,
     audit,
     signingKey: config.grantKey,
+    exchangeKey,
     now,
+    newEnrollment: newId,
   });
-  const events = orgEvents({ orgs, workos: workosOrg, now });
+  const events = orgEvents({ orgs, workos: workosOrg, portal, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
     return loginRoutes({
@@ -169,6 +189,9 @@ export function accountApi(
     if (pathname === "/v1/orgs" && method === "GET") return orgApi.list(request);
     if (pathname === "/v1/orgs" && method === "POST") return orgApi.create(request);
     if (pathname === joinPath && method === "GET") return orgApi.joinPage(url);
+    const hostCredential = pathname.match(orgHostCredentialPath);
+    if (hostCredential && method === "POST")
+      return hostApi.credential(request, hostCredential[1] ?? "", hostCredential[2] ?? "");
     const scoped = pathname.match(orgPath);
     if (scoped) {
       const [, org = "", area, item] = scoped;
@@ -224,9 +247,16 @@ export function accountApi(
       await enrollments.sweep(now());
       await orgs.sweep(now());
     },
-    /** Brings the organization members mirror up to WorkOS's Events API (ADR 0206 §1.1). */
+    /**
+     * Brings the organization members mirror up to WorkOS's Events API (ADR 0206 §1.1), then
+     * retries the Admin Portal revocations that are due (§6), whatever the feed did.
+     */
     events: async () => {
-      await events.catchUp();
+      try {
+        await events.catchUp();
+      } finally {
+        await portal.drain();
+      }
     },
     /**
      * `limited` is the caller's rate-limit verdict for this client address; `_gate` says which

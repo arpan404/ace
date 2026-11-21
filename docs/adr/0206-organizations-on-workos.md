@@ -172,12 +172,29 @@ always-on box. A machine has exactly one owner, a person or an organization.
   that person with `hosts:manage`. A fresh headless box enrolls with `ace login --org <org>`
   then the first member proof from an admin's device, as ADR 0190's first-owner rule has it.
 - **What changes on the machine.** `ace-owner.json` becomes `{kind: "org", org, generation}`.
-  The machine credential is reissued bound to the org (`machine_credentials.org_id`; the
-  `machines` row gains `org_id`). Every paired device's person standing ends, as any owner
+  The machine credential is reissued bound to this enrollment of the host
+  (`machine_credentials.org_id` and `enrollment`; the `machines` row gains `org_id`), and speaks
+  for the organization only while that is the host's current enrollment. Another account's
+  credential for the machine is never bound.
+- **The organization's own credential.** Once the daemon confirms the enrollment it signs in as
+  the organization, not as the member who enrolled it, so that person signing out, letting their
+  session lapse or being deprovisioned never takes the host off the relay. The backend issues an
+  **organization credential** (`machine_credentials.kind = 'org'`, migration 0008): no session
+  behind it, its account the organization's principal `org:<org id>`, bound to the enrollment.
+  `POST /v1/orgs/{org}/hosts/{hostId}/credential` issues it once per enrollment and renews it for
+  30 days, both on the host key's proof alone (`orgHostCredentialProof`, a MAC over host,
+  organization, credential and time, taken within five minutes), and only while the organization
+  holds the host under that enrollment. It mints only its own host's `machine` grant: never a
+  member, device, Spade Cloud or market grant, so it yields no person's standing. The daemon
+  keeps it as its sign-in (`source: "org"`), gives the enroller's credential back, renews it with
+  the host key, and is signed out once a renewal is refused. A person's handover or `ace login`
+  can't replace it while the machine answers to the organization. Every paired device's person standing ends, as any owner
   change does. Nothing on disk is deleted: the person's earlier threads and bots on it stay, and
   stay theirs (2.4).
 - **Releasing.** An owner of the organization, from a proven socket, chooses "Release this host";
-  or a local reset with the daemon stopped. The next person's proof sets the new owner.
+  or a local reset with the daemon stopped. The next person's proof sets the new owner. Release
+  revokes every credential bound to that enrollment, the organization credential included, so the
+  machine signs in again before it speaks for anyone.
 - **Recommended setup.** A box enrolled from fresh, with the host's sign-ins (git host, mail,
   error tracker) being team service accounts, never a member's personal ones. The guide and
   the enroll page say so, because a shared bot's "send as" is whoever is signed in on the host.
@@ -488,7 +505,7 @@ goes `inactive` or is deleted:
 | Answers in flight                          | A member stamp counts only while the socket's member standing is current, so an answer after the grant ran out is refused.                                                                                                                   |
 | Requests they were the approver of         | Stay open for the bot's other approvers. A bot left with no active approver keeps its person-only requests waiting and tells admins "CI watcher has no approver"; nothing runs in the meantime.                                              |
 | Shared bots they made, hosts they enrolled | Stay the organization's. Their rights on bots are marked inactive, not deleted, and come back if the membership is reactivated (WorkOS keeps the role).                                                                                      |
-| Admin Portal sessions                      | Revoked with `external_user_id` = their account.                                                                                                                                                                                             |
+| Admin Portal sessions                      | Revoked with `external_user_id` = their account, whatever role the mirror showed: queued with the mirror's change, retried by the minute cron until WorkOS confirms.                                                                         |
 | Their threads on an org host (phase 3)     | Kept, private, owned by a former member; an owner may transfer them or delete them by hand, audited.                                                                                                                                         |
 | Keys                                       | Nothing to revoke on their machines: the organization's endpoint keys live only on org hosts, and the registry key on the signer's machine. If the signer machine was the leaver's, owners rotate the registry key from a new machine (5.3). |
 | Their personal space                       | Untouched and never deleted: their account, machines, bots, threads and local data stay.                                                                                                                                                     |

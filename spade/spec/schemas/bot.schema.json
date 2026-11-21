@@ -206,6 +206,18 @@
         "$ref": "#/$defs/code"
       }
     },
+    "checks": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "on",
+          "kind"
+        ]
+      }
+    },
     "publisher": false,
     "signature": false,
     "signatures": false,
@@ -230,6 +242,9 @@
       "properties": {
         "kind": {
           "type": "string"
+        },
+        "verify": {
+          "type": "boolean"
         }
       },
       "allOf": [

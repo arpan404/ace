@@ -250,18 +250,31 @@ async fn autonomy(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
     Body(body): Body<BotAutonomy>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
     let stamp = person_stamp(&headers);
-    off_thread(
-        move || match security.set_autonomy(&id, body.autonomy, stamp.as_deref()) {
+    off_thread(move || {
+        // A shared bot rises to Full access only as its organization's policy allows, for the
+        // member who configures it (ADR 0206 §2.3); the person's stamp counts for nothing there.
+        let set = match &member {
+            Some(axum::Extension(super::org_guard::Stamped(member))) => {
+                let may = state
+                    .engine
+                    .org_policy()
+                    .may_raise_full_access(member.role(), true);
+                security.set_autonomy_as_member(&id, body.autonomy, may)
+            }
+            None => security.set_autonomy(&id, body.autonomy, stamp.as_deref()),
+        };
+        match set {
             Ok(_) => Json(view(&security, &id)).into_response(),
             Err(error) => failed(error),
-        },
-    )
+        }
+    })
     .await
 }
 
@@ -385,12 +398,20 @@ async fn grants(State(state): State<AppState>, Path(id): Path<String>) -> Respon
 async fn grant(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
     Body(scope): Body<Scope>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.add_grant(&id, scope, BY_PERSON) {
+    // A shared bot's grant names the member who made it (ADR 0206 §4.1).
+    let by = match &member {
+        Some(axum::Extension(super::org_guard::Stamped(member))) => {
+            format!("{}{}", crate::engine::MEMBER_BY, member.account)
+        }
+        None => BY_PERSON.to_owned(),
+    };
+    off_thread(move || match security.add_grant(&id, scope, &by) {
         Ok(grant) => (StatusCode::CREATED, Json(json!({"grant": grant}))).into_response(),
         Err(error) => failed(error),
     })

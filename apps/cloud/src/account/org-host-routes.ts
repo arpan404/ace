@@ -1,14 +1,25 @@
+import { AceAccountGrant } from "@ace/protocol/ace-account";
 import {
   AceOrgAuditEntry,
+  AceOrgHostCredentialRequest,
   AceOrgHostEnrollRequest,
   AceOrgId,
   AceOrgPolicySetRequest,
   AceSpace,
 } from "@ace/protocol/ace-org";
 import { orgRole } from "@ace/account-grant/org-roles";
-import { policyBodySha256, signOrgPolicy } from "@ace/account-grant";
+import { decodeBase64url, policyBodySha256, signOrgPolicy } from "@ace/account-grant";
+import {
+  ORG_ENROLL_LIFETIME_MS,
+  ORG_HOST_CREDENTIAL_SKEW_MS,
+  orgEnrollProofValid,
+  orgHostCredentialProofValid,
+} from "@ace/account-grant/machine-proof";
+import { hostId as hostIdOf } from "@ace/secure-channel";
 import type { GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
+import { ORG_CREDENTIAL_LIFETIME_MS, type MachineCredentialStore } from "./credentials.ts";
+import { digest } from "./crypto.ts";
 import type { OrgAccess } from "./org-access.ts";
 import type { OrgAudit } from "./org-audit.ts";
 import type { OrgStore } from "./org-store.ts";
@@ -28,18 +39,26 @@ export function orgHostRoutes(deps: {
   principals: PrincipalReader;
   access: OrgAccess;
   orgs: OrgStore;
+  credentials: Pick<MachineCredentialStore, "issueOrg" | "renewOrg">;
   audit: OrgAudit;
   signingKey: GrantSigningKey;
+  /** The key a machine's consent is checked against (ADR 0190's exchange key). */
+  exchangeKey: { privateKey: Uint8Array };
   now: () => number;
+  /** Names each enrollment of a host, which its machine credentials are bound to. */
+  newEnrollment: () => string;
 }) {
   const { access, orgs, audit, now } = deps;
 
-  /** The org host a machine credential belongs to, if it is `org`'s. */
+  /**
+   * The org host a machine credential belongs to, if it is `org`'s: the credential must be bound
+   * to the host's current enrollment in `org`, never just name a host that `org` owns now.
+   */
   async function orgHost(request: Request, org: string) {
     const token = bearer(request);
     const principal = token ? await deps.principals.read(token) : undefined;
     if (principal?.kind !== "machine") return undefined;
-    return (await orgs.hostOrg(principal.hostId)) === org ? principal : undefined;
+    return (await orgs.credentialOrg(principal.hash)) === org ? principal : undefined;
   }
 
   async function currentPolicy(org: string) {
@@ -54,6 +73,42 @@ export function orgHostRoutes(deps: {
           setAt: stored.set_at,
         }
       : { org, version: 0, body: NO_POLICY };
+  }
+
+  /** Why a machine's consent doesn't let this person enroll it here, or undefined. */
+  function consentRefusal(
+    body: AceOrgHostEnrollRequest,
+    org: string,
+    account: string,
+  ): string | undefined {
+    const { consent } = body;
+    if (consent.hostId !== body.hostId || consent.org !== org) return "consent_mismatch";
+    // The machine's owner, as its daemon checked, must be the one enrolling it.
+    if (consent.account !== account) return "not_machine_owner";
+    const at = now();
+    if (consent.expiresAt <= at || consent.expiresAt > at + ORG_ENROLL_LIFETIME_MS + 60_000)
+      return "consent_expired";
+    let named = false;
+    try {
+      named = hostIdOf(decodeBase64url(consent.hostKey)) === consent.hostId;
+    } catch {
+      named = false;
+    }
+    const valid =
+      named &&
+      orgEnrollProofValid({
+        exchangePrivateKey: deps.exchangeKey.privateKey,
+        hostKey: consent.hostKey,
+        consent: {
+          hostId: consent.hostId,
+          org: consent.org,
+          account: consent.account,
+          nonce: consent.nonce,
+          expiresAt: consent.expiresAt,
+        },
+        proof: consent.proof,
+      });
+    return valid ? undefined : "consent_invalid";
   }
 
   return {
@@ -82,18 +137,25 @@ export function orgHostRoutes(deps: {
       ),
 
     /**
-     * POST /v1/orgs/{org}/hosts — a person with `hosts:manage` gives a machine on their own list
-     * to the organization. The machine itself also checks the person's standing as its owner.
+     * POST /v1/orgs/{org}/hosts — a person with `hosts:manage` gives a machine to the
+     * organization, with the machine's own consent: its daemon gave it to a socket that proved
+     * this person is its owner (ADR 0190), for this host and this organization, and it is spent
+     * here, once.
      */
     enroll: (request: Request, org: string) =>
       access.member(request, org, "hosts:manage", async (member) => {
-        const body = AceOrgHostEnrollRequest.safeParse(await jsonBody(request, 1024));
+        const body = AceOrgHostEnrollRequest.safeParse(await jsonBody(request, 2048));
         if (!body.success) return fail(400, "invalid_request");
+        const refused = consentRefusal(body.data, member.org, member.principal.account.id);
+        if (refused) return fail(403, refused);
+        const { consent } = body.data;
+        if (!(await orgs.spendConsent(consent))) return fail(409, "consent_used");
         const enrolled = await orgs.enrollHost(
           {
             hostId: body.data.hostId,
             org: member.org,
             account: member.principal.account.id,
+            enrollment: deps.newEnrollment(),
             auditKey: body.data.auditKey,
           },
           now(),
@@ -107,7 +169,10 @@ export function orgHostRoutes(deps: {
         return json(201, { ok: true });
       }),
 
-    /** DELETE /v1/orgs/{org}/hosts/{hostId} — an owner releases an org host. */
+    /**
+     * DELETE /v1/orgs/{org}/hosts/{hostId} — an owner releases an org host. Its credentials from
+     * this enrollment are revoked: the machine signs in again before it speaks for anyone.
+     */
     release: (request: Request, org: string, hostId: string) =>
       access.member(request, org, undefined, async (member) => {
         if (orgRole(member.role) !== "owner") return fail(403, "forbidden");
@@ -120,6 +185,62 @@ export function orgHostRoutes(deps: {
         });
         return json(200, { ok: true });
       }),
+
+    /**
+     * POST /v1/orgs/{org}/hosts/{hostId}/credential — an org host's organization credential
+     * (ADR 0206 §2.1), proven with its host key alone: no person's session is behind it, so the
+     * host stays on the relay whatever becomes of the member who enrolled it. A credential this
+     * enrollment already issued is renewed; otherwise it is issued, once per enrollment. Either
+     * only while `org` holds the host. A retry after a lost answer renews what was issued.
+     */
+    async credential(request: Request, org: string, hostId: string): Promise<Response> {
+      const id = AceOrgId.safeParse(org);
+      if (!id.success || !HostId.safeParse(hostId).success) return fail(404, "not_found");
+      const parsed = AceOrgHostCredentialRequest.safeParse(await jsonBody(request, 2048));
+      if (!parsed.success) return fail(400, "invalid_request");
+      const body = parsed.data;
+      const at = now();
+      let named = false;
+      try {
+        named = hostIdOf(decodeBase64url(body.hostKey)) === hostId;
+      } catch {
+        named = false;
+      }
+      const proven =
+        named &&
+        Math.abs(at - body.at) <= ORG_HOST_CREDENTIAL_SKEW_MS &&
+        orgHostCredentialProofValid({
+          exchangePrivateKey: deps.exchangeKey.privateKey,
+          hostKey: body.hostKey,
+          terms: { hostId, org: id.data, credential: body.credential, at: body.at },
+          proof: body.proof,
+        });
+      if (!proven) return fail(403, "host_key");
+      const hash = await digest(body.credential);
+      const expiresAt = at + ORG_CREDENTIAL_LIFETIME_MS;
+      const answer = (status: number) =>
+        deps.principals.read(body.credential).then((principal) =>
+          principal?.kind === "machine" && principal.org === id.data
+            ? json(
+                status,
+                AceAccountGrant.parse({
+                  token: body.credential,
+                  expiresAt: principal.expiresAt,
+                  account: principal.account,
+                }),
+              )
+            : fail(403, "not_org_host"),
+        );
+      if (await deps.credentials.renewOrg(hash, hostId, id.data, expiresAt)) return answer(200);
+      // Issued as part of the enrollment, which is audited already (`org.host.enrolled`).
+      if (await deps.credentials.issueOrg(hash, { hostId, org: id.data, expiresAt }, at))
+        return answer(201);
+      // Not this organization's host (released, or never enrolled), or this enrollment's
+      // credential is another one: the host enrolls again to get a new one.
+      return (await orgs.hostOrg(hostId)) === id.data
+        ? fail(409, "credential_issued")
+        : fail(403, "not_org_host");
+    },
 
     /**
      * GET /v1/orgs/{org}/policy — the current version and the backend's signed statement over

@@ -16,6 +16,7 @@ fn call(id: &str, effects: Vec<Effect>) -> Event {
                 contract: "cheapest_fare".into(),
                 input: json!({"from": "KTM", "to": "DEL", "month": "2027-01"}),
                 effects,
+                outside: None,
             })),
         });
     }
@@ -320,4 +321,32 @@ fn a_calls_output_is_untrusted_when_untrusted_content_was_in_view_or_read_since(
         call("c1", Vec::new()),
     ];
     assert!(!output_untrusted(&compacted, at(&compacted), flagged));
+}
+
+#[test]
+fn a_call_from_an_outside_client_reads_as_the_persons_agent_never_as_the_person() {
+    let mut message = call("c1", Vec::new());
+    if let Event::Known(Known::UserMessage {
+        from_agent: Some(from),
+        ..
+    }) = &mut message
+    {
+        from.name = "Claude Code".into();
+        from.id = "outside:g1".into();
+        if let Some(request) = from.contract.as_mut() {
+            request.outside = Some("mcp".into());
+        }
+    }
+    let text = format!("{:?}", crate::context::messages(&[message]));
+    assert!(
+        text.contains(
+            "<contract_call from=\\\"Claude Code\\\" id=\\\"outside:g1\\\" outside=\\\"mcp\\\""
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("outside Spade, not the person's words"),
+        "{text}"
+    );
+    assert!(!text.contains("another bot's request"), "{text}");
 }

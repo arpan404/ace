@@ -640,6 +640,11 @@ consented folders, toolchains, grants, network activity and checkpoints as befor
 Allow once, Always for this bot, Deny; `ask: undeclared` shows Allow and Deny, since the answer
 is kept for the bot and tool.
 
+## Org hosts
+
+On a Spade given to an organization, shared bots answer to their access lists and the
+organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.md) (ADR 0206).
+
 ## Not built yet
 
 - A size bound on checkpoints (count and age only today; clones cost little on APFS, plain

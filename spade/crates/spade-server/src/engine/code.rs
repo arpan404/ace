@@ -278,6 +278,7 @@ impl Engine {
             .contained_call(at.conversation, name, false, at.reply)
             .await;
         let ceiling = self.ceiling(at.conversation);
+        let org = self.org_gate(at.conversation);
         let target = spade_core::outward::target(name, &arguments);
         let routed = code_run::route(code_run::CodeCall {
             tool: name,
@@ -295,6 +296,9 @@ impl Engine {
             checkpointed,
             credentials: autonomy::reaches_credentials(&arguments),
             target: target.as_deref(),
+            org: org
+                .as_ref()
+                .map(|(name, policy)| spade_core::org::Gate { org: name, policy }),
         });
         match routed {
             Route::Run => {}
@@ -417,6 +421,8 @@ impl Engine {
                 call_id: asked,
                 allowed: false,
                 always: false,
+                // Closed by Spade, not answered by anyone.
+                by: None,
             });
             if let Err(error) = self.record(id, &closed) {
                 tracing::warn!(%error, "a code call's request couldn't be closed");

@@ -7,7 +7,12 @@ import {
   recipeNeeds,
   type ArchiveFile,
 } from "@ace/marketplace";
-import { type PackageLinkId, type PackagePlan, type Recipe } from "@ace/protocol/marketplace";
+import {
+  type MarketBotReplay,
+  type PackageLinkId,
+  type PackagePlan,
+  type Recipe,
+} from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import { panelPageTexts, type BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
@@ -99,6 +104,15 @@ export interface SpadePort {
   }): Promise<MadeBot>;
   /** What moving a linked bot to `manifest` would do: Spade's plan, for the review. */
   planUpdate(bot: string, manifest: unknown): Promise<PackagePlan>;
+  /**
+   * The bot's kept runs replayed free on `manifest` (ADR 0204 §2), for the review: the recorded
+   * steps on a scripted model, every outside call answered from the recording.
+   */
+  replayUpdate?(
+    bot: string,
+    manifest: unknown,
+    pages: Record<string, string>,
+  ): Promise<MarketBotReplay>;
   /**
    * Moves a linked bot to another version, one step keyed by `transaction`. While the bot works
    * Spade holds the step for the end of its turn and says `held`.

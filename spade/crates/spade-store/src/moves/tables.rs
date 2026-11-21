@@ -130,6 +130,9 @@ pub const PER_BOT_SETTINGS: &[&str] = &[
     "contracts_incoming_off:",
     "security:",
     "knowledge_bytes.",
+    // A shared bot's organization and access list (ADR 0206 §2.3): where it arrives, only a
+    // host of the same organization takes it.
+    "org_bot:",
 ];
 
 const IN_CONVERSATIONS: &str = "conversation_id IN (SELECT value FROM json_each(:conversations))";

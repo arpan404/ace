@@ -181,6 +181,8 @@ pub struct Show {
     pub card: Card,
     /// The earlier card it updates in place.
     pub replaces: Option<String>,
+    /// The package card it is, by id: the package's checks on that card run on it (ADR 0204 §3).
+    pub surface: Option<String>,
 }
 
 /// One thing wrong with a card's data, at its place in the data (`blocks[2].rows[0].label`).
@@ -200,6 +202,43 @@ impl std::fmt::Display for Problem {
     }
 }
 
+/// How often a package card that misses its checks goes back to the bot before it isn't shown
+/// in that reply at all, as a contract's output does (ADR 0204 §3).
+pub const MOST_CHECK_MISSES: usize = 3;
+
+fn check_refusal_start(surface: &str) -> String {
+    format!("Not shown: the {surface} card ")
+}
+
+/// How many times this reply's cards named `surface` missed the package's checks.
+pub fn check_misses(events: &[Event], reply: &str, surface: &str) -> usize {
+    let start = check_refusal_start(surface);
+    events
+        .iter()
+        .filter(|event| {
+            matches!(event, Event::Known(Known::ToolFinished { reply: r, name, content, is_error: true, .. })
+                if r == reply && name == CARD_SHOW && content.starts_with(&start))
+        })
+        .count()
+}
+
+/// What the bot reads when package card `surface` misses its checks for the `tries`th time in a
+/// reply: the misses, and the tries left, or that it won't be shown in this reply.
+pub fn check_refusal(surface: &str, misses: &[String], tries: usize) -> String {
+    let lines = misses.join("\n- ");
+    let start = check_refusal_start(surface);
+    if tries >= MOST_CHECK_MISSES {
+        return format!(
+            "{start}still doesn't pass the package's checks, so it won't be shown in this reply:\n- {lines}"
+        );
+    }
+    let left = MOST_CHECK_MISSES - tries;
+    format!(
+        "{start}doesn't pass the package's checks. Fix these and show it again ({left} more {}):\n- {lines}",
+        if left == 1 { "try" } else { "tries" }
+    )
+}
+
 /// What the bot reads when a card is refused: every problem, one per line.
 pub fn refusal(problems: &[Problem]) -> String {
     let mut text = String::from("Not shown: the card doesn't fit. Fix these and show it again:");
@@ -211,22 +250,28 @@ pub fn refusal(problems: &[Problem]) -> String {
 }
 
 /// Reads `card_show`'s arguments against the earlier events of its conversation. `replaces` must
-/// name a card this conversation showed; `surface` names a card a bot's package ships, which
-/// arrives with packages (ADR 0200 §3), so until then a card names its parts in `data`.
-pub fn read(events: &[Event], arguments: &Value) -> Result<Show, Vec<Problem>> {
+/// name a card this conversation showed; `surface` names one of `cards`, the cards the bot's
+/// package ships (ADR 0200 §5.1), so the package's checks on it run. Either way the card's parts
+/// come in `data`.
+pub fn read(events: &[Event], arguments: &Value, cards: &[String]) -> Result<Show, Vec<Problem>> {
     let Some(arguments) = arguments.as_object() else {
         return Err(vec![problem("", "send an object: {data, replaces?}.")]);
     };
     let mut problems = Vec::new();
-    if let Some(surface) = arguments.get("surface").filter(|v| !v.is_null()) {
-        problems.push(problem(
-            "surface",
-            &format!(
-                "this bot ships no card named {surface}. Leave `surface` out and send the card's \
-                 title and blocks in `data`."
-            ),
-        ));
-    }
+    let surface = match arguments.get("surface") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(id)) if cards.contains(id) => Some(id.clone()),
+        Some(surface) => {
+            problems.push(problem(
+                "surface",
+                &format!(
+                    "this bot ships no card named {surface}. Leave `surface` out and send the \
+                     card's title and blocks in `data`."
+                ),
+            ));
+            None
+        }
+    };
     let replaces = match arguments.get("replaces") {
         None | Some(Value::Null) => None,
         Some(Value::String(card)) if latest(events, card).is_some() => Some(card.clone()),
@@ -256,7 +301,11 @@ pub fn read(events: &[Event], arguments: &Value) -> Result<Show, Vec<Problem>> {
         }
     };
     match card {
-        Some(card) if problems.is_empty() => Ok(Show { card, replaces }),
+        Some(card) if problems.is_empty() => Ok(Show {
+            card,
+            replaces,
+            surface,
+        }),
         _ => Err(problems),
     }
 }
@@ -461,6 +510,6 @@ pub fn schema() -> Value {
         "properties": {
             "data": Value::Object(data),
             "replaces": text("Optional: the id of a card you showed here, to update it in place."),
-            "surface": text("A card your package ships, by id. Leave it out: send the card in data.") },
+            "surface": text("Optional: a card your package ships, by id; its checks run on the card. Send the card in data either way.") },
         "required": ["data"] })
 }

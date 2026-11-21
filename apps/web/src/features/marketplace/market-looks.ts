@@ -4,7 +4,7 @@ import { parseStoredBotFace, type BotFace } from "@ace/ui-core/bot-face";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useSuitLibrary } from "@/theme/suits/suit-library.tsx";
-import { reviewKey, type EntryKey, type PreparedReview } from "./market-api.ts";
+import { reviewKey, useMarketReview, type EntryKey, type PreparedReview } from "./market-api.ts";
 
 /*
  * What an entry looks like, from what this machine already knows: a Suit's palette from the Suit
@@ -83,9 +83,13 @@ export function useSuitLook(key: EntryKey, installedAs?: string): SuitDetail | u
   return installed ?? (held ? suitFromReview(held.review, held.items) : undefined);
 }
 
-/** A bot entry's face, once its review is held. */
+/**
+ * A bot entry's face, from its recipe's review: the held one, else prepared once and kept (the
+ * entry's page reads the same one). Undefined while it loads and for a recipe without a face.
+ */
 export function useBotLook(key: EntryKey): BotFace | undefined {
-  return faceFromReview(useHeldReview(key)?.review);
+  const read = useMarketReview(key, { update: false, enabled: key.type === "spade-bot" });
+  return faceFromReview(read.data?.review);
 }
 
 /**

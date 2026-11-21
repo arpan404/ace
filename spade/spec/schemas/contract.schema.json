@@ -12,6 +12,9 @@
       "properties": {
         "kind": {
           "type": "string"
+        },
+        "verify": {
+          "type": "boolean"
         }
       },
       "allOf": [

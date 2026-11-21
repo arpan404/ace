@@ -207,11 +207,9 @@ describe("asked again", () => {
     expect(lines(c)).toEqual(["bot: The review stopped me.", "steps"]);
     const steps = spadeBubbles(c.view()).find((bubble) => bubble.kind === "steps");
     expect(steps?.kind === "steps" && steps.summary).toBe("Ran a command, didn't run a command");
-    expect(
-      steps?.kind === "steps" && steps.steps.map((step) => [step.detail, step.meta, step.notable]),
-    ).toEqual([
-      ["gh pr view 2076", [], false],
-      ["gh pr comment 2076", ["The review refused it: you asked about #2081, not #2076"], true],
+    expect(steps?.kind === "steps" && steps.steps.map((step) => [step.detail, step.meta])).toEqual([
+      ["gh pr view 2076", []],
+      ["gh pr comment 2076", ["The review refused it: you asked about #2081, not #2076"]],
     ]);
   });
 
@@ -232,7 +230,9 @@ describe("asked again", () => {
     c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
     expect(lines(c)).toEqual(["bot: Done.", "steps"]);
     const steps = spadeBubbles(c.view()).find((bubble) => bubble.kind === "steps");
-    expect(steps?.kind === "steps" && steps.steps.map((step) => step.notable)).toEqual([false]);
+    expect(steps?.kind === "steps" && steps.steps.map((step) => step.meta)).toEqual([
+      ["The reviewer allowed it"],
+    ]);
   });
 
   test("the card asked again says so and leads with what was refused before", () => {

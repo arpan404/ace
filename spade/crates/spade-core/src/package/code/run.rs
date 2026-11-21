@@ -251,6 +251,8 @@ pub struct CodeCall<'a> {
     pub credentials: bool,
     /// Where a send or push goes, for the request's line.
     pub target: Option<&'a str>,
+    /// For a shared bot on an org host, its organization's policy (ADR 0206 §3).
+    pub org: Option<crate::org::Gate<'a>>,
 }
 
 /// Where a `tools` call from code goes (ADR 0203 §2): the gate's own route for one of Spade's
@@ -282,6 +284,7 @@ pub fn route(call: CodeCall<'_>) -> crate::effect::Route {
         ceiling: call.ceiling,
         command: None,
         destructive: false,
+        org: call.org,
     };
     match effect::route(gate) {
         Route::Review(concern) => Route::Ask {

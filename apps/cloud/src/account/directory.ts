@@ -59,8 +59,8 @@ export function directoryRoutes(deps: {
   }
   /**
    * A member grant (ADR 0206 §2.2): only for the person's own session, with WorkOS's answer
-   * under 60 seconds old that the account is an active member, an active mirror row, and `host`
-   * one of that organization's hosts. It carries the organization's policy version.
+   * under 60 seconds old that the account is an active member, an active mirror row unchanged
+   * since that answer, and `host` one of that organization's hosts. It carries the organization's policy version.
    */
   async function member(principal: Principal, request: AceGrantRequest): Promise<Response> {
     const { org, host, key, subject } = request;
@@ -71,8 +71,11 @@ export function directoryRoutes(deps: {
     const check = await deps.orgs.checker.check(principal, org);
     if (!check.ok) return orgRefusal(org, check.error);
     const store = deps.orgs.store;
-    if ((await store.member(org, principal.account.id))?.status !== "active")
-      return fail(403, "not_member");
+    const row = await store.member(org, principal.account.id);
+    if (row?.status !== "active") return fail(403, "not_member");
+    // The role is signed only if the membership is as WorkOS's answer found it: a demotion or
+    // removal since then means that answer no longer stands.
+    if (row.seq !== check.seq) return fail(503, "busy");
     if ((await store.hostOrg(host)) !== org) return fail(403, "not_org_host");
     const policy = (await store.policy(org))?.version ?? 0;
     const iat = now();
@@ -104,7 +107,7 @@ export function directoryRoutes(deps: {
      * - A machine credential: `machine` grants for its own host only; device grants in format 2
      *   with a machine's standing, which older daemons (which treat any format 1 device grant as
      *   the person) refuse; market grants as `machine`, which the market refuses for sensitive
-     *   actions.
+     *   actions. An org host's organization credential: its own host's `machine` grant only.
      * - A session a machine kept (`exposed`), or one from before standing was kept (`legacy`): the
      *   same, but `machine` grants for any host, as an older daemon asks for its own.
      * - The person's session: format 1 device grants, and with `host` and `key` the person's
@@ -120,6 +123,11 @@ export function directoryRoutes(deps: {
         if (!parsed.success) return fail(400, "invalid_request");
         const { kind, subject, purpose, host, key, action, org } = parsed.data;
         if (kind === "member") return member(principal, parsed.data);
+        // An org host's organization credential (ADR 0206 §2.1) names the organization, never a
+        // person: it mints only the machine grant its own relay connection needs. No device,
+        // Spade Cloud or market grant, in any format.
+        if (principal.kind === "machine" && principal.org !== undefined)
+          if (kind !== "machine" || purpose !== undefined) return fail(403, "org_credential");
         if (org !== undefined && purpose !== "market-publish") return fail(400, "invalid_request");
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");

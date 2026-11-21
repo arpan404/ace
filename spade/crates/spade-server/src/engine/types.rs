@@ -274,6 +274,9 @@ pub enum AnswerError {
     NotFound,
     #[error("that call is not waiting for an answer")]
     NotAwaiting,
+    /// A shared bot's request is answered only by one of its approvers (ADR 0206 §2.3).
+    #[error("{0}")]
+    ApproverOnly(&'static str),
     #[error(transparent)]
     Store(#[from] StoreError),
 }

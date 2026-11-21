@@ -319,6 +319,7 @@ impl Log {
                 call_id,
                 allowed,
                 always,
+                ..
             } => {
                 if !allowed {
                     self.declined.insert(call_id.clone());

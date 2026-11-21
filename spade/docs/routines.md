@@ -28,6 +28,10 @@ Fix login`, `webhook`, `run now`.
   person's, and the machine's is the default. A time a spring-forward skips runs just after the
   gap; a time an autumn change repeats runs once, at its first instant. Intervals count real
   time from the Unix epoch, so `every 2 hours` runs at even UTC hours.
+- **Verified runs.** A packaged bot's trigger that says `"verify": true` opens a goal for each run
+  right after its message, and the run counts as done only once the check of done says so: its
+  result reads `checking`, then `verified`, or `failed` after three `not_yet` verdicts
+  ([quality.md](quality.md), Checks).
 - **Paused** routines don't fire; resuming starts from the next slot after now (nothing catches
   up). Changing a schedule or zone does the same.
 

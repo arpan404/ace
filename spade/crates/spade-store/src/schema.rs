@@ -199,6 +199,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::cases::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // ADR 0206 §4.2: an org host's hash-chained audit log and its signed checkpoints.
+        sql: crate::org_audit::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

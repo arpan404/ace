@@ -175,14 +175,55 @@ export const AceOrgPolicyVersion = z.object({
 export type AceOrgPolicyVersion = z.infer<typeof AceOrgPolicyVersion>;
 
 /** `POST /v1/orgs/{org}/hosts`: the person gives a machine they own to the organization. */
+/**
+ * A machine's consent to become one organization's host (ADR 0206 §2.1,
+ * `@ace/account-grant/machine-proof` `orgEnrollProof`): its daemon gives it only to a socket that
+ * proved the machine owner's standing, for one organization, once, for five minutes. `account` is
+ * that owner, whose session must be the one enrolling; `hostKey` is the relay host key the host id
+ * names; `proof` is the MAC under the secret that key shares with the backend's exchange key.
+ */
+export const AceOrgEnrollConsent = z.object({
+  hostId: z.string().regex(/^[A-Z2-7]{52}$/),
+  hostKey: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  org: AceOrgId,
+  account: z.string().min(1).max(256),
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{22,64}$/),
+  expiresAt: z.number().int().positive(),
+  proof: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+export type AceOrgEnrollConsent = z.infer<typeof AceOrgEnrollConsent>;
+
 export const AceOrgHostEnrollRequest = z.object({
   hostId: z.string().regex(/^[A-Z2-7]{52}$/),
+  /** The machine's own consent, for this host and organization; spent by enrolling. */
+  consent: AceOrgEnrollConsent,
   /** The host's Ed25519 audit key, base64url, that signs its log's checkpoints. */
   auditKey: z
     .string()
     .regex(/^[A-Za-z0-9_-]{43}$/)
     .optional(),
 });
+export type AceOrgHostEnrollRequest = z.infer<typeof AceOrgHostEnrollRequest>;
+
+/**
+ * `POST /v1/orgs/{org}/hosts/{hostId}/credential` (ADR 0206 §2.1): an org host asks for its
+ * organization credential, or renews it, with its host key. The credential has no person's
+ * session behind it: a member signing out or leaving never touches it. It is issued once per
+ * enrollment, renewed only while the organization still holds the host under that enrollment,
+ * and revoked when the host is released. The answer is an `AceAccountGrant` for the
+ * organization's own principal.
+ */
+export const AceOrgHostCredentialRequest = z.object({
+  /** The relay host key the host id names (X25519, base64url). */
+  hostKey: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /** The credential to issue or renew, chosen by the daemon and kept on its disk first. */
+  credential: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /** When the daemon made `proof`, on its clock; the backend takes it within five minutes. */
+  at: z.number().int().positive(),
+  /** `orgHostCredentialProof` over the host id, organization, credential and `at`. */
+  proof: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+export type AceOrgHostCredentialRequest = z.infer<typeof AceOrgHostCredentialRequest>;
 
 const AuditRef = z.object({
   type: z.string().regex(/^[a-z_]{1,32}$/),

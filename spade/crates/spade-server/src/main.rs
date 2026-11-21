@@ -48,6 +48,31 @@ fn main() -> std::process::ExitCode {
     }
     // The schema this binary migrates its database to, for the release's `ace-data.json`
     // (ADR 0177): read from the binary that ships, never from source.
+    // `ace org audit verify` (ADR 0206 §4.2): an exported log checked offline against the key
+    // the host registered. Opens nothing but the file.
+    if args
+        .first()
+        .is_some_and(|flag| flag == "--verify-org-audit")
+    {
+        let (Some(file), Some(key)) = (args.get(1), args.get(2).and_then(|k| k.to_str())) else {
+            eprintln!("usage: spade --verify-org-audit <export.jsonl> <audit key>");
+            return std::process::ExitCode::from(2);
+        };
+        let text = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("spade: can't read {}: {error}", file.to_string_lossy());
+                return std::process::ExitCode::from(2);
+            }
+        };
+        let (verified, said) = spade_server::org::export::verify(&text, key);
+        println!("{said}");
+        return if verified {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::FAILURE
+        };
+    }
     if args.first().is_some_and(|flag| flag == "--schema-version") {
         println!("{}", Store::schema_version());
         return std::process::ExitCode::SUCCESS;
@@ -164,6 +189,8 @@ usage: spade                              run the server (configured by SPADE_* 
        spade --schema-version             print the database schema version
        spade --check-migrations <path>    check that a copy of spade.sqlite can be migrated
        spade --bot-test <package folder>  run a package's scenario tests offline, as JSON
+       spade --verify-org-audit <file> <key>
+                                          check an org host's exported audit log offline
        spade --conform read <folder>      read a package as the Spade Agent Format's reader, as JSON
        spade --conform fit <file>         read a schema and check values against it, as JSON
        spade --code-check <package folder> check a package's WebAssembly components, as JSON
@@ -548,6 +575,22 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    // An org host's audit log is checkpointed at least every five minutes (ADR 0206 §4.2).
+    {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                every.tick().await;
+                let engine = engine.clone();
+                let signed =
+                    tokio::task::spawn_blocking(move || engine.org_checkpoint_if_due()).await;
+                if let Ok(Err(error)) = signed {
+                    tracing::warn!(%error, "the audit log's checkpoint couldn't be signed");
+                }
+            }
+        });
+    }
     engine.set_security(security.clone());
     engine.set_code(spade_server::code::Code::new(
         &home.dir.join("code"),

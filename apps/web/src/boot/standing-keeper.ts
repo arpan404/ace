@@ -28,17 +28,23 @@ export function keepStanding(
   client: Pick<ClientApi, "request" | "state"> & Pick<Partial<ClientApi>, "standingChallenge">,
   prove: StandingProver,
   timers: { set(delayMs: number, callback: () => void): () => void },
-): { proveNow(): Promise<void>; stop(): void } {
+  fallback?: StandingProver,
+): { proveNow(): Promise<boolean>; stop(): void } {
   const selection = client.standingChallenge?.();
   let stopped = false;
   let cancel: () => void = noop;
   let proving: string | undefined;
-  const proveNow = async (): Promise<void> => {
+  const proveNow = async (): Promise<boolean> => {
     const challenge = selection?.getSnapshot();
-    if (stopped || !challenge) return;
-    const proven = await prove(challenge).catch(() => undefined);
-    if (stopped || !proven || selection?.getSnapshot()?.nonce !== challenge.nonce) return;
-    await client.request(proven).catch(() => {});
+    if (stopped || !challenge) return false;
+    const current = () => !stopped && selection?.getSnapshot()?.nonce === challenge.nonce;
+    const send = async (prover: StandingProver) => {
+      const proven = await prover(challenge).catch(() => undefined);
+      if (!current() || !proven) return false;
+      const reply = await client.request(proven).catch(() => undefined);
+      return reply?.result.ok === true && reply.result.member === undefined && current();
+    };
+    return (await send(prove)) || (fallback !== undefined && current() && (await send(fallback)));
   };
   const schedule = () => {
     cancel();

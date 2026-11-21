@@ -111,7 +111,7 @@ test("a credential that hasn't proved the person's standing never turns Full acc
       expect(await unproven.put(path + JSON.stringify(body), path, body)).toMatchObject({
         kind: "error",
         code: "forbidden",
-        message: expect.stringContaining("signed in as you"),
+        message: "Confirm your identity to continue.",
       });
     expect(unproven.seen).toEqual([]);
     // Going back to the auto-review never needs it, and carries no stamp.
