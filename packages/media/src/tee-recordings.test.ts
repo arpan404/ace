@@ -44,6 +44,14 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
   return { recordings, clock, sent, state, up, needs: () => needs, written };
 }
 
+const part = (index: number) => ({
+  path: `/data/recordings/r1/part-000${index}.mp4`,
+  index,
+  bytes: 1000,
+  durationMs: 900,
+  gaps: index,
+});
+
 const spec = (failed: string[] = [], parts: number[] = []): TeeRecordingSpec => ({
   origin: { kind: "scrcpy", host: "127.0.0.1", port: 27183 },
   directory: "/data/recordings/r1",
@@ -122,13 +130,6 @@ it("after ace-media restarts, the recording reopens its source and continues in 
   const recording = start.recording;
   const record = m.sent.find((message) => message.type === "record.start");
   if (record?.type !== "record.start") throw new Error("no record.start");
-  const part = (index: number) => ({
-    path: `/data/recordings/r1/part-000${index}.mp4`,
-    index,
-    bytes: 1000,
-    durationMs: 900,
-    gaps: index,
-  });
   // The crash: ace-media recovers part 0 at the next record.start.
   m.state.up = false;
   m.state.health = "restarting";

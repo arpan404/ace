@@ -1,52 +1,66 @@
-import { spawn } from "node:child_process";
 import { expect, it } from "vitest";
+import { maxModelImageBytes } from "./result-budgets.ts";
 import { modelImage, type ModelImageRuntime } from "./index.ts";
+
 const frame = { payload: Buffer.from("fake image"), width: 3072, height: 1536 };
 const signal = () => new AbortController().signal;
-const runtime: ModelImageRuntime = {
-  encoder: async () => process.execPath,
-  spawn: () =>
-    spawn(
-      process.execPath,
-      ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(7))"],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    ),
+const runtime = (fit: ModelImageRuntime["fit"]): ModelImageRuntime => ({
+  fit,
   after: () => () => {},
-};
-it("a missing encoder returns a fixed public screenshot remedy", async () => {
+});
+
+it("a screenshot the resize rejects fails with the fixed public remedy, never its diagnostics", async () => {
+  const failed = modelImage(
+    frame,
+    signal(),
+    runtime(async () => {
+      throw new Error("decoder said /secret/path is corrupt");
+    }),
+  );
+  await expect(failed).rejects.toMatchObject({ code: "screenshot_failed" });
+  await expect(failed).rejects.not.toMatchObject({ message: expect.stringContaining("secret") });
+});
+
+it("a busy screen is encoded again at lower quality until it fits the model's byte budget", async () => {
+  const asked: number[] = [];
+  const image = await modelImage(
+    frame,
+    signal(),
+    runtime(async (_input, box, quality) => {
+      asked.push(quality);
+      const bytes = Buffer.alloc(quality > 40 ? maxModelImageBytes + 1 : 1000);
+      return { bytes, width: box.width, height: box.height };
+    }),
+  );
+  expect(asked).toEqual([85, 60, 40]);
+  expect(image).toMatchObject({ width: 1536, height: 768, scale: 0.5 });
+  expect(image.payload.length).toBe(1000);
+});
+
+it("a screen too busy for the budget at every quality fails", async () => {
   await expect(
-    modelImage(frame, signal(), { ...runtime, encoder: async () => undefined }),
-  ).rejects.toMatchObject({ code: "screenshot_failed", hint: expect.stringContaining("ffmpeg") });
+    modelImage(
+      frame,
+      signal(),
+      runtime(async (_input, box) => ({
+        bytes: Buffer.alloc(maxModelImageBytes + 1),
+        width: box.width,
+        height: box.height,
+      })),
+    ),
+  ).rejects.toMatchObject({ code: "screenshot_failed" });
 });
-it("a rejecting encoder cannot expose diagnostics or leave a successful image", async () => {
-  await expect(modelImage(frame, signal(), runtime)).rejects.toMatchObject({
-    code: "screenshot_failed",
-  });
-});
-it("the injected deadline kills a stalled encoder and releases its child", async () => {
-  const started = Promise.withResolvers<void>();
-  const closed = Promise.withResolvers<void>();
+
+it("the injected deadline fails a stalled resize at once", async () => {
   const deadline = Promise.withResolvers<() => void>();
   const result = modelImage(frame, signal(), {
-    ...runtime,
+    fit: () => new Promise(() => {}),
     after: (_milliseconds, expire) => {
       deadline.resolve(expire);
       return () => {};
     },
-    spawn: () => {
-      const child = spawn(
-        process.execPath,
-        ["-e", "process.stdin.resume();setInterval(()=>{},1000)"],
-        { stdio: ["pipe", "pipe", "pipe"] },
-      );
-      child.once("spawn", () => started.resolve());
-      child.once("close", () => closed.resolve());
-      return child;
-    },
   });
   const rejected = expect(result).rejects.toMatchObject({ code: "screenshot_failed" });
-  await started.promise;
   (await deadline.promise)();
   await rejected;
-  await closed.promise;
 });

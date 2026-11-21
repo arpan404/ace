@@ -15,14 +15,14 @@ import {
 } from "./supervision-policy.ts";
 
 const values = ["legacy", "auto"] as const;
-const with_ = (encode: "auto" | "legacy", delivery: "auto" | "legacy"): MediaSettings => ({
+const settingsOf = (encode: "auto" | "legacy", delivery: "auto" | "legacy"): MediaSettings => ({
   ...defaultMediaSettings,
   encode,
   delivery,
 });
 // Recordings and stills have no legacy value since X1: only encode and delivery choose.
 const settingsTable: MediaSettings[] = values.flatMap((encode) =>
-  values.map((delivery) => with_(encode, delivery)),
+  values.map((delivery) => settingsOf(encode, delivery)),
 );
 const healths: MediaHealth[] = ["healthy", "restarting", "unavailable"];
 const everything: RouteCapabilities = { ingest: sourceKinds, delivery: true };
@@ -73,11 +73,11 @@ describe("every setting combination × capabilities is a complete route", () => 
 it("tee and egress follow the plan's table (healthy, every capability)", () => {
   // [encode, delivery] → [producer, tee, egress]
   const rows: [MediaSettings, [SourceRoute["producer"], boolean, boolean]][] = [
-    [with_("legacy", "legacy"), ["daemon", false, false]],
-    [with_("legacy", "auto"), ["daemon", true, false]],
-    [with_("auto", "legacy"), ["ace-media", false, true]],
+    [settingsOf("legacy", "legacy"), ["daemon", false, false]],
+    [settingsOf("legacy", "auto"), ["daemon", true, false]],
+    [settingsOf("auto", "legacy"), ["ace-media", false, true]],
     // Egress stays on: a recording takes the frames in the daemon until X2.
-    [with_("auto", "auto"), ["ace-media", false, true]],
+    [settingsOf("auto", "auto"), ["ace-media", false, true]],
   ];
   for (const [settings, expected] of rows) {
     const route = mediaRoutes(settings, "healthy", everything).tab;
@@ -96,7 +96,7 @@ describe("named routes", () => {
   });
 
   it("a kind whose producer can't stream into ace-media stays on the daemon, teeing for ace-media's viewers", () => {
-    const routes = mediaRoutes(with_("auto", "auto"), "healthy", {
+    const routes = mediaRoutes(settingsOf("auto", "auto"), "healthy", {
       ...everything,
       ingest: ["tab"],
     });
@@ -105,7 +105,7 @@ describe("named routes", () => {
   });
 
   it("this build streams browser producers into ace-media, which delivers them", () => {
-    const settings = with_("auto", "auto");
+    const settings = settingsOf("auto", "auto");
     const routes = mediaRoutes(settings, "healthy", builtRouteCapabilities);
     for (const kind of ["tab", "tab-pictures", "user-tab", "embedded"] as const)
       expect(routes[kind]).toEqual({
@@ -121,7 +121,7 @@ describe("named routes", () => {
   });
 
   it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, Android devices everywhere; elsewhere they stay on the daemon", () => {
-    const settings = with_("auto", "auto");
+    const settings = settingsOf("auto", "auto");
     const mac = mediaRoutes(settings, "healthy", platformRouteCapabilities("darwin"));
     for (const kind of ["screen", "emulator-frames", "simulator"] as const)
       expect(mac[kind]).toEqual({
@@ -149,7 +149,7 @@ describe("named routes", () => {
   });
 
   it("on Windows the screen helper's Media Foundation video streams into ace-media, with egress feeding the daemon's viewers", () => {
-    const settings = with_("auto", "legacy");
+    const settings = settingsOf("auto", "legacy");
     expect(mediaRoutes(settings, "healthy", platformRouteCapabilities("win32")).screen).toEqual({
       producer: "ace-media",
       tee: false,
@@ -164,7 +164,7 @@ describe("named routes", () => {
 });
 
 it("ace-media going away changes exactly the kinds that were routed through it", () => {
-  const settings = with_("auto", "legacy");
+  const settings = settingsOf("auto", "legacy");
   const capabilities = { ...builtRouteCapabilities, ingest: ["tab", "screen"] as const };
   const up = mediaRoutes(settings, "healthy", capabilities);
   const down = mediaRoutes(settings, "restarting", capabilities);
