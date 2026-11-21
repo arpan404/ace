@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type UIEvent } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type UIEvent } from "react";
 import { Screen, ViewFrame } from "@/features/shell/index.ts";
 import { part } from "@/lib/suit-part.ts";
 import { useNow } from "@/lib/time.ts";
@@ -108,7 +108,8 @@ export function MarketScreen(props: {
     return () => document.removeEventListener("keydown", onKey);
   });
   // Leaving the Marketplace while trying a Suit on puts the person's look back.
-  useEffect(() => () => tryOn.undo(), []);
+  const leave = useEffectEvent(() => tryOn.undo());
+  useEffect(() => () => leave(), []);
 
   const keep = () => {
     const trying = tryOn.trying;

@@ -18,8 +18,7 @@ import { Stage } from "./market-stage.tsx";
  * without opening it. Shelves are titled lists of these rows.
  */
 
-export const entryKeyOf = (entry: MarketEntryKey) =>
-  `${entry.source}/${entry.type}/${entry.name}`;
+export const entryKeyOf = (entry: MarketEntryKey) => `${entry.source}/${entry.type}/${entry.name}`;
 
 export function EntryIcon(props: { entry: MarketEntrySummary; size?: "row" | "page" }) {
   return (
@@ -29,7 +28,10 @@ export function EntryIcon(props: { entry: MarketEntrySummary; size?: "row" | "pa
   );
 }
 
-export function AppIcon(props: { app: Pick<StoreApp, "catalogue" | "name">; size?: "row" | "page" }) {
+export function AppIcon(props: {
+  app: Pick<StoreApp, "catalogue" | "name">;
+  size?: "row" | "page";
+}) {
   return (
     <span className="st-icon" data-kind="app" data-size={props.size} aria-hidden>
       <AppMark
@@ -134,7 +136,11 @@ export function AppRow(props: { app: StoreApp; line?: string | undefined }) {
   const open = () => nav.push({ kind: "app", id: app.id });
   const settled = app.state === "connected" || app.state === "unreachable";
   return (
-    <li {...part("list-row", undefined, "market-app")} className="st-row" style={{ flexWrap: "wrap" }}>
+    <li
+      {...part("list-row", undefined, "market-app")}
+      className="st-row"
+      style={{ flexWrap: "wrap" }}
+    >
       <AppIcon app={app} />
       <div className="st-row-main">
         <button type="button" className="st-row-open" aria-label={app.name} onClick={open}>
@@ -170,9 +176,17 @@ export function StoreRows(props: { label: string; cols?: 1 | 2 | 3; children: Re
 }
 
 /** A titled shelf, with See all when it has a place of its own. */
-export function Shelf(props: { title: string; all?: (() => void) | undefined; children: ReactNode }) {
+export function Shelf(props: {
+  title: string;
+  all?: (() => void) | undefined;
+  children: ReactNode;
+}) {
   return (
-    <section {...part("page-section", undefined, "market")} className="st-shelf" aria-label={props.title}>
+    <section
+      {...part("page-section", undefined, "market")}
+      className="st-shelf"
+      aria-label={props.title}
+    >
       <div className="st-shelf-head">
         <h2 {...part("section-title", undefined, "market")} className="st-h2">
           {props.title}

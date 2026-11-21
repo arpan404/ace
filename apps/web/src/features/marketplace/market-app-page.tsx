@@ -129,11 +129,7 @@ function AppDetail(props: { app: StoreApp }) {
       </section>
       {connector && (
         <section className="st-section" aria-label="Disconnect">
-          <Button
-            variant="ghost"
-            disabled={leaving}
-            onClick={() => void remove()}
-          >
+          <Button variant="ghost" disabled={leaving} onClick={() => void remove()}>
             {`Disconnect ${app.name}`}
           </Button>
         </section>

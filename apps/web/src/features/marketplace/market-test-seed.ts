@@ -2,7 +2,6 @@ import type { MarketplaceSeed } from "@ace/fake-daemon";
 import type { MarketEntrySummary, MarketReview, MarketReviewItem } from "@ace/protocol/marketplace";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { screen } from "@testing-library/react";
-import { expect } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
 

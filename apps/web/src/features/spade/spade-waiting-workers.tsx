@@ -72,7 +72,9 @@ function AceAsk(props: { entry: SpadeWorkerEntry }) {
   const { entry } = props;
   const request = useOpenRequest(entry.id);
   return (
-    <div data-worker-request={entry.id} tabIndex={-1} className="focus-ring">
+    // A target "Needs you" brings into view and to the keyboard, not a control: no ring around it
+    // (the card's own buttons keep theirs).
+    <div data-worker-request={entry.id} tabIndex={-1} className="outline-none">
       {request ? (
         <Suspense fallback={<Asks entry={entry} handlers={undefined} />}>
           <DeferredInteractionCard.Component

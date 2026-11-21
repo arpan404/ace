@@ -45,7 +45,9 @@ export interface StoreApp {
   state: StoreAppState;
 }
 
-const categoryLabels = new Map<string, string>(spadeAppCategories.map((each) => [each.id, each.label]));
+const categoryLabels = new Map<string, string>(
+  spadeAppCategories.map((each) => [each.id, each.label]),
+);
 
 /** "Mail & chat", "Work"…: an app's category in words. */
 export const categoryLabel = (category: SpadeAppCategory) => categoryLabels.get(category) ?? "Work";
@@ -90,20 +92,18 @@ export function storeApps(
   });
   const own = connectors
     .filter((each) => !each.catalogue || !catalogue.some((entry) => entry.id === each.catalogue))
-    .map(
-      (connector): StoreApp => ({
-        id: connector.id,
-        catalogue: connector.catalogue,
-        name: connector.name,
-        category: "work",
-        notes: "",
-        ready: "sign_in",
-        cloud: connector.via === "cloud",
-        keyUrl: undefined,
-        connector,
-        state: stateOf(connector, "sign_in"),
-      }),
-    );
+    .map((connector): StoreApp => ({
+      id: connector.id,
+      catalogue: connector.catalogue,
+      name: connector.name,
+      category: "work",
+      notes: "",
+      ready: "sign_in",
+      cloud: connector.via === "cloud",
+      keyUrl: undefined,
+      connector,
+      state: stateOf(connector, "sign_in"),
+    }));
   return [...listed, ...own];
 }
 

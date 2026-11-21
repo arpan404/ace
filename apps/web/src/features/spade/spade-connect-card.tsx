@@ -200,7 +200,11 @@ export function ConnectAppCard(props: {
         end={
           action ? (
             <CardPrimary disabled={busy} onClick={act}>
-              {giving ? "Connecting…" : failure && flow.phase.kind === "failed" ? "Try again" : action}
+              {giving
+                ? "Connecting…"
+                : failure && flow.phase.kind === "failed"
+                  ? "Try again"
+                  : action}
             </CardPrimary>
           ) : (
             <span className="text-ui text-muted-foreground">Not available yet</span>
