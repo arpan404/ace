@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { maxStillPictureBytes } from "@ace/media/ingest-writer";
+import { ingestServer, until } from "@ace/media/testing/ingest-server";
 import type { EgressUnit } from "@ace/media/egress";
 import type { MediaFrame } from "@ace/media/frame";
 import type { IngestAddress, IngestProducer } from "@ace/media/ingest-sources";
@@ -58,7 +60,6 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
     producer: IngestProducer;
     encodes: unknown[];
     codecs: string[][];
-    pictures: string[];
     keys: number[];
     reconnects: number;
     closed: boolean;
@@ -69,7 +70,6 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         producer,
         encodes: [],
         codecs: [],
-        pictures: [],
         keys: [],
         reconnects: 0,
         closed: false,
@@ -81,10 +81,6 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         codecs: (codecs) => void record.codecs.push([...codecs]),
         key: (encode) => void record.keys.push(encode),
         reconnect: () => void record.reconnects++,
-        picture: (base64) => {
-          record.pictures.push(base64);
-          return true;
-        },
         close: () => {
           record.closed = true;
         },
@@ -288,16 +284,88 @@ describe("live video routed through ace-media", () => {
     ]);
     const handle = await routed.open(page, 640, 400, e.sink);
     expect(captures).toEqual([]);
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    await added[0]?.producer.point({ ...address("m0"), socket: ingest.path });
     handle.encodes([spec("avc1/640")]);
     handle.pictures?.push("aGVsbG8=");
     handle.keyframe("avc1/640");
     expect(added[0]?.encodes).toEqual([
       [{ id: 2 ** 20, codec: "avc1.42E033", width: 640, height: 400, fps: 60, bitrate: 4_000_000 }],
     ]);
-    expect(added[0]?.pictures).toEqual(["aGVsbG8="]);
+    await until(() => ingest.received.some((f) => f.kind === 3));
+    expect(Buffer.from(ingest.received.find((f) => f.kind === 3)?.payload ?? []).toString()).toBe(
+      "hello",
+    );
     expect(added[0]?.keys).toEqual([2 ** 20]);
     added[0]?.producer.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
     expect(e.chunks.map((c) => c.encode)).toEqual(["avc1/640"]);
+  });
+
+  it.each(["tab-pictures", "user-tab"] as const)(
+    "a %s picture at ace-media's limit goes whole on the ingest as a still picture, never through the control lane",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true });
+      const ingest = await ingestServer();
+      onTestFinished(ingest.close);
+      const handle = await mediaVideoHost(fakeHost(kind, false).host, media, () => ({})).open(
+        page,
+        1280,
+        800,
+        events().sink,
+      );
+      await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+      handle.encodes([spec("avc1/640")]);
+      const sent = added[0];
+      const before = JSON.stringify([sent?.encodes, sent?.codecs, sent?.keys]);
+      const jpeg = Buffer.alloc(maxStillPictureBytes, 0xab);
+      handle.pictures?.push(jpeg.toString("base64"));
+      await until(() => ingest.received.some((f) => f.kind === 3), 10_000);
+      const picture = ingest.received.find((f) => f.kind === 3);
+      expect(picture).toMatchObject({ kind: 3, codec: 7, flags: 1, width: 1280, height: 800 });
+      expect(Buffer.compare(Buffer.from(picture?.payload ?? []), jpeg)).toBe(0);
+      // The source in ace-media was told nothing more: its control lane carried no picture.
+      expect(JSON.stringify([sent?.encodes, sent?.codecs, sent?.keys])).toBe(before);
+      expect(handle.pictures?.dropped?.()).toBe(0);
+    },
+  );
+
+  it("a tab picture too large for ace-media is dropped and counted, and the next one still goes", async () => {
+    const { media, added } = fakeMedia({ routed: true });
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    const handle = await mediaVideoHost(
+      fakeHost("tab-pictures", false).host,
+      media,
+      () => ({}),
+    ).open(page, 640, 400, events().sink);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+    handle.pictures?.push(Buffer.alloc(maxStillPictureBytes + 1).toString("base64"));
+    handle.pictures?.push("aGVsbG8=");
+    await until(() => ingest.received.some((f) => f.kind === 3));
+    expect(handle.pictures?.dropped?.()).toBe(1);
+    expect(ingest.received.filter((f) => f.kind === 3).map((f) => f.payload.length)).toEqual([5]);
+  });
+
+  it("while ace-media reads a tab's pictures slowly only the newest waits: the queue never grows with the tab", async () => {
+    const { media, added } = fakeMedia({ routed: true });
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    const handle = await mediaVideoHost(
+      fakeHost("tab-pictures", false).host,
+      media,
+      () => ({}),
+    ).open(page, 640, 400, events().sink);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+    await until(ingest.connected);
+    ingest.pause();
+    for (let n = 1; n <= 40; n++)
+      handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"));
+    ingest.resume();
+    await until(() => ingest.received.some((f) => f.kind === 3 && f.payload[0] === 40));
+    const pictures = ingest.received.filter((f) => f.kind === 3);
+    expect(pictures.length).toBeLessThan(40);
+    expect(pictures.at(-1)?.payload[0]).toBe(40);
   });
 
   it("codecs ace-media can't encode end the capture, saying so, and no other encoder takes the tab", async () => {
@@ -326,7 +394,9 @@ describe("live video routed through ace-media", () => {
     await routed.open(page, 640, 400, { ...events().sink, stalled: (r) => void stalls.push(r) });
     expect(captures).toHaveLength(0);
     expect(added).toHaveLength(1);
-    await added[0]?.producer.point(address("m1"));
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
     expect(added[0]?.closed).toBe(false);
     expect(stalls).toEqual([undefined]);
   });

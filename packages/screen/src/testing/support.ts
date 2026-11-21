@@ -128,7 +128,6 @@ export function fakeScreenMedia() {
         codecs: () => {},
         encodes: () => {},
         key: () => {},
-        picture: () => false,
         close: () => {
           if (producer.sessionId) producers.delete(producer.sessionId);
         },

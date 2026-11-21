@@ -316,7 +316,7 @@ describe("IngestSources", () => {
     expect(w.opened()).toHaveLength(3);
   });
 
-  it("a JPEG source's encodes are kept and sent again after a restart, its pictures carry their text, and leaving closes it at once", () => {
+  it("a JPEG source's encodes are kept and sent again after a restart, and leaving closes it at once", () => {
     const w = world();
     const l = producer("tab-pictures");
     const source = w.sources.add(l.p);
@@ -325,12 +325,7 @@ describe("IngestSources", () => {
     ];
     source.encodes(encodes);
     w.status("s1", "starting");
-    expect(source.picture("aGVsbG8=", 3)).toBe(true);
-    const picture = w.sent.find(({ message }) => message.type === "source.picture");
-    expect(picture?.message).toMatchObject({ source: "s1", ageMs: 3 });
-    expect(new TextDecoder().decode(picture?.payload)).toBe("aGVsbG8=");
     w.sources.exited();
-    expect(source.picture("aGVsbG8=")).toBe(false);
     w.sources.replay();
     const resent = w.sent.filter(({ message }) => message.type === "source.encodes");
     expect(resent.map(({ message }) => message)).toEqual([

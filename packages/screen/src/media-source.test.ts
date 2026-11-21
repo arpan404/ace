@@ -128,7 +128,6 @@ function session(platform = "macos", helperCodecs: string[] = ["jpeg", "h264"]) 
           codecs: (told) => void codecs.push([...told]),
           encodes: () => {},
           key: () => {},
-          picture: () => false,
           close: () => {},
         };
       },

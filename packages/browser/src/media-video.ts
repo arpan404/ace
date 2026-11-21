@@ -1,6 +1,7 @@
 import type { EgressUnit } from "@ace/media/egress";
 import type { IngestAddress, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
 import type { MediaAccelerationStore } from "@ace/media/acceleration";
+import { IngestWriter, maxStillPictureBytes, stillPictureFrame } from "@ace/media/ingest-writer";
 import { PathMerge } from "@ace/media/path-merge";
 import type {
   CaptureEvents,
@@ -32,7 +33,7 @@ export const mediaMissing = "ace-media isn't available on this computer";
 /** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
 export type BrowserMediaSource = Pick<
   IngestSource,
-  "streaming" | "codecs" | "encodes" | "key" | "picture" | "reconnect" | "close"
+  "streaming" | "codecs" | "encodes" | "key" | "reconnect" | "close"
 >;
 
 /** What the browser needs of the daemon's ace-media. */
@@ -379,6 +380,12 @@ function pictureHost(
   };
 }
 
+/** The bytes base64 text decodes to, from its length and padding alone. */
+function decodedLength(base64: string): number {
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
 /** Same codec family: ace-media writes the profile and level it chose. */
 function same(offered: string, asked: string): boolean {
   return offered.slice(0, 4) === asked.slice(0, 4);
@@ -412,9 +419,35 @@ function pictureCapture(options: {
     );
   let open = true;
   let source: BrowserMediaSource | undefined;
+  /** The ingest connection the pictures go on, while ace-media holds the source. */
+  let writer: IngestWriter | undefined;
+  /** Pictures too large for ace-media, dropped rather than sent. */
+  let dropped = 0;
+  const pointAt = (address: IngestAddress | undefined) => {
+    // Every picture the old connection holds goes before its end; a new one starts afresh.
+    writer?.finish();
+    writer = undefined;
+    if (!address || !open) {
+      address?.token.fill(0);
+      return;
+    }
+    const made: IngestWriter = new IngestWriter({
+      socket: address.socket,
+      token: address.token,
+      onClosed: () => {
+        if (writer !== made) return;
+        writer = undefined;
+        // ace-media went away or cut the path: the source opens again, on a new ingest.
+        if (open) source?.reconnect();
+      },
+      onKeyframe: () => {},
+    });
+    writer = made;
+  };
   const end = (reason: string) => {
     if (!open) return;
     open = false;
+    writer?.close();
     source?.close();
     events.ended(reason);
   };
@@ -430,9 +463,9 @@ function pictureCapture(options: {
       if (open && chunk) events.chunk(chunk);
     }),
     point: (address) => {
-      address?.token.fill(0);
       encodeIds.pointed(address?.path);
-      // ace-media reads the pictures itself: once it has the source again, they flow again.
+      pointAt(address);
+      // ace-media has the source again: the pictures flow on its new ingest.
       if (address) events.stalled?.(undefined);
       return Promise.resolve();
     },
@@ -464,13 +497,27 @@ function pictureCapture(options: {
     pictures: {
       width: options.width,
       height: options.height,
+      // Sized from the text before any copy: one too large for ace-media is never decoded.
       push: (base64) => {
-        if (open) opened.picture(base64);
+        if (!open || !writer) return;
+        if (decodedLength(base64) > maxStillPictureBytes) {
+          dropped++;
+          return;
+        }
+        const picture = stillPictureFrame(
+          Buffer.from(base64, "base64"),
+          { width: options.width, height: options.height },
+          0,
+        );
+        if (picture) writer.write(picture);
+        else dropped++;
       },
+      dropped: () => dropped,
     },
     close: () => {
       if (!open) return;
       open = false;
+      writer?.close();
       opened.close();
     },
   };

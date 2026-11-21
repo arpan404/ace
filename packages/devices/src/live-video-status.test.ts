@@ -42,7 +42,6 @@ function service() {
         codecs: () => {},
         encodes: () => {},
         key: () => {},
-        picture: () => false,
         close: () => {},
       };
     },

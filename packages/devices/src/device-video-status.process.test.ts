@@ -41,7 +41,6 @@ function standIn() {
         codecs: () => {},
         encodes: () => {},
         key: () => {},
-        picture: () => false,
         close: () => {},
       };
     },

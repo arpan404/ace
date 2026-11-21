@@ -70,7 +70,6 @@ export async function loopbackMedia(
       codecs: () => {},
       encodes: () => {},
       key: () => {},
-      picture: () => false,
       close: () => void byToken.delete(Buffer.from(token).toString("hex")),
     };
   };

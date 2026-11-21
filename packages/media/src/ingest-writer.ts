@@ -262,6 +262,40 @@ export class IngestWriter {
 }
 
 /** A hello (5) or end (4) frame's fields, before its payload. */
+/** The largest media payload ace-media takes (`MEDIA_PAYLOAD_MAX`): a bigger picture is dropped. */
+export const maxStillPictureBytes = 8 * 1024 * 1024;
+
+/**
+ * A JPEG still picture as a producer writes it to its ingest (kind 3, codec JPEG): always a
+ * keyframe, so past the writer's budget only the newest waits. Undefined when it is too large
+ * for ace-media to take, for the producer to drop and count.
+ */
+export function stillPictureFrame(
+  jpeg: Uint8Array,
+  size: { width: number; height: number },
+  epoch: number,
+): MediaFrame | undefined {
+  if (jpeg.length === 0 || jpeg.length > maxStillPictureBytes) return undefined;
+  return {
+    kind: 3,
+    flags: 1,
+    ageUs: 0,
+    width: size.width,
+    height: size.height,
+    displayWidth: size.width,
+    displayHeight: size.height,
+    scale: 1000,
+    rotation: 0,
+    codec: 7,
+    encode: 0,
+    epoch,
+    codecString: "",
+    description: new Uint8Array(0),
+    extension: new Uint8Array(0),
+    payload: jpeg,
+  };
+}
+
 function control(kind: 4 | 5): Omit<MediaFrame, "payload"> {
   return {
     kind,

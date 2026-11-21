@@ -216,7 +216,6 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         slot.source?.encodes(encodes);
       },
       key: (encode) => slot.source?.key(encode),
-      picture: (base64, ageMs) => slot.source?.picture(base64, ageMs) ?? false,
       close: () => {
         waiting.delete(producer);
         slot.source?.close();

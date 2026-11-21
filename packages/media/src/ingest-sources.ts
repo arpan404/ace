@@ -154,8 +154,8 @@ export const failedReason = "ace-media couldn't take this video";
 export const drainMs = 2_000;
 
 /**
- * Kinds ace-media reads itself: pictures from the control lane, and a Simulator's serve-sim
- * stream, which it opens. Only ace-media's close ends their reading, so leaving closes them
+ * Kinds ace-media ends itself: JPEG picture sources (their pictures come on the ingest, and
+ * it encodes them), and a Simulator's serve-sim stream, which it opens. Only ace-media's close ends their reading, so leaving closes them
  * there at once; the end marker follows the last unit.
  */
 const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>([
@@ -223,8 +223,6 @@ export type IngestSource = {
   encodes(encodes: EncodeSpec[]): void;
   /** For a JPEG source: the encode's next unit is a keyframe. */
   key(encode: number): void;
-  /** For a JPEG source: one screencast picture, its base64 text as the browser sent it. */
-  picture(base64: string, ageMs?: number): boolean;
   close(): void;
 };
 
@@ -272,14 +270,6 @@ export class IngestSources {
       key: (encode) => {
         const live = entry.live;
         if (live) this.#send({ type: "source.key", source: live.id, encode });
-      },
-      picture: (base64, ageMs = 0) => {
-        const live = entry.live;
-        if (!live || entry.state !== "ingest") return false;
-        return this.#options.port.send(
-          { type: "source.picture", source: live.id, ageMs, epoch: entry.producer.epoch() },
-          new TextEncoder().encode(base64),
-        );
       },
       close: () => this.#close(entry),
     };

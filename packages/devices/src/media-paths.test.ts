@@ -26,7 +26,6 @@ function device() {
           codecs: (told) => void codecs.push([...told]),
           encodes: () => {},
           key: () => {},
-          picture: () => false,
           close: () => {},
         };
       },

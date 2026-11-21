@@ -1,54 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { createServer, type Socket } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
-import { decodeMediaFrame, type MediaFrame } from "@ace/media/frame";
 import type { IngestProducer, StopStatus } from "@ace/media/ingest-sources";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { framePacket, FrameDecoder, type Frame } from "./frames.ts";
-import { maxPictureBytes, ScreenPictureSource } from "./picture-source.ts";
+import { maxStillPictureBytes as maxPictureBytes } from "@ace/media/ingest-writer";
+import { ingestServer, until } from "@ace/media/testing/ingest-server";
+import { ScreenPictureSource } from "./picture-source.ts";
 
-/** ace-media's ingest socket, as a producer sees it: frames read whole, in order. */
 async function ingest() {
-  const directory = mkdtempSync(join(tmpdir(), "ace-pictures-"));
-  const path = join(directory, "i.sock");
-  const received: MediaFrame[] = [];
-  let peer: Socket | undefined;
-  let buffer = Buffer.alloc(0);
-  const server = createServer((socket) => {
-    peer = socket;
-    socket.on("data", (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
-      while (buffer.length >= 12) {
-        const total = buffer.readUInt16BE(6) + buffer.readUInt32BE(8);
-        if (buffer.length < total) break;
-        received.push(decodeMediaFrame(new Uint8Array(buffer.subarray(0, total))));
-        buffer = buffer.subarray(total);
-      }
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(path, resolve));
-  onTestFinished(() => {
-    peer?.destroy();
-    server.close();
-    rmSync(directory, { recursive: true, force: true });
-  });
-  return {
-    path,
-    received,
-    pause: () => peer?.pause(),
-    resume: () => peer?.resume(),
-    connected: () => peer !== undefined,
-  };
-}
-
-async function until(condition: () => boolean): Promise<void> {
-  const end = performance.now() + 5_000;
-  while (!condition()) {
-    if (performance.now() > end) throw new Error("timed out");
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+  const server = await ingestServer();
+  onTestFinished(server.close);
+  return server;
 }
 
 const viewer: ScreenStreamSettings = {
@@ -87,7 +48,6 @@ function still(sequence: number, bytes?: number): Frame {
 /** A JPEG-only helper's session, with ace-media at its edge. */
 function session() {
   let producer: IngestProducer | undefined;
-  const pictures: string[] = [];
   const encodes: unknown[] = [];
   const sent: unknown[] = [];
   const accepted: Frame[] = [];
@@ -113,10 +73,6 @@ function session() {
           codecs: () => {},
           encodes: (next) => void encodes.push(next),
           key: () => {},
-          picture: (base64) => {
-            pictures.push(Buffer.from(base64, "base64").toString());
-            return true;
-          },
           close: () => {},
         };
       },
@@ -129,7 +85,7 @@ function session() {
     if (!producer) throw new Error("no producer");
     return producer;
   };
-  return { source, producer: ready, pictures, encodes, sent, accepted, stalls };
+  return { source, producer: ready, encodes, sent, accepted, stalls };
 }
 
 /** A real avcC (one SPS, one PPS), and an IDR as ace-media's encoder writes it: AVCC. */
@@ -186,7 +142,6 @@ it("a JPEG-only helper's pictures go to ace-media's ingest as binary still pictu
   expect(hello?.kind).toBe(5);
   expect(picture).toMatchObject({ kind: 3, codec: 7, flags: 1, width: 1920, height: 1080 });
   expect(Buffer.from(picture?.payload ?? []).toString()).toBe("jpeg-2");
-  expect(s.pictures).toEqual([]);
   expect(s.encodes.at(-1)).toEqual([
     { id: 1, codec: "avc1.42E033", width: 960, height: 540, fps: 30, bitrate: 2_000_000 },
   ]);
@@ -199,7 +154,9 @@ it("a picture too large for ace-media is dropped and counted, and the session go
   const server = await ingest();
   await s.source.configure(viewer);
   await point(s, server.path);
-  s.source.daemonFrame(still(1, maxPictureBytes + 1));
+  // The helper's own header caps a picture at ace-media's limit; one past it is built here.
+  const huge = still(1);
+  s.source.daemonFrame({ ...huge, payload: Buffer.alloc(maxPictureBytes + 1) });
   s.source.daemonFrame(still(2));
   await until(() => server.received.length >= 2);
   expect(s.source.dropped).toBe(1);

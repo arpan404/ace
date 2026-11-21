@@ -31,7 +31,6 @@ function recording() {
         codecs: () => {},
         encodes: () => {},
         key: () => {},
-        picture: () => false,
         close: () => {
           entry.closed = true;
         },

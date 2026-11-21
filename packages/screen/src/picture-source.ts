@@ -6,7 +6,11 @@ import type {
   IngestSource,
   StopStatus,
 } from "@ace/media/ingest-sources";
-import { IngestWriter, type IngestWriterOptions } from "@ace/media/ingest-writer";
+import {
+  IngestWriter,
+  stillPictureFrame,
+  type IngestWriterOptions,
+} from "@ace/media/ingest-writer";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { wireFrame, type Frame } from "./frames.ts";
 import type { HelperPort } from "./helper-session.ts";
@@ -56,8 +60,6 @@ export type ScreenPictureSourceOptions = {
   connect?: IngestWriterOptions["connect"];
 };
 
-/** Larger than any frame ace-media takes: such a picture is dropped, never sent. */
-export const maxPictureBytes = 8 * 1024 * 1024 - 4096;
 type Want = Parameters<NonNullable<IngestProducer["want"]>>[0];
 
 export class ScreenPictureSource {
@@ -142,29 +144,12 @@ export class ScreenPictureSource {
     if (first) this.#encode();
     const writer = this.#writer;
     if (!writer || !(this.#viewer || this.#planned)) return;
-    if (frame.payload.length > maxPictureBytes) {
+    const picture = stillPictureFrame(frame.payload, frame.header, screenOpeningEpoch);
+    if (!picture) {
       this.#dropped++;
       return;
     }
-    // A still picture is always a keyframe: past the writer's budget the newest one waits.
-    writer.write({
-      kind: 3,
-      flags: 1,
-      ageUs: 0,
-      width: frame.header.width,
-      height: frame.header.height,
-      displayWidth: frame.header.width,
-      displayHeight: frame.header.height,
-      scale: 1000,
-      rotation: 0,
-      codec: 7,
-      encode: 0,
-      epoch: screenOpeningEpoch,
-      codecString: "",
-      description: new Uint8Array(0),
-      extension: new Uint8Array(0),
-      payload: frame.payload,
-    });
+    writer.write(picture);
   }
 
   #point(address: IngestAddress | undefined): void {
