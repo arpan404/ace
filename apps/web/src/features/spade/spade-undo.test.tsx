@@ -95,7 +95,7 @@ test("undoing a turn lists the files it changed first, then puts them back", asy
   await dialog.findByText(/Undone\./);
 });
 
-test("a send can't be undone and says so on its step", async () => {
+test("a send folds into the summary without an undo action", async () => {
   await spadeApp(
     "/spade/travel",
     withReply([
@@ -103,7 +103,10 @@ test("a send can't be undone and says so on its step", async () => {
     ]),
   );
   await screen.findByRole("feed", { name: "Conversation with Travel" });
-  await screen.findByText("Can't be undone: it was sent in your name.");
+  await userEvent.click(await screen.findByText("Sent an email"));
+  const detail = within(await screen.findByRole("list", { name: "Steps" }));
+  expect(detail.getByText("Sent an email")).toBeTruthy();
+  expect(detail.queryByText(/Can't be undone/)).toBeNull();
   // Nothing in this turn changed its files, so nothing offers to undo.
   expect(screen.queryByRole("button", { name: "Undo these changes" })).toBeNull();
 });
