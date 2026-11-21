@@ -302,3 +302,49 @@ fn a_database_redirected_outside_its_home_after_its_check_is_never_read() {
     // The checked file's rows, or none at all: never the file outside the home.
     assert!(!titles.contains(&json!("swapped in")), "{titles:?}");
 }
+
+#[test]
+fn a_database_whose_tables_are_views_over_an_endless_query_is_refused_and_the_reader_goes_on() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("opencode");
+    std::fs::create_dir(&home).unwrap();
+    let db = rusqlite::Connection::open(home.join("opencode.db")).unwrap();
+    db.execute_batch(
+        "CREATE VIEW session AS WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r)
+           SELECT n AS id, '/w' AS directory, 't' AS title, 0 AS time_updated, NULL AS parent_id FROM r;
+         CREATE TABLE message(id TEXT PRIMARY KEY,session_id TEXT,time_created INTEGER,data TEXT);
+         CREATE TABLE part(id TEXT PRIMARY KEY,message_id TEXT,data TEXT);",
+    )
+    .unwrap();
+    drop(db);
+    let opts = options(
+        root.path(),
+        vec![json!({ "id": "oc", "provider": "opencode", "homeDir": home })],
+    );
+    let mut reader = Reader::start(opts);
+    // A reader stuck in SQLite is killed after a while, failing the test rather than hanging it.
+    let pid = reader.child.id().to_string();
+    let watchdog = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &pid])
+            .status();
+    });
+    reader.next();
+    let started = std::time::Instant::now();
+    let scan = reader.call(1, json!({ "op": "scan" }));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    assert_eq!(
+        scan.value["value"]["unsupported"][0]["reason"], "Unknown OpenCode database schema",
+        "{}",
+        scan.value
+    );
+    // Still serving.
+    let listed = reader.call(
+        2,
+        json!({ "op": "list", "request": { "type": "history.list", "cwd": "/w" } }),
+    );
+    assert_eq!(listed.value["value"]["sessions"], json!([]));
+    drop(reader);
+    drop(watchdog);
+}

@@ -55,6 +55,9 @@ impl From<std::io::Error> for Error {
 
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Error {
+        if error.sqlite_error_code() == Some(rusqlite::ErrorCode::OperationInterrupted) {
+            return Error::Message(crate::snapshot::OVERRAN.to_owned());
+        }
         Error::Message(error.to_string())
     }
 }

@@ -4,12 +4,14 @@
 //! `provider-db.ts`): one at a time, inside a scratch cap and a free-space margin, and swept when
 //! their owner is gone.
 
+mod budget;
 mod claim;
 mod copy;
 mod provider_db;
 mod scratch;
 
-pub use provider_db::{database_fingerprint, open_provider_db};
+pub use budget::OVERRAN;
+pub use provider_db::{ProviderDb, database_fingerprint, is_table, open_provider_db};
 pub use scratch::{Policy, SnapshotScratch, WorkDir};
 
 /// Another snapshot owns the single scratch slot; the next scan retries.

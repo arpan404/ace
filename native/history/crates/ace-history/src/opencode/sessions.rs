@@ -4,7 +4,7 @@
 //! first request, model, counts and whether each can be opened.
 
 use history_text::{js, sanitize_user_text, session_title};
-use rusqlite::{Connection, Statement};
+use rusqlite::Statement;
 use serde_json::{Value, json};
 
 use super::database::{columns, supports, supports_v1, supports_v2};
@@ -14,6 +14,7 @@ use crate::json::{field, is_true, object, string, timestamp};
 use crate::options::Home;
 use crate::scan::user::has_user_input;
 use crate::session::{Accuracy, Session, Support, source_id};
+use crate::snapshot::ProviderDb;
 
 const UNKNOWN_FORMAT: &str =
     "This OpenCode history format is not recognized. Export the session from OpenCode to open it.";
@@ -89,9 +90,10 @@ fn model(latest: &mut Statement<'_>, session: &str) -> Result<Option<String>> {
 pub fn sessions(
     home: &Home,
     path: &str,
-    db: &Connection,
+    handle: &ProviderDb,
     each: &mut dyn FnMut(Session, bool) -> Result<()>,
 ) -> Result<()> {
+    let db = &handle.db;
     if !supports(db)? {
         return Err(Error::message("Unknown OpenCode database schema"));
     }
@@ -153,6 +155,8 @@ pub fn sessions(
     )?;
     let mut rows = rows.query([])?;
     while let Some(row) = rows.next()? {
+        // Each session's queries get a whole step budget.
+        handle.renew();
         let id = js_string(row.get_ref(0)?);
         let rusqlite::types::ValueRef::Text(directory) = row.get_ref(1)? else {
             return Err(Error::message("OpenCode session has no directory"));

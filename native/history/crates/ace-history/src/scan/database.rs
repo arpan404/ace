@@ -139,8 +139,8 @@ fn database(scan: &mut Scan<'_>, home: &Home, epoch: i64, path: &std::path::Path
             Ok(())
         };
         let read = match home.provider {
-            Provider::Codex => codex::sessions(home, &name, &db.db, &mut put),
-            _ => crate::opencode::sessions::sessions(home, &name, &db.db, &mut put),
+            Provider::Codex => codex::sessions(home, &name, &db, &mut put),
+            _ => crate::opencode::sessions::sessions(home, &name, &db, &mut put),
         };
         opened = Some(db);
         read?;

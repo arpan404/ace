@@ -17,14 +17,17 @@ use crate::import::source::{Native, Raw, Records};
 use crate::json::{field, object, string, timestamp};
 use crate::options::Home;
 use crate::session::Source;
-use crate::snapshot::{SnapshotScratch, open_provider_db};
+use crate::snapshot::{SnapshotScratch, is_table, open_provider_db};
 
 const TOO_LARGE_V1: &str = "OpenCode SQLite record exceeds bounded decoder limit";
 const TOO_LARGE_V2: &str =
     "OpenCode history record is too large. Export the session from OpenCode to open it.";
 
-/// The column names of a table; none when it is missing.
+/// The column names of a provider table; none when it is missing or is not a real table.
 pub fn columns(db: &Connection, table: &str) -> Result<HashSet<String>> {
+    if !is_table(db, table)? {
+        return Ok(HashSet::new());
+    }
     let mut statement = db.prepare(&format!("PRAGMA table_info({table})"))?;
     let names = statement
         .query_map([], |row| row.get::<_, rusqlite::types::Value>(1))?
@@ -78,6 +81,7 @@ fn decoded(bytes: &[u8]) -> Option<serde_json::Map<String, Value>> {
 
 fn v2(
     db: &Connection,
+    renew: &dyn Fn(),
     session: &str,
     cancel: &Cancel,
     emit: &mut dyn FnMut(Result<Native>) -> bool,
@@ -87,6 +91,7 @@ fn v2(
     )?;
     let mut rows = rows.query([session])?;
     while let Some(row) = rows.next()? {
+        renew();
         cancel.check()?;
         if js_number(row.get_ref(2)?) > RECORD_LIMIT as f64 {
             return Err(Error::message(TOO_LARGE_V2));
@@ -135,6 +140,7 @@ fn row_bytes(db: &Connection, table: &str, id: &str, bytes: f64) -> Result<Vec<u
 
 fn v1(
     db: &Connection,
+    renew: &dyn Fn(),
     session: &str,
     cancel: &Cancel,
     emit: &mut dyn FnMut(Result<Native>) -> bool,
@@ -149,6 +155,7 @@ fn v1(
     )?;
     let mut rows = messages.query([session])?;
     while let Some(row) = rows.next()? {
+        renew();
         cancel.check()?;
         let id = js_string(row.get_ref(0)?);
         let size = js_number(row.get_ref(2)?);
@@ -178,6 +185,7 @@ fn v1(
         }
         let mut each = parts.query([&id])?;
         while let Some(part) = each.next()? {
+            renew();
             let part_id = js_string(part.get_ref(0)?);
             let size = js_number(part.get_ref(1)?);
             if size > RECORD_LIMIT as f64 {
@@ -228,9 +236,9 @@ pub fn records<'a>(
                 if !supports_v2(db)? {
                     return Err(Error::message("Unsupported OpenCode history format"));
                 }
-                v2(db, &session, &cancel, emit)?
+                v2(db, &|| handle.renew(), &session, &cancel, emit)?
             } else {
-                v1(db, &session, &cancel, emit)?
+                v1(db, &|| handle.renew(), &session, &cancel, emit)?
             };
             // An in-place read must not hand a torn transcript to the importer.
             if finished {

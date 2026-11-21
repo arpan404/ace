@@ -23,7 +23,7 @@ cap-std = "4"
 files-safe = { path = "../../../files/crates/files-safe" }
 history-text = { path = "../history-text" }
 history-wire = { path = "../history-wire" }
-rusqlite = { version = "0.41", features = ["bundled", "functions"] }
+rusqlite = { version = "0.41", features = ["bundled", "functions", "hooks"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }
 sha2 = "0.10"

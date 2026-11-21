@@ -4,7 +4,6 @@
 //! (`session_index.jsonl`), which carry titles the rollouts do not.
 
 use history_text::session_title;
-use rusqlite::Connection;
 
 use super::Scan;
 use crate::error::{Error, Result, io_at};
@@ -16,6 +15,7 @@ use crate::json::{object, string};
 use crate::options::Home;
 use crate::paths::text;
 use crate::session::{Accuracy, Session, Support, source_id};
+use crate::snapshot::ProviderDb;
 
 pub fn is_state_db(name: &str) -> bool {
     name.strip_prefix("state_")
@@ -27,13 +27,17 @@ pub fn is_state_db(name: &str) -> bool {
 pub fn sessions(
     home: &Home,
     path: &str,
-    db: &Connection,
+    handle: &ProviderDb,
     each: &mut dyn FnMut(Session, bool) -> Result<()>,
 ) -> Result<()> {
-    let columns: Vec<String> = db
-        .prepare("PRAGMA table_info(threads)")?
-        .query_map([], |row| row.get(1))?
-        .collect::<rusqlite::Result<_>>()?;
+    let db = &handle.db;
+    let columns: Vec<String> = if crate::snapshot::is_table(db, "threads")? {
+        db.prepare("PRAGMA table_info(threads)")?
+            .query_map([], |row| row.get(1))?
+            .collect::<rusqlite::Result<_>>()?
+    } else {
+        Vec::new()
+    };
     if !["id", "cwd", "title", "updated_at"]
         .iter()
         .all(|c| columns.iter().any(|have| have == c))
@@ -45,6 +49,7 @@ pub fn sessions(
     )?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
+        handle.renew();
         let id: String = row.get(0)?;
         let cwd: String = row.get(1)?;
         // `String(row.title)`, as the TypeScript reader read a missing title.

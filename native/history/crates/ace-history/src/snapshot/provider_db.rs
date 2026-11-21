@@ -8,8 +8,9 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
+use super::budget::{STEP, StepBudget};
 use super::copy::copy_snapshot;
 use super::scratch::{SnapshotScratch, Stage};
 use crate::cancel::Cancel;
@@ -65,10 +66,28 @@ fn uri(path: &Path) -> String {
 /// An open provider database and how to check the rows read from it form one committed state.
 pub struct ProviderDb {
     pub db: Connection,
+    budget: StepBudget,
     _stage: Stage,
 }
 
+/// Whether `name` is a real table: a view could run any query a provider's file holds.
+pub fn is_table(db: &Connection, name: &str) -> Result<bool> {
+    Ok(db
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+            [name],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 impl ProviderDb {
+    /// A row arrived: the next step of the read gets a whole time budget.
+    pub fn renew(&self) {
+        self.budget.renew();
+    }
+
     /// The rows read form one committed state: they were read from a private snapshot.
     pub fn verify(&self) -> Result<()> {
         Ok(())
@@ -76,7 +95,7 @@ impl ProviderDb {
 
     /// Closes the database, then removes its snapshot, if it had one.
     pub fn close(self) {
-        let ProviderDb { db, _stage } = self;
+        let ProviderDb { db, _stage, .. } = self;
         drop(db);
         drop(_stage);
     }
@@ -129,7 +148,13 @@ fn attempt(
             )?
         })
     })();
-    staged.map(|db| ProviderDb { db, _stage: stage })
+    let mut db = staged?;
+    let budget = StepBudget::install(&mut db, cancel, STEP)?;
+    Ok(ProviderDb {
+        db,
+        budget,
+        _stage: stage,
+    })
 }
 
 /// Retry only checkpoint races, a bounded number of times.
