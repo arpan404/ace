@@ -1,6 +1,6 @@
 import type { OrgEvents } from "./org-events.ts";
 import { fail, json } from "./respond.ts";
-import { WEBHOOK_MAX_BYTES, verifiedWebhook } from "./workos-webhook.ts";
+import { WEBHOOK_MAX_BYTES, boundedBody, verifiedWebhook } from "./workos-webhook.ts";
 
 /**
  * POST /v1/workos/webhook: WorkOS's webhook deliveries (ADR 0206 §6), so a directory's
@@ -19,10 +19,8 @@ export function workosWebhookRoute(deps: {
   return async (request: Request): Promise<Response> => {
     const { secret } = deps;
     if (!secret) return fail(404, "not_found");
-    const length = Number(request.headers.get("Content-Length") ?? 0);
-    if (!Number.isFinite(length) || length > WEBHOOK_MAX_BYTES) return fail(413, "too_large");
-    const body = await request.text();
-    if (body.length > WEBHOOK_MAX_BYTES) return fail(413, "too_large");
+    const body = await boundedBody(request, WEBHOOK_MAX_BYTES);
+    if (!body) return fail(413, "too_large");
     const event = await verifiedWebhook(
       secret,
       request.headers.get("WorkOS-Signature"),
