@@ -98,9 +98,7 @@ fn database(scan: &mut Scan<'_>, home: &Home, epoch: i64, path: &std::path::Path
     } else {
         Mark::Reading
     };
-    scan.catalog
-        .crashes
-        .mark(&scan.catalog.db, &home.id, &name, mark, &fp)?;
+    scan.catalog.crashes.mark(&home.id, &name, mark, &fp)?;
     scan.catalog.db.execute_batch("SAVEPOINT provider_scan")?;
     let mut opened = None;
     let outcome = (|| -> Result<()> {
@@ -168,9 +166,7 @@ fn database(scan: &mut Scan<'_>, home: &Home, epoch: i64, path: &std::path::Path
     if let Some(db) = opened {
         db.close();
     }
-    scan.catalog
-        .crashes
-        .finished(&scan.catalog.db, &home.id, &name)?;
+    scan.catalog.crashes.finished(&home.id, &name)?;
     match outcome {
         Ok(()) => Ok(()),
         Err(error) if scan.cancel.is_cancelled() || matches!(error, Error::Aborted) => Err(error),

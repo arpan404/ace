@@ -226,16 +226,13 @@ impl Scan<'_> {
                 Ok(Pre::Read(job)) => {
                     let name = text(&job.path);
                     self.catalog.crashes.mark(
-                        &self.catalog.db,
                         &home.id,
                         &name,
                         Mark::Verifying,
                         &job.fingerprint,
                     )?;
                     let outcome = self.read_jobs(home, std::slice::from_ref(&job));
-                    self.catalog
-                        .crashes
-                        .finished(&self.catalog.db, &home.id, &name)?;
+                    self.catalog.crashes.finished(&home.id, &name)?;
                     self.settle(home, job, outcome.into_iter().next())?
                 }
                 Err(error) => self.failed(home, &path, error)?,
@@ -254,23 +251,23 @@ impl Scan<'_> {
         let mut jobs = jobs.into_iter().peekable();
         while jobs.peek().is_some() {
             let group: Vec<Job> = jobs.by_ref().take(16).collect();
-            self.catalog.transaction(|catalog| {
-                for job in &group {
-                    catalog.crashes.mark(
-                        &catalog.db,
-                        &home.id,
-                        &text(&job.path),
+            let names: Vec<String> = group.iter().map(|job| text(&job.path)).collect();
+            let marks: Vec<(&str, &str, Mark, &str)> = group
+                .iter()
+                .zip(&names)
+                .map(|(job, name)| {
+                    (
+                        home.id.as_str(),
+                        name.as_str(),
                         Mark::Reading,
-                        &job.fingerprint,
-                    )?;
-                }
-                Ok(())
-            })?;
+                        job.fingerprint.as_str(),
+                    )
+                })
+                .collect();
+            self.catalog.crashes.mark_all(&marks)?;
             let outcomes = self.read_jobs(home, &group);
             for job in &group {
-                self.catalog
-                    .crashes
-                    .finished(&self.catalog.db, &home.id, &text(&job.path))?;
+                self.catalog.crashes.finished(&home.id, &text(&job.path))?;
             }
             for (job, outcome) in group.into_iter().zip(outcomes) {
                 writes.extend(self.settle(home, job, Some(outcome))?);

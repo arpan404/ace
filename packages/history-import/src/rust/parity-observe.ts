@@ -18,7 +18,6 @@ function rows(indexPath: string) {
       ),
       files: all("SELECT * FROM files ORDER BY instance,path"),
       titles: all("SELECT * FROM native_titles ORDER BY instance,native"),
-      crashes: all("SELECT * FROM scan_crashes"),
     };
   } finally {
     db.close();

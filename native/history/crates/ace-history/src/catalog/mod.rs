@@ -13,7 +13,7 @@ use std::time::Duration;
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
-pub use ledger::{CrashLedger, Mark, ReadBackoff, Verdict};
+pub use ledger::{CrashLedger, LedgerWriter, Mark, ReadBackoff, Verdict, ledger_path};
 pub use rows::{children, get, list};
 
 use crate::cancel::Cancel;
@@ -177,7 +177,7 @@ impl Catalog {
             }));
         }
         let backoff = ReadBackoff::open(&db)?;
-        let crashes = CrashLedger::open(&db, now, last_exit, own)?;
+        let crashes = CrashLedger::open(&ledger_path(path), now, last_exit, own)?;
         let reader = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,

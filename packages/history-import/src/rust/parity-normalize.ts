@@ -52,9 +52,11 @@ export function normalize(observation: unknown, root: string): unknown {
     imports: { session: string }[];
     counts: unknown[];
   };
+  // The crash ledger is a file of its own now (empty after these reads either way).
+  const { crashes: _ledger, ...kept } = o.stored as Record<string, unknown>;
   return {
     ...o,
-    stored: { ...o.stored, sources: o.stored.sources.toSorted(byJson) },
+    stored: { ...kept, sources: o.stored.sources.toSorted(byJson) },
     pages: {
       sizes: o.pages.map((page) => sessionsOf(page).length),
       sessions: o.pages.flatMap(sessionsOf).toSorted(byJson),

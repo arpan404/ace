@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 pub use packet::{Emit, Packet};
 
 use crate::cancel::Cancel;
-use crate::catalog::get;
+use crate::catalog::{LedgerWriter, Mark, get};
 use crate::error::{Error, Result};
 use crate::fsread::RecordKind;
 use crate::json::{object, string};
@@ -30,6 +30,13 @@ use source::{current_fingerprint, import_records};
 use tools::complete;
 
 pub use reference::native_reference;
+
+/// How each member of an import is marked in the crash ledger, and where.
+pub struct Marks {
+    pub writer: LedgerWriter,
+    /// One per member: `Verifying` for a suspect read alone, else `Reading`.
+    pub kinds: Vec<Mark>,
+}
 
 /// A source in the imported tree, with its agent.
 pub struct Member {
@@ -120,6 +127,7 @@ pub fn import_history(
     init: &ImportInit,
     scratch: &SnapshotScratch,
     cancel: &Cancel,
+    marks: &Marks,
     emit: Emit<'_>,
 ) -> Result<(i64, Accuracy)> {
     let root = &members[0].source;
@@ -140,7 +148,7 @@ pub fn import_history(
     })))?;
     let mut root_count = 0;
     let mut accuracy = Accuracy::Exact;
-    for member in members {
+    for (index, member) in members.iter().enumerate() {
         let s = &member.source.summary;
         let mut agent = json!({
             "id": member.agent_id,
@@ -157,84 +165,25 @@ pub fn import_history(
             agent["model"] = json!(model);
         }
         emit(Packet::Agent(agent))?;
-        crate::hooks::at_path("import-member", &member.source.path);
-        let plan = plan::prepare(home, &member.source, scratch, cancel)?;
-        let mut seq = 0;
-        let mut ordinal = 0;
-        let records = import_records(home, &member.source, scratch, cancel)?;
-        crate::hooks::at_path("records-opened", &member.source.path);
-        for record in records {
-            let record = record?;
-            cancel.check()?;
-            ordinal += 1;
-            if !plan.includes(ordinal)? {
-                continue;
-            }
-            let prefix = format!("{}:{}:{seq}", init.thread_id, s.id);
-            seq += 1;
-            let value = match &record.kind {
-                RecordKind::Value(value) => Some(value),
-                _ => None,
-            };
-            let r = value.map(object);
-            let kind = r.and_then(|r| string(r, "type")).unwrap_or("history.raw");
-            let kind = history_text::js::prefix(kind, 256).to_owned();
-            let raw = if record.bytes > INLINE_RAW_BYTES || value.is_none() {
-                let id = format!("{prefix}:raw");
-                emit(Packet::BlobStart {
-                    id: id.clone(),
-                    bytes: record.bytes,
-                })?;
-                record.chunks(home, cancel, &mut |chunk| {
-                    emit(Packet::BlobChunk {
-                        id: id.clone(),
-                        bytes: chunk.to_vec(),
-                    })
-                })?;
-                emit(Packet::BlobEnd { id: id.clone() })?;
-                json!({ "type": kind, "blobRef": id, "size": record.bytes, "preview": "" })
-            } else {
-                json!({ "type": kind, "data": value.cloned().unwrap_or(Value::Null) })
-            };
-            let Some(value) = value else {
-                if member.parent_id.is_none() {
-                    accuracy = Accuracy::Sampled;
-                }
-                emit(Packet::Item(json!({
-                    "id": prefix, "agentId": member.agent_id, "createdAt": init.at, "complete": true,
-                    "type": "notice", "level": "info", "code": "history.raw-only", "text": "", "raw": [raw],
-                })))?;
-                continue;
-            };
-            let ctx = Context {
-                provider: home.provider,
-                agent_id: &member.agent_id,
-                id_prefix: &prefix,
-                at: init.at,
-                raw,
-                plan: &plan,
-            };
-            let root = member.parent_id.is_none();
-            // Each item leaves as it is made, its call registered before the record's later
-            // items are mapped, so a result in the same record finds its call.
-            map_history(value, &ctx, &mut |mapped| {
-                cancel.check()?;
-                let mut item = mapped.item;
-                if item["type"] == "tool_call"
-                    && let Some(native) = &mapped.native
-                {
-                    let id = item["id"].as_str().unwrap_or_default().to_owned();
-                    plan.record_call(native, &id)?;
-                    if let Some(completion) = plan.completion(native)? {
-                        item = complete(item, &completion, emit)?;
-                    }
-                }
-                if root && mapped.message {
-                    root_count += 1;
-                }
-                emit(Packet::Item(item))
-            })?;
-        }
+        // Marked with its own fingerprint, durably and outside the archive's transaction,
+        // before any of it is read; cleared once it is read, whatever the outcome short of
+        // killing the reader.
+        let (path, fingerprint) = (&member.source.path, &member.source.fingerprint);
+        marks
+            .writer
+            .mark(&home.id, path, marks.kinds[index], fingerprint)?;
+        let read = read_member(
+            home,
+            member,
+            init,
+            scratch,
+            cancel,
+            emit,
+            &mut root_count,
+            &mut accuracy,
+        );
+        marks.writer.finished(&home.id, path)?;
+        read?;
     }
     emit(Packet::Barrier)?;
     for member in members {
@@ -243,4 +192,98 @@ pub fn import_history(
         }
     }
     Ok((root_count, accuracy))
+}
+
+/// Map one member's records into packets.
+#[allow(clippy::too_many_arguments)]
+fn read_member(
+    home: &Home,
+    member: &Member,
+    init: &ImportInit,
+    scratch: &SnapshotScratch,
+    cancel: &Cancel,
+    emit: Emit<'_>,
+    root_count: &mut i64,
+    accuracy: &mut Accuracy,
+) -> Result<()> {
+    let s = &member.source.summary;
+    crate::hooks::at_path("import-member", &member.source.path);
+    let plan = plan::prepare(home, &member.source, scratch, cancel)?;
+    let mut seq = 0;
+    let mut ordinal = 0;
+    let records = import_records(home, &member.source, scratch, cancel)?;
+    crate::hooks::at_path("records-opened", &member.source.path);
+    for record in records {
+        let record = record?;
+        cancel.check()?;
+        ordinal += 1;
+        if !plan.includes(ordinal)? {
+            continue;
+        }
+        let prefix = format!("{}:{}:{seq}", init.thread_id, s.id);
+        seq += 1;
+        let value = match &record.kind {
+            RecordKind::Value(value) => Some(value),
+            _ => None,
+        };
+        let r = value.map(object);
+        let kind = r.and_then(|r| string(r, "type")).unwrap_or("history.raw");
+        let kind = history_text::js::prefix(kind, 256).to_owned();
+        let raw = if record.bytes > INLINE_RAW_BYTES || value.is_none() {
+            let id = format!("{prefix}:raw");
+            emit(Packet::BlobStart {
+                id: id.clone(),
+                bytes: record.bytes,
+            })?;
+            record.chunks(home, cancel, &mut |chunk| {
+                emit(Packet::BlobChunk {
+                    id: id.clone(),
+                    bytes: chunk.to_vec(),
+                })
+            })?;
+            emit(Packet::BlobEnd { id: id.clone() })?;
+            json!({ "type": kind, "blobRef": id, "size": record.bytes, "preview": "" })
+        } else {
+            json!({ "type": kind, "data": value.cloned().unwrap_or(Value::Null) })
+        };
+        let Some(value) = value else {
+            if member.parent_id.is_none() {
+                *accuracy = Accuracy::Sampled;
+            }
+            emit(Packet::Item(json!({
+                "id": prefix, "agentId": member.agent_id, "createdAt": init.at, "complete": true,
+                "type": "notice", "level": "info", "code": "history.raw-only", "text": "", "raw": [raw],
+            })))?;
+            continue;
+        };
+        let ctx = Context {
+            provider: home.provider,
+            agent_id: &member.agent_id,
+            id_prefix: &prefix,
+            at: init.at,
+            raw,
+            plan: &plan,
+        };
+        let root = member.parent_id.is_none();
+        // Each item leaves as it is made, its call registered before the record's later
+        // items are mapped, so a result in the same record finds its call.
+        map_history(value, &ctx, &mut |mapped| {
+            cancel.check()?;
+            let mut item = mapped.item;
+            if item["type"] == "tool_call"
+                && let Some(native) = &mapped.native
+            {
+                let id = item["id"].as_str().unwrap_or_default().to_owned();
+                plan.record_call(native, &id)?;
+                if let Some(completion) = plan.completion(native)? {
+                    item = complete(item, &completion, emit)?;
+                }
+            }
+            if root && mapped.message {
+                *root_count += 1;
+            }
+            emit(Packet::Item(item))
+        })?;
+    }
+    Ok(())
 }

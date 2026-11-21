@@ -62,11 +62,6 @@ struct Server {
     cancel: Cancel,
     out: Out,
     pull: Option<Pull>,
-    /// The transcript an import is reading, marked in the crash ledger until the import ends.
-    importing: Option<(String, String)>,
-    /// A mark to clear once the daemon's archive transaction ends: cleared inside it, a rollback
-    /// would bring it back.
-    deferred: Option<(String, String)>,
 }
 
 pub fn serve(
@@ -162,8 +157,6 @@ fn start(value: Value, cancel: &Cancel, out: &Out) -> Result<Option<Server>> {
         cancel: cancel.clone(),
         out: out.clone(),
         pull: None,
-        importing: None,
-        deferred: None,
     }))
 }
 
@@ -236,9 +229,6 @@ impl Server {
                 self.cancel.cancel();
                 let rolled = self.archive.write(&self.catalog.db, Command::Rollback);
                 self.end_pull();
-                if let Some(mark) = self.deferred.take() {
-                    self.clear(mark);
-                }
                 rolled?;
                 Value::Null
             }
@@ -301,61 +291,34 @@ impl Server {
         Ok(Reply::Value(value))
     }
 
-    /// An import ends: its producer is dropped and its crash mark cleared.
+    /// An import ends: its producer is dropped, and with it every mark it made is settled.
     fn end_pull(&mut self) {
         self.pull = None;
-        self.settle_import();
     }
 
-    /// Mark the tree's root in the crash ledger before any of it is read, outside any archive
-    /// transaction so the mark is durable. One mark per import: a reader that dies while
-    /// importing strikes that transcript, and after the third strike it is refused, here and in
-    /// scans, instead of being retried after every restart.
-    fn mark_import(&mut self, home: &Home, members: &[Member]) -> Result<()> {
-        let Some(root) = members.first() else {
-            return Ok(());
-        };
-        let path = root.source.path.clone();
-        let fingerprint = root.source.fingerprint.clone();
-        let verdict = self
-            .catalog
-            .crashes
-            .verdict(&home.id, &path, Some(&fingerprint), now());
-        if let Verdict::Blocked(reason) = &verdict {
-            return Err(Error::message(reason.clone()));
+    /// How each member of a tree is marked while it is read, and whether any is refused: a
+    /// member that stopped the reader three times blocks the import, whichever root reaches
+    /// it; a suspect is read alone and marked so, since after a memory-limit kill only such a
+    /// mark is struck. Strikes hold for each member's own content.
+    fn import_marks(&self, home: &Home, members: &[Member]) -> Result<import::Marks> {
+        let mut kinds = Vec::with_capacity(members.len());
+        for member in members {
+            let verdict = self.catalog.crashes.verdict(
+                &home.id,
+                &member.source.path,
+                Some(&member.source.fingerprint),
+                now(),
+            );
+            kinds.push(match verdict {
+                Verdict::Blocked(reason) => return Err(Error::message(reason)),
+                Verdict::Isolate => Mark::Verifying,
+                Verdict::Read => Mark::Reading,
+            });
         }
-        // A suspect is read alone, and marked so: after a memory-limit kill only such a mark is
-        // struck, since memory another read used may have pushed the reader over.
-        let mark = if verdict == Verdict::Isolate {
-            Mark::Verifying
-        } else {
-            Mark::Reading
-        };
-        self.settle_import();
-        self.catalog
-            .crashes
-            .mark(&self.catalog.db, &home.id, &path, mark, &fingerprint)?;
-        self.importing = Some((home.id.clone(), path));
-        Ok(())
-    }
-
-    /// The import ended without killing the reader: its transcript is not a crash cause.
-    fn settle_import(&mut self) {
-        let Some(mark) = self.importing.take() else {
-            return;
-        };
-        if self.archive.active() {
-            self.deferred = Some(mark);
-        } else {
-            self.clear(mark);
-        }
-    }
-
-    fn clear(&mut self, (instance, path): (String, String)) {
-        let _ = self
-            .catalog
-            .crashes
-            .finished(&self.catalog.db, &instance, &path);
+        Ok(import::Marks {
+            writer: self.catalog.crashes.writer()?,
+            kinds,
+        })
     }
 
     fn archive_write(&mut self, command: ArchiveCommand, bodies: &[Vec<u8>]) -> Result<()> {
@@ -375,15 +338,7 @@ impl Server {
             ArchiveCommand::Commit => Command::Commit,
             ArchiveCommand::Rollback => Command::Rollback,
         };
-        let ends = matches!(command, Command::Commit | Command::Rollback);
-        let outcome = self.archive.write(db, command);
-        if ends
-            && !self.archive.active()
-            && let Some(mark) = self.deferred.take()
-        {
-            self.clear(mark);
-        }
-        outcome
+        self.archive.write(db, command)
     }
 
     fn scan(&mut self) -> Result<Value> {
@@ -421,12 +376,11 @@ impl Server {
 
     fn persist(&mut self, init: &ImportInit) -> Result<Value> {
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
-        self.mark_import(&home, &members)?;
+        let marks = self.import_marks(&home, &members)?;
         // A staged import is one long transaction: a 16 MiB page cache, for its length only,
         // keeps SQLite from spilling the same pages to the WAL again and again.
         self.catalog.db.execute_batch("PRAGMA cache_size=-16384")?;
-        let outcome = self.persist_tree(&home, &members, init);
-        self.settle_import();
+        let outcome = self.persist_tree(&home, &members, &marks, init);
         self.catalog.db.execute_batch("PRAGMA cache_size=-1024")?;
         outcome
     }
@@ -435,6 +389,7 @@ impl Server {
         &mut self,
         home: &Home,
         members: &[Member],
+        marks: &import::Marks,
         init: &ImportInit,
     ) -> Result<Value> {
         let db = &self.catalog.db;
@@ -448,6 +403,7 @@ impl Server {
             init,
             &self.scratch,
             &self.cancel,
+            marks,
             &mut |packet| {
                 packets += 1;
                 cancel.check()?;
@@ -489,7 +445,7 @@ impl Server {
 
     fn begin_pull(&mut self, init: &ImportInit) -> Result<()> {
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
-        self.mark_import(&home, &members)?;
+        let marks = self.import_marks(&home, &members)?;
         // The producer makes only what each pull grants, so at most sixteen packets wait.
         let (send, packets) = mpsc::sync_channel::<Produced>(16);
         let (credits, granted) = mpsc::sync_channel::<usize>(1);
@@ -501,7 +457,9 @@ impl Server {
         let root = init.source_id.clone();
         let init = init.clone();
         let producer = std::thread::spawn(move || {
-            produce(&home, &members, &init, &scratch, &cancel, &send, &granted)
+            produce(
+                &home, &members, &marks, &init, &scratch, &cancel, &send, &granted,
+            )
         });
         self.pull = Some(Pull {
             packets,
@@ -564,9 +522,11 @@ fn accuracy_text(accuracy: Accuracy) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn produce(
     home: &Home,
     members: &[Member],
+    marks: &import::Marks,
     init: &ImportInit,
     scratch: &SnapshotScratch,
     cancel: &Cancel,
@@ -574,20 +534,21 @@ fn produce(
     granted: &mpsc::Receiver<usize>,
 ) {
     let mut credit = 0usize;
-    let outcome = import::import_history(home, members, init, scratch, cancel, &mut |packet| {
-        while credit == 0 {
-            credit = granted.recv().map_err(|_| Error::Aborted)?;
-        }
-        let barrier = packet == Packet::Barrier;
-        send.send(Produced::Packet(packet))
-            .map_err(|_| Error::Aborted)?;
-        credit -= 1;
-        if barrier {
-            // A pull ends at a barrier: what it left unused is not the producer's to spend, and
-            // the checks after the barrier wait for the daemon's next pull.
-            credit = granted.recv().map_err(|_| Error::Aborted)?;
-        }
-        Ok(())
-    });
+    let outcome =
+        import::import_history(home, members, init, scratch, cancel, marks, &mut |packet| {
+            while credit == 0 {
+                credit = granted.recv().map_err(|_| Error::Aborted)?;
+            }
+            let barrier = packet == Packet::Barrier;
+            send.send(Produced::Packet(packet))
+                .map_err(|_| Error::Aborted)?;
+            credit -= 1;
+            if barrier {
+                // A pull ends at a barrier: what it left unused is not the producer's to spend, and
+                // the checks after the barrier wait for the daemon's next pull.
+                credit = granted.recv().map_err(|_| Error::Aborted)?;
+            }
+            Ok(())
+        });
     let _ = send.send(Produced::Done(outcome));
 }
