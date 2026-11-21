@@ -9,7 +9,7 @@ import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
 import { faviconPng } from "./favicon-image.ts";
 import { iconImages } from "./icon-image.ts";
 
-/* ace-media decodes favicons (ADR 0201): the decoder test needs a built binary. */
+/* ace-media decodes favicons (ADR 0208): the decoder test needs a built binary. */
 const mediaBinary = testMediaBinary();
 
 const homes: string[] = [];

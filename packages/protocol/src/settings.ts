@@ -357,7 +357,7 @@ export type SettingsValues = z.infer<typeof SettingsValues>;
 export const SettingsKey = SettingsValues.keyof();
 export type SettingsKey = z.infer<typeof SettingsKey>;
 /**
- * Settings this build no longer has (ADR 0201: the media pipeline settings). Older clients still
+ * Settings this build no longer has (ADR 0208: the media pipeline settings). Older clients still
  * name them, so requests accept them: a read or subscription answers nothing for them, and a
  * write of one changes nothing; a stored value is dropped from the settings file.
  */

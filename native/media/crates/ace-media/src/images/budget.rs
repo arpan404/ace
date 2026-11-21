@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The image threads' shared memory budget (ADR 0201 §5): each job reserves what it will hold at
+//! The image threads' shared memory budget (ADR 0208 §5): each job reserves what it will hold at
 //! its peak (`media_image::peak_bytes`, from headers alone) before decoding, and waits for room
 //! while its deadline allows. A job larger than the whole budget is refused at once.
 use media_image::{Failed, ImageFailure};

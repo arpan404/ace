@@ -22,7 +22,7 @@ function layered(width: number, height: number, prefix: string) {
   return art;
 }
 
-/* ace-media paints the body (ADR 0201): without a built binary this doesn't run. */
+/* ace-media paints the body (ADR 0208): without a built binary this doesn't run. */
 const binary = testMediaBinary();
 const images = binaryImages(binary ?? "");
 

@@ -93,7 +93,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     media,
     // Every browser recording is ace-media's (X1); without it a recording refuses, saying why.
     recorder: options.browser?.recorder ?? started?.recorder ?? noMediaRecorder,
-    // The measurement filmstrip is drawn by ace-media (ADR 0201).
+    // The measurement filmstrip is drawn by ace-media (ADR 0208).
     images: daemonImages(context),
     ...(config.chromiumPath && !options.browser?.executablePath
       ? { executablePath: config.chromiumPath }

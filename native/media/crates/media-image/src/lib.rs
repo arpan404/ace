@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! One-shot still images for ace-media (ADR 0201): probe, fit, alpha and compose over JPEG,
+//! One-shot still images for ace-media (ADR 0208): probe, fit, alpha and compose over JPEG,
 //! PNG, WebP, GIF, ICO, SVG and raw RGBA inputs, with bounds checked before pixels are
 //! decoded and every refusal given a reason. Pure: no files, threads or clocks; the caller
 //! reads file inputs and says when the deadline has passed.

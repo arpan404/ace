@@ -179,7 +179,7 @@ test("a reset from the host token alone leaves Ask me before agents publish on",
   expect(await f.settings.get("market.askBeforeAgentPublish")).toMatchObject({ value: true });
 });
 
-// Older clients (origin/main before ADR 0201) still name the media pipeline settings.
+// Older clients (origin/main before ADR 0208) still name the media pipeline settings.
 test("an older client's subscription that includes a retired media key still subscribes the rest", async () => {
   const f = await setup();
   await f.settings.set("threads.settleOnClose", true, { kind: "global" });

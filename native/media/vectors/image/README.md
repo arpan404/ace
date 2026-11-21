@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Image vectors (ADR 0201)
+# Image vectors (ADR 0208)
 
 `cases.json` lists one-shot image jobs over the files in `inputs/` and what ace-media must
 answer: `done` (size, format and source as `image.done` reports them, with `pixels` as

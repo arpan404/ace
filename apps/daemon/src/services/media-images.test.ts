@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { createDaemonImages, imageWorkerEnv } from "./media-images.ts";
 
 /*
- * ADR 0201 §6: the daemon's image work is ace-media's image process on every OS. The media
+ * ADR 0208 §6: the daemon's image work is ace-media's image process on every OS. The media
  * process may not run on Windows yet; images must, so previews, icons and screenshot fitting
  * work there too.
  */

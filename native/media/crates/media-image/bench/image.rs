@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! cargo run --release -p media-image --example image
-//! One-shot image jobs (ADR 0201) on the jobs the daemon sends, against the Bun image-pipeline path
+//! One-shot image jobs (ADR 0208) on the jobs the daemon sends, against the Bun image-pipeline path
 //! they replace (about 10 ms on the Mac for the screenshot fit, docs/media/plan.md M5). Five
 //! warm-ups, then 50 samples each; one JSON line per job. Fails above its bound unless
 //! ACE_MEDIA_BENCH_REPORT_ONLY=1, or when the load average is past twice the core count.

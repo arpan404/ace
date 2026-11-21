@@ -9,7 +9,7 @@ import { findMediaBinary } from "./media.ts";
 import type { ServiceContext } from "./types.ts";
 
 /*
- * The daemon's image work (ADR 0201): ace-media's image process, on every OS, apart from the
+ * The daemon's image work (ADR 0208): ace-media's image process, on every OS, apart from the
  * media process and whatever that does on this platform. It starts on the first image job and
  * stops when idle.
  */

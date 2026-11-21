@@ -69,7 +69,7 @@ export type PlatformOptions = SDKOptions & {
   /** Reads the SDK's device art; tests point it at fixtures. */
   readFile?: (path: string) => Promise<Uint8Array | undefined>;
   /**
-   * ace-media's image work (ADR 0201): screenshots, chrome drawn as PNG, skins' alpha and
+   * ace-media's image work (ADR 0208): screenshots, chrome drawn as PNG, skins' alpha and
    * Simulator bodies. Absent, each of those fails or falls back as having no image decoder.
    */
   images?: ImageWork;
@@ -469,7 +469,7 @@ export class DevicePlatform {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
     else await this.android.boot(device, authorize);
   }
-  /** How an agent's screenshot is fitted to the model: through ace-media (ADR 0201). */
+  /** How an agent's screenshot is fitted to the model: through ace-media (ADR 0208). */
   modelImages(): ModelImageRuntime {
     return modelImageRuntime(this.images);
   }

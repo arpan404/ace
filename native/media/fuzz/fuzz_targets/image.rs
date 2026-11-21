@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Arbitrary bytes through media-image (ADR 0201): probe, then a fit and an alpha read under a
+//! Arbitrary bytes through media-image (ADR 0208): probe, then a fit and an alpha read under a
 //! small pixel bound. Checks: nothing panics; whatever probe reports is within the bound the
 //! decode then honours (a crafted header can't pass the check and allocate for a larger frame);
 //! and an accepted fit is no larger than its box.

@@ -3,7 +3,7 @@ import Foundation
 /// A source's current delivery as the shared script last set it (`media.delivery`, ADR 0147 §4):
 /// the generation of its latest subscribe and the media socket its pictures come by (`"none"`
 /// when nothing serves it), or nil while that subscribe's reply is pending. Only ace-media
-/// delivers live pictures (ADR 0201): the main socket carries none. Swift decides nothing about it.
+/// delivers live pictures (ADR 0208): the main socket carries none. Swift decides nothing about it.
 struct MediaDelivery: Equatable, Sendable {
     let generation: Int
     let path: String?

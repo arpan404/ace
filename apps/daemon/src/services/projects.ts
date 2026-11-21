@@ -10,7 +10,7 @@ export function startProjects(context: ServiceContext): void {
   const { store, services, options, now, resources, config, log } = context;
   const projects = new Projects(store, now, {
     chatsRoot: join(config.dataDir, "chats"),
-    // Favicons are drawn by ace-media (ADR 0201).
+    // Favicons are drawn by ace-media (ADR 0208).
     icons: iconImages(daemonImages(context)),
     ...options.projects,
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),

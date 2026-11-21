@@ -33,7 +33,7 @@ export function crashLoop(failures: readonly number[], now: number) {
 
 /**
  * The init this build sends, as a level `ace-media --init-level` must report at least. Level 2:
- * init carries no media settings (ADR 0201). A binary from before it answers nothing (it reads
+ * init carries no media settings (ADR 0208). A binary from before it answers nothing (it reads
  * init from stdin, which the probe closes), and would refuse this init.
  */
 export const mediaInitLevel = 2;

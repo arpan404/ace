@@ -134,7 +134,7 @@ export interface HostOperations {
    * A live source's delivery as the shared script last set it (ADR 0147 §4): the generation of
    * its latest subscribe, and the media socket its pictures come by (`socket(id, "open",
    * {media})`), `"none"` when nothing serves it, or null while that subscribe's reply is pending.
-   * Only ace-media delivers live pictures (ADR 0201): the main socket carries none. Native code
+   * Only ace-media delivers live pictures (ADR 0208): the main socket carries none. Native code
    * draws and acknowledges only what came that way, with that generation, holds what comes while
    * pending (bounded), starts its decoder over on another generation, and ignores an update
    * older (by `revision`) than the one it holds. It decides nothing else.

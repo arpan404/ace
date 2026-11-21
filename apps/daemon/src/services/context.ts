@@ -19,7 +19,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   const context = await ContextService.open({
     signal: runtime.signal,
     root: join(config.dataDir, "context"),
-    // Previews and oversized model images go through ace-media (ADR 0201).
+    // Previews and oversized model images go through ace-media (ADR 0208).
     images: daemonImages(runtime),
     ...(config.attachmentLimits ? { limits: config.attachmentLimits } : {}),
     now,

@@ -10,7 +10,7 @@ import { nodeMediaHost, systemMediaClock } from "./supervisor.ts";
 import { binaryImages, imagePixels, testMediaBinary } from "./testing/images.ts";
 
 /*
- * ADR 0201 against the built binary: every shared image vector answers the same through the
+ * ADR 0208 against the built binary: every shared image vector answers the same through the
  * daemon's supervised image process (`ace-media --images`) as through `ace-media --image`; file
  * inputs are read only inside its root; and a killed image process fails its job and restarts.
  */

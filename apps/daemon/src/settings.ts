@@ -143,7 +143,7 @@ export function settingsSession(options: {
             throw new SettingsError("validation", "Device authority changed");
           const service = options.service;
           if (!service) throw new SettingsError("io", "Settings service is unavailable");
-          // Settings this build retired, which older clients still name (ADR 0201): a read or a
+          // Settings this build retired, which older clients still name (ADR 0208): a read or a
           // write of only those answers nothing and changes nothing; with others, the others
           // are handled as if they came alone.
           const answerNothing = () =>

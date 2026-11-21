@@ -1,7 +1,7 @@
 import { binaryImages, imagePixels, solidImage, testMediaBinary } from "@ace/media/testing/images";
 
 /*
- * Pictures for device tests, made and read by a built ace-media (ADR 0201: no TypeScript image
+ * Pictures for device tests, made and read by a built ace-media (ADR 0208: no TypeScript image
  * codec). Tests that need them skip where `mediaBinary` is undefined.
  */
 

@@ -28,7 +28,7 @@ interface MeasurementContext {
     beforeInput: () => void,
   ): Promise<unknown>;
   host?(): { hostLoad: number; cores: number };
-  /** ace-media, which draws the filmstrip (ADR 0201); without it there is none. */
+  /** ace-media, which draws the filmstrip (ADR 0208); without it there is none. */
   images?: import("@ace/media/images").ImageWork;
 }
 function wait(clock: NavigationClock, ms: number, signal?: AbortSignal): Promise<void> {

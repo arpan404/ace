@@ -8,7 +8,7 @@ const svg = (width: number, height: number, fill: string) =>
   `data:image/svg+xml;base64,${Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${fill}"/></svg>`,
   ).toString("base64")}`;
-/* ace-media draws looks as PNG (ADR 0201): without a built binary these don't run. */
+/* ace-media draws looks as PNG (ADR 0208): without a built binary these don't run. */
 const binary = testMediaBinary();
 const images = binaryImages(binary ?? "");
 const draw = (bytes: Buffer) => svgPng(bytes, images);

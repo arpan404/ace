@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { readSmallFile } from "./device-chrome-sources.ts";
 import { readAndroidSkin, type AndroidSkinSource } from "./android-skin-files.ts";
 
-/* Skin alpha is read by ace-media (ADR 0201): without a built binary these don't run. */
+/* Skin alpha is read by ace-media (ADR 0208): without a built binary these don't run. */
 const binary = testMediaBinary();
 const images = binaryImages(binary ?? "");
 

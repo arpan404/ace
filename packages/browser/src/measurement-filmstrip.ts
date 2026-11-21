@@ -40,7 +40,7 @@ export class MeasurementFrames {
 }
 /**
  * Up to eight frames around the measurement's moments, four a row, each captioned with its time,
- * drawn by ace-media (ADR 0201) as one JPEG; undefined without image work, when it can't be drawn
+ * drawn by ace-media (ADR 0208) as one JPEG; undefined without image work, when it can't be drawn
  * or when it is over the image bound.
  */
 export async function measurementFilmstrip(

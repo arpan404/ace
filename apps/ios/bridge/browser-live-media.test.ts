@@ -20,7 +20,7 @@ import { until } from "./sheet-fixture.ts";
 /*
  * The phone's live browser view and its media connection (ADR 0147 §4): its subscribe names the
  * open connection, a new connection subscribes it again with a fresh decoder, and the acks of
- * pictures that came by the connection go on it. Only ace-media delivers (ADR 0201): without a
+ * pictures that came by the connection go on it. Only ace-media delivers (ADR 0208): without a
  * connection, or one it can't serve, the view gets no pictures and says why.
  */
 

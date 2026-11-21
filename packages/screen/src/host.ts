@@ -29,7 +29,7 @@ export function localScreenManager(
     media?: ScreenMedia | undefined;
     /** ace-media's recorder (X1): every screen recording goes through it. */
     recorder?: MediaRecorder | undefined;
-    /** How an agent's screenshot is fitted to the model (ace-media's, ADR 0201). */
+    /** How an agent's screenshot is fitted to the model (ace-media's, ADR 0208). */
     modelImageRuntime?: ModelImageRuntime | undefined;
   } = {},
 ): ScreenManager {

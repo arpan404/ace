@@ -9,7 +9,7 @@ import type { MediaClock } from "./supervisor-host.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
 
 /*
- * One-shot image jobs through ace-media (ADR 0201 §6): the daemon's only way to decode, fit,
+ * One-shot image jobs through ace-media (ADR 0208 §6): the daemon's only way to decode, fit,
  * convert or composite a picture. Each job settles exactly once: with ace-media's image, its
  * refusal, or the daemon's own `unavailable`, `exited`, `deadline` or `cancelled`. Nothing
  * here waits past a job's deadline, so no caller (and no agent's state) is held by it.

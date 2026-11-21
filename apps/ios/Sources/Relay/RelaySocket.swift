@@ -34,7 +34,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     /// connection, whose stream the daemon hands to ace-media once it has admitted the hello.
     private let purpose: String?
     /// A media connection's own socket id, the way its pictures come (`MediaDelivery`); nil for
-    /// the daemon's main channel, which carries no live pictures (ADR 0201).
+    /// the daemon's main channel, which carries no live pictures (ADR 0208).
     private let path: String?
     private let event: @Sendable (String, SocketPayload) -> Void
     private let streams: BrowserStreamHub?

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! One-shot image jobs (ADR 0201): what `image.job` asks for and what `image.done` reports.
+//! One-shot image jobs (ADR 0208): what `image.job` asks for and what `image.done` reports.
 //! Ids and bounds are checked here; whether the numbers make a sensible picture is
 //! `media-image`'s to decide, so a bad job is answered with `image.failed`, never a lane error.
 use serde::{Deserialize, Serialize};

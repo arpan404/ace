@@ -62,7 +62,7 @@ export function deviceChromeSources(options: {
   /** The Simulator's device type identifier, from the inventory. */
   simulatorType(udid: string): Promise<string | undefined>;
   readFile?: (path: string) => Promise<Uint8Array | undefined>;
-  /** ace-media, which draws looks as PNG and reads skins' alpha (ADR 0201). */
+  /** ace-media, which draws looks as PNG and reads skins' alpha (ADR 0208). */
   images: ImageWork;
 }): DeviceChromeSources {
   const read = options.readFile ?? readSmallFile;

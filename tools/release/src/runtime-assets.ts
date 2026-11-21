@@ -6,7 +6,7 @@ import { z } from "zod";
 
 /**
  * These packages locate runtime files relative to their installed package roots. No image
- * library ships: ace-media is the only image pipeline (ADR 0201).
+ * library ships: ace-media is the only image pipeline (ADR 0208).
  */
 export const runtimePackages = [
   { name: "@anthropic-ai/claude-agent-sdk", workspace: "packages/adapter-claude" },

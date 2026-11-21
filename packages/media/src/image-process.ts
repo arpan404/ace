@@ -8,7 +8,7 @@ import type { MediaChild, MediaClock } from "./supervisor-host.ts";
 import { decodeFromMedia, type ToMedia } from "./wire.ts";
 
 /*
- * The image process (ADR 0201 §3, §6): `ace-media --images --root <dir>`, supervised here on
+ * The image process (ADR 0208 §3, §6): `ace-media --images --root <dir>`, supervised here on
  * its own, apart from the media process that carries live video and recordings, so no picture
  * can take those down. It starts on the first image job on every OS, stops when idle, restarts
  * with backoff after a crash, is marked unavailable after a crash loop, and is killed when it

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Bounds every job has, whatever it asks for (ADR 0201 §5).
+//! Bounds every job has, whatever it asks for (ADR 0208 §5).
 use crate::error::{Failed, Result};
 
 /// Longest side an input may have.

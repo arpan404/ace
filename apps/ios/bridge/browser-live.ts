@@ -32,7 +32,7 @@ import { nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 /*
  * The thread's live browser view (ADR 0088, #1061). The bridge owns the subscription, the page's
  * state and the person's input; Swift owns the pictures. The view is video only, and only
- * ace-media delivers it (ADR 0201), on the phone's media connection: H.264 chunks never enter
+ * ace-media delivers it (ADR 0208), on the phone's media connection: H.264 chunks never enter
  * JavaScriptCore, the native socket assembles and decodes them itself, and acknowledges each one
  * through `ack` as soon as it is decoded. The ack leaves by that media connection.
  */

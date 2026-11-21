@@ -649,7 +649,7 @@ impl Engine {
                 now.mono_ms,
                 out,
             ),
-            // Image jobs run in the image process (`ace-media --images`, ADR 0201), never beside
+            // Image jobs run in the image process (`ace-media --images`, ADR 0208), never beside
             // live video and recordings.
             ToMedia::ImageJob { request, .. } => normal(
                 out,

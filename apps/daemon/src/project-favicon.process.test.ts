@@ -9,7 +9,7 @@ import { projectFixture as fixture } from "./projects-test-support.ts";
 import { Store } from "./store.ts";
 import { Projects } from "./projects.ts";
 
-/* ace-media draws project favicons (ADR 0201): these need a built binary. */
+/* ace-media draws project favicons (ADR 0208): these need a built binary. */
 const mediaBinary = testMediaBinary();
 const icons = iconImages(binaryImages(mediaBinary ?? ""));
 const drawn = test.skipIf(!mediaBinary);

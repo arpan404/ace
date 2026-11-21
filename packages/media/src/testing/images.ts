@@ -8,7 +8,7 @@ import { decodeFromMedia, encodeControl } from "../wire.ts";
 
 /*
  * Image work for tests and tools: each job runs through a built ace-media's one-shot mode
- * (`ace-media --image`, ADR 0201 §8), the same decoders the daemon's ace-media uses. Tests that
+ * (`ace-media --image`, ADR 0208 §8), the same decoders the daemon's ace-media uses. Tests that
  * need real pixels skip where no binary is built (`testMediaBinary()` undefined).
  */
 

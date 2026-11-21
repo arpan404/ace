@@ -2,7 +2,7 @@ import { ImageError, type ImageWork } from "@ace/media/images";
 import { DeviceError } from "./sdk.ts";
 
 /*
- * Device pictures through ace-media (ADR 0201): one-off screenshots, chrome drawings, Simulator
+ * Device pictures through ace-media (ADR 0208): one-off screenshots, chrome drawings, Simulator
  * bodies and emulator skins. Every job here has a deadline, so a device call never waits on
  * ace-media past it.
  */

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The image threads (ADR 0201): a fixed set in the image process, sharing one queue bounded in
+//! The image threads (ADR 0208): a fixed set in the image process, sharing one queue bounded in
 //! jobs and in payload bytes. A job that is stopped (cancelled or past its deadline) leaves the
 //! queue at once, or stops at its next step if it is running. A job reserves its peak memory
 //! from the shared [`Budget`] before it decodes anything, and a decoder that panics fails only

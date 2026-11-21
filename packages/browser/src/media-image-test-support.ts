@@ -1,7 +1,7 @@
 import { binaryImages, imagePixels, solidImage, testMediaBinary } from "@ace/media/testing/images";
 
 /*
- * Pixels of captures for browser tests, read by a built ace-media (ADR 0201: no TypeScript
+ * Pixels of captures for browser tests, read by a built ace-media (ADR 0208: no TypeScript
  * image codec). A test that reads pixels without one fails, saying how to build it.
  */
 

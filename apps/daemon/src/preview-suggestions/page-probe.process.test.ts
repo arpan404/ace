@@ -6,7 +6,7 @@ import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
 import { iconImages } from "../icons/icon-image.ts";
 import { pageTitle, probePage } from "./page-probe.ts";
 
-/* ace-media draws a page's icon (ADR 0201): the icon test needs a built binary. */
+/* ace-media draws a page's icon (ADR 0208): the icon test needs a built binary. */
 const mediaBinary = testMediaBinary();
 
 test.skipIf(!mediaBinary)(

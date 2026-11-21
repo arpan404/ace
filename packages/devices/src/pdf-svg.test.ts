@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { pdfArt, svgDocument } from "./pdf-svg.ts";
 import { tinyPdf } from "./testing/tiny-pdf.ts";
 
-/* ace-media draws the SVG (ADR 0201): without a built binary the drawing tests don't run. */
+/* ace-media draws the SVG (ADR 0208): without a built binary the drawing tests don't run. */
 const binary = testMediaBinary();
 const drawn = test.skipIf(!binary);
 

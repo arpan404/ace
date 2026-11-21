@@ -5,7 +5,7 @@ import { expect, it, onTestFinished } from "vitest";
 import { DevicePlatform } from "./index.ts";
 import { busyJpeg, flatPng, imageHeader, mediaBinary, testImages } from "./testing/media-images.ts";
 
-/* Screenshots are fitted by ace-media (ADR 0201); without a built binary these don't run. */
+/* Screenshots are fitted by ace-media (ADR 0208); without a built binary these don't run. */
 const drawn = it.skipIf(!mediaBinary);
 
 async function androidPlatform(screen: Buffer) {

@@ -2,7 +2,7 @@ pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step,
 pub use crate::link::LinkHint;
 use serde::{Deserialize, Serialize};
 /// The init this binary takes, reported by `ace-media --init-level` so a daemon checks it before
-/// sending one. Level 2: init carries no media settings (ADR 0201). A daemon refuses a binary
+/// sending one. Level 2: init carries no media settings (ADR 0208). A daemon refuses a binary
 /// below its own level instead of starting it.
 pub const INIT_LEVEL: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -307,7 +307,7 @@ pub enum ToMedia {
         runtime_dir: String,
         #[serde(rename = "dataDir")]
         data_dir: String,
-        /// The media settings an older daemon still sends (ADR 0201): there are none any more,
+        /// The media settings an older daemon still sends (ADR 0208): there are none any more,
         /// so whatever it holds is read and dropped, never refused and never sent.
         #[serde(rename = "settings", default, skip_serializing)]
         older_settings: Option<serde::de::IgnoredAny>,
@@ -706,7 +706,7 @@ pub enum ToMedia {
         #[serde(rename = "clear")]
         clear: Vec<EpochRange>,
     },
-    /// One-shot image work (ADR 0201), answered once with `image.done` or `image.failed`.
+    /// One-shot image work (ADR 0208), answered once with `image.done` or `image.failed`.
     /// The payload holds the `bytes` and `rgba` inputs back to back, in order.
     #[serde(rename = "image.job")]
     ImageJob {

@@ -3,7 +3,7 @@ import { ImageError, type ImageWork } from "@ace/media/images";
 /*
  * Icon bytes from outside (a project's favicon, a site's favicon, an app's icon) made safe to
  * show: SVGs only without scripts, styles or external references, everything rasterised by
- * ace-media (ADR 0201) to a PNG of at most 64px. ICO files are read there too: the entry
+ * ace-media (ADR 0208) to a PNG of at most 64px. ICO files are read there too: the entry
  * closest to 64px, an embedded PNG or a 24/32-bit bitmap.
  */
 

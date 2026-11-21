@@ -1,4 +1,4 @@
-# 0201: ace-media is the only media and image pipeline
+# 0208: ace-media is the only media and image pipeline
 
 Status: accepted. Date: 2026-11-20. Decided by: the owner. Amends
 [ADR 0147](0147-ace-media-rust-media-pipeline.md) (its phases and the deletion gate) and

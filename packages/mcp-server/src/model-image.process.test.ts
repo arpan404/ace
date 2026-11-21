@@ -3,7 +3,7 @@ import { binaryImages, imagePixels, testMediaBinary } from "@ace/media/testing/i
 import { expect, it } from "vitest";
 import { modelImage, modelImageRuntime } from "./index.ts";
 
-// The real resize (ace-media's image process, ADR 0201): a solid red PNG in, a bounded JPEG out.
+// The real resize (ace-media's image process, ADR 0208): a solid red PNG in, a bounded JPEG out.
 const binary = testMediaBinary();
 const images = binaryImages(binary ?? "");
 

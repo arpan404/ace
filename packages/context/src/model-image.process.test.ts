@@ -7,7 +7,7 @@ import { ContextService, type ProjectionCapabilities } from "./index.ts";
 import { repository, hash, thread } from "./test-support.ts";
 
 /*
- * ADR 0201 §7 with the real ace-media binary (the only image decoder): an image over an inline
+ * ADR 0208 §7 with the real ace-media binary (the only image decoder): an image over an inline
  * provider's budget reaches it as a fitted copy within that budget, not as a bare path.
  */
 

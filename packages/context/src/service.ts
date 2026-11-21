@@ -28,7 +28,7 @@ import {
 
 export interface ContextServiceOptions extends UploadOptions {
   /**
-   * ace-media's image work (ADR 0201): attachment previews, and copies of images over an inline
+   * ace-media's image work (ADR 0208): attachment previews, and copies of images over an inline
    * provider's budget. Without it attachments have no previews and such images go as paths.
    */
   images?: ImageWork;

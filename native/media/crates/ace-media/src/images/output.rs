@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The image process's stdout (ADR 0201): one writer thread behind a queue bounded in bytes. An
+//! The image process's stdout (ADR 0208): one writer thread behind a queue bounded in bytes. An
 //! answer whose image would take the queue past its bound is not queued; the server sends a
 //! `busy` refusal in its place, so a slow reader costs jobs, never the process.
 use std::collections::VecDeque;

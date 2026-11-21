@@ -6,7 +6,7 @@ import { appIcon } from "./app-icon.ts";
 import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
 import { iconImages } from "./icon-image.ts";
 
-/* ace-media draws icons (ADR 0201): the drawing test needs a built binary. */
+/* ace-media draws icons (ADR 0208): the drawing test needs a built binary. */
 const mediaBinary = testMediaBinary();
 const { installedIconPng, rasterPng } = iconImages(binaryImages(mediaBinary ?? ""));
 

@@ -10,7 +10,7 @@ import { FakeSimPlatform } from "./testing/fake-sim.ts";
 import { fakeServeSim } from "./testing/fake-serve-sim.ts";
 import { firstRed, flatJpeg, mediaBinary } from "./testing/media-images.ts";
 
-/* Screens are made and read by ace-media (ADR 0201); without a built binary these don't run. */
+/* Screens are made and read by ace-media (ADR 0208); without a built binary these don't run. */
 const drawn = it.skipIf(!mediaBinary);
 
 const ios = "ios:00000000-0000-4000-8000-00000000F00D";

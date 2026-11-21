@@ -18,7 +18,7 @@ function after(milliseconds: number, expire: () => void): () => void {
   return () => clearTimeout(timer);
 }
 
-/** The resize as ace-media's image process does it (ADR 0201). */
+/** The resize as ace-media's image process does it (ADR 0208). */
 export function modelImageRuntime(images: ImageWork): ModelImageRuntime {
   return {
     async fit(input, box, quality) {

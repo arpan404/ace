@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! One-shot image jobs (ADR 0201) as the image process tracks them: which requests wait, when
+//! One-shot image jobs (ADR 0208) as the image process tracks them: which requests wait, when
 //! each one's deadline passes, and that each is answered exactly once. Pure: the server feeds
 //! messages, results and ticks in, and carries out what comes back as [`Out`]. A result counts
 //! only while its request still waits on the same token, so one from before a cancel, a

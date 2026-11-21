@@ -3,7 +3,7 @@ import { ContextError } from "./errors.ts";
 import { defaultImageLimits } from "./media.ts";
 
 /*
- * Attachment pictures through ace-media (ADR 0201): the preview a client shows, and the copy an
+ * Attachment pictures through ace-media (ADR 0208): the preview a client shows, and the copy an
  * inline provider gets when the original is over its budget. The stored original is never
  * changed; both read it by path, so its bytes never pass through the daemon.
  */

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-//! File inputs (ADR 0201 §5), read only from inside the directory the daemon named at start
+//! File inputs (ADR 0208 §5), read only from inside the directory the daemon named at start
 //! (`--root`, its data directory). That directory is opened once, when the process starts, and
 //! its handle is kept: every input is walked from it one name at a time without following a
 //! link, so neither a link nor a directory swapped in under the same name later can send a read
 //! elsewhere. The file is opened without blocking and read only if it is a regular file, so a
 //! FIFO or a device can't hang a worker. A job's files together hold at most
 //! [`MAX_JOB_FILE_BYTES`]. Hard links are not refused: the inputs are files ace itself wrote
-//! under its data directory (ADR 0201 §5).
+//! under its data directory (ADR 0208 §5).
 use media_image::{Failed, ImageFailure};
 use media_wire::image::ImageInput;
 use std::io::Read;

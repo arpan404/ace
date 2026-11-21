@@ -36,7 +36,7 @@ export function startPreviewClient(context: ServiceContext): void {
     now,
     daemonPorts: () => daemonPorts,
     onError: (error) => log.log("debug", "Dev server detection failed", logError(error)),
-    // A page's favicon is drawn by ace-media (ADR 0201).
+    // A page's favicon is drawn by ace-media (ADR 0208).
     icons: iconImages(daemonImages(context)),
   });
   services.previewSuggestions = suggestions;

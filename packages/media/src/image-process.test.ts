@@ -4,7 +4,7 @@ import { ImageError, type ImageJob } from "./images.ts";
 import { FakeMedia, ManualClock, settle } from "./supervisor-test-support.ts";
 
 /*
- * The image process as the daemon supervises it (ADR 0201 §3, §6), against a fake child: lazy
+ * The image process as the daemon supervises it (ADR 0208 §3, §6), against a fake child: lazy
  * start with its own arguments, answers over its own lane, idle stop, restart after a crash,
  * unavailable after a crash loop, and the memory watchdog.
  */

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `ace-media --image [--root <dir>]`: one `image.job` control frame on stdin, its `image.done`
 //! or `image.failed` frame on stdout, then exit 0 (2 when stdin isn't one valid job). The same
-//! work as the image process's threads, for tests and tools that have no supervisor (ADR 0201
+//! work as the image process's threads, for tests and tools that have no supervisor (ADR 0208
 //! §8). File inputs are read only inside `--root`.
 use crate::images::budget::{BUDGET_BYTES, Budget};
 use crate::images::files::FileRoot;

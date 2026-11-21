@@ -132,7 +132,7 @@ async function seedChrome(daemon: FakeDaemon): Promise<void> {
       simctl: (args) => output("xcrun", ["simctl", ...args]),
       plutil: (args) => output("/usr/bin/plutil", args),
       simulatorType: async () => undefined,
-      // The body is drawn by ace-media (ADR 0201): this tree's build of it.
+      // The body is drawn by ace-media (ADR 0208): this tree's build of it.
       images: mediaImages(),
     }),
   );

@@ -82,7 +82,7 @@ fn the_binary_reports_the_init_level_it_takes_without_starting() {
 
 #[test]
 fn an_older_daemons_init_with_media_settings_still_starts_ace_media() {
-    // A daemon from before ADR 0201 sends the media settings it had; ace-media ignores them.
+    // A daemon from before ADR 0208 sends the media settings it had; ace-media ignores them.
     let mut media = Media::spawn("olderinit");
     let dir = media.dir.to_string_lossy().into_owned();
     media.send(

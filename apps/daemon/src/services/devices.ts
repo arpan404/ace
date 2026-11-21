@@ -60,7 +60,7 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
       emulatorWindow: async () =>
         (await services.settings?.get("devices.emulatorWindow"))?.value === true,
       ...(services.screen ? { screen: services.screen } : {}),
-      // Screenshots, chrome as PNG, skins and Simulator bodies (ADR 0201).
+      // Screenshots, chrome as PNG, skins and Simulator bodies (ADR 0208).
       images: daemonImages(context),
     }),
     runtime: {

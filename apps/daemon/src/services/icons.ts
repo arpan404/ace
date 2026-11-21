@@ -20,7 +20,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startIcons(context: ServiceContext): void {
   const { config, services, now } = context;
-  // Every icon is drawn by ace-media (ADR 0201).
+  // Every icon is drawn by ace-media (ADR 0208).
   const icons = iconImages(daemonImages(context));
   services.icons = new IconService({
     cache: new IconCache(join(config.dataDir, "icons")),

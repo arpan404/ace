@@ -4,7 +4,7 @@ import type { ScreenStreamSettings } from "@ace/protocol";
 import { SimulatorFrames, StillTooLarge } from "./simulator-frames.ts";
 import { busyJpeg, mediaBinary } from "./testing/media-images.ts";
 
-/* The test pictures are drawn by ace-media (ADR 0201); without a built binary these don't run. */
+/* The test pictures are drawn by ace-media (ADR 0208); without a built binary these don't run. */
 const drawn = it.skipIf(!mediaBinary);
 
 /** A busy screen, as hard to compress as a Simulator's, at JPEG quality 95. */

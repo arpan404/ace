@@ -115,7 +115,7 @@ impl Scaler for CpuScaler {
 
 /// Resample tightly packed four-channel samples (RGBA, straight or premultiplied) from `from`
 /// to `to` with the still path's filter. Unlike [`CpuScaler`], the sizes are the caller's to
-/// bound: one-shot images (ADR 0201) accept larger sources than video stills.
+/// bound: one-shot images (ADR 0208) accept larger sources than video stills.
 pub fn resample_rgba(src: &[u8], from: Size, to: Size) -> Result<Vec<u8>, CodecError> {
     let stride = from.width as usize * 4;
     if from.width == 0 || from.height == 0 || to.width == 0 || to.height == 0 {

@@ -16,7 +16,7 @@ export interface AndroidSkinSource {
   sdkRoots: readonly string[];
   /** A file's bytes, or undefined when it can't be read. */
   readFile(path: string): Promise<Uint8Array | undefined>;
-  /** ace-media, which reads each skin image's alpha (ADR 0201). */
+  /** ace-media, which reads each skin image's alpha (ADR 0208). */
   images: ImageWork;
 }
 

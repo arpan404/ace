@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `ace-media --images --root <dir>` (ADR 0201 §3): the image process. It reads `image.job` and
+//! `ace-media --images --root <dir>` (ADR 0208 §3): the image process. It reads `image.job` and
 //! `image.cancel` frames on stdin and answers `image.done` or `image.failed` on stdout, with no
 //! sockets, secrets or video in it, so no picture can take live video or a recording down with
 //! it. It exits 0 when stdin closes, 2 on an invalid frame and 1 when a job is stuck in a step

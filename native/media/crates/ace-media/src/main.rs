@@ -16,7 +16,7 @@ fn main() {
             let _ = writeln!(io::stdout().lock(), "{}", media_wire::control::INIT_LEVEL);
             return;
         }
-        // Image jobs (ADR 0201): no runtime, no sockets, no secrets. `--images` is the image
+        // Image jobs (ADR 0208): no runtime, no sockets, no secrets. `--images` is the image
         // process the daemon supervises; `--image` runs one job, for tests and tools.
         Some(mode @ ("--image" | "--images")) => {
             let args: Vec<String> = std::env::args().skip(2).collect();

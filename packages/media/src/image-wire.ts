@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /*
- * One-shot image jobs (ADR 0201): the `image.job` request and `image.done`/`image.failed`
+ * One-shot image jobs (ADR 0208): the `image.job` request and `image.done`/`image.failed`
  * answers, as `media_wire::image` holds them. Fixtures: `native/media/vectors/control/image.*`.
  */
 

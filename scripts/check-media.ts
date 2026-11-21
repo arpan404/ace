@@ -60,7 +60,7 @@ if (process.platform === "win32") {
     "src/recordings.process.test.ts",
     // D1: a tab, a screen and a device on one media connection, revocation and restart.
     "src/media-delivery.process.test.ts",
-    // X4 (ADR 0201): every image vector through the binary and the lanes, lazy start, a kill.
+    // X4 (ADR 0208): every image vector through the binary and the lanes, lazy start, a kill.
     "src/images.process.test.ts",
   ];
   execFileSync("bun", ["--bun", "x", "vitest", "run", ...tests], {
@@ -87,7 +87,7 @@ if (process.platform === "win32") {
       stdio: "inherit",
     },
   );
-  // X4 (ADR 0201): attachment previews and an oversized model image through the binary.
+  // X4 (ADR 0208): attachment previews and an oversized model image through the binary.
   execFileSync(
     "bun",
     [

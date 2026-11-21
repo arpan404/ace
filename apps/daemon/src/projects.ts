@@ -67,7 +67,7 @@ export interface ProjectsOptions {
   hasOwnedWork?: (id: ThreadId) => boolean;
   /** The deletion policy every thread the project's removal deletes goes through (ADR 0183). */
   deletionPolicy?: DeletionPolicy;
-  /** Draws project favicons (ADR 0201); without it a project's default icon comes later. */
+  /** Draws project favicons (ADR 0208); without it a project's default icon comes later. */
   icons?: IconImages;
   /** Where chats started with no project keep their folders (ADR 0099); unset disables chats. */
   chatsRoot?: string;

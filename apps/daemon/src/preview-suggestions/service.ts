@@ -22,7 +22,7 @@ export interface SuggestionHost {
   now(): number;
   daemonPorts(): ReadonlySet<number>;
   onError?(error: unknown): void;
-  /** Draws a page's favicon (ADR 0201); without it a page has none. */
+  /** Draws a page's favicon (ADR 0208); without it a page has none. */
   icons?: IconImages;
 }
 

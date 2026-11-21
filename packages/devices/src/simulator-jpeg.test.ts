@@ -3,7 +3,7 @@ import { SimulatorJpeg } from "./simulator-jpeg.ts";
 import { deviceStillStream } from "./stream-control.ts";
 import { firstRed, flatJpeg, mediaBinary } from "./testing/media-images.ts";
 
-/* Screens are made and read by ace-media (ADR 0201); without a built binary these don't run. */
+/* Screens are made and read by ace-media (ADR 0208); without a built binary these don't run. */
 const drawn = it.skipIf(!mediaBinary);
 
 /** A screen painted one flat colour, as serve-sim's MJPEG would carry it. */

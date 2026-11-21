@@ -2,7 +2,7 @@ import { ImageError, unavailableImages, type ImageWork } from "@ace/media/images
 import { expect, it } from "vitest";
 import { shotJpeg } from "./one-off-screenshot.ts";
 
-/* ADR 0201 §6: a screenshot whose image job can't run fails at once, saying why. */
+/* ADR 0208 §6: a screenshot whose image job can't run fails at once, saying why. */
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 

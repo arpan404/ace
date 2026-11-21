@@ -7,7 +7,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { ContextError } from "./errors.ts";
 import { thumbnailRenderer } from "./attachment-images.ts";
 
-/* Previews come from ace-media (ADR 0201); without a built binary there is nothing to test. */
+/* Previews come from ace-media (ADR 0208); without a built binary there is nothing to test. */
 const binary = testMediaBinary();
 const fixture = (name: string) => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url));
 const vector = (name: string) =>

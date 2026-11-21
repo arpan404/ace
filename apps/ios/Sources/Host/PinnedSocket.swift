@@ -114,7 +114,7 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     private var queue: OperationQueue { session.queue }
 
     /// A media connection's own socket id, the way its pictures come (`MediaDelivery`); nil for
-    /// the daemon's main socket, which carries no live pictures (ADR 0201).
+    /// the daemon's main socket, which carries no live pictures (ADR 0208).
     let path: String?
     init(target: ConnectionTarget, session: PinnedSession? = nil, path: String? = nil,
          now: @escaping @Sendable () -> Date = { Date() },
