@@ -1030,13 +1030,15 @@ pub struct InvalidControl;
 /// `picture-ingest` encodes a JPEG source's still pictures (kind 3) off its ingest (X2), so a
 /// daemon sends them there only to a build that says so; `privacy-open` reads
 /// `source.open.private` and `still.take.minEpoch` (M8), which a stricter build would refuse;
-/// `still-fresh` reads `still.take.fresh`.
-pub const FEATURES: [&str; 5] = [
+/// `still-fresh` reads `still.take.fresh`; `sync-drain`: a `source.sync` on a picture source
+/// drains its encoder before it holds, so a daemon need not wait for the encode itself.
+pub const FEATURES: [&str; 6] = [
     "source.ingest",
     "source.sync",
     "picture-ingest",
     "privacy-open",
     "still-fresh",
+    "sync-drain",
 ];
 
 /// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own

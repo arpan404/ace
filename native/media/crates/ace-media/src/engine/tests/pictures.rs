@@ -623,3 +623,32 @@ fn a_barrier_on_a_picture_source_whose_encoder_never_drains_is_never_answered() 
     let later: Vec<Effect> = engine.effects().collect();
     assert!(synced(&later).is_empty());
 }
+
+#[test]
+fn a_barrier_that_outruns_its_last_picture_drains_the_encoder_only_once_that_picture_is_in() {
+    let mut engine = engine();
+    open(&mut engine, "tab-pictures");
+    encodes(&mut engine, spec());
+    picture(&mut engine, 2, at(2_000));
+    // The barrier names two pictures; the second is still on its way on the ingest socket.
+    let asked = send(
+        &mut engine,
+        json!({ "type": "source.sync", "source": "p", "seq": 0, "frames": 2, "decided": 1 }),
+        &[],
+        at(2_010),
+    );
+    assert!(
+        encode_effects(&asked).is_empty(),
+        "drained before its last picture arrived"
+    );
+    // The last picture reaches the encoder, and only then is it drained.
+    let effects = picture(&mut engine, 2, at(2_020));
+    assert_eq!(
+        encode_effects(&effects),
+        ["Picture(p, epoch 2)", "Drain(p)"]
+    );
+    engine.encoded("p", 1, unit(2, true), at(2_030));
+    engine.encoder_drained("p", 1);
+    let done: Vec<Effect> = engine.effects().collect();
+    assert_eq!(synced(&done), [0]);
+}

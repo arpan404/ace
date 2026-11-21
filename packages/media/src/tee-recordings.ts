@@ -294,6 +294,12 @@ export class TeeRecording implements ActiveRecording {
   #resume: (() => void) | undefined;
   /** Cancels the next regular keyframe. */
   #beat: (() => void) | undefined;
+  /** ace-media's stop barrier drains a picture source's encoder (`sync-drain`). */
+  readonly #drains: () => boolean;
+  /** A picture went in, and ace-media's encode handed a unit over (`source.status` playing). */
+  #pictured = false;
+  #played = false;
+  readonly #playing = new Set<() => void>();
 
   constructor(
     port: TeeRecordingsPort,
@@ -310,6 +316,7 @@ export class TeeRecording implements ActiveRecording {
     this.#source = source;
     this.#send = (message) => port.send(message);
     this.#encodable = () => encodesPictures(port);
+    this.#drains = () => port.speaks("sync-drain");
     this.#tee = new MediaTee(
       {
         source,
@@ -481,6 +488,10 @@ export class TeeRecording implements ActiveRecording {
       if (message.type === "epoch.applied") return this.#applied(message.epoch);
       // ace-media's first word on the open: the epochs waiting for it go now, in order. The
       // open carried the epoch the tee stamps with; every one after it is still owed.
+      if (message.type === "source.status" && message.status === "playing") {
+        this.#played = true;
+        for (const done of this.#playing) done();
+      }
       if (message.type === "source.status" && !this.#openAnswered) {
         this.#openAnswered = true;
         for (const issued of this.#issued) this.#announce(issued);
@@ -557,7 +568,9 @@ export class TeeRecording implements ActiveRecording {
 
   /** One unit of the source, read now. */
   push(unit: TeeUnit): void {
-    if (!this.#done && !this.#stopping) this.#tee.push(unit);
+    if (this.#done || this.#stopping) return;
+    if (unit.kind === "picture") this.#pictured = true;
+    this.#tee.push(unit);
   }
 
   /** The source turned private or public: a new epoch at once, so none spans the change. */
@@ -575,9 +588,23 @@ export class TeeRecording implements ActiveRecording {
     if (this.#loss && !this.#loss.restarting) this.#failure ??= this.#loss.reason;
     this.#stopping = true;
     // ace-media's stop barrier (`source.sync`) holds a picture recording until its encoder
-    // handed over every picture it took; one it can't confirm in time is left out, and the end
-    // says so (`truncated`).
-    return this.#media.stop().then((end) => this.#failed(end));
+    // handed over every picture it took (`sync-drain`); one it can't confirm in time is left
+    // out, and the end says so (`truncated`). An older build answers the barrier without
+    // draining: a clip stopped at once waits (bounded) for the encode's first unit, so it still
+    // holds the picture it was given.
+    const encoded =
+      this.#spec.encode && !this.#drains() && this.#pictured && !this.#played
+        ? new Promise<void>((resolve) => {
+            const done = () => {
+              cancel();
+              this.#playing.delete(done);
+              resolve();
+            };
+            const cancel = this.#clock.setTimeout(done, syncMs);
+            this.#playing.add(done);
+          })
+        : Promise.resolve();
+    return encoded.then(() => this.#media.stop()).then((end) => this.#failed(end));
   }
 
   #finish(): void {

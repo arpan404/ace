@@ -541,6 +541,8 @@ export const mediaFeatures = [
   "privacy-open",
   // `still.take.fresh`: a still only from a picture that arrives after it was asked.
   "still-fresh",
+  // `source.sync` on a picture source drains its encoder before it holds.
+  "sync-drain",
 ] as const;
 export type MediaFeature = (typeof mediaFeatures)[number];
 

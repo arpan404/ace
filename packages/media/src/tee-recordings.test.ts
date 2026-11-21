@@ -32,6 +32,8 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
     synced: true,
     /** ace-media agreed to the optional features; an older binary didn't. */
     speaks: true,
+    /** An older ace-media answers the stop barrier without draining its encoder. */
+    noDrain: false,
     /** ace-media's probe found a picture encoder. */
     encoder: true,
     /** The recorded source is private now. */
@@ -65,7 +67,7 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
     },
     health: () => state.health,
     reason: () => state.reason,
-    speaks: () => state.speaks,
+    speaks: (feature) => state.speaks && !(feature === "sync-drain" && state.noDrain),
     pictureCodecs: () => (state.encoder ? ["avc1.42E033"] : []),
     connect: () => {
       const closes: (() => void)[] = [];
@@ -609,4 +611,31 @@ it("asks a picture recording's encode for a keyframe regularly, and once a resum
   void recording.stop();
   await m.clock.advance(pictureKeyframeMs * 2);
   expect(keys()).toBe(before + 2);
+});
+
+it("a picture clip stopped at once waits for its encode's first unit only on an ace-media whose barrier doesn't drain", async () => {
+  const stops = (m: ReturnType<typeof media>) =>
+    m.sent.filter((message) => message.type === "record.stop").length;
+  // An older build: its barrier answers before the encoder handed anything over.
+  const older = media();
+  older.state.noDrain = true;
+  older.up();
+  const old = await started(older, pictureSpec());
+  const open = older.sent.find((message) => message.type === "source.open");
+  if (open?.type !== "source.open") throw new Error("no source.open");
+  old.recording.push(jpeg);
+  void old.recording.stop();
+  await older.clock.advance(syncMs - 1);
+  expect(stops(older)).toBe(0);
+  older.recordings.message({ type: "source.status", source: open.source, status: "playing" });
+  await older.clock.advance(syncMs);
+  expect(stops(older)).toBe(1);
+  // A draining build: the barrier itself holds until the encoder is done, so nothing waits.
+  const draining = media();
+  draining.up();
+  const now = await started(draining, pictureSpec());
+  now.recording.push(jpeg);
+  void now.recording.stop();
+  await draining.clock.advance(1);
+  expect(stops(draining)).toBe(1);
 });
