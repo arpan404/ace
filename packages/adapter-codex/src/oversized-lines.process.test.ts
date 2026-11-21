@@ -185,12 +185,13 @@ test.each(["oversized", "partial-reply"])(
 );
 
 test.each([true, false])(
-  "an oversized stderr line is dropped with a note and the host keeps serving (shared %s)",
+  "a flood of oversized stderr lines is dropped under one note and the host keeps serving (shared %s)",
   async (shared) => {
     const h = await harness(shared);
     const a = await h.open();
     await send(a, "stderr-flood");
     await a.wait((f) => f.dir === "stderr" && f.data === "still here");
+    await a.wait(completed);
     const stderr = a.frames.filter((f) => f.dir === "stderr").map((f) => String(f.data));
     expect(stderr).toEqual([
       expect.stringMatching(/^ace dropped a stderr line of \d+ bytes$/),

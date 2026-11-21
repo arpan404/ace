@@ -4,6 +4,7 @@ import {
   type Notification,
   type ServerRequest,
 } from "@ace/provider-kit/jsonrpc";
+import { droppedLineNotes } from "@ace/provider-kit/dropped-line-notes";
 import type { OutputFlow } from "@ace/provider-kit/flow-control";
 import {
   OutputLineDroppedError,
@@ -213,6 +214,13 @@ export class CodexHost {
     this.#config = config;
     this.dedicated = config.dedicated;
     const tenants = this.#tenants;
+    // A stderr flood adds at most one note per second to each tenant's diagnostics.
+    const stderrDrops = droppedLineNotes({
+      note: (text) => {
+        for (const tenant of tenants) tenant.handlers.stderr(text);
+      },
+      schedule: config.schedule,
+    });
     this.#proc = config.spawn(
       {
         // Shared stdout pauses while any channel is out of room; no channel loses a frame.
@@ -226,12 +234,7 @@ export class CodexHost {
         },
       },
       (line) => this.#dropped(line),
-      (line) => {
-        // A split line reports "start" first; note it once, with its final size.
-        if (line.phase === "start") return;
-        const note = `ace dropped a stderr line of ${line.bytes} bytes`;
-        for (const tenant of this.#tenants) tenant.handlers.stderr(note);
-      },
+      (line) => stderrDrops.dropped(line),
     );
     const proc = this.#proc;
     const drain = () => {
@@ -264,6 +267,7 @@ export class CodexHost {
     peer.onRequest = (message) => this.#request(message);
     void proc.exited
       .then((exit) => {
+        stderrDrops.flush();
         this.#cancelDrain?.();
         proc.signal.removeEventListener("abort", drain);
         this.#exited({
