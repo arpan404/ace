@@ -129,6 +129,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [goingTo, setGoingTo] = useState(false);
+  /** The hidden text box has the keyboard: only then are the carets live and the line washed. */
+  const [focused, setFocused] = useState(false);
   const [paint, setPaint] = useState(0);
   // A file with a grammar is first drawn with its colours: the plain text it would show while
   // markit's worker loads is held (kept in layout, not shown) until the first colours arrive,
@@ -534,7 +536,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           <div
             ref={host}
             data-highlight-pending={held || undefined}
-            className={cn("relative min-h-full min-w-full", held && "opacity-0")}
+            className={cn("relative min-h-full min-w-full select-none", held && "opacity-0")}
             style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
           >
             <div aria-hidden>
@@ -593,7 +595,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                       lineHeight={lineHeight}
                       mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
                       markAction={props.onMarkClick !== undefined && props.marks !== undefined}
-                      current={line === caretLine}
+                      current={focused && line === caretLine}
                       fold={
                         at !== 0
                           ? undefined
@@ -625,6 +627,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 cell={cell}
                 lineHeight={lineHeight}
                 blink={props.cursorBlinking}
+                focused={focused}
                 affinity={affinity}
                 primary={state.primary}
                 composing={
@@ -686,8 +689,14 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             autoCapitalize="off"
             autoCorrect="off"
             readOnly={readOnly}
-            onBlur={props.onBlur}
-            onFocus={mirror}
+            onBlur={() => {
+              setFocused(false);
+              props.onBlur?.();
+            }}
+            onFocus={() => {
+              setFocused(true);
+              mirror();
+            }}
             autoFocus={props.focusOnMount}
             onKeyDown={onKeyDown}
             onInput={input.onInput}

@@ -126,6 +126,8 @@ export function CaretLayers(props: {
   lineHeight: number;
   /** Blink the carets (Settings › Editor). */
   blink?: boolean | undefined;
+  /** The editor has the keyboard: its carets are live; otherwise still and dim. */
+  focused: boolean;
   /** Each caret's side of a hard break, so secondary carets draw on their own row. */
   affinity: Affinity;
   primary: number;
@@ -156,15 +158,21 @@ export function CaretLayers(props: {
         <div
           key={box.key}
           data-selection
-          className="absolute bg-ring/25"
+          className={props.focused ? "absolute bg-ring/25" : "absolute bg-foreground/10"}
           style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
         />
       ))}
       {carets.map((box) => (
         <div
           key={box.key}
-          data-caret
-          className={props.blink ? "fx-caret-blink absolute bg-ring" : "absolute bg-ring"}
+          data-caret={props.focused ? "live" : "idle"}
+          className={
+            !props.focused
+              ? "absolute bg-foreground/30"
+              : props.blink
+                ? "fx-caret-blink absolute bg-ring"
+                : "absolute bg-ring"
+          }
           style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
         />
       ))}
