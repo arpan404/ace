@@ -1,11 +1,13 @@
 import type { RegistryAgent, RegistryPendingUpdate } from "@ace/protocol";
 import { providerDisplayName } from "@ace/ui-core";
 import { registryUpdateSentence } from "@ace/ui-core/acp-registry";
-import { approveAgentUpdate, readRegistry } from "@ace/ui-core/acp-registry-data";
+import { approveAgentUpdate, readRegistry, RegistryError } from "@ace/ui-core/acp-registry-data";
 import { useClient } from "@ace/client-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
+import { ConfirmPerson } from "@/features/ace-account/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { ProvidersGroup } from "../providers-group.tsx";
@@ -29,6 +31,9 @@ export function AgentUpdates() {
   );
 }
 
+const needsPerson = (error: unknown) =>
+  error instanceof RegistryError && isStandingRefusal(error.reason);
+
 function UpdateRow(props: { update: RegistryPendingUpdate; agents: readonly RegistryAgent[] }) {
   const { update } = props;
   const client = useClient();
@@ -38,13 +43,35 @@ function UpdateRow(props: { update: RegistryPendingUpdate; agents: readonly Regi
     props.agents.find((agent) => agent.acpAgentId === update.acpAgentId)?.name ??
     providerDisplayName("acp", update.acpAgentId);
   const approve = useMutation({
-    mutationFn: () => approveAgentUpdate(client, update),
+    mutationFn: async () => {
+      const result = await withStanding(
+        client,
+        () =>
+          approveAgentUpdate(client, update)
+            .then(() => undefined)
+            .catch((error: unknown) => error),
+        needsPerson,
+      );
+      if (result !== undefined) throw result;
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: registryKey }),
-    onError: (error) =>
-      toast.error({ title: `Couldn't approve ${name}`, description: error.message }),
+    onError: (error) => {
+      if (!needsPerson(error))
+        toast.error({ title: `Couldn't approve ${name}`, description: error.message });
+    },
   });
   return (
-    <SettingRow title={`${name} changed`} description={registryUpdateSentence(update)} inline>
+    <SettingRow
+      title={`${name} changed`}
+      description={
+        needsPerson(approve.error) ? (
+          <ConfirmPerson onConfirmed={() => approve.mutate()} />
+        ) : (
+          registryUpdateSentence(update)
+        )
+      }
+      inline
+    >
       <Button
         size="sm"
         variant="ghost"

@@ -11,6 +11,7 @@ import type {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { z } from "zod";
+import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { MarketEntryKey } from "./market-address.ts";
 import { MarketFailure } from "./market-model.ts";
@@ -61,7 +62,12 @@ export async function market<T extends MarketResult["op"]>(
       { type: "marketplace.request", operation, ...(grant ? { personGrant: grant } : {}) },
       signal ? { signal } : {},
     );
-  let result = (await ask()).result;
+  let { result } = await withStanding(
+    client,
+    () => ask(),
+    ({ result: reply }) =>
+      reply.op === "error" && reply.code === "reauth" && isStandingRefusal(reply.message),
+  );
   // A sensitive action the market takes only from the person (ADR 0190): this window asks for a
   // grant naming that one request, as it builds it from its own operation, with its own session,
   // and sends the request again with it. What the daemon said the request was isn't used.
