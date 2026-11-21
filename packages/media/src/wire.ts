@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ImageFromMedia, ImageToMedia, imagePayloadBytes } from "./image-wire.ts";
 // ace-media's JSON parser refuses lone UTF-16 surrogates, so every string, including those
 // inside free-form fields, must be well-formed Unicode on this side too.
 const text = z.string().refine((value) => value.isWellFormed());
@@ -24,6 +25,8 @@ const Origin = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("user-tab") }),
   z.strictObject({ kind: z.literal("embedded") }),
   z.strictObject({ kind: z.literal("screen"), platform: text }),
+  /** A screen whose helper sends only JPEG: ace-media encodes its pictures (X2). */
+  z.strictObject({ kind: z.literal("screen-pictures"), platform: text }),
   z.strictObject({ kind: z.literal("simulator"), streamUrl: text, stillUrl: text }),
   z.strictObject({ kind: z.literal("scrcpy"), host: text, port: u32 }),
   z.strictObject({
@@ -45,12 +48,6 @@ const ViewerTarget = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("device"), deviceId: id }),
 ]);
 export type ViewerTarget = z.infer<typeof ViewerTarget>;
-const Settings = z.strictObject({
-  recordings: z.enum(["auto", "legacy"]),
-  stills: z.enum(["auto", "legacy"]),
-  encode: z.enum(["auto", "legacy"]),
-  delivery: z.enum(["auto", "legacy"]),
-});
 const Remote = z.strictObject({
   addresses: z.array(text),
   port: u32,
@@ -143,7 +140,6 @@ export const ToMedia = z.discriminatedUnion("type", [
     version: text,
     runtimeDir: text,
     dataDir: text,
-    settings: Settings,
   }),
   z.strictObject({ type: z.literal("ping"), id: id }),
   z.strictObject({ type: z.literal("shutdown"), graceMs: u32 }),
@@ -161,6 +157,9 @@ export const ToMedia = z.discriminatedUnion("type", [
     sessionId: id.optional(),
     deviceId: id.optional(),
     epoch: u32,
+    /** Whether `epoch` is private (M8): sent, only when true, for a JPEG source on a build that
+     * agreed to `privacy-open`. */
+    private: z.boolean().optional(),
     origin: Origin,
   }),
   z.strictObject({
@@ -171,7 +170,6 @@ export const ToMedia = z.discriminatedUnion("type", [
     scale: z.number().finite().nonnegative(),
   }),
   z.strictObject({ type: z.literal("source.codecs"), source: id, codecs: z.array(text) }),
-  z.strictObject({ type: z.literal("source.picture"), source: id, ageMs: u32, epoch: u32 }),
   z.strictObject({
     type: z.literal("source.epoch"),
     source: id,
@@ -189,6 +187,15 @@ export const ToMedia = z.discriminatedUnion("type", [
     discard: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
   z.strictObject({ type: z.literal("source.close"), source: id }),
+  /** An ingest barrier (X1): answered by `source.synced` once ace-media took `frames` frames
+   * from the source's producer since its hello and its recording decided epoch `decided`. */
+  z.strictObject({
+    type: z.literal("source.sync"),
+    source: id,
+    seq: sequence,
+    frames: sequence,
+    decided: u32,
+  }),
   z.strictObject({ type: z.literal("source.egress"), source: id, on: z.boolean() }),
   z.strictObject({
     type: z.literal("source.encodes"),
@@ -284,6 +291,13 @@ export const ToMedia = z.discriminatedUnion("type", [
     maxPixels: u32,
     quality: u32,
     deadlineMs: u32,
+    /** The newest public epoch the daemon announced (M8): no still from a picture before it. */
+    minEpoch: u32.optional(),
+    /**
+     * Only from a picture that reaches ace-media after this request (`still-fresh`): never one
+     * it had already, which may show the screen from before an agent's input.
+     */
+    fresh: z.boolean().optional(),
   }),
   /**
    * A poster for a subscribe reply (ADR 0149): the source's picture fitted to the box at
@@ -299,6 +313,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     /** The epochs decided clear: a poster comes only from a picture whose every epoch is in one. */
     clear: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
+  ...ImageToMedia,
 ]);
 export type ToMedia = z.infer<typeof ToMedia>;
 export const FromMedia = z.discriminatedUnion("type", [
@@ -311,6 +326,9 @@ export const FromMedia = z.discriminatedUnion("type", [
     ingest: Ingest,
     control: Control,
     listen: Listen,
+    /** What ace-media agreed to speak of the features the daemon offered at spawn
+     * (`ACE_MEDIA_FEATURES`); absent when none were offered. */
+    features: z.array(text).optional(),
   }),
   z.strictObject({ type: z.literal("capabilities.changed"), capabilities: z.array(Capability) }),
   z.strictObject({ type: z.literal("pong"), id: id, stats: Stats }),
@@ -324,6 +342,10 @@ export const FromMedia = z.discriminatedUnion("type", [
     written: sequence,
     dropped: sequence,
   }),
+  /** A producer's ingest connection presented the source's token and was bound to it. */
+  z.strictObject({ type: z.literal("source.ingest"), source: id }),
+  /** The barrier `source.sync` asked for holds. */
+  z.strictObject({ type: z.literal("source.synced"), source: id, seq: sequence }),
   z.strictObject({
     type: z.literal("source.status"),
     source: id,
@@ -360,7 +382,7 @@ export const FromMedia = z.discriminatedUnion("type", [
     type: z.literal("grant.refused"),
     kind: text,
     id: id,
-    reason: z.enum(["owner", "revoked", "expired", "unknown-connection"]),
+    reason: z.enum(["owner", "revoked", "expired", "unknown-connection", "limit"]),
   }),
   z.strictObject({ type: z.literal("relay.dialed"), stream: id }),
   z.strictObject({ type: z.literal("relay.failed"), stream: id, reason: text }),
@@ -385,6 +407,7 @@ export const FromMedia = z.discriminatedUnion("type", [
     steps: z.array(SourceStep),
   }),
   z.strictObject({ type: z.literal("still.failed"), request: id, reason: text }),
+  ...ImageFromMedia,
   z.strictObject({
     type: z.literal("log"),
     level: z.enum(["debug", "info", "warn", "error"]),
@@ -430,10 +453,13 @@ function validatePayload(
     case "listen":
       length = message.remote ? message.remote.certificateBytes + message.remote.keyBytes : 0;
       break;
-    case "source.picture":
+    case "image.job":
+      length = imagePayloadBytes(message.inputs);
+      break;
     case "relay.out":
     case "relay.in":
     case "still.done":
+    case "image.done":
       return;
   }
   if (payload.length !== length) throw new Error("Invalid control payload length");
@@ -484,6 +510,42 @@ export function decodeFromMedia(
   validatePayload(message, frame.payload, lane);
   return { message, payload: frame.payload };
 }
+/**
+ * Whether a frame `decodeFromMedia` refused is a well-formed message of a type this build
+ * doesn't know (a newer ace-media's): it is skipped, never fatal. A known type that is malformed
+ * still is.
+ */
+export function unknownFromMedia(bytes: Uint8Array, lane: ControlLane): boolean {
+  try {
+    const { message } = decodeControl(bytes, lane);
+    if (typeof message !== "object" || message === null || !("type" in message)) return false;
+    const { type } = message;
+    return typeof type === "string" && !fromMediaTypes.has(type);
+  } catch {
+    return false;
+  }
+}
+const fromMediaTypes: ReadonlySet<string> = new Set(
+  FromMedia.options.map((option) => option.shape.type.value),
+);
+
+/**
+ * Optional features this daemon speaks, offered to ace-media at spawn (`ACE_MEDIA_FEATURES`); a
+ * binary that knows one lists it in `ready.features`, and only then is it used.
+ */
+export const mediaFeatures = [
+  "source.ingest",
+  "source.sync",
+  "picture-ingest",
+  // `source.open.private` and `still.take.minEpoch` (M8): sent only to a build that reads them.
+  "privacy-open",
+  // `still.take.fresh`: a still only from a picture that arrives after it was asked.
+  "still-fresh",
+  // `source.sync` on a picture source drains its encoder before it holds.
+  "sync-drain",
+] as const;
+export type MediaFeature = (typeof mediaFeatures)[number];
+
 export function decodeToMedia(
   bytes: Uint8Array,
   lane: ControlLane,

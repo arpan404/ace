@@ -112,10 +112,10 @@ describe.runIf(process.platform === "win32")("Windows installer folders", () => 
   it("commands that are not agent CLIs never search installer folders", async () => {
     const dirs = await folders();
     await place(join(dirs.roaming, "npm", "git.cmd"));
-    await place(join(dirs.home, ".local", "bin", "ffmpeg.exe"));
+    await place(join(dirs.home, ".local", "bin", "pandoc.exe"));
     const env = environment(dirs, dirs.empty);
     expect(await findExecutable("git", env)).toBeUndefined();
-    expect(await findExecutable("ffmpeg", env)).toBeUndefined();
+    expect(await findExecutable("pandoc", env)).toBeUndefined();
   });
 
   it("an extensionless npm sh shim beside the .cmd is never chosen", async () => {

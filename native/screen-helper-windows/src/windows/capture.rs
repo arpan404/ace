@@ -592,17 +592,16 @@ fn still(
 ) -> Result<()> {
     let (rgb, width, height) = gpu.read(&picture.texture, picture.size.0, picture.size.1)?;
     let scale = picture.scale_per_pixel * width as f64;
-    let (packet, sequence, generation) = {
+    let (packet, generation) = {
         let mut stream = stream.lock().unwrap_or_else(|e| e.into_inner());
         if forced {
             stream.refresh();
         }
-        let sequence = stream.sequence();
         let packet = stream.frame_at(rgb, width, height, scale, now, picture.captured)?;
-        (packet, sequence, stream.capture_generation())
+        (packet, stream.capture_generation())
     };
     if let Some(packet) = packet {
-        shell.legacy_still(sequence, || writer.publish(generation, packet));
+        shell.still(|| writer.publish(generation, packet));
     }
     Ok(())
 }

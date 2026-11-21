@@ -149,23 +149,6 @@ export const SettingsValues = z.object({
    */
   "devices.emulatorWindow": z.boolean(),
   /**
-   * Who encodes live video (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps today's
-   * encoders (the browser's WebCodecs over its CDP binding, the daemon's encoder Chrome for
-   * pictures, the Mac screen helper's own socket); `auto` streams through ace-media, which
-   * encodes picture-only sources on this computer's hardware encoder and hands every unit back
-   * to the daemon's legacy viewers, recordings and stills while those stay legacy. It falls
-   * back to `legacy` whenever ace-media isn't healthy.
-   * Global only; read live, so a change moves running producers at their next keyframe.
-   */
-  "media.encode": z.enum(["auto", "legacy"]),
-  /**
-   * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps
-   * the daemon's own fanout on each client's main socket; `auto` lets clients open a media
-   * connection to ace-media, which paces, scales and sends every viewer's pictures itself. It
-   * falls back to `legacy` whenever ace-media isn't healthy. Global only; read live.
-   */
-  "media.delivery": z.enum(["auto", "legacy"]),
-  /**
    * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
    * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off
    * across restarts until turned on again.
@@ -373,6 +356,24 @@ export const SettingsValues = z.object({
 export type SettingsValues = z.infer<typeof SettingsValues>;
 export const SettingsKey = SettingsValues.keyof();
 export type SettingsKey = z.infer<typeof SettingsKey>;
+/**
+ * Settings this build no longer has (ADR 0208: the media pipeline settings). Older clients still
+ * name them, so requests accept them: a read or subscription answers nothing for them, and a
+ * write of one changes nothing; a stored value is dropped from the settings file.
+ */
+export const retiredSettingsKeys = [
+  "media.encode",
+  "media.delivery",
+  "media.recordings",
+  "media.stills",
+] as const;
+export const RetiredSettingsKey = z.enum(retiredSettingsKeys);
+export type RetiredSettingsKey = z.infer<typeof RetiredSettingsKey>;
+/** Whether `key` is one this build retired (`retiredSettingsKeys`). */
+export const isRetiredSettingsKey = (key: string): key is RetiredSettingsKey =>
+  (retiredSettingsKeys as readonly string[]).includes(key);
+/** A key a request may name: a current one, or a retired one an older client still sends. */
+const RequestedSettingsKey = z.union([SettingsKey, RetiredSettingsKey]);
 export const SettingsDocument = z
   .object({
     version: z.literal(2),
@@ -415,7 +416,7 @@ const requestId = z.string().min(1).max(128);
 export const SettingsGet = z.object({
   type: z.literal("settings.get"),
   requestId,
-  key: SettingsKey,
+  key: RequestedSettingsKey,
   scope: SettingsScope,
 });
 export const SettingsSet = z.object({
@@ -446,7 +447,7 @@ export const SettingsSubscribe = z.object({
   type: z.literal("settings.subscribe"),
   requestId,
   subscriptionId: z.string().min(1).max(128),
-  keys: z.array(SettingsKey).min(1).max(32),
+  keys: z.array(RequestedSettingsKey).min(1).max(32),
   scope: SettingsScope,
 });
 export const SettingsUnsubscribe = z.object({

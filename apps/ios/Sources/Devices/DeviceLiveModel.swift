@@ -15,7 +15,7 @@ struct NativeDeviceAck: Sendable {
     var fallback = false
     /// The codec the decoder couldn't play, with `fallback`.
     var codec = ""
-    /// The delivery generation the picture came for; nil before the script set one.
+    /// The delivery generation the picture came for.
     var generation: Int?
 }
 final class LatestDevicePicture: @unchecked Sendable {
@@ -47,11 +47,15 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     private var hub: BrowserStreamHub?
     /// Shows the poster a delivery for this source names, until the first live picture.
     private let showPoster: @Sendable (CGImage) -> Void
+    /// Hears the sentence saying why pictures don't come, or nil once one does.
+    private let waiting: @Sendable (String?) -> Void
+    private var said: String?
     init(deviceId: String, sampler: StreamSampler? = nil, clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          discard: @escaping @Sendable () -> Void = {}, showPoster: @escaping @Sendable (CGImage) -> Void = { _ in },
+         waiting: @escaping @Sendable (String?) -> Void = { _ in },
          present: @escaping @Sendable (NativeDevicePicture) -> Void, acknowledge: @escaping @Sendable (NativeDeviceAck) -> Void) {
         self.deviceId = deviceId; self.sampler = sampler; self.clock = clock; self.discard = discard
-        self.showPoster = showPoster; self.present = present; self.acknowledge = acknowledge
+        self.showPoster = showPoster; self.waiting = waiting; self.present = present; self.acknowledge = acknowledge
     }
     /// Follows this source's deliveries in `hub` for `view`: the registration and the latest one
     /// are taken on this renderer's queue, in order with every update after them.
@@ -64,11 +68,11 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
             if let known = hub.delivery(DeliveryKey(view: view, source: deviceId)) { apply(known) }
         }
     }
-    func receiveVideo(_ chunk: DeviceFrameChunk, path: String = MediaDelivery.channel) {
+    func receiveVideo(_ chunk: DeviceFrameChunk, path: String) {
         guard chunk.isLiveVideo else { return }
         receive(chunk, path: path)
     }
-    func receiveScreen(_ chunk: DeviceFrameChunk, path: String = MediaDelivery.channel) {
+    func receiveScreen(_ chunk: DeviceFrameChunk, path: String) {
         guard !chunk.still else { return }
         receive(chunk, path: path)
     }
@@ -87,6 +91,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
             acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: ask.streamId, sequence: ask.sequence, keyframe: true,
                                         generation: delivery.generation))
         }
+        tell()
         // The poster this source's current subscribe brought back, once its way is settled.
         if delivery.path != nil, let token = delivery.poster, let image = hub?.takePoster(token) { showPoster(image) }
     }
@@ -95,10 +100,19 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         sampler?.arrived(bytes: chunk.bytes.count)
         queue.async { [self] in
             guard !closed else { return }
-            if case .show(let generation) = gate.arrive(chunk, path: path, at: clock()) { decode(chunk, generation: generation) }
+            if case .show(let generation) = gate.arrive(chunk, path: path, at: clock()) {
+                tell()
+                decode(chunk, generation: generation)
+            }
         }
     }
-    private func decode(_ chunk: DeviceFrameChunk, generation: Int?) {
+    /// Says the delivery's sentence when it changed.
+    private func tell() {
+        guard gate.waiting != said else { return }
+        said = gate.waiting
+        waiting(said)
+    }
+    private func decode(_ chunk: DeviceFrameChunk, generation: Int) {
         if streamId != chunk.streamId { streamId = chunk.streamId; sequence = -1; decoder = nil }
         guard chunk.sequence > sequence else { return }
         if sequence >= 0, chunk.sequence != sequence + 1, !chunk.key { decoder = nil }
@@ -131,12 +145,14 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     }
 }
 
-@MainActor final class DeviceLiveModel {
-    private var latest = LatestDevicePicture()
-    private var poster = LatestPoster()
+@MainActor @Observable final class DeviceLiveModel {
+    @ObservationIgnored private var latest = LatestDevicePicture()
+    @ObservationIgnored private var poster = LatestPoster()
     private(set) var deviceId: String?
-    private var renderer: NativeRemotePictureRenderer?
-    private var streams: BrowserStreamHub?
+    /// Why the device's pictures don't come, or haven't yet: one sentence, nil once one does.
+    private(set) var waiting: String?
+    @ObservationIgnored private var renderer: NativeRemotePictureRenderer?
+    @ObservationIgnored private var streams: BrowserStreamHub?
     /// The stream's counts while its stats show (`StreamSampler`).
     let sampler = StreamSampler()
     func open(deviceId: String, session: any ClientSession) {
@@ -146,7 +162,11 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         self.latest = latest
         let poster = LatestPoster(); self.poster = poster
         let renderer = NativeRemotePictureRenderer(deviceId: deviceId, sampler: sampler, discard: { _ = latest.take() },
-                                                   showPoster: { poster.put($0) }, present: { latest.put($0) }) { ack in
+                                                   showPoster: { poster.put($0) },
+                                                   waiting: { [weak self] text in
+                                                       Task { @MainActor in if self?.deviceId == deviceId { self?.waiting = text } }
+                                                   },
+                                                   present: { latest.put($0) }) { ack in
             var value: [String: Any] = ["type": "devices.ack", "deviceId": ack.deviceId, "streamId": ack.streamId, "sequence": ack.sequence]
             if let generation = ack.generation { value["generation"] = generation }
             if ack.keyframe { value["keyframe"] = true }
@@ -162,6 +182,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     func close(deviceId: String? = nil) {
         if let deviceId, deviceId != self.deviceId { return }
         self.deviceId = nil
+        waiting = nil
         streams?.attachDevice(nil); streams?.attachDelivery("device", nil); streams = nil; renderer?.close(); renderer = nil
         _ = latest.take()
     }

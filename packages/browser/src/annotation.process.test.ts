@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { imageWidth } from "./media-image-test-support.ts";
 import { BrowserAnnotationCapture } from "@ace/protocol";
 import {
   sharedAnnotationFixture,
@@ -97,8 +98,7 @@ test("a page capture keeps the markers but leaves out the bar", async () => {
   // Outside a capture the bar is back on screen.
   const live = await f.service.screenshot("thread");
   const liveImage = { data: Buffer.from(live).toString("base64"), width: 0 };
-  const { default: sharp } = await import("sharp");
-  liveImage.width = (await sharp(Buffer.from(live)).metadata()).width ?? 0;
+  liveImage.width = await imageWidth(Buffer.from(live));
   expect(Math.min(...(await pixel(liveImage, width, ...barSpot)))).toBeLessThan(200);
 }, 60_000);
 

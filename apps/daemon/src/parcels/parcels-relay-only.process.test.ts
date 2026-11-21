@@ -34,7 +34,7 @@ afterEach(async () => {
   else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = trust;
 }, 60_000);
 
-const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent/ffmpeg" });
+const browser = () => ({ headlessBackend: new FakeHeadless() });
 const Sent = z.object({ parcelId: ParcelId });
 const Delegated = z.object({ threadId: ThreadId });
 const Entry = z.object({ parcelId: z.string(), state: z.string(), path: z.string().optional() });

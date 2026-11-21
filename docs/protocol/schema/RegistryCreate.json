@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryCreate.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "handle": {
+      "$ref": "https://ace.local/protocol/v1/MarketHandle.json"
+    }
+  },
+  "required": [
+    "handle"
+  ],
+  "type": "object"
+}

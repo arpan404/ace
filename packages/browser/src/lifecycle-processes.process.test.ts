@@ -1,12 +1,8 @@
-import { execFile, spawn } from "node:child_process";
-import { createReadStream, existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { basename, dirname, join } from "node:path";
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
-import type { BrowserArtifact } from "@ace/protocol";
 import { chromeProcesses } from "./chrome-test-process.ts";
 import { executablePath, fixture } from "./test-support.ts";
 
@@ -66,80 +62,6 @@ describe.runIf(process.platform === "win32" && executablePath)("Windows browser 
     await f.navigate();
     expect(await f.evaluate("localStorage.getItem('retained')")).toBe("yes");
   }, 120_000);
-
-  it("Windows: a recording saves a timestamped frame manifest beside a player that plays, and reports the artifact", async () => {
-    const artifacts: BrowserArtifact[] = [];
-    const f = await fixture({
-      ffmpeg: "C:\\nonexistent\\ffmpeg.exe",
-      onArtifact: (_, artifact) => {
-        artifacts.push(artifact);
-      },
-    });
-    await f.navigate();
-    await f.service.startRecording("thread");
-    const artifact = await f.service.stopRecording("thread");
-    expect(artifact.mimeType).toBe("text/html");
-    expect(artifact.path).toMatch(/\\player\.html$/);
-    const dir = dirname(artifact.path);
-    const manifest = (await readFile(join(dir, "frames.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => z.object({ file: z.string(), timestamp: z.number() }).parse(JSON.parse(line)));
-    const first = manifest[0];
-    if (!first) throw new Error("Empty manifest");
-    expect((await readFile(join(dir, first.file))).subarray(0, 2)).toEqual(Buffer.from([255, 216]));
-    expect(artifacts).toEqual([artifact]);
-    // The player plays its frames when served as a page.
-    const server = createServer((request, response) => {
-      const name = basename(new URL(request.url ?? "/", "http://localhost").pathname);
-      createReadStream(join(dir, name))
-        .on("error", () => {
-          response.statusCode = 404;
-          response.end();
-        })
-        .pipe(response);
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    try {
-      const address = server.address();
-      if (!address || typeof address === "string") throw new Error("No player address");
-      await f.execute({ action: "navigate", url: `http://127.0.0.1:${address.port}/player.html` });
-      expect(
-        await f.evaluate(
-          `new Promise(resolve=>{const image=document.getElementById('frame');image.onload=()=>resolve(image.naturalWidth);document.getElementById('play').click()})`,
-        ),
-      ).toBeGreaterThan(0);
-    } finally {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  }, 60_000);
-
-  it("Windows: a recording whose encoder process fails falls back to a playable frame sequence", async () => {
-    let failurePath = "";
-    const f = await fixture({
-      ffmpeg: "ffmpeg",
-      spawn: (_command, _args, options) =>
-        spawn(
-          process.execPath,
-          [
-            "-e",
-            "require('node:fs').writeFileSync(process.argv[1],'encoder rejected input');process.exit(1)",
-            failurePath,
-          ],
-          options,
-        ),
-    });
-    failurePath = join(f.home, "encoder-failure.txt");
-    await f.navigate();
-    await f.service.startRecording("thread");
-    const artifact = await f.service.stopRecording("thread");
-    expect(await readFile(failurePath, "utf8")).toBe("encoder rejected input");
-    expect(artifact.mimeType).toBe("text/html");
-    const dir = dirname(artifact.path);
-    expect(await readFile(join(dir, "frames.jsonl"), "utf8")).toContain('"file":"1.jpg"');
-    expect((await readFile(join(dir, "1.jpg"))).subarray(0, 2)).toEqual(Buffer.from([255, 216]));
-  }, 60_000);
 
   it("Windows: a thread closes even when the screencast stop is never answered, and Chrome goes", async () => {
     const f = await fixture({

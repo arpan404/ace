@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryEntries.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/RegistryEntry.json"
+      },
+      "maxItems": 5000,
+      "type": "array"
+    },
+    "org": {
+      "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+    },
+    "publisher": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+    }
+  },
+  "required": [
+    "org",
+    "publisher",
+    "entries"
+  ],
+  "type": "object"
+}

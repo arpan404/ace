@@ -50,22 +50,7 @@ describe.skipIf(!executablePath)("paired remote browser clients", () => {
         viewport: { width: 390, height: 600, devicePixelRatio: 3 },
         video: { codecs: ["avc1.42E033", "vp8"] },
       }),
-    ).toMatchObject({ ok: true });
-    // The phone watches the live view as video, starting at a keyframe.
-    const delivered = await phone.nextStream((message) =>
-      message.kind === "browser.video" && message.threadId === f.thread.id
-        ? message.chunk
-        : undefined,
-    );
-    expect(delivered.key).toBe(true);
-    expect(delivered.bytes.length).toBeGreaterThan(0);
-    phone.send({
-      type: "browser.ack",
-      requestId: "ack",
-      threadId: f.thread.id,
-      sequence: delivered.sequence,
-      video: true,
-    });
+    ).toMatchObject({ ok: true, undelivered: { code: "update" } });
     expect(
       await phone.request({
         type: "browser.tabs.private",

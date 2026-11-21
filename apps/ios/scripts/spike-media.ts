@@ -9,7 +9,7 @@ import { mediaHelloBytes, mediaHelloMagic, mediaHelloVersion } from "@ace/protoc
  * subscribe naming the connection has its reply say so and its tab's video sent on the
  * connection, whose acks go on to the fake daemon so the stream keeps moving. `GET /media` reads
  * what happened; `POST /media` drops every connection (`drop`, as an ace-media restart) or
- * answers further asks as a daemon on `media.delivery: legacy` would (`legacy`, back with `media`).
+ * answers further asks as a daemon whose ace-media can't serve would (`legacy`, back with `media`).
  * Nothing here is ace-media's code: it is the wire contract, played for the phone.
  */
 
@@ -79,7 +79,11 @@ export function spikeMedia(port: number, enabled: boolean) {
         const requestId = String(message.requestId ?? "");
         if (legacy) {
           stats.unavailable++;
-          const result = { ok: false, code: "unavailable", message: "media.delivery is legacy" };
+          const result = {
+            ok: false,
+            code: "unavailable",
+            message: "ace-media isn't serving viewers",
+          };
           main.send(JSON.stringify({ type: "media.connect.result", requestId, result }));
           return true;
         }

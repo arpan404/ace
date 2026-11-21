@@ -4,7 +4,7 @@ import type { DeliveryState, MediaRoute, SourcePicture } from "@ace/browser/live
  * A screen or devices channel's live streams as the phone's views hold them (ADR 0147 §4). The
  * shared channel client owns everything about delivery: each held stream's subscribe, whether it
  * names the media connection and whether the daemon confirmed it, subscribing again when the
- * binding changes or a connection is refused, and sending each ack where its pictures came from.
+ * binding changes or a connection is refused, and sending each ack by the media connection.
  * Swift's pictures never reach JavaScriptCore, so its acks arrive here as numbers and go through
  * the client's own `ack`.
  */

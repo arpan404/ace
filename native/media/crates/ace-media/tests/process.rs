@@ -50,6 +50,7 @@ fn starts_authenticates_its_lanes_once_serves_both_lanes_and_exits_when_stdin_cl
     };
     let _ = producer.write_all(&media_frame(5, 0, vec![3; 32]));
     let _ = producer.write_all(&media_frame(1, 1, vec![0; 1000]));
+    assert_eq!(ingest_of(media.read()), "s1");
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
     drop(producer);
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Retrying));
@@ -63,6 +64,40 @@ fn starts_authenticates_its_lanes_once_serves_both_lanes_and_exits_when_stdin_cl
 }
 
 #[test]
+fn the_binary_reports_the_init_level_it_takes_without_starting() {
+    // The daemon asks this before init; it never waits for stdin.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ace-media"))
+        .arg("--init-level")
+        .stdin(std::process::Stdio::null())
+        .output();
+    let Ok(output) = output else {
+        panic!("ace-media did not run");
+    };
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        media_wire::control::INIT_LEVEL.to_string()
+    );
+}
+
+#[test]
+fn an_older_daemons_init_with_media_settings_still_starts_ace_media() {
+    // A daemon from before ADR 0208 sends the media settings it had; ace-media ignores them.
+    let mut media = Media::spawn("olderinit");
+    let dir = media.dir.to_string_lossy().into_owned();
+    media.send(
+        json!({ "type": "init", "protocol": 1, "version": "0.0.0-test", "runtimeDir": dir,
+                "dataDir": dir, "settings": { "recordings": "legacy", "stills": "legacy",
+                "encode": "legacy", "delivery": "legacy" } }),
+        &SECRET,
+    );
+    assert!(
+        matches!(media.read(), FromMedia::Ready { .. }),
+        "ready after an older init"
+    );
+}
+
+#[test]
 fn a_first_message_other_than_a_valid_init_is_a_protocol_error() {
     let mut media = Media::spawn("noinit");
     media.send(json!({ "type": "ping", "id": "p1" }), &[]);
@@ -71,8 +106,7 @@ fn a_first_message_other_than_a_valid_init_is_a_protocol_error() {
     let mut media = Media::spawn("badinit");
     let mut bytes = frame(
         json!({ "type": "init", "protocol": 1, "version": "x", "runtimeDir": "/tmp",
-                "dataDir": "/tmp", "settings": { "recordings": "legacy", "stills": "legacy",
-                "encode": "legacy", "delivery": "legacy" } }),
+                "dataDir": "/tmp" }),
         &SECRET,
         Lane::Normal,
     );
@@ -110,5 +144,90 @@ fn the_ingest_websocket_admits_only_its_path_and_allowed_origins() {
     assert_eq!(code, 101);
     let _ = socket.write_all(&binary_message(&media_frame(5, 0, vec![4; 32])));
     let _ = socket.write_all(&binary_message(&media_frame(1, 1, vec![0; 500])));
+    assert_eq!(ingest_of(media.read()), "s1");
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
+}
+
+#[test]
+fn an_older_daemon_that_offers_nothing_gets_the_ready_it_knows_and_no_source_ingest() {
+    let mut media = Media::spawn_unoffered("unoffered");
+    let (_, ingest_socket, _) = media.start();
+    assert_eq!(media.features, None, "ready carries no features field");
+    open_source(&mut media, "s1", 1, 3);
+    let Ok(mut producer) = UnixStream::connect(&ingest_socket) else {
+        panic!("ingest socket refused the connection");
+    };
+    let _ = producer.write_all(&media_frame(5, 0, vec![3; 32]));
+    let _ = producer.write_all(&media_frame(1, 1, vec![0; 1000]));
+    // Straight to the status an older daemon expects: no source.ingest before it.
+    assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
+}
+
+#[test]
+fn a_daemon_that_offers_the_features_gets_them_listed_in_ready() {
+    let mut media = Media::spawn("offered");
+    media.start();
+    assert_eq!(
+        media.features,
+        Some(vec![
+            "source.ingest".to_owned(),
+            "source.sync".to_owned(),
+            "picture-ingest".to_owned(),
+            "privacy-open".to_owned()
+        ])
+    );
+}
+
+#[test]
+fn a_daemon_that_offers_picture_ingest_without_privacy_open_is_never_agreed_privacy_open() {
+    let mut media = Media::spawn_offering("no-privacy-open", Some("source.ingest,picture-ingest"));
+    media.start();
+    assert_eq!(
+        media.features,
+        Some(vec![
+            "source.ingest".to_owned(),
+            "picture-ingest".to_owned()
+        ])
+    );
+}
+
+#[test]
+fn an_older_daemons_picture_on_the_control_lane_ends_its_source_saying_why_and_the_rest_goes_on() {
+    let mut media = Media::spawn_unoffered("old-pictures");
+    media.start();
+    media.send(
+        json!({ "type": "source.open", "source": "jpeg", "handle": 1, "epoch": 1,
+                "origin": { "kind": "tab-pictures" } }),
+        &[3; 32],
+    );
+    assert_eq!(status_of(media.read()), ("jpeg".into(), Status::Starting));
+    // As an older daemon sends a screencast picture: base64 text on the control lane.
+    // This build no longer has the message, so it is written as that daemon would.
+    let json = br#"{"type":"source.picture","source":"jpeg","ageMs":0,"epoch":1}"#;
+    let picture = b"aGVsbG8=";
+    let mut old = ((4 + json.len() + picture.len()) as u32)
+        .to_be_bytes()
+        .to_vec();
+    old.extend((json.len() as u32).to_be_bytes());
+    old.extend(json);
+    old.extend(picture);
+    media.write(&old);
+    loop {
+        match media.read() {
+            FromMedia::SourceStatus {
+                source,
+                status,
+                reason,
+                ..
+            } if source.get() == "jpeg" => {
+                assert_eq!(status, Status::Ended);
+                assert_eq!(reason.as_deref(), Some("picture-ingest-required"));
+                break;
+            }
+            FromMedia::Log { .. } => {}
+            other => panic!("expected the source's status, got {other:?}"),
+        }
+    }
+    // The process goes on: another source opens as before.
+    open_source(&mut media, "tab", 2, 4);
 }

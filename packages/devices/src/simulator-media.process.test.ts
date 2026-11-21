@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Frame } from "@ace/screen";
 import { DevicePlatform, startCapture, type DeviceRuntime } from "./index.ts";
@@ -61,7 +61,7 @@ const runtime: DeviceRuntime = {
 };
 
 it.runIf(!!binary)(
-  "a Simulator is read by ace-media and comes back on egress as today's frames, each switch starts at a keyframe with nothing repeated, and a killed ace-media hands the reading back within 2 s",
+  "a Simulator is read only by ace-media and comes back on egress as today's frames with nothing repeated, and after ace-media is killed the new one reads it again within 2 s",
   { timeout: 120_000 },
   async () => {
     const home = await mkdtemp(join(tmpdir(), "ace-e3b-sim-"));
@@ -70,12 +70,6 @@ it.runIf(!!binary)(
     const platform = platformFor(home);
     onTestFinished(() => platform.close());
 
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
-    };
     const media = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -83,7 +77,6 @@ it.runIf(!!binary)(
       binary: binary ?? "",
       runtimeDir: home,
       dataDir: home,
-      settings: () => settings,
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,
@@ -91,7 +84,7 @@ it.runIf(!!binary)(
       id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
-      capabilities: { ingest: ["simulator"], recordings: false, stills: false, delivery: false },
+      capabilities: { ingest: ["simulator"], delivery: false },
     });
     onTestFinished(() => media.dispose());
 
@@ -159,22 +152,10 @@ it.runIf(!!binary)(
     });
     expect(key?.payload.subarray(0, 4).toString("hex")).toBe("00000001");
 
-    for (const encode of ["legacy", "auto", "legacy", "auto"] as const) {
-      const flipped = performance.now();
-      settings.encode = encode;
-      media.settingsChanged();
-      await until(
-        () =>
-          video().filter((entry) => entry.at > flipped && entry.egress === (encode === "auto"))
-            .length >= 5,
-      );
-    }
-    // Each path change starts at a keyframe, and serve-sim's deltas only ever move forward: none
-    // is published twice, whichever subscriptions carried it.
+    // Video comes only through ace-media, which reads serve-sim itself.
+    expect(video().every((entry) => entry.egress)).toBe(true);
+    // serve-sim's deltas only ever move forward: none is published twice.
     const frames = video();
-    for (const [index, entry] of frames.entries())
-      if (index > 0 && entry.egress !== frames[index - 1]?.egress)
-        expect(entry.frame.header.keyframe).toBe(true);
     const deltas = frames
       .filter((entry) => !entry.frame.header.keyframe)
       .map((entry) => entry.frame.payload.at(-1) ?? 0);
@@ -190,9 +171,12 @@ it.runIf(!!binary)(
     expect(pid).toBeGreaterThan(0);
     const killed = performance.now();
     process.kill(pid, "SIGKILL");
-    await until(() => video().some((entry) => entry.at > killed && !entry.egress), 5_000);
-    const back = video().find((entry) => entry.at > killed && !entry.egress);
+    // The new ace-media reads serve-sim again: the picture is back from a keyframe within 2 s.
+    await until(() => video().some((entry) => entry.at > killed), 10_000);
+    const back = video().find((entry) => entry.at > killed);
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
+    expect(back?.egress).toBe(true);
     expect(back?.frame.header.keyframe).toBe(true);
+    expect(media.supervisor.snapshot().pid).not.toBe(pid);
   },
 );

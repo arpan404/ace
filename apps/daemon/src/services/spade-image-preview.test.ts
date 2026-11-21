@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import sharp from "sharp";
+import { binaryImages, imagePixels, solidImage, testMediaBinary } from "@ace/media/testing/images";
 import { expect, onTestFinished, test } from "vitest";
 import { DeviceId, type ServerMessage, SpadeClientMessage } from "@ace/protocol";
 import type { z } from "zod";
-import { SpadePreviewGate } from "../spade/image-preview.ts";
+import { SpadePreviewGate, spadePreviewGate } from "../spade/image-preview.ts";
 import { createSpadeSession } from "./spade-session.ts";
 
 /*
@@ -14,6 +14,16 @@ import { createSpadeSession } from "./spade-session.ts";
  */
 
 const hash = "a".repeat(64);
+/* Real previews come from ace-media's image work (ADR 0208): a built binary, or none to test. */
+const binary = testMediaBinary();
+const images = binaryImages(binary ?? "");
+const decoding = test.skipIf(!binary);
+/** A preview's PNG signature and decoded size, read back through ace-media. */
+async function previewed(body: string) {
+  const png = Buffer.from(body, "base64");
+  const { width, height } = await imagePixels(images, png);
+  return { signature: png.subarray(1, 4).toString("latin1"), width, height };
+}
 
 /** A Spade serving `body` with `type` at `/v1/images/{hash}`; `seen` is every path it was asked. */
 async function spadeServing(body: Buffer, type: string) {
@@ -85,9 +95,10 @@ function socket(port: number, previews?: SpadePreviewGate) {
   return { get, close: () => service.close?.() };
 }
 
-async function serving(body: Buffer, type: string) {
-  const { port, seen } = await spadeServing(body, type);
-  return { get: socket(port).get, seen };
+/** A socket previewing through ace-media's image work, and the paths Spade was asked. */
+async function serving(body: Uint8Array, type: string) {
+  const { port, seen } = await spadeServing(Buffer.from(body), type);
+  return { get: socket(port, spadePreviewGate(images)).get, seen };
 }
 
 /** A gate whose decodes wait until the test lets them finish, counting those begun. */
@@ -114,27 +125,26 @@ function heldGate(places: { running: number; waiting: number; decodeMs?: number 
 const settle = (ms = 100) => new Promise((resolve) => setTimeout(resolve, ms));
 const previewPath = `/v1/images/${hash}?preview`;
 
-test("a picture's preview is a PNG at most 512 pixels a side, read from Spade's own image", async () => {
-  const photo = await sharp({
-    create: { width: 2400, height: 1200, channels: 3, background: "teal" },
-  })
-    .jpeg()
-    .toBuffer();
-  const { get, seen } = await serving(photo, "image/jpeg");
+decoding(
+  "a picture's preview is a PNG at most 512 pixels a side, read from Spade's own image",
+  async () => {
+    const photo = await solidImage(images, { width: 2400, height: 1200 }, [0, 128, 128, 255], {
+      format: "jpeg",
+      quality: 85,
+    });
+    const { get, seen } = await serving(photo, "image/jpeg");
 
-  const result = await get(`/v1/images/${hash}?preview`);
+    const result = await get(`/v1/images/${hash}?preview`);
 
-  if (result.kind !== "response") throw new Error(result.message);
-  expect(result).toMatchObject({ status: 200, encoding: "base64", contentType: "image/png" });
-  const preview = await sharp(Buffer.from(result.body, "base64")).metadata();
-  expect(preview).toMatchObject({ format: "png", width: 512, height: 256 });
-  expect(seen).toEqual([`/v1/images/${hash}`]);
-});
+    if (result.kind !== "response") throw new Error(result.message);
+    expect(result).toMatchObject({ status: 200, encoding: "base64", contentType: "image/png" });
+    expect(await previewed(result.body)).toEqual({ signature: "PNG", width: 512, height: 256 });
+    expect(seen).toEqual([`/v1/images/${hash}`]);
+  },
+);
 
 test("the original is still forwarded whole when no preview is asked for", async () => {
-  const photo = await sharp({ create: { width: 64, height: 32, channels: 3, background: "red" } })
-    .jpeg()
-    .toBuffer();
+  const photo = Buffer.from("the original's bytes, whatever they are");
   const { get } = await serving(photo, "image/jpeg");
 
   const result = await get(`/v1/images/${hash}`);
@@ -143,13 +153,24 @@ test("the original is still forwarded whole when no preview is asked for", async
   expect(Buffer.from(result.body, "base64").equals(photo)).toBe(true);
 });
 
-test("a preview of bytes that aren't a picture is refused, never forwarded as they are", async () => {
-  const { get } = await serving(Buffer.from("not an image"), "image/png");
+test("without ace-media a preview is refused as busy, never answered with the original", async () => {
+  const { port } = await spadeServing(Buffer.from("image"), "image/png");
 
-  const result = await get(`/v1/images/${hash}?preview`);
+  const result = await socket(port).get(previewPath);
 
-  expect(result).toMatchObject({ kind: "response", status: 422 });
+  expect(result).toMatchObject({ kind: "response", status: 503 });
 });
+
+decoding(
+  "a preview of bytes that aren't a picture is refused, never forwarded as they are",
+  async () => {
+    const { get } = await serving(Buffer.from("not an image"), "image/png");
+
+    const result = await get(`/v1/images/${hash}?preview`);
+
+    expect(result).toMatchObject({ kind: "response", status: 422 });
+  },
+);
 
 test("Spade's refusal of a missing picture comes back as it is", async () => {
   const { get } = await serving(Buffer.alloc(0), "image/png");
@@ -159,18 +180,21 @@ test("Spade's refusal of a missing picture comes back as it is", async () => {
   expect(result).toMatchObject({ kind: "response", status: 404 });
 });
 
-test("a HEIC picture is previewed as a PNG too, by the same decoder", async () => {
-  const heic = await readFile(
-    new URL("../../../../packages/context/fixtures/colours.heic", import.meta.url),
-  );
-  const { get } = await serving(heic, "image/heic");
+// HEIC decodes through the OS (ADR 0208): ImageIO on macOS.
+test.skipIf(!binary || process.platform !== "darwin")(
+  "a HEIC picture is previewed as a PNG too, by the same decoder",
+  async () => {
+    const heic = await readFile(
+      new URL("../../../../packages/context/fixtures/colours.heic", import.meta.url),
+    );
+    const { get } = await serving(heic, "image/heic");
 
-  const result = await get(`/v1/images/${hash}?preview`);
+    const result = await get(`/v1/images/${hash}?preview`);
 
-  if (result.kind !== "response") throw new Error(result.message);
-  const preview = await sharp(Buffer.from(result.body, "base64")).metadata();
-  expect(preview).toMatchObject({ format: "png", width: 320, height: 240 });
-});
+    if (result.kind !== "response") throw new Error(result.message);
+    expect(await previewed(result.body)).toEqual({ signature: "PNG", width: 320, height: 240 });
+  },
+);
 
 test("previews past the daemon's places are refused at once as busy, never fetched", async () => {
   const { port, seen } = await spadeServing(Buffer.from("image"), "image/png");

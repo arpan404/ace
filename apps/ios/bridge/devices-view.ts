@@ -1,5 +1,6 @@
 import type { DeviceClientSnapshot } from "@ace/client/devices";
 import type { AppDevice, DeviceState } from "@ace/protocol";
+import { liveVideoSentence } from "@ace/ui-core";
 import { degradedSentence } from "./video-degraded.ts";
 import {
   activityCaption,
@@ -120,6 +121,8 @@ export interface DeviceScreenView {
   problem: DeviceProblem | null;
   /** One sentence while the picture runs degraded on the processor; empty otherwise. */
   degraded: string;
+  /** Why the live video can't play now (ace-media restarting or unavailable); empty while it plays. */
+  stopped: string;
   touch: string;
   /** A foldable device's posture (closed, partiallyOpen or open); null when it doesn't fold. */
   posture: string | null;
@@ -263,6 +266,7 @@ function screen(
     problem: controls.error ?? null,
     /** One sentence while the device's picture runs degraded on the processor; empty otherwise. */
     degraded: degradedSentence(state?.acceleration),
+    stopped: liveVideoSentence(state?.video) ?? "",
     touch: state?.touch ?? "gestures",
     posture: state?.posture ?? null,
     framed: controls.framed,

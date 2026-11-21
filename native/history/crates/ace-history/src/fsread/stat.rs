@@ -92,21 +92,50 @@ pub fn fingerprint_of(file: &File) -> Result<String> {
     ))
 }
 
+/// The entry itself at `path`, opened for its attributes only: a reparse point is not followed,
+/// and a folder opens too.
 #[cfg(windows)]
-pub fn fingerprint_at(path: &Path) -> Result<String> {
+fn open_entry(path: &Path) -> Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
         FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
     };
-    // The entry itself: a reparse point is not followed, and a folder opens too.
-    let file = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)
-        .map_err(|e| io_at(e, path))?;
-    fingerprint_of(&file)
+        .map_err(|e| io_at(e, path))
+}
+
+#[cfg(windows)]
+pub fn fingerprint_at(path: &Path) -> Result<String> {
+    fingerprint_of(&open_entry(path)?)
+}
+
+/// Whether `path` still names the file `file` is open on (a link itself never followed).
+#[cfg(unix)]
+pub fn same_entry(path: &Path, file: &File) -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let at = std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?;
+    let open = file.metadata()?;
+    Ok(at.dev() == open.dev() && at.ino() == open.ino())
+}
+
+/// Whether `path` still names the file `file` is open on: the same volume serial and file
+/// index, `path` opened without following a link.
+#[cfg(windows)]
+pub fn same_entry(path: &Path, file: &File) -> Result<bool> {
+    let (dev, ino, _) = files_safe::handle_facts(&open_entry(path)?)?;
+    let (open_dev, open_ino, _) = files_safe::handle_facts(file)?;
+    Ok(dev == open_dev && ino == open_ino)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn same_entry(path: &Path, _file: &File) -> Result<bool> {
+    std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?;
+    Ok(true)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -145,5 +174,20 @@ mod tests {
         drop(other);
         std::fs::rename(dir.path().join("b.json"), &path).unwrap();
         assert_ne!(fingerprint_at(&path).unwrap(), first);
+    }
+
+    #[test]
+    fn a_path_is_the_same_entry_until_another_file_takes_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db-wal");
+        std::fs::write(&path, "journal").unwrap();
+        let open = File::open(&path).unwrap();
+        // Growing or truncating it in place keeps it the same file.
+        std::fs::write(&path, "journal, longer").unwrap();
+        assert!(same_entry(&path, &open).unwrap());
+        // Another file renamed over its name is not, even while the first is still held.
+        std::fs::write(dir.path().join("other"), "journal").unwrap();
+        std::fs::rename(dir.path().join("other"), &path).unwrap();
+        assert!(!same_entry(&path, &open).unwrap());
     }
 }

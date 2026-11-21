@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { encodePicture, streamKinds } from "@ace/browser/stream";
+import type { MediaRoute } from "@ace/browser/live-view";
+import {
+  decodeStreamMessage,
+  StreamAssembler,
+  streamKinds,
+  type StreamMessage,
+} from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import { devicePoint } from "@ace/ui-core";
 import { DeviceClient, type DeviceTransport, type DeviceTransportEvents } from "./client.ts";
 import type { DeviceAck, DeviceClientMessage, DeviceState } from "@ace/protocol/devices";
@@ -56,16 +63,47 @@ function setup() {
   const sent: DeviceClientMessage[] = [];
   const acks: DeviceAck[] = [];
   let events: DeviceTransportEvents | undefined;
+  const connection = "mc_aaaaaaaaaa";
   const transport: DeviceTransport = {
     open(next) {
       events = next;
       next.ready();
     },
     send(message) {
-      if (message.type === "devices.ack") acks.push(message);
-      else sent.push(message);
+      if (message.type === "devices.ack") return void acks.push(message);
+      sent.push(message);
+      // ace-media delivers every subscribe that names the media connection (X3).
+      if (message.operation.op === "subscribe" && message.operation.media) {
+        const { requestId } = message;
+        queueMicrotask(() =>
+          events?.message({ type: "devices.result", requestId, ok: true, media: { connection } }),
+        );
+      }
     },
     close() {},
+  };
+  const streams = new Set<(message: StreamMessage) => void>();
+  const route: MediaRoute = {
+    binding: () => ({ connection }),
+    codecs: () => ["avc1.42E033"],
+    watch: () => () => {},
+    onStream: (listener) => {
+      streams.add(listener);
+      return () => void streams.delete(listener);
+    },
+    ack: (message) => {
+      if (message.type === "devices.ack") acks.push(message);
+      return true;
+    },
+  };
+  const assembler = new StreamAssembler();
+  /** Pieces on the media connection, as ace-media sends them. */
+  const deliver = (pieces: Uint8Array[]) => {
+    for (const piece of pieces) {
+      const envelope = assembler.push(piece);
+      const message = envelope && decodeStreamMessage(envelope);
+      if (message) for (const listener of streams) listener(message);
+    }
   };
   const client = new DeviceClient({
     id: () => `request_${sequence++}`,
@@ -77,6 +115,12 @@ function setup() {
     },
   });
   client.connect(transport);
+  client.useMedia(route);
+  /** A watched device whose subscribe ace-media delivers. */
+  const live = async () => {
+    client.retainStream(deviceId);
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+  };
   const receive = (message: unknown) => {
     if (!events) throw new Error("Transport not open");
     if (Array.isArray(message)) for (const piece of message) events.message(piece);
@@ -87,7 +131,18 @@ function setup() {
     if (!message) throw new Error("Request not sent");
     receive({ type: "devices.result", requestId: message.requestId, ok: true, data });
   };
-  return { client, transport, sent, acks, receive, result, deadlines, events: () => events };
+  return {
+    client,
+    transport,
+    sent,
+    acks,
+    receive,
+    result,
+    deadlines,
+    deliver,
+    live,
+    events: () => events,
+  };
 }
 
 describe("portable device clients", () => {
@@ -171,15 +226,16 @@ describe("portable device clients", () => {
         await unblock.promise;
       } else latest.resolve();
     });
-    host.receive(frame(1));
+    await host.live();
+    host.deliver(frame(1));
     await first.promise;
-    host.receive(frame(2));
-    host.receive(frame(3));
+    host.deliver(frame(2));
+    host.deliver(frame(3));
     expect(drawn).toEqual([1]);
     unblock.resolve();
     await latest.promise;
     await new Promise((resolve) => setTimeout(resolve, 0));
-    // The daemon's ack window paces pictures, so the view loses none of them.
+    // ace-media's ack window paces pictures, so the view loses none of them.
     expect(drawn).toEqual([1, 2, 3]);
     host.client.disconnect();
   });
@@ -195,7 +251,8 @@ describe("portable device clients", () => {
       drawn.resolve(image.bytes[0] ?? -1);
     });
     removed();
-    host.receive(frame(9));
+    await host.live();
+    host.deliver(frame(9));
     expect(await drawn.promise).toBe(9);
     host.client.disconnect();
   });
@@ -234,13 +291,15 @@ describe("portable device clients", () => {
         await unblock.promise;
       } else resumed.resolve();
     });
-    host.receive(frame(1));
+    await host.live();
+    host.deliver(frame(1));
     await started.promise;
-    host.receive(frame(2));
+    host.deliver(frame(2));
     host.client.disconnect();
     host.client.connect(host.transport);
     host.receive({ type: "devices.state", state: state() });
-    host.receive(frame(4));
+    await host.live();
+    host.deliver(frame(4));
     unblock.resolve();
     await resumed.promise;
     expect(drawn).toEqual([1, 4]);
@@ -345,17 +404,16 @@ it("a mounted viewer subscribes to replacement capture after the device moves to
     type: "devices.state",
     state: { ...state("stream_2"), threadId: "thread-1" },
   });
-  expect(host.sent.map((message) => message.operation)).toEqual([
-    { op: "subscribe", deviceId },
-    { op: "subscribe", deviceId },
-  ]);
+  const named = { op: "subscribe", deviceId, media: { connection: "mc_aaaaaaaaaa" } };
+  expect(host.sent.map((message) => message.operation)).toMatchObject([named, named]);
   release();
   host.client.disconnect();
 });
 
-it("pictures on the shared media stream reach the view in order, and its acks name their capture", async () => {
+it("pictures on the media connection reach the view in order, and its acks there name their capture", async () => {
   const host = setup();
   host.receive({ type: "devices.state", state: state() });
+  await host.live();
   const drawn: { sequence: number; codec: string; rotation: number }[] = [];
   const shown = deferred<void>();
   host.client.watchPictures(deviceId, async (picture) => {
@@ -381,8 +439,7 @@ it("pictures on the shared media stream reach the view in order, and its acks na
       new Uint8Array(size).fill(sequence),
     );
   // A keyframe bigger than one binary message, then deltas.
-  for (const piece of [...picture(1, true, 200_000), ...picture(2, false), ...picture(3, false)])
-    host.receive(piece);
+  host.deliver([...picture(1, true, 200_000), ...picture(2, false), ...picture(3, false)]);
   await shown.promise;
   expect(drawn.map(({ sequence, codec, rotation }) => ({ sequence, codec, rotation }))).toEqual([
     { sequence: 1, codec: "avc1.640028", rotation: 0 },

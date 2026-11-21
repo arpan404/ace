@@ -33,6 +33,7 @@ import { ReviewItems, ReviewTexts } from "./market-review-items.tsx";
 import { ShowFiles, SuitLooks } from "./market-review-suit.tsx";
 import { BotPicture } from "./market-stage.tsx";
 import { RecipeChoices } from "./market-review-bot.tsx";
+import { useEffectLocks } from "@/features/spade/index.ts";
 import { effectDefaults, limitSentences } from "./market-package-words.ts";
 import { part } from "@/lib/suit-part.ts";
 
@@ -134,6 +135,14 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
   const [bots, setBots] = useState<readonly string[]>([]);
   const [failed, setFailed] = useState<{ failure: ReviewFailure; retry(): void }>();
   const recipe = body.type === "spade-bot" ? body : undefined;
+  const lockOf = useEffectLocks();
+  // A locked switch is never sent on, whatever it was before the lock was known.
+  const allowed = Object.fromEntries(
+    Object.entries(effects).map(([key, on]) => {
+      const row = recipe?.effects?.find((each) => each.key === key);
+      return [key, on && !(row && lockOf?.(row))];
+    }),
+  );
   const moving = recipe?.update;
   const missing =
     recipe?.needs.filter((need) => need.required && !needs[need.key]).map((need) => need.label) ??
@@ -145,7 +154,12 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
     const input = {
       review,
       // A package's effect switches; a version 2 recipe declares none.
-      choices: { bots: [...bots], needs, startRoutines, ...(recipe?.linked ? { effects } : {}) },
+      choices: {
+        bots: [...bots],
+        needs,
+        startRoutines,
+        ...(recipe?.linked ? { effects: allowed } : {}),
+      },
     };
     const send = () => {
       setFailed(undefined);
@@ -230,6 +244,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
         <RecipeChoices
           recipe={recipe}
           byAce={review.byAce}
+          lockOf={lockOf}
           needs={needs}
           onNeeds={setNeeds}
           effects={effects}

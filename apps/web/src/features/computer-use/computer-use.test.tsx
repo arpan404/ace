@@ -161,6 +161,26 @@ test("an app's live view asks for 60 fps video and draws it", async () => {
   expect(browser.draws(live)).toBeGreaterThan(0);
 });
 
+test("why an app's video can't play shows once, in its live view", async () => {
+  const { app, world } = await openSettings();
+  const sessionId = await world.agentApp("com.apple.TextEdit");
+  await app.open("/settings/computer-use");
+  const card = await screen.findByRole("article", { name: "TextEdit" });
+  await userEvent.click(within(card).getByRole("button", { expanded: false }));
+  await within(card).findByRole("img", { name: "TextEdit live view" });
+
+  act(() => {
+    app.daemon.screen.setVideo(sessionId, {
+      status: "retrying",
+      reason: "ace-media stopped and is starting again",
+    });
+  });
+
+  await waitFor(() =>
+    expect(within(card).getAllByText(/ace-media stopped and is starting again/)).toHaveLength(1),
+  );
+});
+
 test("leaving the page closes the live view's decoded frames", async () => {
   const { app, world } = await openSettings();
   await world.agentApp("com.apple.TextEdit");

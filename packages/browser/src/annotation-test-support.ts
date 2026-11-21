@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { decodedPixels } from "./media-image-test-support.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -336,12 +337,10 @@ export async function pixel(
   x: number,
   y: number,
 ): Promise<[number, number, number]> {
-  const { default: sharp } = await import("sharp");
   const scale = image.width / viewportWidth;
-  const { data, info } = await sharp(Buffer.from(image.data, "base64"))
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const index = (Math.round(y * scale) * info.width + Math.round(x * scale)) * info.channels;
+  const decoded = await decodedPixels(Buffer.from(image.data, "base64"));
+  const { data } = decoded;
+  const index = (Math.round(y * scale) * decoded.width + Math.round(x * scale)) * 4;
   return [data[index] ?? 0, data[index + 1] ?? 0, data[index + 2] ?? 0];
 }
 

@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@ace/browser": "workspace:*",
+    "@ace/media": "workspace:*",
     "@types/ws": "8.18.1",
     "esbuild": "0.25.12"
   }

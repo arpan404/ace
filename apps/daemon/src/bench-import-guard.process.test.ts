@@ -15,7 +15,9 @@ test("workers ace's factory started, live or retired, pass the guard", async () 
 });
 
 test("a forbidden package loaded in a worker at idle fails the import guard", async () => {
-  await expect(guard("clean", "import")).rejects.toThrow(/Modules loaded at idle:\nsharp: /);
+  await expect(guard("clean", "import")).rejects.toThrow(
+    /Modules loaded at idle:\n@modelcontextprotocol\/client: /,
+  );
 });
 
 test("an unwatched worker beside a watched one fails the guard as not measured", async () => {

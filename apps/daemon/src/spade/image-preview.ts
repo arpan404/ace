@@ -1,9 +1,9 @@
-import { fitImage } from "@ace/provider-kit/image";
+import { unavailableImages, type ImageWork } from "@ace/media/images";
 
 /*
  * A picture in a Spade conversation, previewed (ADR 0134): `GET /v1/images/{sha256}?preview` is
- * the daemon's, not Spade's. The daemon reads the image from Spade and answers a PNG at most
- * 512 pixels a side, as a thread attachment's thumbnail, so a phone drawing a chat never
+ * the daemon's, not Spade's. The daemon reads the image from Spade and has ace-media's image
+ * process (ADR 0208) answer a PNG at most 512 pixels a side, as a thread attachment's thumbnail, so a phone drawing a chat never
  * downloads every original whole. Spade itself has no smaller copy.
  */
 
@@ -15,14 +15,30 @@ export function spadePreviewSource(method: string, path: string): string | undef
   return hash ? `/v1/images/${hash}` : undefined;
 }
 
-/** A PNG of at most 512 pixels a side, upright by its EXIF orientation. */
-export async function renderSpadePreview(bytes: Uint8Array): Promise<Buffer> {
-  const preview = await fitImage(
-    { input: bytes, maxPixels: 40_000_000, autoOrient: true },
-    { width: 512, height: 512 },
-    { format: "png" },
-  );
-  return preview.bytes;
+/** How long ace-media may take over one preview: the gate's own decode bound. */
+const previewDecodeMs = 15_000;
+
+/**
+ * A PNG of at most 512 pixels a side, upright by its EXIF orientation, made by `images`. Its
+ * refusals (`ImageError`) are thrown as they are: the socket answers them as a picture it can't
+ * preview.
+ */
+export function spadePreviewRenderer(images: ImageWork): (bytes: Uint8Array) => Promise<Buffer> {
+  return async (bytes) => {
+    const preview = await images.run({
+      inputs: [{ kind: "bytes", bytes }],
+      op: {
+        op: "fit",
+        maxPixels: 40_000_000,
+        width: 512,
+        height: 512,
+        autoOrient: true,
+        output: { format: "png" },
+      },
+      deadlineMs: previewDecodeMs,
+    });
+    return Buffer.from(preview.bytes);
+  };
 }
 
 /** Why a preview didn't come: the daemon's places are full, or the decode ran past its time. */
@@ -132,12 +148,17 @@ export class SpadePreviewGate {
   }
 }
 
-/** The daemon's previews: two at once, sixteen waiting, fifteen seconds to decode. */
-export function spadePreviewGate(): SpadePreviewGate {
+/**
+ * The daemon's previews through `images`: two at once, sixteen waiting, fifteen seconds to
+ * decode. Without image work (a test's socket) every preview is refused as one it can't make.
+ */
+export function spadePreviewGate(
+  images: ImageWork = unavailableImages("this socket has no image work"),
+): SpadePreviewGate {
   return new SpadePreviewGate({
     running: 2,
     waiting: 16,
-    decodeMs: 15_000,
-    render: renderSpadePreview,
+    decodeMs: previewDecodeMs,
+    render: spadePreviewRenderer(images),
   });
 }

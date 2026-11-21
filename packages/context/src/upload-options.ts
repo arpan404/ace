@@ -34,6 +34,11 @@ export interface UploadOptions {
   threadExists?(thread: string): boolean;
   limits?: Partial<UploadLimits>;
   imageLimits?: ImageLimits;
+  /**
+   * Whether ace-media reads a file's header as a picture within `maxPixels` (ADR 0208): an
+   * opaque HEIC, HEIF, TIFF or BMP gets a preview only when it does. Absent, none does.
+   */
+  previewable?(path: string, maxPixels: number): Promise<boolean>;
   /** Trusted storage boundary; resolves only once chunk bytes are durable. */
   syncChunk?: (file: FileHandle) => Promise<void>;
 }

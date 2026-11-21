@@ -123,10 +123,10 @@ describe("LaneWriter", () => {
   it("leaves non-secret payloads untouched", () => {
     const sink = new ManualSink();
     const writer = new LaneWriter("normal", sink, () => {});
-    const jpeg = Uint8Array.of(1, 2, 3);
-    writer.send({ type: "source.picture", source: "s", ageMs: 0, epoch: 0 }, jpeg);
+    const frame = Uint8Array.of(1, 2, 3);
+    writer.send({ type: "relay.out", stream: "s" }, frame);
     sink.writes[1]?.done();
-    expect([...jpeg]).toEqual([1, 2, 3]);
+    expect([...frame]).toEqual([1, 2, 3]);
   });
 });
 

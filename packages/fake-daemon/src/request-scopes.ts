@@ -26,8 +26,7 @@ function adminSetting(key: string): boolean {
     key.startsWith("storage.") ||
     key.startsWith("browser.download") ||
     key.startsWith("host.") ||
-    key.startsWith("remote.") ||
-    key.startsWith("media.")
+    key.startsWith("remote.")
   );
 }
 

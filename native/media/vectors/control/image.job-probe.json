@@ -1,0 +1,10 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "image.job",
+    "request": "image-4",
+    "deadlineMs": 500,
+    "inputs": [{ "kind": "bytes", "bytes": 1 }],
+    "op": { "op": "probe", "maxPixels": 67108864 }
+  }
+}

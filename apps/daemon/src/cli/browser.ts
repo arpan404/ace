@@ -88,12 +88,6 @@ export async function browserCommand(
       if (!stopped.ok)
         throw new CliFailure("uncertain", stopped.error ?? "Recording finalization unavailable");
       artifact = BrowserArtifact.parse(stopped.result);
-      if (artifact.mimeType !== "video/mp4")
-        throw new CliFailure(
-          "refused",
-          "Recording could not be encoded as MP4. Install ffmpeg on the daemon host and check its encoder; retry the recording. The complete player bundle remains on the host.",
-          { path: artifact.path, mimeType: artifact.mimeType },
-        );
     }
     const findArtifact = () =>
       lease.store.order

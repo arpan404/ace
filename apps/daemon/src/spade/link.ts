@@ -12,7 +12,8 @@ import {
   type SpadeFacts,
   type SpadeServiceState,
 } from "./rules.ts";
-import { spadePreviewGate } from "./image-preview.ts";
+import type { ImageWork } from "@ace/media/images";
+import { spadePreviewGate, type SpadePreviewGate } from "./image-preview.ts";
 
 /** Everything the link reads of the outside world, so tests can substitute any of it. */
 export interface SpadeLinkRuntime {
@@ -51,6 +52,8 @@ export interface SpadeLinkOptions {
   report?: (error: unknown) => void;
   /** The key the person's own changes are stamped with (`person-stamp.ts`); none stamps none. */
   personKey?: Uint8Array;
+  /** ace-media's image work, which makes pictures' previews (ADR 0208); none previews none. */
+  images?: ImageWork;
 }
 export interface SpadeReady {
   connection: SpadeConnection;
@@ -96,9 +99,10 @@ export class SpadeLink {
   private stopWatch: (() => void) | undefined;
   private closed = false;
   /** Pictures' previews, two at a time for every socket of this daemon (`image-preview.ts`). */
-  readonly previews = spadePreviewGate();
+  readonly previews: SpadePreviewGate;
   constructor(options: SpadeLinkOptions) {
     this.options = options;
+    this.previews = spadePreviewGate(options.images);
   }
   /** The key the person's own changes are stamped with, when this daemon has one. */
   personKey(): Uint8Array | undefined {

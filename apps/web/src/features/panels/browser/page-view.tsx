@@ -61,6 +61,11 @@ export function PageView(props: {
   menu?: PageMenu | undefined;
   /** Dimmed with a reason over it (offline, paused). */
   dimmed?: boolean;
+  /**
+   * Why the live picture stopped (X3: ace-media can't deliver it now), said over the last one so
+   * a stale page never passes for a live one.
+   */
+  notice?: string | undefined;
   /** The page's cursor shape under the person's pointer (a CSS keyword); the arrow if absent. */
   cursor?: string | undefined;
   /** Names the agent's cursor when the view knows better than the tab's actor (a Spade bot). */
@@ -331,6 +336,14 @@ export function PageView(props: {
           frame={drawn}
           forward={(input) => void forward(input)}
         />
+      )}
+      {props.notice && (
+        <p
+          role="status"
+          className="pointer-events-none absolute inset-0 grid place-items-center p-4 text-center text-sm text-muted-foreground"
+        >
+          {props.notice}
+        </p>
       )}
     </div>
   );

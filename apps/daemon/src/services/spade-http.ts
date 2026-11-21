@@ -1,3 +1,4 @@
+import { ImageError } from "@ace/media/images";
 import { maxSpadeChunkChars } from "@ace/protocol";
 import type {
   DeviceScope,
@@ -280,6 +281,9 @@ export function createSpadeHttp(context: {
     } catch (error) {
       if (closing.signal.aborted) return undefined;
       if (error instanceof PreviewBusy) return problemAnswer(503, error.message);
+      // ace-media busy, starting, gone or slow: the picture may preview later.
+      if (error instanceof ImageError && error.passing)
+        return problemAnswer(503, "Spade's pictures are busy. Try again in a moment.");
       return problemAnswer(422, "This picture can't be previewed.");
     }
   }

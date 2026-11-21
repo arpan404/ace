@@ -4,7 +4,9 @@
  * forwards each unit unchanged to its ingest; egress brings them back to the capture. What only
  * the binary can show: the forwarded units accepted and returned with today's headers, four
  * route flips that lose and repeat no unit, and the daemon taking the units back within 2 s of
- * ace-media being killed. Runs when ACE_MEDIA_TEST_BINARY names a built ace-media.
+ * ace-media being killed; and a still device's view, whose only picture came before it, starting
+ * with a picture on a fresh subscribe and on a subscribe again. Runs when ACE_MEDIA_TEST_BINARY
+ * names a built ace-media.
  */
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -12,10 +14,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, onTestFinished } from "vitest";
+import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
+import type { MediaOwner } from "@ace/media/media-connections";
 import { MediaRuntime } from "@ace/media/runtime";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import type { RouteCapabilities } from "@ace/media/routes";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
+import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import type { Frame } from "@ace/screen";
-import { fixture, media, nal, type Cleanup } from "./testing/fake-scrcpy.ts";
+import { fixture, media, nal, sps, type Cleanup } from "./testing/fake-scrcpy.ts";
 
 const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
 const cleanup: Cleanup = [];
@@ -35,17 +41,14 @@ async function until(condition: () => boolean, ms = 15_000): Promise<void> {
 const markOf = (frame: Frame) => frame.payload.readUInt16BE(frame.payload.length - 2);
 
 it.runIf(!!binary)(
-  "an Android device's units are forwarded to ace-media and come back as today's frames, four route flips lose and repeat none, and a killed ace-media hands them back within 2 s",
+  "an Android device's units are forwarded only to ace-media and come back as today's frames, none lost or repeated, and after ace-media is killed they are back through the new one within 2 s",
   { timeout: 120_000 },
   async () => {
     const directory = mkdtempSync(join(tmpdir(), "ace-e3b-scrcpy-"));
     onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
-    };
+    // A route flips when the kind's producer can or can't stream into ace-media; no setting
+    // chooses it.
+    const capabilities: RouteCapabilities = { ingest: ["scrcpy"], delivery: false };
     const runtime = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -53,7 +56,6 @@ it.runIf(!!binary)(
       binary: binary ?? "",
       runtimeDir: directory,
       dataDir: directory,
-      settings: () => settings,
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,
@@ -61,7 +63,7 @@ it.runIf(!!binary)(
       id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
-      capabilities: { ingest: ["scrcpy"], recordings: false, stills: false, delivery: false },
+      capabilities,
     });
     onTestFinished(() => runtime.dispose());
 
@@ -113,21 +115,9 @@ it.runIf(!!binary)(
       scale: 0.5,
     });
 
-    for (const encode of ["legacy", "auto", "legacy", "auto"] as const) {
-      const before = video().length;
-      settings.encode = encode;
-      runtime.settingsChanged();
-      await until(
-        () =>
-          video()
-            .slice(before)
-            .filter(([, egress]) => egress === (encode === "auto")).length >= 5,
-      );
-    }
-    // Every unit the device sent from the first one through ace-media on arrived once, in order.
-    const marks = video().map(([frame]) => markOf(frame));
-    const first = video().findIndex(([, egress]) => egress);
-    const run = marks.slice(Math.max(0, first - 1));
+    // Every unit came through ace-media, once and in order from its first keyframe.
+    expect(video().every(([, egress]) => egress)).toBe(true);
+    const run = video().map(([frame]) => markOf(frame));
     expect(run).toEqual(Array.from({ length: run.length }, (_, index) => (run[0] ?? 0) + index));
 
     const pid = runtime.supervisor.snapshot().pid ?? 0;
@@ -135,17 +125,113 @@ it.runIf(!!binary)(
     const killed = performance.now();
     const before = video().length;
     process.kill(pid, "SIGKILL");
-    await until(
-      () =>
-        video()
-          .slice(before)
-          .some(([, egress]) => !egress),
-      5_000,
-    );
+    // The daemon forwards to the new ace-media's ingest: back from its keyframe within 2 s.
+    await until(() => video().length > before, 10_000);
     expect(performance.now() - killed).toBeLessThan(2_000);
-    const back = video()
-      .slice(before)
-      .find(([, egress]) => !egress)?.[0];
+    const [back, egress] = video()[before] ?? [];
+    expect(egress).toBe(true);
     expect(back?.header.keyframe).toBe(true);
+    expect(runtime.supervisor.snapshot().pid).not.toBe(pid);
+  },
+);
+
+const owner: MediaOwner = {
+  session: "main-1",
+  device: "phone",
+  admission: { kind: "pairing", generation: "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f" },
+};
+
+it.runIf(!!binary)(
+  "a still device's view starts with a picture on a fresh subscribe, and again when its viewer subscribes again",
+  { timeout: 60_000 },
+  async () => {
+    const directory = mkdtempSync(join(tmpdir(), "ace-still-device-"));
+    onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
+    const runtime = new MediaRuntime({
+      version: execFileSync(binary ?? "", ["--version"])
+        .toString()
+        .trim(),
+      binary: binary ?? "",
+      runtimeDir: directory,
+      dataDir: directory,
+      host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
+      clock: systemMediaClock,
+      random: Math.random,
+      randomBytes: (length: number) => new Uint8Array(randomBytes(length)),
+      id: randomUUID,
+      listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
+      log: () => {},
+      capabilities: { ingest: ["scrcpy"], delivery: true },
+    });
+    onTestFinished(() => runtime.dispose());
+    let deviceId: string | undefined;
+    const { device } = await fixture(cleanup, {
+      now: () => performance.now(),
+      media: {
+        attach: (producer) => {
+          deviceId = producer.deviceId;
+          return runtime.sources.add(producer);
+        },
+      },
+    });
+    // The device's screen doesn't change: its encoder made its first keyframe as the stream
+    // started, before anyone watched, and makes another only when scrcpy resets its video.
+    let mark = 2000;
+    let resets = 0;
+    const timer = setInterval(() => {
+      const control = device.control();
+      for (; resets < control.length; resets++)
+        if (control[resets] === 17) {
+          device.video(media(0x40, sps));
+          device.video(media(0x20, nal(0x65, (++mark >> 8) & 0xff, mark & 0xff)));
+        }
+    }, 20);
+    onTestFinished(() => clearInterval(timer));
+    const source = () => runtime.sources.live().find((live) => live.producer.deviceId === deviceId);
+    await until(() => source() !== undefined && runtime.supervisor.health() === "healthy");
+    // Let the device's only picture so far go by with nobody watching.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const grant = await runtime.connections.connect(owner);
+    if (!grant.ok) throw new Error(`media.connect: ${grant.code}`);
+    const keys: number[] = [];
+    const assembler = new StreamAssembler();
+    let client: MediaTestClient | undefined;
+    client = await MediaTestClient.open(grant, {
+      onPiece: (piece) => {
+        const envelope = assembler.push(piece);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (message?.kind !== "device.frame") return;
+        if (message.frame.key) keys.push(message.frame.sequence);
+        // Acked as a client acks what it shows.
+        client?.send({
+          type: "devices.ack",
+          deviceId: message.sourceId,
+          streamId: message.frame.streamId,
+          sequence: message.frame.sequence,
+        });
+      },
+    });
+    const opened = client;
+    onTestFinished(() => opened.close());
+    const subscribe = () =>
+      runtime.viewers.bind({
+        requester: owner,
+        connection: grant.connection,
+        target: { kind: "device", deviceId: deviceId ?? "" },
+        codecs: ["avc1.42E033"],
+        viewport: { width: 390, height: 844, dpr: 3, scale: 1 },
+        local: true,
+        audio: false,
+        shows: (producer) => producer.deviceId === deviceId,
+      });
+    expect(subscribe()).toBeDefined();
+    await until(() => keys.length > 0, 5_000);
+    // The view comes back with what it had (a client binding again, or retrying): the device
+    // makes no new picture of its own, yet the view starts from one.
+    const before = keys.length;
+    const asked = resets;
+    expect(subscribe()).toBeDefined();
+    await until(() => keys.length > before && resets > asked, 5_000);
   },
 );

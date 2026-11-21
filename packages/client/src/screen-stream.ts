@@ -9,7 +9,6 @@ import {
 } from "@ace/protocol";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
 import {
-  channelPath,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
@@ -99,6 +98,10 @@ export class ScreenStreamClient {
    * Hears each session's delivery as it changes (`MediaSubscriptions.watchDeliveries`): for a
    * viewer whose pictures arrive outside this client, which stamps and gates them itself.
    */
+  /** Why sessionId's live view gets no pictures now, for the person; undefined while they come. */
+  undelivered(sessionId: string): string | undefined {
+    return this.media.undelivered(sessionId)?.reason;
+  }
   watchDeliveries(listener: (state: DeliveryState) => void): () => void {
     return this.media.watchDeliveries(listener);
   }
@@ -288,15 +291,10 @@ export class ScreenStreamClient {
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
     };
-    const way = this.media.way(picture.sourceId, picture.generation);
-    // A picture of an earlier subscribe: its ack belongs to a delivery that is gone.
-    if (way === "stale") return;
-    if (way === "media") return void this.media.route?.ack(message);
-    try {
-      void Promise.resolve(transport.send(message)).catch(() => {});
-    } catch {
-      /* The channel is closing; its close resets the view. */
-    }
+    // Only ace-media delivers (X3), so acks go on the media connection; one of an earlier
+    // subscribe belongs to a delivery that is gone.
+    if (this.media.way(picture.sourceId, picture.generation) === "media")
+      this.media.route?.ack(message);
   }
   private readonly streams = new SharedStreams();
   /** Whether `picture` is of its source's current subscribe: an older one is never drawn. */
@@ -307,8 +305,7 @@ export class ScreenStreamClient {
    * A subscribe of `sessionId` failed: try again after the bounded backoff, unless the channel
    * closed, nothing holds the stream any more or another subscribe went out meanwhile.
    */
-  private retryLater(sessionId: string): void {
-    const delay = this.media.retryDelay(sessionId);
+  private retryLater(sessionId: string, delay = this.media.retryDelay(sessionId)): void {
     if (delay === undefined) return;
     const epoch = this.epoch;
     const generation = this.media.generation(sessionId);
@@ -334,10 +331,7 @@ export class ScreenStreamClient {
     this.pictures.discardSource(sessionId);
     void this.send({ op: "subscribe", sessionId, ...fields }, {}, generation).catch(
       (error: unknown) => {
-        const next = this.media.failed(sessionId, generation, error);
-        // A connection the daemon won't bind here: the stream goes on this channel instead.
-        if (next === "resubscribe") return this.subscribe(sessionId);
-        if (next === "retry") this.retryLater(sessionId);
+        if (this.media.failed(sessionId, generation, error) === "retry") this.retryLater(sessionId);
       },
     );
   }
@@ -373,17 +367,24 @@ export class ScreenStreamClient {
    * way, shown now; past the buffer's bounds, the delivery is asked for a fresh keyframe.
    */
   private release(sourceId: string, settled: Settled): void {
+    // Answered without delivery: ask again on the unserved ladder, which never gives up and
+    // keeps naming the connection, since the source may become available at any time.
+    if (this.media.unserved(sourceId))
+      this.retryLater(sourceId, this.media.unservedDelay(sourceId));
     for (const { frame, generation } of settled.pictures)
       this.pictures.publish({ ...frame, sourceId, generation });
     const ask = settled.ask;
     if (ask) this.ack({ ...ask.frame, sourceId, generation: ask.generation }, true);
   }
   /**
-   * A subscribe got no answer in time: its source stops waiting (delivery falls back to the
-   * channel), and its reply, should it still come, is kept for (`late`), bounded.
+   * A subscribe got no answer in time: its source stops waiting (its view says so), and its
+   * reply, should it still come, is kept for (`late`), bounded.
    */
   private timedOut(requestId: string, sourceId: string, generation: number): void {
     this.media.abandon(sourceId, generation);
+    // Still the source's current subscribe: ask again after the backoff, unless its late reply
+    // comes first and settles it.
+    if (this.media.generation(sourceId) === generation) this.retryLater(sourceId);
     this.late.set(requestId, { sourceId, generation });
     for (const oldest of this.late.keys()) {
       if (this.late.size <= 32) break;
@@ -397,10 +398,9 @@ export class ScreenStreamClient {
     if (message instanceof Uint8Array) {
       if (!isStreamPiece(message)) throw failure("internal", "Invalid screen frame");
       const envelope = this.assembler.push(message);
-      // Kinds this client doesn't draw are skipped, never fatal.
-      const decoded = envelope && decodeStreamMessage(envelope);
-      if (decoded?.kind === "screen.frame")
-        this.publishPicture(decoded.sourceId, decoded.frame, channelPath);
+      // Live pictures come only on the media connection (X3): one here, from an older daemon,
+      // belongs to no delivery. Kinds this client doesn't draw are skipped, never fatal.
+      if (envelope) decodeStreamMessage(envelope);
       return;
     }
     const decoded = ScreenServerMessage.safeParse(message);
@@ -408,15 +408,21 @@ export class ScreenStreamClient {
     const frame = decoded.data;
     if (frame.type === "screen.enabled") this.publish({ ...this.snapshot, enabled: frame.enabled });
     else if (frame.type === "screen.state") this.putState(frame.state);
+    // Whether the session's bound view gets pictures now, and why not.
+    else if (frame.type === "screen.delivery")
+      this.media.report(frame.sessionId, frame.undelivered);
     else {
       const request = this.pending.get(frame.requestId);
       const late = request ? undefined : this.late.get(frame.requestId);
       if (late) {
         this.late.delete(frame.requestId);
+        // The late reply settles what the backoff was waiting for.
+        if (frame.ok && this.media.generation(late.sourceId) === late.generation)
+          this.cancelRetry(late.sourceId);
         if (frame.ok)
           this.release(
             late.sourceId,
-            this.media.subscribed(late.sourceId, late.generation, frame.media),
+            this.media.subscribed(late.sourceId, late.generation, frame.media, frame.undelivered),
           );
         return;
       }
@@ -429,7 +435,12 @@ export class ScreenStreamClient {
         if (opened) {
           this.release(
             opened.sessionId,
-            this.media.subscribed(opened.sessionId, opened.generation, frame.media),
+            this.media.subscribed(
+              opened.sessionId,
+              opened.generation,
+              frame.media,
+              frame.undelivered,
+            ),
           );
           if (this.media.poster(opened.sessionId)) this.publish({ ...this.snapshot });
         }

@@ -189,11 +189,6 @@ $stages = [ordered]@{
     Require-Desktop
     Use-Chromium
     Invoke-Vitest (@("--config", "scripts/vitest-windows-browser.config.ts") + $narrowed)
-    if ($Reports) {
-      Invoke-Step "browser video profile (report only)" { node packages/browser/bench/video-profile.ts }
-      $env:ACE_VIDEO_LINK_REPORT_ONLY = "1"; $env:ACE_VIDEO_LINK_BASELINE_SECONDS = "10"
-      Invoke-Step "browser streaming performance (report only)" { node packages/browser/bench/video-link.ts }
-    }
   }
   standalone = {
     Use-Msvc

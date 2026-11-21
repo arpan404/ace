@@ -1,6 +1,6 @@
 //! The helper's video for ace-media (docs/media/plan.md, E2): which encoder a screen uses and
-//! what it reports, the stream settings, the capture-side encoders, and each unit as the daemon
-//! and ace-media take it.
+//! what it reports, the stream settings, and the capture-side encoders. Units go only to
+//! ace-media's ingest.
 #[cfg(target_os = "linux")]
 pub mod encoder;
 #[cfg(target_os = "linux")]
@@ -12,6 +12,5 @@ pub mod select;
 pub mod stream;
 #[cfg(target_os = "linux")]
 pub mod trials;
-pub mod unit;
 #[cfg(target_os = "linux")]
 pub mod video;

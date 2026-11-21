@@ -14,6 +14,9 @@ use media_wire::control::{
 use media_wire::frame::MediaFrame;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// Why a JPEG source ended when its pictures came on the control lane (an older daemon's).
+pub const PICTURE_INGEST_REQUIRED: &str = "picture-ingest-required";
+
 /// An ingest connection, named by the shell.
 pub type IngestId = u64;
 
@@ -83,15 +86,31 @@ struct Source {
     ingest: Option<IngestId>,
     encode: u32,
     recording: Option<Recording>,
-    /// A JPEG source ace-media encodes itself (`tab-pictures`, `user-tab`), and the token of
+    /// A JPEG source ace-media encodes itself (`tab-pictures`, `user-tab`, `screen-pictures`), and the token of
     /// its running encoder: every command to that encoder and every word from it carries the
     /// token, so a reopened source never takes an earlier encoder's output.
     pictures: bool,
+    /// The newest epoch a picture of this source was captured in: an older one came late.
+    newest_picture: u32,
     encoder: Option<u64>,
+    /// Frames taken from the producer's connection since its hello.
+    received: u64,
+    /// `source.sync` barriers not yet answered: seq, frames, the epoch to be decided.
+    syncs: Vec<(Sequence, u64, u32)>,
+    /// A picture source's barrier asked its encoder to hand over every picture it took
+    /// (`EncodeEffect::Drain`): `Some(false)` until it said so, `Some(true)` after. A barrier on
+    /// a picture source holds only then, since a picture counted as received may still be in
+    /// the encoder. A barrier is the end of what the source takes (a recording's stop).
+    flushed: Option<bool>,
 }
+
+/// Barriers one source keeps waiting; an older one beyond this is dropped (its asker times out).
+const MAX_SYNCS: usize = 8;
 
 #[derive(Default)]
 pub struct Sources {
+    /// The daemon agreed to `source.ingest`: a bound hello is reported.
+    pub(crate) report_ingest: bool,
     by_id: HashMap<String, Source>,
     /// Every handle this process was given: handles are never reused while it lives.
     handles: HashSet<u32>,
@@ -215,11 +234,15 @@ impl Sources {
         let Some(secret) = vault.store(token) else {
             return status(out, id, Status::Ended, Some("too-many-sources"), None);
         };
-        let pictures = matches!(origin, Origin::TabPictures {} | Origin::UserTab {});
+        let pictures = matches!(
+            origin,
+            Origin::TabPictures {} | Origin::UserTab {} | Origin::ScreenPictures { .. }
+        );
         // An emulator's frame file is encoded by the screen helper's `--encode-frames`, and an
         // Android device's scrcpy stream is forwarded by the daemon, which keeps its sockets: both
         // stream in over ingest like any producer and stamp their own epochs. A Simulator's
-        // serve-sim stream is read here.
+        // serve-sim stream is read here. A JPEG source's pictures carry the epoch they were
+        // captured in; its stamper only holds a private epoch through its read gap (`admits`).
         let reads_itself = pictures || matches!(origin, Origin::Simulator { .. });
         let mut stamper = reads_itself.then(|| ReadStamper::new(epoch));
         if let Some(stamper) = &mut stamper {
@@ -240,7 +263,11 @@ impl Sources {
                 encode: 0,
                 recording: None,
                 pictures,
+                newest_picture: epoch,
                 encoder: None,
+                received: 0,
+                syncs: Vec::new(),
+                flushed: None,
             },
         );
         status(out, id, Status::Starting, None, None);
@@ -283,8 +310,72 @@ impl Sources {
         self.by_id.get(id).is_some_and(|s| s.encoder == Some(token))
     }
 
+    /// An older daemon sent a JPEG source's picture on the control lane, which this build no
+    /// longer reads: the source ends, once, saying why, so its views don't wait on nothing.
+    pub fn needs_picture_ingest(&mut self, id: &str, out: &mut Vec<Effect>) {
+        let Some(source) = self.by_id.get_mut(id) else {
+            return;
+        };
+        if !source.pictures || matches!(source.status, Status::Ended) {
+            return;
+        }
+        log(
+            out,
+            Level::Warn,
+            "source.picture skipped: this ace-media takes pictures on the ingest only",
+            &source.id,
+        );
+        source.status = Status::Ended;
+        status(
+            out,
+            &source.id,
+            Status::Ended,
+            Some(PICTURE_INGEST_REQUIRED),
+            None,
+        );
+    }
+
     pub fn bound(&self, conn: IngestId) -> Option<&str> {
         self.bindings.get(&conn).map(String::as_str)
+    }
+
+    /// Whether a frame off `conn` may go anywhere (the still cache, the encoder, egress), and a
+    /// JPEG source's picture stamped for all of them alike. A picture captured in an epoch older
+    /// than the newest one of its source was captured before a privacy change and came late: it
+    /// is dropped before any of them, never cached, encoded, recorded or shown. One that passes
+    /// keeps its own epoch, except within the read gap after the daemon applies the epoch that
+    /// follows a private one: then it takes the private one.
+    pub fn admits(
+        &mut self,
+        conn: IngestId,
+        frame: &mut MediaFrame,
+        now_ms: u64,
+        out: &mut Vec<Effect>,
+    ) -> bool {
+        let Some(source) = self
+            .bindings
+            .get(&conn)
+            .and_then(|id| self.by_id.get_mut(id))
+        else {
+            return true;
+        };
+        if !source.pictures || frame.kind != KIND_PICTURE {
+            return true;
+        }
+        if frame.epoch < source.newest_picture {
+            log(
+                out,
+                Level::Debug,
+                "a picture from an earlier privacy epoch was dropped",
+                &source.id,
+            );
+            return false;
+        }
+        source.newest_picture = frame.epoch;
+        if let Some(private) = source.stamper.as_ref().and_then(|s| s.holding(now_ms)) {
+            frame.epoch = private.min(frame.epoch);
+        }
+        true
     }
 
     /// `source.close`.
@@ -319,13 +410,36 @@ impl Sources {
         if let Some(conn) = source.ingest.take() {
             self.bindings.remove(&conn);
             out.push(Effect::CloseIngest(conn));
-            source.egress.end(source.handle, false, egress);
+            // An encoding JPEG source's ingest is only its input: its marker follows the
+            // encoder's last unit, once it has drained.
+            if source.encoder.is_none() {
+                source.egress.end(source.handle, false, egress);
+            }
         }
         if let Some(recording) = source.recording.take() {
             finish(recording, &mut self.ended, out);
         }
         if let Some(token) = source.encoder {
             // Pictures already handed over may still come out: wait for the encoder's word.
+            out.push(Effect::Encode(EncodeEffect::Drain {
+                source: id.to_owned(),
+                token,
+            }));
+            self.draining
+                .insert(id.to_owned(), (source, now.saturating_add(DRAIN_MS)));
+        }
+    }
+
+    /// A JPEG source whose producer ended gracefully: it closes as `source.close` would close it,
+    /// its marker waiting for the encoder's drain (bounded by [`DRAIN_MS`]).
+    fn drain(&mut self, id: &str, now: u64, out: &mut Vec<Effect>) {
+        let Some(mut source) = self.by_id.remove(id) else {
+            return;
+        };
+        if let Some(recording) = source.recording.take() {
+            finish(recording, &mut self.ended, out);
+        }
+        if let Some(token) = source.encoder {
             out.push(Effect::Encode(EncodeEffect::Drain {
                 source: id.to_owned(),
                 token,
@@ -371,7 +485,8 @@ impl Sources {
             + self.stuck
     }
 
-    /// The encoder of a closed JPEG source handed over its last output.
+    /// The encoder of a closed JPEG source handed over its last output, or that of an open one
+    /// a barrier flushed: the barrier may hold now, and the encoder thread ends.
     pub fn encoder_drained(
         &mut self,
         id: &str,
@@ -379,6 +494,19 @@ impl Sources {
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
+        if let Some(source) = self
+            .by_id
+            .get_mut(id)
+            .filter(|s| s.encoder == Some(token) && s.flushed == Some(false))
+        {
+            source.flushed = Some(true);
+            source.encoder = None;
+            out.push(Effect::Encode(EncodeEffect::Close {
+                source: id.to_owned(),
+                token,
+            }));
+            return self.synced(id, out);
+        }
         self.drained(id, Some(token), false, egress, out);
     }
 
@@ -454,6 +582,21 @@ impl Sources {
                 encode,
             }));
         }
+    }
+
+    /// Stamps a unit `id`'s reader read (a Simulator ace-media reads itself) with the source's
+    /// epoch, as `encoded` does; false, leaving it alone, when `id` isn't such a source.
+    pub fn stamp_read(&self, id: &str, frame: &mut MediaFrame, now_ms: u64) -> bool {
+        let Some(stamper) = self
+            .by_id
+            .get(id)
+            .filter(|s| !s.pictures)
+            .and_then(|s| s.stamper.as_ref())
+        else {
+            return false;
+        };
+        frame.epoch = stamper.stamp(now_ms);
+        true
     }
 
     /// A unit the source's encoder finished: it goes where an ingested unit goes.
@@ -543,57 +686,6 @@ impl Sources {
         }
     }
 
-    /// `source.picture`: a screencast frame the daemon passes on, read by ace-media as producer.
-    #[allow(clippy::too_many_arguments)]
-    pub fn picture(
-        &mut self,
-        id: &str,
-        epoch: u32,
-        age_ms: u32,
-        payload: Vec<u8>,
-        now: Now,
-        egress: &mut dyn EgressSink,
-        out: &mut Vec<Effect>,
-    ) {
-        let Some(source) = self.by_id.get(id) else {
-            return;
-        };
-        // The stricter of the two stamps: a lower epoch is never released by a later decision.
-        let stamped = source
-            .stamper
-            .as_ref()
-            .map_or(epoch, |s| s.stamp(now.mono_ms).min(epoch));
-        if let Some(token) = source.encoder {
-            out.push(Effect::Encode(EncodeEffect::Picture {
-                source: id.to_owned(),
-                token,
-                text: payload,
-                epoch: stamped,
-                age_us: age_ms.saturating_mul(1000),
-            }));
-            return;
-        }
-        let frame = MediaFrame {
-            kind: KIND_PICTURE,
-            flags: FLAG_KEYFRAME,
-            age_us: 0,
-            width: 0,
-            height: 0,
-            display_width: 0,
-            display_height: 0,
-            scale: 1000,
-            rotation: 0,
-            codec: CODEC_JPEG,
-            encode: 0,
-            epoch: stamped,
-            codec_string: String::new(),
-            description: Vec::new(),
-            extension: Vec::new(),
-            payload,
-        };
-        self.unit(id, frame, now, egress, out);
-    }
-
     /// `source.epoch`, for sources ace-media produces: stamp `epoch` from now on, then
     /// acknowledge it.
     pub fn epoch(
@@ -645,7 +737,8 @@ impl Sources {
             .filter(|r| r.id == *recording);
         if let Some(live) = live {
             live.barrier.decide(decision, now, &mut self.events);
-            return self.release(id.get(), out);
+            self.release(id.get(), out);
+            return self.synced(id.get(), out);
         }
         let key = recording.get();
         let running = self
@@ -685,13 +778,45 @@ impl Sources {
         let Some(id) = self.bindings.get(&conn).cloned() else {
             return out.push(Effect::CloseIngest(conn));
         };
+        // A picture source's JPEGs come on its own ingest connection, bounded there, and go to its
+        // encoder as they are (no base64, no control-lane frame).
+        if frame.kind == KIND_PICTURE
+            && frame.codec == CODEC_JPEG
+            && let Some(source) = self.by_id.get_mut(&id)
+            && source.pictures
+            && let Some(token) = source.encoder
+        {
+            source.received += 1;
+            // The epoch the picture was captured in, admitted already (`admits`): the encoder
+            // takes it as the still cache and egress do.
+            out.push(Effect::Encode(EncodeEffect::Picture {
+                source: id.clone(),
+                token,
+                jpeg: frame.payload,
+                epoch: frame.epoch,
+                age_us: frame.age_us,
+            }));
+            return self.synced(&id, out);
+        }
         match frame.kind {
-            KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => self.unit(&id, frame, now, egress, out),
+            KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => {
+                self.unit(&id, frame, now, egress, out);
+                if let Some(source) = self.by_id.get_mut(&id) {
+                    source.received += 1;
+                }
+                self.synced(&id, out);
+            }
             KIND_END => {
                 self.bindings.remove(&conn);
                 out.push(Effect::CloseIngest(conn));
                 if let Some(source) = self.by_id.get_mut(&id) {
                     source.ingest = None;
+                    // An encoding JPEG source's last picture is in: its encoder hands over what
+                    // it still holds, and the clean marker follows that (`drained`), so a
+                    // graceful end never loses the last pictures.
+                    if source.encoder.is_some() {
+                        return self.drain(&id, now.mono_ms, out);
+                    }
                     source.status = Status::Ended;
                     source.egress.end(source.handle, false, egress);
                     status(out, &source.id, Status::Ended, None, None);
@@ -724,8 +849,92 @@ impl Sources {
             vault.erase(token);
         }
         source.ingest = Some(conn);
+        source.received = 0;
         self.bindings.insert(conn, source.id.get().to_owned());
+        if self.report_ingest {
+            normal(
+                out,
+                FromMedia::SourceIngest {
+                    source: source.id.clone(),
+                },
+            );
+        }
         true
+    }
+
+    /// `source.sync`: answered once the source has taken `frames` frames from its producer and
+    /// its recording decided `decided` (at once, if both already hold).
+    pub fn sync(
+        &mut self,
+        id: &Id,
+        seq: Sequence,
+        frames: u64,
+        decided: u32,
+        out: &mut Vec<Effect>,
+    ) {
+        let Some(source) = self.by_id.get_mut(id.get()) else {
+            return;
+        };
+        if source.syncs.len() >= MAX_SYNCS {
+            source.syncs.remove(0);
+        }
+        source.syncs.push((seq, frames, decided));
+        self.synced(id.get(), out);
+    }
+
+    /// Answers every barrier of `id` that now holds.
+    fn synced(&mut self, id: &str, out: &mut Vec<Effect>) {
+        let Some(source) = self.by_id.get_mut(id) else {
+            return;
+        };
+        if source.syncs.is_empty() {
+            return;
+        }
+        // Pictures counted as received may still be in the encoder: once every picture a barrier
+        // names is in (its control message can outrun the last of them on the ingest socket),
+        // the encoder hands them all over first, and the barrier holds only after that.
+        if source.pictures
+            && source.flushed.is_none()
+            && let Some(token) = source.encoder
+        {
+            if !source
+                .syncs
+                .iter()
+                .any(|(_, frames, _)| source.received >= *frames)
+            {
+                return;
+            }
+            source.flushed = Some(false);
+            out.push(Effect::Encode(EncodeEffect::Drain {
+                source: id.to_owned(),
+                token,
+            }));
+            return;
+        }
+        if source.flushed == Some(false) {
+            return;
+        }
+        let received = source.received;
+        let recording = source.recording.as_ref();
+        let (held, waiting): (Vec<_>, Vec<_>) =
+            source.syncs.drain(..).partition(|(_, frames, decided)| {
+                // Every counted frame settled: decided, and none held (clear audio waiting on
+                // a video fragment is neither written nor dropped yet).
+                received >= *frames
+                    && recording.is_none_or(|r| {
+                        r.barrier.decided(*decided).is_some() && r.barrier.held() == 0
+                    })
+            });
+        source.syncs = waiting;
+        for (seq, _, _) in held {
+            normal(
+                out,
+                FromMedia::SourceSynced {
+                    source: source.id.clone(),
+                    seq,
+                },
+            );
+        }
     }
 
     /// The producer's connection ended without an end-of-source frame.
@@ -743,7 +952,10 @@ impl Sources {
             return;
         };
         source.ingest = None;
-        source.egress.end(source.handle, true, egress);
+        // An encoding JPEG source's output is its encoder's, which goes on: only its input went.
+        if source.encoder.is_none() {
+            source.egress.end(source.handle, true, egress);
+        }
         source.drops += 1;
         source.status = Status::Retrying;
         status(
@@ -791,6 +1003,10 @@ impl Sources {
         source
             .egress
             .unit(&source.id, source.handle, &frame, egress, out);
+        // A recording is of encoded samples: a picture (one no encoder took) is for stills.
+        if frame.kind == KIND_PICTURE {
+            return;
+        }
         let Some(recording) = &mut source.recording else {
             return;
         };

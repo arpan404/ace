@@ -1,3 +1,4 @@
+import { useFakeMediaSockets } from "@/lib/video/media.ts";
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
 import { fakeMarket } from "./fake-market.ts";
@@ -13,6 +14,7 @@ import {
   devWorld,
   showcaseWorld,
   fakeTransport,
+  fakeMediaInstance,
   hostFolders,
   refusedDelegation,
   seedInterruptedTurn,
@@ -48,6 +50,8 @@ import { seedFleetUpdates } from "./fake-updates.ts";
 import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
+import { seedFakeOrgSpade } from "./fake-org-spade.ts";
+import { fakeOrgHostId } from "./fake-orgs.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
 import {
   fakeMachineAccount,
@@ -253,9 +257,12 @@ export function bootFake(): {
   // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
   Object.assign(globalThis, { ["ace" in globalThis ? "aceFake" : "ace"]: { daemon, client } });
   // A build server with its own folders, so Add project offers a machine picker.
+  // `?fakeWorld=org`: the build server is Acme Robotics' host, under its relay id.
+  const orgWorld = world === "org";
+  const serverId = orgWorld ? fakeOrgHostId : "build-server";
   const server = new FakeDaemon({
     clock: () => Date.now(),
-    hostId: "build-server",
+    hostId: serverId,
     displayName: "Build server",
     projectScheduler: (callback) => void setTimeout(callback, 700),
   });
@@ -292,6 +299,8 @@ export function bootFake(): {
   seedBuildServerUsage(server, Date.now());
   // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
   if (world === "spade") seedFakeSpade(daemon, server);
+  // `?fakeWorld=org`: the Spade world, with the build server's Spade one of Acme Robotics'.
+  if (orgWorld) seedFakeSpade(daemon, server, (remote) => seedFakeOrgSpade(remote, Date.now()));
   // `?fakeWorld=mentions`: the Spade world, and a thread that asked its bots (ADR 0198).
   if (world === "mentions") seedFakeMentions(daemon, seedFakeSpade(daemon, server), server);
   if (world === "cross-device") seedMachineChildren(daemon, server);
@@ -307,6 +316,14 @@ export function bootFake(): {
     },
   );
   if (!empty) seedLimitReadings(daemon, Date.now());
+  // Live views get pictures only from ace-media (X3): each fake machine's media connections open
+  // in this page.
+  const byInstance = new Map([daemon, server].map((one) => [one.media.instance, one]));
+  useFakeMediaSockets((url, events) => {
+    const owner = byInstance.get(fakeMediaInstance(url) ?? "");
+    if (!owner) throw new Error(`No fake machine for ${url}`);
+    return owner.media.socket(url, events);
+  });
   // This Mac is signed in to the fake ace account, so Fleet shows it reachable from anywhere,
   // and one pairing link waits for a device.
   (daemon.access.machineAccount ??= fakeMachineAccount()).signIn(fakeOrigin, fakePerson);
@@ -328,7 +345,7 @@ export function bootFake(): {
       }),
     away,
     // The build server is reached over the tailnet, as the Fleet map draws it.
-    { "build-server": "ws://100.64.0.7:4242" },
+    { [serverId]: "ws://100.64.0.7:4242" },
   ).then((fake) => fake.pool);
   return {
     client,

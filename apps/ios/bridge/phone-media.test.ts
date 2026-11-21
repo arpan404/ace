@@ -114,7 +114,7 @@ test("a new main session closes the old media connection and asks for a new one"
   media.stop();
 });
 
-test("a daemon that refuses media.connect keeps every picture on the main socket", async () => {
+test("a daemon that refuses media.connect leaves the live views a reason they get no pictures", async () => {
   const asked = nativeSockets();
   const main = session(async () => {
     throw new ClientError("protocol", "Unknown message type");
@@ -122,8 +122,9 @@ test("a daemon that refuses media.connect keeps every picture on the main socket
   const media = phoneMedia(main.owner, { schedule: never, now: () => 0, codecs: () => [] });
   await later();
   expect(asked.filter((entry) => entry.action === "open")).toEqual([]);
-  expect(media.connection.state).toMatchObject({ state: "legacy" });
+  expect(media.connection.state).toMatchObject({ state: "unavailable" });
   expect(media.route.binding()).toBeUndefined();
+  expect(media.route.unavailable?.()).toMatch(/\.$/);
   media.stop();
 });
 
@@ -170,7 +171,7 @@ test("through the relay the phone opens a media stream, says the ticket in its h
   media.stop();
 });
 
-test("a relay stream the daemon refuses leaves every picture on the main socket", async () => {
+test("a relay stream the daemon refuses leaves the connection unavailable and the views saying why", async () => {
   const asked = nativeSockets();
   const media = throughRelay(session(async () => relayed("mc_aaaaaaaa")));
   await later();
@@ -179,7 +180,8 @@ test("a relay stream the daemon refuses leaves every picture on the main socket"
   await later();
   socketEvent(id, "message", JSON.stringify({ type: "error", code: "media-ticket" }));
   expect(media.route.binding()).toBeUndefined();
-  expect(media.connection.state).toMatchObject({ state: "legacy", reason: "relay-refused" });
+  expect(media.connection.state).toMatchObject({ state: "unavailable", reason: "relay-refused" });
+  expect(media.route.unavailable?.()).toBeTruthy();
   expect(asked).toContainEqual(expect.objectContaining({ id, action: "close" }));
   media.stop();
 });
@@ -229,6 +231,7 @@ test("Swift hears deliveries in the order they were set, a restored earlier gene
     revision: number;
     path: string | null;
     poster: string | null;
+    waiting: string | null;
   }[] = [];
   native.calls.set("media.delivery", (input) => {
     told.push(input as (typeof told)[number]);
@@ -239,15 +242,18 @@ test("Swift hears deliveries in the order they were set, a restored earlier gene
     now: () => 0,
     codecs: () => [],
   });
-  media.deliver("screen", { source: "app", generation: 7, path: "channel" });
-  media.deliver("screen", { source: "app", generation: 8, path: undefined });
+  const starting = { code: "restarting", reason: "Live video is starting." };
+  media.deliver("screen", { source: "app", generation: 7, path: "mc_aaaaaaaa" });
+  media.deliver("screen", { source: "app", generation: 8, path: undefined, undelivered: starting });
   // Subscribe 8 failed and the client fell back to the delivery it replaced.
-  media.deliver("screen", { source: "app", generation: 7, path: "channel" });
+  media.deliver("screen", { source: "app", generation: 7, path: "mc_aaaaaaaa" });
   await later();
-  expect(told.map(({ generation, revision, path }) => [generation, revision, path])).toEqual([
-    [7, 1, "channel"],
-    [8, 2, null],
-    [7, 3, "channel"],
+  expect(
+    told.map(({ generation, revision, path, waiting }) => [generation, revision, path, waiting]),
+  ).toEqual([
+    [7, 1, "mc_aaaaaaaa", null],
+    [8, 2, null, "Live video is starting."],
+    [7, 3, "mc_aaaaaaaa", null],
   ]);
   native.calls.delete("media.delivery");
   media.stop();
