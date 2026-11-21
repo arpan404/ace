@@ -153,6 +153,9 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
   let runtime: MediaRuntime | undefined;
   /** Why ace-media didn't start, until a later try does: what live views and recordings say. */
   let failure: string | undefined;
+  /** Failed starts in a row, and when the next try may run: 1 s doubling to 60 s. */
+  let failures = 0;
+  let retryAt = 0;
   let starting: Promise<void> | undefined;
   let closed = false;
   let runtimeDir: string | undefined;
@@ -165,8 +168,10 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
   let relayPort: RuntimeRelayPort | undefined;
   const acceleration = new MediaAccelerationStore();
 
-  const start = () =>
-    (starting ??= (async () => {
+  const start = () => {
+    // Within the cooldown after a failed start, every ask gets the cached reason: no new try.
+    if (!starting && failure !== undefined && performance.now() < retryAt) return Promise.resolve();
+    return (starting ??= (async () => {
       const { stdout } = await promisify(execFile)(binary, ["--version"], { timeout: 5_000 });
       if (closed) return;
       runtimeDir = mkdtempSync(join(tmpdir(), "acem-"));
@@ -196,12 +201,16 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
         if (slot.codecs) slot.source.codecs(slot.codecs);
       }
       failure = undefined;
+      failures = 0;
       runtime.settingsChanged();
     })().catch((error: unknown) => {
       starting = undefined;
       failure = mediaFailure(error);
+      retryAt = performance.now() + Math.min(1_000 * 2 ** failures, 60_000);
+      failures++;
       context.log.log("warn", `ace-media is not available: ${String(error)}`);
     }));
+  };
 
   // ace-media is the only media path: it starts with the daemon, reading no setting.
   void start();

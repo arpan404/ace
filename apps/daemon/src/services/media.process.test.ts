@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,6 +128,60 @@ it.skipIf(process.platform === "win32" || !existsSync("/bin/false"))(
       code: "unavailable",
       message: delivery?.unserved("tab"),
     });
+  },
+  30_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "a binary that fails at once is tried again only after a cooldown, however often clients ask",
+  async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "ace-media-cooldown-"));
+    cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
+    const resources = new Resources();
+    cleanups.push(() => resources.close());
+    // Each run of this "ace-media" leaves a line, then fails at once.
+    const runs = join(dataDir, "runs");
+    const fake = join(dataDir, "ace-media");
+    await writeFile(fake, `#!/bin/sh\necho run >> ${JSON.stringify(runs)}\nexit 1\n`);
+    await chmod(fake, 0o755);
+    const count = async () => (await readFile(runs, "utf8").catch(() => "")).split("\n").length - 1;
+    const before = process.env.ACE_MEDIA_PATH;
+    process.env.ACE_MEDIA_PATH = fake;
+    cleanups.push(() => {
+      if (before === undefined) delete process.env.ACE_MEDIA_PATH;
+      else process.env.ACE_MEDIA_PATH = before;
+    });
+    const media = startMedia({
+      services: {},
+      id: () => "id",
+      resources,
+      config: { dataDir },
+      log: createLogger({
+        now: () => 0,
+        redact: (value) => value,
+        sink: { write: async () => {}, close: async () => {} },
+      }),
+    });
+    if (!media) throw new Error("the binary was not found");
+    await until(() => media.delivery() !== undefined, 10_000);
+    expect(await count()).toBe(1);
+    const owner = {
+      session: "s1",
+      device: "phone",
+      admission: { kind: "pairing", generation: "g1" },
+    } as const;
+    // A burst of clients asking for media connections: each is told why, none starts another.
+    const answers = await Promise.all(
+      Array.from({ length: 10 }, () => media.delivery()?.connect(owner)),
+    );
+    for (const answer of answers) expect(answer).toMatchObject({ ok: false, code: "unavailable" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await count()).toBe(1);
+    // Past the first cooldown (1 s), one more ask tries once more.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await media.delivery()?.connect(owner);
+    await until(() => false, 300).catch(() => {});
+    expect(await count()).toBe(2);
   },
   30_000,
 );
