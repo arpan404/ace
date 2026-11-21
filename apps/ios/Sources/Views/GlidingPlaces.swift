@@ -27,6 +27,8 @@ struct GlidingPlaces<Place: View>: View {
     @State private var width: CGFloat = 0
     /// When the finger now down touched down, for telling a tap from a press (`TabGlide.release`).
     @State private var touchedDown: Date?
+    /// Counts places picked through VoiceOver, so they get the selection haptic a finger does.
+    @State private var accessibilityPicks = 0
     @Environment(\.aceReduceMotion) private var reduceMotion
 
     init(places: [InboxTab], chosen: InboxTab, spacing: CGFloat,
@@ -49,7 +51,10 @@ struct GlidingPlaces<Place: View>: View {
             ForEach(Array(places.enumerated()), id: \.element) { index, item in
                 place(item, index == lit)
                     .accessibilityAddTraits(item == chosen ? [.isSelected, .isButton] : .isButton)
-                    .accessibilityAction { select(item) }
+                    .accessibilityAction {
+                        accessibilityPicks += 1
+                        select(item)
+                    }
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -60,6 +65,7 @@ struct GlidingPlaces<Place: View>: View {
         // A selection tap for each place the finger passes, and for a tap's press; none for a
         // place chosen elsewhere.
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: lit) { _, _ in finger != nil }
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: accessibilityPicks)
     }
 
     @ViewBuilder private func fill(_ glide: TabGlide, lit: Int, chosen: Int) -> some View {
