@@ -33,6 +33,7 @@ pub mod outward;
 pub mod oversight;
 pub mod package;
 pub mod panel;
+pub mod permission;
 pub mod personality;
 pub mod provenance;
 pub mod quality;

@@ -44,8 +44,11 @@ export function sheetFixture(
 export class RecordingSink implements PatchSink {
   readonly readers = new Map<string, () => Record<string, unknown> | undefined>();
   puts = 0;
+  /** Puts by key, to tell which patch a change sent again. */
+  readonly putsOf = new Map<string, number>();
   put(key: string, read: () => Record<string, unknown> | undefined): void {
     this.puts++;
+    this.putsOf.set(key, (this.putsOf.get(key) ?? 0) + 1);
     this.readers.set(key, read);
   }
   clear(prefix: string): void {

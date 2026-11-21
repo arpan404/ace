@@ -27,6 +27,8 @@ private final class CloudStubServer: @unchecked Sendable {
     private var port: UInt16 = 0
     /// When true, `GET /v1/account/login/<id>` returns `pending` so cancellation can be tested.
     var keepLoginPending = false
+    /// The status `DELETE /v1/account` answers, with `{"error":"person_session_required"}` on 403.
+    var deleteAccountStatus = 200
 
     init() throws {
         listener = try NWListener(using: .tcp, on: .any)
@@ -99,7 +101,8 @@ private final class CloudStubServer: @unchecked Sendable {
                     return
                 }
                 let (contentType, body) = response(method: method, path: path)
-                let reply = "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+                let status = method == "DELETE" && path == "/v1/account" ? lock.withLock { deleteAccountStatus } : 200
+                let reply = "HTTP/1.1 \(status) Status\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(reply.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
                 return
             }
@@ -138,6 +141,10 @@ private final class CloudStubServer: @unchecked Sendable {
         }
         if method == "DELETE", path == "/v1/account/session" {
             return ("application/json", Data(#"{"ok":true}"#.utf8))
+        }
+        if method == "DELETE", path == "/v1/account" {
+            let refused = lock.withLock { deleteAccountStatus } == 403
+            return ("application/json", Data((refused ? #"{"error":"person_session_required"}"# : #"{"deleted":true}"#).utf8))
         }
         if method == "GET", path == "/v1/account/picture" {
             return ("image/png", Data([0x89, 0x50, 0x4E, 0x47]))
@@ -379,6 +386,24 @@ private final class CloudStubServer: @unchecked Sendable {
         #expect(unnamed.account?.email == "ada@example.com")
         let unnamedSession = try #require(server.recorded.last { $0.method == "GET" && $0.path == "/v1/account/session" })
         #expect(unnamedSession.aceClient == nil)
+    }
+
+    @MainActor
+    @Test func deletingFromASessionTheBackendWontLetDeleteSaysToSignInAgainAndKeepsTheAccount() async throws {
+        let server = try CloudStubServer()
+        let origin = try await server.start()
+        defer { server.stop() }
+        server.deleteAccountStatus = 403
+        let secrets = MemorySecrets()
+        try secrets.set(origin.absoluteString, testToken43)
+        let model = AceAccountModel(secrets: secrets, origin: origin, allowLoopback: true)
+        await model.restore()
+        #expect(await model.deleteAccount() == false)
+        #expect(model.account?.email == "ada@example.com")
+        #expect(model.error == "Sign out and sign in again on this phone, then delete your account.")
+        server.deleteAccountStatus = 200
+        #expect(await model.deleteAccount())
+        #expect(model.account == nil)
     }
 
     @Test func relaySocketSendsAceClientOnDaemonAndMediaUpgradesAndWorksWithoutIt() async throws {

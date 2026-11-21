@@ -1,3 +1,5 @@
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 
 use super::*;
@@ -13,13 +15,16 @@ fn daemon_signed() -> (Value, Value) {
 #[test]
 fn a_card_signed_over_its_canonical_form_verifies_with_its_publishers_key() {
     let (card, keys) = daemon_signed();
-    assert!(matches!(verify(&card, &keys), Signed::Verified { .. }));
+    assert!(matches!(
+        verify(&card, &[Ok(keys.clone())]),
+        Signed::Verified { .. }
+    ));
     assert_eq!(
-        key_set_address(&card).as_deref(),
-        Some("https://agents.example.com/jwks.json")
+        key_set_addresses(&card),
+        vec![Some("https://agents.example.com/jwks.json".to_owned())]
     );
     assert_eq!(
-        verify(&card, &keys).words(),
+        verify(&card, &[Ok(keys.clone())]).words(),
         "Signed by its publisher's key"
     );
 }
@@ -29,7 +34,7 @@ fn a_card_changed_after_signing_or_unsigned_reads_not_signed() {
     let (card, keys) = daemon_signed();
     let mut tampered = card.clone();
     tampered["skills"][0]["description"] = json!("Books a trip and pays for it");
-    let read = verify(&tampered, &keys);
+    let read = verify(&tampered, &[Ok(keys.clone())]);
     assert!(
         matches!(&read, Signed::No(why) if why.contains("changed after it was signed")),
         "{read:?}"
@@ -38,12 +43,15 @@ fn a_card_changed_after_signing_or_unsigned_reads_not_signed() {
 
     let mut unsigned = card.clone();
     unsigned.as_object_mut().map(|c| c.remove("signatures"));
-    assert!(matches!(verify(&unsigned, &keys), Signed::No(_)));
+    assert!(matches!(
+        verify(&unsigned, &[Ok(keys.clone())]),
+        Signed::No(_)
+    ));
 
     // Another key than the one its header names.
     let mut other = keys.clone();
     other["keys"][0]["kid"] = json!("someone-else");
-    assert!(matches!(verify(&card, &other), Signed::No(why) if why.contains("no key")));
+    assert!(matches!(verify(&card, &[Ok(other)]), Signed::No(why) if why.contains("no key")));
 }
 
 #[test]
@@ -124,4 +132,28 @@ fn a_card_spade_cant_call_is_refused_with_why() {
         let refused = read(&card(extra.clone())).err().unwrap_or_default();
         assert!(refused.contains(want), "{extra}: {refused}");
     }
+}
+
+#[test]
+fn each_signature_is_checked_only_against_its_own_key_set() {
+    let (card, keys) = daemon_signed();
+    let real = card["signatures"][0].clone();
+    let other = json!({
+        "protected": URL_SAFE_NO_PAD.encode(r#"{"alg":"ES256","kid":"other","jku":"https://agents.example.com/other.json"}"#),
+        "signature": "AA",
+    });
+    let mut two = card.clone();
+    two["signatures"] = json!([other, real]);
+    // The real signature's own keys couldn't be had: the first one's keys, which hold its key,
+    // don't vouch for it.
+    let elsewhere = Err("its signature names keys on another address than its card's".to_owned());
+    let read = verify(&two, &[Ok(keys.clone()), elsewhere]);
+    assert!(
+        matches!(&read, Signed::No(why) if why.contains("another address")),
+        "{read:?}"
+    );
+    assert!(matches!(
+        verify(&two, &[Err("unread".to_owned()), Ok(keys)]),
+        Signed::Verified { .. }
+    ));
 }

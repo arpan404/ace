@@ -6,14 +6,14 @@
 use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_core::package::link::{Link, PackageId};
 
-use super::body::Body;
+use super::body::{Body, Digested};
 use super::{AppState, off_thread, problem};
 use crate::packages::envelope::{self, Envelope};
 use crate::packages::{self, PackageError, apply::Step, held::Asked};
@@ -42,6 +42,7 @@ fn refused(error: &PackageError) -> Response {
         PackageError::Invalid(_) | PackageError::Unproven(_) => StatusCode::BAD_REQUEST,
         PackageError::Refused(_) => StatusCode::FORBIDDEN,
         PackageError::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        PackageError::PersonOnly(_) => StatusCode::FORBIDDEN,
     };
     let message = error.to_string();
     (status, Json(json!({ "error": message, "detail": message }))).into_response()
@@ -272,10 +273,15 @@ struct SwitchBody {
 async fn switch(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     member: Option<axum::Extension<super::org_guard::Stamped>>,
-    Body(body): Body<SwitchBody>,
+    Digested(body, digest): Digested<SwitchBody>,
 ) -> Response {
     let by = member.map(|axum::Extension(super::org_guard::Stamped(member))| member);
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     off_thread(move || {
         // A shared bot's switch goes on only as far as its organization's policy lets this
         // member turn it on (ADR 0206 §3); turning one off always narrows.
@@ -284,8 +290,24 @@ async fn switch(
         {
             return refused(&PackageError::Refused(why.to_owned()));
         }
+        // Turning one on takes the person's stamp over this change, or on a shared bot the
+        // member whose `configure` stamp let it through (ADR 0171 amendment 7, ADR 0206 §2.3).
+        let says = || {
+            by.is_some()
+                || state.engine.person_says(
+                    stamp.as_deref(),
+                    &id,
+                    &format!("package_effect:{digest}"),
+                )
+        };
         crate::org::acting::as_member(by.as_ref(), || {
-            answer(packages::set_switch(&state.engine, &id, &body.key, body.on))
+            answer(packages::set_switch(
+                &state.engine,
+                &id,
+                &body.key,
+                body.on,
+                &says,
+            ))
         })
     })
     .await

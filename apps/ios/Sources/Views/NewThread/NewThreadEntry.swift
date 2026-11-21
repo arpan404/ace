@@ -7,8 +7,9 @@ import SwiftUI
 struct NewThreadEntry: ViewModifier {
     @Bindable var inbox: MachineInbox
     @Binding var composing: Bool
-    /// The project the inbox is filtered to, which the sheet starts on.
-    let project: String
+    /// The project the inbox is filtered to, as the machine the sheet opens on has it, which
+    /// the sheet starts on; nil for none.
+    let project: (String) -> String?
     let open: (InboxKey) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var awaiting: (machineId: String, commandId: String)?
@@ -30,7 +31,7 @@ struct NewThreadEntry: ViewModifier {
                 NewThreadSheetHost(inbox: inbox, saved: { machineId, commandId, draft in
                     awaiting = (machineId, commandId)
                     sent = draft
-                }, initialProject: project.isEmpty ? nil : project)
+                }, initialProject: project)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .task(id: awaiting?.commandId) {
@@ -175,7 +176,8 @@ struct NewThreadEntry: ViewModifier {
 private struct NewThreadSheetHost: View {
     @Bindable var inbox: MachineInbox
     let saved: (_ machineId: String, _ commandId: String, _ sent: NewThreadDraft) -> Void
-    let initialProject: String?
+    /// The project to start on, as the machine the sheet opens on has it.
+    let initialProject: (String) -> String?
     @State private var drafts: NewThreadDraftModel?
 
     var body: some View {
@@ -193,7 +195,7 @@ private struct NewThreadSheetHost: View {
 }
 
 extension View {
-    func newThreadEntry(inbox: MachineInbox, composing: Binding<Bool>, project: String, open: @escaping (InboxKey) -> Void) -> some View {
+    func newThreadEntry(inbox: MachineInbox, composing: Binding<Bool>, project: @escaping (String) -> String?, open: @escaping (InboxKey) -> Void) -> some View {
         modifier(NewThreadEntry(inbox: inbox, composing: composing, project: project, open: open))
     }
 }

@@ -76,3 +76,22 @@ test("a finished row keeps its check until this phone reads through its last ans
     finished({ unread: true, readState: { lastSeenSeq: 40, updatedAt: now - minute } }).icon,
   ).toBe("done");
 });
+
+test("a row whose work moved says where it went and opens it there, never its age", () => {
+  const to = { hostId: "studio", name: "Studio", threadId: "there" };
+  const look = inboxLook(
+    thread({ status: { state: "moved", to }, snoozeWoke: undefined, readAt: now }),
+    0,
+    now,
+  );
+  expect(look).toMatchObject({
+    mode: "word",
+    word: "Moved to Studio",
+    meaning: "Moved to Studio",
+    icon: "background",
+    state: "moved",
+    moved: to,
+  });
+  // Every other row says nothing about a move.
+  expect(inboxLook(thread({ snoozeWoke: undefined }), 0, now).moved).toBeNull();
+});

@@ -20,7 +20,6 @@ export function sessionRoot(dataDir: string): string {
 
 export interface PastSessionsOptions {
   instances: HistoryOptions["instances"];
-  spawnWorker?: Parameters<typeof openHistory>[1] | undefined;
   spawnPublicationWorker?: HistoryPublicationWorkerFactory | undefined;
   historyRuntime?: HistoryRuntime | undefined;
   adapters?: HistoryAdapterPort | undefined;
@@ -72,7 +71,6 @@ export class PastSessions {
     try {
       const service = await openHistory(
         { indexPath: join(dir, "index.sqlite"), instances: options.instances },
-        options.spawnWorker,
         options.historyRuntime,
       );
       return new PastSessions(store, dataDir, dir, service, options);

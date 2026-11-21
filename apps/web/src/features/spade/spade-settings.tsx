@@ -1,5 +1,6 @@
 import {
   spadeFirstUsableModel,
+  spadeFirstUsableWords,
   spadeSetupSentence,
   type SpadeModels,
 } from "@ace/ui-core/spade-chat";
@@ -17,7 +18,6 @@ import { VoiceRows } from "./spade-voice-settings.tsx";
 import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
 import { ReachSection } from "./spade-reach-settings.tsx";
 import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
-import { firstUsableWords } from "./spade-model-options.ts";
 import { CouldNotRead, ModelSettingRow, useSpadeRunning } from "./spade-settings-rows.tsx";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -110,7 +110,7 @@ function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
       <ModelSettingRow
         title="Model for new bots"
         value={models.newBotModel}
-        none={firstUsableWords(spadeFirstUsableModel(models.endpoints))}
+        none={spadeFirstUsableWords(spadeFirstUsableModel(models.endpoints))}
         follows={spadeFirstUsableModel(models.endpoints)}
         forBots
         save={saved((model) => setNewBotModel(client, model))}

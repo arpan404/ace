@@ -24,8 +24,11 @@ struct ThreadMenuFacts: Equatable {
     var hasParent = false
     var canStop = false
     var stopping = false
-    /// Continue on another device: shown while devices are linked, enabled once the thread rests.
+    /// Continue on another machine: shown while machines are linked, enabled unless its work
+    /// already moved (a working thread moves live, ADR 0191).
     var continueOn: Bool? = nil
+    /// Why it waits, under it.
+    var continueBlocked: String? = nil
     var snooze: [InboxLayout.SnoozeOption] = []
     /// Nil until the thread's row is held: Snooze and Archive then run on the thread directly.
     var organize: Organize? = nil
@@ -37,7 +40,9 @@ struct ThreadMenuFacts: Equatable {
                                     canStop: screen.controls?.canStop == true, stopping: screen.stopping,
                                     snooze: model.inboxLayout.snooze)
         if model.canOperate, model.transfers.linked, !archived {
-            facts.continueOn = model.transfers.thread(thread.id)?.canContinue == true
+            let state = model.transfers.thread(thread.id)
+            facts.continueOn = state?.canContinue == true
+            facts.continueBlocked = state?.blocked
         }
         if let row = model.inbox[thread.id], let hostId = model.hostId, model.canOperate {
             facts.organize = Organize(key: InboxKey(machineId: hostId, id: thread.id), row: row,
@@ -182,7 +187,7 @@ struct ThreadMenu: View, Equatable {
             Section {
                 Button { model.continueOn(threadId: threadId, title: title) } label: {
                     Text("Continue on…")
-                    if !ready { Text("Available once the thread stops working") }
+                    if !ready, let why = facts.continueBlocked { Text(why) }
                     Image(ace: .desktop)
                 }
                 .disabled(!ready)

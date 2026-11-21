@@ -91,7 +91,7 @@ test("a bot with a goal shows Work with the check's verdict; a bot that only cha
       within(tabs())
         .queryAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Details", "Library", "Computer"]),
+    ).toEqual(["Details", "Library", "Computer", "Permissions"]),
   );
 });
 

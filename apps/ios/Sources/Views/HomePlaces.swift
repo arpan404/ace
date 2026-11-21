@@ -75,7 +75,7 @@ extension View {
         self.sheet(item: sheet) { place in
             SettingsSheet(inbox: inbox, places: places, machines: machines, lock: lock, root: place.root, start: place.start,
                           forgeStart: place.forge)
-                .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
+                .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }))
         }
     }
 }

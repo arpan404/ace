@@ -5,6 +5,7 @@ import { verifyEnclosingRepository } from "./enclosing-repository-guard.ts";
 import { testHomeEnvironment } from "./test-home-environment.ts";
 import { dropNativeFrames } from "./bun-native-frames.ts";
 import type { TestHomeContext } from "./test-home-global-setup.ts";
+import type { HistoryBinaryContext } from "./history-binary-setup.ts";
 
 // Bun's os.homedir() keeps the HOME it started with, while Node's follows process.env, and the
 // per-file home below is set after the worker starts. Under Bun, give code under test Node's
@@ -40,6 +41,9 @@ const env = testHomeEnvironment(
 );
 for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
 Object.assign(process.env, env);
+// The ace-history the process projects built (scripts/history-binary-setup.ts).
+const historyBinary: HistoryBinaryContext["historyBinary"] | undefined = inject("historyBinary");
+if (historyBinary) process.env.ACE_HISTORY_PATH = historyBinary;
 
 // Checked per file, so the failure names a file that ran while the checkout's config changed.
 afterAll(() => {

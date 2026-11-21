@@ -161,6 +161,10 @@ impl Tool for ConnectorCall {
         Some(self.facts())
     }
 
+    fn connected_app(&self) -> bool {
+        true
+    }
+
     /// The connection, its server's address, the server's own tool name and its schema.
     fn identity(&self) -> String {
         format!(

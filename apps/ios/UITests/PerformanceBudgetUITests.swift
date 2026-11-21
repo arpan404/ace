@@ -172,14 +172,25 @@ import XCTest
         // read just before and just after them, over the time the swipes took.
         var lostMs: [Double] = [], spentS: [Double] = []
         measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
-            let lostBefore = app.probeValue("frames.lostMsTotal") ?? 0
+            // Both ends come from a sample the app took after that moment: a missing or stale one
+            // fails the run rather than counting as nothing lost.
+            guard let lostBefore = app.probeSample(takenAfter: Date())?["frames.lostMsTotal"].flatMap(Double.init) else {
+                return XCTFail("no frame sample before the swipes")
+            }
             let began = Date()
             list.swipeDown(velocity: .fast)
             list.swipeDown(velocity: .fast)
             list.swipeUp(velocity: .fast)
             list.swipeUp(velocity: .fast)
-            spentS.append(Date().timeIntervalSince(began))
-            lostMs.append((app.probeValue("frames.lostMsTotal") ?? 0) - lostBefore)
+            let ended = Date()
+            // A late frame is counted on the frame after it, and the app posts its numbers in
+            // batches: only a sample taken a little after the last swipe covers it.
+            guard let lostAfter = app.probeSample(takenAfter: ended.addingTimeInterval(0.2))?["frames.lostMsTotal"]
+                    .flatMap(Double.init) else {
+                return XCTFail("no frame sample covering the last swipe")
+            }
+            spentS.append(ended.timeIntervalSince(began))
+            lostMs.append(lostAfter - lostBefore)
         }
         // The sampler ran while the thread was on screen (it reports every five seconds).
         XCTAssertTrue(app.waitForCount("frames.windows", from: windowsBefore, timeout: 10), "frame sampler never reported")
@@ -353,6 +364,21 @@ private final class HealthBody: @unchecked Sendable {
     func set(_ data: Data?) { lock.withLock { stored = data } }
 }
 
+/// One read of the fixture's `/perf-probe` for a run: its newest text, or empty.
+private enum PerfProbeRead {
+    static func text(port: String, run: String) -> String {
+        guard !run.isEmpty, var url = URLComponents(string: "http://127.0.0.1:\(port)/perf-probe") else { return "" }
+        url.queryItems = [URLQueryItem(name: "run", value: run)]
+        guard let address = url.url else { return "" }
+        let done = DispatchSemaphore(value: 0)
+        let body = HealthBody()
+        URLSession.shared.dataTask(with: address) { data, _, _ in body.set(data); done.signal() }.resume()
+        guard done.wait(timeout: .now() + 5) == .success, let data = body.data,
+              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "" }
+        return reply["text"] as? String ?? ""
+    }
+}
+
 /// The workload the budgets assume; a fixture without it fails the test rather than passing cheaply.
 enum Workload {
     static let longThreadDeltas = 650_000         // ACE_IOS_SPIKE_STREAMED
@@ -413,9 +439,10 @@ extension XCUIElement {
 }
 
 extension XCUIApplication {
-    /// The app's `--perf-probe` numbers.
+    /// The app's `--perf-probe` numbers for this launch, read from the fixture it posts them to
+    /// (`Sources/Spike/PerfProbe.swift`); empty until it has posted.
     var probe: [String: String] {
-        let text = descendants(matching: .any)["perf.probe"].value as? String ?? ""
+        let text = probeText
         var values: [String: String] = [:]
         for pair in text.split(separator: ";") {
             let parts = pair.split(separator: "=", maxSplits: 1)
@@ -423,7 +450,26 @@ extension XCUIApplication {
         }
         return values
     }
+    /// The same numbers as posted, `key=value` pairs joined by `;`.
+    var probeText: String {
+        PerfProbeRead.text(port: launchArgument("--spike-port") ?? "9841", run: launchArgument("--perf-probe-run") ?? "")
+    }
     func probeValue(_ key: String) -> Double? { probe[key].flatMap(Double.init) }
+    /// The probe's numbers once the app has posted a sample taken at or after `time`
+    /// (`probe.at`), or nil if none arrives within `timeout`. While a thread is on screen the app
+    /// samples every quarter second, so a fresh one is never far off.
+    func probeSample(takenAfter time: Date, timeout: TimeInterval = 5) -> [String: String]? {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        repeat {
+            let values = probe
+            if let at = values["probe.at"].flatMap(Double.init), at >= time.timeIntervalSince1970 { return values }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        } while Date() < deadline
+        return nil
+    }
+    private func launchArgument(_ name: String) -> String? {
+        launchArguments.firstIndex(of: name).flatMap { launchArguments.indices.contains($0 + 1) ? launchArguments[$0 + 1] : nil }
+    }
     /// Waits until `key` has a value.
     func waitForProbe(_ key: String, timeout: TimeInterval = 20) -> Double? {
         let deadline = Date(timeIntervalSinceNow: timeout)

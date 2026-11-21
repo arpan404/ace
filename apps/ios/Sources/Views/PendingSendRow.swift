@@ -15,7 +15,7 @@ struct PendingSendRow: View {
     @State private var editor: MessageEditor?
     var body: some View {
         if row.state == "failed" {
-            NotSentMessage(text: row.text, attachments: row.files ?? 0, reason: "", detail: row.detail ?? "",
+            NotSentMessage(text: row.text, attachments: row.files ?? 0, reason: row.reason ?? "", detail: row.detail ?? "",
                            canAct: canRetry, retryLabel: "Retry", removeLabel: "Discard", retry: retry,
                            edit: words.flatMap { read in saveWords.map { write in {
                                editor = MessageEditor(attachments: row.files ?? 0, read: read, write: { words, _ in await write(words) })

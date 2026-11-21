@@ -227,7 +227,7 @@ async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOu
     let Some(tool) = engine.tools.get(name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
-    tool.run(key, arguments).await
+    crate::tools::marked(tool.as_ref(), tool.run(key, arguments)).await
 }
 
 /// Stores something known only here (a job's end, a tool's result, a reply's close), retrying
