@@ -175,7 +175,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    */
   begin(source: string): {
     generation: number;
-    fields: { media?: MediaBinding; codecs?: string[] };
+    fields: { media?: MediaBinding; codecs?: string[]; mediaClient: true };
   } {
     const binding = this.#route?.binding();
     const codecs = this.codecs(source);
@@ -188,10 +188,15 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
       binding && this.#refused.get(source) !== binding.connection ? binding.connection : undefined;
     this.#deliveries.set(source, { generation, asked, via: undefined });
     this.#emit(source);
-    if (!binding || !asked) return { generation, fields: {} };
+    // Every subscribe says this client takes pictures only from a media connection.
+    if (!binding || !asked) return { generation, fields: { mediaClient: true } };
     return {
       generation,
-      fields: { media: binding, ...(codecs.length ? { codecs: codecs.slice(0, 8) } : {}) },
+      fields: {
+        media: binding,
+        ...(codecs.length ? { codecs: codecs.slice(0, 8) } : {}),
+        mediaClient: true,
+      },
     };
   }
   /** The generation of `source`'s current subscribe, if it has one. */

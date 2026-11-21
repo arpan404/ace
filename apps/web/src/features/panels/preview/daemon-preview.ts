@@ -436,6 +436,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           ...(viewport ? { viewport } : {}),
           ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
           ...(binding ? { media: binding } : {}),
+          mediaClient: true,
         },
         binding ? { timeoutMs: lateReplyMs } : undefined,
       );

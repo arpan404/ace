@@ -8,11 +8,12 @@ import { nodeBinary } from "@ace/provider-kit/testing";
 import type { DeviceRuntime } from "./runtime.ts";
 import { ScreenManager } from "@ace/screen";
 import { ThreadId, AgentId } from "@ace/protocol";
-import type { DeviceServerMessage } from "@ace/protocol/devices";
+import { DeviceFailure, DeviceState, type DeviceServerMessage } from "@ace/protocol/devices";
 import { DeviceClient, DeviceClientError, type DeviceTransport } from "./client.ts";
 import { DevicesService, DevicePlatform, reserveDevices, agentOwner } from "./index.ts";
 import type { DevicePeer } from "./bridge.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
+import { updateReason } from "@ace/media/media-viewers";
 
 /*
  * The iOS Simulator live view end to end, minus macOS: a fake `xcrun simctl` keeps the
@@ -666,7 +667,10 @@ it("a subscribe superseded while it is set up never takes its successor's view",
  * serves. Each subscribe's poster does what `posters` says in turn: come at once, fail, or wait
  * until the test lets it go (`release`).
  */
-async function mediaChannel(posters: ("ok" | "fail" | "wait")[]) {
+async function mediaChannel(
+  posters: ("ok" | "fail" | "wait")[],
+  overrides: Partial<ReturnType<typeof fakeDelivery>["port"]> = {},
+) {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const d = fakeDelivery();
@@ -684,6 +688,7 @@ async function mediaChannel(posters: ("ok" | "fail" | "wait")[]) {
       owner: () => phoneOwner,
       port: () => ({
         ...d.port,
+        ...overrides,
         poster: () => {
           const next = posters.shift() ?? "ok";
           if (next === "fail") return Promise.reject(new Error("poster gone"));
@@ -704,8 +709,9 @@ async function mediaChannel(posters: ("ok" | "fail" | "wait")[]) {
     d,
     waiting,
     request,
+    sent,
     subscribe: (requestId: string, connection: string) =>
-      request(requestId, { op: "subscribe", deviceId, media: { connection } }),
+      request(requestId, { op: "subscribe", deviceId, media: { connection }, mediaClient: true }),
     answer: (requestId: string) =>
       sent.find((m) => m.type === "devices.result" && m.requestId === requestId),
   };
@@ -742,4 +748,37 @@ it("of resubscribes in quick succession the last one wins, and only its view is 
   expect(m.answer("c")).toMatchObject({ ok: true });
   expect(m.d.views.size).toBe(1);
   expect([...m.d.live]).toEqual([...m.d.views.keys()]);
+});
+
+it("a device whose own source ace-media can't serve here gets no view and says why, though other kinds are served", async () => {
+  const reason = "This computer can't stream this live view yet.";
+  const m = await mediaChannel([], {
+    sourceKinds: () => ["emulator-frames"],
+    serves: (kind) => kind !== "emulator-frames",
+    unserved: (kind) => (kind === "emulator-frames" ? reason : undefined),
+  });
+  await m.subscribe("watch", "mc_aaaaaaaaaaaa");
+  expect(m.answer("watch")).toMatchObject({
+    ok: true,
+    undelivered: { code: "unavailable", reason },
+  });
+  expect(m.answer("watch")).not.toHaveProperty("media");
+  expect(m.d.views.size).toBe(0);
+});
+
+it("an older client is told to update in the device's error, which it already shows; a current one isn't", async () => {
+  const m = await mediaChannel([]);
+  const errorIn = (requestId: string) => {
+    const answer = m.answer(requestId);
+    if (answer?.type !== "devices.result" || !answer.ok) throw new Error(`${requestId} failed`);
+    // The state as every older client parses it: its error a `DeviceFailure` it shows.
+    const state = DeviceState.parse(answer.data);
+    return state.error && DeviceFailure.parse(state.error).message;
+  };
+  // A pre-X3 client: no `mediaClient`, no media connection.
+  await m.request("old", { op: "subscribe", deviceId });
+  expect(errorIn("old")).toBe(updateReason);
+  // A current client without a connection yet says why itself: no update is asked of it.
+  await m.request("current", { op: "subscribe", deviceId, mediaClient: true });
+  expect(errorIn("current")).toBeUndefined();
 });

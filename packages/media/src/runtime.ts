@@ -161,6 +161,7 @@ export class MediaRuntime {
       serves: (kind) => this.routes.routes()[kind].deliverer === "ace-media",
       unserved: (kind) =>
         undeliveredReason(kind, this.#settings(), this.supervisor.health(), this.#capabilities),
+      sourceKinds: (shows) => this.sources.kinds(shows),
       bind: (intent) => this.viewers.bind(intent),
       granted: (viewer) => this.viewers.granted(viewer),
       poster: (viewer) => this.viewers.poster(viewer),

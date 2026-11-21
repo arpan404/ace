@@ -230,6 +230,8 @@ export type MediaDeliveryPort = {
   serves(kind: import("./routes.ts").SourceKind): boolean;
   /** Why it doesn't, for the person (`undeliveredReason`); undefined while it does. */
   unserved(kind: import("./routes.ts").SourceKind): string | undefined;
+  /** The kinds of the open sources `shows` picks: what a view of them would be fed by. */
+  sourceKinds(shows: ViewIntent["shows"]): import("./routes.ts").SourceKind[];
   /** The view's id, or undefined when the requester doesn't own the connection. */
   bind(request: Omit<ViewIntent, "viewer">): string | undefined;
   granted(viewer: string): boolean;
@@ -322,16 +324,20 @@ export function mediaSubscribed(
  * named no media connection is older than this daemon; otherwise ace-media can't serve the
  * view now. `port` absent: this daemon has no ace-media at all.
  */
+/**
+ * What a client older than X3 is told instead of its live view, in fields it already shows
+ * (`BrowserState.reason`, `ScreenState.error`, `DeviceState.error`): it names no media connection
+ * and can't open one, so no picture will ever come to it.
+ */
+export const updateReason =
+  "Update this app to see live video. This computer now sends it a newer way.";
+
 export function mediaUndelivered(
   named: boolean,
   port: Pick<MediaDeliveryPort, "unserved"> | undefined,
   kinds: readonly import("./routes.ts").SourceKind[],
 ): MediaUndelivered {
-  if (!named)
-    return {
-      code: "update",
-      reason: "Update this app to see live video. This computer now sends it a newer way.",
-    };
+  if (!named) return { code: "update", reason: updateReason };
   if (!port)
     return {
       code: "unavailable",

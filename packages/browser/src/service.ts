@@ -809,6 +809,10 @@ export class BrowserService {
     if (generation === undefined) throw new Error("Browser generation unavailable");
     return generation;
   }
+  /** The kind of ace-media source the thread's shown tab is; undefined while it has none. */
+  videoKind(threadId: string): import("./backend.ts").VideoMediaKind | undefined {
+    return this.sessions.get(threadId)?.videoKind();
+  }
   state(threadId: string): BrowserState {
     return this.get(threadId).state;
   }

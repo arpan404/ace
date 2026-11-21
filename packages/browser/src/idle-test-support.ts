@@ -48,6 +48,8 @@ export class RestingTabs extends FakeHeadless {
     closed: boolean;
   }[] = [];
   private videoHost: VideoHost = {
+    // A tab of ace's Chrome, as ace-media sees it: the kind a view of it is delivered as.
+    mediaKind: "tab",
     supported: async (codecs) => codecs.filter((codec) => codec === "vp8"),
     open: async (page, _width, _height, events) => {
       const opened = { page, events, encodes: [] as VideoEncode[], keyframes: 0, closed: false };

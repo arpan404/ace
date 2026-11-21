@@ -6,6 +6,7 @@ import {
   type BrowserVideoRequest,
   type BrowserDownloadRead,
   type BrowserServerMessage,
+  type BrowserState,
   type DeviceScope,
 } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
@@ -15,6 +16,7 @@ import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 import {
   mediaSubscribed,
   mediaUndelivered,
+  updateReason,
   viewLink,
   viewSwap,
   viewViewport,
@@ -23,9 +25,6 @@ import {
 import type { MediaOwner } from "@ace/media/media-connections";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
-
-/** The source kinds a thread's browser video can be in ace-media. */
-const browserKinds = ["tab", "embedded", "tab-pictures", "user-tab"] as const;
 
 function requiredAccess(message: BrowserClientMessage): BrowserAccess {
   if (
@@ -107,6 +106,8 @@ export function connectBrowser(
      * runs here, so the producer streams into ace-media; nothing goes on this socket.
      */
     media: Map<string, string>;
+    /** Subscribers from clients older than X3 (no `mediaClient`): no picture will reach them. */
+    old: Set<string>;
     /**
      * The one view ace-media holds per media connection for this thread: a client can't tell two
      * views of one thread apart, so its subscribers there share it (fanned out client-side).
@@ -140,6 +141,15 @@ export function connectBrowser(
     const mediaViewer = leave(entry, subscriber);
     if (mediaViewer !== undefined) options.media?.delivery()?.unbind(mediaViewer);
   };
+  /**
+   * The thread's state as this connection sees it: while only older clients watch it here, it
+   * says why their view is empty in the fields they already show (paused, page state lost, the
+   * reason), since they can't read `undelivered`.
+   */
+  const forPeer = (entry: Subscription | undefined, state: BrowserState): BrowserState =>
+    entry && entry.media.size === 0 && entry.old.size > 0
+      ? { ...state, status: "paused", pageStateLost: true, reason: updateReason }
+      : state;
   const subscriptions = new Map<string, Subscription>();
   const sendStream = options.sendStream;
   const bind = (threadId: string, entry: Subscription, capture?: CaptureViewer) => {
@@ -147,7 +157,7 @@ export function connectBrowser(
       threadId,
       options.connectionId,
       options.local === true ? { local: true } : {},
-      (state) => options.send({ type: "browser.state", state }),
+      (state) => options.send({ type: "browser.state", state: forPeer(entry, state) }),
       (event) => options.send(event),
       capture,
     );
@@ -166,8 +176,9 @@ export function connectBrowser(
     const media = options.media;
     const delivery = media?.delivery();
     const owner = media?.owner();
-    if (!owner || !delivery || !browserKinds.some((kind) => delivery.serves(kind)))
-      return undefined;
+    // The thread's own source: a kind ace-media serves elsewhere is no help to this one.
+    const kind = service.videoKind(threadId);
+    if (!owner || !delivery || !kind || !delivery.serves(kind)) return undefined;
     // Another subscriber of this thread already has the connection's view: share it.
     const shared = entry?.views.get(connection);
     if (shared !== undefined) return { viewer: shared, created: false };
@@ -187,6 +198,13 @@ export function connectBrowser(
     if (bound === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
     return { viewer: bound, created: true };
+  };
+  /** Why this thread's view gets no pictures: the reason for its own source's kind. */
+  const browserUndelivered = (threadId: string, named: boolean) => {
+    const kind = service.videoKind(threadId);
+    if (named && !kind)
+      return { code: "unavailable", reason: "This browser can't stream live video here." };
+    return mediaUndelivered(named, options.media?.delivery(), kind ? [kind] : []);
   };
   let pending = 0;
   let closed = false;
@@ -423,6 +441,7 @@ export function connectBrowser(
             const before = existing && {
               subscribers: new Set(existing.subscribers),
               media: new Map(existing.media),
+              old: new Set(existing.old),
               views: new Map(existing.views),
               video: existing.video,
               shown: existing.shown,
@@ -452,6 +471,8 @@ export function connectBrowser(
               // A viewer that says what it shows gets frames sized for it from the first one.
               const capture = message.viewport ? viewer(message.viewport, video) : undefined;
               const join = (entry: Subscription) => {
+                if (message.mediaClient === true) entry.old.delete(subscriber);
+                else entry.old.add(subscriber);
                 if (!joined || !message.media) return;
                 entry.media.set(subscriber, message.media.connection);
                 entry.views.set(message.media.connection, joined.viewer);
@@ -464,13 +485,17 @@ export function connectBrowser(
                 const shown = capture && deliveredBy(entry, capture);
                 if (capture) entry.shown = capture;
                 if (shown) service.configureCapture(threadId, options.connectionId, shown);
-                options.send({ type: "browser.state", state: service.state(threadId) });
+                options.send({
+                  type: "browser.state",
+                  state: forPeer(entry, service.state(threadId)),
+                });
               } else {
                 entry = {
                   subscribers: new Set([subscriber]),
                   stop() {},
                   video,
                   media: new Map(),
+                  old: new Set(),
                   views: new Map(),
                   shown: capture,
                 };
@@ -526,11 +551,7 @@ export function connectBrowser(
                 requestId: message.requestId,
                 ok: true,
                 result: null,
-                undelivered: mediaUndelivered(
-                  message.media !== undefined,
-                  options.media?.delivery(),
-                  browserKinds,
-                ),
+                undelivered: browserUndelivered(threadId, message.media !== undefined),
               });
             break;
           }
@@ -539,6 +560,7 @@ export function connectBrowser(
             const subscriber = message.subscriberId ?? "legacy";
             retire(entry, subscriber);
             entry?.subscribers.delete(subscriber);
+            entry?.old.delete(subscriber);
             // Who is left decides again whether ace-media delivers this view.
             if (entry?.subscribers.size && entry.shown)
               service.configureCapture(

@@ -589,6 +589,12 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
      * `browser.result` carries `media`, with a poster when the tab already has a picture.
      */
     media: MediaBinding.optional(),
+    /**
+     * This client takes live pictures only from its media connection (X3), so a subscribe naming
+     * none is a client still connecting one, not an older build. Absent: an older client, whose
+     * views are told, in fields it already shows, to update.
+     */
+    mediaClient: z.literal(true).optional(),
   }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),

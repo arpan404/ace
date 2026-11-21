@@ -164,6 +164,12 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     link: MediaLinkHint.optional(),
     /** Deliver the pictures on that media connection (`media.connect`) instead of this socket. */
     media: MediaBinding.optional(),
+    /**
+     * This client takes live pictures only from its media connection (X3), so a subscribe naming
+     * none is a client still connecting one, not an older build. Absent: an older client, whose
+     * views are told, in fields it already shows, to update.
+     */
+    mediaClient: z.literal(true).optional(),
     /** The viewer's decoders, best first (WebCodecs strings); with `media`, ace-media encodes for them. */
     codecs: MediaCodecs.optional(),
   }),

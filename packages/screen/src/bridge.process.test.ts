@@ -2,7 +2,8 @@ import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, screenConnection, Simulators } from "./index.ts";
 import { manager, ready } from "./testing/support.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
-import type { ScreenServerMessage } from "@ace/protocol";
+import { ScreenState, type ScreenServerMessage } from "@ace/protocol";
+import { updateReason } from "@ace/media/media-viewers";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -129,7 +130,7 @@ it("an enablement observer cannot prevent the global stop from releasing live ta
   release();
 });
 
-it("a subscribe without a media connection gets no pictures and a status asking its client to update", async () => {
+it("an older client's subscribe gets no pictures and its session's error asks it to update", async () => {
   const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
   cleanups.push(test.close);
   const state = await ready(test.screen);
@@ -147,8 +148,10 @@ it("a subscribe without a media connection gets no pictures and a status asking 
   const reply = messages.find(
     (message) => message.type === "screen.result" && message.requestId === "watch",
   );
-  // Its state still comes, so the view isn't blank: it says why there is no picture.
-  expect(messages.some((message) => message.type === "screen.state")).toBe(true);
+  // An older client can't read `undelivered`: the session's state says why in `error`, which it
+  // already shows.
+  const told = messages.findLast((message) => message.type === "screen.state");
+  expect(told?.type === "screen.state" && ScreenState.parse(told.state).error).toBe(updateReason);
   expect(reply).toMatchObject({ ok: true, undelivered: { code: "update" } });
   expect(reply).not.toHaveProperty("media");
   // Acks are the media connection's now: one here is read and changes nothing.
@@ -181,6 +184,7 @@ it("a subscribe naming a media connection while ace-media can't serve screens sa
       op: "subscribe",
       sessionId: state.sessionId,
       media: { connection: "mc_phoneconnection1" },
+      mediaClient: true,
     },
   });
   expect(

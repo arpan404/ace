@@ -305,6 +305,14 @@ export class IngestSources {
   }
 
   /** The producers streaming into ace-media now, with their ids there. */
+  /** The kinds of the open sources `shows` picks (a device's, a screen session's). */
+  kinds(shows: (producer: IngestProducer) => boolean): SourceKind[] {
+    const out = new Set<SourceKind>();
+    for (const entry of this.#entries)
+      if (!entry.closed && shows(entry.producer)) out.add(entry.producer.kind);
+    return [...out];
+  }
+
   live(): { producer: IngestProducer; path: string }[] {
     const out: { producer: IngestProducer; path: string }[] = [];
     for (const entry of this.#entries)

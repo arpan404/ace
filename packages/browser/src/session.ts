@@ -333,6 +333,13 @@ export class BrowserSession {
     };
   }
   /** Each tab's page state for remote views, for a viewer that just subscribed. */
+  /**
+   * The kind of ace-media source the shown tab's video is (a Chrome tab, a screencast tab, the
+   * person's Chrome, the desktop's view); undefined while it has no encoder.
+   */
+  videoKind(): import("./backend.ts").VideoMediaKind | undefined {
+    return this.viewedPage().video?.()?.mediaKind;
+  }
   pageStates(): { tabId: string; page: BrowserPageState }[] {
     return this.tabs.all().flatMap((tab) => {
       const page = tab.interaction?.state;

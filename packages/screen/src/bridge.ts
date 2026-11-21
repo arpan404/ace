@@ -9,6 +9,7 @@ import {
 import {
   mediaSubscribed,
   mediaUndelivered,
+  updateReason,
   viewLink,
   viewSwap,
   viewViewport,
@@ -49,14 +50,22 @@ export function screenConnection(
     const watch = subscriptions.get(sessionId);
     if (!watch) return;
     subscriptions.delete(sessionId);
+    old.delete(sessionId);
     watch.release();
     if (watch.media) peer.delivery?.port()?.unbind(watch.media.viewer);
   };
   let closed = false;
   let pending = 0;
+  /** Sessions this connection watches from a client older than X3 (no `mediaClient`). */
+  const old = new Set<string>();
+  /**
+   * A session's state as this connection sees it: with what its video runs on and, for an older
+   * client, why its view is empty in the field it already shows (`error`).
+   */
   const accelerated = (state: ScreenState): ScreenState => {
     const acceleration = peer.acceleration?.for("sessionId", state.sessionId);
-    return acceleration ? { ...state, acceleration } : state;
+    const told = old.has(state.sessionId) ? { ...state, error: updateReason } : state;
+    return acceleration ? { ...told, acceleration } : told;
   };
   const unwatch = manager.watch((state) => {
     if (!closed) peer.send({ type: "screen.state", state: accelerated(state) });
@@ -229,6 +238,8 @@ export function screenConnection(
             const media =
               viewer !== undefined && connection !== undefined ? { viewer, connection } : undefined;
             const swap = viewSwap(peer.delivery?.port(), previous?.media, media);
+            if (operation.mediaClient === true) old.delete(sessionId);
+            else old.add(sessionId);
             let stop: (() => void) | undefined;
             let state: ScreenState;
             try {

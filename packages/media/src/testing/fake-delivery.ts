@@ -25,6 +25,7 @@ export function fakeDelivery() {
   const port: MediaDeliveryPort = {
     serves: () => true,
     unserved: () => undefined,
+    sourceKinds: () => ["simulator"],
     bind: (intent) => {
       const viewer = `view-${++ids}`;
       views.set(viewer, intent);

@@ -11,6 +11,7 @@ import { framePicture } from "@ace/screen";
 import {
   mediaSubscribed,
   mediaUndelivered,
+  updateReason,
   viewLink,
   viewSwap,
   viewViewport,
@@ -24,8 +25,24 @@ import { heldPushes } from "./held-pushes.ts";
 import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import { StillWriter, type StillTransport } from "./still-writer.ts";
 
-/** The source kinds a device's pictures can be in ace-media. */
-const deviceKinds = ["simulator", "scrcpy", "emulator-frames"] as const;
+/** The ace-media sources that show a device. */
+const showsDevice = (deviceId: string) => (producer: { deviceId?: string | undefined }) =>
+  producer.deviceId === deviceId;
+
+/** Why a device's view gets no pictures: the reason for its own source's kind. */
+function deviceUndelivered(
+  deviceId: string,
+  named: boolean,
+  port: MediaDeliveryPort | undefined,
+): ReturnType<typeof mediaUndelivered> {
+  const kinds = port?.sourceKinds(showsDevice(deviceId)) ?? [];
+  if (named && port && !kinds.length)
+    return {
+      code: "unavailable",
+      reason: "Live video starts once the device's screen is running.",
+    };
+  return mediaUndelivered(named, port, kinds);
+}
 
 export interface DevicePeer {
   authorize(): boolean;
@@ -80,7 +97,10 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
     const delivery = peer.delivery;
     const port = delivery?.port();
     const requester = delivery?.owner();
-    if (!requester || !port || !deviceKinds.some((kind) => port.serves(kind))) return undefined;
+    // The device's own source: a kind ace-media serves for another device is no help here.
+    const kinds = port?.sourceKinds(showsDevice(deviceId)) ?? [];
+    if (!requester || !port || !kinds.length || !kinds.every((kind) => port.serves(kind)))
+      return undefined;
     const link = viewLink(operation.link);
     const viewer = port.bind({
       requester,
@@ -92,7 +112,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       local: false,
       audio: false,
       ...(link ? { link } : {}),
-      shows: (producer) => producer.deviceId === deviceId,
+      shows: showsDevice(deviceId),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
@@ -119,12 +139,29 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
     access();
     await pushes.send(message);
   };
+  /** Devices this connection watches from a client older than X3 (no `mediaClient`). */
+  const old = new Set<string>();
+  /**
+   * A device's state as this connection sees it; for an older client, with why its view is
+   * empty in the field it already shows (`error`), unless the device has a failure of its own.
+   */
   const stateForPeer = (state: DeviceState): DeviceState => {
     const acceleration = peer.acceleration?.for("deviceId", state.device.id);
+    const told =
+      old.has(state.device.id) && !state.error
+        ? {
+            error: {
+              code: "not_supported" as const,
+              message: updateReason,
+              hint: "Update ace on this device.",
+            },
+          }
+        : {};
     return {
       ...state,
       ownedHere: service.ownsControl(state.device.id, owner),
       ...(acceleration ? { acceleration } : {}),
+      ...told,
     };
   };
   const unwatch = service.watch((state) => {
@@ -235,6 +272,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                 if (superseded()) throw new Error("Device subscription superseded");
               };
               try {
+                if (operation.mediaClient === true) old.delete(deviceId);
+                else old.add(deviceId);
                 const connection = operation.media?.connection;
                 const viewer =
                   connection === undefined ? undefined : bindMedia(deviceId, connection, operation);
@@ -274,10 +313,10 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                     ? { media: mediaSubscribed(granted.connection, poster) }
                     : {
                         // No pictures will come: the view says why instead of staying blank.
-                        undelivered: mediaUndelivered(
+                        undelivered: deviceUndelivered(
+                          deviceId,
                           operation.media !== undefined,
                           port,
-                          deviceKinds,
                         ),
                       }),
                 };
@@ -291,6 +330,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
             });
           } else if (operation.op === "unsubscribe") {
             const deviceId = operation.deviceId;
+            old.delete(deviceId);
             await queue.run(deviceId, "unsubscribe", async () => streams.remove(deviceId));
           }
           if (operation.op === "logs.start") {

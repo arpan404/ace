@@ -1,5 +1,7 @@
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { expect, test } from "vitest";
+import { BrowserServerMessage } from "@ace/protocol";
+import { updateReason } from "@ace/media/media-viewers";
 import { connectBrowser } from "./index.ts";
 import { idleThread } from "./idle-test-support.ts";
 
@@ -126,19 +128,66 @@ test("a resubscribe on the same connection that fails keeps delivering on the vi
   expect(views.size).toBe(0);
 });
 
-test("a subscribe without a media connection gets no capture, no pictures, and a status asking its client to update", async () => {
-  const { bridge: client, results, service, views } = await bridge();
+test("an older client is told to update in the browser state fields it already shows", async () => {
+  const { bridge: client, results, views } = await bridge();
+  // A pre-X3 client: no `mediaClient`, no media connection.
   await client.handle(subscribe(a));
+  const states = results.flatMap((message) => {
+    const parsed = BrowserServerMessage.safeParse(message);
+    return parsed.success && parsed.data.type === "browser.state" ? [parsed.data.state] : [];
+  });
+  // `status`, `pageStateLost` and `reason` are what an older client renders as a lost page.
+  expect(states.at(-1)).toMatchObject({
+    status: "paused",
+    pageStateLost: true,
+    reason: updateReason,
+  });
+  expect(views.size).toBe(0);
+});
+
+test("a current client without a media connection yet isn't told to update", async () => {
+  const { bridge: client, results } = await bridge();
+  await client.handle({ ...subscribe(a), mediaClient: true });
+  expect(results).not.toContainEqual(
+    expect.objectContaining({
+      type: "browser.state",
+      state: expect.objectContaining({ reason: updateReason }),
+    }),
+  );
+});
+
+test("a thread whose own source ace-media can't serve gets no view and says why, though other kinds are served", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  const reason = "This computer can't stream this live view yet.";
+  const client = connectBrowser(t.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: {
+      owner: () => owner,
+      // The thread's tab is a `tab`: ace-media serves the desktop's views, but not that.
+      delivery: () => ({
+        ...d.port,
+        serves: (kind) => kind !== "tab",
+        unserved: (kind) => (kind === "tab" ? reason : undefined),
+      }),
+    },
+  });
+  await client.handle({ ...subscribe(a, "mc_aaaaaaaaaaaa"), mediaClient: true });
   expect(results).toContainEqual(
     expect.objectContaining({
       type: "browser.result",
-      requestId: `subscribe-${a}`,
       ok: true,
-      undelivered: expect.objectContaining({ code: "update" }),
+      undelivered: { code: "unavailable", reason },
     }),
   );
-  expect(views.size).toBe(0);
-  expect(service.state("thread").video).toBeUndefined();
+  expect(d.views.size).toBe(0);
+  client.close();
 });
 
 test("a subscribe ace-media can't serve now gets no pictures and says why", async () => {
