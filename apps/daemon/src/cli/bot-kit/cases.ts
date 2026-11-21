@@ -13,6 +13,9 @@ import { botsNamed, listedBots, type ListedBot } from "./from-bot.ts";
  * yes. Spade does the replaying; this reads the folder, asks and prints.
  */
 
+/** Spade's answer to a replay: `{replay}`. */
+const ReplayAnswer = z.object({ replay: CliBotReplay });
+
 const Estimate = z.object({
   estimate: z.object({
     model: z.string(),
@@ -128,7 +131,7 @@ export async function testCases(
   };
   const answer = await exchange("POST", path, body);
   if (answer.status !== 200) throw answerFailure(answer);
-  const read = z.object({ replay: CliBotReplay }).safeParse(json(answer.body));
+  const read = ReplayAnswer.safeParse(json(answer.body));
   if (!read.success) throw new CliFailure("failed", "Spade's replay report didn't make sense.");
   const replay = read.data.replay;
   const report: CliBotTest = {

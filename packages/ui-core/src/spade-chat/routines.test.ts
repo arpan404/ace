@@ -11,6 +11,26 @@ import {
   spadeWhenInSentence,
 } from "./index.ts";
 
+/** The last run of one routine whose run ended with `result`, as Spade reports it. */
+const lastRunWith = (result: string) =>
+  parseSpadeRoutines(
+    JSON.stringify({
+      routines: [
+        {
+          id: "rt_1",
+          name: "Morning fares",
+          last_run: { id: "run_1", at: 1, cause: "schedule", result },
+        },
+      ],
+    }),
+  )?.[0]?.lastRun;
+
+/** What the app says for that run. */
+const words = (result: string) => {
+  const run = lastRunWith(result);
+  return run && spadeRunWords(run);
+};
+
 function conversation() {
   const state = emptySpadeConversation();
   let seq = 0;
@@ -129,22 +149,6 @@ describe("the routine list", () => {
   });
 
   test("a verified routine's run reads done only once its check says so", () => {
-    const read = (result: string) =>
-      parseSpadeRoutines(
-        JSON.stringify({
-          routines: [
-            {
-              id: "rt_1",
-              name: "Morning fares",
-              last_run: { id: "run_1", at: 1, cause: "schedule", result },
-            },
-          ],
-        }),
-      )?.[0]?.lastRun;
-    const words = (result: string) => {
-      const run = read(result);
-      return run && spadeRunWords(run);
-    };
     expect(words("checking")).toBe("Checking the work");
     expect(words("verified")).toBe("Done, checked");
   });
