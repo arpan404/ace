@@ -97,7 +97,10 @@ struct SpadeConversationView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 TranscriptRowsStack(stack: stack, spacing: AceDesign.Space.related) {
                     ForEach(spade.order, id: \.self) { key in
-                        if let bubble = spade.bubbles[key] {
+                        if case let .workers(workers) = spade.bubbles[key] {
+                            SpadeWorkersCard(workers: workers, client: client) { open(SpadeRoute(conversation: $0, group: nil)) }
+                                .id(key)
+                        } else if let bubble = spade.bubbles[key] {
                             SpadeBubbleView(bubble: bubble, answer: { callId, allowed, always in
                                 await answer(callId, allowed: allowed, always: always)
                             }, unfolded: unfolded, fold: { callId, open in
@@ -139,9 +142,13 @@ struct SpadeConversationView: View {
             return SpadeScroll.Place(y: geometry.contentOffset.y,
                 fromEnd: ScrollEnd.fromEnd(contentHeight: geometry.contentSize.height, offsetY: geometry.contentOffset.y,
                                            containerHeight: geometry.containerSize.height, topInset: insets.top),
-                viewport: geometry.containerSize.height + insets.top + insets.bottom)
+                viewport: geometry.containerSize.height + insets.top + insets.bottom,
+                contentHeight: geometry.contentSize.height)
         } action: { old, new in
             scroll.place = new
+            if Int(new.contentHeight) != Int(old.contentHeight) {
+                SpadeFeedTrace.laidOut(contentHeight: new.contentHeight, viewport: new.viewport, rows: spade.order.count)
+            }
             if new.y < old.y - 1 { change { $0.scrolled(towardOlder: true) } }
         }
         .onScrollPhaseChange { _, phase in scrollPhase(phase) }
@@ -326,6 +333,8 @@ private struct SpadeWorkingLine: View {
         /// How far the end is below the bottom edge (`ScrollEnd`).
         var fromEnd: Double = 0
         var viewport: Double = 0
+        /// The rows' laid-out height, for `SpadeFeedTrace`.
+        var contentHeight: Double = 0
     }
     var place = Place()
     /// A finger, its fling or an animated scroll is moving the chat.

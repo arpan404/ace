@@ -10,12 +10,13 @@ import {
   type Item,
   type ThreadListEntry,
 } from "@ace/protocol";
-import { messageText } from "@ace/ui-core";
+import { messageText, wholeRequestNotRead } from "@ace/ui-core";
 import type { PatchSink } from "./agents.ts";
 import { dispatchCommand } from "./commands.ts";
 import { interactionRow } from "./interaction-rows.ts";
 import { preview } from "./presentation.ts";
 import { answerResolution } from "./thread-controls.ts";
+import { NeedsWhole } from "./needs-whole.ts";
 import { phoneAnswer } from "./summarized-requests.ts";
 import { RequestAnswer, requestResolution } from "./thread-requests.ts";
 
@@ -55,6 +56,8 @@ const readsMost = 200;
 type TooLargeRequest = NonNullable<EntitiesPage["tooLarge"]>[number];
 /** What a thread waits on: requests read, then any too large to send. */
 type Waiting = Interaction | TooLargeRequest;
+
+const isInteraction = (entry: Waiting): entry is Interaction => !("active" in entry);
 
 /** A request too large to send, as a row: counted as waiting, opened on a larger screen. */
 const tooLargeRow = (request: TooLargeRequest) => ({
@@ -120,7 +123,16 @@ export const NeedsAction = z.discriminatedUnion("type", [
     threadId: ThreadId.and(boundedId),
     interactionId: InteractionId.and(boundedId),
     answer: NeedsAnswer,
+    /** The whole-request version the card showed (`wholeVersion`), when it had loaded one. */
+    version: z.string().min(1).max(128).optional(),
     requestId,
+  }),
+  /** Read a summarized request in full (ADR 0157), or try a failed read again. */
+  z.object({
+    type: z.literal("needs.read"),
+    threadId: ThreadId.and(boundedId),
+    interactionId: InteractionId.and(boundedId),
+    retry: z.boolean().optional(),
   }),
   /** The run's page for this thread opened: read what the agent last said. */
   z.object({ type: z.literal("needs.context"), threadId: ThreadId.and(boundedId) }),
@@ -133,6 +145,7 @@ type Resolution = Extract<CommandPayload, { type: "interaction.resolve" }>["reso
 export function needsResolution(
   interaction: Interaction | undefined,
   answer: NeedsAnswer,
+  readWhole = false,
 ): Resolution | undefined {
   if (interaction?.state !== "pending") return undefined;
   switch (answer.kind) {
@@ -142,13 +155,13 @@ export function needsResolution(
         (candidate) => candidate.id === answer.optionId,
       );
       return option
-        ? phoneAnswer(interaction, { kind: "approval", optionId: option.id })
+        ? phoneAnswer(interaction, { kind: "approval", optionId: option.id }, readWhole)
         : undefined;
     }
     case "question":
-      return answerResolution(interaction, answer.answers, answer.dismissed);
+      return answerResolution(interaction, answer.answers, answer.dismissed, readWhole);
     default:
-      return requestResolution(interaction, answer);
+      return requestResolution(interaction, answer, readWhole);
   }
 }
 
@@ -159,7 +172,7 @@ export interface NeedsFollow {
 
 type Owner = Pick<
   ClientCore,
-  "threads" | "request" | "connectionState" | "commandId" | "intent" | "enqueue"
+  "threads" | "request" | "connectionState" | "commandId" | "intent" | "enqueue" | "readInteraction"
 >;
 
 export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
@@ -238,11 +251,21 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     return byId;
   };
 
+  /** Each held row's last read, so a whole-request read can put it again. */
+  const shown = new Map<
+    string,
+    [{ requests: readonly Waiting[]; more: boolean }, Map<string, Agent>]
+  >();
+  const whole = new NeedsWhole(owner, (threadId) => {
+    const last = shown.get(threadId);
+    if (last) put(threadId, ...last);
+  });
   const put = (
     threadId: string,
     { requests, more }: { requests: readonly Waiting[]; more: boolean },
     byId: Map<string, Agent>,
   ) => {
+    shown.set(threadId, [{ requests, more }, byId]);
     const entry = store.thread(threadId);
     const reader = {
       item: () => undefined,
@@ -271,12 +294,15 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
                 interaction.request.kind === "approval"
                   ? (interaction.request.target?.command ?? "")
                   : "",
+                whole.state(threadId, interaction),
               ),
         ),
     }));
   };
   const clear = (threadId: string) => {
     read.delete(threadId);
+    shown.delete(threadId);
+    whole.forget(threadId);
     if (!held.delete(threadId)) return;
     pump.put(`needs:${threadId}`, () => ({
       type: "inbox.needs",
@@ -298,7 +324,10 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     try {
       const [pending, byId] = await Promise.all([interactions(threadId), agents(threadId)]);
       // Still waiting on the person by the daemon's latest list: show what the read found.
-      if (needsSignature(store.thread(threadId)) !== undefined) put(threadId, pending, byId);
+      if (needsSignature(store.thread(threadId)) !== undefined) {
+        put(threadId, pending, byId);
+        whole.saw(threadId, pending.requests.filter(isInteraction));
+      }
     } catch {
       // Offline or refused: keep what the row shows; the next list change or connection reads again.
       read.delete(threadId);
@@ -334,21 +363,22 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   checkAll();
 
   const answer = async (action: Extract<NeedsAction, { type: "needs.answer" }>) => {
-    let resolution: Resolution | undefined;
+    let built: ReturnType<NeedsWhole["resolution"]>;
     try {
       const { requests: pending } = await interactions(action.threadId);
-      resolution = needsResolution(
-        // A request too large to send is never answered here: it has nothing to answer with.
-        pending.find(
-          (interaction): interaction is Interaction =>
-            !("active" in interaction) && interaction.id === action.interactionId,
-        ),
-        action.answer,
+      // A request too large to send is never answered here: it has nothing to answer with.
+      whole.saw(action.threadId, pending.filter(isInteraction));
+      // A yes to a summarized request names the version the card showed, loaded in full.
+      built = whole.resolution(
+        action.threadId,
+        action.interactionId,
+        (interaction, readWhole) => needsResolution(interaction, action.answer, readWhole),
+        action.version,
       );
     } catch {
-      resolution = undefined;
+      built = undefined;
     }
-    if (!resolution) {
+    if (!built) {
       // Answered elsewhere, or no longer offered: give the controls back without words, and
       // read the thread again so the row shows what waits now.
       pump.put(`admission:${action.requestId}`, () => ({
@@ -363,11 +393,21 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     }
     await dispatchCommand(
       owner,
-      { type: "interaction.resolve", interactionId: action.interactionId, resolution },
+      {
+        type: "interaction.resolve",
+        interactionId: action.interactionId,
+        resolution: built.resolution,
+        ...(built.readWhole ? { readWhole: built.readWhole } : {}),
+      },
       action.requestId,
       pump,
       {
-        receipt: () => {
+        refusal: (error) =>
+          error === "request_not_read" ? wholeRequestNotRead : (error ?? "Request refused"),
+        receipt: (result) => {
+          // The daemon holds a newer version than the one read: read it again to show.
+          if (!result.ok && result.error === "request_not_read")
+            whole.read(action.threadId, action.interactionId, true);
           read.delete(action.threadId);
           check(action.threadId);
         },
@@ -396,10 +436,13 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   return {
     handle(action) {
       if (action.type === "needs.answer") void answer(action);
+      else if (action.type === "needs.read")
+        whole.read(action.threadId, action.interactionId, action.retry ?? false);
       else void context(action.threadId);
     },
     stop() {
       for (const stop of stops.splice(0)) stop();
+      whole.stop();
     },
   };
 }
