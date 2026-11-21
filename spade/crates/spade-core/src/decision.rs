@@ -199,6 +199,7 @@ mod tests {
                 criteria: Vec::new(),
                 by: crate::goal::Author::Bot,
                 verifier: None,
+                run: None,
             }),
             Event::Known(Known::PlanChanged {
                 goal: "g1".into(),

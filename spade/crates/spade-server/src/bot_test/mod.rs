@@ -608,4 +608,6 @@ pub fn main(args: &[std::ffi::OsString]) -> std::process::ExitCode {
 }
 
 #[cfg(test)]
+mod checks_tests;
+#[cfg(test)]
 mod tests;
