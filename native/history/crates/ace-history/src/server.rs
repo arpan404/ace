@@ -31,6 +31,22 @@ struct Pull {
     /// everything before the barrier was taken.
     credits: mpsc::SyncSender<usize>,
     root: String,
+    /// The thread making the packets, joined when the import ends so nothing it holds (a
+    /// private database snapshot, a plan file) outlives the reply that ends it.
+    producer: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Pull {
+    fn drop(&mut self) {
+        // The producer waits on a credit or a send: closing both channels ends its wait.
+        let (dead_credits, _) = mpsc::sync_channel(0);
+        drop(std::mem::replace(&mut self.credits, dead_credits));
+        let (_, dead_packets) = mpsc::sync_channel(0);
+        drop(std::mem::replace(&mut self.packets, dead_packets));
+        if let Some(producer) = self.producer.take() {
+            let _ = producer.join();
+        }
+    }
 }
 
 enum Produced {
@@ -472,13 +488,14 @@ impl Server {
         let cancel = self.cancel.clone();
         let root = init.source_id.clone();
         let init = init.clone();
-        std::thread::spawn(move || {
+        let producer = std::thread::spawn(move || {
             produce(&home, &members, &init, &scratch, &cancel, &send, &granted)
         });
         self.pull = Some(Pull {
             packets,
             credits,
             root,
+            producer: Some(producer),
         });
         Ok(())
     }
