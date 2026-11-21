@@ -1,7 +1,6 @@
 import { Transform } from "node:stream";
 
 import { BoundedLineFraming, type DroppedOutputLine } from "./bounded-line-framing.ts";
-import type { OutputFlow } from "./flow-control.ts";
 export type { DroppedOutputLine } from "./bounded-line-framing.ts";
 export class OutputLineDroppedError extends Error {
   readonly bytes: number;
@@ -42,7 +41,6 @@ export function droppingOutputGate(
   admit: (bytes: number) => boolean,
   fail: (error: Error) => void,
   dropped: (line: DroppedOutputLine) => void,
-  flow?: OutputFlow,
 ): Transform {
   let framing: BoundedLineFraming | undefined = new BoundedLineFraming(limit);
   return new Transform({
@@ -53,22 +51,14 @@ export function droppingOutputGate(
         fail(new Error("Probe output exceeded limit"));
         return done();
       }
-      const frames = framing.next(chunk);
       publish(
-        frames,
+        framing.next(chunk),
         (bytes) => {
           this.push(bytes);
         },
         dropped,
       );
-      // A dropped line pushes no readable bytes, so the reader's pause cannot hold it back.
-      // Hold the pipe here instead, and the child, until the owner has room again.
-      if (flow?.paused() && frames.some((frame) => frame.type === "drop"))
-        void flow.wait().then(
-          () => done(),
-          () => done(),
-        );
-      else done();
+      done();
     },
     flush(done) {
       publish(

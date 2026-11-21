@@ -101,38 +101,3 @@ test("dropped stderr lines still count toward the total output budget", async ()
   // is 65 bytes with its newline, so at most three fit; a single chunk may trip it before any.
   expect(dropped.length).toBeLessThanOrEqual(3);
 });
-
-test("dropped stderr lines wait while the output flow is paused", async () => {
-  const dropped: number[] = [];
-  let paused = true;
-  const released = Promise.withResolvers<void>();
-  const child = spawnSupervised({
-    command: process.execPath,
-    args: [
-      "-e",
-      // One oversized line per chunk.
-      `let n = 0;
-const next = () => {
-  if (n++ < 20) process.stderr.write("x".repeat(64) + "\\n", () => setTimeout(next, 5));
-};
-next();`,
-    ],
-    env: {},
-    name: "stderr-drop-flow",
-    maxLineBytes: 8,
-    outputFlow: { paused: () => paused, wait: () => released.promise },
-    onStderrLineDropped(line) {
-      if (line.phase !== "start") dropped.push(line.bytes);
-    },
-  });
-  onTestFinished(async () => {
-    await child.stop({ graceMs: 0 });
-  });
-  // The child writes every line well within this; a reader that ignores the pause hears them all.
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  expect(dropped.length).toBeLessThanOrEqual(1);
-  paused = false;
-  released.resolve();
-  expect(await child.exited).toMatchObject({ reason: "exit", code: 0 });
-  expect(dropped).toHaveLength(20);
-});

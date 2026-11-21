@@ -177,7 +177,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   };
   const gateOutput = (input: Readable, dropped?: (line: DroppedOutputLine) => void): Readable => {
     if (maxLineBytes === undefined && maxOutputBytes === undefined) return input;
-    const gate = outputGate(maxLineBytes, admit, failOutput, dropped, options.outputFlow);
+    const gate = outputGate(maxLineBytes, admit, failOutput, dropped);
     // Spawn failure can close a pipe without emitting end. Finish framing there too.
     input.once("close", () => gate.end());
     gate.once("close", () => input.destroy());
