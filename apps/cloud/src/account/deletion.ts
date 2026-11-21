@@ -146,7 +146,7 @@ const finished = (done: boolean) =>
  * Machines removed from the list are asked to register again, which the deletion now refuses.
  */
 export function deleteAccountRoute(deps: {
-  sessions: SessionReader;
+  sessions: Pick<SessionReader, "read">;
   standing: Pick<SessionStore, "standingNow">;
   provider: Pick<AccountProvider, "deleteUser">;
   deletions: AccountDeletions;
