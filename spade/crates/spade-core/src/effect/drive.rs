@@ -169,37 +169,31 @@ pub const UNBOUND: &str = "this version of ace can't hold the step to it while i
 pub const CANT_HOLD: &str = "Not run: ace can't hold this step to the page or app Spade checked. \
      Updating ace lets it run.";
 
-/// Why a step under a switch that must be held to its place doesn't run: this ace's tool can't
-/// be told where (`expect`).
-pub const UNHELD: &str = "Not run: this version of ace can't hold the step to the page or app it \
-     acts in. Updating ace lets it run.";
+/// Why a step under a switch that must be held to its place isn't run: this ace's tool can't be
+/// told where (`expect`).
+pub const UNHELD: &str = "This version of ace can't hold the step to the page or app it acts in. \
+     Updating ace lets it run.";
 
-/// Why a driving tool Spade doesn't know where it acts doesn't run.
+/// Why a driving tool Spade doesn't know where it acts isn't run.
 pub const UNPLACED_REFUSED: &str =
-    "Not run: Spade can't tell which page or app this step acts in. Name it, then act.";
+    "Spade can't tell which page or app this step acts in. Name it, then act.";
 
-/// What the bot is told when a step under a switch has no place Spade could hold it to: the
-/// line that says why, as a refusal it can act on ("Not run: it acts in a page that is still
-/// loading. Look again, then act.").
+/// Why a step under a switch with no place Spade could hold it to isn't run: the line that says
+/// why, as one the bot can act on ("It acts in a page that is still loading. Look again, then
+/// act.").
 pub fn unplaced(why: &str) -> String {
     let plain = why
         .trim()
         .trim_end_matches(", so you decide.")
         .trim_end_matches('.');
-    let mut letters = plain.chars();
-    let plain = match letters.next() {
-        Some(first) => first.to_lowercase().chain(letters).collect(),
-        None => String::new(),
-    };
-    format!("Not run: {plain}. Look again, then act.")
+    format!("{plain}. Look again, then act.")
 }
 
 /// Whether a step under Browser or Simulators may run with no place: its operation sends no
 /// input to a tab and picks none to change ([`table`]), so there is nothing to hold it to. A
 /// screen step never may: the never-use list needs the app it acts in.
 pub fn placeless(tool: &str, arguments: &Value) -> bool {
-    !tool.starts_with("screen_")
-        && table::operation(tool, arguments).is_some_and(|row| !row.holds)
+    !tool.starts_with("screen_") && table::operation(tool, arguments).is_some_and(|row| !row.holds)
 }
 
 /// The arguments a step runs with at `place`: `expect` added where ace's tool takes it, so ace

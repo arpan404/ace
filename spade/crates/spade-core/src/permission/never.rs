@@ -79,10 +79,10 @@ pub fn listed<'a>(list: &'a [String], names: &[String]) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-/// What the bot is told when a step would act in an app on the list.
+/// Why a step that would act in an app on the list isn't run.
 pub fn refusal(entry: &str) -> String {
     format!(
-        "Not run: {entry} is on the person's list of apps bots never use, under Computer use in \
+        "{entry} is on the person's list of apps bots never use, under Computer use in \
          Settings › Spade."
     )
 }

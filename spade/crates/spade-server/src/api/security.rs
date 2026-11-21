@@ -19,7 +19,9 @@ use spade_sandbox::egress::NetworkPolicy;
 
 use super::body::Body;
 use super::{AppState, off_thread, problem};
+use crate::security::permissions::Asker;
 use crate::security::{Commands, Network, Security, SecurityError};
+use spade_core::permission::Switch;
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -28,6 +30,8 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/security/autonomy", put(machine_autonomy))
         .route("/security/network", put(machine_network))
         .route("/security/plugin-network", put(machine_plugin_network))
+        .route("/security/permissions", put(machine_permission))
+        .route("/security/never-apps", put(never_apps))
         .route("/agents/{id}/security", get(agent))
         .route("/agents/{id}/security/commands", put(commands))
         .route("/agents/{id}/security/autonomy", put(autonomy))
@@ -39,6 +43,7 @@ pub(super) fn routes() -> Router<AppState> {
             "/agents/{id}/security/plugin-network",
             put(plugin_network).delete(inherit_plugin_network),
         )
+        .route("/agents/{id}/security/permissions", put(permission))
         .route("/agents/{id}/security/toolchains", put(toolchains))
         .route("/agents/{id}/security/egress", get(egress))
         .route("/agents/{id}/grants", get(grants).post(grant))
@@ -118,6 +123,7 @@ fn view(security: &Security, id: &str) -> Value {
         "grants": settings.grants,
         "effective_grants": effective,
         "folders": folders,
+        "permissions": security.permissions_view(id),
     })
 }
 
@@ -135,6 +141,10 @@ fn machine_view(security: &Security) -> Value {
         object.insert(
             "toolchains_found".to_owned(),
             json!(security.toolchain_candidates()),
+        );
+        object.insert(
+            "permissions".to_owned(),
+            security.machine_permissions_view(),
         );
     }
     view
@@ -182,6 +192,103 @@ async fn machine_autonomy(
             Err(error) => failed(error),
         },
     )
+    .await
+}
+
+/// What a request naming no switch of the Permissions is told.
+fn no_switch() -> Response {
+    problem(StatusCode::BAD_REQUEST, "There is no such permission.")
+}
+
+#[derive(Deserialize)]
+struct MachinePermission {
+    key: String,
+    on: bool,
+}
+
+/// One of the Permissions every bot without its own follows (ADR 0171, amendment 7); turning
+/// one on is the person's alone.
+async fn machine_permission(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Body(body): Body<MachinePermission>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    let Some(which) = Switch::parse(&body.key) else {
+        return no_switch();
+    };
+    let stamp = person_stamp(&headers);
+    off_thread(
+        move || match security.set_machine_permission(which, body.on, stamp.as_deref()) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+struct NeverApps {
+    apps: Vec<String>,
+}
+
+/// The apps no bot uses through Computer use; dropping one is the person's alone.
+async fn never_apps(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Body(body): Body<NeverApps>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    let stamp = person_stamp(&headers);
+    off_thread(
+        move || match security.set_never_apps(&body.apps, stamp.as_deref()) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+struct BotPermission {
+    key: String,
+    /// `null` follows the bot above it, or the machine.
+    on: Option<bool>,
+}
+
+/// One of a bot's Permissions; turning it on is the person's alone, or on a shared bot its
+/// organization's owners' and admins'.
+async fn permission(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Body(body): Body<BotPermission>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    let Some(which) = Switch::parse(&body.key) else {
+        return no_switch();
+    };
+    let stamp = person_stamp(&headers);
+    off_thread(move || {
+        let asker = match &member {
+            Some(axum::Extension(super::org_guard::Stamped(member))) => Asker::Member {
+                admin: member.role().admin(),
+                commands_outside: state.engine.org_policy().commands_outside_allowed(),
+            },
+            None => Asker::Person(stamp.as_deref()),
+        };
+        match security.set_permission(&id, which, body.on, asker) {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        }
+    })
     .await
 }
 

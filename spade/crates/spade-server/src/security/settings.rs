@@ -6,6 +6,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use spade_core::autonomy::{Mode, lenient_mode};
 use spade_core::grant::Grant;
+use spade_core::permission;
 use spade_sandbox::egress::NetworkPolicy;
 
 /// Where a bot's commands run.
@@ -52,6 +53,14 @@ pub struct BotSecurity {
     /// Its grants, consented folders among them.
     #[serde(default)]
     pub grants: Vec<Grant>,
+    /// The switches of its Permissions it sets itself (ADR 0171, amendment 7); Commands and
+    /// Network are `commands` and `network` above.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub permissions: permission::Own,
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 /// Every earlier build stored a bot's network policy, the built-in default included; that one
@@ -76,6 +85,12 @@ pub struct MachineSecurity {
     /// Plugins' default is any public host: the person installed them.
     #[serde(default = "NetworkPolicy::open")]
     pub plugin_network: NetworkPolicy,
+    /// The Permissions every bot without its own follows, over [`permission::Held::default`].
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub permissions: permission::Own,
+    /// The apps no bot uses through Computer use, whatever its switch says.
+    #[serde(default = "permission::never::default_list")]
+    pub never_apps: Vec<String>,
 }
 
 impl Default for MachineSecurity {
@@ -85,7 +100,16 @@ impl Default for MachineSecurity {
             autonomy: Mode::default(),
             network: NetworkPolicy::default(),
             plugin_network: NetworkPolicy::open(),
+            permissions: permission::Own::default(),
+            never_apps: permission::never::default_list(),
         }
+    }
+}
+
+impl MachineSecurity {
+    /// The Permissions a bot without its own follows.
+    pub fn permits(&self) -> permission::Held {
+        permission::Held::default().over(&self.permissions)
     }
 }
 
@@ -166,6 +190,7 @@ mod tests {
             autonomy: Autonomy::AutoReview,
             network: policy(Mode::Off),
             plugin_network: policy(Mode::AllowList),
+            ..MachineSecurity::default()
         };
         let cases = [
             (

@@ -117,7 +117,8 @@ fn every_way(call: Call<'_>) -> Vec<Call<'_>> {
     all
 }
 
-const MAIL_LISTED: &str = "Running:\nMail (com.apple.mail), frontmost\nTextEdit (com.apple.TextEdit)";
+const MAIL_LISTED: &str =
+    "Running:\nMail (com.apple.mail), frontmost\nTextEdit (com.apple.TextEdit)";
 
 fn screen_steps() -> Vec<Found> {
     vec![
@@ -141,7 +142,12 @@ fn screen_steps() -> Vec<Found> {
             Some(MAIL_LISTED),
             never::DEFAULT,
         ),
-        found("screen_state", json!({"app": "Mail"}), Some(MAIL_LISTED), never::DEFAULT),
+        found(
+            "screen_state",
+            json!({"app": "Mail"}),
+            Some(MAIL_LISTED),
+            never::DEFAULT,
+        ),
         found(
             "screen_open_app",
             json!({"bundleId": "com.apple.TextEdit"}),
@@ -229,7 +235,12 @@ fn an_app_on_the_never_use_list_is_refused_even_with_computer_use_on() {
             &["Mail"][..],
             "Mail",
         ),
-        (json!({"app": "Mail", "actions": []}), "", &["Mail"][..], "Mail"),
+        (
+            json!({"app": "Mail", "actions": []}),
+            "",
+            &["Mail"][..],
+            "Mail",
+        ),
     ];
     for (arguments, listed, list, entry) in cases {
         let step = found("screen_act", arguments.clone(), Some(listed), list);
@@ -253,18 +264,44 @@ fn an_app_on_the_never_use_list_is_refused_even_with_computer_use_on() {
 
 #[test]
 fn browser_and_simulator_steps_run_under_their_own_switch_and_are_refused_without_it() {
-    let tabs = r#"{"tabs":[{"tabId":"t1","url":"https://mail.google.com/mail/u/0/","current":true}]}"#;
+    let tabs =
+        r#"{"tabs":[{"tabId":"t1","url":"https://mail.google.com/mail/u/0/","current":true}]}"#;
     let browser = [
-        found("browser_act", json!({"action": "click", "ref": "e1"}), Some(tabs), &[]),
-        found("browser_act", json!({"action": "type", "text": "hi"}), Some(tabs), &[]),
-        found("browser_open", json!({"url": "https://www.paypal.com/checkout"}), None, &[]),
+        found(
+            "browser_act",
+            json!({"action": "click", "ref": "e1"}),
+            Some(tabs),
+            &[],
+        ),
+        found(
+            "browser_act",
+            json!({"action": "type", "text": "hi"}),
+            Some(tabs),
+            &[],
+        ),
+        found(
+            "browser_open",
+            json!({"url": "https://www.paypal.com/checkout"}),
+            None,
+            &[],
+        ),
         // Placeless: nothing to hold it to.
         found("browser_settings", json!({"action": "close"}), None, &[]),
         found("browser_evaluate", json!({"script": "1"}), Some(tabs), &[]),
     ];
     let devices = [
-        found("sim_act", json!({"simId": "s1", "action": "tap"}), None, &[]),
-        found("sim_act", json!({"simId": "s1", "action": "type", "text": "hi"}), None, &[]),
+        found(
+            "sim_act",
+            json!({"simId": "s1", "action": "tap"}),
+            None,
+            &[],
+        ),
+        found(
+            "sim_act",
+            json!({"simId": "s1", "action": "type", "text": "hi"}),
+            None,
+            &[],
+        ),
         found(
             "sim_act",
             json!({"simId": "s1", "action": "open_app", "appId": "com.apple.MobileSMS"}),
@@ -273,7 +310,10 @@ fn browser_and_simulator_steps_run_under_their_own_switch_and_are_refused_withou
         ),
         found("sim_start", json!({"simId": "s1"}), None, &[]),
     ];
-    for (steps, switch) in [(&browser[..], Switch::Browser), (&devices[..], Switch::Devices)] {
+    for (steps, switch) in [
+        (&browser[..], Switch::Browser),
+        (&devices[..], Switch::Devices),
+    ] {
         let only = match switch {
             Switch::Browser => Held {
                 browser: true,
@@ -306,11 +346,22 @@ fn browser_and_simulator_steps_run_under_their_own_switch_and_are_refused_withou
 
 #[test]
 fn a_step_that_must_be_held_where_spade_cant_place_or_hold_it_is_refused_not_asked() {
-    let loading = r#"{"tabs":[{"tabId":"t1","url":"https://docs.rs/","current":true,"loading":true}]}"#;
+    let loading =
+        r#"{"tabs":[{"tabId":"t1","url":"https://docs.rs/","current":true,"loading":true}]}"#;
     let cases = [
         // A tab still loading, or none current.
-        found("browser_act", json!({"action": "click"}), Some(loading), &[]),
-        found("browser_act", json!({"action": "click"}), Some(r#"{"tabs":[]}"#), &[]),
+        found(
+            "browser_act",
+            json!({"action": "click"}),
+            Some(loading),
+            &[],
+        ),
+        found(
+            "browser_act",
+            json!({"action": "click"}),
+            Some(r#"{"tabs":[]}"#),
+            &[],
+        ),
         // Two apps for the name and neither exactly it.
         found(
             "screen_act",
@@ -328,7 +379,7 @@ fn a_step_that_must_be_held_where_spade_cant_place_or_hold_it_is_refused_not_ask
             let Route::Refuse(line) = &route else {
                 panic!("{} {}: {route:?}", step.tool, step.arguments);
             };
-            assert!(line.starts_with("Not run: "), "{line}");
+            assert!(line.starts_with("It "), "{line}");
             assert!(line.ends_with("Look again, then act."), "{line}");
             assert!(!line.contains("you decide"), "{line}");
         }
@@ -414,8 +465,14 @@ fn on_an_organizations_shared_bot_a_step_under_a_switch_still_goes_to_its_approv
 #[test]
 fn sends_payments_and_connected_apps_are_refused_while_their_switch_is_off() {
     let cases = [
-        (call("send_message", Some(Effect::SendAsPerson), ALL_ON), Switch::Send),
-        (call(GIT_PUSH, Some(Effect::SendAsPerson), ALL_ON), Switch::Send),
+        (
+            call("send_message", Some(Effect::SendAsPerson), ALL_ON),
+            Switch::Send,
+        ),
+        (
+            call(GIT_PUSH, Some(Effect::SendAsPerson), ALL_ON),
+            Switch::Send,
+        ),
         (call("shop__buy", Some(Effect::Pay), ALL_ON), Switch::Pay),
         (
             Call {
@@ -452,5 +509,8 @@ fn sends_payments_and_connected_apps_are_refused_while_their_switch_is_off() {
         route(call("send_message", Some(Effect::SendAsPerson), ALL_ON)),
         ask(SENDS_AS_YOU)
     );
-    assert_eq!(route(call("shop__buy", Some(Effect::Pay), ALL_ON)), ask(SPENDS));
+    assert_eq!(
+        route(call("shop__buy", Some(Effect::Pay), ALL_ON)),
+        ask(SPENDS)
+    );
 }

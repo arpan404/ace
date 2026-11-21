@@ -89,12 +89,12 @@ impl Switch {
         }
     }
 
-    /// What the bot is told when a call needs this switch and it is off: one line, saying where
-    /// the person turns it on.
+    /// Why a call that needs this switch isn't run while it is off: one line, saying where the
+    /// person turns it on (the gate's refusal adds "Not run:").
     pub fn off(self) -> String {
         format!(
-            "Not run: {} is off for this bot. The person can turn it on in the bot's profile, \
-             under Permissions.",
+            "{} is off for this bot. The person can turn it on in the bot's profile, under \
+             Permissions.",
             self.name()
         )
     }
@@ -213,12 +213,12 @@ impl Held {
 
     /// The machine's defaults with `own` set over them (how Settings › Spade stores them).
     pub fn over(self, own: &Own) -> Self {
-        Switch::ALL.into_iter().fold(self, |held, switch| {
-            match own.get(switch) {
+        Switch::ALL
+            .into_iter()
+            .fold(self, |held, switch| match own.get(switch) {
                 Some(on) => held.with(switch, on),
                 None => held,
-            }
-        })
+            })
     }
 }
 
