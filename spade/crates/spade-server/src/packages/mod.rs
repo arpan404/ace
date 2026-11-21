@@ -315,28 +315,6 @@ pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, P
     if !link.withdrawn_hashes.contains(&link.package.hash) {
         link.withdrawn_hashes.push(link.package.hash.clone());
     }
-    paused(engine, bot, link, reason)
-}
-
-/// A version the organization's policy blocks pauses its bot the same way (ADR 0206 §3): the one
-/// pause, the reason shown, nothing deleted. Unlike a withdrawal the version isn't marked never
-/// to be moved to again: a later policy may allow it. Saying it again changes nothing.
-pub fn block(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, PackageError> {
-    let _busy = engine.package_busy.hold(bot);
-    let link = link_of(engine, bot)?;
-    if link.withdrawn.is_some() {
-        return Ok(link);
-    }
-    paused(engine, bot, link, reason)
-}
-
-/// Pauses `bot`, then keeps why on its link.
-fn paused(
-    engine: &Arc<Engine>,
-    bot: &str,
-    mut link: Link,
-    reason: &str,
-) -> Result<Link, PackageError> {
     // Paused first: the reason is only words, the pause is what keeps the bot from acting.
     engine.pause_agent(bot).map_err(failed)?;
     let reason: String = reason.trim().chars().take(500).collect();

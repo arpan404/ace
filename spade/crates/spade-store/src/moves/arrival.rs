@@ -22,8 +22,9 @@ use crate::{Result, Store, append_in};
 /// Whether Spade's own main is in use, given a reader of this machine's settings.
 pub type MainActive<'a> = dyn Fn(&dyn Fn(&str) -> Option<String>) -> bool + 'a;
 
-/// A setting changed in the cutover: its key, and its new value from the one held.
-pub type Merge<'a> = (&'a str, &'a dyn Fn(Option<&str>) -> String);
+/// A setting changed in the cutover: its key, and its new value from the one held (`None`
+/// leaves it as it is).
+pub type Merge<'a> = (&'a str, &'a dyn Fn(Option<&str>) -> Option<String>);
 
 /// What the transaction that makes an arrival this machine's is told.
 pub struct Cutover<'a> {
@@ -400,10 +401,15 @@ impl Store {
         crate::gate::bypass(&tx, id)?;
         for (key, merge) in cutover.merges {
             let held = setting_in(&tx, key)?;
+            let Some(value) = merge(held.as_deref()) else {
+                continue;
+            };
+            // A watched setting (a bot's package link) records its change in this transaction.
+            crate::watch::changing_in(&tx, &self.watching, key, Some(&value))?;
             tx.execute(
                 "INSERT INTO settings (key, value) VALUES (?1, ?2)
                  ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                params![key, merge(held.as_deref())],
+                params![key, value],
             )?;
         }
         if let Some(main) = &cutover.main {

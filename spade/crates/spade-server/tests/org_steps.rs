@@ -159,6 +159,19 @@ async fn an_org_host_takes_only_the_packages_its_policy_allows_and_pauses_a_bloc
     // Then blocked: the running bot is paused, saying why, as the policy's step; not removed,
     // and not resumed while the block stands.
     let blocked = r#"{"packages": {"block": [{"name": "flight-watcher"}]}}"#;
+    // One write: when the pause can't be stored, the policy isn't applied either, and nothing
+    // says it was.
+    let refusing = spade_store::Store::connect(spade.database())?;
+    refusing.execute_batch(
+        "CREATE TRIGGER refuse_pause BEFORE INSERT ON settings \
+         WHEN NEW.key = 'paused_bots' BEGIN SELECT RAISE(ABORT, 'refused for a test'); END;",
+    )?;
+    assert_ne!(offer(&spade, &policy(4, blocked)).await?.0, 200);
+    let (_, view) = spade.get("/v1/org").await?;
+    assert_eq!(view["policy"], 3, "{view}");
+    assert!(link(&spade, &bot).await?["withdrawn"].is_null());
+    assert!(entries(&export(&spade).await?, "package.paused").is_empty());
+    refusing.execute_batch("DROP TRIGGER refuse_pause;")?;
     assert_eq!(offer(&spade, &policy(4, blocked)).await?.0, 200);
     let paused = link(&spade, &bot).await?;
     assert!(
@@ -218,5 +231,73 @@ async fn a_shared_bots_switch_goes_on_only_as_far_as_the_members_role_may() -> R
     let (status, body) =
         as_member(&spade, &PERSON_KEY, Some(&mia), Method::PUT, &path, &off).await?;
     assert_eq!(status, 200, "{body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_bot_moving_in_on_a_version_the_policy_blocks_arrives_paused() -> Result {
+    let fleet = Arc::new(Fleet::default());
+    let laptop = machine(&fleet, "host-laptop", "Acme box", vec![]).await?;
+    let studio = machine(&fleet, "host-studio", "Acme spare", vec![]).await?;
+    for spade in [&laptop, &studio] {
+        bind(spade, &PERSON_KEY).await?;
+        support::market::trust(&spade.engine);
+    }
+    support::fleet::lock_orgs(&fleet).insert("host-studio".to_owned(), ORG.to_owned());
+    let (status, made) = laptop.post("/v1/agents", install(json!({}), false)).await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = text(&made["agent"]["id"]);
+    let access = spade_core::org::Access::new(ORG, "user_root");
+    spade_store::Store::connect(laptop.database())?.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+        [format!("org_bot:{bot}"), serde_json::to_string(&access)?],
+    )?;
+    // The host it moves to blocks the flight watcher; the one it leaves doesn't.
+    let blocked = r#"{"packages": {"block": [{"name": "flight-watcher"}]}}"#;
+    assert_eq!(offer(&studio, &policy(1, blocked)).await?.0, 200);
+
+    let admin = member("user_root", "admin");
+    let (status, body) = as_member(
+        &laptop,
+        &PERSON_KEY,
+        Some(&admin),
+        Method::POST,
+        &format!("/v1/agents/{bot}/move"),
+        &json!({ "to": "host-studio", "move": "m1" }),
+    )
+    .await?;
+    assert_eq!(status, 202, "{body}");
+    let started = packed(&laptop, &bot).await?;
+    let (status, body) = as_member(
+        &studio,
+        &PERSON_KEY,
+        Some(&admin),
+        Method::PUT,
+        "/v1/moves/m1/accept",
+        &accepting(&bot, &started, "host-studio"),
+    )
+    .await?;
+    assert_eq!(status, 200, "{body}");
+    assert!(move_ends(&laptop, &bot).await?.is_null());
+
+    // There it is paused from its first moment, saying why, as the policy's step.
+    let row = bots(&studio)
+        .await?
+        .into_iter()
+        .find(|a| a["id"] == bot.as_str())
+        .unwrap_or_default();
+    assert_eq!(row["state"], "paused", "{row}");
+    let arrived = link(&studio, &bot).await?;
+    assert!(
+        text(&arrived["withdrawn"]["reason"]).contains("blocked flight-watcher"),
+        "{arrived}"
+    );
+    let recorded = the_entry(&studio, "package.paused").await?;
+    assert_eq!(recorded["actor"]["type"], "policy");
+    assert_eq!(recorded["targets"][0]["id"], bot.as_str());
+    let (status, _) = studio
+        .post(&format!("/v1/agents/{bot}/resume"), json!({}))
+        .await?;
+    assert_eq!(status, 403);
     Ok(())
 }

@@ -109,8 +109,10 @@ and an update or rollback (`POST /v1/agents/{id}/package`) are refused (`403`, t
 words) when `Policy::package_refusal` refuses the version; a template this Spade ships reads as a
 market package, a local one (signed by nobody) as a git catalog's. Applying a policy that blocks
 a version a bot runs pauses that bot with the one pause a withdrawal uses, saying why, as the
-policy's step (`package.paused`); its version isn't marked never to move to again, and neither
-Resume (`DELETE …/package/withdrawn`, `POST …/resume`) takes while the block stands. Turning a
+policy's step (`package.paused`), in the same write that applies the policy: the pause, the link
+and the entry land with it or nothing does. A bot that moves in on a blocked version arrives
+paused the same way, in the cutover's transaction. Its version isn't marked never to move to
+again, and neither Resume (`DELETE …/package/withdrawn`, `POST …/resume`) takes while the block stands. Turning a
 shared bot's switch on (`PUT …/package/effects`) is held to `Policy::switch_refusal` for the
 stamped member's role; turning one off always narrows.
 
@@ -184,9 +186,6 @@ anything else. `ace org audit export` and `ace org audit verify` call the export
   two loses that entry.
 - A bot installed on an org host isn't made a shared bot by installing it; only
   `POST /v1/org/bots` makes one.
-- A blocked version pauses its bots right after the policy that blocks it is applied, not in
-  that write: a crash in between leaves them running until the next policy. A bot that moves in
-  on a blocked version isn't paused on arrival.
 - Creating a club of shared bots needs no stamp (posting to it does).
 - Telling admins a shared bot has no active approver; rights of deprovisioned members are the
   daemon's to withhold (no stamp), not marked inactive here.

@@ -2,8 +2,6 @@
 //! bot's package link (an install finishing, an update or rollback landing, a switch, a pause,
 //! the bot's deletion), the store writes the entry with it, in the same transaction.
 
-use std::sync::Arc;
-
 use spade_core::effect::Effect;
 use spade_core::org::Right;
 use spade_core::org::audit::{Entry, Ref};
@@ -190,28 +188,25 @@ impl Engine {
         )
     }
 
-    /// Pauses every bot whose running version the organization's policy now blocks, recorded
-    /// as the policy's step (`package.paused`). Nothing is removed.
-    pub fn pause_blocked(self: &Arc<Self>) {
+    /// Every bot running a version `policy` blocks and not paused for it already: its id, its
+    /// link and why.
+    pub(super) fn blocked_by(
+        &self,
+        policy: &spade_core::org::Policy,
+    ) -> Vec<(String, Link, String)> {
         let Ok(agents) = self.store.agents() else {
-            return;
+            return Vec::new();
         };
-        for agent in agents {
-            let Some(link) = self.bot_package(&agent.id) else {
-                continue;
-            };
-            if link.withdrawn.is_some() {
-                continue;
-            }
-            let Some(why) = self.org_blocked(&link.package) else {
-                continue;
-            };
-            let blocked = org::acting::acting(Some(Actor::Policy), || {
-                crate::packages::block(self, &agent.id, &why)
-            });
-            if let Err(error) = blocked {
-                tracing::warn!(%error, bot = %agent.id, "a blocked version's bot couldn't be paused");
-            }
-        }
+        agents
+            .into_iter()
+            .filter_map(|agent| {
+                let link = self.bot_package(&agent.id)?;
+                if link.withdrawn.is_some() {
+                    return None;
+                }
+                let why = policy.blocked(&link.package.name, &link.package.hash)?;
+                Some((agent.id, link, why))
+            })
+            .collect()
     }
 }
