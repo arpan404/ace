@@ -447,7 +447,7 @@ private struct InboxThreadCell: View {
     @ViewBuilder private func openMoved(_ moved: RowLook.Moved) -> some View {
         if let go = others.open {
             Button("Open on \(moved.name)", ace: .arrowSquareOut) {
-                switch go(InboxKey(machineId: moved.hostId, id: moved.threadId)) {
+                switch go(InboxKey(machineId: moved.hostId, id: moved.threadId), {}) {
                 case .opened: break
                 case .waiting: movedNote = MovedNote(title: "Opening on \(moved.name)", words: moved.waiting)
                 case .unpaired: movedNote = MovedNote(title: "Can't open on \(moved.name)", words: moved.unpaired)
@@ -456,7 +456,7 @@ private struct InboxThreadCell: View {
             .accessibilityIdentifier("row.openMoved")
         }
     }
-    private struct MovedNote: Equatable { let title: String; let words: String }
+    private struct MovedNote: Equatable { let title: String; let words: String? }
 
     private func pinButton(_ row: ThreadRow, _ pinned: Bool) -> some View {
         Button(pinned ? "Unpin" : "Pin", ace: pinned ? .pushPinSlash : .pushPin) { swiped(); actions.pin(row, key, !pinned) }

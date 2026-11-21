@@ -121,13 +121,14 @@ struct RowLook: Codable, Sendable, Equatable {
     var state: String? = nil
     /// Where its work went (ADR 0191): the row reads "Moved to Studio" and opens it there.
     /// `unpaired` and `waiting` say why Open can't show the thread there yet: this phone isn't
-    /// paired with that machine, or its thread list hasn't caught up.
+    /// paired with that machine, or its thread list hasn't caught up. Nil in an inbox kept by an
+    /// older build, so its moved rows still read until the bridge sends them again.
     struct Moved: Codable, Sendable, Equatable {
         let hostId: String
         let name: String
         let threadId: String
-        let unpaired: String
-        let waiting: String
+        var unpaired: String? = nil
+        var waiting: String? = nil
     }
     var moved: Moved? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
