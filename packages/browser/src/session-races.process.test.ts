@@ -1,7 +1,8 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { expect, it, onTestFinished } from "vitest";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { FakeHeadless, FakePage, backendFixture } from "./backend-test-support.ts";
+import { FakeHeadless, FakePage, backendFixture, markedJpeg } from "./backend-test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 function tabBackend() {
@@ -29,7 +30,7 @@ function tabBackend() {
     media: async () => {
       effects.push("media");
     },
-    screenshot: async () => Buffer.from("public-seed"),
+    screenshot: async () => markedJpeg(1),
     tabs: {
       list: () => pages.map((_page, n) => ({ tabId: `tab-${n}`, url: "about:blank", title: "" })),
       active: () => `tab-${active}`,
@@ -120,24 +121,18 @@ it.each(["resize", "metrics", "touch"] as const)(
 it("a delayed screencast frame captured while the tab was private never enters the recording after agents are let back in", async () => {
   const b = tabBackend();
   let now = 1000;
+  const recorder = new FakeMediaRecorder();
   const f = await backendFixture({
     headlessBackend: b.backend,
     backendPreference: () => "headless",
     now: () => now,
-    ffmpeg: "/nonexistent",
+    recorder,
   });
   await f.open();
   await f.service.startRecording("thread");
-  await expect
-    .poll(async () => {
-      const paths = (await readdir(f.home, { recursive: true })).filter((path) =>
-        path.endsWith("frames.jsonl"),
-      );
-      return Promise.all(paths.map((path) => readFile(join(f.home, path), "utf8"))).then(
-        (contents) => contents.some((text) => text.endsWith("\n")),
-      );
-    })
-    .toBe(true);
+  const recorded = () => recorder.last()?.units.map((unit) => unit.height) ?? [];
+  // The recording's first picture, the page's own screenshot.
+  await expect.poll(recorded).toEqual([1]);
   const initial = b.pages[0];
   if (!initial) throw new Error("pages");
   now = 2000;
@@ -145,35 +140,22 @@ it("a delayed screencast frame captured while the tab was private never enters t
   now = 3000;
   keepAgentsOut(f.service, "thread", false);
   now = 4000;
+  // Captured at 2.5 s, while private, and delivered after the hand-back.
   initial.events.emit("Page.screencastFrame", {
     sessionId: 1,
-    data: Buffer.from("PRIVATE-PIXELS").toString("base64"),
+    data: markedJpeg(9).toString("base64"),
     metadata: { deviceWidth: 1280, deviceHeight: 720, timestamp: 2.5 },
   });
   now = 5000;
   initial.events.emit("Page.screencastFrame", {
     sessionId: 2,
-    data: Buffer.from("public-after-handback").toString("base64"),
+    data: markedJpeg(5).toString("base64"),
     metadata: { deviceWidth: 1280, deviceHeight: 720, timestamp: 4.5 },
   });
-  await expect
-    .poll(async () => {
-      const paths = (await readdir(f.home, { recursive: true })).filter((path) =>
-        path.endsWith(".jpg"),
-      );
-      const contents = await Promise.all(paths.map((path) => readFile(join(f.home, path), "utf8")));
-      return contents.includes("public-after-handback");
-    })
-    .toBe(true);
+  await expect.poll(recorded).toEqual([1, 5]);
   const artifact = await f.service.stopRecording("thread");
   expect(artifact.bytes).toBeGreaterThan(0);
-  const paths = (await readdir(f.home, { recursive: true })).filter((path) =>
-    path.endsWith(".jpg"),
-  );
-  const images = await Promise.all(paths.map((path) => readFile(join(f.home, path), "utf8")));
-  expect(images).toContain("public-seed");
-  expect(images).toContain("public-after-handback");
-  expect(images.some((image) => image.includes("PRIVATE-PIXELS"))).toBe(false);
+  expect(recorded()).not.toContain(9);
 });
 
 it.each([

@@ -44,7 +44,6 @@ async function idleNativeTabs() {
         };
       },
     },
-    ffmpeg: "",
   });
   cleanups.push(() => service.close());
   const daemon = await relayDaemon(cleanups, {

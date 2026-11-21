@@ -29,7 +29,7 @@ interface ComputerUse {
   computer: import("@ace/screen").ComputerClient;
 }
 
-const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent/ffmpeg" });
+const browser = () => ({ headlessBackend: new FakeHeadless() });
 
 /**
  * Two real daemons in their own temp homes. The target listens for paired devices over TLS;

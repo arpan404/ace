@@ -24,7 +24,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     const daemon = await startDaemon({
       engine: noProviderDiscovery,
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-      browser: { executablePath, ffmpeg: "/nonexistent/ffmpeg" },
+      browser: { executablePath },
     });
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];
     try {

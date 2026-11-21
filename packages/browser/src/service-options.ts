@@ -25,7 +25,9 @@ export interface BrowserServiceOptions {
    * person's explicit choice, never as a fallback. Default true.
    */
   sandbox?: boolean;
-  ffmpeg?: string;
+  /** ace-media's recorder, which every browser recording goes through (X1); omitted, recordings
+   * refuse, saying why. */
+  recorder?: import("@ace/media/tee-recordings").MediaRecorder;
   originPolicy?: OriginPolicy;
   /**
    * Sessions kept off this machine and its local network, whatever `originPolicy` allows: an

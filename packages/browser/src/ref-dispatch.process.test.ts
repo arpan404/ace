@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { readdir } from "node:fs/promises";
@@ -204,9 +205,11 @@ it.each(["screenshot", "recording"] as const)(
         return Buffer.from("private-image");
       },
     });
+    const recorder = new FakeMediaRecorder();
     const f = await backendFixture({
       backendPreference: () => "headless",
       headlessBackend: headless,
+      recorder,
     });
     await f.open();
     const request =
@@ -222,5 +225,7 @@ it.each(["screenshot", "recording"] as const)(
     expect(
       (await readdir(f.home, { recursive: true })).filter((path) => /\.(png|jpg)$/.test(path)),
     ).toEqual([]);
+    // Nothing of the private moment reached ace-media's recorder either.
+    expect(recorder.recordings.flatMap((recording) => recording.units)).toEqual([]);
   },
 );

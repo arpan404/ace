@@ -28,7 +28,7 @@ import type { ServiceContext } from "./types.ts";
 import type { Store } from "../store.ts";
 import { grantOfCaller } from "../external-mcp/principals.ts";
 import { browserBackendMessage } from "./socket-message.ts";
-import { startMedia } from "./media.ts";
+import { noMediaRecorder, startMedia } from "./media.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 
 /**
@@ -84,10 +84,13 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   // ace's Chrome, the desktop's views and the person's own Chrome share one daemon-wide budget.
   const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
   // Live video is encoded only by ace-media (E4, X2); without its binary, views say so.
-  const media = options.browser?.media ?? startMedia(context) ?? noMedia;
+  const started = startMedia(context);
+  const media = options.browser?.media ?? started ?? noMedia;
   const browser = new BrowserService({
     ...options.browser,
     media,
+    // Every browser recording is ace-media's (X1); without it a recording refuses, saying why.
+    recorder: options.browser?.recorder ?? started?.recorder ?? noMediaRecorder,
     ...(config.chromiumPath && !options.browser?.executablePath
       ? { executablePath: config.chromiumPath }
       : {}),

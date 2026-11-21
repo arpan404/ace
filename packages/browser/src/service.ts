@@ -10,7 +10,6 @@ import {
 import { recoverHeadless } from "./recovery.ts";
 import { DesktopLoss } from "./desktop-loss.ts";
 import { RecoveryRetry } from "./recovery-retry.ts";
-import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
 import type { PagePreviewRequest, PagePreviewShot } from "./page-preview.ts";
 import { BrowserProfiles } from "./profiles.ts";
@@ -524,7 +523,6 @@ export class BrowserService {
         },
       };
       opening = request;
-      const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
       const media = this.options.media;
       const build = (opened: BrowserBackendSession, kind: BrowserBackend["kind"]) =>
         new BrowserSession({
@@ -563,7 +561,7 @@ export class BrowserService {
             : {}),
           ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
           ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
-          ...(ffmpeg ? { ffmpeg } : {}),
+          ...(this.options.recorder ? { recorder: this.options.recorder } : {}),
           ...policies.session,
           artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
           state: (state) => this.emit(state),

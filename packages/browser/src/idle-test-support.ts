@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -204,7 +205,7 @@ export async function idleThread() {
     headlessBackend: backend,
     backendPreference: () => "headless",
     wakeWatch: false,
-    ffmpeg: "/nonexistent",
+    recorder: new FakeMediaRecorder(),
     now: () => clock.now,
     tabLifecycle: {
       policy: defaultTabLifecycle,

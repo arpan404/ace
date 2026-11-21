@@ -147,21 +147,17 @@ JSONL, with lines capped at 8 KiB and each file capped at 16 MiB. Writable-strea
 backpressure drops new log entries. Network logs contain URLs, methods, statuses
 and failures, with no headers or response bodies.
 
-Recording writes one JPEG at a time, dropping frames while disk is busy. It
-streams timestamps to `frames.jsonl` and ffmpeg timing instructions to
-`frames.ffconcat`. Stop encodes an MP4 when ffmpeg is on PATH. Encoding failure
-returns the frame player instead, preserving the recording. The sequence stays
-on disk so timestamps and original dimensions survive encoding. Each recording
-is capped at 256 MiB of JPEGs and 100,000 frames; MP4 output has a separate
-256 MiB limit. Stop reports an artifact through `onArtifact`, and the daemon
-persists an `artifact` thread item. Close finalizes an active recording too.
-
-The fallback `player.html` streams the manifest with bounded memory. Serve the
-recording directory through the artifact transport or a local HTTP server to
-play it; opening it as a `file:` URL cannot fetch the manifest. Artifact retrieval
-is a separate transport concern. This package returns host paths and never
-embeds large files in socket messages. Profiles, screenshots and recordings
-contain page data and remain in private directories on the host.
+Recordings are ace-media's (ADR 0147, X1). The session hands ace-media the recorded tab's
+JPEG pictures: the live screencast's while the person views that tab, screenshots about four
+times a second otherwise. ace-media encodes them for the recording alone, so it records
+whether or not anyone watches, and writes MP4 parts. Every picture first passes the recorded
+tab's own capture-time privacy fence: nothing while the tab is private, nothing captured at or
+before its last privacy change, nothing from the 100 ms read gap after it stopped being
+private. Without ace-media a recording refuses to start and says why. Stop reports each part
+through `onArtifact`, and the daemon persists an `artifact` thread item. Close finalizes an
+active recording too. This package returns host paths and never embeds large files in socket
+messages. Profiles, screenshots and recordings contain page data and remain in private
+directories on the host.
 
 ## Verification
 

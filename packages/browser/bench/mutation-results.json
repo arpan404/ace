@@ -47,12 +47,5 @@
     "test": "packages/browser/src/actions.process.test.ts > agent browser API with real Chromium > checks redirect hops initiated by a cross-site iframe",
     "killed": true,
     "exitCode": 1
-  },
-  {
-    "mutation": "write empty recording JPEGs",
-    "file": "packages/browser/src/recording.ts",
-    "test": "packages/browser/src/lifecycle.process.test.ts > browser lifecycle and recordings > saves a timestamped frame manifest and a player and reports the recording artifact",
-    "killed": true,
-    "exitCode": 1
   }
 ]

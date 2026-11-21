@@ -47,7 +47,6 @@ defineBrowserConformance({
       ),
       backendPreference: () => "headless",
       tabLifecycle: false,
-      ffmpeg: "",
     });
   },
 });

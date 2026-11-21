@@ -26,8 +26,9 @@ export interface SessionOptions {
   now: () => number;
   id: () => string;
   navigationClock: NavigationClock;
-  ffmpeg?: string;
   spawn?: ProcessSpawner;
+  /** ace-media's recorder (X1); omitted, every recording refuses, saying why. */
+  recorder?: import("@ace/media/tee-recordings").MediaRecorder;
   cancelPolicy: () => void;
   /** How people and agents share tabs; omitted, `collaborationTiming`. */
   collaboration?: import("./collaboration.ts").CollaborationTiming;

@@ -45,7 +45,6 @@ async function usersChrome(options: { tabBudget?: TabBudget; tabStore?: BrowserT
       headlessBackend: new UserChromeTabsBackend(new UserChromeBackend(hub, process.platform)),
       backendPreference: () => "headless",
       tabLifecycle: false,
-      ffmpeg: "",
       ...options,
     });
     onTestFinished(() => service.close());

@@ -45,8 +45,9 @@ export class LiveCapture {
   private videoSource: () => LiveVideoSource | undefined;
   private cdp: BrowserCdp;
   private now: () => number;
-  private onFrame: (frame: BrowserFrame, epoch: number) => void;
-  private privacy: () => Privacy;
+  private onFrame: (frame: BrowserFrame, epoch: number, capturedAt: number) => void;
+  /** The privacy of a tab by id (undefined: the one page a backend without tabs shows). */
+  private privacy: (tabId: string | undefined) => Privacy;
   private videoTimer: ReturnType<typeof setInterval> | undefined;
   private sequence = 0;
   private lastFrame = -Infinity;
@@ -70,8 +71,13 @@ export class LiveCapture {
   constructor(
     cdp: BrowserCdp,
     now: () => number,
-    onFrame: (frame: BrowserFrame, epoch: number) => void,
-    privacy: () => Privacy = () => ({ epoch: 0, since: -Infinity, private: false }),
+    /** A picture of the captured tab, with the epoch and the time it was captured in. */
+    onFrame: (frame: BrowserFrame, epoch: number, capturedAt: number) => void,
+    privacy: (tabId: string | undefined) => Privacy = () => ({
+      epoch: 0,
+      since: -Infinity,
+      private: false,
+    }),
     viewport: () => { width: number; height: number } = () => ({ width: 1280, height: 720 }),
     tab: () => string | undefined = () => undefined,
     /**
@@ -273,12 +279,26 @@ export class LiveCapture {
   private tabField(): { tabId?: string } {
     return this.capturing ? { tabId: this.capturing } : {};
   }
+  /**
+   * The privacy of the tab this capture shows: its pictures carry that tab's content, whichever
+   * tab is viewed by the time they arrive.
+   */
+  private tabPrivacy(): Privacy {
+    return this.privacy(this.capturing);
+  }
+  /**
+   * The person moved to another tab: this capture's pictures are the old tab's from now on, and
+   * none of them goes anywhere. Called as the view changes, before the capture moves.
+   */
+  retarget(): void {
+    this.generation++;
+  }
   private captureFrame(raw: unknown, cdp: BrowserCdp, generation: number): void {
     const ack = Ack.safeParse(raw);
     if (ack.success) void cdp.send("Page.screencastFrameAck", ack.data).catch(() => {});
     const parsed = Screencast.safeParse(raw);
     if (!parsed.success || this.closed || generation !== this.generation) return;
-    const privacy = this.privacy(),
+    const privacy = this.tabPrivacy(),
       capturedAt = parsed.data.metadata.timestamp;
     // CDP timestamps identify capture time, not delivery time: a picture captured before the
     // tab's last privacy change is dropped before it goes anywhere (the video, a still, a
@@ -304,14 +324,14 @@ export class LiveCapture {
       height: Math.round(parsed.data.metadata.deviceHeight / scale),
       ...this.tabField(),
     };
-    this.onFrame(frame, epoch);
+    this.onFrame(frame, epoch, (capturedAt ?? 0) * 1000);
   }
   /**
    * The tab's privacy may have changed: the video hears its epoch once (M8), with whether the
    * one it replaces was private, so ace-media stamps and keeps pictures as it does video.
    */
   privacyChanged(): void {
-    const privacy = this.privacy();
+    const privacy = this.tabPrivacy();
     this.video.privacy({ epoch: privacy.epoch, private: privacy.private === true });
   }
   /**
@@ -348,7 +368,7 @@ export class LiveCapture {
     generation: number,
   ): Promise<{ viewport: { width: number; height: number }; dpr: number }> {
     const sequence = this.sequence,
-      epoch = this.privacy().epoch;
+      privacy = this.tabPrivacy();
     const viewport = this.viewport();
     const ratio = DevicePixelRatio.safeParse(
       await this.cdp.send("Runtime.evaluate", {
@@ -358,6 +378,8 @@ export class LiveCapture {
     );
     const dpr = ratio.success ? ratio.data.result.value : 1;
     const recording = this.needed();
+    // The screenshot may show the page as it was when it was asked for: its capture time.
+    const capturedAt = this.now();
     const initial = InitialFrame.parse(
       await this.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
@@ -377,7 +399,15 @@ export class LiveCapture {
       }),
     );
     if (this.closed || generation !== this.generation) throw new Error("Browser capture closed");
-    if (recording && this.sequence === sequence && epoch === this.privacy().epoch)
+    // A recording's first frame, fenced as every picture is: never from before the tab's last
+    // privacy change, and within the read gap after it stopped being private it keeps the
+    // private epoch, which nothing records.
+    if (
+      recording &&
+      this.sequence === sequence &&
+      privacy.epoch === this.tabPrivacy().epoch &&
+      (privacy.epoch === 0 || capturedAt > privacy.since)
+    )
       this.onFrame(
         {
           sequence: ++this.sequence,
@@ -386,7 +416,8 @@ export class LiveCapture {
           ...viewport,
           ...this.tabField(),
         },
-        epoch,
+        capturedEpoch(privacy, capturedAt),
+        capturedAt,
       );
     return { viewport, dpr };
   }

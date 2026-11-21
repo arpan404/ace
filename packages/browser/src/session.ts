@@ -4,7 +4,8 @@ import { BrowserActionError } from "./action-error.ts";
 import type { BackendLog, BrowserBackendSession, PopupTarget } from "./backend.ts";
 import type { BrowserAnnotationEvent, BrowserOriginBlock, BrowserPageState } from "@ace/protocol";
 import { BrowserCommand, type BrowserArtifact, type BrowserState } from "@ace/protocol";
-import { LiveCapture } from "./live.ts";
+import { refusingRecorder } from "@ace/media/tee-recordings";
+import { LiveCapture, type Privacy } from "./live.ts";
 import { SessionLogs } from "./logs.ts";
 import { browserState } from "./session-state.ts";
 import { closeSession } from "./session-close.ts";
@@ -127,6 +128,7 @@ export class BrowserSession {
     this.drops = new DroppedFiles(options.dir, options.id);
     this.recordings = new SessionRecording(
       options,
+      options.recorder ?? refusingRecorder("it isn't installed for this computer"),
       () => this.paused,
       async (on) => {
         await Promise.all(this.tabs.all().map((tab) => tab.cursor.setRecording(on)));
@@ -154,19 +156,10 @@ export class BrowserSession {
     this.live = new LiveCapture(
       this.viewedPage().cdp,
       options.now,
-      (frame, epoch) => {
-        const viewed = this.tabs.viewed();
-        if (viewed && !viewed.private && epoch === viewed.access.epoch)
-          this.recordings.accept(frame);
-      },
-      () => {
-        const access = this.tabs.viewed()?.access;
-        return {
-          epoch: access?.epoch ?? 0,
-          since: access?.since ?? -Infinity,
-          private: access?.private ?? false,
-        };
-      },
+      // A picture goes to a recording only through the recorded tab's own fence.
+      (frame, _epoch, capturedAt) => this.recordings.accept(frame, capturedAt),
+      // A capture's pictures are its own tab's, whichever tab is viewed when they arrive.
+      (tabId) => this.tabPrivacy(tabId),
       () => this.viewedPage().viewport(),
       () => (this.options.backend.tabs ? this.captured : undefined),
       () => this.viewedPage().captureScale?.() ?? 1,
@@ -321,6 +314,7 @@ export class BrowserSession {
       emit: () => this.emit(),
       privacyChanged: () => {
         this.live.privacyChanged();
+        this.recordings.privacyChanged();
         this.options.backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
         this.persist();
       },
@@ -706,6 +700,9 @@ export class BrowserSession {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
       // Another tab is shown: a wake of the last one, or its retries and status, no longer count.
       this.resetWakeRetries();
+      // The old tab's pictures still arriving are dropped from this moment, not once the
+      // capture has moved: they show the old tab, whatever its privacy.
+      this.live.retarget();
       this.captured = viewedId;
       this.recapture("Tab capture failed");
       // A backend that treats only the shown view specially (the desktop) relearns it.
@@ -971,19 +968,31 @@ export class BrowserSession {
       this.emit();
     });
   }
+  /**
+   * The privacy of a tab by id; undefined is the page a backend without tabs shows. A tab that
+   * is gone is private: nothing of it goes anywhere.
+   */
+  private tabPrivacy(tabId: string | undefined): Privacy {
+    const tab = tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId);
+    if (!tab) return { epoch: 0, since: Infinity, private: true };
+    const { access } = tab;
+    return { epoch: access.epoch, since: access.since, private: access.private };
+  }
   /** A tab a recording follows; a backend without tabs has only the page it shows. */
-  private recordedTab(tabId: string): RecordedTab | undefined {
-    if (!this.options.backend.tabs) return undefined;
+  private recordedTab(tabId: string): RecordedTab {
+    const tabbed = this.options.backend.tabs !== undefined;
     const epoch = this.tabs.find(tabId)?.access.epoch;
+    const id = tabbed ? tabId : undefined;
     return {
-      id: tabId,
-      page: this.tabs.page(tabId),
-      live: () => this.captured === tabId && !this.paused,
+      id,
+      page: tabbed ? this.tabs.page(tabId) : this.options.backend,
+      live: () => (tabbed ? this.captured === tabId : true) && !this.paused,
       // Agent recordings never resume in a tab that turned private, even once let back in.
       visible: () => {
         const tab = this.tabs.find(tabId);
         return tab !== undefined && !tab.private && tab.access.epoch === epoch;
       },
+      privacy: () => this.tabPrivacy(tabId),
     };
   }
   stopRecording(actor: Actor = { kind: "agent" }): Promise<BrowserArtifact> {

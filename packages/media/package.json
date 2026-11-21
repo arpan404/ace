@@ -29,7 +29,8 @@
     "./testing/media-test-client": "./src/testing/media-test-client.ts",
     "./testing/fake-delivery": "./src/testing/fake-delivery.ts",
     "./testing/ingest-server": "./src/testing/ingest-server.ts",
-    "./media-viewers": "./src/media-viewers.ts"
+    "./media-viewers": "./src/media-viewers.ts",
+    "./testing/fake-recorder": "./src/testing/fake-recorder.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

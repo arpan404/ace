@@ -1,4 +1,5 @@
 import { afterEach } from "vitest";
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -102,6 +103,8 @@ export async function setup(
   const service = new BrowserService({
     dataDir: home,
     ...(executablePath ? { executablePath } : {}),
+    // ace-media's recorder stands in: what a recording takes, not what ace-media makes of it.
+    recorder: new FakeMediaRecorder(),
     workspaceRoot: () => home,
     onArtifact: (_thread, artifact) => {
       artifacts.push(artifact);

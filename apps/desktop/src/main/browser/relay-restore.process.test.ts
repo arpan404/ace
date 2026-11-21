@@ -48,7 +48,6 @@ async function daemon(tabStore: BrowserTabStore) {
     tabLifecycle: false,
     tabStore,
     desktopReadoptionGraceMs: 0,
-    ffmpeg: "",
   });
   const relay = await relayDaemon(cleanups, {
     register: (_id, transport) => service.registerEmbedded(transport),
