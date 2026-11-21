@@ -22,7 +22,7 @@ struct HostServices: Sendable {
     var loopback: LoopbackHub = .shared
     /// The keys paired machines' sockets prove the person's standing with (ADR 0190 §7).
     var standingKeys = StandingKeys()
-    /// The one paired machine and device this runtime may sign standing proofs for; nil: none.
+    /// The one paired machine and device this runtime's sockets prove standing for; nil: none.
     var standingSigner: StandingSigner?
 
     /// A machine's connection may read its own device token and nothing else.
@@ -36,6 +36,13 @@ struct HostServices: Sendable {
         // Saved downloads are this machine's: another machine's same ids are other files.
         services.saved.scope = target.hostId
         return services
+    }
+
+    /// A new daemon socket's proof of the person's standing (ADR 0190 §7), for a paired machine's
+    /// runtime only. `binding`: the socket's channel binding, nil on a pinned direct socket.
+    func standingProof(binding: String?) -> PairedStandingProof? {
+        standingSigner.map { PairedStandingProof(signer: $0, keys: standingKeys, binding: binding,
+                                                 requestId: "standing-\(UUID().uuidString)") }
     }
 
     /// Secret, directory, attachment, download and result operations. Returns nil for operations owned elsewhere.
@@ -83,9 +90,6 @@ struct HostServices: Sendable {
                   let data = Data(base64Encoded: try request.requireBody()) else { throw HostError.unsupported }
             let staged = try attachments.stage(data: data, name: capture.name, mimeType: capture.mimeType)
             return String(decoding: try JSONSerialization.data(withJSONObject: staged.json), as: UTF8.self)
-        case "standing.sign":
-            guard let standingSigner else { throw HostError.unsupported }
-            return try standingKeys.sign(try request.requireBody(), hostId: standingSigner.hostId, deviceId: standingSigner.deviceId)
         case "access.result":
             guard let result else { throw HostError.unsupported }
             result(try request.requireBody())
@@ -94,7 +98,6 @@ struct HostServices: Sendable {
         }
     }
 }
-struct StandingSigner: Sendable { let hostId: String; let deviceId: String }
 private struct SecretWrite: Decodable { let key: String; let token: String }
 private struct ChunkRead: Decodable { let localId: String; let offset: Int; let limit: Int }
 private struct FileWrite: Decodable { let id: String; let name: String; let offset: Int; let done: Bool }

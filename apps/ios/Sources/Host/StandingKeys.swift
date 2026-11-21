@@ -9,14 +9,15 @@ protocol StandingKeyVault: Sendable {
     func create(tag: String) throws -> Data
     /// ECDSA P-256 with SHA-256 over `message` by the key under `tag`, DER encoded (X9.62).
     func sign(tag: String, message: Data) throws -> Data
-    func delete(tag: String)
+    /// Deletes the key under `tag`; succeeds when there is none. Throws when it may still be there.
+    func delete(tag: String) throws
 }
 
 /// The keys this phone proves the person's standing with on its paired machines (ADR 0190 §7):
-/// one per machine, made at pairing, its private half never leaving the vault. The daemon learns
-/// the public half when the phone redeems a link, and a person's link gives that device the
-/// person's standing, proven on each socket with `sign`. JavaScript only ever sees the public
-/// half and signatures.
+/// one per machine, made at pairing, its private half never leaving the vault. Swift names the
+/// public half when it redeems the link itself, and signs each socket's challenge on that
+/// socket itself (`PairedStandingProof`): the script never holds the key, chooses it, or chooses
+/// what it signs.
 struct StandingKeys: Sendable {
     var vault: any StandingKeyVault = SecureEnclaveVault()
     /// Which key each paired machine proves with, by host id: the key's tag, not a secret, kept in
@@ -30,38 +31,49 @@ struct StandingKeys: Sendable {
     func make() -> (tag: String, publicKey: String)? {
         let tag = newTag()
         guard let point = try? vault.create(tag: tag) else { return nil }
-        guard point.count == 65, point.first == 0x04 else { vault.delete(tag: tag); return nil }
+        guard point.count == 65, point.first == 0x04 else { discard(tag: tag); return nil }
         return (tag, Self.base64url(point))
     }
-    /// The pairing that made `tag` succeeded with `hostId`: it proves with that key from now on,
-    /// and the key an earlier pairing of the machine kept goes.
+    /// The pairing that made `tag` succeeded with `hostId`: it proves with that key from now on.
+    /// The key an earlier pairing of the machine kept goes first; while it can't be deleted the
+    /// machine keeps naming it, so this throws and a later `keep` or `forget` tries again.
     func keep(tag: String, for hostId: String) throws {
-        let earlier = try names.get(hostId)
+        if let earlier = try names.get(hostId), earlier != tag { try vault.delete(tag: earlier) }
         try names.set(hostId, tag)
-        if let earlier, earlier != tag { vault.delete(tag: earlier) }
     }
-    /// The pairing that made `tag` didn't happen: nothing names its key.
-    func discard(tag: String) { vault.delete(tag: tag) }
-    /// The machine was removed from this phone: its key goes with it.
-    func forget(hostId: String) {
-        if let tag = try? names.get(hostId) { vault.delete(tag: tag) }
-        try? names.delete(hostId)
+    /// The pairing that made `tag` didn't happen. Nothing names its key, so it can sign nothing
+    /// even if it outlives a failed delete; the delete is tried twice.
+    func discard(tag: String) {
+        if (try? vault.delete(tag: tag)) == nil { try? vault.delete(tag: tag) }
     }
-    /// The machine's key's signature over `text`, IEEE P1363 base64url, as a socket's
-    /// `device.standing` proof. Only `pairedStandingText` for this device is signed: the script
-    /// can't make the key sign anything else. Throws when the phone holds no key for the machine.
-    func sign(_ text: String, hostId: String, deviceId: String) throws -> String {
-        guard Self.isPairedProof(text, deviceId: deviceId), let tag = try names.get(hostId) else { throw HostError.unsupported }
+    /// The machine was removed from this phone: its key goes with it. While the key can't be
+    /// deleted, the machine's name for it stays, so the next `keep` or `forget` deletes it.
+    func forget(hostId: String) throws {
+        guard let tag = try names.get(hostId) else { return }
+        try vault.delete(tag: tag)
+        try names.delete(hostId)
+    }
+    /// The machine's key's signature over `pairedStandingText` for one socket's challenge, IEEE
+    /// P1363 base64url: `device.standing`'s proof. Throws when the phone holds no key for the
+    /// machine, or a field isn't one canonical line.
+    func proof(host: String, nonce: String, binding: String?, deviceId: String, hostId: String) throws -> String {
+        guard let text = Self.pairedText(host: host, nonce: nonce, binding: binding, deviceId: deviceId),
+              let tag = try names.get(hostId) else { throw HostError.unsupported }
         let der = try vault.sign(tag: tag, message: Data(text.utf8))
         return Self.base64url(try P256.Signing.ECDSASignature(derRepresentation: der).rawRepresentation)
     }
-    /// `ace-paired-standing/v1\n<host>\n<nonce>\n<binding>\n<deviceId>` (`pairedStandingText`),
-    /// naming this device, each part a single bounded line.
-    static func isPairedProof(_ text: String, deviceId: String) -> Bool {
-        guard text.utf8.count <= 2048 else { return false }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count == 5, lines[0] == "ace-paired-standing/v1", lines[4] == deviceId else { return false }
-        return lines[1...3].allSatisfy { !$0.isEmpty && $0.utf8.count <= 512 }
+    /// `ace-paired-standing/v1\n<host>\n<nonce>\n<binding>\n<deviceId>`, as `pairedStandingText`
+    /// writes it, with `none` for a socket without a channel of its own. Nil unless every field is
+    /// 1 to 512 bytes of printable ASCII without spaces: no CR, LF or other control character
+    /// can reshape the lines.
+    static func pairedText(host: String, nonce: String, binding: String?, deviceId: String) -> String? {
+        let fields = [host, nonce, binding ?? "none", deviceId]
+        guard fields.allSatisfy(isCanonicalField) else { return nil }
+        return (["ace-paired-standing/v1"] + fields).joined(separator: "\n")
+    }
+    private static func isCanonicalField(_ field: String) -> Bool {
+        let bytes = field.utf8
+        return (1...512).contains(bytes.count) && bytes.allSatisfy { (0x21...0x7E).contains($0) }
     }
     static func base64url(_ data: Data) -> String {
         data.base64EncodedString()
@@ -90,7 +102,7 @@ struct SecureEnclaveVault: StandingKeyVault {
         var error: Unmanaged<CFError>?
         guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else { throw HostError.unsupported }
         guard let point = SecKeyCopyPublicKey(key).flatMap({ SecKeyCopyExternalRepresentation($0, &error) }) else {
-            delete(tag: tag)
+            try? delete(tag: tag)
             throw HostError.unsupported
         }
         return point as Data
@@ -114,8 +126,9 @@ struct SecureEnclaveVault: StandingKeyVault {
         }
         return signature as Data
     }
-    func delete(tag: String) {
+    func delete(tag: String) throws {
         let query: [String: Any] = [kSecClass as String: kSecClassKey, kSecAttrApplicationTag as String: Data(tag.utf8)]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw HostError.storage }
     }
 }

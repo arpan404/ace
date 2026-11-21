@@ -5,12 +5,25 @@ import type { AuthenticatedChannelOptions } from "@ace/client/devices";
 import { hasCapability, type MediaSocketOpen } from "@ace/native-host";
 
 type Early = (text: string) => void;
+/**
+ * Whether a paired machine took this phone's proof of the person's standing on this socket
+ * (ADR 0190 §7): `missing` when the phone has no key for the machine (paired before it named
+ * one) or the machine refused it (an ordinary link, or a new owner).
+ */
+export type PairedStanding = "proven" | "missing";
+/**
+ * Swift proves on a paired machine's socket itself: it reads the welcome there, signs that
+ * socket's challenge with the Secure Enclave key and sends `device.standing`, so the script
+ * never chooses what is signed. It reports only the daemon's verdict, here.
+ */
+type Standing = (standing: PairedStanding) => void;
 const sockets = new Map<
   string,
   {
     events: TransportEvents;
     trust: TrustMonitor | undefined;
     early: Early | undefined;
+    standing: Standing | undefined;
     seen: number;
     /** Binary bytes handed to Swift and not yet sent (`aceSocket(id, "sent", n)`). */
     buffered: number;
@@ -24,8 +37,12 @@ const earlyMessages = 3;
  * It carries binary messages: browser stream pieces (`ACES`) stay native, where Swift assembles
  * and draws them; any other binary message reaches the SDK as bytes.
  */
-export function nativeTransport(trust?: TrustMonitor, early?: Early): Transport {
-  return nativeSocket(host.uuid(), "", trust, early);
+export function nativeTransport(
+  trust?: TrustMonitor,
+  early?: Early,
+  standing?: Standing,
+): Transport {
+  return nativeSocket(host.uuid(), "", trust, early, standing);
 }
 
 /** A native socket that also sends binary messages, read by pointer (`socketBytes`). */
@@ -40,11 +57,12 @@ function nativeSocket(
   opening: string,
   trust?: TrustMonitor,
   early?: Early,
+  standing?: Standing,
 ): BinaryTransport {
   return {
     supportsBinary: true,
     open(events) {
-      sockets.set(id, { events, trust, early, seen: 0, buffered: 0 });
+      sockets.set(id, { events, trust, early, standing, seen: 0, buffered: 0 });
       host.socket(id, "open", opening);
     },
     sendBinary(bytes) {
@@ -118,7 +136,9 @@ export function socketEvent(id: string, type: string, value: string | Uint8Array
     }
     socket.events.message(value);
   } else if (type === "trust") socket.trust?.report(value);
-  else if (type === "close") {
+  else if (type === "standing") {
+    if (value === "proven" || value === "missing") socket.standing?.(value);
+  } else if (type === "close") {
     sockets.delete(id);
     // "<code>" or "<code> <reason>": the reason tells the owner's revocation from any other 4003.
     const space = value.indexOf(" ");
