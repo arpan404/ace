@@ -46,6 +46,8 @@ import { rememberColours, rememberedColours } from "./view-handoff.ts";
 import { useViewHandoff } from "./use-view-handoff.ts";
 
 const paddingRight = 24;
+/** A text column narrower than this wraps by itself when the wrap setting is off. */
+const narrowColumns = 80;
 /** The gutter's right edge, where a line's fold control sits. */
 const foldControl = 16;
 /** The gutter's last pixels, where a changed line's bar takes a press. */
@@ -69,7 +71,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   // changing, so a memoized read of its rows would keep a height the file has outgrown.
   "use no memo";
   const readOnly = props.readOnly ?? false;
-  const wrap = props.wrap ?? false;
+  const wrapSetting = props.wrap ?? false;
+  /** Alt+Z turned off the wrap a narrow editor took by itself. */
+  const [narrowUnwrapped, setNarrowUnwrapped] = useState(false);
   /** The wrap index hears each edit as the document applies it, before React renders it. */
   const appliedRef = useRef<WrapEdits | undefined>(undefined);
   /** Folds move with every edit, and open when it changes their hidden text. */
@@ -163,6 +167,12 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     leastRowCells,
     Math.floor((viewport.width - gutter - paddingRight) / cell),
   );
+  // Beside the chat the editor is narrow: long lines wrap there even with the setting off.
+  const narrow = !wrapSetting && columns < narrowColumns;
+  const wrap = wrapSetting || (narrow && !narrowUnwrapped);
+  const toggleWrap = narrow
+    ? () => setNarrowUnwrapped((value) => !value)
+    : props.onToggleWrap;
   const visible = useRef({ first: 0, last: 200 });
   const anchor = useMemo(() => new ScrollAnchor(scroller, setScroll), [scroller, setScroll]);
   useLayoutEffect(() => anchor.setLineHeight(lineHeight), [anchor, lineHeight]);
@@ -342,7 +352,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       return true;
     },
     ...(props.onSave ? { onSave: props.onSave } : {}),
-    ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
+    ...(toggleWrap ? { onToggleWrap: toggleWrap } : {}),
     onEscape: () => {
       if (!finder.open) return false;
       finder.close();
@@ -518,7 +528,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
         <div
           ref={scroller}
           data-editor-scroller
-          className="h-full min-h-0 overflow-auto focus-ring-inset"
+          className="h-full min-h-0 overflow-auto focus-ring-inset [&::-webkit-scrollbar-corner]:bg-transparent"
           onScroll={(event) => {
             const element = event.currentTarget;
             setScroll({ top: element.scrollTop, left: element.scrollLeft });
