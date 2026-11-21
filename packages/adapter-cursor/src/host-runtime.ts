@@ -38,6 +38,7 @@ export class HostRuntime {
   private openingDone: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
   private sending = false;
+  private cancelling = false;
   private options: OpenOptions | undefined;
   private sendOptions: SendOptions | undefined;
   private callbacks = 0;
@@ -72,9 +73,20 @@ export class HostRuntime {
       ACE_MCP_BEARER: this.options?.mcp?.bearer,
     });
   }
-  /** How long ace may take to store one frame, from the open session's limits. */
+  /**
+   * How long ace may take to store one frame. A frame stored inside a request never waits past
+   * that request's own deadline, after which ace has already stopped waiting for it.
+   */
   get acknowledgementTimeoutMs(): number | undefined {
-    return this.options?.limits.ackTimeoutMs;
+    const limits = this.options?.limits;
+    if (!limits) return undefined;
+    const request =
+      this.opening || this.cancelling || this.closing
+        ? limits.timeoutMs
+        : this.sending
+          ? limits.sendTimeoutMs
+          : Infinity;
+    return Math.min(limits.ackTimeoutMs, request);
   }
   private async frame(
     kind: CursorEnvelope["kind"],
@@ -451,9 +463,14 @@ export class HostRuntime {
   async cancel(): Promise<void> {
     if (this.sending) throw new Error("Cannot prove cancellation during SDK admission");
     if (!this.run) return;
-    await this.run.cancel();
-    await this.completion;
-    await this.frame("cancel", { settled: true });
+    this.cancelling = true;
+    try {
+      await this.run.cancel();
+      await this.completion;
+      await this.frame("cancel", { settled: true });
+    } finally {
+      this.cancelling = false;
+    }
   }
   close(): Promise<void> {
     this.closing ??= this.dispose();
