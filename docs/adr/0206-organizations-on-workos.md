@@ -757,3 +757,24 @@ caller address.
 
 **Still not built.** Telling admins that a bot lost its only approver (§6) needs Spade to learn
 membership changes for accounts that hold no live grant; it is tracked separately.
+
+## Amendment 3 (2026-11-21): second review
+
+- **Freshness of a member's standing.** The minute after which an org host checks a member's
+  answer with the backend starts when the grant was minted (its `iat`, on a fresh org check) or
+  when the backend last confirmed that very grant. Proving the same grant again keeps that
+  time, also after a failed recheck.
+- **The standing route is no public oracle.** It answers only the market, by a shared token
+  (`ACE_MARKET_STANDING_TOKEN` in the backend, `ACE_ORG_STANDING_TOKEN` in the market), and an
+  org host's organization credential about its own organization's grants. Anyone else is refused
+  before the body is read and limited by address. Bodies are read up to 16 KiB. WorkOS lookups are
+  limited per caller and member (`STANDING_REQUESTS`), overall (`STANDING_WORKOS`) and to four at
+  once per isolate. After WorkOS answers, the mirror row is read again and must be unchanged. The
+  market never follows a redirect from it.
+- **Deletions are facts apart from rows.** A membership's deletion always leaves its tombstone,
+  even when it arrives older than the row. A removal at the same time as the row wins only over
+  the row's own membership, in the planner as in SQL.
+- **A deleted user, however long their history,** is removed by set-based statements over
+  their rows at or before the deletion, with their audit entries and portal revocations queued
+  from the same rows in the same batch.
+- **Organizations:** an update needs a strictly newer time, so a deletion wins a tie.

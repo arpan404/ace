@@ -15,7 +15,7 @@ export type Delivery = { id: string; event: string; data: unknown; created_at: s
  * (ADR 0206 §6), and what its tests do to it: sign people in, deliver signed events, read the
  * members list and the organization's WorkOS audit copy.
  */
-export function useDirectoryWorld(options: { vars?: Record<string, string> } = {}) {
+export function useDirectoryWorld(world: { vars?: Record<string, string> } = {}) {
   let workos: Awaited<ReturnType<typeof fakeWorkos>> | undefined;
   let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
   const sessions = new Map<string, Promise<string>>();
@@ -23,7 +23,7 @@ export function useDirectoryWorld(options: { vars?: Record<string, string> } = {
     workos = await fakeWorkos();
     worker = await startWorker({
       workosUrl: workos.url,
-      vars: { WORKOS_WEBHOOK_SECRET: WEBHOOK_SECRET, ...options.vars },
+      vars: { WORKOS_WEBHOOK_SECRET: WEBHOOK_SECRET, ...world.vars },
     });
   });
   afterAll(async () => {

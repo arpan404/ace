@@ -11,6 +11,8 @@ import { useDirectoryWorld, type Delivery } from "./testing/org-directory-world.
 
 const world = useDirectoryWorld();
 const { deliver, lastEvent, memberRow, auditsFor, team, cron } = world;
+/** A WorkOS time `ms` from now. */
+const later = (ms: number) => new Date(Date.now() + ms).toISOString();
 const rowStatus = async (org: string, account: string) =>
   (
     await world.worker.db
@@ -185,7 +187,6 @@ it("a membership's deletion keeps its later events out even when it arrives olde
   const gil = workosUser("user_gil", "Gil");
   const { ownerToken, org } = await team("Deleted late", gil);
   const membership = world.workos.orgs.membership(gil.id, org);
-  const at = (ms: number) => new Date(Date.now() + ms).toISOString();
   const event = (
     id: string,
     name: string,
@@ -197,7 +198,9 @@ it("a membership's deletion keeps its later events out even when it arrives olde
     data: { ...membership, ...extra, updated_at: created },
     created_at: created,
   });
-  const [early, middle, late] = [at(1_000), at(2_000), at(3_000)];
+  const early = later(1_000);
+  const middle = later(2_000);
+  const late = later(3_000);
   // The row is already at `middle` when the deletion, from `early`, arrives.
   expect(await deliver(event("event_01GILUP", "organization_membership.updated", middle))).toBe(
     200,

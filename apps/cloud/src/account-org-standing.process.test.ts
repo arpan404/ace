@@ -32,6 +32,9 @@ async function grantsOf(token: string, org: string, hostId: string) {
   );
   return { member, market };
 }
+/** WorkOS's membership lookup, as the fake receives it. */
+const lookup = (request: { path: string }) =>
+  request.path.startsWith("/user_management/organization_memberships");
 const credentialToken = () => encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
 it("a host or the market asking about a member's grant hears it's current only while WorkOS and the mirror still say so", async () => {
@@ -48,28 +51,26 @@ it("a host or the market asking about a member's grant hears it's current only w
       })
     ).body.token,
   );
-  const standing = (grant: string) => ask(grant);
   for (const grant of [member, market])
-    expect((await standing(grant)).body).toEqual({ current: true, role: "member" });
+    expect((await ask(grant)).body).toEqual({ current: true, role: "member" });
 
   // WorkOS can't be asked: no answer, never a stale yes.
   world.workos.failNext(
     (request) => request.path.startsWith("/user_management/organization_memberships"),
     503,
   );
-  expect((await standing(member)).status).toBe(503);
+  expect((await ask(member)).status).toBe(503);
   // Not a grant the backend signed.
-  expect((await standing("not-a-grant")).status).toBe(400);
+  expect((await ask("not-a-grant")).status).toBe(400);
 
   // The directory makes him an admin: a grant carrying his old role is no longer current.
   world.workos.orgs.setRole(gus.id, org, "admin");
   expect(await deliver(lastEvent())).toBe(200);
-  for (const grant of [member, market])
-    expect((await standing(grant)).body).toEqual({ current: false });
+  for (const grant of [member, market]) expect((await ask(grant)).body).toEqual({ current: false });
   // Deactivated: nothing he holds is current.
   world.workos.orgs.deactivate(gus.id, org);
   expect(await deliver(lastEvent())).toBe(200);
-  expect((await standing(market)).body).toEqual({ current: false });
+  expect((await ask(market)).body).toEqual({ current: false });
 });
 
 it("a removal that lands while WorkOS answers makes the answer not current", async () => {
@@ -122,8 +123,6 @@ it("asks WorkOS about only a few grants at once", async () => {
   const lu = workosUser("user_lu", "Lu");
   const { org, box, token } = await team("Busy", lu);
   const { member } = await grantsOf(token, org, box.hostId);
-  const lookup = (request: { path: string }) =>
-    request.path.startsWith("/user_management/organization_memberships");
   const holds = [1, 2, 3, 4].map(() => world.workos.holdNext(lookup, "before"));
   const asking = holds.map(() => ask(member));
   await Promise.all(holds.map((each) => each.started));
