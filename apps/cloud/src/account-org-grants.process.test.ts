@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { verifyMemberGrant, verifyOrgPolicy } from "@ace/account-grant";
+import { verifyMarketGrantSignature, verifyMemberGrant, verifyOrgPolicy } from "@ace/account-grant";
 import { AceOrgPolicy } from "@ace/protocol/ace-org";
 import { fakeWorkos } from "./testing/fake-workos.ts";
 import { startWorker } from "./testing/harness.ts";
@@ -168,6 +168,29 @@ it("member grants go only to the person's own session, for its organization's ow
   expect((await api.call(miaToken, "DELETE", `/v1/orgs/${org}/hosts/${box.hostId}`)).status).toBe(
     403,
   );
+});
+
+it("a market grant acting in an organization carries the role WorkOS gave, for its registry", async () => {
+  const { ownerToken, org, miaToken } = await team("Registry");
+  const marketGrant = (token: string) =>
+    api.call(token, "POST", "/v1/grants", {
+      kind: "device",
+      subject: "phone",
+      purpose: "market-publish",
+      org,
+    });
+  const keys = await api.keys();
+  const claims = async (token: string) => {
+    const answer = await marketGrant(token);
+    expect(answer.status).toBe(200);
+    return verifyMarketGrantSignature(String(answer.body.token), keys);
+  };
+  // The market lets an admin or owner publish to the registry and only an owner change its key
+  // (ADR 0206 §5.1): it reads the role from here, minted from the same fresh WorkOS answer.
+  expect(await claims(ownerToken)).toMatchObject({ org, orgRole: "owner", account: owner.id });
+  expect(await claims(miaToken)).toMatchObject({ org, orgRole: "member", account: mia.id });
+  // Someone outside the organization gets no grant acting in it (Zed, signed in already).
+  expect((await marketGrant(await signIn(workosUser("user_zed", "Zed")))).status).toBe(403);
 });
 
 it("a host's credential speaks only for the enrollment it is bound to, and releasing the host revokes it", async () => {
