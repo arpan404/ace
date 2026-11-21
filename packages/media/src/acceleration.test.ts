@@ -98,10 +98,13 @@ it("a source's steps are kept under the daemon's name and follow it across a reo
 });
 
 it("a source's report goes once nothing in ace-media runs it, and with ace-media", () => {
-  const { store, sources, producer, status } = world();
+  const { store, sources, producer, status, drained } = world();
   const source = sources.add(producer);
   status("m1", onHardware);
   source.close();
+  // A JPEG source's last pictures are still in ace-media's encoder until its path drains.
+  expect(store.of("capture-1")).toEqual(onHardware);
+  drained();
   expect(store.of("capture-1")).toBeUndefined();
 
   sources.add({ ...producer, source: "capture-2", tabId: "tab-8" });
