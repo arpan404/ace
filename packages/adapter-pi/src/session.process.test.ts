@@ -224,7 +224,7 @@ test("a Pi that exits on startup has said why on stderr before the open fails, a
     false,
   );
 });
-test("an oversized stderr line is dropped with a note and the session keeps working", async () => {
+test("a flood of oversized stderr lines is dropped under one note and the session keeps working", async () => {
   const h = await sessionHarness({}, false, { FAKE_PI_STDERR_FLOOD: "1" });
   try {
     await h.wait((f) => f.dir === "stderr" && f.data === "still here");

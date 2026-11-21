@@ -28,9 +28,9 @@ if (process.env.FAKE_PI_LOAD_FAILURE) {
   );
   process.exit(1);
 }
-// As an MCP server's log passed through would be: one stderr line over ace's 1 MiB line limit.
+// As an MCP server's log passed through would be: stderr lines over ace's 1 MiB line limit.
 if (process.env.FAKE_PI_STDERR_FLOOD)
-  process.stderr.write(`${"x".repeat(1024 * 1024 + 1)}\nstill here\n`);
+  process.stderr.write(`${`${"x".repeat(1024 * 1024 + 1)}\n`.repeat(5)}still here\n`);
 // A progress-style line: two 600 KiB segments, each under the limit, joined by a bare CR.
 if (process.env.FAKE_PI_STDERR_CR)
   process.stderr.write(`${"x".repeat(600 * 1024)}\r${"y".repeat(600 * 1024)}\nstill here\n`);
