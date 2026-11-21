@@ -107,8 +107,11 @@ import Observation
             let name: String
             /// `ace` (a thread) or `bot`.
             let kind: String
-            /// An ace agent's thread: a tap opens it, and its requests show under it.
+            /// An ace agent's thread, which a tap opens.
             let thread: String?
+            /// While it waits on the person: the threads of its tree that do, its own first, then
+            /// the delegated ones below it. nil from an older bridge, which named only its thread.
+            let asking: [String]?
             /// A bot's conversation, which a tap opens.
             let conversation: String?
             /// `needs-you`, `working`, `failed` or `rest`.
