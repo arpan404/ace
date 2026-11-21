@@ -305,6 +305,7 @@ impl Engine {
                 source,
                 handle,
                 epoch,
+                private,
                 origin,
                 ..
             } => {
@@ -320,7 +321,10 @@ impl Engine {
                     out,
                 );
                 match self.sources.handle(source.get()) {
-                    Some(handle) => self.stills.open(source.get(), handle),
+                    Some(handle) => {
+                        self.stills
+                            .open(source.get(), handle, private.unwrap_or(false))
+                    }
                     None => self.stills.close(source.get(), out),
                 }
             }
@@ -346,6 +350,9 @@ impl Engine {
                 epoch,
                 follows_private,
             } => {
+                // A source that opened private: its first epoch since follows a private one,
+                // even if this announcement reached ace-media without saying so.
+                let follows_private = follows_private || self.stills.opened_private(source.get());
                 self.stills.epoch(source.get(), epoch, follows_private);
                 self.sources
                     .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out);
@@ -605,6 +612,7 @@ impl Engine {
                 max_pixels,
                 quality,
                 deadline_ms,
+                min_epoch,
             } => self.stills.take(
                 request,
                 &source,
@@ -615,6 +623,7 @@ impl Engine {
                 max_pixels,
                 quality,
                 deadline_ms,
+                min_epoch,
                 now.mono_ms,
                 out,
             ),

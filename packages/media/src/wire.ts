@@ -164,6 +164,9 @@ export const ToMedia = z.discriminatedUnion("type", [
     sessionId: id.optional(),
     deviceId: id.optional(),
     epoch: u32,
+    /** Whether `epoch` is private (M8): sent for JPEG sources, which open only on a build that
+     * agreed to `picture-ingest`. */
+    private: z.boolean().optional(),
     origin: Origin,
   }),
   z.strictObject({
@@ -295,6 +298,8 @@ export const ToMedia = z.discriminatedUnion("type", [
     maxPixels: u32,
     quality: u32,
     deadlineMs: u32,
+    /** The newest public epoch the daemon announced (M8): no still from a picture before it. */
+    minEpoch: u32.optional(),
   }),
   /**
    * A poster for a subscribe reply (ADR 0149): the source's picture fitted to the box at

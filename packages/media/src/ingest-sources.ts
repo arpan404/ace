@@ -55,6 +55,8 @@ export type IngestProducer = {
   deviceId?: string;
   /** The privacy epoch the producer stamps now. */
   epoch: () => number;
+  /** Whether that epoch is private (M8), for a JPEG source's open in ace-media. */
+  private?: () => boolean;
   /** The daemon's legacy consumers of this source, fed from egress. */
   consumers: LegacyConsumers;
   /**
@@ -178,6 +180,8 @@ const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>(["simulator"]);
 
 type Entry = {
   producer: IngestProducer;
+  /** A privacy epoch the producer announced that its open in ace-media hasn't heard yet. */
+  privacy?: { epoch: number; followsPrivate: boolean } | undefined;
   /** `off`: not streaming anywhere (ace-media isn't up, or the source failed there). */
   state: "off" | "opening" | "ingest";
   /** The open in the running ace-media, while there is one. */
@@ -218,6 +222,10 @@ type Path = {
   reported: boolean;
   /** ace-media's last plan for it (`source.want`), for the producer once it is pointed here. */
   want: Extract<FromMedia, { type: "source.want" }>["encodes"] | undefined;
+  /** The privacy epoch ace-media has for it: the open's, then each announced since (M8). */
+  epoch: number;
+  /** ace-media answered its open: a privacy epoch sent now can't overtake it. */
+  acknowledged: boolean;
 };
 
 export type IngestSource = {
@@ -291,15 +299,15 @@ export class IngestSources {
         if (live) this.#send({ type: "source.key", source: live.id, encode });
       },
       epoch: (epoch, followsPrivate) => {
+        // Held until the open is acknowledged: on the priority lane it could overtake the
+        // open, and ace-media ignores an epoch for a source it doesn't have yet.
+        const held = entry.privacy;
+        entry.privacy = {
+          epoch,
+          followsPrivate: followsPrivate || (held !== undefined && held.followsPrivate),
+        };
         const live = entry.live;
-        if (live)
-          this.#send({
-            type: "source.epoch",
-            source: live.id,
-            seq: this.#epochs++,
-            epoch,
-            followsPrivate,
-          });
+        if (live?.acknowledged) this.#announce(entry, live);
       },
       close: () => this.#close(entry),
     };
@@ -419,6 +427,11 @@ export class IngestSources {
   }
 
   #status(entry: Entry, path: Path, message: Status): void {
+    // ace-media's first word about the open: privacy epochs held for it go now, in order.
+    if (!path.acknowledged) {
+      path.acknowledged = true;
+      this.#announce(entry, path);
+    }
     if (message.status === "starting") return this.#started(entry, path);
     if (message.status === "playing") {
       entry.reopens = 0;
@@ -474,12 +487,18 @@ export class IngestSources {
       path?.draining ? path.route : this.#options.routes()[producer.kind],
     );
     const token = randomBytes(32);
+    const epoch = producer.epoch();
     const opened = port.send(
       {
         type: "source.open",
         source: id,
         handle,
-        epoch: producer.epoch(),
+        epoch,
+        // A JPEG source opens with its privacy, so ace-media knows it even if the next epoch
+        // overtakes the open on the priority lane (only builds with `picture-ingest` get these).
+        ...(pictureKinds.has(producer.kind) && producer.private
+          ? { private: producer.private() }
+          : {}),
         origin: producer.origin,
         ...(producer.threadId === undefined ? {} : { threadId: producer.threadId }),
         ...(producer.tabId === undefined ? {} : { tabId: producer.tabId }),
@@ -506,6 +525,8 @@ export class IngestSources {
       release: undefined,
       reported: false,
       want: undefined,
+      epoch,
+      acknowledged: false,
     };
     this.#paths.set(id, path);
     this.#live(entry, path);
@@ -516,6 +537,22 @@ export class IngestSources {
   }
 
   /** ace-media has the source: hand the producer its address. */
+  /** The producer's newest privacy epoch, to its open once that is acknowledged (M8). */
+  #announce(entry: Entry, path: Path): void {
+    const privacy = entry.privacy;
+    entry.privacy = undefined;
+    // The open carried the epoch the producer was in then: only a newer one is news.
+    if (!privacy || privacy.epoch <= path.epoch) return;
+    path.epoch = privacy.epoch;
+    this.#send({
+      type: "source.epoch",
+      source: path.id,
+      seq: this.#epochs++,
+      epoch: privacy.epoch,
+      followsPrivate: privacy.followsPrivate,
+    });
+  }
+
   #started(entry: Entry, path: Path): void {
     const token = path.token;
     const ingest = this.#options.port.ingest();

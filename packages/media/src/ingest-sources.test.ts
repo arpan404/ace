@@ -302,22 +302,36 @@ describe("IngestSources", () => {
     expect(l.ended.at(-1)).toEqual(["s1", false]);
   });
 
-  it("a JPEG source's privacy epochs reach its open in ace-media, in order, and none before it is open", () => {
+  it("a JPEG source opens with its privacy, and an epoch announced before ace-media answers the open is applied after it", () => {
     const w = world();
     const l = producer("tab-pictures");
-    w.state.up = false;
-    const source = w.sources.add(l.p);
-    source.epoch?.(1, false);
-    w.state.up = true;
-    w.sources.replay();
-    source.epoch?.(2, true);
-    source.epoch?.(3, false);
-    expect(
-      w.sent.flatMap(({ message }) => (message.type === "source.epoch" ? [message] : [])),
-    ).toEqual([
-      { type: "source.epoch", source: "s1", seq: 0, epoch: 2, followsPrivate: true },
-      { type: "source.epoch", source: "s1", seq: 1, epoch: 3, followsPrivate: false },
+    let state = { epoch: 3, private: true };
+    const source = w.sources.add({
+      ...l.p,
+      epoch: () => state.epoch,
+      private: () => state.private,
+    });
+    expect(w.opened()[0]).toMatchObject({ source: "s1", epoch: 3, private: true });
+    // The tab goes public before ace-media answered the open: held, not sent ahead of it.
+    state = { epoch: 4, private: false };
+    source.epoch?.(4, true);
+    const epochs = () =>
+      w.sent.flatMap(({ message }) => (message.type === "source.epoch" ? [message] : []));
+    expect(epochs()).toEqual([]);
+    w.status("s1", "starting");
+    expect(epochs()).toEqual([
+      { type: "source.epoch", source: "s1", seq: 0, epoch: 4, followsPrivate: true },
     ]);
+    // Once answered, each goes at once.
+    source.epoch?.(5, false);
+    expect(epochs().map((e) => e.epoch)).toEqual([4, 5]);
+    // A restart opens in the state the tab is in now, with nothing stale replayed.
+    state = { epoch: 5, private: true };
+    w.sources.exited();
+    w.sources.replay();
+    expect(w.opened().at(-1)).toMatchObject({ epoch: 5, private: true });
+    w.status("s2", "starting");
+    expect(epochs().map((e) => e.epoch)).toEqual([4, 5]);
   });
 
   it("an ace-media too old to encode pictures off the ingest leaves only JPEG sources off, saying why, until a newer one runs", () => {

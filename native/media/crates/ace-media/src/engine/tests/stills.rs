@@ -426,6 +426,85 @@ fn a_picture_from_a_private_epoch_is_never_the_still_once_the_source_left_it_eve
     }
 }
 
+/// A JPEG source on ingest, opened in `epoch` (`private`: that epoch is private).
+fn jpeg_source(engine: &mut Engine, epoch: u32, private: bool) {
+    send(
+        engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": epoch,
+                "private": private, "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    assert!(engine.ingest_hello(1, &[9; 32]));
+}
+
+fn picture_in(engine: &mut Engine, picture: Vec<u8>, epoch: u32, now: Now) {
+    let mut frame = frame(3, 1, epoch, picture);
+    frame.codec = 7;
+    ingest(engine, 1, frame, now);
+}
+
+fn fenced(engine: &mut Engine, maker: &Maker, request: &str, min_epoch: u32) -> Vec<Answer> {
+    let mut effects = send(
+        engine,
+        json!({ "type": "still.take", "request": request, "source": "s1", "maxWidth": 400,
+                "maxHeight": 400, "maxPixels": 10_000_000, "quality": 80, "deadlineMs": 500,
+                "minEpoch": min_epoch }),
+        &[],
+        NOW,
+    );
+    effects.extend(arrive(engine, maker));
+    answers(&effects)
+}
+
+#[test]
+fn a_private_picture_in_flight_across_a_public_transition_is_never_a_fenced_still() {
+    let (mut engine, maker) = with_maker();
+    jpeg_source(&mut engine, 1, true);
+    // Written while the tab was private (epoch 1), it reaches ace-media after the daemon made
+    // the tab public (epoch 2) but before ace-media applied that.
+    picture_in(&mut engine, jpeg(1200, 600), 1, at(1_000));
+    assert_eq!(
+        fenced(&mut engine, &maker, "q1", 2),
+        [failed("q1", "private")]
+    );
+    // The public picture is the still.
+    let public = jpeg(1200, 600);
+    picture_in(&mut engine, public.clone(), 2, at(1_500));
+    assert_eq!(
+        fenced(&mut engine, &maker, "q2", 2),
+        [Answer::Still {
+            request: "q2".into(),
+            picture: public,
+            size: (400, 200)
+        }]
+    );
+}
+
+#[test]
+fn a_source_opened_private_takes_its_next_epoch_as_following_a_private_one() {
+    let (mut engine, maker) = with_maker();
+    jpeg_source(&mut engine, 1, true);
+    picture_in(&mut engine, jpeg(1200, 600), 1, at(1_000));
+    // The next epoch arrives without saying it follows a private one: the open said so.
+    send(
+        &mut engine,
+        json!({ "type": "source.epoch", "source": "s1", "seq": 1, "epoch": 2, "followsPrivate": false }),
+        &[],
+        at(2_000),
+    );
+    assert_eq!(
+        shot(&mut engine, &maker, "q1", 400),
+        [failed("q1", "no-picture")]
+    );
+    // Inside the read gap the private epoch is kept, so that picture isn't the still either.
+    picture_in(&mut engine, jpeg(800, 800), 2, at(2_050));
+    assert_eq!(
+        shot(&mut engine, &maker, "q2", 400),
+        [failed("q2", "no-picture")]
+    );
+}
+
 #[test]
 fn each_still_shows_the_latest_picture_of_the_stream() {
     let (mut engine, maker) = with_maker();

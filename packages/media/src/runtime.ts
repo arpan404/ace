@@ -149,6 +149,7 @@ export class MediaRuntime {
       send: (message) => this.supervisor.send(message),
       clock: options.clock,
       nextId: options.id,
+      speaks: (feature) => this.supervisor.speaks(feature),
     });
     this.connections = new MediaConnections({
       port: {

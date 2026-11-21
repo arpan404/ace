@@ -380,6 +380,15 @@ pub enum ToMedia {
         device_id: Option<Id>,
         #[serde(rename = "epoch")]
         epoch: u32,
+        /// Whether `epoch` is private (M8), for a JPEG source: the next `source.epoch` then
+        /// follows a private one, whatever reaches ace-media first.
+        #[serde(
+            rename = "private",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        private: Option<bool>,
         #[serde(rename = "origin")]
         origin: Origin,
     },
@@ -666,6 +675,15 @@ pub enum ToMedia {
         quality: u32,
         #[serde(rename = "deadlineMs")]
         deadline_ms: u32,
+        /// The newest public epoch the daemon announced for the source (M8): the still comes
+        /// only from a picture of that epoch or later, whatever ace-media has applied yet.
+        #[serde(
+            rename = "minEpoch",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        min_epoch: Option<u32>,
     },
     /// A poster for a subscribe reply (ADR 0149, D1): the source's current picture fitted to
     /// `width` × `height` at 10–20 KB. Answered like `still.take`, with `still.done` (the JPEG
