@@ -28,7 +28,7 @@ import UIKit
         #expect(recorder.sizes == [CGSize(width: 320, height: 240), CGSize(width: 320, height: 240)])
         #expect(recorder.acks.map(\.sequence) == [1, 2, 3])
         #expect(recorder.acks.suffix(2).allSatisfy { !$0.keyframe })
-        renderer.receiveVideo(chunk(seq: 4, key: true, bytes: Data([0, 0, 1, 0x65, 1])))
+        renderer.receiveVideo(chunk(seq: 4, key: true, bytes: Data([0, 0, 1, 0x65, 1])), path: "media")
         try await wait { recorder.acks.count == 4 }
         #expect(recorder.acks.last?.keyframe == true)
         renderer.receiveVideo(chunk(seq: 5, key: true, bytes: key), path: "media")
