@@ -250,6 +250,27 @@ describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
     bridge.close();
   }, 90_000);
 
+  it("a still page's viewers each get a keyframe: the first, one joining later, and one subscribing again", async () => {
+    const f = await fixture();
+    await f.navigate();
+    const first = videoViewer(f, "first");
+    await first.subscribe();
+    // Nothing on the page moves: the capture has only the page as it is to show.
+    await first.until(() => first.video().some((chunk) => chunk.key), 10_000);
+    const shown = first.video().at(-1);
+    if (!shown) throw new Error("No video");
+    await first.ack(shown.sequence);
+    const later = videoViewer(f, "later");
+    await later.subscribe();
+    await later.until(() => later.video().some((chunk) => chunk.key), 10_000);
+    const keys = () => first.video().filter((chunk) => chunk.key).length;
+    const before = keys();
+    await first.subscribe();
+    await first.until(() => keys() > before, 10_000);
+    later.bridge.close();
+    first.bridge.close();
+  }, 90_000);
+
   it("a viewer whose decoder lost its place gets a fresh keyframe", async () => {
     const f = await fixture();
     await f.navigate();
