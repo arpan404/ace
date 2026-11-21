@@ -184,7 +184,12 @@ export class CursorTranslator implements Translator {
             event,
             "error",
           ),
-          { type: "process.exited", deliberate: false, message: "SDK host resource budget failed" },
+          {
+            type: "process.exited",
+            deliberate: false,
+            // The fence's own words name the cause, such as ace's storage failing.
+            message: string(body.message)?.slice(0, 512) ?? "Cursor's turn was fenced",
+          },
         ];
       if (event.kind === "blob") return [{ type: "signal", agent: this.root }];
       if (event.kind === "shell-output") {
