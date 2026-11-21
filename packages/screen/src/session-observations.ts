@@ -1,5 +1,4 @@
 import type { HelperHost } from "./helper-host.ts";
-import { z } from "zod";
 import { ScreenStreamSettings, type ScreenTarget } from "@ace/protocol";
 import type { Frame, FrameSink } from "./frames.ts";
 import type { Session } from "./session.ts";
@@ -8,7 +7,6 @@ import { nodeScheduler } from "./runtime.ts";
 import { bundles } from "./policy.ts";
 import { helperEncodesVideo } from "./helper-codecs.ts";
 import { readTree, findElements } from "./semantic.ts";
-const StreamCodec = z.object({ codec: z.enum(["jpeg", "h264"]) });
 type ObservationPorts = {
   host: HelperHost;
   live(id: string): Session;

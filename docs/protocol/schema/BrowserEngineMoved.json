@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserEngineMoved.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "failed": {
+      "items": {
+        "properties": {
+          "reason": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 8192,
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/BrowserState.json"
+    }
+  },
+  "required": [
+    "failed"
+  ],
+  "type": "object"
+}
