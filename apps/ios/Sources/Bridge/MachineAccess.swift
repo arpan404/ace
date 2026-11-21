@@ -68,6 +68,8 @@ struct BridgeMachineAccess: MachineAccess {
     var installId: String? = nil
     /// Each pairing names a new Secure Enclave key to the machine (ADR 0190 §7).
     var standingKeys = StandingKeys()
+    /// The link's redemption, made here rather than by the script (`PairingRedemption`).
+    var redeem: @Sendable (PinnedHTTPRequest, PairingLink) async -> Result<PinnedHTTPResponse, PinnedHTTPError> = PairingRedemption.send
 
     func perform(_ request: AccessRequest) async -> Result<AccessOutcome, ProblemNotice> {
         let target: ConnectionTarget?
@@ -79,11 +81,22 @@ struct BridgeMachineAccess: MachineAccess {
         case .rename(let hostId, let name): target = nil; body = ["op": "rename", "hostId": hostId, "name": name]
         case .pair(let link, let name):
             target = .pairing(endpoint: link.socketURL, pin: link.fingerprint)
-            body = ["op": "pair", "code": link.code, "name": name, "url": link.socketURL.absoluteString, "fingerprint": link.fingerprint]
-            if let installId { body["installId"] = installId }
-            // Only its public half goes to the bridge; the key stays in the Secure Enclave.
+            // Redeemed here, with the key's public half (ADR 0190 §7): the script is handed only
+            // the machine's answer, never the code, and can't name a key of its own.
             standing = standingKeys.make()
-            if let standing { body["standingKey"] = standing.publicKey }
+            guard let redemption = try? PairingRedemption.request(code: link.code, name: name, installId: installId,
+                                                                  standingKey: standing?.publicKey) else {
+                if let standing { standingKeys.discard(tag: standing.tag) }
+                return .failure(.unknown)
+            }
+            let answer = await redeem(redemption, link)
+            if Task.isCancelled {
+                if let standing { standingKeys.discard(tag: standing.tag) }
+                return .failure(.cancelled)
+            }
+            body = ["op": "pair", "url": link.socketURL.absoluteString, "fingerprint": link.fingerprint,
+                    "redeemed": PairingRedemption.answer(answer)]
+            if let installId { body["installId"] = installId }
         case .remember(let hostId, let paths):
             target = nil
             let encoded = (try? JSONEncoder().encode(paths)).flatMap { try? JSONSerialization.jsonObject(with: $0) }
@@ -123,20 +136,28 @@ struct BridgeMachineAccess: MachineAccess {
             if let runtime = once.runtime { runtime.stop { continuation.resume() } } else { continuation.resume() }
         }
         once.release()
-        settleStandingKey(standing, request: request, outcome: outcome)
-        return outcome
+        return await settleStandingKey(standing, request: request, outcome: outcome)
     }
 }
 extension BridgeMachineAccess {
-    /// A pairing's key is the machine's once it paired, and goes when it didn't; a removed
-    /// machine's key goes with it.
+    /// A pairing's key is the machine's once it paired, and goes when it didn't. If the phone
+    /// can't record which key the machine proves with, the pairing is undone and fails, rather
+    /// than reporting a machine paired with a key nothing names. A removed machine's key goes
+    /// with it; one that can't be deleted yet stays named, so the next pairing deletes it.
     private func settleStandingKey(_ standing: (tag: String, publicKey: String)?, request: AccessRequest,
-                                   outcome: Result<AccessOutcome, ProblemNotice>) {
-        if case .remove(let hostId) = request, case .success = outcome { standingKeys.forget(hostId: hostId) }
-        guard let standing else { return }
-        if case .success(let paired) = outcome, let hostId = paired.paired?.hostId,
-           (try? standingKeys.keep(tag: standing.tag, for: hostId)) != nil { return }
+                                   outcome: Result<AccessOutcome, ProblemNotice>) async -> Result<AccessOutcome, ProblemNotice> {
+        if case .remove(let hostId) = request, case .success = outcome { try? standingKeys.forget(hostId: hostId) }
+        guard let standing else { return outcome }
+        guard case .success(let paired) = outcome, let hostId = paired.paired?.hostId else {
+            standingKeys.discard(tag: standing.tag)
+            return outcome
+        }
+        for _ in 0..<3 {
+            if (try? standingKeys.keep(tag: standing.tag, for: hostId)) != nil { return outcome }
+        }
         standingKeys.discard(tag: standing.tag)
+        _ = await perform(.remove(hostId: hostId))
+        return .failure(ProblemNotice(code: "storage", message: "Couldn't save on this phone. Free some space and try again."))
     }
 }
 

@@ -1,6 +1,6 @@
 import { ClientError, accessResponseError, ticketCredential } from "@ace/client";
 import type { ConnectionState } from "@ace/client";
-import { DeviceCredential, PairingRedemption, type InstallId } from "@ace/protocol";
+import { DeviceCredential } from "@ace/protocol";
 import { z } from "zod";
 
 /**
@@ -45,17 +45,13 @@ function refusal(error: unknown): Refusal {
   return parsed.success ? parsed.data : "offline";
 }
 
+/** A request's outcome: the machine's answer, or why the native transport refused it. */
+export type PinnedAnswer = PinnedResponse | { refused: string };
+
 /** The SDK's HTTP status policy applies; transport refusals keep their own reason. */
-export async function accessJson(
-  http: PinnedHttp,
-  request: PinnedRequest,
-  trust?: TrustMonitor,
-): Promise<unknown> {
-  let response: PinnedResponse;
-  try {
-    response = await http(request);
-  } catch (error) {
-    const reason = refusal(error);
+export function answeredJson(answer: PinnedAnswer, trust?: TrustMonitor): unknown {
+  if ("refused" in answer) {
+    const reason = refusal(answer.refused);
     trust?.report(reason);
     if (reason === "pin") throw new ClientError("auth", "TLS public-key fingerprint mismatch");
     if (reason === "redirect") throw new ClientError("protocol", "Redirect refused");
@@ -65,39 +61,38 @@ export async function accessJson(
       "Couldn't reach this computer. Check the connection and try again.",
     );
   }
-  if (response.status !== 200) throw accessResponseError(response.status);
+  if (answer.status !== 200) throw accessResponseError(answer.status);
   try {
-    const value: unknown = JSON.parse(response.body);
+    const value: unknown = JSON.parse(answer.body);
     return value;
   } catch {
     throw new ClientError("protocol", "Invalid JSON response");
   }
 }
 
-/**
- * Redeem a pairing code. The code travels only in the POST body, never in a URL. `installId`
- * names this app install (ADR 0115), so the machine names the new device by it. `standingKey` is
- * the public half of the key the phone proves the person's standing with (ADR 0190 §7).
- */
-export async function redeemPairing(
+/** One pinned request, its answer read by `answeredJson`. */
+export async function accessJson(
   http: PinnedHttp,
-  code: string,
-  name: string,
+  request: PinnedRequest,
   trust?: TrustMonitor,
-  installId?: InstallId,
-  standingKey?: string,
-): Promise<DeviceCredential> {
-  const body = JSON.stringify(
-    PairingRedemption.parse({
-      code,
-      name,
-      ...(installId ? { installId } : {}),
-      ...(standingKey ? { standingKey } : {}),
-    }),
-  );
-  return DeviceCredential.parse(
-    await accessJson(http, { method: "POST", path: "/v1/pair", body }, trust),
-  );
+): Promise<unknown> {
+  let answer: PinnedAnswer;
+  try {
+    answer = await http(request);
+  } catch (error) {
+    answer = { refused: error instanceof Error ? error.message : String(error) };
+  }
+  return answeredJson(answer, trust);
+}
+
+/**
+ * The device a pairing made, from the machine's answer to the redemption. Swift makes that
+ * request itself (ADR 0190 §7), with the code and the Secure Enclave key's public half, so the
+ * script never holds the code or chooses the key.
+ */
+export function redeemedCredential(answer: PinnedAnswer, trust?: TrustMonitor): DeviceCredential {
+  // An answer that names no device fails to parse, which reads as "Couldn't complete pairing".
+  return DeviceCredential.parse(answeredJson(answer, trust));
 }
 
 /** A fresh single-use ticket for every socket attempt, exchanged with the stored device token. */

@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import { MachineDirectory, machineSecretKey } from "@ace/client/machines";
 import { DeviceId, HostIdentity } from "@ace/protocol";
 import { performAccess, type PairingDeps } from "./pairing.ts";
-import type { PinnedRequest } from "./access.ts";
 
 const token = "b".repeat(64);
 const fingerprint = "f".repeat(64);
@@ -16,11 +15,9 @@ function device(id: string, scopes = ["read", "operate"]) {
   return { id, name: "Phone", scopes, createdAt: 1, lastSeenAt: 1, revokedAt: null };
 }
 
-function harness(options: { identity?: PairingDeps["identity"]; scopes?: string[] } = {}) {
+function harness(options: { identity?: PairingDeps["identity"] } = {}) {
   let saved: string | null = null;
   const secrets = new Map<string, string>();
-  const requests: PinnedRequest[] = [];
-  let redemptions = 0;
   const directory = new MachineDirectory(
     {
       load: async () => saved,
@@ -39,24 +36,21 @@ function harness(options: { identity?: PairingDeps["identity"]; scopes?: string[
     },
   );
   const deps: PairingDeps = {
-    http: async (request) => {
-      requests.push(request);
-      return {
-        status: 200,
-        body: JSON.stringify({ device: device(`device-${++redemptions}`, options.scopes), token }),
-      };
-    },
     directory,
     identity: options.identity ?? (async () => identity),
   };
-  return { deps, secrets, requests, saved: () => saved };
+  return { deps, secrets, saved: () => saved };
 }
+/** Swift redeemed the link itself and hands over only the machine's answer (ADR 0190 §7). */
+const redeemed = (id = "device-1", scopes?: string[]) => ({
+  status: 200,
+  body: JSON.stringify({ device: device(id, scopes), token }),
+});
 const pair = {
   op: "pair",
-  code: "1".repeat(64),
-  name: "Phone",
   url: "wss://100.64.0.7:4243/",
   fingerprint,
+  redeemed: redeemed(),
 };
 
 describe("pairing a machine", () => {
@@ -70,7 +64,6 @@ describe("pairing a machine", () => {
     const key = machineSecretKey({ hostId: identity.hostId, deviceId: DeviceId.parse("device-1") });
     expect(secrets.get(key)).toBe(token);
     expect(saved()).not.toContain(token);
-    expect(saved()).not.toContain(pair.code);
     expect(result.ok && result.machines).toEqual([
       {
         hostId: "host-studio",
@@ -82,8 +75,8 @@ describe("pairing a machine", () => {
   });
 
   test("a read-only grant is reported so the phone can show view-only access", async () => {
-    const { deps } = harness({ scopes: ["read"] });
-    const result = await performAccess(deps, pair);
+    const { deps } = harness();
+    const result = await performAccess(deps, { ...pair, redeemed: redeemed("device-1", ["read"]) });
     expect(result.ok && result.paired?.scopes).toEqual(["read"]);
   });
 
@@ -102,7 +95,7 @@ describe("pairing a machine", () => {
   test("pairing the same computer again is refused and keeps the original credential", async () => {
     const { deps, secrets } = harness();
     await performAccess(deps, pair);
-    const again = await performAccess(deps, { ...pair, code: "2".repeat(64) });
+    const again = await performAccess(deps, { ...pair, redeemed: redeemed("device-2") });
     expect(again).toMatchObject({ ok: false, problem: { code: "duplicate" } });
     expect([...secrets.keys()]).toEqual([
       machineSecretKey({ hostId: identity.hostId, deviceId: DeviceId.parse("device-1") }),
@@ -135,9 +128,9 @@ describe("pairing a machine", () => {
     expect(unknown.ok).toBe(false);
   });
 
-  test("pairing names this app install to the machine, in the redemption and in the hello", async () => {
+  test("pairing names this app install to the machine in the hello", async () => {
     const helloInstalls: (string | undefined)[] = [];
-    const { deps, requests } = harness({
+    const { deps } = harness({
       identity: async (_device, _token, _trust, installId) => {
         helloInstalls.push(installId);
         return identity;
@@ -145,35 +138,24 @@ describe("pairing a machine", () => {
     });
     const installId = "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b";
     await performAccess(deps, { ...pair, installId });
-    const redemption = requests.find((request) => request.path === "/v1/pair");
-    expect(JSON.parse(redemption?.body ?? "{}")).toEqual({
-      code: pair.code,
-      name: "Phone",
-      installId,
-    });
     expect(helloInstalls).toEqual([installId]);
   });
 
-  test("pairing names the phone's standing key to the machine, and only its public half", async () => {
-    const { deps, requests, saved, secrets } = harness();
-    const standingKey = "B".repeat(87);
-    expect(await performAccess(deps, { ...pair, standingKey })).toMatchObject({ ok: true });
-    const redemption = requests.find((request) => request.path === "/v1/pair");
-    expect(JSON.parse(redemption?.body ?? "{}")).toEqual({
-      code: pair.code,
-      name: "Phone",
-      standingKey,
-    });
-    // The key is the machine's to keep; the phone keeps it in the Secure Enclave, not here.
-    expect(saved()).not.toContain(standingKey);
-    expect([...secrets.values()]).not.toContain(standingKey);
+  test("the script is never handed a pairing code or a standing key to redeem with", async () => {
+    const { deps, secrets, saved } = harness();
+    for (const extra of [{ code: "1".repeat(64) }, { standingKey: "B".repeat(87) }]) {
+      expect(await performAccess(deps, { ...pair, ...extra })).toMatchObject({ ok: false });
+    }
+    expect(secrets.size).toBe(0);
+    expect(saved()).toBeNull();
   });
 
-  test("a standing key that isn't a P-256 point is refused before any request", async () => {
-    const { deps, requests } = harness();
-    const result = await performAccess(deps, { ...pair, standingKey: "short" });
-    expect(result.ok).toBe(false);
-    expect(requests).toHaveLength(0);
+  test("a redemption the native transport refused stores nothing and says why", async () => {
+    const { deps, secrets, saved } = harness();
+    const result = await performAccess(deps, { ...pair, redeemed: { refused: "pin" } });
+    expect(result).toMatchObject({ ok: false, problem: { code: "pin" } });
+    expect(secrets.size).toBe(0);
+    expect(saved()).toBeNull();
   });
 
   test("a paired machine's own word on its paths is saved with it and listed back", async () => {
@@ -191,10 +173,10 @@ describe("pairing a machine", () => {
     });
   });
 
-  test("a link with a malformed pin is rejected before any request", async () => {
-    const { deps, requests } = harness();
+  test("a link with a malformed pin pairs nothing", async () => {
+    const { deps, saved } = harness();
     const result = await performAccess(deps, { ...pair, fingerprint: "not-a-pin" });
     expect(result.ok).toBe(false);
-    expect(requests).toHaveLength(0);
+    expect(saved()).toBeNull();
   });
 });

@@ -4,7 +4,7 @@ import {
   connectionProblem,
   pairedCredential,
   pairingProblem,
-  redeemPairing,
+  redeemedCredential,
   TrustMonitor,
   type PinnedRequest,
 } from "./access.ts";
@@ -29,6 +29,14 @@ function recorder(reply: (request: PinnedRequest) => { status: number; body: str
   };
   return { http, requests };
 }
+function failing(work: () => unknown): unknown {
+  try {
+    work();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected a failure");
+}
 async function failure(work: Promise<unknown>): Promise<unknown> {
   try {
     await work;
@@ -38,57 +46,50 @@ async function failure(work: Promise<unknown>): Promise<unknown> {
   throw new Error("Expected a failure");
 }
 
+// Swift makes the redemption request itself (ADR 0190 §7): the bridge holds neither the code nor
+// the standing key, only the machine's answer or why the native transport refused it.
+const answered = (status: number, body = "{}") => ({ status, body });
+
 describe("pairing redemption", () => {
-  test("the code travels only in the POST body and yields the issued device identity", async () => {
-    const code = "c0de".repeat(16);
-    const { http, requests } = recorder(() => ({
-      status: 200,
-      body: JSON.stringify({ device, token }),
-    }));
-    const credential = await redeemPairing(http, code, "Arpan's iPhone");
+  test("the machine's answer yields the issued device identity", () => {
+    const credential = redeemedCredential(answered(200, JSON.stringify({ device, token })));
     expect(credential.device.id).toBe("device-1");
     expect(credential.token).toBe(token);
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.path).toBe("/v1/pair");
-    expect(requests[0]?.path).not.toContain(code);
-    expect(requests[0]?.token).toBeUndefined();
-    expect(JSON.parse(requests[0]?.body ?? "")).toEqual({ code, name: "Arpan's iPhone" });
   });
 
-  test("an expired or already used code asks for a new link", async () => {
-    const { http } = recorder(() => ({ status: 401, body: '{"error":"Invalid pairing code"}' }));
-    const error = await failure(redeemPairing(http, "used", "Phone"));
+  test("an expired or already used code asks for a new link", () => {
+    const error = failing(() =>
+      redeemedCredential(answered(401, '{"error":"Invalid pairing code"}')),
+    );
     expect(pairingProblem(error).code).toBe("expired");
   });
 
-  test("remote access turned off and rate limits get their own guidance", async () => {
-    const off = await failure(
-      redeemPairing(recorder(() => ({ status: 409, body: "{}" })).http, "c", "n"),
-    );
-    const busy = await failure(
-      redeemPairing(recorder(() => ({ status: 429, body: "{}" })).http, "c", "n"),
-    );
-    expect(pairingProblem(off).code).toBe("disabled");
-    expect(pairingProblem(busy).code).toBe("rate");
+  test("remote access turned off and rate limits get their own guidance", () => {
+    expect(pairingProblem(failing(() => redeemedCredential(answered(409)))).code).toBe("disabled");
+    expect(pairingProblem(failing(() => redeemedCredential(answered(429)))).code).toBe("rate");
   });
 
-  test("a changed TLS key reads as a pin mismatch, not as an expired link", async () => {
+  test("a changed TLS key reads as a pin mismatch, not as an expired link", () => {
     const trust = new TrustMonitor();
-    const { http } = recorder(() => new Error("pin"));
-    const error = await failure(redeemPairing(http, "code", "Phone", trust));
+    const error = failing(() => redeemedCredential({ refused: "pin" }, trust));
     expect(pairingProblem(error, trust).code).toBe("pin");
   });
 
-  test("a redirect refused by the native transport is reported as such", async () => {
-    const error = await failure(
-      redeemPairing(recorder(() => new Error("redirect")).http, "c", "n"),
-    );
+  test("a redirect refused by the native transport is reported as such", () => {
+    const error = failing(() => redeemedCredential({ refused: "redirect" }));
     expect(pairingProblem(error).code).toBe("redirect");
   });
 
-  test("an unreachable computer is reported as unreachable", async () => {
-    const error = await failure(redeemPairing(recorder(() => new Error("offline")).http, "c", "n"));
-    expect(pairingProblem(error).code).toBe("unreachable");
+  test("an unreachable computer, or a refusal this build doesn't know, is unreachable", () => {
+    for (const refused of ["offline", "something-new"]) {
+      const error = failing(() => redeemedCredential({ refused }));
+      expect(pairingProblem(error).code).toBe("unreachable");
+    }
+  });
+
+  test("an answer that isn't a device credential pairs nothing", () => {
+    const error = failing(() => redeemedCredential(answered(200, JSON.stringify({ device }))));
+    expect(pairingProblem(error).code).toBe("unknown");
   });
 });
 
