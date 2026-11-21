@@ -32,6 +32,7 @@ struct MarketPublisherView: View {
                 }
             }
             .padding(.vertical, AceDesign.Space.related)
+            .marketUnreachable(page?.offline == true || problem?.offline == true)
         }
         .background(AceDesign.Surface.background)
         .refreshable {

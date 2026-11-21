@@ -22,7 +22,7 @@ struct MarketSourcesView: View {
         _sources = State(initialValue: model.keptMarketSources)
     }
 
-    private var offline: Bool { model.connection != "ready" || sources?.offline == true }
+    private var offline: Bool { model.connection != "ready" || sources?.offline == true || problem?.offline == true }
 
     var body: some View {
         List {

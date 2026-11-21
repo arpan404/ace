@@ -92,6 +92,7 @@ struct MarketSearchResults: View {
                 SkeletonRows(count: 4, label: "Searching the marketplace")
             }
         }
+        .marketUnreachable(page?.offline == true || problem?.offline == true)
         .task(id: key) {
             if !query.isEmpty, (try? await Task.sleep(for: .milliseconds(250))) == nil { return }
             await read()
@@ -116,7 +117,8 @@ struct MarketSearchResults: View {
             answered = refreshes
             problem = nil
         } catch let refusal as MarketRefusal {
-            if !Task.isCancelled { problem = refusal }
+            // Another query's rows never stand in for this one: offline, it says so instead.
+            if !Task.isCancelled { page = nil; problem = refusal }
         } catch {}
     }
 }

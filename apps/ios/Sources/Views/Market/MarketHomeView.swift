@@ -18,6 +18,8 @@ struct MarketHomeView: View {
     @State private var query = ""
     @State private var filter = MarketTypeFilter.everything
     @State private var refreshes = 0
+    /// The last read or refresh came back offline though the socket may still read ready.
+    @State private var unreachable = false
 
     init(model: ClientModel, machineName: String) {
         self.model = model
@@ -27,7 +29,9 @@ struct MarketHomeView: View {
         _stale = State(initialValue: model.keptMarketSources?.stale)
     }
 
-    private var offline: Bool { model.connection != "ready" || discover?.offline == true || home?.offline == true }
+    private var offline: Bool {
+        model.connection != "ready" || unreachable || discover?.offline == true || home?.offline == true
+    }
     /// Discover, unless it failed or has nothing; then the device's listings carry the home.
     private var shelves: MarketDiscover? { discover.flatMap { $0.empty ? nil : $0 } }
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty || filter != .everything }
@@ -39,7 +43,7 @@ struct MarketHomeView: View {
                                     refreshes: refreshes)
                     .padding(.top, AceDesign.Space.related)
             } else {
-                content
+                content.marketUnreachable(offline)
             }
         }
         .background(AceDesign.Surface.background)
@@ -48,7 +52,7 @@ struct MarketHomeView: View {
         .sensoryFeedback(AceDesign.Haptic.refresh, trigger: refreshes)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { MarketTypeMenu(filter: $filter) } }
         .marketBrowseActions(model: model, machineName: machineName)
-        .task(id: model.marketGeneration) { await load(fresh: false) }
+        .task(id: model.marketGeneration) { await readAgain() }
     }
 
     private var content: some View {
@@ -56,13 +60,15 @@ struct MarketHomeView: View {
             if offline || stale != nil {
                 MarketStateLine(offline: offline, stale: stale).padding(.horizontal, AceDesign.Space.margin)
             }
+            // A failed read or refresh shows over what the home last found, with its way out.
+            if let problem {
+                ProblemRow(problem.message, id: "market.home.problem") { Task { await refresh() } }
+            }
             if let shelves {
                 discoverShelves(shelves)
             } else if let home {
                 MarketShelf(title: "Featured", items: home.featured) { MarketRow(listing: $0) }
-            } else if let problem {
-                ProblemRow(problem.message, id: "market.home.problem") { Task { await load(fresh: true) } }
-            } else {
+            } else if problem == nil {
                 SkeletonRows(count: 5, label: "Reading the marketplace")
             }
             if let home { categories(home) }
@@ -106,24 +112,54 @@ struct MarketHomeView: View {
         }
     }
 
+    /// Pull to refresh: the machine reads its sources again, then the home reads fresh. A refusal
+    /// of either shows over the shelves with Try again; it never leaves old shelves looking new.
     private func refresh() async {
-        _ = try? await model.marketRefresh()
-        await load(fresh: true)
+        var refused: MarketRefusal?
+        do { _ = try await model.marketRefresh() } catch let failed as MarketRefusal { refused = failed } catch {}
+        let read = await load(fresh: true)
+        guard !Task.isCancelled else { return }
+        problem = refused ?? read
+        if refused?.offline == true { unreachable = true }
         refreshes += 1
     }
 
+    /// The market changed: read again from what the phone keeps.
+    private func readAgain() async {
+        let refusal = await load(fresh: false)
+        if !Task.isCancelled { problem = refusal }
+    }
+
     /// Discover, the device's own listings (for categories and the updates word) and the sources'
-    /// last read, each kept apart: one failing never hides what another found.
-    private func load(fresh: Bool) async {
+    /// last read, each kept apart: one failing never hides what another found. Discover failing
+    /// is no problem while the device's listings stand in for it. Answers the refusal to show.
+    private func load(fresh: Bool) async -> MarketRefusal? {
         async let discovered = model.marketDiscover(fresh: fresh)
         async let listed = model.marketHome(fresh: fresh)
         async let read = model.marketSources(fresh: fresh)
-        var refusal: MarketRefusal?
-        do { discover = try await discovered } catch let failed as MarketRefusal { refusal = failed; if !failed.offline { discover = nil } } catch {}
-        do { home = try await listed; refusal = nil } catch let failed as MarketRefusal { refusal = refusal ?? failed } catch {}
+        var discoverRefusal: MarketRefusal?
+        var homeRefusal: MarketRefusal?
+        var answeredOffline = false
+        do {
+            let answer = try await discovered
+            discover = answer
+            answeredOffline = answer.offline
+        } catch let failed as MarketRefusal {
+            discoverRefusal = failed
+            if !failed.offline { discover = nil }
+        } catch {}
+        do {
+            let answer = try await listed
+            home = answer
+            answeredOffline = answeredOffline || answer.offline
+        } catch let failed as MarketRefusal { homeRefusal = failed } catch {}
         if let sources = try? await read { stale = sources.stale }
-        guard !Task.isCancelled else { return }
-        problem = shelves == nil && home == nil ? refusal : nil
+        guard !Task.isCancelled else { return nil }
+        unreachable = answeredOffline || discoverRefusal?.offline == true || homeRefusal?.offline == true
+        // Offline with something kept, the state line says so; a refusal only shows otherwise.
+        let refusal = homeRefusal ?? (shelves == nil && home == nil ? discoverRefusal : nil)
+        if let refusal, refusal.offline, shelves != nil || home != nil { return nil }
+        return refusal
     }
 }
 
