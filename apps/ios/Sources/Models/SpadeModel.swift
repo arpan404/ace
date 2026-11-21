@@ -208,6 +208,7 @@ import Observation
             if bubbles[key] != bubble { bubbles[key] = bubble }
             if case let .question(card) = bubble { cards.saw(card, in: id) }
         }
+        SpadeFeedTrace.applied(patch, model: self)
     }
 
     /// Another conversation's bubbles begin: the last one's go.

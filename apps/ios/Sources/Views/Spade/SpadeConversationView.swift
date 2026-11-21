@@ -139,9 +139,13 @@ struct SpadeConversationView: View {
             return SpadeScroll.Place(y: geometry.contentOffset.y,
                 fromEnd: ScrollEnd.fromEnd(contentHeight: geometry.contentSize.height, offsetY: geometry.contentOffset.y,
                                            containerHeight: geometry.containerSize.height, topInset: insets.top),
-                viewport: geometry.containerSize.height + insets.top + insets.bottom)
+                viewport: geometry.containerSize.height + insets.top + insets.bottom,
+                contentHeight: geometry.contentSize.height)
         } action: { old, new in
             scroll.place = new
+            if Int(new.contentHeight) != Int(old.contentHeight) {
+                SpadeFeedTrace.laidOut(contentHeight: new.contentHeight, viewport: new.viewport, rows: spade.order.count)
+            }
             if new.y < old.y - 1 { change { $0.scrolled(towardOlder: true) } }
         }
         .onScrollPhaseChange { _, phase in scrollPhase(phase) }
@@ -326,6 +330,8 @@ private struct SpadeWorkingLine: View {
         /// How far the end is below the bottom edge (`ScrollEnd`).
         var fromEnd: Double = 0
         var viewport: Double = 0
+        /// The rows' laid-out height, for `SpadeFeedTrace`.
+        var contentHeight: Double = 0
     }
     var place = Place()
     /// A finger, its fling or an animated scroll is moving the chat.
