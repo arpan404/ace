@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { CursorHost } from "./host.ts";
+import { bearer, runtimeFixture } from "./host-runtime-test-support.ts";
 
 const wire = new URL("./host-wire.ts", import.meta.url).pathname;
 const frame = {
@@ -37,7 +38,7 @@ it("a frame ace fails to store is reported to the host as ace's storage failure"
 const wire = hostWire(async (method) => {
   if (method !== "send") return { alive: true };
   try {
-    await wire.confirmed("frame", ${JSON.stringify(frame)});
+    await wire.confirmed("frame", ${JSON.stringify(frame)}, () => 30_000);
     return { stored: true };
   } catch (error) {
     return { stored: false, reason: error instanceof Error ? error.message : String(error) };
@@ -61,4 +62,30 @@ setInterval(() => {}, 1000);
   await fixture.host.process.exited;
   expect(fixture.host.stopCause).toMatch(/^ace could not store a Cursor SDK frame/);
   expect(fixture.host.stopCause).toContain("database is locked");
+});
+
+// The daemon stores what the host sends as is, so the host must redact the session's MCP bearer
+// in every frame body, a Cursor error's included.
+it("the session's MCP bearer in a Cursor error or message never reaches ace's storage", async () => {
+  const stored: string[] = [];
+  const settled = Promise.withResolvers<void>();
+  await using fixture = await runtimeFixture(
+    {},
+    async (frame) => {
+      stored.push(JSON.stringify(frame));
+      if (frame.kind === "result") settled.resolve();
+    },
+    {
+      message: {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: `lease ${bearer}` }] },
+      },
+      runError: `MCP call failed with bearer ${bearer}`,
+    },
+  );
+  await fixture.open({ url: "http://127.0.0.1:4321/mcp", bearer });
+  await fixture.send("first");
+  await settled.promise;
+  expect(stored.join("\n")).toContain("MCP call failed");
+  expect(stored.join("\n")).not.toContain(bearer);
 });

@@ -1,6 +1,6 @@
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
-import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { HostRefusal } from "./host-refusal.ts";
+import { createTextRedactor } from "@ace/redaction";
 import { Console } from "node:console";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
@@ -67,13 +67,16 @@ export function hostWire(
   const decoder = new StringDecoder("utf8");
   let pendingStderr = "",
     oversizedStderr = false;
+  // Redacted whole, never cut: the daemon redacts each line again with the session's secrets
+  // (the MCP bearer, which this wire never learns) before it bounds the line, and a cut here
+  // would leave a fragment of such a secret that no exact match finds.
+  const redactStderr = createTextRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } });
   const flushStderr = () => {
     if (pendingStderr || oversizedStderr)
       stderr(
         oversizedStderr
           ? "SDK stderr exceeded its safe line budget\n"
-          : safeCursorErrorMessage(pendingStderr, { CURSOR_API_KEY: process.env.CURSOR_API_KEY }) +
-              "\n",
+          : redactStderr(pendingStderr.replace(/(?![\t])\p{Cc}/gu, " ")) + "\n",
       );
     pendingStderr = "";
     oversizedStderr = false;

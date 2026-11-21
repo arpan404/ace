@@ -25,9 +25,9 @@ createInterface({input:process.stdin}).on('line',line=>{
 });
 `;
 
-async function fixture(source: string) {
+async function fixture(source: string, extension = "mjs") {
   const root = await mkdtemp(join(tmpdir(), "cursor-stray-"));
-  const entry = join(root, "host.mjs");
+  const entry = join(root, `host.${extension}`);
   await writeFile(entry, source);
   return {
     root,
@@ -104,6 +104,41 @@ createInterface({input:process.stdin}).on('line',line=>{
   try {
     await expect(host.request("models")).rejects.toThrow();
     expect(host.stopCause).toBe("Cursor SDK host sent a malformed message");
+  } finally {
+    await host.stop();
+    await files.remove();
+  }
+});
+
+// The host's own stderr budget cut a line before ace could redact the bearer in it, leaving a
+// fragment no exact-value match finds.
+it("a bearer straddling the host's stderr line budget never reaches ace's failure evidence", async () => {
+  const wire = new URL("./host-wire.ts", import.meta.url).pathname;
+  const files = await fixture(
+    `
+import { hostWire } from ${JSON.stringify(wire)};
+hostWire(async () => {
+  await new Promise((resolve) =>
+    process.stderr.write("detail " + "x".repeat(4072) + " " + ${JSON.stringify(bearer)} + " tail\\n", resolve),
+  );
+  return { models: [] };
+}, () => process.exit(0));
+`,
+    "ts",
+  );
+  const host = new CursorHost(
+    {
+      env: { HOME: files.root },
+      entry: files.entry,
+      secrets: { ACE_MCP_BEARER: bearer },
+    },
+    () => {},
+  );
+  try {
+    await expect(host.request("models")).resolves.toEqual({ models: [] });
+    await sleep(100);
+    expect(host.failureMessage).toContain("detail");
+    expect(host.failureMessage).not.toContain(bearer.slice(0, 12));
   } finally {
     await host.stop();
     await files.remove();
