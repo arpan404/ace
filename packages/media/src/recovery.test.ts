@@ -114,3 +114,18 @@ it("an ace-media that keeps crashing becomes unavailable, and a producer added t
   source.close();
   w.runtime.dispose();
 });
+
+it("a tab attached before ace-media's first launch, which dies before it is ready, is told it is restarting and then unavailable", async () => {
+  const w = world(0.5);
+  w.h.host.behaviour.exitAtOnce = 1;
+  const source = w.runtime.sources.add(w.producer);
+  expect(w.stops).toEqual([]);
+  await w.run(1_000, () => w.stops.length > 0);
+  expect(w.stops[0]).toBe(restartingReason);
+  await w.run(60_000, () => w.runtime.supervisor.snapshot().phase === "unavailable");
+  await w.run(100, () => false);
+  expect(w.stops.at(-1)).toMatch(/^ace-media is unavailable/);
+  expect(w.points.every((p) => p.address === undefined)).toBe(true);
+  source.close();
+  w.runtime.dispose();
+});

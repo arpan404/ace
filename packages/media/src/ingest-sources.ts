@@ -177,6 +177,8 @@ type Entry = {
   closed: boolean;
   /** The path whose acceleration report stands for this source. */
   acceleratedBy?: string | undefined;
+  /** The stop reason the producer was last told, while it stays stopped. */
+  told?: string | undefined;
 };
 
 /** One open in ace-media: an id, its token until pointed, and its egress handle. */
@@ -245,7 +247,7 @@ export class IngestSources {
     this.#sync(entry);
     if (entry.state === "off") {
       const why = this.#options.why?.();
-      if (why) producer.stopped?.(why);
+      if (why) this.#tell(entry, why);
     }
     return {
       streaming: () => entry.state === "ingest",
@@ -302,7 +304,7 @@ export class IngestSources {
         const was = entry.state;
         this.#sync(entry);
         if (was !== "off" && entry.state === "off")
-          entry.producer.stopped?.(this.#options.why?.() ?? restartingReason);
+          this.#tell(entry, this.#options.why?.() ?? restartingReason);
       }
   }
 
@@ -325,10 +327,20 @@ export class IngestSources {
       entry.state = "off";
       if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
       if (live) this.#finish(live, true, false);
-      if (was !== "off") entry.producer.stopped?.(this.#options.why?.() ?? restartingReason);
+      // A source still waiting for its first start hears each new reason too: a launch that dies
+      // before it is ready changes nothing else it could see.
+      const why = this.#options.why?.() ?? (was !== "off" ? restartingReason : undefined);
+      if (why) this.#tell(entry, why);
     }
     // Deleting while iterating a Map is safe: finished paths aren't visited again.
     for (const path of this.#paths.values()) this.#finish(path, true, false);
+  }
+
+  /** Tells a stopped producer why, once per reason while it stays stopped. */
+  #tell(entry: Entry, reason: string): void {
+    if (entry.closed || entry.told === reason) return;
+    entry.told = reason;
+    entry.producer.stopped?.(reason);
   }
 
   #live(entry: Entry, path: Path | undefined): void {
@@ -389,7 +401,7 @@ export class IngestSources {
       entry.failed = true;
       this.#leave(entry);
       entry.producer.refused?.(message.reason);
-      entry.producer.stopped?.(message.reason);
+      this.#tell(entry, message.reason);
       return;
     }
     if (entry.state === "ingest") this.#reconnect(entry);
@@ -478,6 +490,7 @@ export class IngestSources {
     path.token = undefined;
     path.pointed = true;
     entry.state = "ingest";
+    entry.told = undefined;
     const generation = ++entry.generation;
     const address: IngestAddress = {
       url: this.endpoint() ?? "",
@@ -500,7 +513,7 @@ export class IngestSources {
         });
         entry.failed = true;
         this.#leave(entry);
-        entry.producer.stopped?.(failedReason);
+        this.#tell(entry, failedReason);
       },
     );
   }
@@ -530,7 +543,7 @@ export class IngestSources {
     if (++entry.reopens > maxIngestReopens) {
       entry.failed = true;
       void entry.producer.point(undefined).catch(() => {});
-      entry.producer.stopped?.(failedReason);
+      this.#tell(entry, failedReason);
       return;
     }
     // Reopened at once: the producer gets its new address.

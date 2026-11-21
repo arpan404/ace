@@ -459,3 +459,33 @@ describe("a stopped source says why, so its live views never go blank without a 
     expect(l.stops).toEqual(["encoder-unavailable"]);
   });
 });
+
+it("a source waiting before ace-media's first start hears every failed start's reason, once each, and is pointed once one starts", async () => {
+  const w = world();
+  w.state.up = false;
+  w.state.health = "restarting";
+  const l = producer();
+  w.sources.add(l.p);
+  expect(l.stops).toEqual([]);
+  // Each launch dies before it is ready: the daemon's state for the source never changed.
+  w.state.why = restartingReason;
+  w.sources.exited();
+  w.sources.exited();
+  expect(l.stops).toEqual([restartingReason]);
+  w.state.why = "ace-media is unavailable: crash loop";
+  w.sources.exited();
+  expect(l.stops).toEqual([restartingReason, "ace-media is unavailable: crash loop"]);
+  w.state.why = undefined;
+  w.state.up = true;
+  w.state.health = "healthy";
+  w.sources.replay();
+  w.status("s1", "starting");
+  expect(l.points.at(-1)).toMatchObject({ path: "s1" });
+  // Stopped again later: the same reason is news again.
+  w.state.up = false;
+  w.state.health = "restarting";
+  w.state.why = restartingReason;
+  w.sources.exited();
+  expect(l.stops.at(-1)).toBe(restartingReason);
+  expect(l.stops).toHaveLength(3);
+});
