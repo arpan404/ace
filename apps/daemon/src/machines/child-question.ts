@@ -18,6 +18,8 @@ export interface QuestionFacts {
   stopping: boolean;
   /** Its machine stopped answering for a lease (`silent_since`). */
   silent: boolean;
+  /** Stopped here, and its machine never confirmed it ended (`stopped_unconfirmed` 1). */
+  unconfirmed: boolean;
 }
 
 export const questionFacts = (row: ChildRow): QuestionFacts => ({
@@ -26,15 +28,18 @@ export const questionFacts = (row: ChildRow): QuestionFacts => ({
   watching: row.settled_at !== null,
   stopping: row.stop_started_at !== null,
   silent: row.silent_since !== null,
+  unconfirmed: row.stopped_unconfirmed === 1,
 });
 
 /**
  * `keep` while the child is one the person is asked about: unsettled and unpaired, unsettled and
- * lost contact with no Stop under way, or settled and still watched with its machine unpaired.
+ * lost contact with no Stop under way, or settled with its machine unpaired while still watched
+ * or while its stop is unconfirmed.
  * Anything else (back in contact, stopping, settled, stopped tracking) is `close`.
  */
 export function questionFate(child: QuestionFacts): "keep" | "close" {
-  if (child.settled) return child.unpaired && child.watching ? "keep" : "close";
+  if (child.settled)
+    return child.unpaired && (child.watching || child.unconfirmed) ? "keep" : "close";
   if (child.unpaired) return "keep";
   return child.silent && !child.stopping ? "keep" : "close";
 }
