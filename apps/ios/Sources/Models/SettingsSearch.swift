@@ -69,12 +69,18 @@ enum SettingsSearch {
 
     /// Everything search finds on one machine: its tools' pages (Computer use, Projects, Usage…),
     /// then the settings its index describes. A tool the index already lists as a page (Agents)
-    /// shows once, as the index's page. `entries` is nil until the index is read; the tools are
-    /// found before it.
+    /// shows once, as the index's page, still found by the tool's words. `entries` is nil until
+    /// the index is read; the tools are found before it.
     static func machineSearchItems(_ entries: [SettingsIndexEntry]?, machine: String, fleet: Bool, spade: Bool) -> [SettingsResult] {
-        let indexed = machineItems(entries ?? [], machine: machine, fleet: fleet)
-        let pageTitles = Set(indexed.filter { $0.place == nil }.map { $0.title.lowercased() })
-        let tools = toolItems(machine: machine, spade: spade).filter { !pageTitles.contains($0.title.lowercased()) }
+        var indexed = machineItems(entries ?? [], machine: machine, fleet: fleet)
+        var tools: [SettingsResult] = []
+        for tool in toolItems(machine: machine, spade: spade) {
+            if let page = indexed.firstIndex(where: { $0.place == nil && $0.title.lowercased() == tool.title.lowercased() }) {
+                indexed[page].keywords += tool.keywords
+            } else {
+                tools.append(tool)
+            }
+        }
         return tools + indexed
     }
 

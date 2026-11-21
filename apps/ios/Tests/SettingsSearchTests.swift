@@ -55,6 +55,9 @@ import Testing
         let items = SettingsSearch.machineSearchItems(entries, machine: "studio", fleet: false, spade: false)
         let agents = SettingsSearch.matches(items, query: "agents").filter { $0.place == nil }
         #expect(agents.map(\.target) == [.machine(machine: "studio", page: "agents", pageTitle: "Agents", row: "")])
+        // The tool's own words still find that page.
+        #expect(SettingsSearch.matches(items, query: "subagents").first?.target
+            == .machine(machine: "studio", page: "agents", pageTitle: "Agents", row: ""))
     }
 
     @Test func phoneSettingsAreFoundByTheWordsPeopleUse() {
