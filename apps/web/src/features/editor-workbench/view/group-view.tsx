@@ -138,7 +138,7 @@ export function GroupView(props: {
         ) : buffer && load?.kind === "ready" ? (
           markdown === "preview" ? (
             <Suspense fallback={<LoadingLines />}>
-              <MarkdownPreview buffer={buffer} />
+              <MarkdownPreview buffer={buffer} path={path} onStatus={onStatus} />
             </Suspense>
           ) : (
             showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
