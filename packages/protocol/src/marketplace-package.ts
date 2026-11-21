@@ -192,6 +192,11 @@ export type PackageCode = z.infer<typeof PackageCode>;
 
 /** The version 3 fields a read recipe carries; a version 2 recipe has none of them. */
 export const packageFields = {
+  /** The Spade Agent Format version it was written for (ADR 0201 §1); missing reads as `1.0`. */
+  spec: z
+    .string()
+    .regex(/^1\.[0-9]+$/)
+    .optional(),
   requires: PackageRequires.optional(),
   uses: z.array(PackageModule).max(16).optional(),
   triggers: z.array(PackageTrigger).max(40).default([]),

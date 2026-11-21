@@ -232,7 +232,8 @@ fn compile(
         return Err("its bytes don't hash to the component Spade named".to_owned());
     }
     // The second wall's first check: nothing outside Spade's world is compiled here either.
-    let inspected = code::inspect(&path.to_string_lossy(), &bytes).map_err(|p| p.join("; "))?;
+    let inspected = code::inspect(&path.to_string_lossy(), &bytes)
+        .map_err(|found| spade_core::rule::joined(&found, "; "))?;
     if !inspected.exports.iter().any(|e| e == code::TOOLBOX) {
         return Err(format!("it doesn't export {}", code::TOOLBOX));
     }

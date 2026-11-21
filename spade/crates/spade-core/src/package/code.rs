@@ -4,6 +4,8 @@
 //! offers and its entry lists; [`binary`] reads what the bytes really import and export, so the
 //! review shows the binary's list, never the manifest's. Running it is `spade-wasm`'s.
 //!
+//! Each refusal names its rule (`spade_core::rule`, part `code`).
+//!
 //! The matching reader for the market's checks is `codeProblems` in `@ace/marketplace`; the
 //! conformance suite's `code` part (`spade/spec/conformance/code/`) holds both to the same
 //! manifest rules, and `spade/spec/code.md` is the part.
@@ -17,6 +19,7 @@ use serde_json::Value;
 
 use super::manifest::Declared;
 use crate::effect::Effect;
+use crate::rule::{self, Problem};
 
 pub use binary::{Inspected, inspect};
 
@@ -38,7 +41,7 @@ pub const MOST_TABLES: u32 = 16;
 /// The world a component of this build is built for: it exports `toolbox`.
 pub const WORLD: &str = "spade:package/bot-tools@1.0.0";
 /// Worlds Spade's interface defines that this build doesn't run yet (ADR 0203 §7, phases 2–3).
-const LATER_WORLDS: [&str; 3] = [
+pub const LATER_WORLDS: [&str; 3] = [
     "spade:package/bot-contracts@1.0.0",
     "spade:package/bot-checks@1.0.0",
     "spade:package/bot-cards@1.0.0",
@@ -46,8 +49,8 @@ const LATER_WORLDS: [&str; 3] = [
 /// The export a `bot-tools` component must have, by interface (any `1.0.x`).
 pub const TOOLBOX: &str = "spade:package/toolbox";
 
-const WHY_CHARS: usize = 500;
-const NAME_CHARS: usize = 24;
+pub const WHY_CHARS: usize = 500;
+pub const NAME_CHARS: usize = 24;
 
 /// What a component may import (ADR 0203 §2), by the name a manifest lists it under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -189,13 +192,14 @@ pub struct Bounds {
 
 /// Reads `bot.json`'s `code`, with every problem in `problems`. `effects` are the package's
 /// declared effects: `http` needs a `network` effect that names hosts.
-pub fn read(value: Option<&Value>, effects: &[Declared], problems: &mut Vec<String>) -> Vec<Code> {
+pub fn read(value: Option<&Value>, effects: &[Declared], problems: &mut Vec<Problem>) -> Vec<Code> {
     let items = match value {
         None => return Vec::new(),
         Some(Value::Array(items)) if items.len() <= MOST_COMPONENTS => items,
         Some(_) => {
-            problems.push(format!(
-                "code is a list of at most {MOST_COMPONENTS} components"
+            problems.push(Problem::new(
+                rule::CODE_LIST,
+                format!("code is a list of at most {MOST_COMPONENTS} components"),
             ));
             return Vec::new();
         }
@@ -205,7 +209,10 @@ pub fn read(value: Option<&Value>, effects: &[Declared], problems: &mut Vec<Stri
         let at = format!("code[{i}]");
         if let Some(code) = entry(&at, item, effects, problems) {
             if out.iter().any(|c| c.name == code.name) {
-                problems.push(format!("{at}: each component has a name of its own"));
+                problems.push(Problem::new(
+                    rule::CODE_NAME_UNIQUE,
+                    format!("{at}: each component has a name of its own"),
+                ));
             }
             out.push(code);
         }
@@ -213,9 +220,14 @@ pub fn read(value: Option<&Value>, effects: &[Declared], problems: &mut Vec<Stri
     out
 }
 
-fn entry(at: &str, item: &Value, effects: &[Declared], problems: &mut Vec<String>) -> Option<Code> {
+fn entry(
+    at: &str,
+    item: &Value,
+    effects: &[Declared],
+    problems: &mut Vec<Problem>,
+) -> Option<Code> {
     let Some(fields) = item.as_object() else {
-        problems.push(format!("{at} is an object"));
+        problems.push(Problem::new(rule::CODE_FIELD, format!("{at} is an object")));
         return None;
     };
     let before = problems.len();
@@ -230,8 +242,11 @@ fn entry(at: &str, item: &Value, effects: &[Declared], problems: &mut Vec<String
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
     if !named {
-        problems.push(format!(
-            "{at}.name is 1 to {NAME_CHARS} lower-case letters and digits, starting with a letter"
+        problems.push(Problem::new(
+            rule::CODE_NAME,
+            format!(
+                "{at}.name is 1 to {NAME_CHARS} lower-case letters and digits, starting with a letter"
+            ),
         ));
     }
     let file = fields
@@ -239,8 +254,9 @@ fn entry(at: &str, item: &Value, effects: &[Declared], problems: &mut Vec<String
         .and_then(Value::as_str)
         .unwrap_or_default();
     if file != format!("code/{name}.wasm") {
-        problems.push(format!(
-            "{at}.file is code/{name}.wasm: a component, never precompiled code (.cwasm)"
+        problems.push(Problem::new(
+            rule::CODE_FILE,
+            format!("{at}.file is code/{name}.wasm: a component, never precompiled code (.cwasm)"),
         ));
     }
     let world = fields
@@ -248,23 +264,33 @@ fn entry(at: &str, item: &Value, effects: &[Declared], problems: &mut Vec<String
         .and_then(Value::as_str)
         .unwrap_or_default();
     if LATER_WORLDS.contains(&world) {
-        problems.push(format!(
-            "Needs a newer Spade: this one runs code built for {WORLD} only, not {world}"
+        problems.push(Problem::new(
+            rule::CODE_WORLD_LATER,
+            format!("Needs a newer Spade: this one runs code built for {WORLD} only, not {world}"),
         ));
     } else if world != WORLD {
-        problems.push(format!("{at}.world is {WORLD}"));
+        problems.push(Problem::new(
+            rule::CODE_WORLD,
+            format!("{at}.world is {WORLD}"),
+        ));
     }
     let imports = imports(at, fields.get("imports"), problems);
     if imports.contains(&Import::Http) && !effects.iter().any(reaches_hosts) {
-        problems.push(format!(
-            "{at} imports spade:package/http, which needs a declared network effect naming its hosts"
+        problems.push(Problem::new(
+            rule::CODE_HTTP_NETWORK,
+            format!(
+                "{at} imports spade:package/http, which needs a declared network effect naming its hosts"
+            ),
         ));
     }
     let why = fields.get("why").and_then(Value::as_str).map(str::trim);
     let why = match why {
         Some(why) if !why.is_empty() && why.chars().count() <= WHY_CHARS => why.to_owned(),
         _ => {
-            problems.push(format!("{at}.why says in a sentence what its code does"));
+            problems.push(Problem::new(
+                rule::CODE_WHY,
+                format!("{at}.why says in a sentence what its code does"),
+            ));
             String::new()
         }
     };
@@ -299,10 +325,11 @@ fn reaches_hosts(declared: &Declared) -> bool {
     declared.effect == Effect::Network && !declared.hosts.is_empty()
 }
 
-fn imports(at: &str, value: Option<&Value>, problems: &mut Vec<String>) -> Vec<Import> {
+fn imports(at: &str, value: Option<&Value>, problems: &mut Vec<Problem>) -> Vec<Import> {
     let Some(items) = value.and_then(Value::as_array) else {
-        problems.push(format!(
-            "{at}.imports lists what the component imports, [] for nothing"
+        problems.push(Problem::new(
+            rule::CODE_IMPORTS,
+            format!("{at}.imports lists what the component imports, [] for nothing"),
         ));
         return Vec::new();
     };
@@ -312,12 +339,21 @@ fn imports(at: &str, value: Option<&Value>, problems: &mut Vec<String>) -> Vec<I
             Some(name) => match Import::parse(name) {
                 Some(import) => {
                     if !out.insert(import) {
-                        problems.push(format!("{at}.imports lists {name} twice"));
+                        problems.push(Problem::new(
+                            rule::CODE_IMPORT_TWICE,
+                            format!("{at}.imports lists {name} twice"),
+                        ));
                     }
                 }
-                None => problems.push(format!("{at}: {}", outside(name))),
+                None => problems.push(Problem::new(
+                    rule::CODE_IMPORT,
+                    format!("{at}: {}", outside(name)),
+                )),
             },
-            None => problems.push(format!("{at}.imports names interfaces")),
+            None => problems.push(Problem::new(
+                rule::CODE_IMPORTS,
+                format!("{at}.imports names interfaces"),
+            )),
         }
     }
     out.into_iter().collect()
@@ -329,7 +365,7 @@ fn bound(
     field: &str,
     default: u32,
     most: u32,
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> u32 {
     let Some(value) = value else {
         return default;
@@ -337,7 +373,10 @@ fn bound(
     match value.as_u64().and_then(|n| u32::try_from(n).ok()) {
         Some(n) if (1..=most).contains(&n) => n,
         _ => {
-            problems.push(format!("{at}.{field} is a whole number from 1 to {most}"));
+            problems.push(Problem::new(
+                rule::CODE_BOUND,
+                format!("{at}.{field} is a whole number from 1 to {most}"),
+            ));
             default
         }
     }
@@ -345,7 +384,7 @@ fn bound(
 
 /// `bytes` as `code`'s component: what they import and export, or why they're refused. The
 /// binary's imports must be exactly the entry's, and it must export the world's interface.
-pub fn check(code: &Code, bytes: &[u8]) -> Result<Inspected, Vec<String>> {
+pub fn check(code: &Code, bytes: &[u8]) -> Result<Inspected, Vec<Problem>> {
     let inspected = inspect(&code.file, bytes)?;
     let mut problems = Vec::new();
     let listed: BTreeSet<Import> = code.imports.iter().copied().collect();
@@ -359,17 +398,23 @@ pub fn check(code: &Code, bytes: &[u8]) -> Result<Inspected, Vec<String>> {
                 names.join(", ")
             }
         };
-        problems.push(format!(
-            "{} imports {}, but bot.json lists {}; the two must be the same",
-            code.file,
-            names(&found),
-            names(&listed)
+        problems.push(Problem::new(
+            rule::CODE_BINARY_IMPORTS,
+            format!(
+                "{} imports {}, but bot.json lists {}; the two must be the same",
+                code.file,
+                names(&found),
+                names(&listed)
+            ),
         ));
     }
     if !inspected.exports.iter().any(|e| e == TOOLBOX) {
-        problems.push(format!(
-            "{} doesn't export {TOOLBOX}, which {WORLD} needs",
-            code.file
+        problems.push(Problem::new(
+            rule::CODE_BINARY,
+            format!(
+                "{} doesn't export {TOOLBOX}, which {WORLD} needs",
+                code.file
+            ),
         ));
     }
     if problems.is_empty() {
@@ -385,14 +430,14 @@ pub fn check(code: &Code, bytes: &[u8]) -> Result<Inspected, Vec<String>> {
 pub fn check_all(
     codes: &[Code],
     file: impl Fn(&str) -> Option<Vec<u8>>,
-) -> Result<Vec<Inspected>, Vec<String>> {
+) -> Result<Vec<Inspected>, Vec<Problem>> {
     let mut problems = Vec::new();
     let mut out = Vec::new();
     for code in codes {
         match file(&code.file) {
-            None => problems.push(format!(
-                "{} is named in code but isn't in the package",
-                code.file
+            None => problems.push(Problem::new(
+                rule::CODE_FILE_MISSING,
+                format!("{} is named in code but isn't in the package", code.file),
             )),
             Some(bytes) => match check(code, &bytes) {
                 Ok(inspected) => out.push(inspected),

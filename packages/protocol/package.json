@@ -41,6 +41,7 @@
     "./agent-status": "./src/agent-status.ts",
     "./entities": "./src/entities.ts",
     "./ace-account": "./src/ace-account.ts",
+    "./ace-org": "./src/ace-org.ts",
     "./suits": "./src/suits.ts",
     "./marketplace": "./src/marketplace.ts",
     "./suit-parts": "./src/suit-parts.ts",

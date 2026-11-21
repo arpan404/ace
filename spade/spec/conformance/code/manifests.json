@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "part": "code",
-  "about": "The code part's cases: a package's WebAssembly components as bot.json names them under `code` (ADR 0203): the world, the imports Spade's world allows and the manifest must list as the binary does, the file, the bounds and the limits. Each case is the base manifest with `with` merged over it at the top level. A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. A component's bytes are checked by a reader that parses WebAssembly (`spade --code-check`); these cases hold the manifest's side. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "about": "The code part's cases: a package's WebAssembly components as bot.json names them under `code` (ADR 0203): the world, the imports Spade's world allows and the manifest must list as the binary does, the file, the bounds and the limits. Each case is the base manifest with `with` merged over it at the top level. A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. A component's bytes are checked by a reader that parses WebAssembly (`spade --code-check`); these cases hold the manifest's side. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
   "base": {
     "format": "spade-bot",
     "version": 3,
@@ -76,7 +76,7 @@
           }
         ]
       },
-      "refused": "no file system or sockets"
+      "rule": "code.import"
     },
     {
       "id": "code/a-component-that-imports-wasi-sockets",
@@ -92,7 +92,7 @@
           }
         ]
       },
-      "refused": "no file system or sockets"
+      "rule": "code.import"
     },
     {
       "id": "code/a-component-that-imports-anything-else",
@@ -108,7 +108,7 @@
           }
         ]
       },
-      "refused": "outside Spade's world"
+      "rule": "code.import"
     },
     {
       "id": "code/a-component-with-http-and-no-network-hosts",
@@ -125,7 +125,7 @@
           }
         ]
       },
-      "refused": "needs a declared network effect"
+      "rule": "code.http-network"
     },
     {
       "id": "code/precompiled-code",
@@ -141,7 +141,7 @@
           }
         ]
       },
-      "refused": ".cwasm"
+      "rule": "code.file"
     },
     {
       "id": "code/a-file-outside-code",
@@ -157,7 +157,7 @@
           }
         ]
       },
-      "refused": "code/fares.wasm"
+      "rule": "code.file"
     },
     {
       "id": "code/a-world-this-spade-doesnt-run-yet",
@@ -173,7 +173,7 @@
           }
         ]
       },
-      "refused": "Needs a newer Spade"
+      "rule": "code.world-later"
     },
     {
       "id": "code/a-world-that-isnt-spades",
@@ -189,7 +189,7 @@
           }
         ]
       },
-      "refused": "world is spade:package/bot-tools@1.0.0"
+      "rule": "code.world"
     },
     {
       "id": "code/five-components",
@@ -233,7 +233,7 @@
           }
         ]
       },
-      "refused": "at most 4"
+      "rule": "code.list"
     },
     {
       "id": "code/two-components-of-one-name",
@@ -256,7 +256,7 @@
           }
         ]
       },
-      "refused": "a name of its own"
+      "rule": "code.name-unique"
     },
     {
       "id": "code/a-component-name-that-isnt-a-word",
@@ -272,7 +272,7 @@
           }
         ]
       },
-      "refused": "name is 1 to 24"
+      "rule": "code.name"
     },
     {
       "id": "code/an-import-listed-twice",
@@ -288,7 +288,7 @@
           }
         ]
       },
-      "refused": "twice"
+      "rule": "code.import-twice"
     },
     {
       "id": "code/a-component-without-imports-listed",
@@ -303,7 +303,7 @@
           }
         ]
       },
-      "refused": "imports lists"
+      "rule": "code.imports"
     },
     {
       "id": "code/a-component-without-a-why",
@@ -319,7 +319,7 @@
           }
         ]
       },
-      "refused": "why says"
+      "rule": "code.why"
     },
     {
       "id": "code/a-deadline-past-five-minutes",
@@ -336,7 +336,7 @@
           }
         ]
       },
-      "refused": "timeout_s is a whole number from 1 to 300"
+      "rule": "code.bound"
     },
     {
       "id": "code/more-memory-than-512-mib",
@@ -353,7 +353,7 @@
           }
         ]
       },
-      "refused": "memory_mb is a whole number from 1 to 512"
+      "rule": "code.bound"
     },
     {
       "id": "code/code-that-isnt-a-list",
@@ -369,7 +369,7 @@
           }
         }
       },
-      "refused": "code is a list"
+      "rule": "code.list"
     }
   ]
 }

@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use super::code::{self, Code, Import};
 use super::manifest::Build;
+use crate::rule::{self, Problem};
 
 const BUILD: Build<'static> = Build {
     version: "0.0.25",
@@ -61,14 +62,22 @@ fn read_code(imports: &[&str]) -> Code {
         .unwrap_or_else(|| panic!("no code entry"))
 }
 
-fn refused(result: Result<code::Inspected, Vec<String>>, word: &str) {
+/// Refused by `rule`, with a problem that says `word`.
+fn refused_by(result: Result<code::Inspected, Vec<Problem>>, rule: &str, word: &str) {
     match result {
         Ok(found) => panic!("accepted {found:?}, but should be refused for {word:?}"),
         Err(problems) => assert!(
-            problems.iter().any(|p| p.contains(word)),
-            "{problems:?} says nothing of {word:?}"
+            problems
+                .iter()
+                .any(|p| p.rule == rule && p.text.contains(word)),
+            "{problems:?} says nothing of {word:?} by {rule}"
         ),
     }
+}
+
+/// Refused because the bytes aren't a component of Spade's world.
+fn refused(result: Result<code::Inspected, Vec<Problem>>, word: &str) {
+    refused_by(result, rule::CODE_BINARY, word);
 }
 
 #[test]
@@ -144,14 +153,16 @@ fn a_manifest_list_that_differs_from_the_binarys_imports_is_refused() {
     // The binary reaches for Spade's tools; the manifest says it reaches nothing.
     let code = read_code(&["wasi:clocks/wall-clock@0.2"]);
     let bytes = toolbox(&["spade:package/tools@1.0.0", "wasi:clocks/wall-clock@0.2.0"]);
-    refused(
+    refused_by(
         code::check(&code, &bytes),
+        rule::CODE_BINARY_IMPORTS,
         "imports spade:package/tools, wasi:clocks/wall-clock@0.2, but bot.json lists wasi:clocks/wall-clock@0.2",
     );
     // Listing more than the binary imports is refused too: the review shows the binary's list.
     let code = read_code(&["spade:package/tools", "spade:package/log"]);
-    refused(
+    refused_by(
         code::check(&code, &toolbox(&["spade:package/tools@1.0.0"])),
+        rule::CODE_BINARY_IMPORTS,
         "must be the same",
     );
 }
@@ -208,7 +219,7 @@ fn every_component_named_must_be_in_the_package() {
     let code = read_code(&[]);
     let missing = code::check_all(std::slice::from_ref(&code), |_| None);
     assert!(
-        missing.is_err_and(|p| p.iter().any(|p| p.contains("isn't in the package"))),
+        missing.is_err_and(|p| p.iter().any(|p| p.rule == rule::CODE_FILE_MISSING)),
         "a named component that isn't shipped is refused"
     );
     let present = code::check_all(&[code], |path| {

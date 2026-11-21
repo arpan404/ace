@@ -185,6 +185,37 @@ Proactive notices to the person, under their quiet hours, do not disturb, interr
 Tools marked "ace's" belong to ace's integration: they are listed by name and effect only, and a
 runtime that isn't Spade MAY answer them as unavailable.
 
+## Conformance
+
+`spade-conform` holds a runtime to this part's MUSTs at the Runtime level, through its HTTP API
+and its scenario door ([`conformance/README.md`](conformance/README.md)). A runtime conforms at
+the Runtime level only when it passes every Reader case too.
+
+<!-- spec:begin level-cases -->
+From [`conformance/runtime/packages.json`](conformance/runtime/packages.json).
+
+| Case | A runtime MUST pass |
+| --- | --- |
+| `runtime/install-starts-every-switch-off` | an install the person left every switch off on |
+| `runtime/install-keeps-what-the-person-turned-on` | an install with one switch the person turned on |
+| `runtime/install-starts-routines-paused` | schedule, event and webhook triggers start paused |
+| `runtime/install-refuses-what-a-reader-refuses` | a manifest a reader refuses makes no bot |
+| `runtime/install-refuses-a-module-it-lacks-by-name` | a module the runtime lacks is refused by its name |
+| `runtime/a-switch-turns-on-one-declared-effect` | the person turns one declared effect on |
+| `runtime/a-switch-for-an-effect-not-declared-is-refused` | a switch for an effect the package didn't declare |
+| `runtime/an-update-is-one-step-and-what-it-adds-starts-off` | an update keeps the switches the person set, and a new effect starts off |
+| `runtime/a-rollback-is-one-step-back` | a rollback moves the bot back to the version before in one step |
+| `runtime/contracts-are-published-and-the-person-closes-calls` | a package's contracts are listed at install, and the person's switch closes calls to it |
+
+From [`conformance/runtime/scenarios.json`](conformance/runtime/scenarios.json).
+
+| Case | A runtime MUST pass |
+| --- | --- |
+| `runtime/a-declared-call-runs` | a call within the ceiling runs, read as its effect in the runtime part |
+| `runtime/a-call-outside-the-ceiling-is-refused-when-the-person-allows-everything` | a push, which sends as the person and the package never declared, is refused though the person allows every call |
+| `runtime/a-package-cant-change-the-effect-a-call-is-read-as` | a package's words don't make a push read as anything else |
+<!-- spec:end level-cases -->
+
 ## Aliases
 
 <!-- spec:begin aliases -->

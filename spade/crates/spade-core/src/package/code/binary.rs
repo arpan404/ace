@@ -12,6 +12,7 @@ use wasmparser::{
 };
 
 use super::{Import, MOST_BYTES, outside};
+use crate::rule::{self, Problem};
 
 /// What a component's binary imports and exports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -34,8 +35,17 @@ pub fn features() -> WasmFeatures {
 }
 
 /// `bytes` read as the component at `path`: what it imports and exports, or every reason it's
-/// refused.
-pub fn inspect(path: &str, bytes: &[u8]) -> Result<Inspected, Vec<String>> {
+/// refused, each by rule `code.binary`.
+pub fn inspect(path: &str, bytes: &[u8]) -> Result<Inspected, Vec<Problem>> {
+    read(path, bytes).map_err(|found| {
+        found
+            .into_iter()
+            .map(|text| Problem::new(rule::CODE_BINARY, text))
+            .collect()
+    })
+}
+
+fn read(path: &str, bytes: &[u8]) -> Result<Inspected, Vec<String>> {
     if bytes.len() > MOST_BYTES {
         return Err(vec![format!("{path} is larger than 8 MiB")]);
     }

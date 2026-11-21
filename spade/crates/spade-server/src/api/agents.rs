@@ -255,6 +255,17 @@ pub(super) fn agent_problem(error: &AgentError) -> Response {
         AgentError::NotFound => StatusCode::NOT_FOUND,
         AgentError::Invalid(_) | AgentError::Image(_) => StatusCode::BAD_REQUEST,
         AgentError::Main(_) | AgentError::HasWorkers(_) => StatusCode::CONFLICT,
+        // The person reads what the subscription means and ticks Use it (ADR 0205 §1).
+        AgentError::Terms { provider, text } => {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": text,
+                    "terms": { "provider": provider, "acknowledgement": text },
+                })),
+            )
+                .into_response();
+        }
         AgentError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -483,8 +494,17 @@ pub(super) async fn update(
         why: body.task_why,
         by: None,
     };
+    let held = change.model.is_some() && state.engine.agent_held_by_terms(&id);
     match state.engine.update_agent(&id, change) {
-        Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),
+        Ok(view) => {
+            // Picked another model for a bot its subscription's terms held: what waited is
+            // answered now (ADR 0205 §4).
+            if held && let Err(error) = state.engine.release_terms_hold(&id) {
+                tracing::error!(%error, "a bot moved off a refused subscription didn't resume");
+            }
+            let view = state.engine.agent_view(&id).ok().flatten().unwrap_or(view);
+            Json(json!({ "agent": agent_json(&view) })).into_response()
+        }
         Err(error) => agent_problem(&error),
     }
 }

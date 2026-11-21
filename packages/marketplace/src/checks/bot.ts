@@ -84,10 +84,11 @@ export function checkBot(
         problems.push({
           path: file.path,
           message: `${file.path} isn't a component bot.json names; code/ holds components, code/src/ and code/build.json`,
+          rule: "code.stray",
         });
       else if (file.path.endsWith(".wasm") && !file.path.startsWith("code/src/")) {
         const problem = componentProblem(file.path, file.content);
-        if (problem) problems.push({ path: file.path, message: problem });
+        if (problem) problems.push({ path: file.path, message: problem, rule: "code.binary" });
       }
       continue;
     }
@@ -115,6 +116,7 @@ export function checkBot(
       problems.push({
         path: code.file,
         message: `${code.file} is named in code but isn't in the package`,
+        rule: "code.file-missing",
       });
   for (const test of tests)
     if (!rest.some((file) => file.path === test))

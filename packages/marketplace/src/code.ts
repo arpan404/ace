@@ -4,6 +4,7 @@ import {
   type PackageEffect,
   type Recipe,
 } from "@ace/protocol/marketplace";
+import { refusal, type Refusal, type RuleId } from "./rules.ts";
 
 /*
  * A package's own code (ADR 0203): the WebAssembly components `bot.json` names under `code`,
@@ -55,71 +56,81 @@ function bound(
   entry: Record<string, unknown>,
   field: "timeout_s" | "memory_mb",
   most: number,
-): string[] {
+): Refusal[] {
   const value = entry[field];
   if (value === undefined) return [];
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= most
     ? []
-    : [`${at}.${field} is a whole number from 1 to ${most}`];
+    : [refusal("code.bound", `${at}.${field} is a whole number from 1 to ${most}`)];
 }
 
 /** Every problem with `bot.json`'s `code`, given its declared `effects` as written. */
-export function codeProblems(raw: unknown, effects: readonly unknown[]): string[] {
+export function codeProblems(raw: unknown, effects: readonly unknown[]): Refusal[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw) || raw.length > mostComponents)
-    return [`code is a list of at most ${mostComponents} components`];
-  const problems: string[] = [];
+    return [refusal("code.list", `code is a list of at most ${mostComponents} components`)];
+  const found: Refusal[] = [];
+  const refuse = (rule: RuleId, message: string) => {
+    found.push(refusal(rule, message));
+  };
   const names = new Set<string>();
   raw.forEach((item, index) => {
     const at = `code[${index}]`;
     const entry = record(item);
     if (!entry) {
-      problems.push(`${at} is an object`);
+      refuse("code.field", `${at} is an object`);
       return;
     }
     const name = typeof entry["name"] === "string" ? entry["name"] : "";
     if (!/^[a-z][a-z0-9]{0,23}$/.test(name))
-      problems.push(`${at}.name is 1 to 24 lower-case letters and digits, starting with a letter`);
-    if (names.has(name)) problems.push(`${at}: each component has a name of its own`);
+      refuse(
+        "code.name",
+        `${at}.name is 1 to 24 lower-case letters and digits, starting with a letter`,
+      );
+    if (names.has(name)) refuse("code.name-unique", `${at}: each component has a name of its own`);
     names.add(name);
     if (entry["file"] !== `code/${name}.wasm`)
-      problems.push(
+      refuse(
+        "code.file",
         `${at}.file is code/${name}.wasm: a component, never precompiled code (.cwasm)`,
       );
     const world = entry["world"];
     if (typeof world === "string" && laterWorlds.has(world))
-      problems.push(
+      refuse(
+        "code.world-later",
         `Needs a newer Spade: this one runs code built for ${codeWorld} only, not ${world}`,
       );
-    else if (world !== codeWorld) problems.push(`${at}.world is ${codeWorld}`);
+    else if (world !== codeWorld) refuse("code.world", `${at}.world is ${codeWorld}`);
     const imports = entry["imports"];
     if (!Array.isArray(imports))
-      problems.push(`${at}.imports lists what the component imports, [] for nothing`);
+      refuse("code.imports", `${at}.imports lists what the component imports, [] for nothing`);
     else {
       const seen = new Set<string>();
       for (const imported of imports) {
         if (typeof imported !== "string") {
-          problems.push(`${at}.imports names interfaces`);
+          refuse("code.imports", `${at}.imports names interfaces`);
           continue;
         }
         if (!PackageCodeImport.safeParse(imported).success) {
-          problems.push(`${at}: ${outsideWorld(imported)}`);
+          refuse("code.import", `${at}: ${outsideWorld(imported)}`);
           continue;
         }
-        if (seen.has(imported)) problems.push(`${at}.imports lists ${imported} twice`);
+        if (seen.has(imported))
+          refuse("code.import-twice", `${at}.imports lists ${imported} twice`);
         seen.add(imported);
       }
       if (seen.has("spade:package/http") && !effects.some(reachesHosts))
-        problems.push(
+        refuse(
+          "code.http-network",
           `${at} imports spade:package/http, which needs a declared network effect naming its hosts`,
         );
     }
     const why = entry["why"];
     if (typeof why !== "string" || !why.trim() || why.trim().length > 500)
-      problems.push(`${at}.why says in a sentence what its code does`);
-    problems.push(...bound(at, entry, "timeout_s", 300), ...bound(at, entry, "memory_mb", 512));
+      refuse("code.why", `${at}.why says in a sentence what its code does`);
+    found.push(...bound(at, entry, "timeout_s", 300), ...bound(at, entry, "memory_mb", 512));
   });
-  return problems;
+  return found;
 }
 
 /** What a component file's first bytes are: a component, a core module, or neither. */

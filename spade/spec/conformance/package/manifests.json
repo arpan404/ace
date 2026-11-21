@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "part": "package",
-  "about": "The package part's cases: the manifest's fields, its runtime and build, what identity and executions it may not carry, its modules and triggers. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "about": "The package part's cases: the manifest's fields, its runtime and build, what identity and executions it may not carry, its modules and triggers. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
   "base": {
     "format": "spade-bot",
     "version": 3,
@@ -30,6 +30,43 @@
       "with": {}
     },
     {
+      "id": "package/spec-of-this-version",
+      "name": "the spec version it was written for",
+      "with": {
+        "spec": "1.0"
+      }
+    },
+    {
+      "id": "package/spec-of-a-later-minor-version",
+      "name": "a later minor version of the spec, which a reader of its major reads",
+      "with": {
+        "spec": "1.4"
+      }
+    },
+    {
+      "id": "package/spec-of-another-major-version",
+      "name": "another major version of the spec",
+      "with": {
+        "spec": "2.0"
+      },
+      "rule": "package.spec"
+    },
+    {
+      "id": "package/spec-as-a-number",
+      "name": "the spec version as a number",
+      "with": {
+        "spec": 1.0
+      },
+      "rule": "package.spec"
+    },
+    {
+      "id": "package/schema-address",
+      "name": "the address of the format's JSON Schema, for editors",
+      "with": {
+        "$schema": "https://spec.acehq.dev/1.0/bot.schema.json"
+      }
+    },
+    {
       "id": "package/runtime-as-a-number",
       "name": "runtime as a number",
       "with": {
@@ -37,7 +74,7 @@
           "runtime": 1
         }
       },
-      "refused": "requires.runtime is a string"
+      "rule": "package.runtime-type"
     },
     {
       "id": "package/runtime-this-build-doesnt-serve",
@@ -47,7 +84,7 @@
           "runtime": "2"
         }
       },
-      "refused": "Needs a newer Spade"
+      "rule": "package.runtime-unserved"
     },
     {
       "id": "package/publisher-in-the-file",
@@ -55,7 +92,7 @@
       "with": {
         "publisher": "acme"
       },
-      "refused": "signed manifest"
+      "rule": "package.identity"
     },
     {
       "id": "package/price",
@@ -65,7 +102,7 @@
           "kind": "paid"
         }
       },
-      "refused": "Paid"
+      "rule": "package.price"
     },
     {
       "id": "package/server",
@@ -73,7 +110,7 @@
       "with": {
         "mcpServers": {}
       },
-      "refused": "plugin"
+      "rule": "package.execution"
     },
     {
       "id": "package/module-this-build-doesnt-have",
@@ -81,7 +118,7 @@
       "with": {
         "uses": ["task", "telepathy"]
       },
-      "refused": "telepathy"
+      "rule": "package.module"
     },
     {
       "id": "package/triggers-as-an-object",
@@ -89,7 +126,7 @@
       "with": {
         "triggers": {}
       },
-      "refused": "triggers is a list"
+      "rule": "package.triggers"
     },
     {
       "id": "package/uses-as-a-word",
@@ -97,7 +134,7 @@
       "with": {
         "uses": "task"
       },
-      "refused": "uses lists runtime modules"
+      "rule": "package.uses"
     }
   ]
 }

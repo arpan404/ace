@@ -2,13 +2,14 @@
 //! imports a component may have, what a call may use, and the part's cases.
 
 use super::conformance;
-use super::markdown::{cases, number, table};
+use super::markdown::{cases, number, rules, table};
 use crate::package::code::{self, Import};
 
 pub fn regions() -> Vec<(&'static str, String)> {
     vec![
         ("imports", imports()),
         ("bounds", bounds()),
+        ("rules", rules("code")),
         ("cases", cases(&conformance::MANIFESTS[4])),
     ]
 }

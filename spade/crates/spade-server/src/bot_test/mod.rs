@@ -49,6 +49,8 @@ pub struct ScenarioReport {
     pub failures: Vec<String>,
     /// The calls the run made, as the gate read them.
     pub calls: Vec<scenario::Seen>,
+    /// The titles of the cards it showed.
+    pub cards: Vec<String>,
 }
 
 /// What `spade --bot-test` prints.
@@ -128,9 +130,17 @@ pub async fn run(folder: &Path) -> Report {
                                     .into(),
                             )
                         });
-                let (failures, calls) = match ran {
-                    Ok(observed) => (scenario::check(&scenario, &observed), observed.calls),
-                    Err(error) => (vec![format!("It couldn't run: {error}")], Vec::new()),
+                let (failures, calls, cards) = match ran {
+                    Ok(observed) => (
+                        scenario::check(&scenario, &observed),
+                        observed.calls,
+                        observed.cards,
+                    ),
+                    Err(error) => (
+                        vec![format!("It couldn't run: {error}")],
+                        Vec::new(),
+                        Vec::new(),
+                    ),
                 };
                 report.scenarios.push(ScenarioReport {
                     file: file.clone(),
@@ -138,6 +148,7 @@ pub async fn run(folder: &Path) -> Report {
                     passed: failures.is_empty(),
                     failures,
                     calls,
+                    cards,
                 });
             }
             Err(problems) => report

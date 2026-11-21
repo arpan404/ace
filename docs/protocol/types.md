@@ -1034,7 +1034,8 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | purpose | no | ["spade-cloud","market-publish"] |  |
-| kind | yes | ["machine","device"] |  |
+| kind | yes | ["machine","device","member"] |  |
+| org | no | string | {"pattern":"^org_[A-Za-z0-9]{1,64}$"} |
 | subject | yes | string | {"minLength":1,"maxLength":128} |
 | host | no | string | {"pattern":"^[A-Z2-7]{52}$"} |
 | action | no | string | {"minLength":1,"maxLength":512} |
@@ -1044,9 +1045,9 @@ Example:
 
 ```json
 {
-  "host": "K6JNKZH3Q2S2C4KLCYDSIMHYNV7HJL7QJOLWJAO3JLIRPEJBTYI5",
-  "key": "JyHbZ3wOtfXFdmbLYde6E6KGEWmww4Q7U1E_0ebH8lUT_WyiHdcVPzq9orvgMuMGjB5thqxTNOKcz0TkZTObyVQ",
-  "kind": "device",
+  "host": "QJOLWJAO3JLIRPEJBTYI5WCNEZDNM3YHWPLCOTNFMOP5C5FDCLTY",
+  "kind": "member",
+  "org": "org_U7RbVwN1fzkyF2VVEwHjQYOwap9OR",
   "subject": "example"
 }
 ```
@@ -1099,6 +1100,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | holder | no | ["person","machine"] |  |
+| org | no | string | {"pattern":"^org_[A-Za-z0-9]{1,64}$"} |
 | returnTo | no | string | {"examples":["ace://account/signed-in","https://app.example.com/account/signed-in"],"x-ace-constraint":"Exactly ace://account/signed-in, or an allowed web origin followed by /account/signed-in.","maxLength":2048} |
 
 Example:
@@ -1249,6 +1251,427 @@ Example:
 }
 ```
 
+## AceOrgAssignableRole
+
+[JSON Schema](schema/AceOrgAssignableRole.json), input validation.
+
+Type: ["member","admin","owner"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"admin"
+```
+
+## AceOrgAuditEntry
+
+[JSON Schema](schema/AceOrgAuditEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hash | yes | string | {"pattern":"^[0-9a-f]{64}$"} |
+| action | yes | string | {"pattern":"^[a-z_]+(\\.[a-z_]+){1,3}$"} |
+| occurredAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| version | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| actor | yes | object | {"properties":{"type":{"type":"string","pattern":"^[a-z_]{1,32}$"},"id":{"type":"string","minLength":1,"maxLength":256},"name":{"type":"string","maxLength":256}},"required":["type","id"]} |
+| targets | yes | array | {"minItems":1,"maxItems":10,"items":{"type":"object","properties":{"type":{"type":"string","pattern":"^[a-z_]{1,32}$"},"id":{"type":"string","minLength":1,"maxLength":256},"name":{"type":"string","maxLength":256}},"required":["type","id"]}} |
+| metadata | no | object | {"propertyNames":{"type":"string","pattern":"^[A-Za-z0-9_]{1,40}$"},"additionalProperties":{"anyOf":[{"type":"string","maxLength":500},{"type":"number"},{"type":"boolean"}]},"x-ace-constraint":"At most 49 keys."} |
+
+Example:
+
+```json
+{
+  "action": "uonynlrgk.qwl_.i_xjppk",
+  "actor": {
+    "id": "example",
+    "type": "dcnxqfdm_nvzcqgxykfgyvgsbwe"
+  },
+  "hash": "d1ca6b0d6e1f3c135135eae341445f2e6f46f1a45671c330069a6d3125f9e241",
+  "metadata": {},
+  "occurredAt": 9,
+  "targets": [
+    {
+      "id": "example",
+      "type": "yu"
+    }
+  ],
+  "version": 10
+}
+```
+
+## AceOrgCreateRequest
+
+[JSON Schema](schema/AceOrgCreateRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":128,"x-ace-constraint":"Leading and trailing whitespace is removed."} |
+
+Example:
+
+```json
+{
+  "name": "example"
+}
+```
+
+## AceOrgHostEnrollRequest
+
+[JSON Schema](schema/AceOrgHostEnrollRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+| auditKey | no | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+
+Example:
+
+```json
+{
+  "hostId": "BQOQE2PJVTYCXUF2UM65X65DEBOYZVACNIAHV5B5C43KAEWDVZVH"
+}
+```
+
+## AceOrgId
+
+[JSON Schema](schema/AceOrgId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"org_mECcIW4QJXgtzGvi37tR44qpBZSTTFkHBYzjL5B3mBVeQpOYQA3cOEyh"
+```
+
+## AceOrgInvitation
+
+[JSON Schema](schema/AceOrgInvitation.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":128} |
+| email | yes | string | {"maxLength":320} |
+| role | no | [AceOrgRole.json](schema/AceOrgRole.json) |  |
+| state | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AceOrgInvitationState.json"},{"type":"string","maxLength":64}]} |
+| expiresAt | yes | string | {"maxLength":64} |
+
+Example:
+
+```json
+{
+  "email": "example",
+  "expiresAt": "example",
+  "id": "example",
+  "state": "expired"
+}
+```
+
+## AceOrgInvitationList
+
+[JSON Schema](schema/AceOrgInvitationList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| invitations | yes | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/AceOrgInvitation.json"}} |
+
+Example:
+
+```json
+{
+  "invitations": []
+}
+```
+
+## AceOrgInvitationRequest
+
+[JSON Schema](schema/AceOrgInvitationRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| email | yes | string | {"maxLength":320,"pattern":"^[^\\s@]+@[^\\s@]+$","x-ace-constraint":"Leading and trailing whitespace is removed."} |
+| role | no | [AceOrgAssignableRole.json](schema/AceOrgAssignableRole.json) | {"default":"member"} |
+
+Example:
+
+```json
+{
+  "email": "X7a_@1"
+}
+```
+
+## AceOrgInvitationState
+
+[JSON Schema](schema/AceOrgInvitationState.json), input validation.
+
+Type: ["pending","accepted","expired","revoked"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"expired"
+```
+
+## AceOrgList
+
+[JSON Schema](schema/AceOrgList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| orgs | yes | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/AceOrgSpace.json"}} |
+
+Example:
+
+```json
+{
+  "orgs": []
+}
+```
+
+## AceOrgMember
+
+[JSON Schema](schema/AceOrgMember.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| account | yes | string | {"minLength":1,"maxLength":256} |
+| email | no | string | {"maxLength":320} |
+| name | no | string | {"maxLength":256} |
+| role | yes | [AceOrgRole.json](schema/AceOrgRole.json) |  |
+| status | yes | [AceOrgMemberStatus.json](schema/AceOrgMemberStatus.json) |  |
+| directoryManaged | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "account": "example",
+  "directoryManaged": true,
+  "role": "Q7m:8j3YkyD6VF_mAzV10xb8vKxxKHbv-3",
+  "status": "inactive"
+}
+```
+
+## AceOrgMemberList
+
+[JSON Schema](schema/AceOrgMemberList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| members | yes | array | {"maxItems":10000,"items":{"$ref":"https://ace.local/protocol/v1/AceOrgMember.json"}} |
+
+Example:
+
+```json
+{
+  "members": []
+}
+```
+
+## AceOrgMemberStatus
+
+[JSON Schema](schema/AceOrgMemberStatus.json), input validation.
+
+Type: ["pending","active","inactive","removed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"pending"
+```
+
+## AceOrgPlan
+
+[JSON Schema](schema/AceOrgPlan.json), input validation.
+
+Type: ["pilot","team"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"pilot"
+```
+
+## AceOrgPolicy
+
+[JSON Schema](schema/AceOrgPolicy.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| effects | no | object | {"properties":{"network_without_hosts":{"type":"string","enum":["off","admins","approvers"]},"publish":{"type":"string","enum":["off","admins","approvers"]},"send_as_person":{"type":"string","enum":["off","admins","approvers"]},"pay":{"type":"string","enum":["off","admins","approvers"]},"change_access":{"type":"string","enum":["off","admins","approvers"]}}} |
+| full_access | no | ["never","admins","approvers"] |  |
+| commands_outside_sandbox | no | ["never","admins","approvers"] |  |
+| members_create_bots | no | boolean |  |
+| packages | no | object | {"properties":{"sources":{"type":"object","properties":{"market":{"type":"boolean"},"registry":{"type":"boolean"},"git":{"type":"boolean"}}},"mode":{"type":"string","enum":["allowlist","open"]},"allow":{"maxItems":1000,"type":"array","items":{"type":"object","properties":{"source":{"type":"string","enum":["market","registry","git"]},"name":{"type":"string","minLength":1,"maxLength":256},"versions":{"maxItems":100,"type":"array","items":{"type":"string","maxLength":64}}},"required":["source","name"]}},"block":{"maxItems":1000,"type":"array","items":{"anyOf":[{"type":"object","properties":{"hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}},"required":["hash"]},{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":256}},"required":["name"]}]}}}} |
+| models | no | object | {"properties":{"endpoints":{"maxItems":100,"type":"array","items":{"type":"string","minLength":1,"maxLength":253}},"local":{"type":"boolean"},"subscriptions":{"type":"boolean","const":false}}} |
+| audit | no | object | {"properties":{"content":{"type":"string","enum":["digests","targets"]}},"required":["content"]} |
+
+Example:
+
+```json
+{
+  "members_create_bots": false
+}
+```
+
+## AceOrgPolicySetRequest
+
+[JSON Schema](schema/AceOrgPolicySetRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| policy | yes | [AceOrgPolicy.json](schema/AceOrgPolicy.json) |  |
+
+Example:
+
+```json
+{
+  "policy": {
+    "models": {}
+  }
+}
+```
+
+## AceOrgPolicyVersion
+
+[JSON Schema](schema/AceOrgPolicyVersion.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| body | yes | string | {"maxLength":65536} |
+| statement | no | string | {"maxLength":2048} |
+| setBy | no | string | {"maxLength":256} |
+| setAt | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "org": "org_mXzykkJUUUp",
+  "version": 7
+}
+```
+
+## AceOrgPortalIntent
+
+[JSON Schema](schema/AceOrgPortalIntent.json), input validation.
+
+Type: ["sso","dsync","audit_logs","log_streams","domain_verification","certificate_renewal"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"dsync"
+```
+
+## AceOrgPortalLink
+
+[JSON Schema](schema/AceOrgPortalLink.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| link | yes | string | {"format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "expiresAt": 1,
+  "link": "https://example.invalid/"
+}
+```
+
+## AceOrgPortalRequest
+
+[JSON Schema](schema/AceOrgPortalRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| intent | yes | [AceOrgPortalIntent.json](schema/AceOrgPortalIntent.json) |  |
+
+Example:
+
+```json
+{
+  "intent": "audit_logs"
+}
+```
+
+## AceOrgRole
+
+[JSON Schema](schema/AceOrgRole.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"N7DjnhiKgQkkxkHok-4WzPTGMntOZBBi_6xC0aumZ"
+```
+
+## AceOrgRoleChange
+
+[JSON Schema](schema/AceOrgRoleChange.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| role | yes | [AceOrgAssignableRole.json](schema/AceOrgAssignableRole.json) |  |
+
+Example:
+
+```json
+{
+  "role": "admin"
+}
+```
+
+## AceOrgSignInRequired
+
+[JSON Schema](schema/AceOrgSignInRequired.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| error | yes | `"org_sign_in_required"` |  |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "error": "org_sign_in_required",
+  "org": "org_6harw9AGUV33R3ruGkN6VAOvvflEKb7rnD5w6e"
+}
+```
+
+## AceOrgSpace
+
+[JSON Schema](schema/AceOrgSpace.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+| name | yes | string | {"maxLength":256} |
+| role | yes | [AceOrgRole.json](schema/AceOrgRole.json) |  |
+| plan | yes | [AceOrgPlan.json](schema/AceOrgPlan.json) |  |
+| directoryManaged | yes | boolean |  |
+| noOwner | no | boolean |  |
+
+Example:
+
+```json
+{
+  "directoryManaged": false,
+  "id": "org_XBYuUT6XvvXyq",
+  "name": "example",
+  "plan": "pilot",
+  "role": "y3w5U5zav9cbbuaQn6prI-l4uV4eF9ps_j6sGz21"
+}
+```
+
 ## AceSignInReturnStatus
 
 [JSON Schema](schema/AceSignInReturnStatus.json), input validation.
@@ -1259,6 +1682,30 @@ Example:
 
 ```json
 "expired"
+```
+
+## AceSpace
+
+[JSON Schema](schema/AceSpace.json), input validation.
+
+### Variant 1
+
+Type: `"personal"`. See JSON Schema for constraints.
+
+Example:
+
+```json
+"personal"
+```
+
+### Variant 2
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"org_MLknTsGa2o1IvD"
 ```
 
 ## AcpHomeStrategy
@@ -22545,14 +22992,15 @@ Example:
   "name": [],
   "recipe": {
     "blurb": "example",
-    "contracts": [],
-    "effects": [],
     "face": {},
     "format": "spade-bot",
+    "limits": {},
     "model": "capable",
     "name": "example",
     "plugins": [],
     "skills": [],
+    "tests": [],
+    "triggers": [],
     "version": 2
   },
   "routines": [],
@@ -24580,6 +25028,7 @@ Example:
 | path | no | string | {"maxLength":512} |
 | line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | message | yes | string | {"maxLength":500} |
+| rule | no | string | {"maxLength":80} |
 
 Example:
 
@@ -24587,7 +25036,8 @@ Example:
 {
   "line": 8,
   "message": "example",
-  "path": "example"
+  "path": "example",
+  "rule": "example"
 }
 ```
 
@@ -25885,15 +26335,15 @@ Example:
   "leftOut": [],
   "op": "botRecipe",
   "recipe": {
-    "effects": [],
+    "contracts": [],
     "face": {},
     "format": "spade-bot",
     "name": "example",
     "requires": {},
-    "style": {
-      "accent": "#61Ce1d"
-    },
+    "spec": "1.5440569212",
     "task": "example",
+    "tests": [],
+    "uses": [],
     "version": 3
   }
 }
@@ -35588,6 +36038,7 @@ Example:
 | needs | no | object | {"default":{"connectors":[]},"properties":{"connectors":{"default":[],"maxItems":32,"type":"array","items":{"anyOf":[{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/RecipeConnectorId.json"},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["id","why"],"additionalProperties":false},{"type":"object","properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.","x-ace-url-maxLength":2048},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["url","why"],"additionalProperties":false}]}},"tools":{"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}},"additionalProperties":false} |
 | notes | no | array | {"default":[],"maxItems":50,"items":{"type":"string","maxLength":2000}} |
 | personality | no | [SpadePersonality.json](schema/SpadePersonality.json) |  |
+| spec | no | string | {"pattern":"^1\\.[0-9]+$"} |
 | requires | no | [PackageRequires.json](schema/PackageRequires.json) |  |
 | uses | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageModule.json"}} |
 | triggers | no | array | {"default":[],"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
@@ -35603,15 +36054,17 @@ Example:
 
 ```json
 {
-  "effects": [],
   "format": "spade-bot",
   "limits": {
-    "workspace_mb": 1
+    "spend_alert": {
+      "usd_per_day": 8
+    },
+    "workspace_mb": 2
   },
   "name": "example",
   "needs": {},
-  "style": {
-    "accent": "#ABDDCF"
+  "requires": {
+    "spade": "example"
   },
   "task": "example",
   "uses": [],

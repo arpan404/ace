@@ -200,6 +200,10 @@
       "maxItems": 32,
       "type": "array"
     },
+    "spec": {
+      "pattern": "^1\\.[0-9]+$",
+      "type": "string"
+    },
     "style": {
       "additionalProperties": false,
       "properties": {

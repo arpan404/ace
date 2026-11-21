@@ -28,5 +28,8 @@
     "@noble/hashes": "2.0.1",
     "yaml": "^2.8.1",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
   }
 }

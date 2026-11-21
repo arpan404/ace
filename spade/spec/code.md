@@ -113,6 +113,36 @@ of its own: `tools`, `http` and `kv` are requests the runtime carries out after 
 on the bot MUST end its open code calls; a call cut off by Stop, its bounds, a trap or a worker
 that died MUST be reported as stopped or failed, never as done.
 
+## Rules
+
+A reader names each refusal by its rule, so a case matches a refusal by id, never by its words.
+
+<!-- spec:begin rules -->
+From [`conformance/rules.json`](conformance/rules.json).
+
+| Rule | A reader MUST refuse | The JSON Schema decides it |
+| --- | --- | --- |
+| `code.list` | `code` isn't a list of at most 4 components. | yes |
+| `code.field` | A component's entry isn't an object. | yes |
+| `code.name` | A component's name isn't 1 to 24 lower-case letters and digits, starting with a letter. | yes |
+| `code.name-unique` | Two components have one name. | no |
+| `code.file` | A component's file isn't `code/<name>.wasm`: never precompiled code, never outside `code/`. | no |
+| `code.world` | A component's world isn't one of Spade's. | yes |
+| `code.world-later` | A component is built for a world of Spade's that the runtime doesn't run yet. | no |
+| `code.imports` | A component's `imports` isn't a list of interface names. | yes |
+| `code.import` | A component imports something outside Spade's world: a file system, sockets, the command line, incoming HTTP, threads or any other interface. | yes |
+| `code.import-twice` | A component lists an import twice. | yes |
+| `code.http-network` | A component imports `spade:package/http` and the package declares no `network` effect naming hosts. | no |
+| `code.why` | A component doesn't say what its code does, in 1 to 500 characters. | yes |
+| `code.bound` | A component's `timeout_s` isn't 1 to 300, or its `memory_mb` 1 to 512. | yes |
+| `code.file-missing` | A component the manifest names isn't in the package. | no |
+| `code.stray` | A file under `code/` isn't a named component, `code/src/` or `code/build.json`. | no |
+| `code.binary` | A component's bytes aren't a component of Spade's world: over 8 MiB, a core module, precompiled code, invalid with the features a runtime enables, importing outside the world, or exporting what the world doesn't. | no |
+| `code.binary-imports` | A component's binary imports differ from its entry's `imports`, either way. | no |
+<!-- spec:end rules -->
+
+## Cases
+
 <!-- spec:begin cases -->
 From [`conformance/code/manifests.json`](conformance/code/manifests.json).
 
@@ -120,21 +150,21 @@ From [`conformance/code/manifests.json`](conformance/code/manifests.json).
 | --- | --- | --- |
 | `code/a-component-that-calls-spades-tools-and-reads-the-clock` | a component that calls Spade's tools and reads the clock | accept |
 | `code/a-component-with-http-which-the-packages-network-hosts-allow` | a component with http, which the package's network hosts allow | accept |
-| `code/a-component-that-imports-wasi-filesystem` | a component that imports wasi:filesystem | refuse: a problem says “no file system or sockets” |
-| `code/a-component-that-imports-wasi-sockets` | a component that imports wasi:sockets | refuse: a problem says “no file system or sockets” |
-| `code/a-component-that-imports-anything-else` | a component that imports anything else | refuse: a problem says “outside Spade's world” |
-| `code/a-component-with-http-and-no-network-hosts` | a component with http and no network hosts | refuse: a problem says “needs a declared network effect” |
-| `code/precompiled-code` | precompiled code | refuse: a problem says “.cwasm” |
-| `code/a-file-outside-code` | a file outside code/ | refuse: a problem says “code/fares.wasm” |
-| `code/a-world-this-spade-doesnt-run-yet` | a world this Spade doesn't run yet | refuse: a problem says “Needs a newer Spade” |
-| `code/a-world-that-isnt-spades` | a world that isn't Spade's | refuse: a problem says “world is spade:package/bot-tools@1.0.0” |
-| `code/five-components` | five components | refuse: a problem says “at most 4” |
-| `code/two-components-of-one-name` | two components of one name | refuse: a problem says “a name of its own” |
-| `code/a-component-name-that-isnt-a-word` | a component name that isn't a word | refuse: a problem says “name is 1 to 24” |
-| `code/an-import-listed-twice` | an import listed twice | refuse: a problem says “twice” |
-| `code/a-component-without-imports-listed` | a component without imports listed | refuse: a problem says “imports lists” |
-| `code/a-component-without-a-why` | a component without a why | refuse: a problem says “why says” |
-| `code/a-deadline-past-five-minutes` | a deadline past five minutes | refuse: a problem says “timeout_s is a whole number from 1 to 300” |
-| `code/more-memory-than-512-mib` | more memory than 512 MiB | refuse: a problem says “memory_mb is a whole number from 1 to 512” |
-| `code/code-that-isnt-a-list` | code that isn't a list | refuse: a problem says “code is a list” |
+| `code/a-component-that-imports-wasi-filesystem` | a component that imports wasi:filesystem | refuse by `code.import` |
+| `code/a-component-that-imports-wasi-sockets` | a component that imports wasi:sockets | refuse by `code.import` |
+| `code/a-component-that-imports-anything-else` | a component that imports anything else | refuse by `code.import` |
+| `code/a-component-with-http-and-no-network-hosts` | a component with http and no network hosts | refuse by `code.http-network` |
+| `code/precompiled-code` | precompiled code | refuse by `code.file` |
+| `code/a-file-outside-code` | a file outside code/ | refuse by `code.file` |
+| `code/a-world-this-spade-doesnt-run-yet` | a world this Spade doesn't run yet | refuse by `code.world-later` |
+| `code/a-world-that-isnt-spades` | a world that isn't Spade's | refuse by `code.world` |
+| `code/five-components` | five components | refuse by `code.list` |
+| `code/two-components-of-one-name` | two components of one name | refuse by `code.name-unique` |
+| `code/a-component-name-that-isnt-a-word` | a component name that isn't a word | refuse by `code.name` |
+| `code/an-import-listed-twice` | an import listed twice | refuse by `code.import-twice` |
+| `code/a-component-without-imports-listed` | a component without imports listed | refuse by `code.imports` |
+| `code/a-component-without-a-why` | a component without a why | refuse by `code.why` |
+| `code/a-deadline-past-five-minutes` | a deadline past five minutes | refuse by `code.bound` |
+| `code/more-memory-than-512-mib` | more memory than 512 MiB | refuse by `code.bound` |
+| `code/code-that-isnt-a-list` | code that isn't a list | refuse by `code.list` |
 <!-- spec:end cases -->

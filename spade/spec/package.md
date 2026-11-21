@@ -29,8 +29,10 @@ Version 3 knows these fields:
 <!-- spec:begin fields -->
 | Field | What it is |
 | --- | --- |
+| `$schema` | The address of the format's JSON Schema, for editors; it changes nothing a runtime does. |
 | `format` | MUST be `"spade-bot"`. |
 | `version` | The format's number, `3`. A string is refused: a package's own version is the signed version manifest's. |
+| `spec` | The Spade Agent Format version it was written for, like `"1.0"`; missing reads as `1.0`. A reader MUST read every minor version of its major and refuse another major. |
 | `requires` | `{runtime, spade?}`: the major version of the `runtime` part it needs, as a string, and the oldest runtime build whose additions it uses. |
 | `name` | The bot's name, required. |
 | `blurb` | One line on what it does. |
@@ -147,6 +149,35 @@ install, and start only the ones the person turned on.
 An `event` trigger names one of: `thread.finished` (when an agent thread finishes), `thread.failed` (when an agent thread fails), `thread.needs_you` (when an agent thread needs you).
 <!-- spec:end triggers -->
 
+## Rules
+
+Every refusal names its rule, by an id that never changes, so a conformance case matches a
+refusal by its rule and never by its words. A reader's words are its own.
+
+<!-- spec:begin rules -->
+From [`conformance/rules.json`](conformance/rules.json).
+
+| Rule | A reader MUST refuse | The JSON Schema decides it |
+| --- | --- | --- |
+| `package.secret` | Something in the manifest is named or shaped like a key, token or secret. | no |
+| `package.not-object` | bot.json isn't a JSON object. | yes |
+| `package.format` | `format` isn't `"spade-bot"`. | yes |
+| `package.version` | `version` isn't the format's number this reader reads, or is a string. | yes |
+| `package.spec` | `spec` isn't a version of the Spade Agent Format this reader serves (`1.<minor>`). | yes |
+| `package.identity` | A field claims identity, which is the signed version manifest's alone. | yes |
+| `package.execution` | A field carries executions (servers, hooks, commands), which are plugins'. | yes |
+| `package.runtime-type` | `requires.runtime` isn't a string. | yes |
+| `package.runtime-unserved` | `requires.runtime` names a major version of `runtime` the reader doesn't serve. | yes |
+| `package.spade-newer` | `requires.spade` is newer than the runtime. | no |
+| `package.uses` | `uses` isn't a list of module names. | yes |
+| `package.module` | `uses` names a module the runtime lacks. | yes |
+| `package.triggers` | `triggers` isn't a list of at most 40. | yes |
+| `package.trigger` | A trigger's fields aren't what its kind takes: places, a routine's name and instruction, a schedule the runtime reads, an event it names. | no |
+| `package.routines` | More than 32 routines, or two routines of one name. | no |
+| `package.price` | Any price but free. | yes |
+| `package.field` | A field of the manifest isn't its shape, or is past its bound. | no |
+<!-- spec:end rules -->
+
 ## Conformance
 
 <!-- spec:begin cases -->
@@ -155,12 +186,17 @@ From [`conformance/package/manifests.json`](conformance/package/manifests.json).
 | Case | What it is | A reader MUST |
 | --- | --- | --- |
 | `package/base-manifest` | the base manifest | accept |
-| `package/runtime-as-a-number` | runtime as a number | refuse: a problem says “requires.runtime is a string” |
-| `package/runtime-this-build-doesnt-serve` | a runtime this build doesn't serve | refuse: a problem says “Needs a newer Spade” |
-| `package/publisher-in-the-file` | a publisher in the file | refuse: a problem says “signed manifest” |
-| `package/price` | a price | refuse: a problem says “Paid” |
-| `package/server` | a server | refuse: a problem says “plugin” |
-| `package/module-this-build-doesnt-have` | a module this build doesn't have | refuse: a problem says “telepathy” |
-| `package/triggers-as-an-object` | triggers as an object | refuse: a problem says “triggers is a list” |
-| `package/uses-as-a-word` | uses as a word | refuse: a problem says “uses lists runtime modules” |
+| `package/spec-of-this-version` | the spec version it was written for | accept |
+| `package/spec-of-a-later-minor-version` | a later minor version of the spec, which a reader of its major reads | accept |
+| `package/spec-of-another-major-version` | another major version of the spec | refuse by `package.spec` |
+| `package/spec-as-a-number` | the spec version as a number | refuse by `package.spec` |
+| `package/schema-address` | the address of the format's JSON Schema, for editors | accept |
+| `package/runtime-as-a-number` | runtime as a number | refuse by `package.runtime-type` |
+| `package/runtime-this-build-doesnt-serve` | a runtime this build doesn't serve | refuse by `package.runtime-unserved` |
+| `package/publisher-in-the-file` | a publisher in the file | refuse by `package.identity` |
+| `package/price` | a price | refuse by `package.price` |
+| `package/server` | a server | refuse by `package.execution` |
+| `package/module-this-build-doesnt-have` | a module this build doesn't have | refuse by `package.module` |
+| `package/triggers-as-an-object` | triggers as an object | refuse by `package.triggers` |
+| `package/uses-as-a-word` | uses as a word | refuse by `package.uses` |
 <!-- spec:end cases -->

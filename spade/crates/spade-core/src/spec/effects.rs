@@ -5,7 +5,7 @@
 use serde_json::Value;
 
 use super::conformance;
-use super::markdown::{cases, table};
+use super::markdown::{cases, rules, table};
 use crate::effect::{self, Effect, ceiling};
 use crate::package;
 
@@ -41,6 +41,7 @@ pub fn regions() -> Vec<(&'static str, String)> {
         ("words", words()),
         ("declared", declared()),
         ("keys", keys()),
+        ("rules", rules("effects")),
         ("cases", cases(&conformance::MANIFESTS[1])),
     ]
 }
@@ -115,7 +116,7 @@ fn keys() -> String {
             manifest["effects"] = Value::Array(vec![declared]);
             let key = match package::read(&manifest, BUILD) {
                 Ok(read) => read.effect_keys().join(", "),
-                Err(problems) => format!("refused: {}", problems.join("; ")),
+                Err(problems) => format!("refused: {}", crate::rule::joined(&problems, "; ")),
             };
             vec![format!("`{json}`"), format!("`{key}`")]
         }),

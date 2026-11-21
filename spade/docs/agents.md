@@ -9,8 +9,9 @@ describe. Agents run on models from the person's own endpoints.
 ## Agents
 
 - **Main agent.** Created by the server on first start: name `Spade`, avatar `{"kind":"spade"}`,
-  empty task, the person's first usable model (first endpoint with a key and a saved model), else
-  no model (`""`): never a preset's, which the person hasn't set up. Until they choose one,
+  empty task, the person's first usable model (first endpoint with a key and a saved model, an
+  endpoint on this computer first, ADR 0205), else no model (`""`): never a preset's, which the
+  person hasn't set up, and never a subscription. Until they choose one,
   messages to it answer `409` and say so. At most one per service. It cannot be deleted, and its name and avatar
   cannot change (`409`); its task and model can. It shows only on the machine the fleet's host
   record names (see "Where Spade lives"); elsewhere it is left out of `GET /v1/agents` and
@@ -331,11 +332,30 @@ deleted.
   8,192 tokens), it takes what the conversation's model takes (tools, images, PDFs) and, unless
   the person chose the model, its cold estimate is below the conversation model's cached one.
 
-API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, escalate}`) and
-`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source}], overrides: {roles, allowed,
-escalate}, escalate, spend: {today, month}}`; `source` is `bot`, `global`, `default` or `own`).
-`main` is refused there: change the bot's model. `PUT /v1/models/roles {roles: {review}}` sets
-oversight's `review_model`.
+- **Routes** ([ADR 0205](../../docs/adr/0205-spade-bots-think-with-models-the-person-controls.md)
+  §2). Each role is an ordered list of up to four models; a single model reads as a list of one.
+  `main`'s route is the bot's own model, then the bot's `main` route, else the global one. A step
+  runs on the first model that can serve it (it calls tools when the step offers them, reads
+  images when the prompt carries them, and its listed context holds the prompt). It moves to the
+  next only on a definite sign: the request never reached the endpoint (connection refused, DNS
+  or TLS failure), a `429` or a used-up quota, or a `5xx` once the usual three tries with backoff
+  are used up. A slow answer, a bad answer or a refusal never moves it; neither does a failure on
+  the route's last model, which is handled as for a lone model. A bot whose route has more than
+  one model stores `step_served {reply, model, skipped: [{model, reason}], line}` before each
+  step: `reason` is `unreachable`, `rate_limited`, `quota`, `server_error`, `no_tools`,
+  `no_images` or `too_small`, and `line` ("Ran on Model B: the local server was off.") is what
+  the reply shows when the step ran on another model than the route's first. The rest of the
+  reply starts from the model that served its last step; the next reply reads the route from its
+  start. A route never holds a subscription: one is refused when set, skipped when stored, and a
+  bot on a subscription runs on it alone. A helper's model leads its route when it is on the
+  `helper` route; a model the bot named runs alone.
+
+API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, routes: {<role>: [model]},
+escalate}`; `PUT` takes `roles: {<role>: model | [model] | null}`) and
+`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source, route}], overrides: {roles,
+routes, allowed, escalate}, escalate, spend: {today, month}}`; `source` is `bot`, `global`,
+`default` or `own`). `roles` keeps each override's first model, for clients from before routes.
+`PUT /v1/models/roles {roles: {review}}` sets oversight's `review_model` to the route's first.
 
 ## Faces
 

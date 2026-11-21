@@ -66,7 +66,8 @@
     "release:data": "node apps/desktop/scripts/release.ts data",
     "release:beta": "node apps/desktop/scripts/release-beta.ts",
     "smoke:real": "node tools/real-smoke/src/cli.ts",
-    "typecheck:clean": "node scripts/typecheck.ts --clean"
+    "typecheck:clean": "node scripts/typecheck.ts --clean",
+    "spec:site": "bun scripts/spec-site.ts"
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",
@@ -76,6 +77,7 @@
     "@types/node": "^26.6.4",
     "dependency-cruiser": "^18.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "marked": "^16.3.0",
     "node-gyp": "11.5.0",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",

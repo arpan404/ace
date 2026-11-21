@@ -1,0 +1,316 @@
+{
+  "license": "Apache-2.0",
+  "part": "runtime",
+  "level": "runtime",
+  "about": "The Runtime level's cases over a runtime's HTTP API, in the shape Spade's speaks (`POST /v1/agents` with `recipe`, `/v1/agents/{id}/package`, `/package/effects`, `/routines`, `/contracts`). Each case is steps on one bot made from the base manifest with `with` merged over it at the top level: `install` (its `switches` the person left on), `switch {key, on}`, `update {with}`, `rollback` (back to the version before) and `calls {incoming}` (the person opens or closes calls to it from their other bots). A step's `expect` is what the runtime MUST answer: `refused` (the step was refused and changed nothing), `refused_says` (its refusal names these words), `switches` (each declared effect's switch, by key), `routines_paused` (every schedule, event and webhook trigger is paused), `package` (`installed` or `updated`: which version the bot now runs) and `contracts` with `incoming` (what it publishes, and whether calls to it are open). `id` names the case in reports and never changes.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "spec": "1.0",
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "triggers": [
+      {
+        "kind": "message"
+      },
+      {
+        "kind": "schedule",
+        "name": "Morning check",
+        "instruction": "Check every watched trip.",
+        "schedule": "daily at 7:00"
+      },
+      {
+        "kind": "event",
+        "name": "After a failure",
+        "instruction": "Look at what failed.",
+        "event": "thread.failed"
+      },
+      {
+        "kind": "webhook",
+        "name": "Fare feed",
+        "instruction": "Read the posted fare."
+      }
+    ],
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      },
+      {
+        "effect": "send_as_person",
+        "why": "Drafts a mail to your travel agent. You send it."
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    }
+  },
+  "cases": [
+    {
+      "id": "runtime/install-starts-every-switch-off",
+      "name": "an install the person left every switch off on",
+      "steps": [
+        {
+          "install": {},
+          "expect": {
+            "switches": {
+              "network:hosts:api.example-fares.com": false,
+              "send_as_person": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/install-keeps-what-the-person-turned-on",
+      "name": "an install with one switch the person turned on",
+      "steps": [
+        {
+          "install": {
+            "switches": {
+              "send_as_person": true
+            }
+          },
+          "expect": {
+            "switches": {
+              "network:hosts:api.example-fares.com": false,
+              "send_as_person": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/install-starts-routines-paused",
+      "name": "schedule, event and webhook triggers start paused",
+      "steps": [
+        {
+          "install": {},
+          "expect": {
+            "routines_paused": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/install-refuses-what-a-reader-refuses",
+      "name": "a manifest a reader refuses makes no bot",
+      "steps": [
+        {
+          "install": {
+            "with": {
+              "publisher": "acme"
+            }
+          },
+          "expect": {
+            "refused": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/install-refuses-a-module-it-lacks-by-name",
+      "name": "a module the runtime lacks is refused by its name",
+      "steps": [
+        {
+          "install": {
+            "with": {
+              "uses": ["task", "telepathy"]
+            }
+          },
+          "expect": {
+            "refused": true,
+            "refused_says": "telepathy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/a-switch-turns-on-one-declared-effect",
+      "name": "the person turns one declared effect on",
+      "steps": [
+        {
+          "install": {}
+        },
+        {
+          "switch": {
+            "key": "send_as_person",
+            "on": true
+          },
+          "expect": {
+            "switches": {
+              "network:hosts:api.example-fares.com": false,
+              "send_as_person": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/a-switch-for-an-effect-not-declared-is-refused",
+      "name": "a switch for an effect the package didn't declare",
+      "steps": [
+        {
+          "install": {}
+        },
+        {
+          "switch": {
+            "key": "pay",
+            "on": true
+          },
+          "expect": {
+            "refused": true,
+            "switches": {
+              "network:hosts:api.example-fares.com": false,
+              "send_as_person": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/an-update-is-one-step-and-what-it-adds-starts-off",
+      "name": "an update keeps the switches the person set, and a new effect starts off",
+      "steps": [
+        {
+          "install": {
+            "switches": {
+              "send_as_person": true
+            }
+          }
+        },
+        {
+          "update": {
+            "with": {
+              "effects": [
+                {
+                  "effect": "network",
+                  "hosts": ["api.example-fares.com"],
+                  "why": "Reads fares."
+                },
+                {
+                  "effect": "send_as_person",
+                  "why": "Drafts a mail to your travel agent. You send it."
+                },
+                {
+                  "effect": "publish",
+                  "why": "Posts a weekly fare report."
+                }
+              ],
+              "task": "You watch flight and hotel prices for the person."
+            }
+          },
+          "expect": {
+            "package": "updated",
+            "switches": {
+              "network:hosts:api.example-fares.com": false,
+              "send_as_person": true,
+              "publish": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/a-rollback-is-one-step-back",
+      "name": "a rollback moves the bot back to the version before in one step",
+      "steps": [
+        {
+          "install": {}
+        },
+        {
+          "update": {
+            "with": {
+              "effects": [
+                {
+                  "effect": "network",
+                  "hosts": ["api.example-fares.com"],
+                  "why": "Reads fares."
+                },
+                {
+                  "effect": "send_as_person",
+                  "why": "Drafts a mail to your travel agent. You send it."
+                },
+                {
+                  "effect": "publish",
+                  "why": "Posts a weekly fare report."
+                }
+              ],
+              "task": "You watch flight and hotel prices for the person."
+            }
+          },
+          "expect": {
+            "package": "updated"
+          }
+        },
+        {
+          "rollback": {},
+          "expect": {
+            "package": "installed",
+            "switches": {
+              "network:hosts:api.example-fares.com": false,
+              "send_as_person": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime/contracts-are-published-and-the-person-closes-calls",
+      "name": "a package's contracts are listed at install, and the person's switch closes calls to it",
+      "steps": [
+        {
+          "install": {
+            "with": {
+              "contracts": [
+                {
+                  "name": "cheapest_fare",
+                  "summary": "The cheapest fare seen for a route this week.",
+                  "input": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "maxLength": 3
+                      }
+                    },
+                    "required": ["from"]
+                  },
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["fare"]
+                  },
+                  "effects": ["network"]
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contracts": ["cheapest_fare"]
+          }
+        },
+        {
+          "calls": {
+            "incoming": false
+          },
+          "expect": {
+            "contracts": ["cheapest_fare"],
+            "incoming": false
+          }
+        }
+      ]
+    }
+  ]
+}

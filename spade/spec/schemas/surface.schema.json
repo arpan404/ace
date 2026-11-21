@@ -1,0 +1,767 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.acehq.dev/1.0/surface.schema.json",
+  "title": "Spade Agent Format 1.0: A surface",
+  "$ref": "#/$defs/surface",
+  "$defs": {
+    "trigger": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "schedule",
+                  "event",
+                  "webhook"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name",
+              "instruction"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              "instruction": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "schedule"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "schedule"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "event"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "event"
+            ],
+            "properties": {
+              "event": {
+                "enum": [
+                  "thread.finished",
+                  "thread.failed",
+                  "thread.needs_you"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "mention"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "in": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "threads",
+                    "clubs"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "effect": {
+      "type": "object",
+      "required": [
+        "effect"
+      ],
+      "properties": {
+        "effect": {
+          "enum": [
+            "read",
+            "write_local",
+            "network",
+            "publish",
+            "send_as_person",
+            "pay",
+            "change_access"
+          ]
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "\\S"
+        },
+        "hosts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string"
+          }
+        },
+        "grant": {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "drive_site",
+                "drive_app",
+                "tool"
+              ]
+            }
+          },
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "tool"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "tool"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string",
+                "not": {
+                  "enum": [
+                    "git_push",
+                    "pr_comment",
+                    "issue_comment",
+                    "send_message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "not": {
+        "required": [
+          "hosts",
+          "grant"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "not": {
+                  "enum": [
+                    "read",
+                    "write_local"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "why"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "not": {
+                  "const": "network"
+                }
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "hosts"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "not": {
+                  "enum": [
+                    "network",
+                    "publish"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "grant"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "summary"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "\\S"
+        },
+        "input": {
+          "$ref": "#/$defs/schema"
+        },
+        "output": {
+          "$ref": "#/$defs/schema"
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "read",
+              "write_local",
+              "network",
+              "publish",
+              "send_as_person",
+              "pay",
+              "change_access"
+            ]
+          }
+        },
+        "examples": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": [
+              "input",
+              "output"
+            ]
+          }
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^contracts/[a-z0-9][a-z0-9_-]{0,63}\\.json$"
+        }
+      },
+      "if": {
+        "required": [
+          "file"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "input"
+              ]
+            },
+            {
+              "required": [
+                "output"
+              ]
+            }
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "input",
+          "output"
+        ]
+      }
+    },
+    "surface": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+        },
+        "kind": {
+          "enum": [
+            "card",
+            "panel"
+          ]
+        },
+        "file": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 60,
+          "pattern": "\\S"
+        },
+        "state": {
+          "$ref": "#/$defs/schema"
+        },
+        "actions": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "card"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "pattern": "^cards/[A-Za-z0-9._-]+\\.json$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "panel"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "file",
+              "title"
+            ],
+            "properties": {
+              "file": {
+                "pattern": "^panels/[a-z0-9][a-z0-9-]*/index\\.html$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,39}$"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 40,
+          "pattern": "\\S"
+        },
+        "value": {
+          "$ref": "#/$defs/schema"
+        },
+        "confirm": {
+          "type": "boolean"
+        }
+      }
+    },
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "object",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "array"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "properties": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_]{1,64}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/schema"
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": {
+          "const": false
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "items": {
+          "$ref": "#/$defs/schema"
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "type"
+              ]
+            },
+            {
+              "required": [
+                "enum"
+              ]
+            }
+          ]
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "string"
+              }
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "maxLength"
+                ]
+              },
+              {
+                "required": [
+                  "enum"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "array"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "maxItems",
+              "items"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "object"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "maxLength": false,
+              "minLength": false,
+              "enum": false,
+              "minimum": false,
+              "maximum": false,
+              "items": false,
+              "maxItems": false,
+              "minItems": false
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "string"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "properties": false,
+              "required": false,
+              "additionalProperties": false,
+              "minimum": false,
+              "maximum": false,
+              "items": false,
+              "maxItems": false,
+              "minItems": false
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "number",
+                  "integer"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "properties": false,
+              "required": false,
+              "additionalProperties": false,
+              "maxLength": false,
+              "minLength": false,
+              "enum": false,
+              "items": false,
+              "maxItems": false,
+              "minItems": false
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "boolean"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "properties": false,
+              "required": false,
+              "additionalProperties": false,
+              "maxLength": false,
+              "minLength": false,
+              "enum": false,
+              "minimum": false,
+              "maximum": false,
+              "items": false,
+              "maxItems": false,
+              "minItems": false
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "array"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "properties": false,
+              "required": false,
+              "additionalProperties": false,
+              "maxLength": false,
+              "minLength": false,
+              "enum": false,
+              "minimum": false,
+              "maximum": false
+            }
+          }
+        }
+      ]
+    },
+    "code": {
+      "type": "object",
+      "required": [
+        "name",
+        "file",
+        "world",
+        "imports",
+        "why"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]{0,23}$"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^code/[a-z][a-z0-9]{0,23}\\.wasm$"
+        },
+        "world": {
+          "enum": [
+            "spade:package/bot-tools@1.0.0",
+            "spade:package/bot-contracts@1.0.0",
+            "spade:package/bot-checks@1.0.0",
+            "spade:package/bot-cards@1.0.0"
+          ]
+        },
+        "imports": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "spade:package/tools",
+              "spade:package/http",
+              "spade:package/log",
+              "spade:package/kv",
+              "wasi:clocks/wall-clock@0.2",
+              "wasi:clocks/monotonic-clock@0.2",
+              "wasi:random/random@0.2"
+            ]
+          }
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "\\S"
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "memory_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        }
+      }
+    }
+  }
+}

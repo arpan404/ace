@@ -15,6 +15,7 @@ use spade_core::package::{Manifest, contract_files, read};
 /// every problem, each at `bot.json`, otherwise.
 pub fn manifest(folder: &Path) -> Result<(Value, Manifest), Vec<String>> {
     let at = |p: String| format!("bot.json: {p}");
+    let each = |p: spade_core::rule::Problem| at(p.text);
     let text =
         std::fs::read_to_string(folder.join("bot.json")).map_err(|e| vec![at(e.to_string())])?;
     let recipe: Value = serde_json::from_str(&text).map_err(|e| vec![at(e.to_string())])?;
@@ -24,9 +25,9 @@ pub fn manifest(folder: &Path) -> Result<(Value, Manifest), Vec<String>> {
             .flatten()
     };
     let recipe = contract_files::inline(&recipe, read_file)
-        .map_err(|problems| problems.into_iter().map(at).collect::<Vec<_>>())?;
+        .map_err(|problems| problems.into_iter().map(each).collect::<Vec<_>>())?;
     let manifest = read(&recipe, super::build())
-        .map_err(|problems| problems.into_iter().map(at).collect::<Vec<_>>())?;
+        .map_err(|problems| problems.into_iter().map(each).collect::<Vec<_>>())?;
     Ok((recipe, manifest))
 }
 
@@ -51,7 +52,7 @@ pub fn code(folder: &Path, manifest: &Manifest) -> Result<Vec<Component>, Vec<St
     let found = match code::check_all(&manifest.code, read) {
         Ok(found) => found,
         Err(found) => {
-            problems.extend(found);
+            problems.extend(spade_core::rule::texts(found));
             Vec::new()
         }
     };

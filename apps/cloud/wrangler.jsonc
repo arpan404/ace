@@ -58,7 +58,7 @@
     },
   ],
   // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
-  "triggers": { "crons": ["17 * * * *"] },
+  "triggers": { "crons": ["17 * * * *", "* * * * *"] },
   // Request logs would record join tickets in URLs. Account secrets, grants and tokens are
   // never logged either.
   "observability": { "enabled": false },
@@ -119,7 +119,7 @@
           "simple": { "limit": 120, "period": 60 },
         },
       ],
-      "triggers": { "crons": ["17 * * * *"] },
+      "triggers": { "crons": ["17 * * * *", "* * * * *"] },
       "observability": { "enabled": false },
     },
     // Staging at staging.cloud.acehq.dev: `--env staging`, deployed before production on every
@@ -177,7 +177,7 @@
           "simple": { "limit": 120, "period": 60 },
         },
       ],
-      "triggers": { "crons": ["17 * * * *"] },
+      "triggers": { "crons": ["17 * * * *", "* * * * *"] },
       "observability": { "enabled": false },
     },
   },

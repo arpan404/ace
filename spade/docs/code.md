@@ -75,6 +75,10 @@ from the binary's list: "Runs its own code: fares. It can call Spade's tools as 
 
 A signer without Spade's program leaves a version with code pending, as with tests.
 
+Every refusal names its rule, `code.*` in `spade_core::rule` (`spade/spec/conformance/rules.json`):
+the conformance suite's code cases are matched by rule id in both readers, in `bot.schema.json`
+for the rules a schema decides, and at `spade-conform`'s Reader level.
+
 ## The worker
 
 `spade-wasm` (crate `spade/crates/spade-wasm`), on Wasmtime 48.0.10 pinned in `spade/Cargo.toml`:

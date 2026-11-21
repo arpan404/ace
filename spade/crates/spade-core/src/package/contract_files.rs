@@ -8,6 +8,8 @@
 
 use serde_json::{Map, Value};
 
+use crate::rule::{self, Problem};
+
 /// The largest schema file: two schemas of at most 16 KiB each, with room around them.
 pub const MOST_FILE_BYTES: usize = 40 * 1024;
 
@@ -41,7 +43,7 @@ pub fn named(manifest: &Value) -> Vec<String> {
 pub fn inline(
     manifest: &Value,
     read: impl Fn(&str) -> Option<String>,
-) -> Result<Value, Vec<String>> {
+) -> Result<Value, Vec<Problem>> {
     let Some(contracts) = manifest["contracts"].as_array() else {
         return Ok(manifest.clone());
     };
@@ -74,36 +76,50 @@ fn from_file(
     fields: &Map<String, Value>,
     at: &str,
     read: &impl Fn(&str) -> Option<String>,
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> Option<Map<String, Value>> {
     let path = fields.get("file").and_then(Value::as_str).unwrap_or("");
     if !schema_path(path) {
-        problems.push(format!(
-            "{at}.file is contracts/<name>.json, like contracts/cheapest-fare.json"
+        problems.push(Problem::new(
+            rule::CONTRACT_FILE,
+            format!("{at}.file is contracts/<name>.json, like contracts/cheapest-fare.json"),
         ));
         return None;
     }
     if fields.contains_key("input") || fields.contains_key("output") {
-        problems.push(format!(
-            "{at}: write its schemas either in bot.json or in {path}, not both"
+        problems.push(Problem::new(
+            rule::CONTRACT_FILE_AND_INLINE,
+            format!("{at}: write its schemas either in bot.json or in {path}, not both"),
         ));
         return None;
     }
     let Some(text) = read(path) else {
-        problems.push(format!("{at}.file: {path} isn't in the package"));
+        problems.push(Problem::new(
+            rule::CONTRACT_FILE_MISSING,
+            format!("{at}.file: {path} isn't in the package"),
+        ));
         return None;
     };
     if text.len() > MOST_FILE_BYTES {
-        problems.push(format!("{path} is larger than 40 KiB"));
+        problems.push(Problem::new(
+            rule::CONTRACT_FILE_CONTENT,
+            format!("{path} is larger than 40 KiB"),
+        ));
         return None;
     }
     let Ok(Value::Object(schemas)) = serde_json::from_str::<Value>(&text) else {
-        problems.push(format!("{path} isn't a JSON object of input and output"));
+        problems.push(Problem::new(
+            rule::CONTRACT_FILE_CONTENT,
+            format!("{path} isn't a JSON object of input and output"),
+        ));
         return None;
     };
     if let Some(other) = schemas.keys().find(|k| *k != "input" && *k != "output") {
-        problems.push(format!(
-            "{path}: {other} isn't a field of a schema file; it holds only input and output"
+        problems.push(Problem::new(
+            rule::CONTRACT_FILE_CONTENT,
+            format!(
+                "{path}: {other} isn't a field of a schema file; it holds only input and output"
+            ),
         ));
         return None;
     }
