@@ -56,8 +56,8 @@ export function FileRowItems(props: { entry: TreeEntry; commands: TreeCommands }
           <Item action="open" onClick={() => commands.open(entry.path, "keep")}>
             Open
           </Item>
-          <Item action="openTab" onClick={() => commands.open(entry.path, "tab")}>
-            Open in new tab
+          <Item action="openSide" onClick={() => commands.open(entry.path, "side")}>
+            Open to the side
           </Item>
           <MenuSub>
             <MenuSubTrigger>Open with</MenuSubTrigger>

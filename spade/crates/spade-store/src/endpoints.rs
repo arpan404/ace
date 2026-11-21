@@ -232,7 +232,30 @@ impl Store {
         Ok(taken == 1)
     }
 
+    /// Sets or removes several settings in one transaction: all of them change, or none.
+    pub fn set_settings(&self, changes: &[(&str, Option<&str>)]) -> Result<()> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        for (key, value) in changes {
+            crate::watch::changing_in(&tx, &self.watching, key, *value)?;
+            match value {
+                Some(value) => tx.execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                     ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                    params![key, value],
+                )?,
+                None => tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?,
+            };
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn set_setting(&self, key: &str, value: Option<&str>) -> Result<()> {
+        // A watched one writes its entries with it, in one transaction.
+        if self.watched(key) {
+            return self.set_settings(&[(key, value)]);
+        }
         let connection = self.lock()?;
         match value {
             Some(value) => connection.execute(

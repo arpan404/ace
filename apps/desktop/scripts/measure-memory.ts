@@ -108,8 +108,9 @@ async function run(mainFile: string, config: ScenarioConfig): Promise<Run> {
   return result;
 }
 
-const fakeDir = join(out, "fake");
-const perfDir = join(out, "perf");
+// Use the same directory depth as dist/app so appPaths finds the desktop's icons.
+const fakeDir = join(desktop, "dist/measure-fake");
+const perfDir = join(desktop, "dist/measure-perf");
 log("building main, preload and renderers");
 const [fakeMain, perfMain] = await Promise.all([measuredMain(fakeDir), measuredMain(perfDir)]);
 if (!args["skip-renderer"]) {

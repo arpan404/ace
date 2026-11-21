@@ -45,7 +45,7 @@ pub struct Limits {
     /// reads its events from the database instead, so its memory stays bounded (ADR 0158).
     pub turn_log_bytes: usize,
     /// How often moved-away bots' archives past their time are removed, a few at a time
-    /// (ADR 0187).
+    /// (ADR 0187), and panel pages no bot shows any more (ADR 0200 §5.2).
     pub archive_sweep: Duration,
     /// How long a move may take before its commit, retries included (ADR 0187).
     pub move_pre_commit: Duration,
@@ -175,6 +175,9 @@ pub enum AgentError {
     /// The bot has workers (ADR 0161): the person says whether they stop or keep working.
     #[error("this bot has {0} workers; say whether to stop them or keep them as their own bots")]
     HasWorkers(usize),
+    /// A subscription chosen before the person acknowledged what it means (ADR 0205 §1).
+    #[error("{text}")]
+    Terms { provider: String, text: String },
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]
@@ -271,6 +274,9 @@ pub enum AnswerError {
     NotFound,
     #[error("that call is not waiting for an answer")]
     NotAwaiting,
+    /// A shared bot's request is answered only by one of its approvers (ADR 0206 §2.3).
+    #[error("{0}")]
+    ApproverOnly(&'static str),
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -291,6 +297,8 @@ pub struct Activity {
     pub questions_for_later: usize,
     /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
     pub problem: Option<String>,
+    /// Why the latest reply failed, while that is how the latest one ended (ADR 0200 §6.2).
+    pub failure: Option<String>,
     /// The bot's task as it last said (ADR 0144).
     pub task: Option<spade_core::task::State>,
     /// The task's progress, from its goal, plan and checks (ADR 0159).
@@ -308,4 +316,10 @@ pub struct Activity {
     pub ace_working: bool,
     /// Its worker bots that have not settled (ADR 0161); 0 before the tree is rolled up.
     pub workers: usize,
+    /// The bots on this machine its open contract calls wait on, by id (ADR 0200 §6.2).
+    pub calls: Vec<String>,
+    /// Its open contract calls to bots of other machines, by call id (ADR 0200 §6.2).
+    pub remote_calls: Vec<String>,
+    /// What its package's own code used (ADR 0203 §4).
+    pub code: spade_core::running::CodeUse,
 }

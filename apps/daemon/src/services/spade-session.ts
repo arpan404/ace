@@ -4,6 +4,7 @@ import { personOnlyChangeRefusal } from "../answer-gate.ts";
 import { spadeLive } from "../spade/forward.ts";
 import type { SpadeLink } from "../spade/link.ts";
 import { personStamp } from "../spade/person-stamp.ts";
+import { memberRequestStamp, memberStamp } from "../spade/member-stamp.ts";
 import { checkLivePath } from "../spade/rules.ts";
 import { createSpadeHttp } from "./spade-http.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -14,7 +15,9 @@ const maxStreams = 16;
 export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded"> &
   Partial<Pick<SpadeLink, "revokeGrant" | "personKey">>;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> &
-  Partial<Pick<SocketContext, "device" | "personProven">> & {
+  Partial<
+    Pick<SocketContext, "device" | "personProven" | "memberStanding" | "orgHost" | "spadeAuthorize">
+  > & {
     options: {
       spade?: SpadeAccess | undefined;
     };
@@ -60,9 +63,12 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
       ...(status === undefined ? {} : { status }),
     });
   };
+  /** Spade's own check, where a member who reaches only Spade may act. */
+  const allowed = (scope: Parameters<SocketContext["authorize"]>[0]) =>
+    context.spadeAuthorize ? context.spadeAuthorize(scope) : context.authorize(scope);
   const http = createSpadeHttp({
     host,
-    authorize: (scope) => context.authorize(scope),
+    authorize: allowed,
     connected: () => context.connected(),
     send: (message) => context.send(message),
     unavailable: () => unavailable(host()),
@@ -78,6 +84,29 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
       const now = (context.now ?? Date.now)();
       return { stamp: personStamp(key, write, now, randomBytes(16).toString("hex")) };
     },
+    answerStamp: async (write) => {
+      // A person's machine: answers go as they always have.
+      if (context.orgHost?.() !== true) return undefined;
+      // An organization's host: only a member whose standing is current answers (ADR 0206 §2.3).
+      const member = context.memberStanding?.();
+      if (!member)
+        return {
+          refused: "Prove you're a member of this organization on this connection to answer.",
+        };
+      const key = host()?.personKey?.();
+      if (!key) return { refused: "This ace can't stamp an answer as yours yet." };
+      const now = (context.now ?? Date.now)();
+      const stamp = memberStamp(key, write, member.account, now, randomBytes(16).toString("hex"));
+      return stamp ? { stamp } : { refused: "This account can't answer here." };
+    },
+    requestStamp: (write) => {
+      if (context.orgHost?.() !== true) return undefined;
+      const member = context.memberStanding?.();
+      const key = host()?.personKey?.();
+      if (!member || !key) return undefined;
+      const now = (context.now ?? Date.now)();
+      return memberRequestStamp(key, write, member, now, randomBytes(16).toString("hex"));
+    },
   });
   const stopStream = (requestId: string, reason: SpadeLiveEndReason) => {
     const stream = streams.get(requestId);
@@ -91,7 +120,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     stops.push(
       spade.subscribe((status) => {
         if (status.hidden) for (const requestId of streams.keys()) stopStream(requestId, "hidden");
-        if (context.connected() && context.authorize("read"))
+        if (context.connected() && allowed("read"))
           context.send({ type: "spade.status.changed", status });
       }),
       spade.onRunEnded((generation) => {
@@ -104,7 +133,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
   function subscribe(requestId: string, path: string) {
     // Already streaming under this id: the open stream carries on.
     if (streams.has(requestId)) return;
-    if (!context.authorize("read")) return end(requestId, "forbidden");
+    if (!allowed("read")) return end(requestId, "forbidden");
     if (!checkLivePath(path).ok) return end(requestId, "invalid_path");
     if (streams.size >= maxStreams) return end(requestId, "limit");
     const spade = host();
@@ -117,7 +146,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
       signal: stream.controller.signal,
       maxEventChars: maxSpadeResponseBytes,
       onEvent(event) {
-        if (!context.connected() || !context.authorize("read")) {
+        if (!context.connected() || !allowed("read")) {
           stopStream(requestId, "forbidden");
           return;
         }
@@ -153,14 +182,16 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     async handle(message) {
       switch (message.type) {
         case "spade.status": {
-          const allowed = context.authorize("read");
+          const readable = allowed("read");
           context.send({
             type: "spade.status.result",
             requestId: message.requestId,
-            status: allowed ? statusOf() : { state: "off", reason: "This device can't see Spade." },
+            status: readable
+              ? statusOf()
+              : { state: "off", reason: "This device can't see Spade." },
           });
           const spade = host();
-          if (allowed && spade) watch(spade);
+          if (readable && spade) watch(spade);
           return true;
         }
         case "spade.http":
@@ -178,7 +209,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
           await http.part(message);
           return true;
         case "spade.http.read":
-          if (context.authorize("read")) http.read(message);
+          if (allowed("read")) http.read(message);
           return true;
         case "spade.live.subscribe":
           subscribe(message.requestId, message.path);

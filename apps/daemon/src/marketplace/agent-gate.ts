@@ -22,6 +22,7 @@ const agentOperations: ReadonlySet<MarketOperation["op"]> = new Set<MarketOperat
   "refresh",
   "spadeSkills",
   "spadeSkillFiles",
+  "spadeBot",
   "discover",
   "publisher",
   "picture",

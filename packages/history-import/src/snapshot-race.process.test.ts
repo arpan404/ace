@@ -1,11 +1,10 @@
-/* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { Worker } from "node:worker_threads";
-import { mkdir, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { openHistory } from "./index.ts";
-import { cwd, environment, roomySnapshots } from "./test-support.ts";
+import { cwd, environment, readerHooks, roomySnapshots } from "./test-support.ts";
 
 test.each(["append", "checkpoint"])(
   "a WAL %s during snapshot copying publishes a consistent inventory without writing provider files",
@@ -33,35 +32,30 @@ test.each(["append", "checkpoint"])(
     let committed = false;
     let after: Buffer | undefined;
     let shm: Buffer | undefined;
+    // ace-history stops once mid-copy, its WAL size frozen, until the test has committed.
+    const pause = join(env.root, "pause");
+    await mkdir(pause);
     const service = await openHistory(
       {
         indexPath: join(env.root, "ace/index.sqlite"),
         instances: [{ id: "oc", provider: "opencode", homeDir: home }],
         snapshot: roomySnapshots,
       },
-      (url, options) => {
-        const worker = new Worker(url, {
-          ...options,
-          execArgv: ["--import", new URL("./snapshot-race-boundary.ts", import.meta.url).href],
-        });
-        worker.on("message", (value: unknown) => {
-          if (!value || typeof value !== "object" || !("snapshotPause" in value)) return;
-          if (change === "checkpoint") db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-          db.exec("UPDATE session SET title='after',time_updated=2");
-          committed = true;
-          void Promise.all([readFile(path + "-wal"), readFile(path + "-shm")]).then(
-            ([wal, marks]) => {
-              after = wal;
-              shm = marks;
-              worker.postMessage("snapshot-continue");
-            },
-          );
-        });
-        return worker;
-      },
+      readerHooks({ pause: { at: "snapshot-wal-sized", dir: pause } }),
     );
+    const race = async () => {
+      await vi.waitFor(() => expect(existsSync(join(pause, "paused"))).toBe(true), {
+        timeout: 10_000,
+      });
+      if (change === "checkpoint") db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      db.exec("UPDATE session SET title='after',time_updated=2");
+      committed = true;
+      [after, shm] = await Promise.all([readFile(path + "-wal"), readFile(path + "-shm")]);
+      await writeFile(join(pause, "continue"), "");
+    };
     try {
-      expect((await service.scan()).unsupported).toEqual([]);
+      const [scan] = await Promise.all([service.scan(), race()]);
+      expect(scan.unsupported).toEqual([]);
       expect(committed).toBe(true);
       expect((await service.list({ type: "history.list", cwd })).sessions[0]?.title).toBe(
         change === "append" ? "before" : "after",

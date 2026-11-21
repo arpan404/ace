@@ -96,6 +96,13 @@ export const ProjectIdentityCommands = [
 ] as const;
 
 const normalizedRemote = z.string().min(1).max(4096);
+/**
+ * What starts every `normalizeRemoteUrl` key of a network remote outside the public forges:
+ * the version of its rules. Version 2 keeps an SSH path from a home apart from one from the
+ * root; an older daemon's keys there, without it, may name either, so they never group or match
+ * a version 2 key. A public forge's key means what it always did and has no prefix.
+ */
+export const remoteKeyVersionPrefix = "v2:";
 /** A path inside a repository, `/`-separated, without a leading or trailing slash; "" is its root. */
 const subpath = z.string().max(4096);
 

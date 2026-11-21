@@ -89,13 +89,28 @@ export type TransferIgnoredFiles = z.infer<typeof TransferIgnoredFiles>;
 export const TransferLiveStage = z.enum(["readying", "stopping", "handing", "moved", "resumed"]);
 export type TransferLiveStage = z.infer<typeof TransferLiveStage>;
 
-/** How a moved agent's history went: its provider's own session, or the handoff summary. */
-export const TransferSessionOutcome = z.object({
+/**
+ * How a moved agent's history went: its provider's own session, or the handoff summary.
+ * Declared, not inferred, as `Speaker` is: transfer results ride the wire unions, and an inferred
+ * shape here took `ServerMessage` past what TypeScript will write out.
+ */
+export interface TransferSessionOutcome {
+  kind: "native" | "summary";
+  reason?: string | undefined;
+  sessionIds?: { from: string; to: string } | undefined;
+}
+export const TransferSessionOutcome: z.ZodType<TransferSessionOutcome> = z.object({
   kind: z.enum(["native", "summary"]),
   /** Why the summary was used, in words a person reads. */
   reason: z.string().max(256).optional(),
+  /**
+   * The provider's own session: its id on the sending machine, and the fresh id its copy took
+   * here, which the thread continues.
+   */
+  sessionIds: z
+    .object({ from: z.string().min(1).max(256), to: z.string().min(1).max(256) })
+    .optional(),
 });
-export type TransferSessionOutcome = z.infer<typeof TransferSessionOutcome>;
 
 /** One transfer as the sending machine sees it. */
 export const Transfer = z.object({
@@ -107,6 +122,12 @@ export const Transfer = z.object({
   threadId: ThreadId.optional(),
   target: z.object({ hostId: HostId, name: z.string().min(1).max(256) }),
   phase: TransferPhase,
+  /**
+   * Its machine isn't linked to this one now. The transfer waits for a link to that same
+   * machine again and never goes on to another; a moving thread may be carried on here by the
+   * person's own choice (`carryOnHere`).
+   */
+  unlinked: z.literal(true).optional(),
   method: TransferMethod.optional(),
   /**
    * What the person (or agent) asked for, as the command said it, so "Try again" repeats the
@@ -192,6 +213,11 @@ export const TransfersRequest = z.object({
     /** Transfers still running and those finished in the last 24 hours, newest first. */
     z.object({ op: z.literal("list") }),
     z.object({ op: z.literal("cancel"), transferId: id }),
+    /**
+     * A moving thread whose machine isn't linked now (`unlinked`) runs here again, as the person
+     * chose, warned that both may run if that machine already took it. Recorded on the transfer.
+     */
+    z.object({ op: z.literal("carryOnHere"), transferId: id }),
   ]),
 });
 export type TransfersRequest = z.infer<typeof TransfersRequest>;
@@ -202,6 +228,7 @@ export const TransfersResult = z.object({
   result: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("list"), transfers: z.array(Transfer).max(100) }),
     z.object({ kind: z.literal("cancelled"), transfer: Transfer }),
+    z.object({ kind: z.literal("carriedOnHere"), transfer: Transfer }),
     z.object({
       kind: z.literal("error"),
       code: z.string().min(1).max(64),

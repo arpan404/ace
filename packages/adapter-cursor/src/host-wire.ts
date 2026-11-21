@@ -6,6 +6,7 @@ import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
 import { z } from "zod";
 import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
+import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
 
 const Request = z.object({
   id: z.union([z.string().max(128), z.number().int()]),
@@ -42,6 +43,8 @@ export function hostWire(
     oversizedStderr = false;
   };
   process.on("exit", flushStderr);
+  // Stdout is the JSON-RPC channel; console goes through the redacting, bounded stderr below.
+  routeConsoleToStderr();
   process.stderr.write = (
     chunk: string | Uint8Array,
     encoding?: BufferEncoding | ((error?: Error | null) => void),

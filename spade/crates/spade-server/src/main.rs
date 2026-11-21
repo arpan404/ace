@@ -48,6 +48,31 @@ fn main() -> std::process::ExitCode {
     }
     // The schema this binary migrates its database to, for the release's `ace-data.json`
     // (ADR 0177): read from the binary that ships, never from source.
+    // `ace org audit verify` (ADR 0206 §4.2): an exported log checked offline against the key
+    // the host registered. Opens nothing but the file.
+    if args
+        .first()
+        .is_some_and(|flag| flag == "--verify-org-audit")
+    {
+        let (Some(file), Some(key)) = (args.get(1), args.get(2).and_then(|k| k.to_str())) else {
+            eprintln!("usage: spade --verify-org-audit <export.jsonl> <audit key>");
+            return std::process::ExitCode::from(2);
+        };
+        let text = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("spade: can't read {}: {error}", file.to_string_lossy());
+                return std::process::ExitCode::from(2);
+            }
+        };
+        let (verified, said) = spade_server::org::export::verify(&text, key);
+        println!("{said}");
+        return if verified {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::FAILURE
+        };
+    }
     if args.first().is_some_and(|flag| flag == "--schema-version") {
         println!("{}", Store::schema_version());
         return std::process::ExitCode::SUCCESS;
@@ -107,10 +132,39 @@ fn main() -> std::process::ExitCode {
             pipe, port, ready,
         ));
     }
+    // A bot's code worker (ADR 0203 §3): started by Spade inside the bot's sandbox, offline, it
+    // serves Spade's frames on stdin and stdout until Spade closes the pipe. Nothing else writes
+    // to stdout first.
+    if let Some(flag) = args.first()
+        && flag == spade_wasm::launch::WORKER_ARG
+    {
+        let code = spade_wasm::serve::serve(std::io::stdin().lock(), std::io::stdout());
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
         return check_migrations(args.get(1));
+    }
+    // A package's scenario tests (ADR 0200 §9), on a throwaway Spade with the scripted model:
+    // never the data folder, the keychain, ace or the network.
+    if let Some(flag) = args.first()
+        && flag == "--bot-test"
+    {
+        return spade_server::bot_test::main(&args[1..]);
+    }
+    // A package's WebAssembly components checked against Spade's world (ADR 0203 §5), for the
+    // market's signer: the folder is only read.
+    if let Some(flag) = args.first()
+        && flag == "--code-check"
+    {
+        return spade_server::packages::folder::main(&args[1..]);
+    }
+    // Spade as a reader of the Spade Agent Format, for `spade-conform` (ADR 0201 §5).
+    if let Some(flag) = args.first()
+        && flag == "--conform"
+    {
+        return spade_server::conform::main(&args[1..]);
     }
     // The server takes no arguments (it is configured by environment). Anything left over is a
     // help request or a mistake, and neither may start a server against the data folder.
@@ -134,6 +188,12 @@ usage: spade                              run the server (configured by SPADE_* 
        spade --version                    print the version
        spade --schema-version             print the database schema version
        spade --check-migrations <path>    check that a copy of spade.sqlite can be migrated
+       spade --bot-test <package folder>  run a package's scenario tests offline, as JSON
+       spade --verify-org-audit <file> <key>
+                                          check an org host's exported audit log offline
+       spade --conform read <folder>      read a package as the Spade Agent Format's reader, as JSON
+       spade --conform fit <file>         read a schema and check values against it, as JSON
+       spade --code-check <package folder> check a package's WebAssembly components, as JSON
        spade --help                       print this help";
 
 /// `--help` and `-h` print the usage and exit 0; any other argument prints it on stderr and exits
@@ -314,6 +374,16 @@ async fn run() -> Result<(), Failure> {
     let person_home = env(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
+    // A bot's code runs in its own worker, inside its sandbox, offline (ADR 0203 §3): Spade's own
+    // binary, started with --code-worker.
+    let code_workers = spade_server::code::Workers {
+        program: std::env::current_exe().map_err(other)?,
+        args: vec![spade_wasm::launch::WORKER_ARG.into()],
+        home: person_home.clone(),
+        spade_data: home.dir.clone(),
+        ace_data: env("SPADE_ACE_HOME").map(std::path::PathBuf::from),
+    };
+    let code_runner = runner.clone();
     let security = spade_server::security::Security::start(spade_server::security::Setup {
         runner,
         store: Store::open(&home.database()).map_err(other)?,
@@ -377,6 +447,11 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
     ));
+    // Cards (ADR 0200 §5.1), whose image blocks name files in the bot's workspace.
+    core.push(Arc::new(spade_server::tools::CardShow::new(
+        bots.clone(),
+        Some(workspaces.clone()),
+    )));
     // Spade's own skill store (ADR 0151): ace's library mirrored with its files while ace is
     // there, skills written in Spade otherwise. Spade Cloud has the store with no ace.
     let upstream = ace
@@ -453,8 +528,19 @@ async fn run() -> Result<(), Failure> {
         },
     })
     .map_err(other)?;
-    tools = tools.with_source(Arc::new(ConnectorSource::new(
-        connectors.clone(),
+    tools = tools.with_source(Arc::new(
+        ConnectorSource::new(
+            connectors.clone(),
+            Store::open(&home.database()).map_err(other)?,
+        )
+        // An app's form mid-call becomes a card from the bot (ADR 0202 §2).
+        .with_forms(bots.clone()),
+    ));
+    // The person's outside A2A agents (ADR 0202 §5): each skill a tool, every call theirs.
+    let outside_agents =
+        spade_server::a2a::OutsideAgents::open(Store::open(&home.database()).map_err(other)?);
+    tools = tools.with_source(Arc::new(spade_server::a2a::tools::OutsideAgentSource::new(
+        outside_agents.clone(),
         Store::open(&home.database()).map_err(other)?,
     )));
     // The person's plugins (ADR 0151), read from ace: rules, hooks and local MCP servers.
@@ -477,6 +563,10 @@ async fn run() -> Result<(), Failure> {
         None => None,
     };
 
+    // Each linked bot's components' tools (ADR 0203 §2).
+    tools = tools.with_source(Arc::new(spade_server::code::tools::CodeTools::new(
+        bots.clone(),
+    )));
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
         models,
@@ -492,9 +582,35 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    // An org host's audit log is checkpointed at least every five minutes (ADR 0206 §4.2).
+    {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                every.tick().await;
+                let engine = engine.clone();
+                let signed =
+                    tokio::task::spawn_blocking(move || engine.org_checkpoint_if_due()).await;
+                if let Ok(Err(error)) = signed {
+                    tracing::warn!(%error, "the audit log's checkpoint couldn't be signed");
+                }
+            }
+        });
+    }
     engine.set_security(security.clone());
+    engine.set_code(spade_server::code::Code::new(
+        &home.dir.join("code"),
+        spade_server::code::sandboxed(code_runner, code_workers),
+        Arc::new(spade_server::code::http::Proxied {
+            security: security.clone(),
+        }),
+    ));
+    // Bytes no version names any more, and folders of bots gone, before any call.
+    spade_server::code::collect_unused(&engine);
     // Workers get connectors only from their makers' (ADR 0161).
     engine.set_connector_grants(connectors.clone());
+    engine.set_outside_agents(outside_agents);
     if let Some(plugins) = &plugins {
         engine.set_plugins(plugins.clone());
         // Plugin agents are helper profiles of the bots allowed their plugins.
@@ -502,6 +618,10 @@ async fn run() -> Result<(), Failure> {
     }
     // Before work opens: a bot the person had when Spade stopped stays paused.
     engine.set_computers(computers.clone());
+    // Bots suggest packages the market lists, read through ace (ADR 0200 §8).
+    if let Some(link) = &ace {
+        engine.set_market(link.clone());
+    }
     engine.set_services(services.clone());
     if let Some(link) = &ace {
         let agents = engine

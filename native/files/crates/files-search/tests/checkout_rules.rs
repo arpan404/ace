@@ -69,3 +69,27 @@ fn inherits_gitignore_rules_up_to_the_repository_top() -> TestResult {
     assert_eq!(summary.files, 2);
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn an_inherited_gitignore_that_is_a_link_is_not_read() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    let elsewhere = tempfile::tempdir()?;
+    fs::create_dir_all(temp.path().join("repo/.git"))?;
+    write(elsewhere.path(), "rules", "secret.txt\n")?;
+    std::os::unix::fs::symlink(
+        elsewhere.path().join("rules"),
+        temp.path().join("repo/.gitignore"),
+    )?;
+    write(temp.path(), "repo/sub/a.txt", "needle\n")?;
+    write(temp.path(), "repo/sub/secret.txt", "needle\n")?;
+    let root = Root::open(&temp.path().join("repo/sub"))?;
+    let (files, _) = run(&root, &query("needle"))?;
+
+    assert!(
+        paths(&files).contains(&"secret.txt"),
+        "rules read through a link must not hide a file: {:?}",
+        paths(&files)
+    );
+    Ok(())
+}

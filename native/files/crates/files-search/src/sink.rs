@@ -10,7 +10,7 @@ use grep_searcher::{Searcher, Sink, SinkMatch};
 use ignore::DirEntry;
 
 use crate::folders::Folders;
-use crate::open;
+use crate::open::{self, Opened};
 use crate::preview;
 use crate::result::{FileMatches, LineMatch};
 use crate::walk::{Shared, emit};
@@ -37,13 +37,7 @@ pub(crate) fn search_file(
         Some((folder, _)) => folder,
         None => "",
     };
-    let Some(folder) = folders.get(shared.root, folder) else {
-        return;
-    };
-    let Some(file) = open::open(folder, entry.file_name(), entry) else {
-        return;
-    };
-    let Ok(metadata) = file.metadata() else {
+    let Some((file, metadata)) = open_entry(shared.root, folders, folder, entry, relative) else {
         return;
     };
     if !metadata.is_file() {
@@ -95,6 +89,38 @@ pub(crate) fn search_file(
         shared.refused.fetch_add(refused, Ordering::Relaxed);
     } else {
         shared.release(reserved);
+    }
+}
+
+/// Opens the walked file by its checkout path in one call that is its own proof, where the kernel
+/// can make it ([`files_safe::Root::open_file_unlinked`]); a file it refuses is skipped.
+///
+/// Elsewhere the file is opened through its folder's handle and proven afterwards. A handle held
+/// from an earlier file that fails to open this one, or whose checkout path leads elsewhere, may be
+/// stale, as when the folder was replaced between two of its files: it is dropped, the folder
+/// opened again from the root, and the file tried once more.
+fn open_entry(
+    root: &files_safe::Root,
+    folders: &mut Folders,
+    folder: &str,
+    entry: &DirEntry,
+    relative: &str,
+) -> Option<(cap_std::fs::File, cap_std::fs::Metadata)> {
+    if let Some(opened) = root.open_file_unlinked(relative) {
+        let file = opened.ok()?;
+        let metadata = file.metadata().ok()?;
+        return Some((file, metadata));
+    }
+    let name = entry.file_name();
+    let held = folders.holds(folder);
+    match open::open(root, folders.get(root, folder)?, name, relative) {
+        Opened::File(file, metadata) => return Some((file, metadata)),
+        Opened::Failed | Opened::Refused if !held => return None,
+        Opened::Failed | Opened::Refused => folders.forget(folder),
+    }
+    match open::open(root, folders.get(root, folder)?, name, relative) {
+        Opened::File(file, metadata) => Some((file, metadata)),
+        Opened::Failed | Opened::Refused => None,
     }
 }
 
@@ -184,5 +210,42 @@ impl Sink for FileSink<'_> {
     fn binary_data(&mut self, _searcher: &Searcher, _offset: u64) -> Result<bool, io::Error> {
         self.binary = true;
         Ok(false)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::open_entry;
+    use crate::folders::Folders;
+    use files_safe::Root;
+    use ignore::WalkBuilder;
+
+    #[test]
+    fn a_held_folder_replaced_before_its_next_file_searches_the_replacement() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let aside = tempfile::tempdir().expect("another temp dir");
+        std::fs::create_dir_all(dir.path().join("d")).expect("a folder");
+        std::fs::write(dir.path().join("d/one.txt"), "first").expect("a file");
+        let root = Root::open(dir.path()).expect("the root opens");
+        let mut folders = Folders::default();
+        assert!(
+            folders.get(&root, "d").is_some(),
+            "the first file's folder is held"
+        );
+
+        // The folder is replaced by another one that holds the next walked name, which the old
+        // folder never had.
+        std::fs::rename(dir.path().join("d"), aside.path().join("d")).expect("the move");
+        std::fs::create_dir_all(dir.path().join("d")).expect("the replacement");
+        std::fs::write(dir.path().join("d/two.txt"), "second").expect("its file");
+        let entry = WalkBuilder::new(root.path())
+            .build()
+            .filter_map(Result::ok)
+            .find(|entry| entry.file_name() == "two.txt")
+            .expect("the walk lists the replacement's file");
+
+        let (_, metadata) = open_entry(&root, &mut folders, "d", &entry, "d/two.txt")
+            .expect("the replacement is searched");
+        assert_eq!(metadata.len(), 6);
     }
 }

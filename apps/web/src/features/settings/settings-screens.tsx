@@ -210,6 +210,20 @@ export function FleetAcrossScreen() {
   );
 }
 
+const EditorSettings = lazy(() =>
+  import("./editor-page.tsx").then((module) => ({ default: module.EditorSettings })),
+);
+
+export function EditorSettingsScreen() {
+  return (
+    <SettingsBody page="Editor">
+      <Suspense fallback={null}>
+        <EditorSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
 export function NotificationSettingsScreen() {
   return (
     <SettingsBody page="Notifications">

@@ -13,9 +13,12 @@
 //! walkers, which must walk with `follow_links(false)` and compare each opened file's identity
 //! with the entry they walked before they trust a byte of it.
 
+mod at;
 mod case;
 mod check;
 mod error;
+#[cfg(windows)]
+mod handle_facts;
 mod identity;
 mod look;
 mod names;
@@ -24,6 +27,8 @@ mod walk;
 mod windows;
 
 pub use crate::error::Error;
+#[cfg(windows)]
+pub use crate::handle_facts::handle_facts;
 pub use crate::identity::Identity;
 pub use crate::look::{Found, Readings};
 pub use crate::walk::{Parent, Stored};
@@ -40,6 +45,10 @@ pub struct Root {
     path: PathBuf,
     opened: PathBuf,
     dir: Arc<cap_std::fs::Dir>,
+    /// What names the root folder, read once from the handle when the root opened. Only Unix
+    /// proves the root against it; Windows asks the handle each time.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    identity: Option<Identity>,
     cache: Arc<Mutex<names::Cache>>,
 }
 
@@ -56,10 +65,15 @@ impl Root {
             return Err(Error::NotDirectory(path.display().to_string()));
         }
         let dir = cap_std::fs::Dir::open_ambient_dir(&path, cap_std::ambient_authority())?;
+        let identity = dir
+            .dir_metadata()
+            .ok()
+            .and_then(|metadata| Identity::of(&metadata));
         Ok(Root {
             path,
             opened,
             dir: Arc::new(dir),
+            identity,
             cache: Arc::new(Mutex::new(names::Cache::default())),
         })
     }
@@ -90,6 +104,47 @@ impl Root {
             return self.still_ours().is_ok();
         }
         identity::named(&self.path, &self.dir, rel) == Some(identity)
+    }
+
+    /// Whether `rel`, resolved from the root right now, is `file`, an open file whose metadata is
+    /// `opened`.
+    ///
+    /// This is the proof a read-only walker takes after it opened a file it walked and before it
+    /// reads a byte: no link is followed anywhere on the way and nothing outside the root is ever
+    /// reached, so a folder above the file that was moved out of the checkout, or replaced by a
+    /// link, does not lead back to the open file, and neither does a root path that now names
+    /// another folder. A walker that does not follow links never yields a path through one, so
+    /// refusing every link refuses nothing it walked. Linux and macOS answer in one call
+    /// (`openat2` beneath the root with no links, `fstatat` with `AT_SYMLINK_NOFOLLOW_ANY`); other
+    /// platforms walk the folder from the root as [`Root::open_dir_unlinked`] does.
+    pub fn is_at(
+        &self,
+        rel: &str,
+        file: &cap_std::fs::File,
+        opened: &cap_std::fs::Metadata,
+    ) -> bool {
+        at::is_at(self, rel, file, opened)
+    }
+
+    /// Opens `rel` for reading where the kernel can resolve it from the root in one call, with no
+    /// link followed anywhere and nothing outside the root reached (Linux `openat2` with
+    /// `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS`), and only while the root's
+    /// path still names the root.
+    ///
+    /// The file that opens is the one the checkout path names at that moment, which is what
+    /// [`Root::is_at`] proves after an open through a folder handle; here the proof and the open
+    /// are the same call, so nothing can move between them. `None` where the call cannot be made
+    /// (another platform, an old kernel, a seccomp filter): the caller opens the file another way
+    /// and proves it with [`Root::is_at`]. A refusal is an error, and so is a path that is not in
+    /// relative form.
+    pub fn open_file_unlinked(&self, rel: &str) -> Option<std::io::Result<cap_std::fs::File>> {
+        at::open_unlinked(self, rel)
+    }
+
+    /// The root folder's identity, read when the root opened.
+    #[cfg(unix)]
+    pub(crate) fn identity(&self) -> Option<Identity> {
+        self.identity
     }
 
     /// Folder listings remembered for this root, so resolving many entries of one folder lists it
@@ -149,6 +204,18 @@ impl Root {
     /// folder and `PATH_ESCAPE` when a link leads out of the root.
     pub fn open_dir(&self, rel: &str) -> Result<cap_std::fs::Dir, Error> {
         walk::open_dir(self, rel)
+    }
+
+    /// Opens the folder `rel` names for a walker that lists the disk itself and follows no link:
+    /// a link at any step is `PATH_ESCAPE`, wherever it points.
+    ///
+    /// Such a walker never lists a path through a link, so a link found on the way now was swapped
+    /// in after the walk and must not redirect the open, not even to another folder inside the
+    /// root. The walker's names are already the spellings the disk stores, so none is looked up
+    /// again; that lookup lists every folder on the way where the platform cannot name an open
+    /// handle (Linux), which a content search opening thousands of folders cannot afford.
+    pub fn open_dir_unlinked(&self, rel: &str) -> Result<cap_std::fs::Dir, Error> {
+        walk::open_folder_unlinked(self, rel)
     }
 
     /// Opens the folder that holds the last segment of `rel` and returns it with that segment's

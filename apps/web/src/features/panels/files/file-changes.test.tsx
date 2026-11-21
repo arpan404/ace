@@ -1,9 +1,10 @@
 import { coldStartReplay } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { codeText } from "@/test/code-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { bytes } from "./tree-test-queries.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -81,4 +82,58 @@ test("typed text marks the tab unsaved and stays out of the stored layout", asyn
   // The layout (with its tab) is stored; the unsaved text goes to the device's draft store.
   await waitFor(() => expect(storage.getItem("ace.workspace") ?? "").toContain("src/retry.ts"));
   expect(storage.getItem("ace.workspace") ?? "").not.toContain("// typed");
+});
+
+/** Presses a changed line's bar at the gutter's right edge. */
+function pressMark(view: HTMLElement, line: number) {
+  const gutter = view.querySelector<HTMLElement>(`[data-line="${line - 1}"] [data-mark]`);
+  const scroller = view.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!gutter || !scroller) throw new Error(`line ${line} has no mark`);
+  const width = Number.parseFloat(gutter.style.width);
+  fireEvent.pointerDown(scroller, { button: 0, clientX: width - 2, clientY: (line - 1) * 22 + 5 });
+}
+
+test("a press on a change mark shows what the lines were, and Revert puts them back and saves", async () => {
+  const { app, view } = await openRetry();
+  await waitFor(() =>
+    expect(within(view).getAllByTitle("Changed since the last commit")).toHaveLength(2),
+  );
+  pressMark(view, 2);
+  const peek = await within(view).findByRole("group", { name: "Change at line 2" });
+  expect(peek.textContent).toContain("1 line changed since the last commit");
+  expect(
+    [...peek.querySelectorAll("[data-hunk-line]")].map((line) => [
+      line.getAttribute("data-hunk-line"),
+      line.textContent,
+    ]),
+  ).toEqual([
+    ["removed", "−   return 1;"],
+    ["added", "+   return 3;"],
+  ]);
+
+  await userEvent.click(within(peek).getByRole("button", { name: "Revert" }));
+  await waitFor(async () =>
+    expect(await bytes(app, "src/retry.ts")).toBe(
+      "export function retry() {\n  return 1;\n}\nexport const tries = 2;\n",
+    ),
+  );
+  expect(view.textContent).toContain("return 1;");
+  expect(within(view).queryByRole("group", { name: /^Change at line/ })).toBeNull();
+});
+
+test("Close and Escape put a change's inline diff away without touching the file", async () => {
+  const { app, view } = await openRetry();
+  await waitFor(() =>
+    expect(within(view).getAllByTitle("Changed since the last commit")).toHaveLength(2),
+  );
+  pressMark(view, 4);
+  const peek = await within(view).findByRole("group", { name: "Change at line 4" });
+  await userEvent.click(within(peek).getByRole("button", { name: "Close" }));
+  expect(within(view).queryByRole("group", { name: /^Change at line/ })).toBeNull();
+  pressMark(view, 2);
+  const again = await within(view).findByRole("group", { name: "Change at line 2" });
+  within(again).getByRole("button", { name: "Close" }).focus();
+  await userEvent.keyboard("{Escape}");
+  expect(within(view).queryByRole("group", { name: /^Change at line/ })).toBeNull();
+  expect(await bytes(app, "src/retry.ts")).toBe(source);
 });

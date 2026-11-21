@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AutomationResponse } from "./automations.ts";
+import { CliProblem } from "./cli-output.ts";
 import { DiagnosticCheck, DiagnosticRepair } from "./diagnostics.ts";
 import { JsonValue } from "./json.ts";
 import { SpadeStatus } from "./spade.ts";
@@ -9,6 +10,30 @@ import { StorageApply, StorageCompaction, StoragePlan, StorageUsage } from "./st
  * `--json` success values for This machine and Spade (ADR 0178 §7): the daemon, its service,
  * storage, settings, repair, Spade, Beta switches and automations. Keyed into `cliOutputs`.
  */
+
+/** `ace spade skill import`: the skill Spade now keeps, and what was left out. */
+export const CliSpadeSkillImport = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** Where it came from: the folder's path, or the git address and the folder in it. */
+  source: z.string(),
+  files: z.number().int().nonnegative(),
+  /** Hidden files, which aren't part of a skill. */
+  skipped: z.array(z.string()),
+  /** Fields kept but unused, and what `allowed-tools` means: it grants nothing. */
+  warnings: z.array(CliProblem),
+});
+export type CliSpadeSkillImport = z.infer<typeof CliSpadeSkillImport>;
+
+/** `ace spade skill export`: the folder written. */
+export const CliSpadeSkillExport = z.object({
+  name: z.string(),
+  path: z.string(),
+  files: z.number().int().nonnegative(),
+  /** What `metadata.spade.source` says. */
+  source: z.string(),
+});
+export type CliSpadeSkillExport = z.infer<typeof CliSpadeSkillExport>;
 
 /** One log record as the daemon writes it to `logs/ace.jsonl`. */
 export const CliLogRecord = z
@@ -81,8 +106,12 @@ export const CliSpadeBot = z.object({
   task: z.string(),
   model: z.string(),
   conversation: z.string(),
-  state: z.enum(["idle", "working", "waiting"]),
-  waitingFor: z.enum(["approval", "question"]).optional(),
+  /**
+   * `paused`: the person paused it (ADR 0200 §6.1). `updating`: its package update or rollback
+   * is being applied (§6.2), which counts as working.
+   */
+  state: z.enum(["idle", "working", "waiting", "paused", "updating"]),
+  waitingFor: z.enum(["approval", "question", "worker", "callee"]).optional(),
   status: z.string().optional(),
   problem: z.string().optional(),
   unseen: z.boolean(),
@@ -94,6 +123,40 @@ export const CliSpadeBot = z.object({
   parent: z.object({ id: z.string(), name: z.string() }).optional(),
 });
 export type CliSpadeBot = z.infer<typeof CliSpadeBot>;
+
+/** One bot as `ace bot running` shows it (ADR 0200 §6.3). */
+export const CliRunningBot = z.object({
+  id: z.string(),
+  kind: z.enum(["main", "bot"]),
+  name: z.string(),
+  /** `updating`: its package update or rollback is being applied; it reads `working`. */
+  state: z.enum(["idle", "working", "waiting", "sleeping", "paused", "updating"]),
+  /** How it reads, in the order rows sort. */
+  reads: z.enum(["needs_you", "working", "failed", "sleeping", "paused", "idle"]),
+  /** Its state in words: "Checking fares", "Waiting on you: a question", "Paused". */
+  doing: z.string(),
+  uses: z.string(),
+  spend: z.object({ todayMicros: z.number(), monthMicros: z.number(), unusual: z.boolean() }),
+  network: z.object({ bytes: z.number(), hosts: z.array(z.string()), refused: z.number() }),
+  nextWake: z.object({ at: z.number(), what: z.string() }).optional(),
+  workers: z.array(z.object({ id: z.string(), name: z.string(), doing: z.string() })),
+  actions: z.array(z.enum(["stop", "pause", "resume", "unarchive"])),
+});
+export type CliRunningBot = z.infer<typeof CliRunningBot>;
+
+/** `ace bot stop|pause|resume BOT`: what was done, and the bot as it reads after. */
+export const CliBotAction = z.object({
+  bot: z.string(),
+  name: z.string(),
+  action: z.enum(["stop", "pause", "resume", "unarchive"]),
+  /**
+   * False when there was nothing to do: nothing ran, it was paused or running already, or it
+   * wasn't archived.
+   */
+  changed: z.boolean(),
+  now: CliRunningBot.optional(),
+});
+export type CliBotAction = z.infer<typeof CliBotAction>;
 
 /** `ace spade chat BOT TEXT`: the message Spade took, and the reply when one came in time. */
 export const CliSpadeChat = z.object({
@@ -144,6 +207,10 @@ export const cliMachineOutputs = {
   "spade.bot.list": z.array(CliSpadeBot),
   "spade.bot.show": CliSpadeBot,
   "spade.chat": CliSpadeChat,
+  "spade.skill.import": CliSpadeSkillImport,
+  "spade.skill.export": CliSpadeSkillExport,
+  "bot.running": z.array(CliRunningBot),
+  "bot.action": CliBotAction,
   "spade.move": CliSpadeMove,
   "feature.list": CliFeatures,
   "feature.switch": CliFeatureSwitch,

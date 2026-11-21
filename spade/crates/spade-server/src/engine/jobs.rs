@@ -355,6 +355,33 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
         // A job waiting on ace's children runs again and reattaches to them, so the bot never
         // reads as idle while they work (AGENTS.md priority 1).
         let name = job_name(&events, &job);
+        // A contract call carries on by its key (ADR 0200 §7): its job runs again, finds the
+        // call it delivered and waits for its end. One Stop was stored for stops its callee.
+        if name == spade_core::contract::CONTRACT_CALL {
+            if spade_core::turn::job_stopped(&events, &job) {
+                engine.stop_calls(id, std::slice::from_ref(&job));
+                let stopped = Event::Known(Known::JobFinished {
+                    name,
+                    job,
+                    content: JOB_STOPPED.to_owned(),
+                    is_error: true,
+                    uncertain: true,
+                    files: Vec::new(),
+                    untrusted: false,
+                    cost_micros: None,
+                });
+                engine.record(id, &stopped)?;
+            } else {
+                reattach(
+                    engine,
+                    id,
+                    &events,
+                    &job,
+                    spade_core::contract::CONTRACT_CALL,
+                );
+            }
+            continue;
+        }
         if crate::tools::reattaches(&name) && !spade_core::turn::job_stopped(&events, &job) {
             reattach_ace(engine, id, &events, &job, &name);
             continue;

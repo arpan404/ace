@@ -1,0 +1,40 @@
+{
+  "keys": [
+    {
+      "id": "test-1",
+      "publicKey": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+    }
+  ],
+  "signed": {
+    "body": {
+      "format": "ace-market-manifest",
+      "type": "spade-bot",
+      "name": "flight-watcher",
+      "version": "1.0.0",
+      "publisher": {
+        "id": "pub-1",
+        "name": "fares-inc"
+      },
+      "hash": "bafa3f47ccb5dda32e2d98802d69c16986cbfbc066f9b21414f210bd6df606de",
+      "files": [
+        {
+          "path": "README.md",
+          "bytes": 17,
+          "executable": false,
+          "sha256": "94acaed4247c48863975f8329ab1a615dda6ba82d350cf4d08703f3df5bf7756"
+        },
+        {
+          "path": "bot.json",
+          "bytes": 435,
+          "executable": false,
+          "sha256": "3bed7fccf2d9e306a42069126357840c7244164629b85c647e9de5d76e8d249f"
+        }
+      ],
+      "size": 452,
+      "published": 1760000000000,
+      "key": "test-1"
+    },
+    "signature": "2gtIlZchRJO3IukJvIB7rCFnOTS-CfR1-o3S7BUA-ensqBxUhF6YULbqNY2P69cSFXKSwDGKNl4AIvuXnp4dAw"
+  },
+  "bot_json": "{\n  \"format\": \"spade-bot\",\n  \"version\": 3,\n  \"requires\": {\n    \"runtime\": \"1\"\n  },\n  \"name\": \"Flight watcher\",\n  \"blurb\": \"Watches fares.\",\n  \"task\": \"You watch flight fares for the person — and say “when” a fare drops.\",\n  \"model\": \"capable\",\n  \"effects\": [\n    {\n      \"effect\": \"network\",\n      \"hosts\": [\n        \"api.example-fares.com\"\n      ],\n      \"why\": \"Reads fares.\"\n    }\n  ],\n  \"pricing\": {\n    \"kind\": \"free\"\n  }\n}\n"
+}

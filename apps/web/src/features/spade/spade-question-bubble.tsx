@@ -2,6 +2,7 @@ import {
   spadeAnswerWords,
   spadeCardAnswers,
   spadeConnectOf,
+  spadeSuggestOf,
   spadeCardSettledWords,
   spadeDraftAnswer,
   spadeEmptyDraft,
@@ -18,6 +19,7 @@ import type { QuestionReply } from "./use-spade-conversation.ts";
 import { QuestionInputs } from "./spade-question-inputs.tsx";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeConnectBubble } from "./spade-connect-bubble.tsx";
+import { SpadeSuggestBubble } from "./spade-suggest-bubble.tsx";
 import {
   botBubble,
   CardBody,
@@ -58,6 +60,16 @@ export function SpadeQuestionBubble(props: {
       <SpadeConnectBubble
         item={props.item}
         ask={ask}
+        botName={props.botName}
+        onReply={props.onReply}
+      />
+    );
+  const suggest = spadeSuggestOf(props.item.questions);
+  if (suggest)
+    return (
+      <SpadeSuggestBubble
+        item={props.item}
+        ask={suggest}
         botName={props.botName}
         onReply={props.onReply}
       />

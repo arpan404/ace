@@ -68,5 +68,17 @@ export function useTransferActions() {
     },
     [client],
   );
-  return { start, cancel };
+  /** The person's choice for a moving thread whose machine isn't linked: it runs here again. */
+  const carryOnHere = useCallback(
+    async (transfer: Transfer): Promise<Refusal | undefined> => {
+      try {
+        await client.transfers.carryOnHere(transfer.transferId);
+        return undefined;
+      } catch (error) {
+        return refusalOf(error);
+      }
+    },
+    [client],
+  );
+  return { start, cancel, carryOnHere };
 }

@@ -11,6 +11,8 @@ export interface FakeSpadeAnswer {
   status: number;
   body?: string;
   contentType?: string;
+  /** The daemon refused it before Spade saw it (a person-only change without standing). */
+  refused?: string;
 }
 
 /** Spade's local API behind the daemon: answers requests and opens live streams. */
@@ -112,6 +114,8 @@ export class FakeSpade {
 type HttpResult = Extract<ServerMessage, { type: "spade.http.result" }>["result"];
 
 function response(answer: FakeSpadeAnswer): HttpResult {
+  if (answer.refused !== undefined)
+    return { kind: "error", code: "forbidden", message: answer.refused };
   return {
     kind: "response",
     status: answer.status,

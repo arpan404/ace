@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId } from "./ids.ts";
+import { HostId, ThreadId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 
 /*
@@ -13,21 +13,50 @@ const spadeId = z.string().min(1).max(128);
 const shownName = z.string().min(1).max(120);
 
 /**
+ * The person's other machine a bot or club lives on; absent for this machine's Spade. The ask
+ * goes to that machine's Spade through the fleet (ADR 0132's machine call).
+ */
+const SpadeElsewhere = z.object({ id: HostId, name: z.string().min(1).max(256) });
+
+/**
  * A Spade face as Spade's API gives it (`{kind: "character", …}`, `{kind: "image", sha256}`,
  * `{kind: "spade"}`): one flat object of short fields, kept as Spade sent it; clients read it
  * with `parseSpadeAvatar`.
  */
 export const SpadeFaceJson = z
   .record(z.string().max(32), z.union([z.string().max(256), z.number(), z.boolean(), z.null()]))
-  .refine((value) => Object.keys(value).length <= 24, "A face has at most 24 fields");
+  .refine((value) => Object.keys(value).length <= 24, "A face has at most 24 fields")
+  .meta({ "x-ace-constraint": "At most 24 fields." });
 export type SpadeFaceJson = z.infer<typeof SpadeFaceJson>;
 
-export const Addressee = z.discriminatedUnion("kind", [
+/**
+ * Who the person addressed: a bot, a club or another thread's agent. Declared, not inferred, as
+ * `Speaker` is: items and commands carry it, and an inferred shape there grows the wire unions'
+ * declared types past what TypeScript will write out.
+ */
+export type Addressee =
+  | {
+      kind: "bot";
+      id: string;
+      name: string;
+      avatar?: SpadeFaceJson | undefined;
+      machine?: { id: HostId; name: string } | undefined;
+    }
+  | {
+      kind: "club";
+      id: string;
+      name: string;
+      faces: { id: string; avatar?: SpadeFaceJson | undefined }[];
+      machine?: { id: HostId; name: string } | undefined;
+    }
+  | { kind: "agent"; threadId: ThreadId; title: string; provider?: ProviderKind | undefined };
+export const Addressee: z.ZodType<Addressee> = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("bot"),
     id: spadeId,
     name: shownName,
     avatar: SpadeFaceJson.optional(),
+    machine: SpadeElsewhere.optional(),
   }),
   z.object({
     kind: z.literal("club"),
@@ -38,6 +67,7 @@ export const Addressee = z.discriminatedUnion("kind", [
       .array(z.object({ id: spadeId, avatar: SpadeFaceJson.optional() }))
       .max(3)
       .default([]),
+    machine: SpadeElsewhere.optional(),
   }),
   z.object({
     kind: z.literal("agent"),
@@ -46,7 +76,6 @@ export const Addressee = z.discriminatedUnion("kind", [
     provider: ProviderKind.optional(),
   }),
 ]);
-export type Addressee = z.infer<typeof Addressee>;
 
 /** What goes with the message: a summary of this thread, or only the person's words. */
 export const AddressedShare = z.enum(["thread", "message"]);
@@ -88,6 +117,8 @@ export interface Speaker {
   name: string;
   avatar?: SpadeFaceJson | undefined;
   club?: { id: string; name: string } | undefined;
+  /** The person's other machine its Spade is on, so a follow-up goes there too. */
+  machine?: { id: HostId; name: string } | undefined;
   /** The person's message it answers, as `AskedLine.about` names it. */
   about: string;
   /** The ask it answers, for a follow-up's `thread.address`. */
@@ -99,6 +130,7 @@ export const Speaker: z.ZodType<Speaker> = z.object({
   name: shownName,
   avatar: SpadeFaceJson.optional(),
   club: z.object({ id: spadeId, name: shownName }).optional(),
+  machine: SpadeElsewhere.optional(),
   about: z.string().min(1).max(256),
   ask: z.string().min(1).max(160).optional(),
 });

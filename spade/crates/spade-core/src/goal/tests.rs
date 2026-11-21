@@ -53,6 +53,8 @@ fn k(known: Known) -> Event {
 struct Chat {
     events: Vec<Event>,
     n: usize,
+    /// The package's `criterion` checks (ADR 0204 §3).
+    required: Vec<String>,
 }
 
 impl Chat {
@@ -60,6 +62,7 @@ impl Chat {
         Self {
             events: vec![Event::user_message(person), Event::reply_started("r1", "m")],
             n: 0,
+            required: Vec::new(),
         }
     }
 
@@ -101,7 +104,7 @@ impl Chat {
     fn goal(&mut self, arguments: Value) -> Result<Accepted, String> {
         let words = crate::review::person_words(&self.events).pop();
         self.step(TASK_GOAL, arguments.clone());
-        let accepted = change::goal(&self.events, &arguments, words.as_deref())?;
+        let accepted = change::goal(&self.events, &arguments, words.as_deref(), &self.required)?;
         self.store(&accepted);
         Ok(accepted)
     }
@@ -213,6 +216,7 @@ fn the_goal_keeps_the_persons_words_and_the_bot_cannot_change_it_once_open() {
         criteria: Vec::new(),
         by: Author::Bot,
         verifier: None,
+        run: None,
     }));
     assert_eq!(chat.task().goal.title, "Blog move");
 }
@@ -227,6 +231,7 @@ fn the_persons_edit_changes_the_criteria_and_keeps_the_plan() {
         criteria: change::criteria(&["login loads under 0.5 s".to_owned()]).must(),
         by: Author::Person,
         verifier: Some("strict".into()),
+        run: None,
     }));
     let task = chat.task();
     assert_eq!(task.goal.criteria[0].text, "login loads under 0.5 s");
@@ -626,4 +631,69 @@ fn plan_calls_count_as_progress_for_the_no_progress_pause() {
             after_ms: 0
         }
     );
+}
+
+#[test]
+fn a_packages_criterion_joins_the_goal_and_done_without_it_reads_not_yet() {
+    let mut chat = Chat::new("Make the login page load under a second");
+    chat.required = vec!["The report names the page it measured.".to_owned()];
+    let set = chat
+        .goal(json!({ "title": "Fast login", "criteria": ["login loads under 1 s"] }))
+        .must();
+    assert!(
+        set.result
+            .contains("2. The report names the page it measured."),
+        "{}",
+        set.result
+    );
+    let timing = chat.ran("shell", json!({ "command": "bench" }), "p95 0.4 s");
+    chat.plan(json!({ "op": "add", "text": "measure" })).must();
+    chat.plan(json!({ "op": "done", "item": "1",
+                      "evidence": [{ "kind": "output", "call": timing }] }))
+        .must();
+    chat.claim_done();
+    // The check met the bot's own criterion only: the package's is unanswered, so not done.
+    check(&mut chat, answer(true, &[true]));
+    assert_eq!(chat.task().verdict.must().finding, Finding::NotYet);
+    assert_eq!(chat.state(), State::NotYet);
+}
+
+#[test]
+fn a_routines_goal_fails_after_its_check_says_not_yet_three_times() {
+    let mut chat = Chat::new("Check today's fares.");
+    chat.events.push(k(Known::GoalSet {
+        goal: "g1".into(),
+        title: "Morning fares".into(),
+        text: "Check today's fares.".into(),
+        criteria: change::criteria(&["names the fare".to_owned()]).must(),
+        by: Author::Bot,
+        verifier: None,
+        run: Some("run_1".into()),
+    }));
+    for tries in 1..=3 {
+        assert_eq!(verify::gave_up(&chat.events), None, "try {tries}");
+        chat.claim_done();
+        let Claim::Settled(verdict) = verify::claim(&chat.events) else {
+            panic!("an empty plan is not yet without a model");
+        };
+        chat.events.push(k(*verdict));
+    }
+    assert_eq!(
+        verify::gave_up(&chat.events),
+        Some(Known::GoalCleared {
+            goal: "g1".into(),
+            failed: true
+        })
+    );
+    // A goal the person or the bot opened keeps ADR 0159's rules: it carries on, never fails.
+    let mut own = Chat::new("Ship it");
+    own.goal(json!({ "title": "Ship", "criteria": ["shipped"] }))
+        .must();
+    for _ in 0..4 {
+        own.claim_done();
+        if let Claim::Settled(verdict) = verify::claim(&own.events) {
+            own.events.push(k(*verdict));
+        }
+    }
+    assert_eq!(verify::gave_up(&own.events), None);
 }

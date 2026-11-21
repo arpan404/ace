@@ -82,4 +82,16 @@ import Testing
         }
         #expect(read.returned)
     }
+
+    @Test func aLockedWorktreeStartDecodesItsWorkspacePromptAndClearingState() throws {
+        let json = #"{"type":"compose.worktree","id":"c-1","made":null,"card":{"headline":"Couldn't create the worktree","running":false,"failed":true,"steps":[{"label":"Preparing workspace","state":"failed","elapsedMs":10,"percent":null}],"note":"A stale Git lock from an earlier ace daemon fences /fake/ace.","refused":"","locked":true,"actions":[{"id":"local","label":"Don't use worktree"},{"id":"retry","label":"Retry"}],"sending":"clearLock","details":[],"message":"Fix the export","workspaceId":"ace","canReturn":false}}"#
+        guard case .worktree(_, let read) = try JSONDecoder().decode(ComposePatch.self, from: Data(json.utf8)) else {
+            Issue.record("not a worktree card"); return
+        }
+        #expect(read.card?.locked == true)
+        #expect(read.card?.workspaceId == "ace")
+        #expect(read.card?.message == "Fix the export")
+        #expect(read.card?.sending == "clearLock")
+        #expect(read.card?.canReturn == false)
+    }
 }

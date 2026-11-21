@@ -1,6 +1,12 @@
 import { BrowserOriginError } from "@ace/browser/policy";
 import { encodeDownloadChunk } from "@ace/browser/stream";
-import { BrowserState, type BrowserClientMessage, type ServerMessage } from "@ace/protocol";
+import { moveEngine, type EnginePreferencePort } from "@ace/browser/engine-move";
+import {
+  BrowserOpen,
+  BrowserState,
+  type BrowserClientMessage,
+  type ServerMessage,
+} from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
 import { fakeScreenshotSet } from "./browser-captures.ts";
 import { fakeVideoChunk, fakeVideoCodec } from "./browser-video.ts";
@@ -22,6 +28,8 @@ export function fakeBrowserSession(
      * `browser.backend` over the default). Omitted: the fixture's historical default.
      */
     backendPreference?: (threadId: string) => "auto" | "embedded" | "headless";
+    /** Where the thread's engine is kept for an engine move. Omitted: moves are refused. */
+    engine?: EnginePreferencePort;
   } = {},
 ) {
   const recording = new Set<string>();
@@ -69,8 +77,6 @@ export function fakeBrowserSession(
     },
     async serve(message: BrowserClientMessage) {
       const id = message.type === "browser.open" ? message.options.threadId : message.threadId;
-      const thread = host.thread(id);
-      if (!thread) throw new Error("thread_not_found");
       if (message.type === "browser.ack") {
         const subscription = subscriptions.get(id);
         if (subscription?.sent === message.sequence) {
@@ -79,8 +85,57 @@ export function fakeBrowserSession(
         }
         return;
       }
+      const result = await this.run(message);
+      send({
+        type: "browser.result",
+        requestId: message.requestId,
+        ok: true,
+        ...(result === undefined ? {} : { result }),
+      });
+    },
+    /** One request's result, as the daemon's bridge answers it. */
+    async run(message: Exclude<BrowserClientMessage, { type: "browser.ack" }>): Promise<unknown> {
+      const id = message.type === "browser.open" ? message.options.threadId : message.threadId;
+      const thread = host.thread(id);
+      if (!thread) throw new Error("thread_not_found");
       let result: unknown;
       switch (message.type) {
+        case "browser.engine.move": {
+          // The daemon's own move (ADR 0199), on this fixture's browser.
+          if (!options.engine) throw new Error("Engine moves aren't available on this machine");
+          const open = async (at: { threadId: string; workspaceId: string }) =>
+            BrowserState.parse(
+              await this.run({
+                type: "browser.open",
+                requestId: message.requestId,
+                options: BrowserOpen.parse(at),
+              }),
+            );
+          result = await moveEngine(
+            {
+              hasActiveSession: (threadId) => {
+                const view = browser.view(threadId);
+                return view !== undefined && !view.closed;
+              },
+              open,
+              settleIfHome: async () => true,
+              // As the daemon: the tabs move with the browser, or stay where they were.
+              rehost: async (at, engine) => {
+                if (engine === "embedded" && !browser.desktop)
+                  return {
+                    ok: false,
+                    error: new Error("Desktop browser backend unavailable"),
+                    restored: await open(at),
+                  };
+                browser.rehost(at.threadId, engine);
+                return { ok: true, state: await open(at) };
+              },
+            },
+            options.engine,
+            message,
+          );
+          break;
+        }
         case "browser.tabs.list":
           result = browser.tabsList(id);
           break;
@@ -404,12 +459,7 @@ export function fakeBrowserSession(
           break;
         }
       }
-      send({
-        type: "browser.result",
-        requestId: message.requestId,
-        ok: true,
-        ...(result === undefined ? {} : { result }),
-      });
+      return result;
     },
   };
 }

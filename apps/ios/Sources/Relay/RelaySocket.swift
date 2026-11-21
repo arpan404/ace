@@ -5,9 +5,18 @@ import os
 protocol DaemonSocket: AnyObject, Sendable {
     func open()
     func send(_ text: String)
-    /// A binary message: only a direct media connection's hello is one.
+    /// A binary message: a direct media connection's hello, or a tunnel's frame.
     func send(bytes: Data)
+    /// A binary message, with `sent` once the socket has handed it on (the tunnel's backpressure).
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void)
     func close()
+}
+extension DaemonSocket {
+    /// Sockets that can't tell when a message left count it as sent at once.
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void) {
+        send(bytes: bytes)
+        sent()
+    }
 }
 extension PinnedSocket: DaemonSocket {}
 
@@ -43,8 +52,13 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private var deadline: DispatchWorkItem?
     private var opened = Date()
     private var flow = RelayFlow()
-    /// Data fragments waiting for the daemon's credit, sealed only when they go out.
-    private var waiting: [Data] = []
+    /// Data fragments waiting for the daemon's credit, sealed only when they go out. A binary
+    /// message's last fragment carries its `sent`, called once the socket has written it.
+    private var waiting: [Outgoing] = []
+    private struct Outgoing {
+        let plain: Data
+        var sent: (@Sendable () -> Void)? = nil
+    }
     /// The grant this connection presented, dropped from the kept ones if it is refused.
     private var grant: String?
     /// The daemon's welcome arrived; until then an `unauthorized` error refuses the grant.
@@ -153,15 +167,30 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             let message = self.helloSent ? text : Self.offering(text)
             self.helloSent = true
             do {
-                self.waiting += try channel.fragments(text: message)
+                self.waiting += try channel.fragments(text: message).map { Outgoing(plain: $0) }
                 self.pump()
             } catch { self.finish(1009, cause: "message too large to send") }
         }
     }
-    /// A relay stream's hello is JSON (`channel: "media"` with its ticket), so the script never
-    /// sends binary on one: if it did, the stream ends rather than carry something undefined.
-    func send(bytes: Data) {
-        queue.addOperation { [weak self] in self?.finish(1002, cause: "binary message from the app") }
+    func send(bytes: Data) { send(bytes: bytes) {} }
+    /// One binary message (a tunnel's frame, ADR 0194) as one binary record (kinds 2/3), queued
+    /// with the text ones behind the daemon's credit. `sent` runs once its last fragment is
+    /// written to the relay, so the script's count of unsent bytes falls only as the window
+    /// lets it out: backpressure over a relay is real.
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void) {
+        queue.addOperation { [weak self] in
+            guard let self, !self.ended, case .secured = self.phase else { sent(); return }
+            guard !bytes.isEmpty, bytes.count <= RelaySession.binaryLimit else {
+                sent()
+                self.finish(1009, cause: "binary message too large to send")
+                return
+            }
+            var fragments = RelaySession.binaryFragments(bytes).map { Outgoing(plain: $0) }
+            guard let last = fragments.indices.last else { sent(); return }
+            fragments[last].sent = sent
+            self.waiting += fragments
+            self.pump()
+        }
     }
     func close() {
         queue.addOperation { [weak self] in
@@ -169,7 +198,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             if !self.ended { self.record(1000, cause: "closed by the app") }
             self.ended = true
             self.deadline?.cancel()
-            self.waiting.removeAll()
+            self.dropWaiting()
             self.task?.cancel(with: .goingAway, reason: nil)
             self.session?.invalidateAndCancel()
             self.task = nil; self.session = nil
@@ -206,9 +235,16 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         return reason
     }
 
-    private func write(_ frame: Data) {
-        guard let task else { return }
+    /// Unsent fragments go with the channel; their `sent` still runs, so nothing waits on them.
+    private func dropWaiting() {
+        let dropped = waiting
+        waiting.removeAll()
+        for fragment in dropped { fragment.sent?() }
+    }
+    private func write(_ frame: Data, sent: (@Sendable () -> Void)? = nil) {
+        guard let task else { sent?(); return }
         task.send(.data(frame)) { [weak self] error in
+            sent?()
             guard let error else { return }
             self?.queue.addOperation { [weak self] in
                 // A dial this socket already replaced says nothing of the current one.
@@ -228,10 +264,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private func pump() {
         guard !ended, case .secured(var channel) = phase else { return }
         do {
-            while let next = waiting.first, flow.allows(RelayFlow.cost(next.count)) {
+            while let next = waiting.first, flow.allows(RelayFlow.cost(next.plain.count)) {
                 waiting.removeFirst()
-                flow.spend(RelayFlow.cost(next.count))
-                write(try channel.seal(plain: next))
+                flow.spend(RelayFlow.cost(next.plain.count))
+                write(try channel.seal(plain: next.plain), sent: next.sent)
             }
             phase = .secured(channel)
         } catch { finish(1002, cause: "seal failed") }
@@ -344,7 +380,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         record(code, cause: reason.isEmpty ? cause : "\(cause): \(reason)")
         ended = true
         deadline?.cancel()
-        waiting.removeAll()
+        dropWaiting()
         phase = .connecting
         event("close", .text(Self.closeEvent(code, reason: reason, named: named)))
         task?.cancel(with: .goingAway, reason: nil)

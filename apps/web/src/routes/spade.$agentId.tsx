@@ -11,7 +11,10 @@ import { SpadeAgentScreen } from "@/features/spade/index.ts";
 export const Route = createFileRoute("/spade/$agentId")({
   validateSearch: z.object({
     on: z.string().optional().catch(undefined),
-    profile: z.enum(["details", "work", "library", "computer"]).optional().catch(undefined),
+    profile: z
+      .enum(["details", "work", "library", "computer", "permissions"])
+      .optional()
+      .catch(undefined),
     computer: z
       .enum(["browser", "screen", "terminal", "files", "services", "activity"])
       .optional()
@@ -21,10 +24,16 @@ export const Route = createFileRoute("/spade/$agentId")({
     file: z.string().optional().catch(undefined),
     /** An approval or question to bring forward, by call id: what a notification opens. */
     request: z.string().optional().catch(undefined),
+    /** One of its package's panels open beside it (ADR 0200 §5.2), by id. */
+    panel: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
+      .optional()
+      .catch(undefined),
   }),
   component: function SpadeAgentRoute() {
     const { agentId } = Route.useParams();
-    const { on, profile, computer, files, file, request } = Route.useSearch();
+    const { on, profile, computer, files, file, request, panel } = Route.useSearch();
     return (
       <SpadeAgentScreen
         agentId={agentId}
@@ -34,6 +43,7 @@ export const Route = createFileRoute("/spade/$agentId")({
         files={files}
         file={file}
         request={request}
+        panel={panel}
       />
     );
   },

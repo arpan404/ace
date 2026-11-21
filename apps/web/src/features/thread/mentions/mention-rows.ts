@@ -65,6 +65,7 @@ export function mentionRows<Tab extends MentionTab>(input: {
           id: bot.id,
           name: bot.name,
           avatar: avatarJson(bot.avatar),
+          ...(bot.machine ? { machine: bot.machine } : {}),
         },
         picture: { kind: "bot", avatar: bot.avatar } satisfies MentionPicture,
       },
@@ -80,7 +81,10 @@ export function mentionRows<Tab extends MentionTab>(input: {
           name: club.name,
           faces: club.members
             .slice(0, 3)
-            .map((member) => ({ id: member.agent, ...withAvatar(avatarJson(member.avatar)) })),
+            .map((member) =>
+              Object.assign({ id: member.agent }, withAvatar(avatarJson(member.avatar))),
+            ),
+          ...(club.machine ? { machine: club.machine } : {}),
         },
         picture: { kind: "club", members: club.members } satisfies MentionPicture,
       },

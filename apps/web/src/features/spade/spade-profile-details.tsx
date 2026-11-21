@@ -1,13 +1,15 @@
-import { spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
-import { useNavigate } from "@tanstack/react-router";
+import { spadeAgentTaskMax, type SpadePanel } from "@ace/ui-core/spade-chat";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
+import { ProfilePackageLine } from "./spade-bot-package.tsx";
+import { ProfileContracts } from "./spade-profile-contracts.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
 import { ProfileReach } from "./spade-bot-reach.tsx";
@@ -15,6 +17,7 @@ import { ProfilePlugins } from "./spade-bot-plugins.tsx";
 import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
+import { ProfileCases } from "./spade-profile-cases.tsx";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
 import { ProfilePersonality } from "./spade-profile-personality.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
@@ -34,7 +37,13 @@ import { voiceKey } from "./use-spoken-replies.ts";
  * this device), its routines, the apps and plugins it may use, its boundaries, its spending,
  * then Duplicate, Export and Delete. Everything edits where it shows.
  */
-export function ProfileDetails(props: { bot: RosterBot }) {
+/** A packaged bot's panels, each opened beside its conversation (ADR 0200 §5.2). */
+export interface ProfilePanels {
+  list: readonly SpadePanel[];
+  onOpen(panel: string): void;
+}
+
+export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels | undefined }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [modelProblem, setModelProblem] = useState<string>();
@@ -42,10 +51,22 @@ export function ProfileDetails(props: { bot: RosterBot }) {
   return (
     <>
       <ProfileMoveLine bot={bot} />
+      <ProfilePackageLine bot={bot} />
       <ProfileSection label="Task">
         <TaskField bot={bot} />
         <TaskHistory bot={bot} />
       </ProfileSection>
+      {props.panels && props.panels.list.length > 0 && (
+        <ProfileSection label="Panels">
+          {props.panels.list.map((panel) => (
+            <SettingRow key={panel.id} title={panel.title} inline>
+              <Button size="sm" variant="ghost" onClick={() => props.panels?.onOpen(panel.id)}>
+                Open
+              </Button>
+            </SettingRow>
+          ))}
+        </ProfileSection>
+      )}
       <ProfileSection label="Runs with">
         <SettingRow
           title="Model"
@@ -53,6 +74,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
           description={modelProblem && <span className="text-destructive">{modelProblem}</span>}
         >
           <SpadeModelPicker
+            subscriptions
             value={bot.model}
             onChange={(model) => {
               if (!/\/./.test(model) || model === bot.model) return;
@@ -63,11 +85,14 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <ProfileMachine bot={bot} />
         <BotRoles bot={bot} />
       </ProfileSection>
+      {bot.kind === "main" && <ProfileRunning />}
       <ProfilePersonality bot={bot} />
       <ProfileSection label="Voice">
         <VoiceRows bot={voiceKey(bot.machine.key, bot.id)} speechModel={speechModel} />
       </ProfileSection>
       <ProfileRoutines bot={bot} />
+      <ProfileContracts bot={bot} />
+      <ProfileCases bot={bot} />
       <ProfileMakesBots bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />
@@ -76,6 +101,26 @@ export function ProfileDetails(props: { bot: RosterBot }) {
       <ProfileReach bot={bot} />
       <Foot bot={bot} />
     </>
+  );
+}
+
+/**
+ * Spade's own profile opens Running (ADR 0200 §6.3): Spade is what runs the bots, so what runs
+ * is its to show. One row and a text button; no new place in the rail or the list's toolbar.
+ */
+function ProfileRunning() {
+  return (
+    <ProfileSection label="Running">
+      <SettingRow
+        title="What runs"
+        inline
+        description="Every bot's state, spend and next wake, with Stop, Pause and Resume."
+      >
+        <Link to="/spade/running" {...buttonLook({ variant: "ghost" }, pillButton)}>
+          Open
+        </Link>
+      </SettingRow>
+    </ProfileSection>
   );
 }
 

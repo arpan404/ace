@@ -26,11 +26,6 @@ fn may_key(agent: &str) -> String {
 fn made_by_key(agent: &str) -> String {
     format!("made_by:{agent}")
 }
-/// A made bot the person undid after it had acted: kept, stopped, its routines paused.
-fn archived_key(agent: &str) -> String {
-    format!("archived:{agent}")
-}
-
 #[derive(Deserialize)]
 struct Standing {
     name: String,
@@ -105,6 +100,13 @@ impl Engine {
             .unwrap_or(May::default_for(main))
     }
 
+    /// The bot that made `agent` for the person, if one did.
+    pub(super) fn maker_of(&self, agent: &str) -> Option<String> {
+        let made_by = self.store.setting(&made_by_key(agent)).ok()??;
+        let made_by: Value = serde_json::from_str(&made_by).ok()?;
+        made_by.get("id")?.as_str().map(str::to_owned)
+    }
+
     /// Sets whether `agent` may make bots.
     pub fn set_may_create(&self, agent: &str, may: May) -> Result<(), AgentError> {
         self.store.agent(agent)?.ok_or(AgentError::NotFound)?;
@@ -121,12 +123,7 @@ impl Engine {
             .flatten()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .unwrap_or(Value::Null);
-        let archived = self
-            .store
-            .setting(&archived_key(&agent.id))
-            .ok()
-            .flatten()
-            .is_some();
+        let archived = self.archived(&agent.id);
         [
             (
                 "may_create_bots",
@@ -250,6 +247,21 @@ impl Engine {
             // Who made it and the maker's note go in the bot's own transaction: the note is how
             // a rerun of this call finds the bot, and who made it is what lets it be undone.
             let by = json!({ "id": me.id, "name": me.name, "apps": apps });
+            // A packaged maker's ceiling goes with the bot it makes, in the same write: a made
+            // bot never does more than its maker's package declared (ADR 0200 §3.4).
+            let under = self.ceiling(caller).map(|(bot, allows)| {
+                serde_json::to_string(&super::packages::MadeUnder::new(&bot, allows))
+                    .unwrap_or_default()
+            });
+            let (made_by, under_key) = (made_by_key(&id), super::packages::made_under_key(&id));
+            let mut settings = vec![(made_by.as_str(), by.to_string())];
+            if let Some(under) = under {
+                settings.push((under_key.as_str(), under));
+            }
+            let settings: Vec<(&str, &str)> = settings
+                .iter()
+                .map(|(key, value)| (*key, value.as_str()))
+                .collect();
             let note = Event::Known(Known::BotMade {
                 bot: id.clone(),
                 name: name.clone(),
@@ -267,7 +279,7 @@ impl Engine {
                     conversation: &conversation,
                 },
                 &first,
-                (&made_by_key(&id), &by.to_string()),
+                &settings,
                 caller,
                 &note,
                 self.now_ms(),
@@ -295,17 +307,7 @@ impl Engine {
             self.store.set_setting(&made_by_key(id), None)?;
             return Ok(Undone::Removed);
         }
-        let _ = self.stop(&agent.conversation);
-        for kind in [spade_store::ROUTINE, spade_store::HEARTBEAT] {
-            for mut routine in self.store.routines_of(id, kind)? {
-                if !routine.paused {
-                    routine.paused = true;
-                    routine.next_due_ms = None;
-                    self.store.update_routine(&routine)?;
-                }
-            }
-        }
-        self.store.set_setting(&archived_key(id), Some("1"))?;
+        self.archive_bot(id, &agent.conversation)?;
         Ok(Undone::Archived)
     }
 

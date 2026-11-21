@@ -45,7 +45,13 @@ export function startThreadAddress(context: ServiceContext): void {
         "x-ace-inbox-proof": inboxProof(key, time, threadAskSender, "ace", body),
       };
     },
+    // A bot or club on another of the person's machines: its Spade, through the fleet. Read
+    // when used, as the fleet starts on its own.
+    remote: (hostId, request, signal) =>
+      services.spadeRemote?.send(hostId, request, signal) ??
+      Promise.resolve({ kind: "error", code: "offline", message: "Machines are off here." }),
     post: (threadId, key, draft) => engine.hosts.posts.post(threadId, key, draft),
+    waiting: (threadId, task, waiting) => engine.hosts.posts.waiting(threadId, task, waiting),
     hold: (threadId, task, hold) => {
       const agent = engine.rootAgent(threadId);
       if (agent) engine.externalHold(threadId, AgentId.parse(agent), task, hold);

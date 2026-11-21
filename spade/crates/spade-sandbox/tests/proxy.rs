@@ -223,6 +223,33 @@ async fn a_run_keeps_each_host_it_reached_or_was_refused_once_after_its_ticket_e
 }
 
 #[tokio::test]
+async fn cutting_a_bot_ends_its_live_runs_access_and_leaves_other_bots_theirs() {
+    let setup = setup().await;
+    let port = echo().await;
+    let open = |bot: &str| {
+        setup
+            .proxy
+            .open(bot, "run1", allowing(format!("127.0.0.1:{port}")))
+    };
+    let (cut, kept) = (open("bot1"), open("bot2"));
+    let request = |ticket: &spade_sandbox::egress::Ticket| {
+        format!(
+            "CONNECT 127.0.0.1:{port} HTTP/1.1\r\nProxy-Authorization: Basic {}\r\n\r\nhi",
+            basic(&token_of(&ticket.url()))
+        )
+    };
+    // A package's network switch turned off for bot1: its runs still hold their tickets.
+    setup.proxy.cut(&|bot| bot == "bot1");
+    let ended = ask(&setup.proxy, &request(&cut)).await;
+    assert!(ended.starts_with("HTTP/1.1 407"), "{ended}");
+    let still = ask(&setup.proxy, &request(&kept)).await;
+    assert!(
+        still.starts_with("HTTP/1.1 200 Connection Established"),
+        "{still}"
+    );
+}
+
+#[tokio::test]
 async fn a_request_without_a_live_ticket_is_asked_to_authenticate() {
     let setup = setup().await;
     let port = echo().await;

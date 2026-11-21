@@ -580,12 +580,69 @@ content binding is defence in depth behind it, and it has two limits this ADR do
   `spade-server/src`, not in the crates it uses (`spade-sandbox`'s launcher, `spade-connect`'s
   connectors) or in the daemon.
 
+## Amendment 7: Permissions decide driving (2026-11-20)
+
+Replaces amendment 3's routes for a driving step (its reviewer, its asks in sensitive places and
+"Allow \<app\> for this bot"), and the Full access note's driving asks. Decided by the owner
+(2026-11-20): once the person grants computer use, every computer-use step is approved, instead
+of each one being reviewed and escalated.
+
+- **A switch per family.** Each bot has Permissions (`spade_core::permission`): Computer use
+  (`screen_*`), Browser (`browser_*`), Simulators and devices (`sim_*`), Apps (connectors' tools),
+  Commands outside the sandbox, Network beyond listed sites, Send as you and Payments. A bot uses
+  the machine's default unless it sets its own, and a worker is never freer than the bot above it.
+  Commands and Network are the existing `commands` and network settings shown as switches; the
+  rest are kept beside them in the bot's and the machine's security settings. No other permission
+  store exists.
+- **On runs, off refuses.** In both modes, after the organization's policy and the package's
+  ceiling and before any Always allow, grant, review or request: a driving step whose switch is
+  off is refused with one line saying where to turn it on. With it on, the step runs with no
+  reviewer, no classifier, no second review and no card, reads and input alike, under untrusted
+  content too. Apps, Send as you and Payments refuse their effect while off; on, the gate's usual
+  route stands, so a send and a payment still ask each time.
+- **The never-use list.** Under Computer use the person keeps a list of apps bots never use
+  (password managers and money apps to start; the person adds and removes entries). The name a
+  step gives and every app ace could open for it are read against it, and an app on it is
+  refused. Nothing else stops a screen step once Computer use is on: mail, chat, settings and a
+  browser driven through the screen run like any app.
+- **Place binding stays.** The place is still resolved right before the gate and again right
+  before the step, and a step that moved doesn't run. Every step a switch lets run is held to its
+  place inside ace (`expect`); one that must be held and that Spade can't place (a tab loading or
+  missing, a name matching several apps, a screen step with no app) or ace can't hold is refused,
+  so the bot looks again. Under Browser and Simulators a step that sends no input and picks no
+  tab (`table`'s `holds` false) runs without a place; a screen step never does, since the list
+  needs its app.
+- **Person-only to loosen, on every route.** Anything that lets a bot do more needs the person's
+  stamp from ace's daemon (`x-ace-person`), as Full access does: turning a switch on, for a bot
+  or the default, or following a default that is on; dropping an app from the never-use list;
+  moving commands outside the sandbox (`…/security/commands`, a bot's or the machine's);
+  widening a network policy, the commands' or the plugins' (a freer mode, a host added, a
+  dropped default put back), or following a wider default (`DELETE …/network`); adding a grant
+  of any kind; letting a bot use more connected apps (`…/connectors`); turning a package's effect
+  on; raising autonomy. Tightening never needs it. Only Spade knows what holds now, so it decides
+  whether a change loosens; the daemon stamps each such change, over the SHA-256 of the bytes it
+  forwards, when the caller proved the person's standing, and otherwise forwards it unstamped. A
+  refusal says "Confirm your identity to continue.", so a window offers Confirm it's you. On a
+  shared bot the member whose `configure` stamp let the write through stands for the person
+  (ADR 0206 §2.3); its Permissions switches take an owner or admin.
+- **What is left.** A page or app the bot drives while untrusted content is in view can steer
+  it; with the switch on, only the never-use list, the binding and the package's ceiling stand
+  between that and the person's apps. Drive grants from earlier builds stay stored but decide
+  nothing.
+
+Tested in `spade_core::effect::permitted` (on runs with no review in both modes, off refuses,
+the list refuses, unplaced and unheld steps refuse, a package ceiling and an organization still
+hold), `spade_core::permission` and, through the API, in `spade-server/tests/effects.rs` (reads
+and input with Computer use on run with no card and held to their app, Mail runs until it is on
+the list, off refuses, a page that changed doesn't run, an ace that can't hold refuses, a step is
+bound to its tab and address) and `spade-server/tests/permissions.rs` (turning a switch on
+without the person's stamp is refused and works with it).
+
 ## Note: Full access (2026-11-18)
 
 This ADR's routes are the auto-review's. [ADR 0163](0163-spade-auto-review-only.md) amendment 2
 adds Full access, opt-in per bot: the same effects and places, the person-only effects first, then
-no reviewer. What amendment 3 sends to the person (sensitive places, simulators and devices, a
-place Spade can't name or ace can't hold) still asks there; what it sends to the reviewer runs.
+no reviewer. Driving steps go by the bot's Permissions in both modes (amendment 7).
 
 ## Note: what Spade can't vouch for asks the person (2026-11-19)
 

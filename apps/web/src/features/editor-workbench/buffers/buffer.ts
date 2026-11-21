@@ -1,4 +1,4 @@
-import { EditorDocument } from "@ace/editor";
+import { EditorDocument, type Indent } from "@ace/editor";
 import type { Author } from "./attribution.ts";
 import { DocumentViews } from "./document-views.ts";
 import { DraftSlot } from "./draft-slot.ts";
@@ -35,6 +35,8 @@ export interface BufferContext {
   /** Typing has to pause this long before the draft is written. */
   draftDelay: number;
   attribute(key: BufferKey, at: number): Author;
+  /** The indentation for a file that shows none of its own; the document's default when unset. */
+  indent?: (() => Indent) | undefined;
   /** Resident size or holdability changed: the registry checks its cap. */
   changed(): void;
 }
@@ -65,6 +67,8 @@ export class Buffer implements TextBuffer {
   disposed = false;
 
   readonly #ctx: BufferContext;
+  /** Aborted on dispose, so a closed tab's reads leave the connection's queue. */
+  readonly #reading = new AbortController();
   #doc: EditorDocument | undefined;
   #view: DocumentViews | undefined;
   /** The registry is landing text: the views' edit callbacks are not the person typing. */
@@ -162,6 +166,15 @@ export class Buffer implements TextBuffer {
     }, this.#ctx.draftDelay);
   }
 
+  editLines(changes: readonly { start: number; end: number; text: string }[]): boolean {
+    const doc = this.#doc;
+    if (!doc) return false;
+    const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
+    landLineChanges(doc, changes, through && ((run) => through.edit(run)));
+    this.edited();
+    return true;
+  }
+
   /** Writes a pending draft now (pagehide, quit). */
   flush(): Promise<void> {
     if (this.#cancelDraft) {
@@ -176,7 +189,7 @@ export class Buffer implements TextBuffer {
     const generation = ++this.#generation;
     this.#setStatus({ kind: "loading" });
     const [read, draft, ready] = await Promise.all([
-      this.#ctx.files.read(this.key).then(
+      this.#ctx.files.read(this.key, this.#reading.signal).then(
         (file) => ({ ok: true as const, file }),
         (error: unknown) => ({ ok: false as const, message: message(error) }),
       ),
@@ -236,7 +249,8 @@ export class Buffer implements TextBuffer {
       return;
     }
     const generation = this.#generation;
-    const disk = file ?? (await this.#ctx.files.read(this.key).catch(() => undefined));
+    const disk =
+      file ?? (await this.#ctx.files.read(this.key, this.#reading.signal).catch(() => undefined));
     if (!disk || generation !== this.#generation || this.disposed) return;
     await this.#meet(disk);
   }
@@ -356,6 +370,7 @@ export class Buffer implements TextBuffer {
 
   dispose(): void {
     this.disposed = true;
+    this.#reading.abort();
     this.#generation++;
     this.#cancelDraft?.();
     this.#free();
@@ -432,7 +447,9 @@ export class Buffer implements TextBuffer {
       try {
         const result = await this.#ctx.files.write(this.key, text, expected);
         if (result.kind === "clash") {
-          const disk = await this.#ctx.files.read(this.key).catch(() => undefined);
+          const disk = await this.#ctx.files
+            .read(this.key, this.#reading.signal)
+            .catch(() => undefined);
           if (disk) await this.#meet(disk);
           return { kind: "clash" };
         }
@@ -509,6 +526,9 @@ export class Buffer implements TextBuffer {
   #adopt(text: string, base: Theirs, dirty: boolean, clash?: Clash): void {
     this.#free();
     const doc = new EditorDocument(text);
+    // Tab, Enter and the indent keys write what the file already uses, else the device's default.
+    const indent = doc.detectIndent() ?? this.#ctx.indent?.();
+    if (indent) doc.setIndent(indent);
     this.#doc = doc;
     this.#base = base;
     this.#dirty = dirty;

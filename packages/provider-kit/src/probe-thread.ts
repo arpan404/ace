@@ -7,6 +7,7 @@ import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
 import { z } from "zod";
 import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 import { requestOwner, unscoped, type RequestOwner } from "./unscoped.ts";
+import { markedEnv } from "./process-marker.ts";
 
 export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;
 export interface ProbeThread {
@@ -34,6 +35,9 @@ function stopGroup(pid: number): void {
     // A group this daemon can no longer signal is not one it can stop.
   }
 }
+
+/** How long a stopped probe waits for its worker to confirm the exit before the worker is ended. */
+export const stopGraceMs = 2_000;
 
 const ProbeAddress = z.object({
   id: z.number().int().nonnegative(),
@@ -67,12 +71,21 @@ export function createProbeThread(
   let next = 0;
   const flights = new Map<number, Flight>();
   const stop = (flight: Flight) => {
+    const first = !flight.stopping;
     flight.stopping = true;
     if (flight.pid !== undefined) stopGroup(flight.pid);
     try {
       worker.postMessage({ type: "stop", id: flight.id });
     } catch {
       // A closed worker has already failed every flight.
+    }
+    // A worker stuck in a spawn reads no stop and sends no exit: past a short grace it is ended
+    // itself, which fails its flights, so neither the probe nor a global stop waits on it.
+    if (first) {
+      const cancel = workers.delay(() => {
+        if (flights.get(flight.id) === flight) worker.recycle();
+      }, stopGraceMs);
+      void flight.settled.then(cancel);
     }
     return flight.settled;
   };
@@ -122,10 +135,13 @@ export function createProbeThread(
     const flight = flights.get(message.data.id);
     if (!flight) return;
     if (message.data.type === "spawned") {
-      const { pid } = message.data;
+      const { pid, unique } = message.data;
       flight.pid = pid;
       try {
-        registerGroup(pid, () => stop(flight), { name: "cli-probe" });
+        registerGroup(pid, () => stop(flight), {
+          name: "cli-probe",
+          ...(unique ? { unique } : {}),
+        });
       } catch {
         // Unrecorded, it must not outlive this probe.
         flight.stopping = true;
@@ -192,12 +208,15 @@ export async function probeOffThread(
     signal?: AbortSignal | undefined;
     schedule: (callback: () => void, milliseconds: number) => () => void;
     thread?: ProbeThread | undefined;
+    /** A global stop: ends the process, and its exit is still the probe's answer. */
+    halt?: AbortSignal | undefined;
   },
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   // Shared by every caller, so started in no caller's context.
   const thread = options.thread ?? (shared ??= unscoped(() => createProbeThread()));
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries({ ...process.env, ...options.env }))
+  // Marked here, on the owner's thread: the probe worker owns no run of its own.
+  for (const [key, value] of Object.entries(markedEnv({ ...process.env, ...options.env })))
     if (value !== undefined) env[key] = value;
   const stop = new AbortController();
   let failure: Error | undefined;
@@ -212,16 +231,22 @@ export async function probeOffThread(
     stop.abort();
   }, options.timeoutMs);
   try {
-    const exit = await thread.run(
-      {
-        command,
-        args: [...args],
-        env,
-        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-        maxBytes: options.maxBytes,
-      },
-      stop.signal,
-    );
+    const exit = await thread
+      .run(
+        {
+          command,
+          args: [...args],
+          env,
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+          maxBytes: options.maxBytes,
+        },
+        options.halt ? AbortSignal.any([stop.signal, options.halt]) : stop.signal,
+      )
+      // A probe stopped for its deadline or an abort says so, even when its worker had to be
+      // ended to stop it.
+      .catch((error: unknown) => {
+        throw failure ?? error;
+      });
     if (failure) throw failure;
     if (exit.reason === "output-limit") throw new OutputLimitError("Probe output exceeded limit");
     if (exit.reason === "spawn-error") throw new Error("Probe failed to start");

@@ -25,10 +25,17 @@ export type ClientCloseCause = z.infer<typeof ClientCloseCause>;
  */
 export const ClientCloseReport = z.object({
   code: z.number().int().min(0).max(4999),
-  cause: ClientCloseCause.catch("other").meta({
-    "x-ace-json-input": ClientCloseCause,
-    "x-ace-constraint": "A cause this daemon doesn't know is read as `other`.",
-  }),
+  // A union, not `.catch()`: the protocol docs generator and browser workers leave `.catch()` out.
+  cause: z.union([
+    ClientCloseCause,
+    z
+      .unknown()
+      .transform((): ClientCloseCause => "other")
+      .meta({
+        "x-ace-json-input": ClientCloseCause,
+        "x-ace-constraint": "A cause this daemon doesn't know is read as `other`.",
+      }),
+  ]),
   /** The connection had been welcomed before it ended. */
   wasReady: z.boolean(),
   /** How long it had been ready, when it was. */

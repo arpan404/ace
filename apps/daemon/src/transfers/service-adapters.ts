@@ -81,7 +81,7 @@ export function targetProjects(context: ServiceContext): TargetProjects {
         .catch(() => {
           throw new TransferError(
             "parent_not_allowed",
-            "That folder isn't one this machine lets projects be made in.",
+            "Choose an existing, writable folder inside this machine's allowed project roots.",
           );
         }),
     clone: async ({ key, parent, name, url, signal, made }) => {

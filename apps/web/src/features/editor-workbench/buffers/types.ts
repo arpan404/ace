@@ -162,6 +162,11 @@ export interface TextBuffer {
   subscribe(listener: (event: BufferEvent) => void): () => void;
   /** A view applied an edit to the document. Cheap: no text is read until typing pauses. */
   edited(): void;
+  /**
+   * Lands whole-line changes the person asked for (a hunk revert) as one undoable edit through a
+   * mounted view, leaving the buffer unsaved. False when there is no document.
+   */
+  editLines(changes: readonly { start: number; end: number; text: string }[]): boolean;
   save(): Promise<SaveOutcome>;
   /** The explicit answer to a clash on save: write the buffer over the disk's version. */
   replace(): Promise<SaveOutcome>;

@@ -1,0 +1,79 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackagePlan.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "asks_more": {
+      "items": {
+        "maxLength": 2100,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "face": {
+      "$ref": "https://ace.local/protocol/v1/PackageFieldStep.json"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/PackageFieldStep.json"
+    },
+    "notes_kept": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "off": {
+      "items": {
+        "maxLength": 2100,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "personality": {
+      "$ref": "https://ace.local/protocol/v1/PackageFieldStep.json"
+    },
+    "routines": {
+      "items": {
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean"
+          },
+          "step": {
+            "enum": [
+              "add",
+              "replace",
+              "remove",
+              "kept"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "name"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "task": {
+      "$ref": "https://ace.local/protocol/v1/PackageFieldStep.json"
+    }
+  },
+  "required": [
+    "name",
+    "task",
+    "face",
+    "personality",
+    "routines",
+    "notes_kept",
+    "asks_more",
+    "off"
+  ],
+  "type": "object"
+}

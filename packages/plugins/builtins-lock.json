@@ -49,9 +49,10 @@
       ]
     },
     "ace-computer-use": {
-      "version": 20,
-      "hash": "24fe2c00c2646eb3aad3f0f1e06ff98bf89432d3e609d7355b7c7deacbe54fd3",
+      "version": 21,
+      "hash": "2ae5effd948fc0de78a9efed4605387c67c54d7c7ecbdd29dcca0e9c02ddd36c",
       "previous": [
+        "24fe2c00c2646eb3aad3f0f1e06ff98bf89432d3e609d7355b7c7deacbe54fd3",
         "3a9b9e40174c179d15311205ed4c3e6cfbd4d8fee74114f3a53ab73c29a68533",
         "537eb43b5dbe6591da469e89360fa59134d1e5a0cb913620c295b84af64f67a1",
         "8dcf590fdd511585d1c4e1c22c20f48de74f567a460adf61aaa420c53d77c9d9",
@@ -107,6 +108,14 @@
         "a11f8fd18eea18d6cfddc5c71ffe9d51f566751f8f8fd11e248c6c063e9b7ce1",
         "3b36016d91719402a8304523c5dc9fb1847bed6b2ed4d214ce74f5c50d1e296b",
         "30c6a0544a3ecd12db611f83caf29f8259ca236094ad9becc8987b3fd578a548"
+      ]
+    },
+    "make-a-bot": {
+      "version": 3,
+      "hash": "f23cad74a9c081d23146cd35f8b1116bed5861136dc5d5c9fd488a2124be77ce",
+      "previous": [
+        "012497e8b28eddd25de7e26a69a64eea436e7b75bd8fc147a97f7b611cd3518d",
+        "f05b15e1e903c73b1f332ea4f52c8ea46bd03aad1034499718c808f53ad7474e"
       ]
     },
     "make-a-suit": {

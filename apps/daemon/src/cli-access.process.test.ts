@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { serviceCommand } from "@ace/service";
 import { cliOutputs } from "@ace/protocol/cli-outputs";
@@ -132,8 +132,22 @@ describe("machine entry points stay byte-compatible", () => {
   });
 
   test("ace service status --json prints the service module's own answer, unchanged", async () => {
-    const output = await run(["service", "status", "--json"]);
-    expect(output.code, output.stderr).toBe(0);
-    expect(output.stdout).toBe(`${JSON.stringify(await serviceCommand(home, ["status"]))}\n`);
+    // A test home's runtime folder has no systemd user manager, so on Linux both sides ask a
+    // stand-in `systemctl` that knows no ace unit (exit 4), never the person's own manager.
+    const bin = await mkdtemp(join(tmpdir(), "ace-cli-access-bin-"));
+    const path = process.env.PATH;
+    try {
+      await writeFile(join(bin, "systemctl"), "#!/bin/sh\nexit 4\n", { mode: 0o755 });
+      process.env.PATH = `${bin}${delimiter}${path ?? ""}`;
+      const output = await invoke(home, ["service", "status", "--json"], "", {
+        HOME: empty,
+        ACE_MAINTENANCE: "1",
+      });
+      expect(output.code, output.stdout).toBe(0);
+      expect(output.stdout).toBe(`${JSON.stringify(await serviceCommand(home, ["status"]))}\n`);
+    } finally {
+      process.env.PATH = path;
+      await rm(bin, { recursive: true, force: true });
+    }
   });
 });

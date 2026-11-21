@@ -11,6 +11,7 @@ import { SettingRow } from "@/components/setting-row.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
+import { AccentRow } from "./spade-profile-accent.tsx";
 import { ProfileSection } from "./spade-profile-parts.tsx";
 import { Refusal } from "./spade-settings-rows.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -46,6 +47,7 @@ export function ProfilePersonality(props: { bot: RosterBot }) {
   return (
     <ProfileSection label="Personality">
       <PersonalityRows value={now} onChange={(next) => void save(next)} />
+      {bot.kind !== "main" && <AccentRow bot={bot} />}
       {refusal && (
         <p data-setting-slot="" className="py-2 text-xs">
           <Refusal>{refusal}</Refusal>

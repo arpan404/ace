@@ -12,7 +12,8 @@
             "screen",
             "provider_auth",
             "media",
-            "machine"
+            "machine",
+            "tunnel"
           ],
           "type": "string"
         },
@@ -50,6 +51,17 @@
         },
         "installId": {
           "$ref": "https://ace.local/protocol/v1/InstallId.json"
+        },
+        "lastClose": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ClientCloseReport.json"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/ClientCloseReport.json",
+              "x-ace-constraint": "A report that doesn't parse is read as none; the hello still stands."
+            }
+          ]
         },
         "link": {
           "$ref": "https://ace.local/protocol/v1/PairingLinkProof.json"
@@ -471,6 +483,50 @@
       "required": [
         "type",
         "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "org": {
+          "$ref": "https://ace.local/protocol/v1/AceOrgId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "account.owner.enroll",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "org"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "org": {
+          "$ref": "https://ace.local/protocol/v1/AceOrgId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "account.owner.enroll.confirm",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "org"
       ],
       "type": "object"
     }

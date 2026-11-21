@@ -64,8 +64,11 @@ impl Engine {
         for child in self.worker_children(id) {
             match self.node_state(&child, 1) {
                 State::Waiting => around.children_waiting = true,
-                State::Working | State::Sleeping => around.children_working = true,
-                State::Idle => {}
+                State::Working | State::Updating | State::Sleeping => {
+                    around.children_working = true
+                }
+                // Paused by the person: it holds, and holds nothing of its maker's up.
+                State::Idle | State::Paused => {}
             }
         }
         for child in tree::ace_children(events) {
@@ -91,6 +94,10 @@ impl Engine {
             0 => usize::MAX,
             n => n,
         };
+        // A packaged bot's own bound, under the machine's (ADR 0200 §3.6).
+        let most = self
+            .package_workers_at_once(parent)
+            .map_or(most, |own| own.min(most));
         let mut busy = children
             .iter()
             .filter(|c| {

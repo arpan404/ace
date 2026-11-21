@@ -1,7 +1,8 @@
 import type { MarketProblem } from "@ace/protocol/marketplace";
 import type { ArchiveFile } from "../archive.ts";
-import { frontmatter, text } from "../listing.ts";
+import { text } from "../listing.ts";
 import { secretFileProblem, secretValueProblems } from "../secrets.ts";
+import { readSkillMd, skillMdProblems, unusedFields } from "../skill-md.ts";
 
 /** A skill's facts for its review: its SKILL.md and which of its files are scripts or binaries. */
 export interface SkillInspection {
@@ -11,6 +12,12 @@ export interface SkillInspection {
   skillMd: string;
   /** Paths that are executable or not text. */
   flagged: string[];
+  license: string | undefined;
+  compatibility: string | undefined;
+  /** `allowed-tools`: shown, never a grant (ADR 0202 decision 4). */
+  allowedTools: string[];
+  /** Front matter fields the specification doesn't define: kept, not used. */
+  unused: string[];
 }
 
 const textLike = /\.(?:md|mdc|markdown|txt|json|ya?ml|toml|csv|tsv|html?|css|xml|svg)$/i;
@@ -33,8 +40,10 @@ export function folderSecretProblems(files: readonly ArchiveFile[], prefix = "")
 }
 
 /**
- * An ADR 0103 skill folder: `SKILL.md` at its root with frontmatter naming it and saying what it
- * does, and no secrets. `name` is the name the skill must carry.
+ * A skill folder: `SKILL.md` at its root meeting the Agent Skills specification (ADR 0202 §1:
+ * its name, the folder's, and its description, license, compatibility, metadata and
+ * allowed-tools as the spec has them), and no secrets. `name` is the name the skill must carry.
+ * Fields the spec doesn't define are kept and listed, never refused.
  */
 export function checkSkill(
   name: string,
@@ -51,34 +60,21 @@ export function checkSkill(
     });
     return { inspection: undefined, problems };
   }
-  const { data } = frontmatter(markdown);
-  const declared = typeof data["name"] === "string" ? data["name"] : undefined;
-  const description = typeof data["description"] === "string" ? data["description"].trim() : "";
-  if (declared !== name)
-    problems.push({
-      path: `${prefix}SKILL.md`,
-      line: 1,
-      message: `SKILL.md's frontmatter must say name: ${name}`,
-    });
-  if (!description)
-    problems.push({
-      path: `${prefix}SKILL.md`,
-      line: 1,
-      message: "SKILL.md's frontmatter needs a description",
-    });
-  else if (description.length > 1024)
-    problems.push({
-      path: `${prefix}SKILL.md`,
-      line: 1,
-      message: "The description is over 1024 characters",
-    });
+  problems.push(...skillMdProblems(name, markdown, `${prefix}SKILL.md`));
+  const read = readSkillMd(markdown);
   return {
     inspection: {
       type: "spade-skill",
       skillName: name,
-      description: description.slice(0, 1024),
+      description: read.description.slice(0, 1024),
       skillMd: markdown,
       flagged: files.filter(flaggedFile).map((file) => file.path),
+      license: read.license?.slice(0, 200),
+      compatibility: read.compatibility?.slice(0, 500),
+      allowedTools: read.allowedTools.slice(0, 64).map((tool) => tool.slice(0, 120)),
+      unused: unusedFields(read)
+        .slice(0, 64)
+        .map((field) => field.slice(0, 120)),
     },
     problems,
   };

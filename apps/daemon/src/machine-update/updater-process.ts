@@ -10,6 +10,7 @@ import { desktopAppMarker } from "@ace/service/desktop-update";
 import { cliOrigin } from "../doctor/install-versions.ts";
 import type { UpdaterPorts } from "./standalone-installer.ts";
 import type { RecordStore } from "./record.ts";
+import { keptEnv, noteKept } from "@ace/provider-kit/process-marker";
 
 export type Spawner = (
   command: string,
@@ -88,12 +89,14 @@ export function updaterProcess(options: {
         userHome: homedir(),
         canonical: canonicalPath,
       });
+      // Kept: the updater stops and replaces the daemon, so no stop of the daemon's ends it.
       const child = spawn(launch.command, launch.args, {
         stdio: "ignore",
         detached: launch.detached,
         windowsHide: true,
-        env: options.env,
+        env: keptEnv(options.env),
       });
+      noteKept(child.pid);
       child.unref();
       return {
         exited: new Promise((resolve, reject) => {

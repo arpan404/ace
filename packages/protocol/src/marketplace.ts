@@ -17,11 +17,20 @@ import {
 
 import { marketPublishOperations, marketPublishResults } from "./marketplace-publish-ops.ts";
 import { SpadePersonality } from "./marketplace-catalog.ts";
+import {
+  PackageCodeImport,
+  PackageEffectWord,
+  PackageGrant,
+  PackageLimits,
+  PackagePlan,
+  PackageTrigger,
+} from "./marketplace-package.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 
 export * from "./marketplace-base.ts";
 export * from "./marketplace-publish-pick.ts";
 export * from "./marketplace-catalog.ts";
+export * from "./marketplace-package.ts";
 export * from "./marketplace-discover.ts";
 export * from "./marketplace-publish-ops.ts";
 export * from "./marketplace-publisher.ts";
@@ -64,6 +73,15 @@ export const MarketInstalled = z.strictObject({
    * the skill is installed but no bot sees it until the person turns it on.
    */
   botsApproved: z.boolean().optional(),
+  /** A bot from a version 3 package: it stays linked, so it updates and rolls back (ADR 0200). */
+  linked: z.boolean().optional(),
+  /** The version a linked bot had before, kept pinned here so a rollback needs no network. */
+  previous: z.strictObject({ version: z.string().max(64), hash: MarketHash }).optional(),
+  /**
+   * An update of a linked bot the person accepted while it worked: Spade applies it when the
+   * bot's turn ends. `version` above stays the one running until then.
+   */
+  held: z.strictObject({ version: z.string().max(64) }).optional(),
 });
 export type MarketInstalled = z.infer<typeof MarketInstalled>;
 
@@ -119,8 +137,65 @@ export const MarketRoutineRow = z.strictObject({
   schedule: z.string().max(200),
 });
 
+/** One effect a package declares, as a switch on its review (ADR 0200 §3.4). */
+export const MarketEffectRow = z.strictObject({
+  /** The switch's key, as Spade reads it (`network:hosts:api.example.com`). */
+  key: z.string().min(1).max(2100),
+  effect: PackageEffectWord,
+  hosts: z.array(z.string().max(260)).max(32).optional(),
+  grant: PackageGrant.optional(),
+  why: z.string().max(500),
+});
+export type MarketEffectRow = z.infer<typeof MarketEffectRow>;
+
+/** The free replay of the bot's kept runs on the version a review would move it to (ADR 0204 §2). */
+export const MarketBotReplay = z.object({
+  /** Spade's sentence: "18 of 20 kept runs replay the same. 2 don't: see why." */
+  summary: z.string().max(500),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  cases: z
+    .array(
+      z.object({
+        id: z.string().max(80),
+        given: z.string().max(300),
+        passed: z.boolean(),
+        lines: z.array(z.string().max(2000)).max(20),
+      }),
+    )
+    .max(200),
+});
+export type MarketBotReplay = z.infer<typeof MarketBotReplay>;
+
+/**
+ * One WebAssembly component a package ships, as a row on its review (ADR 0203 §5): "Runs its own
+ * code: fares. It can call Spade's tools as this bot." Its imports are the binary's: the signer
+ * read them from the bytes and refused a version whose manifest said otherwise.
+ */
+export const MarketCodeRow = z.strictObject({
+  name: z.string().min(1).max(24),
+  imports: z.array(PackageCodeImport).max(7),
+  why: z.string().max(500),
+  sentence: z.string().max(2000),
+});
+export type MarketCodeRow = z.infer<typeof MarketCodeRow>;
+
+/** What an update or rollback of a linked bot does, for its review (ADR 0200 §6.1). */
+export const MarketBotUpdate = z.strictObject({
+  bot: z.string().min(1).max(80),
+  /** Back to the version it had before, from the bytes pinned here. */
+  rollback: z.boolean(),
+  /** Spade's plan: what is replaced, and what stays because the person or the bot changed it. */
+  plan: PackagePlan,
+  /** What the new version asks for that the old one didn't, besides effects; it starts off. */
+  asksMore: z.array(z.string().max(500)).max(64),
+  /** Its kept runs replayed free on the new version; absent with none, or when Spade couldn't. */
+  replay: MarketBotReplay.optional(),
+});
+export type MarketBotUpdate = z.infer<typeof MarketBotUpdate>;
+
 /** What one type can do, in the facts its review page says in sentences. */
-export const MarketReviewBody = z.discriminatedUnion("type", [
+const MarketReviewBodySchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("suit"),
     passes: z.boolean(),
@@ -135,6 +210,14 @@ export const MarketReviewBody = z.discriminatedUnion("type", [
     description: z.string().max(1024),
     files: z.number().int().nonnegative(),
     flagged: z.number().int().nonnegative(),
+    /** SKILL.md's `license`, shown as it says (ADR 0202 §1). */
+    license: z.string().max(200).optional(),
+    /** `compatibility`, shown; never a reason to refuse. */
+    compatibility: z.string().max(500).optional(),
+    /** `allowed-tools`: what the skill asks to run without asking. It grants nothing. */
+    allowedTools: z.array(z.string().max(120)).max(64).optional(),
+    /** Front matter fields this ace keeps but doesn't use. */
+    unused: z.array(z.string().max(120)).max(64).optional(),
   }),
   z.strictObject({
     type: z.literal("spade-plugin"),
@@ -165,9 +248,29 @@ export const MarketReviewBody = z.discriminatedUnion("type", [
     needs: z.array(MarketNeed).max(64),
     /** Whether Spade is running to make the bot; installing waits for it otherwise. */
     spadeReady: z.boolean(),
+    /** A version 3 package: the bot stays linked to it (ADR 0200 §3.9). */
+    linked: z.boolean().optional(),
+    /** Its declared effects, each a switch the person sets; nothing is granted before Install. */
+    effects: z.array(MarketEffectRow).max(32).optional(),
+    /** Its own code, a row per component; every version with code was read by a maintainer. */
+    code: z.array(MarketCodeRow).max(4).optional(),
+    /** Its triggers other than schedules, which `routines` lists. */
+    triggers: z.array(PackageTrigger).max(40).optional(),
+    limits: PackageLimits.optional(),
+    /** Fields this build doesn't use: "Not used by this Spade". */
+    unused: z.array(z.string().max(80)).max(64).optional(),
+    /** For an update or a rollback of an installed bot. */
+    update: MarketBotUpdate.optional(),
+    /**
+     * It uses apps or agents, which take a model that calls tools, and none of the models it
+     * would think with does (ADR 0205 §3). Installing still works; the bot can't act until then.
+     */
+    modelWarning: z.string().max(500).optional(),
   }),
 ]);
-export type MarketReviewBody = z.infer<typeof MarketReviewBody>;
+export type MarketReviewBody = z.infer<typeof MarketReviewBodySchema>;
+/** Typed by name, so the wire's unions that carry a review stay small enough to declare. */
+export const MarketReviewBody: z.ZodType<MarketReviewBody> = MarketReviewBodySchema;
 
 /** A review's summary, bounded; its files, texts and executions page through `readReview`. */
 export const MarketReview = z.strictObject({
@@ -240,13 +343,20 @@ export const MarketInstallChoices = z.strictObject({
   needs: z.record(z.string().max(2100), z.boolean()).default({}),
   /** A recipe's routines start running; off by default. */
   startRoutines: z.boolean().default(false),
+  /** A package's effect switches as the person left them, by `MarketEffectRow.key`; one missing is off. */
+  effects: z.record(z.string().max(2100), z.boolean()).optional(),
 });
 export type MarketInstallChoices = z.infer<typeof MarketInstallChoices>;
 
 /* ---------------------------------------------------------------- operations */
 
 const entryKey = { source: MarketSourceId, type: z.string().min(1).max(40), name: MarketEntryName };
-const installedKey = { type: MarketEntryType, name: MarketEntryName };
+const installedKey = {
+  type: MarketEntryType,
+  name: MarketEntryName,
+  /** For a bot package, which bot made from it (ADR 0200 §3.9): one package can make several. */
+  bot: z.string().min(1).max(80).optional(),
+};
 
 export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("sources") }),
@@ -280,6 +390,8 @@ export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("cancel"), id: MarketReviewId }),
   z.strictObject({ op: z.literal("installed") }),
   z.strictObject({ op: z.literal("prepareUpdate"), ...installedKey }),
+  /** A review of the version a linked bot had before, from the bytes pinned here (ADR 0200). */
+  z.strictObject({ op: z.literal("prepareRollback"), ...installedKey }),
   z.strictObject({ op: z.literal("remove"), ...installedKey }),
   /** Turns a withdrawn or turned-off entry back on, from its pinned bytes. */
   z.strictObject({ op: z.literal("turnOn"), ...installedKey }),
@@ -290,6 +402,11 @@ export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("turnOnForBots"), name: MarketEntryName, hash: MarketHash }),
   /** Spade's view (ADR 0168 §13, `marketplace.spade`): installed market skills with hashes. */
   z.strictObject({ op: z.literal("spadeSkills") }),
+  /**
+   * The version of a bot package the market lists now, for a bot's suggestion (ADR 0200 §8):
+   * its signed version manifest and `bot.json`. Spade checks the signature itself.
+   */
+  z.strictObject({ op: z.literal("spadeBot"), name: MarketEntryName }),
   ...marketPublishOperations,
   /** One market skill's files, or one file's content by `path`, as `skills.request files`. */
   z.strictObject({
@@ -310,6 +427,7 @@ export const marketReadOperations: readonly MarketOperation["op"][] = [
   "installed",
   "spadeSkills",
   "spadeSkillFiles",
+  "spadeBot",
   "discover",
   "publisher",
   "picture",
@@ -389,6 +507,15 @@ export const MarketResult = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("installed"), installed: z.array(MarketInstalled).max(1024) }),
   z.strictObject({ op: z.literal("done"), installed: MarketInstalled.optional() }),
   z.strictObject({ op: z.literal("spadeSkills"), skills: z.array(MarketSpadeSkill).max(1024) }),
+  z.strictObject({
+    op: z.literal("spadeBot"),
+    /** The market's signed version manifest, as served; checked by Spade, not here. */
+    signed: z.unknown(),
+    /** `bot.json` exactly as the signed archive has it. */
+    botJson: z.string().max(1_000_000),
+    /** Its contracts' schema files (`contracts/<name>.json`), by path, as the archive has them. */
+    contractFiles: z.record(z.string().max(80), z.string().max(40_960)).optional(),
+  }),
   z.strictObject({
     op: z.literal("spadeSkillFiles"),
     files: z.array(MarketSpadeFile).max(512),

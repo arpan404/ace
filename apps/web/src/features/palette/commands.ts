@@ -58,6 +58,7 @@ type Destination =
   | "/usage"
   | "/archived"
   | "/history"
+  | "/spade/running"
   | "/settings";
 
 /** The order groups show in with an empty query: what's at hand first, the long lists after. */
@@ -215,6 +216,18 @@ export function usePaletteGroups(
             run: go("/usage"),
             keys: keymap.goUsage.keys,
           },
+          // Everything Spade runs, with Stop, Pause and Resume (ADR 0200 §6.3).
+          ...(spadeShown
+            ? [
+                {
+                  id: "go-spade-running",
+                  label: "Running bots",
+                  keywords: "spade task manager pause resume stop",
+                  icon: "view",
+                  run: go("/spade/running"),
+                } satisfies PaletteCommand,
+              ]
+            : []),
           { id: "go-history", label: "History", icon: "view", run: go("/history") },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {

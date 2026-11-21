@@ -1,0 +1,14 @@
+{
+  "name": "Daily lesson runs and reports",
+  "given": {
+    "trigger": "Daily lesson"
+  },
+  "model": [
+    {
+      "say": "Today's review: three questions on what we covered."
+    }
+  ],
+  "expect": {
+    "reply_contains": ["Today's"]
+  }
+}

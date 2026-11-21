@@ -1,0 +1,76 @@
+{
+  "$id": "https://ace.local/protocol/v1/Speaker.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "about": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "ask": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "avatar": {
+      "$ref": "https://ace.local/protocol/v1/SpadeFaceJson.json"
+    },
+    "club": {
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "const": "bot",
+      "type": "string"
+    },
+    "machine": {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/HostId.json"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "name",
+    "about"
+  ],
+  "type": "object"
+}

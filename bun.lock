@@ -12,6 +12,7 @@
         "@types/node": "^26.6.4",
         "dependency-cruiser": "^18.5.0",
         "eslint-plugin-react-hooks": "^7.1.1",
+        "marked": "^16.3.0",
         "node-gyp": "11.5.0",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
@@ -155,6 +156,7 @@
         "@ace/client-worker": "workspace:*",
         "@ace/cloud": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@ace/market": "workspace:*",
         "@ace/perf-kit": "workspace:*",
         "@cursor/sdk": "1.0.35",
         "@modelcontextprotocol/client": "2.2.0",
@@ -205,6 +207,7 @@
         "@ace/html": "workspace:*",
         "@ace/native-host": "workspace:*",
         "@ace/notify": "workspace:*",
+        "@ace/preview": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/settings": "workspace:*",
@@ -551,6 +554,7 @@
       "name": "@ace/browser-extension",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "ws": "8.22.0",
         "zod": "^4.6.5",
       },
@@ -567,9 +571,11 @@
         "@ace/browser": "workspace:*",
         "@ace/devices": "workspace:*",
         "@ace/files": "workspace:*",
+        "@ace/preview": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "ws": "^8.18.3",
         "zod": "^4.3.6",
       },
       "devDependencies": {
@@ -582,7 +588,6 @@
         "@ace/relay": "workspace:*",
         "@ace/screen": "workspace:*",
         "@types/ws": "^8.18.1",
-        "ws": "^8.18.3",
       },
     },
     "packages/client-react": {
@@ -788,10 +793,12 @@
       "name": "@ace/history-import",
       "dependencies": {
         "@ace/adapter-pi": "workspace:*",
+        "@ace/files-native": "workspace:*",
         "@ace/native-session": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/service": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -826,6 +833,7 @@
       "name": "@ace/marketplace",
       "dependencies": {
         "@ace/account-grant": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/suits": "workspace:*",
@@ -834,6 +842,9 @@
         "@noble/hashes": "2.0.1",
         "yaml": "^2.8.1",
         "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "ajv": "^8.17.1",
       },
     },
     "packages/markit-web": {

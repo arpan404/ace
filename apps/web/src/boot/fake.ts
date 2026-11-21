@@ -293,7 +293,7 @@ export function bootFake(): {
   // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
   if (world === "spade") seedFakeSpade(daemon, server);
   // `?fakeWorld=mentions`: the Spade world, and a thread that asked its bots (ADR 0198).
-  if (world === "mentions") seedFakeMentions(daemon, seedFakeSpade(daemon, server));
+  if (world === "mentions") seedFakeMentions(daemon, seedFakeSpade(daemon, server), server);
   if (world === "cross-device") seedMachineChildren(daemon, server);
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
   // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio

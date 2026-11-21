@@ -1,0 +1,254 @@
+import { stat } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import {
+  breaksReason,
+  contractBreaks,
+  contractFiles,
+  contractSchemaPath,
+  inlineContractFiles,
+  latestPublished,
+  marketOrigin,
+  readSkillMd,
+  unusedFields,
+  type MarketReads,
+} from "@ace/marketplace";
+import { allowedToolsSentence, unusedFieldsSentence } from "@ace/ui-core/spade-chat";
+import type { CliProblem } from "@ace/protocol/cli-output";
+import type { CliBotCheck } from "@ace/protocol/cli-outputs";
+import { CliFailure } from "../output.ts";
+import { checkFolder } from "../market/check.ts";
+import { slugOf } from "./scaffold.ts";
+
+/*
+ * `ace bot check [PATH]` (ADR 0200 §9): the market's own checks on a package folder, with the
+ * reader `@ace/marketplace` shares with Spade (`readRecipe`, which must agree with
+ * `spade_core::package::read`), so there is no second parser here. On top, warnings a publisher
+ * should see that never refuse the package. With the version callers use (`--against`), a change
+ * to a contract that breaks them refuses it: a breaking change takes a new name (ADR 0200 §7).
+ */
+
+/** Fewer words than this in an effect's `why` reads as a placeholder on the install review. */
+const WHY_WORDS = 4;
+
+/** A sentence `ace bot init --from` left for the developer to write. */
+const TODO = /\bTODO\b/;
+
+const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+
+/** What's worth fixing in a `bot.json` the market accepts. Pure. */
+export function packageWarnings(bot: unknown): CliProblem[] {
+  if (typeof bot !== "object" || bot === null) return [];
+  const fields = bot as Record<string, unknown>;
+  const warnings: CliProblem[] = [];
+  const effects = Array.isArray(fields["effects"]) ? fields["effects"] : [];
+  effects.forEach((effect: unknown, at) => {
+    if (typeof effect !== "object" || effect === null) return;
+    const entry = effect as Record<string, unknown>;
+    const why = typeof entry["why"] === "string" ? entry["why"] : "";
+    const word = typeof entry["effect"] === "string" ? entry["effect"] : "this effect";
+    if (TODO.test(why))
+      warnings.push({
+        path: "bot.json",
+        message: `effects[${at}].why still says TODO: say in a sentence what the bot does with ${word}, or take the effect out`,
+      });
+    else if (why.trim() && words(why) < WHY_WORDS)
+      warnings.push({
+        path: "bot.json",
+        message: `effects[${at}].why is short: the install review shows it beside the ${word} switch, so say in a sentence what the bot does with it`,
+      });
+  });
+  if (typeof fields["blurb"] === "string" && TODO.test(fields["blurb"]))
+    warnings.push({
+      path: "bot.json",
+      message: "blurb still says TODO: the market shows it under the bot's name",
+    });
+  const tests = Array.isArray(fields["tests"]) ? fields["tests"] : [];
+  if (tests.length === 0)
+    warnings.push({
+      path: "bot.json",
+      message: "tests names no scenario: ace bot test has nothing to run, and the market runs them",
+    });
+  return warnings;
+}
+
+/** What `bot`'s contracts break for callers of `previous` (both `bot.json` values). Pure. */
+export function contractProblems(previous: unknown, bot: unknown): CliProblem[] {
+  return contractBreaks(previous, bot).map((change) => ({
+    path: "bot.json",
+    message: `contracts: ${change}. A change that breaks callers takes a new contract name.`,
+  }));
+}
+
+/**
+ * The `bot.json` at `path` (a package folder's, or the file itself) as Spade reads it: its
+ * contracts' schema files (`contracts/<name>.json` beside it) written in (ADR 0200 §7).
+ */
+export async function packageJson(path: string): Promise<unknown> {
+  const { readFile } = await import("node:fs/promises");
+  const full = resolve(path);
+  const folder = await stat(full).then(
+    (info) => info.isDirectory(),
+    () => false,
+  );
+  const file = folder ? resolve(full, "bot.json") : full;
+  const bot: unknown = JSON.parse(await readFile(file, "utf8"));
+  const texts = new Map<string, string>();
+  for (const named of contractFiles(bot).filter(contractSchemaPath)) {
+    const text = await readFile(resolve(dirname(file), named), "utf8").catch(() => undefined);
+    if (text !== undefined) texts.set(named, text);
+  }
+  return inlineContractFiles(bot, (named) => texts.get(named)).bot;
+}
+
+/**
+ * What's worth knowing about a `SKILL.md` the checks accept (ADR 0202 §1): fields this Spade
+ * keeps and doesn't use, and `allowed-tools`, which grants nothing. Pure.
+ */
+export function skillWarnings(markdown: string): CliProblem[] {
+  const read = readSkillMd(markdown);
+  const unused = unusedFields(read);
+  return [
+    ...(unused.length ? [{ path: "SKILL.md", message: unusedFieldsSentence(unused) ?? "" }] : []),
+    ...(read.allowedTools.length
+      ? [{ path: "SKILL.md", message: allowedToolsSentence(read.allowedTools) ?? "" }]
+      : []),
+  ];
+}
+
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+
+/** A skill folder's checks: the Agent Skills specification's and the market's (ADR 0202 §1). */
+async function checkSkillFolder(folder: string): Promise<CliBotCheck> {
+  const { readFile } = await import("node:fs/promises");
+  const name = folder.split(/[\\/]/).findLast(Boolean) ?? "";
+  const result = await checkFolder(folder, { type: "spade-skill", name });
+  if (result.problems.length > 0) {
+    const count = result.problems.length;
+    throw new CliFailure(
+      "failed",
+      `${name} has ${count} problem${count === 1 ? "" : "s"} to fix.`,
+      { ...result, warnings: [] },
+      { code: "check_failed", problems: result.problems },
+    );
+  }
+  const markdown = await readFile(resolve(folder, "SKILL.md"), "utf8");
+  return {
+    name,
+    hash: result.hash,
+    files: result.files,
+    bytes: result.bytes,
+    warnings: skillWarnings(markdown),
+  };
+}
+
+/**
+ * The package's checks at `root`; a failure carrying every problem when there is one. `against`
+ * is the version callers use, whose contracts this one may not break. A folder holding a
+ * `SKILL.md` and no `bot.json` is checked as a skill.
+ */
+export async function checkPackage(
+  root: string,
+  options: { against?: string | undefined } = {},
+): Promise<CliBotCheck> {
+  const folder = resolve(root);
+  if (!(await exists(resolve(folder, "bot.json"))) && (await exists(resolve(folder, "SKILL.md"))))
+    return checkSkillFolder(folder);
+  const name = slugOf(folder.split(/[\\/]/).findLast(Boolean) ?? "") || "package";
+  const result = await checkFolder(folder, { type: "spade-bot", name });
+  if (result.problems.length > 0) {
+    const count = result.problems.length;
+    throw new CliFailure(
+      "failed",
+      `${name} has ${count} problem${count === 1 ? "" : "s"} to fix.`,
+      { ...result, warnings: [] },
+      { code: "check_failed", problems: result.problems },
+    );
+  }
+  const bot = await packageJson(folder);
+  if (options.against) {
+    const breaks = contractProblems(await packageJson(options.against), bot);
+    if (breaks.length > 0)
+      throw new CliFailure(
+        "failed",
+        `${name} would break bots that call it: ${breaks.length} change${breaks.length === 1 ? "" : "s"} to its contracts.`,
+        { ...result, problems: breaks, warnings: [] },
+        { code: "check_failed", problems: breaks },
+      );
+  }
+  return {
+    name,
+    hash: result.hash,
+    files: result.files,
+    bytes: result.bytes,
+    warnings: packageWarnings(bot),
+  };
+}
+
+/** `ace bot check`'s lines. Pure. */
+export function checkLines(checked: CliBotCheck): string[] {
+  return [
+    `${checked.name} passes the market's checks. ${checked.files} files, content hash ${checked.hash}.`,
+    ...checked.warnings.map((warning) => `! ${warning.path ?? "bot.json"}: ${warning.message}`),
+  ];
+}
+
+/** The market's public read routes at `origin`, as `ace bot publish` reads them: no account. */
+export function marketReads(origin: string, fetcher: typeof fetch = fetch): MarketReads {
+  const get = (path: string, accept: string) =>
+    fetcher(new URL(path, origin), {
+      headers: { accept },
+      signal: AbortSignal.timeout(30_000),
+    });
+  return {
+    read: async (path) => {
+      const response = await get(path, "application/json");
+      if (response.status === 404) return undefined;
+      if (!response.ok) throw new Error(`the market answered ${response.status}`);
+      return response.json();
+    },
+    object: async (hash) => {
+      const response = await get(`/v1/objects/${hash}`, "application/x-tar");
+      if (!response.ok) throw new Error(`the market answered ${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    },
+  };
+}
+
+/**
+ * Refuses publishing `bot` as `name` when its contracts break the bots calling the latest
+ * published version (ADR 0200 §7), read from the market itself. The market's signer refuses
+ * the same change; this says so before anything uploads.
+ */
+export async function checkAgainstPublished(
+  name: string,
+  bot: unknown,
+  reads: MarketReads,
+): Promise<void> {
+  let previous;
+  try {
+    previous = await latestPublished(reads, name);
+  } catch (error) {
+    throw new CliFailure(
+      "failed",
+      `Couldn't read ${name}'s published version to compare its contracts: ${error instanceof Error ? error.message : String(error)}`,
+      undefined,
+      { code: "failed", hint: "Try again, or check it offline with --against PATH." },
+    );
+  }
+  if (!previous) return;
+  const breaks = contractProblems(previous.bot, bot);
+  if (breaks.length)
+    throw new CliFailure(
+      "failed",
+      breaksReason(previous.version, contractBreaks(previous.bot, bot)),
+      { problems: breaks },
+      { code: "check_failed", problems: breaks },
+    );
+}
+
+/** Where `ace bot publish` reads the market: ACE_MARKET_URL for a development one. */
+export const marketOf = (env: NodeJS.ProcessEnv) => env["ACE_MARKET_URL"] ?? marketOrigin;

@@ -40,7 +40,15 @@ export function BufferEditor(props: BufferEditorProps) {
     },
     [onStatus, actions],
   );
-  const edited = useCallback(() => buffer.edited(), [buffer]);
+  const { onEdited, look } = props;
+  const edited = useCallback(() => {
+    buffer.edited();
+    onEdited?.();
+  }, [buffer, onEdited]);
+  // Alt+Z flips wrap for this view; the setting is where it starts.
+  const [wrapFlip, setWrapFlip] = useState<{ from: boolean; wrap: boolean }>();
+  const wrapDefault = look?.wordWrap ?? false;
+  const wrap = wrapFlip?.from === wrapDefault ? wrapFlip.wrap : wrapDefault;
   const { reveal, onRevealed } = props;
   // The view remounts for each reveal of a line, so even the line already shown comes into view
   // again; it stays mounted once the reveal is taken.
@@ -76,11 +84,27 @@ export function BufferEditor(props: BufferEditorProps) {
       label={`Source of ${props.path}`}
       statusLine={false}
       marks={dirty ? undefined : props.marks}
+      onMarkClick={dirty ? undefined : props.onMarkClick}
+      peek={dirty ? undefined : props.peek}
       layer={props.layer}
       line={reveal?.line}
       column={reveal?.column}
       onEdit={edited}
+      onBlur={props.onBlurred}
       onStatus={report}
+      wrap={wrap}
+      onToggleWrap={() => setWrapFlip({ from: wrapDefault, wrap: !wrap })}
+      {...(look
+        ? {
+            fontSize: look.fontSize,
+            lineHeight: look.lineHeight,
+            fontFamily: look.fontFamily,
+            renderWhitespace: look.renderWhitespace,
+            indentGuides: look.indentGuides,
+            stickyScroll: look.stickyScroll,
+            cursorBlinking: look.cursorBlinking,
+          }
+        : {})}
     />
   );
 }

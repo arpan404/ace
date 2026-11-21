@@ -6,7 +6,7 @@ import { useSpadeShown } from "@/lib/spade-available.ts";
 import { part } from "@/lib/suit-part.ts";
 import { Section } from "./market-card.tsx";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
-import { AppMark } from "./market-stage.tsx";
+import { AppMark } from "@/components/ui/app-mark.tsx";
 
 /*
  * Apps: the services Spade's bots reach through their own servers (ADR 0131). Connected ones
@@ -17,6 +17,8 @@ import { AppMark } from "./market-stage.tsx";
 
 interface AppRowData {
   id: string;
+  /** The catalogue entry it came from, whose mark it wears; none for a server added by address. */
+  catalogue: string | undefined;
   name: string;
   line: string;
   connected: boolean;
@@ -25,6 +27,7 @@ interface AppRowData {
 function rowsOf(catalogue: readonly SpadeCatalogueEntry[], connectors: readonly SpadeConnector[]) {
   const connected: AppRowData[] = connectors.map((connector) => ({
     id: connector.id,
+    catalogue: connector.catalogue,
     name: connector.name,
     line: connector.account ?? connector.url.replace(/^https:\/\//, ""),
     connected: connector.state === "connected",
@@ -34,6 +37,7 @@ function rowsOf(catalogue: readonly SpadeCatalogueEntry[], connectors: readonly 
     .filter((entry) => !used.has(entry.id))
     .map((entry) => ({
       id: entry.id,
+      catalogue: entry.id,
       name: entry.name,
       line: entry.notes || entry.url.replace(/^https:\/\//, ""),
       connected: false,
@@ -54,7 +58,7 @@ function AppRow(props: { app: AppRowData }) {
   const { app } = props;
   return (
     <li {...part("list-row", undefined, "market-app")} className="mk-row">
-      <AppMark name={app.name} />
+      <AppMark catalogue={app.catalogue} name={app.name} size="market" />
       <span className="mk-words">
         <span className="mk-name">{app.name}</span>
         <span className="mk-line mk-clamp1">{app.line}</span>

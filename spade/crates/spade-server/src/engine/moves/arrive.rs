@@ -94,6 +94,9 @@ impl Iterator for StagedRows {
     }
 }
 
+/// The folders a move's files are put together in, under its staging.
+const STAGED: [&str; 3] = ["files", "images", "pages"];
+
 /// The setting the person's apps keep each bot's access in (`spade_connect`).
 const APP_ACCESS: &str = "connectors.access";
 
@@ -107,11 +110,10 @@ fn key_of(entry: &Value) -> Option<Key> {
             entry["agent"].as_str()?.into(),
             entry["path"].as_str()?.into(),
         )),
-        "image" => Some((
-            "image".into(),
-            String::new(),
-            entry["name"].as_str()?.into(),
-        )),
+        // A panel page goes by its hash, as an image does (ADR 0200 §5.2).
+        kind @ ("image" | "page") => {
+            Some((kind.into(), String::new(), entry["name"].as_str()?.into()))
+        }
         _ => None,
     }
 }
@@ -155,8 +157,8 @@ fn inventory(
         let (Some(size), Some(hash)) = (entry["size"].as_u64(), entry["sha256"].as_str()) else {
             return Err("the inventory has an entry without its size and hash".to_owned());
         };
-        // An image is named by its own hash, and its bytes are checked against it.
-        if !fine || !is_sha256(hash) || (key.0 == "image" && key.2 != hash) {
+        // An image or page is named by its own hash, and its bytes are checked against it.
+        if !fine || !is_sha256(hash) || (key.0 != "file" && key.2 != hash) {
             return Err("the inventory names a file Spade can't place".to_owned());
         }
         total = total.saturating_add(size);
@@ -170,7 +172,8 @@ fn inventory(
     Ok(named)
 }
 
-/// Puts the staged files together under `files/<agent>/…` and `images/<sha256>`, each flushed
+/// Puts the staged files together under `files/<agent>/…`, `images/<sha256>` and
+/// `pages/<sha256>`, each flushed
 /// to disk, and checks them against the inventory: every one named, of its size and hash, none
 /// twice, none missing.
 fn assemble(
@@ -180,6 +183,7 @@ fn assemble(
 ) -> Result<(), String> {
     let files = paths::child(staging, "files")?;
     let images = paths::child(staging, "images")?;
+    let pages = paths::child(staging, "pages")?;
     let mut done: BTreeSet<Key> = BTreeSet::new();
     let mut current: Option<(Key, PathBuf, Sha256, u64)> = None;
     for path in parts {
@@ -188,17 +192,19 @@ fn assemble(
             Some("file") => {
                 key_of(&json!({ "kind": "file", "agent": part["agent"], "path": part["path"] }))
             }
-            Some("image") => key_of(&json!({ "kind": "image", "name": part["sha256_name"] })),
+            Some(kind @ ("image" | "page")) => {
+                key_of(&json!({ "kind": kind, "name": part["sha256_name"] }))
+            }
             _ => continue,
         }
         .ok_or("a file part doesn't say what it is")?;
         if !expected.contains_key(&key) {
             return Err(format!("{} isn't in the inventory", key.2));
         }
-        let target = if key.0 == "file" {
-            under(&paths::child(&files, &key.1)?, &key.2)
-        } else {
-            under(&images, &key.2)
+        let target = match key.0.as_str() {
+            "file" => under(&paths::child(&files, &key.1)?, &key.2),
+            "page" => under(&pages, &key.2),
+            _ => under(&images, &key.2),
         }
         .ok_or("a file's path would leave its folder")?;
         let offset = part["offset"].as_u64().unwrap_or(u64::MAX);
@@ -276,20 +282,20 @@ impl Engine {
         let staging = self
             .moves_dir(&entry.id)
             .and_then(|folder| paths::child(&folder, "in"))
-            .map_err(&refuse)?;
+            .map_err(refuse)?;
         let total = manifest["parts"].as_u64().unwrap_or(0);
-        let parts_dir = paths::child(&staging, "parts").map_err(&refuse)?;
+        let parts_dir = paths::child(&staging, "parts").map_err(refuse)?;
         let parts: Vec<PathBuf> = (0..total)
             .map(|i| parts_dir.join(format!("{i:06}.json")))
             .collect();
-        for name in ["files", "images"] {
-            paths::remove_child(&staging, name).map_err(&refuse)?;
+        for name in STAGED {
+            paths::remove_child(&staging, name).map_err(refuse)?;
         }
-        let expected_files = inventory(&parts, manifest, &agents).map_err(&refuse)?;
-        assemble(&staging, &parts, &expected_files).map_err(&refuse)?;
+        let expected_files = inventory(&parts, manifest, &agents).map_err(refuse)?;
+        assemble(&staging, &parts, &expected_files).map_err(refuse)?;
         // Every folder made for them reaches the disk before anything is placed from it.
-        for name in ["files", "images"] {
-            paths::sync_tree(&staging.join(name)).map_err(&refuse)?;
+        for name in STAGED {
+            paths::sync_tree(&staging.join(name)).map_err(refuse)?;
         }
         let expected: BTreeMap<String, TableSum> = manifest["tables"]
             .as_object()
@@ -316,11 +322,11 @@ impl Engine {
             .map_err(|e| refuse(e.to_string()))
             .and_then(|mut stage| {
                 for part in rows.by_ref() {
-                    let (table, list) = part.map_err(&refuse)?;
+                    let (table, list) = part.map_err(refuse)?;
                     stage
                         .add(&table, list)
                         .map_err(|e| refuse(e.to_string()))?
-                        .map_err(&refuse)?;
+                        .map_err(refuse)?;
                 }
                 Ok(stage)
             })?;
@@ -634,9 +640,57 @@ impl Engine {
             for agent in &selection.agents {
                 access.insert(agent.clone(), none.clone());
             }
-            Value::Object(access).to_string()
+            Some(Value::Object(access).to_string())
         };
-        let merges: [spade_store::Merge<'_>; 1] = [(APP_ACCESS, &deny)];
+        // On an org host, a bot arriving on a version its organization's policy blocks arrives
+        // paused, its link saying why, recorded as the policy's step (ADR 0206 §3), all in the
+        // cutover's transaction: it never runs here on that version.
+        let policy = self.org_binding().map(|_| self.org_policy());
+        let blocked = std::cell::RefCell::new(Vec::<String>::new());
+        let links: Vec<(String, LinkMerge<'_>)> = policy
+            .as_ref()
+            .map(|policy| {
+                selection
+                    .agents
+                    .iter()
+                    .map(|agent| {
+                        let (blocked, agent_id) = (&blocked, agent.clone());
+                        let mark = move |held: Option<&str>| {
+                            blocked_link(policy, held).inspect(|_| {
+                                blocked.borrow_mut().push(agent_id.clone());
+                            })
+                        };
+                        let boxed: LinkMerge<'_> = Box::new(mark);
+                        (spade_store::package_key(agent), boxed)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        // A bot that was paused arrives paused, its held wakes and slots with it, in the same
+        // transaction: it is never anyone's unpaused.
+        let paused = &manifest["extras"]["paused"];
+        let pause = |held: Option<&str>| {
+            let blocked = blocked.borrow();
+            if !paused.is_object() && blocked.is_empty() {
+                return None;
+            }
+            let carried = if paused.is_object() {
+                super::super::pause::merged_pauses(held, paused, &selection.agents)
+            } else {
+                held.unwrap_or("{}").to_owned()
+            };
+            Some(super::super::pause::with_new_pauses(
+                Some(&carried),
+                &blocked,
+                now,
+            ))
+        };
+        let mut merges: Vec<spade_store::Merge<'_>> = vec![(APP_ACCESS, &deny)];
+        // The links first: the pauses read which of them the policy blocks.
+        for (key, mark) in &links {
+            merges.push((key.as_str(), mark.as_ref()));
+        }
+        merges.push((super::super::pause::PAUSED_BOTS, &pause));
         self.at_point("placed");
         let cutover = Cutover {
             move_id: &entry.id,
@@ -658,12 +712,16 @@ impl Engine {
             arrival: &arrival,
             merges: &merges,
         };
-        match self.store.move_arrive_cutover(&cutover) {
+        let cut = crate::org::acting::acting(Some(spade_core::org::steps::Actor::Policy), || {
+            self.store.move_arrive_cutover(&cutover)
+        });
+        match cut {
             Ok(Ok(_)) => {}
             Ok(Err(problem)) => return Err(self.abandon(&entry.id, &problem)),
             Err(error) => return Err(placing(error.to_string())),
         }
         self.at_point("committed");
+        self.forget_pauses();
         for conversation in &selection.conversations {
             self.forget_activity(conversation);
         }
@@ -746,6 +804,20 @@ impl Engine {
                 paths::sync_dir(&images)?;
             }
         }
+        // Its panels' pages, kept by hash (ADR 0200 §5.2), so its panels show once it is here.
+        // Unrecorded: a page is the same text wherever it is kept, and one an undone move leaves
+        // is named by no bot, so the collection of unused pages takes it out.
+        let pages = paths::child(&staging, "pages")?;
+        if let Ok(staged) = std::fs::read_dir(&pages) {
+            for page in staged.filter_map(|e| e.ok()) {
+                let name = page.file_name().to_string_lossy().into_owned();
+                if !is_sha256(&name) {
+                    continue;
+                }
+                let html = std::fs::read(page.path()).map_err(|e| e.to_string())?;
+                crate::packages::panels::place(self, &name, &html)?;
+            }
+        }
         Ok(())
     }
 
@@ -812,6 +884,24 @@ impl Engine {
 }
 
 /// What needs the person since the bot arrived, as its profile shows it.
+/// One arriving bot's package link as the cutover may change it.
+type LinkMerge<'a> = Box<dyn Fn(Option<&str>) -> Option<String> + 'a>;
+
+/// The link `held` with why `policy` blocks it, if it is a link the policy blocks and isn't
+/// paused for already; `None` leaves it as it is. Pure.
+fn blocked_link(policy: &spade_core::org::Policy, held: Option<&str>) -> Option<String> {
+    let mut link: spade_core::package::link::Link = serde_json::from_str(held?).ok()?;
+    if link.withdrawn.is_some() {
+        return None;
+    }
+    let why = policy.blocked(&link.package.name, &link.package.hash)?;
+    link.withdrawn = Some(spade_core::package::link::Withdrawn {
+        reason: why.chars().take(500).collect(),
+        paused: Vec::new(),
+    });
+    Some(crate::engine::packages::link_text(&link))
+}
+
 fn arrival_json(
     entry: &StoredMove,
     now: i64,
@@ -901,25 +991,27 @@ mod tests {
     }
 
     #[test]
-    fn an_image_not_named_by_its_own_hash_is_refused() {
+    fn an_image_or_panel_page_not_named_by_its_own_hash_is_refused() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let image = |name: &str| json!({ "kind": "image", "name": name, "size": 4, "sha256": "a".repeat(64) });
         let agents = ["a_1".to_owned()];
-        for (name, ok) in [
-            ("a".repeat(64), true),
-            ("b".repeat(64), false),
-            ("A".repeat(64), false),
-        ] {
-            let entries = [image(&name)];
-            let staged = parts(
-                dir.path(),
-                &[json!({ "kind": "inventory", "entries": entries })],
-            );
-            assert_eq!(
-                inventory(&staged, &manifest(&entries, 1, 4), &agents).is_ok(),
-                ok,
-                "{name}"
-            );
+        for kind in ["image", "page"] {
+            let named = |name: &str| json!({ "kind": kind, "name": name, "size": 4, "sha256": "a".repeat(64) });
+            for (name, ok) in [
+                ("a".repeat(64), true),
+                ("b".repeat(64), false),
+                ("A".repeat(64), false),
+            ] {
+                let entries = [named(&name)];
+                let staged = parts(
+                    dir.path(),
+                    &[json!({ "kind": "inventory", "entries": entries })],
+                );
+                assert_eq!(
+                    inventory(&staged, &manifest(&entries, 1, 4), &agents).is_ok(),
+                    ok,
+                    "{kind} {name}"
+                );
+            }
         }
     }
 

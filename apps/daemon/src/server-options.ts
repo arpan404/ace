@@ -161,6 +161,10 @@ export interface ServerOptions {
   remoteConfig?: import("./config.ts").Config;
   /** This machine's ace account and machine code (ADR 0111). */
   machineAccount?: import("./account-access/machine-account.ts").MachineAccount;
+  /** How often an org host's daemon forwards Spade's audit log and reads its policy. */
+  orgHostIntervals?: Partial<typeof import("./org-host/link.ts").orgHostIntervals>;
+  /** The fetch the org-host link calls ace's account backend with. */
+  orgHostFetch?: typeof fetch;
   network?: import("./network.ts").NetworkRuntime;
   webRoot?: string;
   applyRemoteSetting?: (key: string, value: unknown, commit: () => Promise<void>) => Promise<void>;
@@ -192,6 +196,10 @@ export interface ServerOptions {
   browser?: BrowserService;
   /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
   mediaDelivery?: () => import("./services/media.ts").DaemonDelivery | undefined;
+  /** ace-media's process while it runs: its listeners are ace's own (ADR 0194). */
+  mediaPid?: () => number | undefined;
+  /** The tunnel to this machine's loopback (ADR 0194), once the listeners are up. */
+  machineTunnel?: import("./machine-tunnel/host.ts").TunnelHost | undefined;
   userBrowser?: import("./user-browser.ts").UserBrowserService;
   review?: ReviewPort;
   replayLimit?: number;

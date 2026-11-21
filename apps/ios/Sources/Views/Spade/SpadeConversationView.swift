@@ -3,10 +3,17 @@ import SwiftUI
 /// One bot's conversation (docs/design/spade.md §3), as a messenger: the bot's bubbles on the
 /// left, the person's on the right in the accent, an approval as a raised card where it was
 /// asked, the working line under the last bubble while the bot works, and the composer at the
-/// foot: Send once something is typed, Stop while a reply is open. Everything is the bridge's.
+/// foot: Send once something is typed, Stop while a reply is open. The bot's face and name head
+/// it, and open its profile. A group's (ADR 0132) is the same chat with each member's face and
+/// name, its members' faces at the top, and a waiting member's chat one tap away. Everything
+/// is the bridge's.
 struct SpadeConversationView: View {
     let client: ClientModel
     let conversation: String
+    /// The group whose conversation this is; nil for a bot's.
+    var group: String?
+    /// Opens another conversation over this one: a waiting member's own chat.
+    var open: (SpadeRoute) -> Void = { _ in }
     @State private var draft = ""
     @State private var problem: String?
     @State private var sends = 0
@@ -14,17 +21,23 @@ struct SpadeConversationView: View {
     /// Cards for later opened from their line or the top bar's count.
     @State private var unfolded: Set<String> = []
     @FocusState private var typing: Bool
+    @State private var profileShown = false
 
     private var spade: SpadeModel { client.spade }
     private var head: SpadeModel.Conversation? {
         spade.conversation?.id == conversation ? spade.conversation : nil
     }
-    private var bot: SpadeModel.Bot? { spade.bots?.first { $0.conversation == conversation } }
+    /// The bot, or the group, as the list has it.
+    private var bot: SpadeModel.Bot? {
+        spade.bots?.first { $0.conversation == conversation && $0.group == group }
+    }
+    private var name: String { bot?.name ?? HomeTabs.title(.spade) }
 
     var body: some View {
         ScrollViewReader { reader in
             transcript
                 .toolbar {
+                    ToolbarItem(placement: .principal) { titleButton }
                     if let later = head?.later {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button(later.words) { reach(later.callId, with: reader) }
@@ -32,6 +45,28 @@ struct SpadeConversationView: View {
                         }
                     }
                 }
+        }
+    }
+
+    /// The face and name at the top. A bot's open its profile, as a contact's do in Messages; a
+    /// group's show its members.
+    @ViewBuilder private var titleButton: some View {
+        let title = HStack(spacing: AceDesign.Space.related) {
+            if let bot {
+                if bot.group != nil { SpadeGroupFaces(faces: bot.faces, size: AceDesign.Size.barIcon + AceDesign.Space.related) }
+                else if let face = bot.faces.first {
+                    let titlePose: BotFacePose = head?.working.map { $0.moving ? .working : .needsYou } ?? .idle
+                    SpadeFaceView(face: face, size: AceDesign.Size.barIcon + AceDesign.Space.related, pose: titlePose)
+                }
+            }
+            Text(name).aceFont(AceDesign.TextRole.navTitle).foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
+        }
+        if group == nil, bot != nil {
+            Button { profileShown = true } label: { title }
+                .accessibilityLabel("\(name), profile")
+                .accessibilityIdentifier("spade.profile")
+        } else {
+            title.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
         }
     }
 
@@ -66,7 +101,9 @@ struct SpadeConversationView: View {
                         .id(key)
                     }
                 }
-                if let working = head?.working { SpadeWorkingLine(working: working) }
+                if let working = head?.working {
+                    SpadeWorkingLine(working: working, waiting: head?.waiting) { open(SpadeRoute(conversation: $0, group: nil)) }
+                }
                 if let gone = head?.problem { problemLine(gone) }
             }
             .padding(.horizontal, AceDesign.Space.margin)
@@ -79,12 +116,15 @@ struct SpadeConversationView: View {
         .scrollDismissesKeyboard(.interactively)
         .overlay { if head?.loaded != true && spade.order.isEmpty { SkeletonRows(count: 3) } }
         .safeAreaInset(edge: .bottom) { composer }
-        .navigationTitle(bot?.name ?? HomeTabs.title(.spade))
+        .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $profileShown) {
+            if let bot { SpadeProfileSheet(client: client, agent: bot.id, name: bot.name) }
+        }
         .background(AceDesign.Surface.background)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sends)
         .sensoryFeedback(AceDesign.Haptic.stop, trigger: stops)
-        .onAppear { client.spadeOpen(conversation) }
+        .onAppear { client.spadeOpen(conversation, group: group) }
         .onDisappear { if client.spade.opened == conversation { client.spadeOpen(nil) } }
     }
 
@@ -107,7 +147,7 @@ struct SpadeConversationView: View {
                     .accessibilityIdentifier("spade.problem")
             }
             HStack(alignment: .bottom, spacing: AceDesign.Space.related) {
-                TextField("Message \(bot?.name ?? HomeTabs.title(.spade))", text: $draft, axis: .vertical)
+                TextField("Message \(name)", text: $draft, axis: .vertical)
                     .aceFont(AceDesign.TextRole.message)
                     .lineLimit(1...6)
                     .focused($typing)
@@ -156,7 +196,9 @@ struct SpadeConversationView: View {
         problem = nil
         sends += 1
         Task {
-            let outcome = await client.spadeSend(conversation, text: text)
+            let outcome: SpadeOutcome
+            if let group { outcome = await client.spadeGroupSend(group, conversation: conversation, text: text) }
+            else { outcome = await client.spadeSend(conversation, text: text) }
             guard !outcome.ok else { return }
             // Refused: the words come back, before anything typed while it was out.
             draft = SpadeDraft.restoring(text, into: draft)
@@ -166,7 +208,10 @@ struct SpadeConversationView: View {
 
     private func stop() {
         stops += 1
-        Task { problem = await client.spadeStop(conversation).problem }
+        Task {
+            if let group { problem = await client.spadeGroupStop(group).problem }
+            else { problem = await client.spadeStop(conversation).problem }
+        }
     }
 
     private func answer(_ callId: String, allowed: Bool, always: Bool) async -> Bool {
@@ -177,18 +222,34 @@ struct SpadeConversationView: View {
 }
 
 /// Under the last bubble while the bot works: what it is doing, moving only while it works
-/// itself, still while it waits on the person.
+/// itself, still while it waits on the person. In a group, the member answering's face leads
+/// it, and a member waiting on the person offers its own chat, where the question is.
 private struct SpadeWorkingLine: View {
     let working: SpadeModel.Working
+    var waiting: SpadeModel.Waiting?
+    var open: (String) -> Void = { _ in }
     var body: some View {
         HStack(spacing: AceDesign.Space.related) {
-            if working.moving { WorkingMark(label: working.label) } else {
-                StatusGlyph(.needsYou, tone: .needsYou, size: AceDesign.Size.icon)
+            HStack(spacing: AceDesign.Space.related) {
+                if let face = working.face {
+                    SpadeFaceView(
+                        face: face,
+                        size: AceDesign.Size.barIcon + AceDesign.Space.tight,
+                        pose: working.moving ? .working : .needsYou
+                    )
+                } else if working.moving { WorkingMark(label: working.label) } else {
+                    StatusGlyph(.needsYou, tone: .needsYou, size: AceDesign.Size.icon)
+                }
+                Text(working.label).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
             }
-            Text(working.label).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("spade.working")
+            if let waiting {
+                Button("Open \(waiting.name)") { open(waiting.conversation) }
+                    .aceFont(AceDesign.TextRole.meta)
+                    .accessibilityIdentifier("spade.openWaiting")
+            }
         }
         .padding(.top, AceDesign.Space.related)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("spade.working")
     }
 }

@@ -5,7 +5,12 @@ import type {
   MarketScanReport,
 } from "@ace/protocol/marketplace";
 import { MarketErrorCode } from "@ace/protocol/marketplace";
-import { parseSpadePersonality, spadePersonalityWords } from "@ace/ui-core/spade-chat";
+import {
+  allowedToolsSentence,
+  parseSpadePersonality,
+  spadePersonalityWords,
+  unusedFieldsSentence,
+} from "@ace/ui-core/spade-chat";
 
 /*
  * The marketplace's words and choices (ADR 0168 §12), pure: how a type is named, what keeps an
@@ -43,6 +48,21 @@ const sentence = (text: string) => {
   const trimmed = text.trim();
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 };
+
+/** What a skill's SKILL.md says beyond its name: licence, needs, allowed-tools, unused fields. */
+function skillStandardLines(body: {
+  license?: string | undefined;
+  compatibility?: string | undefined;
+  allowedTools?: string[] | undefined;
+  unused?: string[] | undefined;
+}): string[] {
+  return [
+    ...(body.license ? [`Licence: ${body.license}.`] : []),
+    ...(body.compatibility ? [`It says it needs: ${sentence(body.compatibility)}`] : []),
+    allowedToolsSentence(body.allowedTools ?? []),
+    unusedFieldsSentence(body.unused ?? []),
+  ].filter((line): line is string => line !== undefined);
+}
 
 /** What was being done when something failed, so its sentence can say so. */
 export type MarketStep =
@@ -133,6 +153,12 @@ export function findingSentences(scan: MarketScanReport | undefined): string[] {
 }
 
 /** A recipe's need switches as its review opens them: required ones on, optional ones off. */
+/** The catalogue id of a connector need (`connector:<id>`); none for an address or a plugin. */
+export function needCatalogue(key: string): string | undefined {
+  const id = key.startsWith("connector:") ? key.slice("connector:".length) : undefined;
+  return id && !id.includes(":") && !id.includes("/") ? id : undefined;
+}
+
 export function needDefaults(needs: readonly MarketNeed[]): Record<string, boolean> {
   return Object.fromEntries(needs.map((need) => [need.key, need.required]));
 }
@@ -212,6 +238,7 @@ export function canDoSentences(review: MarketReview): string[] {
         body.flagged
           ? `${count(body.files, "file")}, ${body.flagged} of them scripts or programs a bot can run under its gate.`
           : `${count(body.files, "file")}, none of them scripts.`,
+        ...skillStandardLines(body),
       ];
     case "spade-plugin":
       return [
@@ -224,13 +251,22 @@ export function canDoSentences(review: MarketReview): string[] {
     case "spade-bot":
       return [
         `Makes a new bot, ${body.botName}, on your ${body.model} model.`,
-        body.routines.length
-          ? `Has ${count(body.routines.length, "routine")}, paused until you start them.`
-          : "Has no routines.",
+        // A package's event and webhook triggers are routines too (ADR 0200 §3.5).
+        routinesLine(
+          body.routines.length +
+            (body.triggers ?? []).filter((t) => t.kind === "event" || t.kind === "webhook").length,
+        ),
         ...(body.tools ? [`Uses only these tools: ${body.tools.join(", ")}.`] : []),
         ...personalityLine(body.personality),
       ];
   }
+}
+
+function routinesLine(routines: number): string {
+  if (!routines) return "Has no routines.";
+  return routines === 1
+    ? "Has 1 routine, paused until you start it."
+    : `Has ${routines} routines, paused until you start them.`;
 }
 
 /** How a recipe's bot talks, when it ships with a personality: "Talks: Concise, no jokes, no emoji." */

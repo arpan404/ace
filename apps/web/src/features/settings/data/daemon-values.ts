@@ -1,3 +1,4 @@
+import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
 import { subscribeSettings } from "@/lib/settings-subscription.ts";
 import type { ClientApi } from "@ace/client";
 import { JsonValue, SettingsKey, type SettingsEntry } from "@ace/protocol";
@@ -96,12 +97,20 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
         }
         return new Error(message);
       };
-      const reply = await client
-        .request({ type: "settings.set", key, value: json, layer: { kind: "global" } })
-        .catch(() => {
-          throw refused("Couldn't reach ace to save that.");
-        });
-      if (!reply.ok) throw refused("Couldn't save that setting. Check the value and try again.");
+      const reply = await withStanding(
+        client,
+        () => client.request({ type: "settings.set", key, value: json, layer: { kind: "global" } }),
+        (answer) =>
+          !answer.ok && answer.diagnostics.some(({ message }) => isStandingRefusal(message)),
+      ).catch(() => {
+        throw refused("Couldn't reach ace to save that.");
+      });
+      if (!reply.ok) {
+        const standing = reply.diagnostics.find(({ message }) => isStandingRefusal(message));
+        throw refused(
+          standing?.message ?? "Couldn't save that setting. Check the value and try again.",
+        );
+      }
       if (reply.entries.length) apply(reply.entries, undefined);
     },
   };

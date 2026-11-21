@@ -86,3 +86,21 @@ export function contextEntries(facts: ContextFacts): (ContextEntry | "separator"
   }
   return entries;
 }
+
+/**
+ * The menu without `commands`, for a page some of ace's tools don't apply to (a device tab,
+ * which no agent sees). A group left empty leaves no stray separator. Pure.
+ */
+export function withoutCommands(
+  entries: readonly (ContextEntry | "separator")[],
+  commands: readonly ContextCommand[],
+): (ContextEntry | "separator")[] {
+  const kept: (ContextEntry | "separator")[] = [];
+  for (const item of entries) {
+    if (item === "separator") {
+      if (kept.length && kept.at(-1) !== "separator") kept.push(item);
+    } else if (!commands.includes(item.command)) kept.push(item);
+  }
+  if (kept.at(-1) === "separator") kept.pop();
+  return kept;
+}

@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageModule.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "task",
+    "memory",
+    "files",
+    "web",
+    "apps",
+    "agents",
+    "ui",
+    "schedule",
+    "devices",
+    "outward",
+    "notify",
+    "code"
+  ],
+  "type": "string"
+}

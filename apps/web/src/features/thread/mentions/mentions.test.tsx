@@ -267,3 +267,81 @@ test("an app in the list, and the chip it leaves, show the app's own mark", asyn
     expect(message.querySelector('[data-mention-chip] [data-app="linear"] svg')).not.toBeNull(),
   );
 });
+
+/** Studio Mac's own Spade, with a bot and a club, and a simulator on it. */
+function seedStudio(app: Awaited<ReturnType<typeof open>>["app"]) {
+  const studio = app.machines.get("studio");
+  if (!studio) throw new Error("no Studio Mac");
+  studio.spade.status = { state: "ready", version: "0.6.0" };
+  const there = new FakeSpadeApi(studio.spade, () => Date.now());
+  there.addAgent({ id: "fares", name: "Fares", task: "Watches fares" });
+  there.addAgent({ id: "hotels", name: "Hotels", task: "Finds rooms" });
+  there.teams.addGroup({
+    id: "trips",
+    name: "Trips",
+    members: [there.teams.member("fares"), there.teams.member("hotels")],
+  });
+  studio.appDevices.addDevice({
+    id: "ios:6F1C0D52-3C3A-4F5B-9C1E-0D6E2B1F7A10",
+    platform: "ios",
+    name: "iPhone 17",
+    state: "booted",
+    runtime: "iOS 26.1",
+  });
+}
+
+test("another machine's bots, clubs and simulators are listed with that machine, and an ask goes to it", async () => {
+  const { app, message, sent } = await open();
+  seedStudio(app);
+  await userEvent.type(message, "@");
+  const list = await menu();
+  await within(list).findByRole("option", { name: /^Fares Watches fares · on Studio Mac/ });
+  within(list).getByRole("option", { name: /^Trips Fares and Hotels · on Studio Mac/ });
+  // This machine's bots read as before.
+  within(list).getByRole("option", { name: /^Research Finds sources$/ });
+  await userEvent.clear(message);
+  await userEvent.type(message, "@iPhone");
+  await within(await menu()).findByRole("option", {
+    name: /^iPhone 17.*simulator · on Studio Mac/,
+  });
+
+  await userEvent.clear(message);
+  await userEvent.type(message, "@Fares");
+  await userEvent.keyboard("{Enter}");
+  await userEvent.type(message, " any drops?{Enter}");
+  await waitFor(() =>
+    expect(sent.find((payload) => payload.type === "thread.address")).toMatchObject({
+      to: [
+        { kind: "bot", id: "fares", name: "Fares", machine: { id: "studio", name: "Studio Mac" } },
+      ],
+    }),
+  );
+});
+
+const waitingAsk = (waiting: boolean) => [
+  {
+    type: "background.started" as const,
+    owner: "ace" as const,
+    agent: "root",
+    task: "ace-ask:k1",
+    kind: "other" as const,
+    title: "Research is answering",
+    stoppable: true,
+  },
+  { type: "background.waiting" as const, task: "ace-ask:k1", waiting },
+];
+
+test("a bot waiting on the person after an @ ask puts the thread in the Inbox as needing them, until it answers", async () => {
+  const { app } = await open([{ kind: "facts", facts: waitingAsk(true) }]);
+  const threads = screen.getByRole("navigation", { name: "Projects" });
+  const row = () =>
+    within(threads)
+      .getByRole("link", { name: /^Document the router/ })
+      .closest<HTMLElement>("[data-attention]")?.dataset.attention;
+  await waitFor(() => expect(row()).toBe("needs-you"));
+  // Research answered: the ask's row ends and the thread no longer needs the person.
+  app.daemon.apply(threadId, [
+    { type: "background.ended", task: "ace-ask:k1", status: "completed" },
+  ]);
+  await waitFor(() => expect(row()).not.toBe("needs-you"));
+});

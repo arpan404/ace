@@ -69,6 +69,8 @@ export type SpadeNewAgent = Omit<SpadeAgentDraft, "model" | "name"> & {
   name?: string;
   model?: string;
   template?: string;
+  /** A template's routines start on (the default for ace's templates), or stay paused. */
+  start_routines?: boolean;
   time_zone?: string;
   /** Made from one message: the bot chooses its name and face as it starts. */
   naming?: boolean;
@@ -112,6 +114,8 @@ export async function editAgent(
     task_why?: string;
     /** Whether it may make bots for the person (ADR 0161, amendment 1). */
     may_create_bots?: "yes" | "ask" | "no";
+    /** Its accent (ADR 0200 §5.3); `null` for its face's colour. */
+    style?: { accent: string | null };
   },
 ): Promise<SpadeAgent> {
   const body = await spadeHttp(target, "PATCH", `/v1/agents/${segment(id)}`, { body: change });
@@ -174,6 +178,16 @@ export async function readSubscriptions(
 ): Promise<{ providers: SpadeSubscription[]; error: string | undefined }> {
   const body = await spadeHttp(target, "GET", "/v1/subscriptions", options);
   return sure(parseSpadeSubscriptions(body), "subscriptions");
+}
+
+/**
+ * The person ticked Use it for `provider`'s subscription (ADR 0205 §1): what choosing it means,
+ * read once per provider.
+ */
+export async function acknowledgeTerms(target: SpadeTarget, provider: string): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/subscriptions/${segment(provider)}/terms`, {
+    body: { use: true },
+  });
 }
 
 /** What the endpoint itself lists now. */
@@ -268,6 +282,13 @@ export async function saveModel(
 export async function removeModel(target: SpadeTarget, endpoint: string, model: string) {
   const path = `/v1/endpoints/${segment(endpoint)}/models?id=${encodeURIComponent(model)}`;
   await spadeHttp(target, "DELETE", path);
+}
+
+/** Runs Spade's three checks on a local model again (ADR 0205 §3); they run in the background. */
+export async function checkModel(target: SpadeTarget, endpoint: string, model: string) {
+  await spadeHttp(target, "POST", `/v1/endpoints/${segment(endpoint)}/probe`, {
+    body: { id: model },
+  });
 }
 
 /** `endpoint/model` for titles and other small jobs; null: each agent's own model. */

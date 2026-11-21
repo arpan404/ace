@@ -116,14 +116,13 @@ export function spadeBody(message: {
     text: message.text,
     ...(devices.length
       ? {
-          devices: devices.map((device) => ({
-            id: device.id,
-            name: device.name,
-            kind: device.kind,
-            machine: device.machine,
-            ...(device.os ? { os: device.os } : {}),
-            online: device.online,
-          })),
+          devices: devices.map((device) =>
+            Object.assign(
+              { id: device.id, name: device.name, kind: device.kind, machine: device.machine },
+              device.os ? { os: device.os } : {},
+              { online: device.online },
+            ),
+          ),
         }
       : {}),
     ...(message.images.length ? { images: message.images.map(({ data }) => ({ data })) } : {}),

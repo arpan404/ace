@@ -187,6 +187,7 @@ async fn a_chain_of_bot_messages_past_the_runaway_guard_is_refused() -> Result {
                     name: "Far".into(),
                     depth: spade_server::engine::MOST_HOPS,
                     machine: None,
+                    contract: None,
                 }),
                 from_routine: None,
                 from_group: None,

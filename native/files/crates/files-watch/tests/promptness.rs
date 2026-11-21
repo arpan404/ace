@@ -80,6 +80,117 @@ fn a_lone_create_delete_and_rename_in_a_quiet_folder_arrive_within_half_a_second
     );
 }
 
+#[test]
+fn a_delete_right_after_a_rename_arrives_within_300_ms() {
+    // FSEvents marks the removal of a name that was just renamed into place as a rename record
+    // too. Taken for the old half of a rename, it waited the full pairing wait for a new name
+    // that never comes, and the file stayed in every index for two seconds.
+    // In a folder no one has open, so only the OS watch can report it.
+    const PROMPT: Duration = Duration::from_millis(300);
+    let session = Session::start(daemon_options(), |root| {
+        std::fs::create_dir(root.join("sub")).unwrap();
+        for index in 0..5 {
+            std::fs::write(root.join(format!("sub/old{index}.txt")), b"x").unwrap();
+        }
+    });
+    let mut took = Vec::new();
+    for round in 0..5 {
+        let from = format!("sub/old{round}.txt");
+        let to = format!("sub/moved{round}.txt");
+        std::fs::rename(session.path(&from), session.path(&to)).unwrap();
+        session.wait_for(&to, ChangeKind::Created);
+        session.wait_for(&from, ChangeKind::Deleted);
+        std::thread::sleep(Duration::from_millis(200));
+        took.push(timed(&session, &to, ChangeKind::Deleted, || {
+            std::fs::remove_file(session.path(&to)).unwrap();
+        }));
+    }
+    eprintln!("deletes after a rename: {took:?}");
+    assert!(
+        took.iter().all(|took| *took <= PROMPT),
+        "a delete right after a rename must arrive within {PROMPT:?}: {took:?}"
+    );
+}
+
+/// How soon a lone deletion or rename should reach the sink: one 75 ms debounce and the OS's
+/// own delivery, with room for a loaded CI machine. Nothing may hold either for a partner first.
+const PROMPT_REMOVAL: Duration = Duration::from_millis(150);
+
+/// The median of some latencies, which a single slow scheduling slice cannot move.
+fn median(took: &mut [Duration]) -> Duration {
+    took.sort();
+    took[took.len() / 2]
+}
+
+#[test]
+fn a_lone_delete_and_a_lone_rename_in_a_quiet_folder_each_arrive_within_150_ms() {
+    // A create was reported one debounce after it was made while a deletion or a rename took
+    // more than twice that: something held the news a removal brings for a partner it never got.
+    let session = Session::start(daemon_options(), |root| {
+        for index in 0..5 {
+            std::fs::write(root.join(format!("gone{index}.txt")), b"x").unwrap();
+            std::fs::write(root.join(format!("from{index}.txt")), b"x").unwrap();
+            std::fs::create_dir(root.join(format!("dir{index}"))).unwrap();
+            std::fs::write(root.join(format!("dir{index}/inner.txt")), b"x").unwrap();
+        }
+    });
+    let mut deletes = Vec::new();
+    let mut renames = Vec::new();
+    let mut moves = Vec::new();
+    for round in 0..5 {
+        std::thread::sleep(Duration::from_millis(300));
+        let gone = format!("gone{round}.txt");
+        let started = Instant::now();
+        std::fs::remove_file(session.path(&gone)).unwrap();
+        let (_, at) = session.wait_for_delivery(&gone, ChangeKind::Deleted);
+        deletes.push(at.saturating_duration_since(started));
+
+        std::thread::sleep(Duration::from_millis(300));
+        let (from, to) = (format!("from{round}.txt"), format!("to{round}.txt"));
+        let started = Instant::now();
+        std::fs::rename(session.path(&from), session.path(&to)).unwrap();
+        let (batch, at) = session.wait_for_delivery(&to, ChangeKind::Created);
+        renames.push(at.saturating_duration_since(started));
+        assert!(
+            batch
+                .iter()
+                .any(|change| change.path == from && change.kind == ChangeKind::Deleted),
+            "a rename's old path goes in the batch that brings its new name, got {batch:?}"
+        );
+
+        // A moved folder whose old path lingered kept stale entries in quick open: the old path's
+        // deletion must come with the new name, however fast the pair is reported.
+        std::thread::sleep(Duration::from_millis(300));
+        let (from, to) = (format!("dir{round}"), format!("moved{round}"));
+        let started = Instant::now();
+        std::fs::rename(session.path(&from), session.path(&to)).unwrap();
+        let (batch, at) = session.wait_for_delivery(&to, ChangeKind::Created);
+        moves.push(at.saturating_duration_since(started));
+        assert!(
+            batch
+                .iter()
+                .any(|change| change.path == from && change.kind == ChangeKind::Deleted),
+            "a moved folder's old path goes in the batch that brings its new name, got {batch:?}"
+        );
+    }
+    eprintln!("lone delete {deletes:?}, rename {renames:?}, folder move {moves:?}");
+    for (what, took) in [
+        ("delete", &mut deletes),
+        ("rename", &mut renames),
+        ("folder move", &mut moves),
+    ] {
+        let middle = median(took);
+        assert!(
+            middle <= PROMPT_REMOVAL,
+            "a lone {what} must arrive within {PROMPT_REMOVAL:?}: median {middle:?}, all {took:?}"
+        );
+        assert!(
+            took.iter().all(|took| *took <= PROMPT),
+            "every lone {what} must arrive within {PROMPT:?}, all {took:?}"
+        );
+    }
+}
+
 /// One watcher over its own folder, recording what it hears.
 struct Watched {
     _watcher: Watcher,

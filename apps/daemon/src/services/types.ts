@@ -36,6 +36,8 @@ export interface Services {
   storage?: import("../storage/service.ts").StorageService;
   /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
   mediaDelivery?: () => import("./media.ts").DaemonDelivery | undefined;
+  /** ace-media's process while it runs: its listeners are ace's own (ADR 0194). */
+  mediaPid?: () => number | undefined;
   sourceControl?: import("../source-control.ts").SourceControl;
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
@@ -98,6 +100,15 @@ export interface Services {
   /** Agents here using other paired machines (ADR 0078). */
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("../transfers/service.ts").DaemonTransfers;
+  /**
+   * The paired machines' kept-open, pinned connections (ADR 0078), shared by machine calls,
+   * transfers and parcels on the address each machine was linked on, and the one kept-open
+   * reader of the saved pairings they check: undefined while it can't be read.
+   */
+  pairedMachines?: {
+    connections: import("../machines/connections.ts").MachineConnections;
+    saved(): import("../cli/profiles.ts").RemoteProfile[] | undefined;
+  };
   machines?: {
     caller: import("../machines/caller.ts").MachineCaller;
     children: import("../machines/children.ts").MachineChildren;

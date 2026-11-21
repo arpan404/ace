@@ -1,8 +1,10 @@
 import { agentToolCommands, agentToolNouns } from "./agent-tools.ts";
 import { basicCommands } from "./basics.ts";
+import { botKitCommands } from "./bot-kit.ts";
 import { machineCommands, machineNouns } from "./machine.ts";
 import { providerCommands, providerNouns } from "./providers.ts";
 import { marketCommands, marketNouns } from "./market.ts";
+import { orgCommands, orgNouns } from "./org.ts";
 import { spadeCommands, spadeNouns } from "./spade.ts";
 import type { AliasSpec, CommandSpec, NounSpec } from "./spec.ts";
 import { workCommands, workNouns } from "./work.ts";
@@ -13,7 +15,9 @@ export const commands: readonly CommandSpec[] = [
   ...machineCommands,
   ...providerCommands,
   ...spadeCommands,
+  ...botKitCommands,
   ...marketCommands,
+  ...orgCommands,
   ...agentToolCommands,
 ];
 
@@ -23,6 +27,7 @@ export const nouns: readonly NounSpec[] = [
   ...providerNouns,
   ...spadeNouns,
   ...marketNouns,
+  ...orgNouns,
   ...agentToolNouns,
 ];
 

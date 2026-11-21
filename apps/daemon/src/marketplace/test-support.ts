@@ -207,14 +207,67 @@ type CreateMode = "ok" | "fail" | "drop" | "hang";
  * A create can fail, make the bot and drop the answer, or make it and never answer; a bot made
  * with a transaction id already used answers with that bot, as Spade does.
  */
+interface FakeLink {
+  source: string;
+  name: string;
+  version: string;
+  hash: string;
+}
+
+interface FakeSpadeBot {
+  from_recipe?: unknown;
+  package?: Record<string, unknown> | undefined;
+  /** An update held for the end of the bot's turn. */
+  heldLink?: FakeLink | undefined;
+}
+
+const linkOf = (link: FakeLink) => ({
+  source: link.source,
+  name: link.name,
+  version: link.version,
+  hash: link.hash,
+});
+
+/** Spade's update or rollback: the version it ran becomes `previous`. */
+function moveTo(bot: FakeSpadeBot, next: FakeLink): void {
+  const before = bot.package;
+  bot.package = {
+    ...linkOf(next),
+    ...(before ? { previous: { version: before["version"], hash: before["hash"] } } : {}),
+  };
+  bot.heldLink = undefined;
+}
+
 export async function fakeSpade() {
   const made: Record<string, unknown>[] = [];
-  const bots = new Map<string, { from_recipe?: unknown }>();
+  const bots = new Map<string, FakeSpadeBot>();
+  /** Bots at work: an update to one is held for the end of its turn, as Spade holds it. */
+  const working = new Set<string>();
+  let version: string | undefined = "0.0.30";
   const allowed = new Map<string, string[]>();
   let createMode: CreateMode = "ok";
   let failPluginWrites = new Set<string>();
   let beforeCreate: (() => Promise<void> | void) | undefined;
   const hanging: ServerResponse[] = [];
+  const packageCalls: { bot: string; method: string; path: string; body: unknown }[] = [];
+  /** The terms notices handed over, each as sent. */
+  const notices: unknown[] = [];
+  /** Whether a package's `fast` and `capable` routes hold a model that calls tools. */
+  let packageTools = { fast: true, capable: true };
+  /** What Spade's plan says an update does: here, the person's edited task stays. */
+  let packagePlan: unknown = {
+    name: "same",
+    task: "kept",
+    face: "same",
+    personality: "same",
+    routines: [{ step: "add", name: "Evening check" }],
+    notes_kept: 0,
+    asks_more: ["publish"],
+    off: [],
+  };
+  /** What a free replay of a bot's kept runs answers (ADR 0204 §2); none kept by default. */
+  let replay: unknown = { summary: "No kept runs to replay.", passed: 0, failed: 0, cases: [] };
+  const replayCalls: { bot: string; body: unknown }[] = [];
   const token = "spade-test-token";
   const server = createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`)
@@ -225,9 +278,23 @@ export async function fakeSpade() {
       ? JSON.parse(Buffer.concat(chunks).toString("utf8"))
       : undefined;
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method === "GET" && url.pathname === "/v1/models/package-routes")
+      return send(response, 200, {
+        fast: { tools: packageTools.fast, route: [] },
+        capable: { tools: packageTools.capable, route: [] },
+      });
+    if (request.method === "PUT" && url.pathname === "/v1/subscriptions/notices") {
+      notices.push(body);
+      return send(response, 200, { applied: true });
+    }
     if (request.method === "GET" && url.pathname === "/v1/agents")
       return send(response, 200, {
-        agents: [...bots].map(([id, bot]) => ({ id, from_recipe: bot.from_recipe })),
+        // oxlint-disable-next-line oxc/no-map-spread -- Builds the answer from stored bots without changing them.
+        agents: [...bots].map(([id, bot]) => ({
+          id,
+          from_recipe: bot.from_recipe,
+          ...(bot.package ? { package: bot.package } : {}),
+        })),
       });
     if (request.method === "POST" && url.pathname === "/v1/agents") {
       const input = body as { from_recipe?: { transaction?: string } };
@@ -242,7 +309,12 @@ export async function fakeSpade() {
       if (createMode === "fail") return send(response, 500, { error: "The bot couldn't be made" });
       made.push(body as Record<string, unknown>);
       const id = `bot_${made.length}`;
-      bots.set(id, { from_recipe: input.from_recipe });
+      // A market package's bot is linked to the version its envelope proves, as Spade links it.
+      const claimed = (body as { package?: FakeLink }).package;
+      bots.set(id, {
+        from_recipe: input.from_recipe,
+        ...(claimed ? { package: linkOf(claimed) } : {}),
+      });
       if (createMode === "drop") return response.destroy();
       if (createMode === "hang") return void hanging.push(response);
       return send(response, 201, { agent: { id } });
@@ -255,6 +327,31 @@ export async function fakeSpade() {
         deleted ? 200 : 404,
         deleted ? { ok: true } : { error: "no such agent" },
       );
+    }
+    const replayed = /^\/v1\/agents\/([^/]+)\/cases\/replay$/.exec(url.pathname);
+    if (replayed?.[1] && request.method === "POST") {
+      replayCalls.push({ bot: decodeURIComponent(replayed[1]), body });
+      return send(response, 200, { replay });
+    }
+    // A linked bot's package (ADR 0200): the plan it answers, each update and each withdrawal.
+    const linked = /^\/v1\/agents\/([^/]+)\/package(\/plan|\/withdrawn)?$/.exec(url.pathname);
+    if (linked?.[1]) {
+      const bot = decodeURIComponent(linked[1]);
+      if (!bots.has(bot)) return send(response, 404, { error: "no such bot" });
+      if (linked[2] === "/plan") return send(response, 200, { plan: packagePlan });
+      packageCalls.push({ bot, method: request.method ?? "", path: linked[2] ?? "", body });
+      const claimed = (body as { package?: FakeLink } | undefined)?.package;
+      if (request.method === "POST" && linked[2] === undefined && claimed) {
+        const current = bots.get(bot);
+        // While the bot works the step waits for its turn to end: 202, saying which version.
+        if (working.has(bot) && current?.package) {
+          current.package = { ...current.package, held: { version: claimed.version } };
+          current.heldLink = linkOf(claimed);
+          return send(response, 202, { package: current.package });
+        }
+        if (current) moveTo(current, linkOf(claimed));
+      }
+      return send(response, 200, { package: bots.get(bot)?.package ?? {} });
     }
     const plugins = /^\/v1\/agents\/([^/]+)\/plugins$/.exec(url.pathname);
     if (plugins?.[1]) {
@@ -277,7 +374,44 @@ export async function fakeSpade() {
     made,
     bots,
     allowed,
+    /** Updates, rollbacks, withdrawals and resumptions of linked bots, in order. */
+    packageCalls,
+    notices,
+    setPackageTools(next: { fast: boolean; capable: boolean }) {
+      packageTools = next;
+    },
+    setPlan(plan: unknown) {
+      packagePlan = plan;
+    },
+    /** The replays asked for, in order, and what the next answers. */
+    replayCalls,
+    setReplay(next: unknown) {
+      replay = next;
+    },
     connection: () => (running ? { host: "127.0.0.1", port, token } : undefined),
+    /** Spade's version as it reports it; undefined before it has answered. */
+    version: () => version,
+    setVersion(next: string | undefined) {
+      version = next;
+    },
+    /** A bot a move brought here, linked to its package at the version it has (ADR 0187). */
+    arrive(id: string, link: Record<string, unknown>) {
+      bots.set(id, { package: link });
+    },
+    /** A bot that moved to another machine: this Spade no longer has it. */
+    moveAway(id: string) {
+      bots.delete(id);
+    },
+    /** The bot is at work: an update is held until `finishTurn`. */
+    startTurn(id: string) {
+      working.add(id);
+    },
+    /** Its turn ended with nothing of it working: a held update applies now, once. */
+    finishTurn(id: string) {
+      working.delete(id);
+      const bot = bots.get(id);
+      if (bot?.heldLink) moveTo(bot, bot.heldLink);
+    },
     setCreate(mode: CreateMode) {
       createMode = mode;
     },
@@ -393,7 +527,7 @@ export async function marketplaceHarness(options: {
         folder: (suit: string) => suits.folder(suit),
       }),
       plugins: () => pluginPort(() => plugins),
-      spade: spadePort(options.spade.connection),
+      spade: spadePort(options.spade.connection, options.spade.version),
       pick: options.pick,
       schedule: () => () => {},
       allowLocalGit: true,

@@ -36,6 +36,7 @@ export const settingKeys = {
   remoteRelay: setting("remote.relay", z.boolean(), false),
   relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),
   hostedPairingLink: setting("remote.hostedPairingLink", z.boolean(), false),
+  machineLocalhost: setting("remote.machineLocalhost", z.boolean(), true),
   relayMcp: setting("remote.relayMcp", z.boolean(), false),
   relayWebhooks: setting("remote.relayWebhooks", z.boolean(), false),
   tailscaleWebhooks: setting("remote.tailscaleWebhooks", z.boolean(), false),

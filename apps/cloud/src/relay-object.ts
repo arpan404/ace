@@ -18,7 +18,7 @@ import {
 import type { RouteAction } from "@ace/relay/wire";
 import { Attachment, hostAccount, nextExpiry, routeFacts } from "./attachment.ts";
 import { sendPairing } from "./pairing-send.ts";
-import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER } from "./admission.ts";
+import { ACCOUNT_HEADER, EXCHANGE_HEADER, ORG_HEADER, PROTOCOL_HEADER } from "./admission.ts";
 import { machineStore } from "./account/machines.ts";
 import { accountDeleted } from "./account/tombstone.ts";
 import { openControl, sealControl } from "./control.ts";
@@ -123,7 +123,9 @@ export class RelayObject extends DurableObject<Env> {
     if (url.pathname === "/client") {
       if (!account) return refuseUpgrade(1008, "Account required", protocol);
       const owner = hostAccount(this.#allAttachments(), hostId);
-      if (owner !== undefined && owner !== account)
+      // A member of the organization that holds this host, as the Worker checked (ADR 0206).
+      const member = request.headers.get(ORG_HEADER) !== null;
+      if (!member && owner !== undefined && owner !== account)
         return refuseUpgrade(NOT_YOUR_MACHINE_CLOSE, "Not your machine", protocol);
       const purpose = clientPurpose(url);
       if (purpose === "invalid") return refuseUpgrade(1008, "Unknown purpose", protocol);

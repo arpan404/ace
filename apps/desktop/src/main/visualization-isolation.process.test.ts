@@ -1,16 +1,14 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
-import { createRequire } from "node:module";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { visualizationUrl } from "@ace/html";
 import { packagedPolicy } from "./csp.ts";
+import { headless, listen, lookups, runElectron } from "./isolation-test-support.ts";
 
 /**
  * Real Electron, real sockets, real resolver: a visualization page that tries every way out
@@ -19,7 +17,6 @@ import { packagedPolicy } from "./csp.ts";
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const electron: unknown = createRequire(import.meta.url)("electron");
 
 /**
  * The app's real isolation, wired the way main-window.ts wires it, inside a page served with the
@@ -130,40 +127,7 @@ document.getElementById('attempts').textContent = outcomes.join(' ');
 
 const attribute = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
 
-async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("No listener");
-  onTestFinished(() =>
-    new Promise<void>((resolve) => server.close(() => resolve())).then(() => undefined),
-  );
-  return `http://127.0.0.1:${address.port}`;
-}
-
-/** Resolver lookups from Chromium's NetLog, including DNS-only hints with no HTTP request. */
-async function lookups(path: string): Promise<string[]> {
-  if ((await stat(path)).size > 64 * 1024 * 1024) throw new Error("NetLog too large");
-  const log = z
-    .object({
-      constants: z.object({ logEventTypes: z.record(z.string(), z.number()) }),
-      events: z.array(
-        z.object({ type: z.number(), params: z.record(z.string(), z.unknown()).optional() }),
-      ),
-    })
-    .parse(JSON.parse(await readFile(path, "utf8")));
-  const resolver = new Set(
-    Object.entries(log.constants.logEventTypes)
-      .filter(([name]) => name.startsWith("HOST_RESOLVER"))
-      .map(([, value]) => value),
-  );
-  return log.events.flatMap((event) => {
-    const host = event.params?.host ?? event.params?.hostname;
-    return resolver.has(event.type) && typeof host === "string" ? [host] : [];
-  });
-}
-
 async function run(mode: "protected" | "control") {
-  if (typeof electron !== "string") throw new Error("Electron binary not installed");
   const root = await mkdtemp(join(tmpdir(), "ace-visual-net-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const suffix = `${randomUUID()}.ace-visual.test`;
@@ -200,45 +164,9 @@ async function run(mode: "protected" | "control") {
       response.end(hostPage);
     }),
   );
-  const main = join(root, "main.cjs");
-  await build({
-    stdin: { contents: harness, resolveDir: here, loader: "ts", sourcefile: "harness.ts" },
-    bundle: true,
-    platform: "node",
-    format: "cjs",
-    external: ["electron"],
-    outfile: main,
-    logLevel: "silent",
-  });
   const out = join(root, "result.json");
   const netlog = join(root, "netlog.json");
-  const config = join(root, "config.json");
-  await writeFile(config, JSON.stringify({ mode, raw, host: `${host}/`, out, netlog }));
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(electron, [main, `--user-data-dir=${join(root, "profile")}`, config], {
-    env,
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-  onTestFinished(() => {
-    if (child.exitCode === null) child.kill("SIGKILL");
-  });
-  let output = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    output = (output + chunk.toString()).slice(-4096);
-  });
-  const code = await new Promise<number | null>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`Electron (${mode}) did not finish:\n${output}`)),
-      60_000,
-    );
-    child.once("exit", (exitCode) => {
-      clearTimeout(timer);
-      resolve(exitCode);
-    });
-    child.once("error", reject);
-  });
-  if (code !== 0) throw new Error(`Electron (${mode}) exited with ${code}:\n${output}`);
+  await runElectron(harness, here, root, { mode, raw, host: `${host}/`, out, netlog }, mode);
   return {
     result: Result.parse(JSON.parse(await readFile(out, "utf8"))),
     connections,
@@ -246,9 +174,6 @@ async function run(mode: "protected" | "control") {
     leakedLookups: (await lookups(netlog)).filter((name) => name.includes(suffix)),
   };
 }
-
-const headless =
-  process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
 
 it.skipIf(headless)(
   "a visualization's script runs but no request, socket or DNS lookup leaves the visualization session",

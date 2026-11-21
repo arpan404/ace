@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use spade_core::Event;
+use spade_core::running::rolled;
 use spade_core::tools::Registry;
 use spade_core::tree::{self, Link};
 
@@ -85,19 +86,6 @@ impl Index {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
-}
-
-/// The state a node reads with something under it: waiting beats working beats sleeping beats
-/// idle, so a bot never reads idle (or done) while anything under it works or waits on the
-/// person (ace's priority 1).
-pub(super) fn rolled(own: State, under: State) -> State {
-    let rank = |s: State| match s {
-        State::Idle => 0,
-        State::Sleeping => 1,
-        State::Working => 2,
-        State::Waiting => 3,
-    };
-    if rank(under) > rank(own) { under } else { own }
 }
 
 /// What `activity`'s ace children add to its state: waiting while one waits on the person,
@@ -246,10 +234,41 @@ impl Engine {
     /// task never done meanwhile.
     pub(super) fn roll_up(&self, id: &str, own: Activity) -> Activity {
         let children = self.worker_children(id);
-        if children.is_empty() && !own.ace_waiting && !own.ace_working {
+        // The callees of its open contract calls (ADR 0200 §6.2).
+        let callees: Vec<String> = own
+            .calls
+            .iter()
+            .filter_map(|bot| self.store.agent(bot).ok().flatten())
+            .map(|agent| agent.conversation)
+            .collect();
+        // A callee on another machine waits on the person, as that machine last said.
+        let remote = (!own.remote_calls.is_empty()).then(|| {
+            if self.remote_waiting(&own.remote_calls) {
+                State::Waiting
+            } else {
+                State::Working
+            }
+        });
+        if children.is_empty()
+            && callees.is_empty()
+            && remote.is_none()
+            && !own.ace_waiting
+            && !own.ace_working
+        {
             return own;
         }
         let mut activity = own;
+        if !callees.is_empty() || remote.is_some() {
+            let states = callees
+                .iter()
+                .map(|callee| self.node_state(callee, 0))
+                .chain(remote);
+            let state = spade_core::contract::caller_state(activity.state, states);
+            if state == State::Waiting && activity.state != State::Waiting {
+                activity.waiting_for = Some("callee");
+            }
+            activity.state = state;
+        }
         let mut under = ace_state(&activity);
         let mut working = 0;
         for child in &children {
@@ -279,7 +298,7 @@ impl Engine {
         let Ok(own) = self.own_activity(id) else {
             return State::Idle;
         };
-        let mut state = own.state;
+        let mut state = spade_core::running::held(own.state, self.paused(id));
         if state == State::Idle && self.continuing(id, false) {
             state = State::Working;
         }
@@ -300,11 +319,23 @@ impl Engine {
             .helper_of(id)
             .map_or_else(|| id.to_owned(), |h| h.parent);
         let Some(link) = self.worker_link(&owner) else {
-            // A top-level bot made from a recipe that named its tools has only those (ADR 0168).
-            return match self.recipe_tools(&owner) {
+            // A top-level bot made from a recipe that named its tools has only those (ADR 0168),
+            // and a packaged one only its `uses` modules' (ADR 0200 §4.3).
+            let registry = match self.recipe_tools(&owner) {
                 Some(tools) => {
                     registry.retain(|def| tree::allows(Some(&tools), def.spec.name.as_str()))
                 }
+                None => registry,
+            };
+            return match self.package_uses(&owner) {
+                Some(uses) => registry.retain(|def| {
+                    let name = def.spec.name.as_str();
+                    let app = self
+                        .tools
+                        .get_for(&owner, name)
+                        .is_some_and(|tool| tool.hints().is_some());
+                    spade_core::effect::runtime::uses_allow(&uses, name, app)
+                }),
                 None => registry,
             };
         };
@@ -359,32 +390,5 @@ impl Engine {
                 }
             }
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_node_reads_waiting_over_working_over_sleeping_over_idle_from_anything_under_it() {
-        use State::{Idle, Sleeping, Waiting, Working};
-        let cases = [
-            (Idle, Working, Working),
-            (Idle, Waiting, Waiting),
-            (Working, Waiting, Waiting),
-            (Waiting, Working, Waiting),
-            (Idle, Sleeping, Sleeping),
-            (Sleeping, Working, Working),
-            (Working, Idle, Working),
-            (Idle, Idle, Idle),
-        ];
-        for (own, under, expected) in cases {
-            assert_eq!(
-                rolled(own, under),
-                expected,
-                "{own:?} with {under:?} under it"
-            );
-        }
     }
 }

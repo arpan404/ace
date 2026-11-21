@@ -419,3 +419,24 @@
     background-color: color-mix(in oklab, var(--ring) 12%, transparent);
   }
 }
+
+/*
+ * The code editor's caret blink (Settings › Editor › Cursor blinking). It restarts on each move
+ * (the caret box remounts), and stays solid under reduced motion.
+ */
+.fx-caret-blink {
+  animation: fx-caret-blink 1.06s steps(1) infinite;
+}
+@keyframes fx-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+:root[data-reduce-motion] .fx-caret-blink {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-caret-blink {
+    animation: none;
+  }
+}

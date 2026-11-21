@@ -25,7 +25,7 @@ struct WorktreeStartCard: Codable, Sendable, Equatable {
     let note: String
     /// Why the last action didn't happen; empty when it did.
     let refused: String
-    /// A stale Git lock stopped it: clearing it happens on the computer.
+    /// A stale Git lock stopped it: the card offers Clear the lock and try again.
     let locked: Bool
     let actions: [Action]
     /// The action on its way, or empty.

@@ -1,6 +1,6 @@
 import type { Applied, EditorDocument, LineEdit, Selection, TextReplacement } from "@ace/editor";
 import type { LineMark } from "@ace/ui-core";
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import type { EditorStatus, EditorStatusActions } from "./editor-status.ts";
 import type { EditorLayer } from "./layer.ts";
 
@@ -65,6 +65,10 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   /** Gutter marks from the checkout's diff; unset, the editor diffs against its own opening. */
   marks?: ReadonlyMap<number, LineMark> | undefined;
+  /** A press on a `marks` line's change bar, with its 1-based line: show what changed there. */
+  onMarkClick?: ((line: number) => void) | undefined;
+  /** Drawn across the text under 0-based line `after` (a change's inline diff), over the lines below. */
+  peek?: { after: number; content: ReactNode } | undefined;
   /** A 1-based line to bring into view once. */
   line?: number | undefined;
   /** With `line`, the 0-based UTF-16 column on it to bring into view (a search match's). */
@@ -84,6 +88,18 @@ export interface CodeEditorProps {
   onStatus?: ((status: EditorStatus) => void) | undefined;
   /** Draw a mark for every space and tab. Off by default; the status line can turn it on. */
   renderWhitespace?: boolean;
+  /** The text's size in pixels; 13 by default. */
+  fontSize?: number | undefined;
+  /** One row's height in pixels; 22 by default. */
+  lineHeight?: number | undefined;
+  /** A CSS font family list for the text; the app's monospace font when unset or empty. */
+  fontFamily?: string | undefined;
+  /** Indentation guides under the text. On by default. */
+  indentGuides?: boolean | undefined;
+  /** Blink the carets. Off by default. */
+  cursorBlinking?: boolean | undefined;
+  /** Pin the headers of the blocks around the top line above the text. On by default. */
+  stickyScroll?: boolean;
   /** Vertical rulers at these columns. None by default. */
   rulers?: readonly number[];
   /** Alt+Z: the person asked for wrap to toggle. */

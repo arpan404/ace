@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/TunnelRefused.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "$ref": "https://ace.local/protocol/v1/TunnelRefusalCode.json"
+    },
+    "stream": {
+      "$ref": "https://ace.local/protocol/v1/TunnelStreamId.json"
+    },
+    "type": {
+      "const": "tunnel.refused",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "code"
+  ],
+  "type": "object"
+}

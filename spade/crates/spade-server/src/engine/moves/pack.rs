@@ -1,5 +1,5 @@
 //! Writing a frozen bot out as a move's parts (ADR 0187): its rows table by table, the images
-//! its conversations show, then its workspace files in pieces, each part one JSON file of at
+//! its conversations show and its panels' pages, then its workspace files in pieces, each part one JSON file of at
 //! most `PART_BYTES`, and last the manifest that counts and hashes all of it. Packing again
 //! after a restart starts over; once the manifest is written the parts never change.
 
@@ -10,12 +10,13 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use spade_store::{MOVE_TABLES, Row, RowSums, StoredMove};
+use spade_store::{BOT_PANELS, MOVE_TABLES, Row, RowSums, StoredMove};
 
 use super::budget;
 use super::files;
 use super::paths;
 use super::{Engine, FORMAT, VERSION, detail, strings};
+use crate::packages::panels;
 
 /// Most bytes of one part's JSON: with the request around it, well inside the 512 KiB an inbox
 /// request may carry.
@@ -91,7 +92,18 @@ impl Parts {
     /// A file in pieces, at most `size` bytes (its size when the preflight read it); answers its
     /// size and SHA-256 for the inventory.
     fn file(&mut self, head: Value, full: &Path, size: u64) -> Result<(u64, String), String> {
-        let mut file = std::fs::File::open(full).map_err(|e| e.to_string())?;
+        let file = std::fs::File::open(full).map_err(|e| e.to_string())?;
+        self.bytes_of(head, file, &full.display().to_string(), size)
+    }
+
+    /// What `file` reads (named `name` in a refusal), in pieces, as [`Parts::file`] does.
+    fn bytes_of(
+        &mut self,
+        head: Value,
+        mut file: impl Read,
+        name: &str,
+        size: u64,
+    ) -> Result<(u64, String), String> {
         let mut digest = Sha256::new();
         let mut buffer = vec![0u8; FILE_PIECE];
         let mut offset: u64 = 0;
@@ -108,7 +120,7 @@ impl Parts {
             }
             let piece = &buffer[..filled];
             if offset + filled as u64 > size {
-                return Err(format!("{} grew while it was being packed", full.display()));
+                return Err(format!("{name} grew while it was being packed"));
             }
             digest.update(piece);
             let last = filled < FILE_PIECE;
@@ -193,6 +205,7 @@ impl Engine {
         };
         let mut sums = BTreeMap::new();
         let mut images = Vec::new();
+        let mut pages = Vec::new();
         let mut models = Vec::new();
         // Read a page at a time: Spade's connection is held for one page, never a table.
         for table in MOVE_TABLES {
@@ -212,6 +225,17 @@ impl Engine {
                     if table.name == "agents" {
                         files::image_refs(row["avatar"].as_str().unwrap_or(""), &mut images);
                         endpoints_of(row["model"].as_str().unwrap_or(""), &mut models);
+                    }
+                    if table.name == "settings"
+                        && row["key"]
+                            .as_str()
+                            .is_some_and(|k| k.starts_with(&format!("{BOT_PANELS}:")))
+                    {
+                        for hash in panels::named_in(row["value"].as_str().unwrap_or("")) {
+                            if !pages.contains(&hash) {
+                                pages.push(hash);
+                            }
+                        }
                     }
                     if table.name == "settings"
                         && row["key"]
@@ -253,6 +277,20 @@ impl Engine {
                     parts.file(json!({ "kind": "image", "sha256_name": sha }), &path, most)?;
                 inventory
                     .push(json!({ "kind": "image", "name": sha, "size": size, "sha256": hash }));
+            }
+        }
+        // Its panels' pages, by hash beside its images (ADR 0200 §5.2), so they show the moment
+        // it arrives. A page this machine no longer keeps isn't named.
+        for hash in &pages {
+            if let Some(html) = panels::page(self, hash) {
+                let (size, sha) = parts.bytes_of(
+                    json!({ "kind": "page", "sha256_name": hash }),
+                    html.as_bytes(),
+                    hash,
+                    html.len() as u64,
+                )?;
+                inventory
+                    .push(json!({ "kind": "page", "name": hash, "size": size, "sha256": sha }));
             }
         }
         let mut left = Vec::new();
@@ -302,6 +340,10 @@ impl Engine {
         if !extras.is_object() {
             extras = json!({});
         }
+        // A paused bot's pause goes with it, so it arrives paused (ADR 0200 §6.1).
+        if let Some(paused) = self.pauses_to_move(&agents).map_err(|e| e.to_string())? {
+            extras["paused"] = paused;
+        }
         if let Some(plugins) = self.plugins() {
             extras["plugins"] = agents
                 .iter()
@@ -315,7 +357,16 @@ impl Engine {
             "schema": spade_store::Store::schema_version(),
             "move": entry.id,
             "from": kept["from"],
-            "bot": { "id": entry.agent_id, "name": entry.agent_name, "main": entry.main },
+            // A shared bot's organization (ADR 0206): only a host of the same one takes it.
+            "bot": {
+                "id": entry.agent_id,
+                "name": entry.agent_name,
+                "main": entry.main,
+                "org": match self.agent_space(&entry.agent_id) {
+                    spade_core::org::Space::Org(org) => Some(org),
+                    spade_core::org::Space::Personal => None,
+                },
+            },
             "agents": agents,
             "tables": sums,
             "inventory": { "count": count, "bytes": bytes, "sha256": inventory_sha },

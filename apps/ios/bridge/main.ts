@@ -45,6 +45,7 @@ import { followFileChanges } from "./checkout-request.ts";
 import { NativeFilesAction, routeFilesAction, type FilesActions } from "./checkout-actions.ts";
 import { CheckoutDownloads } from "./checkout-downloads.ts";
 import { CheckoutMemory } from "./checkout-memory.ts";
+import { CheckoutContentSearch } from "./checkout-content-search.ts";
 import { CheckoutTrees } from "./checkout-tree-live.ts";
 import { CheckoutUploads } from "./checkout-uploads.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
@@ -71,6 +72,10 @@ import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 import { NativeSpade, NativeSpadeAction } from "./spade.ts";
 import { ReadAhead } from "./read-ahead.ts";
 import { ThreadLinger } from "./thread-linger.ts";
+import { DeviceTabControl, DeviceTabs } from "./device-tabs.ts";
+import { nativeLoopbackHost } from "./device-host.ts";
+import { openPhoneTunnel } from "./machine-tunnel-open.ts";
+import { benchLoopback, startLoopbackBench } from "./tunnel-bench.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -163,6 +168,8 @@ let readAheadAllowed = false;
 let workspace: NativeWorkspace | undefined;
 /** Spade on this machine, through its daemon (`spade.ts`). */
 let spade: NativeSpade | undefined;
+/** Pages the person opens in the phone's own web view, and their way to the machine's localhost. */
+let deviceTabs: DeviceTabs | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
@@ -353,6 +360,7 @@ async function start(json: string): Promise<void> {
     later: (delay, callback) => scheduler.set(delay, callback),
   });
   spade.start();
+
   ahead?.stop();
   const reading = client;
   ahead = new ReadAhead({
@@ -401,6 +409,13 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     trust,
   };
+  deviceTabs?.close();
+  deviceTabs = new DeviceTabs({
+    sink: pump,
+    host: nativeLoopbackHost(host, call),
+    tunnel: () => openPhoneTunnel(featureConfig, connection),
+    id: () => host.uuid(),
+  });
   devices = new NativeDevices(featureConfig, {
     sink: pump,
     now: () => host.now(),
@@ -445,6 +460,7 @@ async function start(json: string): Promise<void> {
     downloads: new CheckoutDownloads(client, pump, { call, uuid: () => host.uuid() }),
     uploads: new CheckoutUploads(client, pump, nativeChunks),
     trees: new CheckoutTrees(client, files, pump, scheduler),
+    contents: new CheckoutContentSearch(client, pump, scheduler, () => host.uuid()),
   };
   followFileChanges(client, pump);
   const forgeClient = client;
@@ -556,6 +572,12 @@ function action(json: string): void {
     const accessControl = ComputerAccessControl.safeParse(raw);
     if (accessControl.success) {
       if (access) access.handle(accessControl.data);
+      else error();
+      return;
+    }
+    const deviceTab = DeviceTabControl.safeParse(raw);
+    if (deviceTab.success) {
+      if (deviceTabs) deviceTabs.handle(deviceTab.data.action);
       else error();
       return;
     }
@@ -727,4 +749,13 @@ Object.assign(globalThis, {
   aceAck: (accepted: boolean) => pump.ack(accepted),
   aceSocket: socketEvent,
   aceAccess,
+  aceLoopback: (event: string, connection: string, value: number | Uint8Array) =>
+    (benchLoopback() ?? deviceTabs?.loopback)?.event(event, connection, value),
+  /** Debug builds' `--loopback-bench` only (`LoopbackBench.swift`): answers through `aceBenchDone`. */
+  aceLoopbackBench: (port: number) => {
+    void startLoopbackBench(port).then(
+      (answer) => Reflect.get(globalThis, "aceBenchDone")?.(answer),
+      () => Reflect.get(globalThis, "aceBenchDone")?.(""),
+    );
+  },
 });

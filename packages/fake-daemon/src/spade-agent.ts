@@ -17,13 +17,15 @@ export interface FakeSpadeAgent {
   last_activity: number;
   /** When it was pinned (ms), as Spade sends it; null or absent when it isn't. */
   pinned_at?: number | null;
-  state: "idle" | "working" | "waiting";
-  waiting_for: "approval" | "question" | null;
+  state: "idle" | "working" | "waiting" | "paused";
+  waiting_for: "approval" | "question" | "worker" | "callee" | null;
   /** Its cards left for later, not yet answered or dismissed (ADR 0154). */
   questions_for_later?: number;
   status: string | null;
   /** Why its latest reply on a subscription failed (ADR 0133). */
   problem?: string | null;
+  /** Its subscription's terms no longer allow it: `{provider, name, text, choices}` (ADR 0205). */
+  terms_hold?: Json | null;
   last_message: {
     from: "person" | "agent";
     text: string;
@@ -34,6 +36,17 @@ export interface FakeSpadeAgent {
   move?: Json | null;
   /** What needs the person since it arrived from another machine. */
   arrived?: Json | null;
+  /** The agent package it is linked to (ADR 0200 §3.9). */
+  package?: Json | null;
+  /** The person turned calls to its contracts from their other bots off (ADR 0200 §7). */
+  takesCalls?: boolean;
+  /** Its accent (ADR 0200 §5.3): `{accent, chosen}`, as Spade shows it; null for none. */
+  style?: { accent: string | null; chosen: boolean } | null;
+  /**
+   * A bot made from an ace template: the newer template version this Spade ships, as
+   * `GET …/package/template` answers it (`{package, recipe, plan, effects}`).
+   */
+  templateOffer?: Json | undefined;
   /** The conversation's seen cursor, as Spade sends it; null when never marked. */
   seen_seq?: number | null;
   /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */

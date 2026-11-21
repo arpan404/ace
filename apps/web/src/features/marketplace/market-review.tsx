@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import type { MarketInstalled, MarketReview, MarketReviewBody } from "@ace/protocol/marketplace";
+import type { MarketInstalled, MarketReview } from "@ace/protocol/marketplace";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -31,22 +31,34 @@ import { offlineTitle, useMarketNav } from "./market-nav.ts";
 import { reviewFailure, ReviewFoot, type ReviewFailure } from "./market-review-foot.tsx";
 import { ReviewItems, ReviewTexts } from "./market-review-items.tsx";
 import { ShowFiles, SuitLooks } from "./market-review-suit.tsx";
-import { AppMark, BotPicture } from "./market-stage.tsx";
+import { BotPicture } from "./market-stage.tsx";
+import { RecipeChoices } from "./market-review-bot.tsx";
+import { effectDefaults, limitSentences } from "./market-package-words.ts";
 import { part } from "@/lib/suit-part.ts";
 
 /*
  * The review before an install or an update (ADR 0168 §8), as a form page: what it is, in plain
- * sentences; a recipe's apps as switches (required ones on, optional ones off) and whether its
+ * sentences; a package's declared effects and a recipe's apps as switches and whether its
  * routines start; which bots get a plugin; what it runs and its files. Nothing installs until
- * Install, with the switches as they are; an update is reviewed and installed on its own.
+ * Install, with the switches as they are; an update, or a linked bot's rollback (ADR 0200 §6.1),
+ * is reviewed and applied on its own.
  */
 
-export function ReviewPage(props: { entry: EntryKey; update: boolean }) {
+export function ReviewPage(props: {
+  entry: EntryKey;
+  update: boolean;
+  rollback?: boolean | undefined;
+  /** The bot an update or rollback moves. */
+  bot?: string | undefined;
+}) {
   const read = useMarketEntry(props.entry);
-  const block = read.data && installBlock(read.data.entry);
+  // A rollback reads the bytes pinned here, so a withdrawn or unlisted entry can still go back.
+  const block = !props.rollback && read.data ? installBlock(read.data.entry) : undefined;
   const review = useMarketReview(props.entry, {
     update: props.update,
-    enabled: read.data !== undefined && !block,
+    rollback: props.rollback,
+    bot: props.bot,
+    enabled: (read.data !== undefined || props.rollback === true) && !block,
   });
   const title = read.data?.entry.summary.title ?? "";
   // The device's own scan refused these bytes: no review, no Install, and why in sentences.
@@ -115,10 +127,14 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
   const [needs, setNeeds] = useState(() =>
     body.type === "spade-bot" ? needDefaults(body.needs) : {},
   );
+  const [effects, setEffects] = useState(() =>
+    body.type === "spade-bot" ? effectDefaults(body, review.byAce) : {},
+  );
   const [startRoutines, setStartRoutines] = useState(false);
   const [bots, setBots] = useState<readonly string[]>([]);
-  const [failed, setFailed] = useState<ReviewFailure>();
+  const [failed, setFailed] = useState<{ failure: ReviewFailure; retry(): void }>();
   const recipe = body.type === "spade-bot" ? body : undefined;
+  const moving = recipe?.update;
   const missing =
     recipe?.needs.filter((need) => need.required && !needs[need.key]).map((need) => need.label) ??
     [];
@@ -126,10 +142,14 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
     review.blocked ??
     (missing.length ? `${review.title} can't work without ${missing.join(" and ")}.` : undefined);
   const run = () => {
-    setFailed(undefined);
-    install.mutate(
-      { review, choices: { bots: [...bots], needs, startRoutines } },
-      {
+    const input = {
+      review,
+      // A package's effect switches; a version 2 recipe declares none.
+      choices: { bots: [...bots], needs, startRoutines, ...(recipe?.linked ? { effects } : {}) },
+    };
+    const send = () => {
+      setFailed(undefined);
+      install.mutate(input, {
         onSuccess: (answer) => {
           const bot = review.type === "spade-bot" ? answer.installed?.target : undefined;
           if (bot) {
@@ -137,9 +157,10 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
             void navigate({ to: "/spade/$agentId", params: { agentId: bot } });
           } else nav.back();
         },
-        onError: (error) => setFailed(reviewFailure(error)),
-      },
-    );
+        onError: (error) => setFailed({ failure: reviewFailure(error), retry: send }),
+      });
+    };
+    send();
   };
   const who = publisherName(review);
   const lines = [
@@ -147,10 +168,17 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
       ? [`${review.title} is already in your Suits, so there's nothing to install.`]
       : []),
     fromLine(review),
-    ...(review.updates
-      ? [`Replaces version ${review.updates}, which stays until you install.`]
-      : []),
-    ...canDoSentences(review),
+    ...(moving?.rollback
+      ? [
+          `Goes back to version ${review.version} from ${review.updates ?? "the one it has"}, from the copy kept on this machine.`,
+        ]
+      : moving
+        ? [`Replaces version ${review.updates ?? ""}, which stays until you update.`]
+        : review.updates
+          ? [`Replaces version ${review.updates}, which stays until you install.`]
+          : []),
+    ...(moving ? [] : canDoSentences(review)),
+    ...(recipe && !moving ? limitSentences(recipe) : []),
     ...(review.deprecated ? [`Its publisher deprecated this version: ${review.deprecated}`] : []),
   ];
   const found = findingSentences(review.scan);
@@ -201,8 +229,11 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
       {recipe && (
         <RecipeChoices
           recipe={recipe}
+          byAce={review.byAce}
           needs={needs}
           onNeeds={setNeeds}
+          effects={effects}
+          onEffects={setEffects}
           start={startRoutines}
           onStart={setStartRoutines}
         />
@@ -213,7 +244,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
       <ShowFiles items={items} hash={review.hash}>
         {review.type === "suit" && <ReviewTexts items={items} />}
       </ShowFiles>
-      <ReviewFoot stuck={stuck} failure={failed} onSignedIn={run}>
+      <ReviewFoot stuck={stuck} failure={failed?.failure} onSignedIn={() => failed?.retry()}>
         <Button
           variant="ghost"
           size="lg"
@@ -241,7 +272,17 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
             title={nav.offline ? offlineTitle("Install") : undefined}
             onClick={run}
           >
-            {install.isPending ? "Installing…" : "Install"}
+            {moving?.rollback
+              ? install.isPending
+                ? "Rolling back…"
+                : "Roll back"
+              : moving
+                ? install.isPending
+                  ? "Updating…"
+                  : "Update"
+                : install.isPending
+                  ? "Installing…"
+                  : "Install"}
           </Button>
         )}
       </ReviewFoot>
@@ -288,71 +329,6 @@ function BotChoice(props: { chosen: readonly string[]; onChange(bots: readonly s
           />
         </div>
       ))}
-    </>
-  );
-}
-
-type Recipe = Extract<MarketReviewBody, { type: "spade-bot" }>;
-
-/** A recipe's apps as switches (required ones on) and whether its routines start. */
-function RecipeChoices(props: {
-  recipe: Recipe;
-  needs: Readonly<Record<string, boolean>>;
-  onNeeds(next: (before: Record<string, boolean>) => Record<string, boolean>): void;
-  start: boolean;
-  onStart(start: boolean): void;
-}) {
-  const { recipe } = props;
-  return (
-    <>
-      {recipe.needs.length > 0 && (
-        <>
-          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
-            Apps
-          </h3>
-          {recipe.needs.map((need) => (
-            <div key={need.key} className="mk-fact-row">
-              <AppMark name={need.label} size={32} />
-              <span className="mk-words">
-                <span className="mk-name">{need.label}</span>
-                <span className="mk-meta">
-                  {need.why} {need.required ? "Required." : "Optional."}
-                </span>
-              </span>
-              <Switch
-                aria-label={need.label}
-                checked={props.needs[need.key] === true}
-                onCheckedChange={(on) => props.onNeeds((before) => ({ ...before, [need.key]: on }))}
-              />
-            </div>
-          ))}
-        </>
-      )}
-      {recipe.routines.length > 0 && (
-        <>
-          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
-            Routines
-          </h3>
-          {recipe.routines.map((routine) => (
-            <div key={routine.name} className="mk-fact-row">
-              <span className="mk-words">
-                <span className="mk-name">{routine.name}</span>
-                <span className="mk-meta">{routine.schedule}</span>
-              </span>
-            </div>
-          ))}
-          <div className="mk-fact-row">
-            <span className="mk-words">
-              <span className="mk-name">Start its routines</span>
-            </span>
-            <Switch
-              aria-label="Start its routines"
-              checked={props.start}
-              onCheckedChange={props.onStart}
-            />
-          </div>
-        </>
-      )}
     </>
   );
 }

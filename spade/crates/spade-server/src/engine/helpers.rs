@@ -301,6 +301,7 @@ impl Engine {
                 name: agent.name,
                 depth: 0,
                 machine: None,
+                contract: None,
             });
         }
         let reply = events
@@ -572,7 +573,9 @@ impl Engine {
         call_id: &str,
         allowed: bool,
         always: bool,
+        by: Option<&spade_core::org::Member>,
     ) -> Result<(), AnswerError> {
+        let entry = by.and_then(|member| self.answer_entry(bot, call_id, allowed, always, member));
         let asked = events.iter().rev().find_map(|event| match event {
             Event::Known(Known::ApprovalRequested {
                 call_id: c,
@@ -596,14 +599,16 @@ impl Engine {
             .unwrap_or_default();
         // "Always" is stored in the bot's conversation, so it holds for the bot and every helper
         // of it from now on.
-        self.append(
+        self.append_audited(
             bot,
-            &Event::Known(Known::ApprovalAnswered {
+            &[Event::Known(Known::ApprovalAnswered {
                 reply: bot_reply,
                 call_id: call_id.to_owned(),
                 allowed,
                 always,
-            }),
+                by: by.cloned().map(Box::new),
+            })],
+            &entry.into_iter().collect::<Vec<_>>(),
         )?;
         self.append(
             &ask.conversation,
@@ -612,6 +617,7 @@ impl Engine {
                 call_id: ask.call_id.clone(),
                 allowed,
                 always,
+                by: None,
             }),
         )?;
         self.live(&ask.conversation).wake.notify_one();

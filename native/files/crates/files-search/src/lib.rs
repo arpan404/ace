@@ -17,6 +17,8 @@
 mod error;
 mod folders;
 mod open;
+#[cfg(any(target_os = "macos", test))]
+mod pace;
 mod parents;
 mod pattern;
 mod preview;

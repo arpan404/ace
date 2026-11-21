@@ -18,6 +18,14 @@ Spade is one of ace's places. It adds no navigation of its own.
   ordinary row. No head, no foot: the profile and Settings live in the rail.
 - **Conversation** (the main column). The floating pill, bubbles, raised cards, folded steps, the
   working line and the composer. The top bar carries no title here.
+- **Running** (ADR 0200 §6.3), a page in the main column at `/spade/running`: one list of every
+  bot on every machine, Spade's own an ordinary row among them, in the order needs you, working,
+  failed, sleeping, paused, idle. A row is the 40px face, the name, its state in words ("Checking
+  fares", "Waiting on you: a question", "Paused", "Failed: …"), then one quiet line: what it
+  holds open, spend today and this month, the network today and its next wake ("Held: …" while
+  paused). Its workers are listed under it in words. Stop, Pause or Resume, and Open are text
+  buttons. No head, no foot, no tints. It is opened from Spade's own profile (Details › Running)
+  and the palette (Running bots), never from a new rail icon or toolbar button.
 - **Profile** (ace's side panel). One place per bot: Details, Library, Computer. The person keeps
   talking while they change the bot, and watches its computer beside the chat. Below 680px the
   profile takes the window; on iPhone it is a sheet.
@@ -41,7 +49,10 @@ Spade is one of ace's places. It adds no navigation of its own.
   on this machine (its chat then says "Turn on"). It is never pinned and never leaves the first
   place.
 - **Rows.** 64px, a 40px face, the name in 14/20 at 500 and one line in 13/20. No time, no glyph
-  at the end: the order already says what is recent.
+  at the end: the order already says what is recent. A development bot (ADR 0200 §9, linked to a
+  package folder by `ace bot dev`) has one quiet word after its name, "Development", in 13/20 at
+  400 in the subtle ink: no badge, no chip, no tint. Its Running row says the same. A bot with an accent (§7) has a 2×16px
+  rule in it at the row's left edge; other rows have none.
 - **Order.** Spade first, then needs you, then working, failed, finished and not seen, then the rest.
 - **Row states.**
 
@@ -49,6 +60,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   | ------------------ | -------------- | ----- | ---------------------------------------- |
   | Needs you          | looks up       | amber | the ask, in the needs-you text colour    |
   | Working            | moves          | none  | what it is doing, muted                  |
+  | Paused             | still, asleep  | none  | "Paused"                                 |
   | Failed             | slumps         | red   | what broke, in the failed text colour    |
   | Finished, not seen | pleased        | none  | name and line in full ink                |
   | At rest            | still          | none  | the last thing it said, as plain text    |
@@ -84,22 +96,28 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Working line.** Under the last bubble while the bot works: its 32px face, moving, one line of
   what it is doing and a running time. It goes when the reply ends. Only a working face moves
   (ADR 0127); every other pose moves once and holds.
-- **Steps.** A reply's finished steps fold into one quiet line under its words, counted in words
-  ("Ran 3 commands, changed 2 files"), that opens to each: what it did and the one thing it
-  touched (a command, a path, an address), where it ran (in its sandbox or outside it) and how it
-  ended. A step the person must see stands under the line unopened, in full ink: one the network
-  policy blocked ("Blocked example.com: …"), the review refused or the person declined, one that
-  deletes or can't be undone, and one that acted outside the bot's box (ran outside the sandbox,
-  reached the network, pushed, commented, sent). Words only: no icons, badges or tints. Notes it
-  saved and what it showed the person keep their own places. Helpers are one line each, opening
-  to their steps. Raw markdown and raw tool arguments never show.
-- **Undo.** When a reply changed the bot's files, its step line ends in the quiet words "Undo
-  these changes" (the whole turn, from its first file-changing step), and each such step offers
-  them too. They open a dialog that first says what goes back, which new files are removed and which
-  deleted files come back (paths in mono on `--chat-well`), and what undo can't take back, then
-  Undo. A step undo can't reach says so plainly in its own line, in full ink: "Can't be undone:
-  it was sent in your name.", "…a payment can't be taken back from here.", "…it's published.",
-  "Can't be undone here: it changed linear." The step's declared effect decides it, not its name (ADR 0167, spade/docs/security.md).
+- **Steps.** As steps finish, they fold into one quiet line under the reply
+  ("Ran 3 commands, changed 2 files"). The line starts closed and counts failures
+  ("Ran a command, one step failed"). Open it to read one row per step with what it did,
+  what it touched and any failure or refusal reason. Say who approved a step when a
+  reviewer or a one-time decision let it run. Standing permission needs no label.
+  The running step stays on the working line. Pending approvals and questions keep their
+  own cards. Notes, things the bot showed, and helpers keep their own places.
+- **Undo.** When a reply changed the bot's files, the collapsed line offers "Undo these changes"
+  for the whole turn and each undoable step offers it in the detail. The confirmation lists which
+  files go back, which new files are removed and which deleted files come back (paths in mono on
+  `--chat-well`). It also lists the actions undo can't take back (ADR 0167, spade/docs/security.md).
+- **Workers it started (ADR 0161).** The ace agents and bots one call starts are one card in the
+  turn that started them, drawn with ace's own delegated-child rows (one component with a
+  thread's): one row while a lone worker runs, else "Started 4 agents" with each state's count in
+  its tone, opening to a row per worker. A row is its provider's mark (a bot's face), its name,
+  "Delegated · model", "on <machine>" when it runs elsewhere, its state in words and its last
+  line; it opens the agent's thread on its machine, or the bot's chat. States come live from
+  ace's thread list on the bot's machine, else the bot's tree; nothing reads done while either
+  says it runs. The bot's own words about them stay as written. A worker waiting on the person
+  shows Review on its row, and its request waits at the end of the chat as ace's own card
+  (Approve plan, an answer), answered there for the agent through its machine; a bot that waits
+  opens its chat. "Needs you" in the list and a notice open the chat at that card.
 - **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
   ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.
@@ -118,6 +136,27 @@ Spade is one of ace's places. It adds no navigation of its own.
   Cancel; a failure says what fixes it. Connected, it settles to one quiet line with the mark
   ("Connected as ada@example.com"); an app not available yet is the bot's bubble with "Not
   available yet", and nothing waits.
+- **Suggest card** (a bot suggesting a package, ADR 0200 §8): a raised card in the connect
+  card's shape. Its first line is the package's face (32px) and name, with "By <publisher> ·
+  <Bot> suggests it" (the publisher from the market's signed manifest); then its one line, the
+  bot's reason, "It would ask to:" and its asks in a few words each, and one quiet line that
+  nothing is installed until the person reviews it. One primary, Review install, opens the
+  Marketplace's install review over the page; Later and Not now as ghost words. Installed, it
+  settles to one quiet line with the face ("Installed Flight watcher"); left for later, one line
+  with Review.
+- **Panel confirm** (an action a package's panel declares `confirm`, ADR 0200 §5.2 amendment 1):
+  ace's own line at the foot of the panel, under the page and outside its frame, parted from it
+  by one hairline: one sentence in `text-ui` foreground saying what goes ("Watched trips asks to
+  send “Book this fare” with KTM-DEL."), then Cancel (secondary) and Confirm (primary) at the
+  right, text buttons with no icons, tints or timers. Nothing the page draws can sit on it or
+  press it. Confirm takes a press only once the line has shown for 600 ms. Confirmed or
+  cancelled, the line goes; the conversation shows "You confirmed Book this fare" as a quiet line,
+  where an action the page sent by itself reads "The panel sent Stop watching".
+- **A bot's notice** (`notify`, ADR 0200 §4.2): the bot's bubble where it sent it, a bare bell
+  before its title (500), the body under it, both plain text (nothing in them is a link), then
+  one quiet line saying where it went: "Sent as a notification", "Held for your morning brief:
+  quiet hours" (or do not disturb, or that it had sent 3 this hour), "Not sent: its
+  notifications are off". No tint, no chip.
 - **Settled cards.** An answered question becomes a quiet bot bubble, the answer the person's own
   bubble. A request becomes one line ("Allowed · curl -s …"); in a run, they fold into the reply's
   steps. Left for later, a card folds to one line in place with Answer, and one pill above the
@@ -141,8 +180,9 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 4. Profile
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
-  22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
-  Computer as a segmented control in the body.
+  22/28 at 600 (one quiet line under it: "Development" for a development bot, "Full access"
+  while the bot is in it, joined by · when both), then Details · Library ·
+  Computer · Permissions as a segmented control in the body.
 - **Details:** task (with its Earlier versions folded under it), model (one picker, grouped by
   endpoint), machine, voice (Speak replies and the bot's voice, kept on this device), routines,
   making bots (May create bots), apps, security
@@ -166,7 +206,21 @@ Spade is one of ace's places. It adds no navigation of its own.
   and Forget all behind a confirm; the person's own words are never in it.
 - **Personality** (a section of Details, after Runs with): Tone (its own way, Concise, Warm,
   Formal, Playful), Humour and Emoji switches, off until turned on. Saved as each changes, taken
-  from the next turn.
+  from the next turn. Then **Accent** (not for Spade): "Its face's colour", then the curated
+  colours (Blue, Teal, Green, Orange, Magenta, Violet) that hold 3:1 on the page, raised and panel
+  surfaces of both schemes of the theme or Suit on screen; one that doesn't is left out, and with
+  none left one sentence says so. A package's colour shows chosen (as "Its package's colour" when
+  it isn't a curated one) until the person picks; their pick is kept through updates. A bot with
+  an accent rings its 96px head face in it, 2px with a 4px gap.
+- **Permissions:** one line saying the bot uses the default in Settings › Spade unless it sets
+  its own, then one row per switch: its title, one plain line, a switch (Computer use, Browser,
+  Simulators and devices, Apps, Commands outside the sandbox, Network beyond listed sites, Send as
+  you, Payments). A switch the bot sets itself offers Use default. With Computer use on, one quiet
+  line under it says the bot never uses the apps listed in Settings. Turning a switch on without
+  the person's standing shows Confirm it's you in its row; a refusal says why there. Settings ›
+  Spade › Security has the same rows as the default, with "Never let bots use · N apps" folded under
+  Computer use: open, each app with Remove, and a name to Add. Steps run under a switch show nothing extra in the
+  steps line.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
   words (only exceptions stand out), and Take over only while it drives (it is at work and the
   surface is live, never live alone: Spade keeps a surface live a while after its last use);
@@ -232,6 +286,16 @@ and checked switches. The bubble is the accent, not each bot's colour: face colo
 the status hues, and a bubble that changed per chat would make the person look like the bot. On
 Ink, ace's default accent, the bubble is solid ink. Faces keep their own colours: they are the
 bots' marks.
+
+**A bot's accent** (ADR 0200 §5.3) is one colour from its package's `style.accent` or the
+person's choice in its profile. It marks only the bot's own things: its profile face's ring, its
+list row's rule, its cards' title rule and, when panels arrive, its panel's header. Never a fill,
+a tinted background, status, an approval, the Working line or a waiting marker. Each scheme is
+checked against the live theme or Suit's surfaces at 3:1; one that fails is drawn in the face's
+pair colour instead. A card's title rule always has a colour (the face's when the bot has no
+accent); the ring and the row rule appear only for a bot with an accent, so a list of ordinary
+bots stays neutral. Spade itself and a bot with a picture face have no pair colour, so they fall
+back to nothing.
 
 ## 8. Tokens
 

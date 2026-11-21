@@ -80,6 +80,37 @@ describe("buffers a layout holds (spec 54)", () => {
 });
 
 describe("buffer registry", () => {
+  it("cancels a file's read when its last tab closes before the read lands", async () => {
+    const disk = fakeDisk({ "big.ts": "one\n" });
+    const cancelled: string[] = [];
+    const time = manualTime();
+    const registry = createBufferRegistry({
+      files: {
+        ...disk.port,
+        // A read that only ends when it is cancelled: a big file still queued behind others.
+        read: (file, signal) =>
+          new Promise((_, reject) =>
+            signal?.addEventListener("abort", () => {
+              cancelled.push(file.path);
+              reject(new Error("aborted"));
+            }),
+          ),
+      },
+      drafts: memoryDrafts().store,
+      merge: inlineMerge().port,
+      now: time.now,
+      schedule: time.schedule,
+      ready,
+    });
+    const tab = registry.open(key("big.ts"));
+    await settle();
+    expect(cancelled).toEqual([]);
+
+    tab.release();
+    await settle();
+    expect(cancelled).toEqual(["big.ts"]);
+  });
+
   it("gives two views of one path the same buffer, so an edit in one shows in the other", async () => {
     const { registry } = setup({ "a.ts": "one\n" });
     const left = registry.open(key("a.ts"));
@@ -209,5 +240,36 @@ describe("buffer registry", () => {
     registry.open(key("src/a.ts", "m1/t2"));
 
     expect(registry.folders("m1/t1")).toEqual(["", "src"]);
+  });
+});
+
+describe("indentation of a buffer's file", () => {
+  it("writes what the file already uses, and the device's default where it shows none", async () => {
+    const disk = fakeDisk({
+      "tabs.go": "func a() {\n\treturn\n}\n",
+      "flat.txt": "one\ntwo\n",
+      "later.txt": "x\n",
+    });
+    const time = manualTime();
+    let indent = { tabs: false, size: 4 };
+    const registry = createBufferRegistry({
+      files: disk.port,
+      drafts: memoryDrafts().store,
+      merge: inlineMerge().port,
+      now: time.now,
+      schedule: time.schedule,
+      ready,
+      indent: () => indent,
+    });
+    const tabs = registry.open(key("tabs.go"));
+    const flat = registry.open(key("flat.txt"));
+    await settle();
+    expect(tabs.buffer.document()?.indent().tabs).toBe(true);
+    expect(flat.buffer.document()?.indent()).toEqual({ tabs: false, size: 4 });
+    // A new default applies to files read after it.
+    indent = { tabs: true, size: 8 };
+    const later = registry.open(key("later.txt"));
+    await settle();
+    expect(later.buffer.document()?.indent()).toEqual({ tabs: true, size: 8 });
   });
 });

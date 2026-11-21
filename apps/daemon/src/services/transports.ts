@@ -75,6 +75,7 @@ export async function startRelayTransport(
       return options.relayMain;
     },
     machineCalls: () => options.machineCalls,
+    tunnel: () => options.machineTunnel,
     transfers: () => options.transferTarget,
     hostedRelay: isHostedRelay(relay.url, options.remoteConfig?.hostedRelayUrl),
     store: options.store,

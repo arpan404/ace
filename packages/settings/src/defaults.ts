@@ -82,6 +82,7 @@ export const defaults: SettingsValues = {
   "remote.agentTransfers": true,
   "remote.transferIgnoredFiles": true,
   "remote.hostedPairingLink": false,
+  "remote.machineLocalhost": true,
   "remote.relayMcp": false,
   "remote.relayWebhooks": false,
   "remote.tailscaleWebhooks": false,

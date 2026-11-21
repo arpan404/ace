@@ -401,6 +401,37 @@
     {
       "additionalProperties": false,
       "properties": {
+        "botJson": {
+          "maxLength": 1000000,
+          "type": "string"
+        },
+        "contractFiles": {
+          "additionalProperties": {
+            "maxLength": 40960,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "op": {
+          "const": "spadeBot",
+          "type": "string"
+        },
+        "signed": {}
+      },
+      "required": [
+        "op",
+        "signed",
+        "botJson"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "content": {
           "maxLength": 6000000,
           "type": "string"

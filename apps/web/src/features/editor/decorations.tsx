@@ -1,7 +1,6 @@
 // oxlint-disable react/no-array-index-key -- a decoration's key is its line and column; it has no other identity.
 import type { Range } from "@ace/editor";
 import { caretOf } from "./layers.tsx";
-import { lineHeight } from "./geometry.ts";
 import { whitespaceMarks } from "./decorations.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { rowOffset, rowOfColumn } from "./wrap.ts";
@@ -21,18 +20,21 @@ export interface DecorationProps {
   lastRow: number;
   gutter: number;
   cell: number;
+  lineHeight: number;
   /** Guide levels for `firstLine..lastLine`, one entry per line. */
   guides: readonly number[];
   indentSize: number;
   brackets: readonly Range[] | undefined;
   occurrences: readonly Range[];
   whitespace: boolean;
+  /** Draw the indentation guides (Settings › Editor). */
+  indentGuides: boolean;
   rulers: readonly number[];
 }
 
 export function Decorations(props: DecorationProps) {
   "use no memo";
-  const { layout, lines, gutter, cell } = props;
+  const { layout, lines, gutter, cell, lineHeight } = props;
   if (!layout) return null;
 
   /** One box per visible row a single-line range covers. */
@@ -68,7 +70,7 @@ export function Decorations(props: DecorationProps) {
 
   const guides = [];
   const step = Math.max(1, props.indentSize) * cell;
-  for (let line = props.firstLine; line <= props.lastLine; line++) {
+  for (let line = props.firstLine; props.indentGuides && line <= props.lastLine; line++) {
     const level = props.guides[line - props.firstLine] ?? 0;
     if (level <= 0) continue;
     const start = layout.startOf(line);
@@ -104,12 +106,20 @@ export function Decorations(props: DecorationProps) {
         const index = start + at;
         if (!row || index < props.firstRow || index >= props.lastRow) continue;
         for (const mark of whitespaceMarks(text, row.start, Math.min(row.end, text.length))) {
-          const box = caretOf(lines, layout, { line, column: mark.column }, gutter, cell, false);
+          const box = caretOf(
+            lines,
+            layout,
+            { line, column: mark.column },
+            gutter,
+            cell,
+            lineHeight,
+            false,
+          );
           marks.push(
             <span
               key={`ws-${line}-${mark.column}`}
               data-whitespace={mark.tab ? "tab" : "space"}
-              className="absolute text-center font-mono text-ui leading-[22px] text-subtle-foreground/60"
+              className="absolute text-center font-mono text-subtle-foreground/60"
               style={{ left: box.left, top: index * lineHeight, width: cell, height: lineHeight }}
             >
               {mark.tab ? "→" : "·"}

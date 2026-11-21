@@ -131,8 +131,10 @@ An ask to a bot of another machine is stored in the outbox first, with a key the
 with long polls, and survives restarts. While the machine can't be reached the ask is queued
 (backoff 2 s doubling to 5 minutes, for up to 7 days); a club shows `group_queued`, `bot_message`
 keeps waiting. At most 500 asks wait at once (more are refused until some end); ended entries
-are kept 30 days. Stop withdraws a queued ask before it is sent, and sends `stop` for one already
-delivered.
+are kept 30 days. Stop withdraws a queued ask never tried, and sends `stop` for one already
+delivered. Each try first marks the entry as maybe there (stored before the request leaves), so
+Stop on a queued ask whose answer was lost, or that a crash cut off mid-send, sends `stop` under
+its key until that machine answers: withdrawn when it never had it, stopped there when it did.
 
 ### Receiving (inbox)
 
@@ -161,6 +163,9 @@ club it came through: words from another machine are never the person's own (`40
 | `answer` | `key`, `wait_ms` (0 to 25,000)                                              | `{"status":"pending"                         | "answered"                                    | "stopped"   | "failed" | "unknown", "text"?}` |
 | `stop`   | `key`                                                                       | `{"status":"stopped"                         | "not_running"                                 | "unknown"}` |
 
+`thread_ask`, `thread_answer` and `thread_stop` carry asks from an ace thread on the calling
+machine (below, "Asks from ace threads").
+
 An `ask` for a bot that moved away (ADR 0187) answers `410 {error, moved_to, name}`; the asking
 Spade sends it on to that machine and its clubs list the bot there. `op: "move"` carries moves
 (agents.md, "Moving a bot").
@@ -182,7 +187,9 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
     `spade.remote.result {requestId, result}` with `result` `{kind: "response", status, body}`
     (`body` is Spade's JSON answer there) or `{kind: "error", code, message}`, `code` one of
     `unknown_machine`, `offline` (nothing was sent), `disconnected` (it may have arrived),
-    `refused` (that machine said no), `forbidden`.
+    `refused` (that machine said no), `forbidden`. Only Spade's own socket (loopback, ace's
+    local token) may send it: another machine's Spade reads each request as this machine's
+    Spade's, so a paired device, even with operate, gets `forbidden` (ADR 0200 §7 amendment).
 - **Between daemons:** machine call op `{op: "spade", request: <JSON object, at most 512 KiB>}`.
   The target admits it under the Agents grant (ADR 0105): `bots` and `answer` need Read, `ask`
   and `stop` need Read and act. A pairing made from a time-limited link is a guest and is refused
@@ -210,24 +217,46 @@ inbox's signature (`x-ace-from-host: ace:thread`, `x-ace-from-name`, `x-ace-inbo
   change: a reply, a status, a member's turn. A club's `replies` are every member's message in that
   run, in order.
 - `POST /v1/thread-asks/{key}/stop` → `{status: "stopped" | "not_running" | "unknown"}`.
+- `devices` on an ask (the ones the person named, at most 8, as `POST
+/v1/conversations/{id}/messages` takes them): a bot reads them first in its turn's context, a
+  club's asked members first in theirs. They don't make a turn untrusted.
+- From a thread on another of the person's machines, the same three go through the inbox
+  (`POST /v1/inbox`, signed and stamped as above): `{op: "thread_ask", …the ask's body}`,
+  `{op: "thread_answer", key, wait_ms}` and `{op: "thread_stop", key}`, answered as the routes
+  above answer. Their keys are kept under the calling machine (`ace:thread:<pairing>`), apart
+  from this machine's ace and from bot asks, so only that machine reads or stops them. The
+  message's `from_thread` adds `machine`, the calling machine's name.
 
 A person's message to a bot may also carry `devices` (`POST /v1/conversations/{id}/messages`):
 the fleet's machines and devices they named for the work, put first in the turn's context.
 
 ## Templates
 
-`GET /v1/templates` → `{"templates": [Template]}`, shipped in the binary
-(`config/templates.json`).
+`GET /v1/templates` → `{"templates": [Template]}`. The ten templates are version 3 agent packages
+by ace ([packages.md](packages.md)), one folder each in `spade/templates/<id>/` (`bot.json`,
+`README.md`, `tests/`), built into the binary so New bot works offline; `templates/index.json`
+holds their order and versions. The market's seed lists the same folders.
 
 **Template** = `{"id", "name", "blurb", "task", "face", "model_kind": "fast"|"capable",
-"routines": [{"name", "instruction", "schedule"}], "personality"?: {"tone", "humour", "emoji"}}`.
-A template's personality is the bot's from its first turn ([agents.md](agents.md)); `POST
-/v1/agents` may give its own `personality`, which wins. `schedule` is a phrase routines read
-(`weekdays at 8:00`).
+"routines": [{"name", "instruction", "schedule", "words"}], "personality"?: {"tone", "humour", "emoji"},
+"version"}`, read from the package's manifest. A template's personality is the bot's from its
+first turn ([agents.md](agents.md)); `POST /v1/agents` may give its own `personality`, which
+wins. `schedule` is a phrase routines read (`weekdays at 8:00`).
 
-`POST /v1/agents` takes `template` (an id): `name`, `task` and `avatar` default to the
-template's, the model to the fast model for `fast` (else the default), and its routines are
-created with the bot, in `time_zone` (an IANA zone in the body; the machine's when absent).
+A bot made from a template stays linked to it: when this Spade ships a newer version of the
+template, the bot's package offers it (`template_update`), and it moves only through the update
+review the person accepts ([packages.md](packages.md), The ten templates).
+
+`POST /v1/agents` takes `template` (an id) and makes the bot through the package install path:
+it is linked to `package {source: "spade", name: <id>, version, hash}` (the hash is ADR 0014's
+over the folder's files), its schedule triggers become routines in `time_zone` (an IANA zone in
+the body; the machine's when absent), and its declared effects are switches. The person chose to
+make this bot from ace's own template, so its routines start and its effects are on unless the
+body gives `start_routines: false` or `switches`: New bot shows the routines in one line with a
+switch, on by default. A package from another publisher keeps its routines paused unless
+`start_routines`. Each template routine carries `words`, its schedule as a routine shows it. A `name`, `task`, `model` or `avatar` in the body that differs from the
+template's is applied after, as the person's change, which an update of the template never
+touches. `first_message` is sent as for any new bot (ADR 0197).
 Unknown template: `404`.
 
 ## Bots from marketplace recipes

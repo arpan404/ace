@@ -42,6 +42,45 @@ export {
   type TrendRow,
 } from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
+export { panelFile, panelFiles, surfaceProblems } from "./surfaces.ts";
+export { breakingChanges, contractLimits, readContracts } from "./contracts.ts";
+export {
+  contractFileReader,
+  contractFileTexts,
+  contractFiles,
+  contractSchemaPath,
+  inlineContractFiles,
+  type InlinedContracts,
+} from "./contract-files.ts";
+export {
+  botJsonOf,
+  breaksReason,
+  contractBreaks,
+  latestPublished,
+  type MarketReads,
+  type Published,
+} from "./published.ts";
+export {
+  codeProblems,
+  codeReviewRow,
+  componentProblem,
+  mostComponentBytes,
+  mostComponents,
+  outsideWorld,
+  wasmKind,
+} from "./code.ts";
+export { readSchema, schemaLimits, schemaMisfits, type Misfit, type Schema } from "./schema.ts";
+export {
+  botSchemaAddress,
+  effectKey,
+  formatSpec,
+  codeSwitchKey,
+  grantedEffects,
+  packageRuntime,
+  readPackage,
+  recipeEffects,
+  type PackageReading,
+} from "./package.ts";
 export {
   credentialFile,
   secretFieldNames,
@@ -67,6 +106,7 @@ export {
   SignatureError,
   signBlocklist,
   signManifest,
+  signNotices,
   signOfficialList,
   signReviewMark,
   signVerifiedList,
@@ -74,6 +114,7 @@ export {
   verifyBlocklist,
   verifyVerifiedList,
   verifyManifest,
+  verifyNotices,
   verifyOfficialList,
   verifyReviewMark,
   verifyWithdrawn,
@@ -83,3 +124,17 @@ export {
   type WithdrawalTarget,
 } from "./signing.ts";
 export { marketOrigin, shippedMarketKeys } from "./keys.ts";
+export {
+  exportProblems,
+  exportSkillMd,
+  importSkillMd,
+  readSkillMd,
+  skillExportVersion,
+  skillMdLimits,
+  skillMdProblems,
+  specFields,
+  unusedFields,
+  type ExportFacts,
+  type Imported,
+  type SkillMd,
+} from "./skill-md.ts";

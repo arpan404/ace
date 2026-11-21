@@ -30,6 +30,8 @@ export interface EditorActionsHost {
   online(): boolean;
   /** A save couldn't happen: what to say in the status line, or undefined to clear it. */
   problem(problem: SaveProblem | "offline"): void;
+  /** The person saved `path` (auto save resumes for a file it had stopped on). */
+  saved?(path: string): void;
 }
 
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
@@ -50,6 +52,7 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
   const outcome = await buffer.save();
   if (outcome.kind === "saved" || outcome.kind === "unchanged") {
     host.problem(undefined);
+    host.saved?.(path);
     return true;
   }
   if (outcome.kind === "clash") {

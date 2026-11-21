@@ -166,7 +166,7 @@ it("the sweep finishes a deletion the phone never retried", async () => {
   workos.failDeletes(true);
   expect((await deleteAccount(phone.token)).status).toBe(502);
   workos.failDeletes(false);
-  await worker.sweep();
+  await worker.cron("17 * * * *");
   expect(workos.deletedUsers()).toContain("user_abandoned");
   expect(await leftFor("user_abandoned")).toBe(0);
   expect((await session(phone.token)).status).toBe(401);
@@ -287,7 +287,7 @@ it("the sweep forgets a finished deletion after 30 days, and keeps a recent one"
         .bind(id, at, at),
     ),
   );
-  await worker.sweep();
+  await worker.cron("17 * * * *");
   const kept = await worker.db
     .prepare(
       "SELECT account_id FROM account_deletions WHERE account_id IN ('user_long_gone', 'user_just_gone')",

@@ -1,10 +1,11 @@
 import { transferCancellable } from "@ace/client";
 import type { Transfer } from "@ace/protocol";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useOpenOnMachine } from "@/lib/open-on-machine.ts";
 import type { LineAction } from "./transfer-line.tsx";
 import { useTransferActions, type Refusal } from "./use-transfer-actions.ts";
-import { doneWords, refusalWords, runningWords } from "@ace/ui-core/transfers";
+import { carryOnWarning, doneWords, refusalWords, runningWords } from "@ace/ui-core/transfers";
 
 /** Try again: starts it over, and says why when the daemon refused. */
 export type Retry = () => Promise<Refusal | undefined> | void;
@@ -21,9 +22,12 @@ export function useTransferLine(
   /** After Open has switched to the work (the dialog closes). */
   opened?: () => void,
 ): { words: string; actions: LineAction[]; alert: boolean } {
-  const { cancel } = useTransferActions();
+  const { cancel, carryOnHere } = useTransferActions();
   const openOn = useOpenOnMachine();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState<string>();
+  /** Carry on here was chosen, and the line asks once more, saying what it risks. */
+  const [confirming, setConfirming] = useState<string>();
   const [refused, setRefused] = useState<{ key: string; refusal: Refusal }>();
   // A refusal belongs to the transfer as it was when it was asked.
   const key = `${transfer.transferId}:${transfer.phase}`;
@@ -85,6 +89,38 @@ export function useTransferLine(
         alert: refusal !== undefined,
       };
     default:
+      if (transfer.unlinked) {
+        const to = transfer.target.name;
+        if (transfer.live && confirming === transfer.transferId)
+          return {
+            words: words(carryOnWarning(transfer)),
+            actions: [
+              {
+                label: "Carry on here",
+                run: run("Carry on here", () => carryOnHere(transfer)),
+                disabled: busy === "Carry on here",
+              },
+              { label: "Keep waiting", run: () => setConfirming(undefined) },
+            ],
+            alert: true,
+          };
+        return {
+          words: words(runningWords(transfer)),
+          actions: [
+            // Safe whatever happened there: the move finishes once that machine answers.
+            { label: `Link ${to} again`, run: () => void navigate({ to: "/settings/remote" }) },
+            ...(transfer.live
+              ? [
+                  {
+                    label: "Carry on here anyway",
+                    run: () => setConfirming(transfer.transferId),
+                  },
+                ]
+              : []),
+          ],
+          alert: true,
+        };
+      }
       return {
         words: words(runningWords(transfer)),
         actions: transferCancellable(transfer)

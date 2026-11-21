@@ -58,6 +58,9 @@ const me: MarketMe = {
 const recipe: Recipe = {
   format: "spade-bot",
   version: 2,
+  triggers: [],
+  effects: [],
+  tests: [],
   name: "Inbox",
   blurb: "",
   task: "Sort mail for arloq@example.com every morning.",

@@ -255,6 +255,139 @@ async fn undo_removes_a_made_bot_that_did_nothing_and_archives_one_that_acted() 
     Ok(())
 }
 
+/// Each routine of `bot` by name: whether it is paused, and whether it has a next run.
+async fn routines(spade: &Spade, bot: &str) -> Result<Vec<(String, bool, bool)>> {
+    let (status, body) = spade.get(&format!("/v1/agents/{bot}/routines")).await?;
+    assert_eq!(status, 200, "{body}");
+    let mut all: Vec<(String, bool, bool)> = body["routines"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|r| {
+            let name = r["name"].as_str().unwrap_or_default().to_owned();
+            (name, r["paused"] == true, r["next_run"].is_i64())
+        })
+        .collect();
+    all.sort();
+    Ok(all)
+}
+
+async fn running_row(spade: &Spade, bot: &str) -> Result<Value> {
+    let (_, body) = spade.get("/v1/running").await?;
+    Ok(body["bots"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["id"] == bot).cloned())
+        .unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn an_archived_bot_unarchives_with_the_routines_that_were_on_and_nothing_deleted() -> Result {
+    let post = support::FakeTool::new("post_update", Risk::Write, "Posted.")
+        .declares(Effect::SendAsPerson);
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call(
+                "b2",
+                "call_tool",
+                json!({ "name": "bot_create", "arguments": {
+                    "kind": "standing", "name": "Poster", "task": "Post updates." } }),
+            ),
+            Script::reply("Made Poster."),
+            Script::reply("").plain(r#"{"title":"T"}"#),
+            Script::reply("").call("u1", "post_update", json!({})),
+            Script::reply("Posted it."),
+        ],
+        vec![std::sync::Arc::new(post)],
+    )
+    .await?;
+    let chat = main_conversation(&spade).await?;
+    spade.say(&chat, "Make a bot that posts updates").await?;
+    spade.wait_for(&chat, "reply_finished").await?;
+    let poster = named(&spade, "Poster").await?;
+    let (bot, poster_chat) = (
+        poster["id"].as_str().unwrap_or_default().to_owned(),
+        poster["conversation"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+    );
+    // It acts outside itself, so Undo archives it rather than removing it.
+    spade.say(&poster_chat, "Post today's update").await?;
+    spade.wait_for(&poster_chat, "approval_requested").await?;
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{poster_chat}/approvals/u1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    spade.wait_for(&poster_chat, "reply_finished").await?;
+    for (name, paused) in [("Morning post", false), ("Weekly digest", true)] {
+        let (status, made) = spade
+            .post(
+                &format!("/v1/agents/{bot}/routines"),
+                json!({ "name": name, "instruction": "Post the update.",
+                        "trigger": { "kind": "schedule", "schedule": "daily at 8:20" },
+                        "time_zone": "UTC", "paused": paused }),
+            )
+            .await?;
+        assert_eq!(status, 201, "{made}");
+    }
+    let history = spade.events(&poster_chat).await?.len();
+
+    let (status, body) = spade
+        .post(&format!("/v1/agents/{bot}/undo-made"), json!({}))
+        .await?;
+    assert_eq!((status, body["undone"].clone()), (200, json!("archived")));
+    let all_paused = vec![
+        ("Morning post".to_owned(), true, false),
+        ("Weekly digest".to_owned(), true, false),
+    ];
+    assert_eq!(routines(&spade, &bot).await?, all_paused);
+
+    // Spade restarts while it is archived: it stays archived, and Running offers Unarchive.
+    let spade = spade.restart(Vec::new(), Vec::new()).await?;
+    assert_eq!(named(&spade, "Poster").await?["archived"], true);
+    let row = running_row(&spade, &bot).await?;
+    assert_eq!(row["archived"], true, "{row}");
+    assert_eq!(row["actions"], json!(["pause", "unarchive"]), "{row}");
+    assert_eq!(routines(&spade, &bot).await?, all_paused);
+
+    let (status, body) = spade
+        .post(&format!("/v1/agents/{bot}/unarchive"), json!({}))
+        .await?;
+    assert_eq!(
+        (status, body["changed"].clone()),
+        (200, json!(true)),
+        "{body}"
+    );
+    assert_eq!(named(&spade, "Poster").await?["archived"], false);
+    let row = running_row(&spade, &bot).await?;
+    assert!(row["archived"].is_null(), "{row}");
+    assert_eq!(row["actions"], json!(["pause"]), "{row}");
+    // The routine that was on is on again; the one the person had paused stays paused.
+    assert_eq!(
+        routines(&spade, &bot).await?,
+        vec![
+            ("Morning post".to_owned(), false, true),
+            ("Weekly digest".to_owned(), true, false),
+        ]
+    );
+    // Nothing of it was deleted.
+    assert_eq!(spade.events(&poster_chat).await?.len(), history);
+
+    let (status, body) = spade
+        .post(&format!("/v1/agents/{bot}/unarchive"), json!({}))
+        .await?;
+    assert_eq!((status, body["changed"].clone()), (200, json!(false)));
+    let (status, _) = spade
+        .post("/v1/agents/a_nobody/unarchive", json!({}))
+        .await?;
+    assert_eq!(status, 404);
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_bot_adds_a_bot_to_a_club_it_is_in_and_never_to_another() -> Result {
     let spade = Spade::start(

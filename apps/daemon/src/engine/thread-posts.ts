@@ -14,6 +14,13 @@ export class ThreadPosts {
     this.repo = repo;
     this.now = now;
   }
+  /**
+   * Marks ace's background row `task` as waiting on the person (a bot asked from the thread waits
+   * for their answer in Spade), so the thread needs them as a waiting thread does; or no longer.
+   */
+  waiting(threadId: ThreadId, task: string, waiting: boolean): void {
+    this.repo.apply(threadId, [{ type: "background.waiting", task, waiting }], this.now());
+  }
   /** Writes the item under `key`, or replaces what that key holds. */
   post(threadId: ThreadId, key: string, draft: ItemDraft): void {
     const agent = this.repo.requireState(threadId).rootKey ?? "root";

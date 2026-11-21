@@ -54,6 +54,18 @@
     {
       "additionalProperties": false,
       "properties": {
+        "allowedTools": {
+          "items": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "compatibility": {
+          "maxLength": 500,
+          "type": "string"
+        },
         "description": {
           "maxLength": 1024,
           "type": "string"
@@ -68,6 +80,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "license": {
+          "maxLength": 200,
+          "type": "string"
+        },
         "skillName": {
           "maxLength": 64,
           "type": "string"
@@ -75,6 +91,14 @@
         "type": {
           "const": "spade-skill",
           "type": "string"
+        },
+        "unused": {
+          "items": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
         }
       },
       "required": [
@@ -147,6 +171,20 @@
           "maxItems": 32,
           "type": "array"
         },
+        "code": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketCodeRow.json"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketEffectRow.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
         "face": {
           "additionalProperties": {},
           "propertyNames": {
@@ -154,11 +192,21 @@
           },
           "type": "object"
         },
+        "limits": {
+          "$ref": "https://ace.local/protocol/v1/PackageLimits.json"
+        },
+        "linked": {
+          "type": "boolean"
+        },
         "model": {
           "enum": [
             "fast",
             "capable"
           ],
+          "type": "string"
+        },
+        "modelWarning": {
+          "maxLength": 500,
           "type": "string"
         },
         "needs": {
@@ -175,6 +223,9 @@
           },
           "maxItems": 50,
           "type": "array"
+        },
+        "personality": {
+          "$ref": "https://ace.local/protocol/v1/SpadePersonality.json"
         },
         "routines": {
           "items": {
@@ -198,9 +249,27 @@
           "maxItems": 64,
           "type": "array"
         },
+        "triggers": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PackageTrigger.json"
+          },
+          "maxItems": 40,
+          "type": "array"
+        },
         "type": {
           "const": "spade-bot",
           "type": "string"
+        },
+        "unused": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "update": {
+          "$ref": "https://ace.local/protocol/v1/MarketBotUpdate.json"
         }
       },
       "required": [

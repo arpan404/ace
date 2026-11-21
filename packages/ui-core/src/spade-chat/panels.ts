@@ -1,0 +1,110 @@
+import { z } from "zod";
+
+/*
+ * A packaged bot's panels (ADR 0200 §5.2, spade/docs/surfaces.md): sandboxed pages its package
+ * ships, opened beside its conversation on the web and desktop. Spade lists them with the page
+ * each shows, by hash, the actions it may send and those only the person may send; the bot sets
+ * their state with `panel_update`
+ * and the latest state is folded from the conversation, so a panel follows it live. Phones show
+ * the bot's cards instead. Read leniently, as every event is.
+ */
+
+/** One of a bot's panels, as `GET /v1/conversations/{id}/panels` lists it. */
+export interface SpadePanel {
+  id: string;
+  title: string;
+  /** The sha256 of the page it shows; undefined until one arrived. */
+  page: string | undefined;
+  /** The actions its page may send, by name. */
+  actions: readonly string[];
+  /**
+   * Those only the person may send, each with its words: ace asks on its own line outside the
+   * page, and only their press there sends it (ADR 0200 §5.2, amendment 1).
+   */
+  confirm: readonly { name: string; label: string }[];
+  /** The state its bot last set, as Spade had it when listed. */
+  state: unknown;
+  /**
+   * For an MCP app's page shown as a panel (ADR 0202 §4), its app; undefined for a package's
+   * panel. Its state is the tool's `input` and `result`.
+   */
+  app: SpadeAppPage | undefined;
+}
+
+/** An MCP app's page, as its panel says. */
+export interface SpadeAppPage {
+  name: string;
+  /** The tool whose call showed it. */
+  tool: string;
+  /** Why it isn't drawn (a page that needs the network), if it isn't. */
+  refused: string | undefined;
+  /** The app's tools, and whether each is offered to the page. */
+  tools: readonly { name: string; app: boolean }[];
+  /** What the page asked for and doesn't get (outside images, the camera). */
+  withheld: readonly string[];
+}
+
+const AppPage = z
+  .object({
+    name: z.string().catch("App"),
+    tool: z.string().catch(""),
+    refused: z.string().nullish().catch(undefined),
+    tools: z.array(z.object({ name: z.string(), app: z.boolean().catch(false) })).catch([]),
+    withheld: z.array(z.string()).catch([]),
+  })
+  .transform((app): SpadeAppPage => ({ ...app, refused: app.refused ?? undefined }));
+
+/** One panel as Spade lists it. */
+const ListedPanel = z.object({
+  // An app page's id (`app.<connector>.<hash>`) is longer than a package panel's.
+  id: z.string().min(1).max(160),
+  title: z.string().catch(""),
+  page: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullish()
+    .catch(undefined),
+  actions: z.array(z.string()).catch([]),
+  // Unread, none: Spade then refuses such an action from the page, so it never goes
+  // without the person.
+  confirm: z.array(z.object({ name: z.string(), label: z.string() })).catch([]),
+  state: z.unknown().optional(),
+  app: AppPage.optional().catch(undefined),
+});
+
+const Listed = z.object({
+  panels: z
+    .array(z.unknown())
+    .catch([])
+    .transform((items) =>
+      items.flatMap((item) => {
+        const read = ListedPanel.safeParse(item);
+        if (!read.success) return [];
+        const { id, title, page, actions, confirm, state, app } = read.data;
+        return [{ id, title: title || id, page: page ?? undefined, actions, confirm, state, app }];
+      }),
+    ),
+});
+
+/** A bot's panels from Spade's answer; none when it can't be read. */
+export function readSpadePanels(raw: unknown): SpadePanel[] {
+  const read = Listed.safeParse(raw);
+  return read.success ? read.data.panels : [];
+}
+
+/** The stored events `wire.ts` reads for panels, `spade_core::panel` as it writes them. */
+export const spadePanelEvents = [
+  z.object({ type: z.literal("panel_updated"), surface: z.string().min(1), data: z.unknown() }),
+  z.object({
+    type: z.literal("panel_action"),
+    surface: z.string().min(1),
+    action: z.string(),
+    label: z.string().catch(""),
+    by: z.enum(["page", "person"]).catch("page"),
+  }),
+] as const;
+
+/** A panel's state: the latest the conversation set, else what Spade listed. */
+export function spadePanelState(panel: SpadePanel, folded: ReadonlyMap<string, unknown>): unknown {
+  return folded.has(panel.id) ? folded.get(panel.id) : panel.state;
+}

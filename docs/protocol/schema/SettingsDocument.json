@@ -362,6 +362,9 @@
         "remote.lan": {
           "type": "boolean"
         },
+        "remote.machineLocalhost": {
+          "type": "boolean"
+        },
         "remote.mcpPublicUrl": {
           "anyOf": [
             {

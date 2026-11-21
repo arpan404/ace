@@ -17,6 +17,8 @@ const Result = z.object({
   content: z.array(z.object({ type: z.string(), text: z.string().optional() })),
   structuredContent: z.unknown().optional(),
 });
+/** The input each fake CLI keeps its turn running for, until the fixture's `duringTurn` call returns. */
+export const holdTurn = "hold-turn";
 export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" = "opencode") {
   const home = await mkdtemp(join(tmpdir(), "ace-delegation-cli-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
@@ -38,6 +40,8 @@ export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" 
     ],
     { cwd: repo },
   );
+  // Each fake CLI holds a `holdTurn` turn running until this file exists.
+  const turnRelease = join(home, "turn-released");
   const registry = new AdapterRegistry();
   for (const provider of ["claude", "codex", "opencode"] as const) {
     const binary = join(home, provider);
@@ -47,10 +51,15 @@ export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" 
     ).href;
     await writeFile(
       binary,
-      `#!${process.execPath}\nprocess.env.ACE_TEST_COMPLETE_INPUT="1"; process.env.ACE_TEST_DELEGATION_RESULT="1"; await import(${JSON.stringify(source)});\n`,
+      `#!${process.execPath}\nprocess.env.ACE_TEST_COMPLETE_INPUT="1"; process.env.ACE_TEST_DELEGATION_RESULT="1"; process.env.ACE_TEST_TURN_RELEASE=${JSON.stringify(turnRelease)}; await import(${JSON.stringify(source)});\n`,
     );
     await chmod(binary, 0o700);
-    const env = { ...process.env, ACE_TEST_COMPLETE_INPUT: "1", ACE_TEST_DELEGATION_RESULT: "1" };
+    const env = {
+      ...process.env,
+      ACE_TEST_COMPLETE_INPUT: "1",
+      ACE_TEST_DELEGATION_RESULT: "1",
+      ACE_TEST_TURN_RELEASE: turnRelease,
+    };
     const discovery = {
       installed: true,
       auth: "logged_in" as const,
@@ -94,19 +103,17 @@ export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" 
   if (!created.ok || !created.threadId) throw new Error(`Parent refused: ${created.error}`);
   await engine.flush();
   const threadId = created.threadId;
-  async function settled(id = threadId) {
-    if (["done", "failed"].includes(daemon.store.getThread(id)?.status.state ?? "")) return;
+  /** Resolves once `reached` holds, read again whenever the thread changes. */
+  async function until(id: ThreadId, reached: () => boolean, what: string) {
+    if (reached()) return;
     await new Promise<void>((resolve, reject) => {
       const signal = AbortSignal.timeout(10000);
       const abort = () => {
         stop();
-        reject(new Error("Provider did not settle"));
+        reject(new Error(what));
       };
       const stop = daemon.store.subscribe((events) => {
-        if (
-          events.some((e) => e.threadId === id && e.payload.type === "thread.updated") &&
-          ["done", "failed"].includes(daemon.store.getThread(id)?.status.state ?? "")
-        ) {
+        if (events.some((e) => e.threadId === id) && reached()) {
           stop();
           signal.removeEventListener("abort", abort);
           resolve();
@@ -115,6 +122,12 @@ export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" 
       signal.addEventListener("abort", abort, { once: true });
     });
   }
+  const settled = (id = threadId) =>
+    until(
+      id,
+      () => ["done", "failed"].includes(daemon.store.getThread(id)?.status.state ?? ""),
+      "Provider did not settle",
+    );
   await settled();
   const parent = daemon.store.getThread(threadId);
   if (!parent?.rootAgentId) throw new Error("Missing root agent");
@@ -156,6 +169,24 @@ export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" 
     if (response.status !== 200) throw new Error(`MCP transport ${response.status}`);
     return z.object({ result: Result }).parse(await response.json()).result;
   }
+  /**
+   * Makes `toolCalls` from inside the root's running `holdTurn` turn, as a provider's own tool call
+   * is made, then lets the turn end and waits for the thread to settle. After a Stop only a call
+   * from a turn that runs may delegate (ADR 0191).
+   */
+  const duringTurn = async <T>(toolCalls: () => Promise<T>): Promise<T> => {
+    await until(
+      threadId,
+      () => engine.turnOrigin(threadId, caller.agentId).root !== undefined,
+      "The root's turn did not start",
+    );
+    try {
+      return await toolCalls();
+    } finally {
+      await writeFile(turnRelease, "");
+      await settled();
+    }
+  };
   return {
     home,
     daemon,
@@ -165,6 +196,7 @@ export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" 
     workspaceId,
     call,
     settled,
+    duringTurn,
     child: (data: unknown) => z.object({ threadId: ThreadId }).parse(data).threadId,
   };
 }

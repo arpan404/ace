@@ -156,6 +156,7 @@ impl Engine {
                 name: me.name,
                 depth: u32::try_from(self.worker_ancestors(worker).len()).unwrap_or(1),
                 machine: None,
+                contract: None,
             });
         }
         message

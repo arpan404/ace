@@ -80,7 +80,7 @@ it.each(meanwhile)(
   async (_, id, change) => {
     const phone = await signIn(id);
     await addMachine((id.at(-1) ?? "X").toUpperCase().repeat(52), id);
-    const held = workos.hold("refresh");
+    const held = workos.holdNext((seen) => seen.body.grant_type === "refresh_token", "before");
     const deleting = deleteAccount(phone.token);
     await held.started;
     await change(phone.token, id);
@@ -94,7 +94,7 @@ it.each(meanwhile)(
 
 it("while WorkOS deletes the user, the asking session can only retry: no grants, no machine credentials", async () => {
   const phone = await signIn("user_pending");
-  const held = workos.hold("delete");
+  const held = workos.holdNext((seen) => seen.method === "DELETE", "before");
   const deleting = deleteAccount(phone.token);
   try {
     await held.started;
@@ -178,7 +178,7 @@ it("a sign-in whose session the deletion removed reports failure and keeps no gr
   const flow = AceLogin.parse(await started.json());
   const { cookie, authorizeUrl } = await continueSignIn(worker.http, flow.loginUrl);
   const state = workos.authorize(authorizeUrl, person("user_late"), "code-late");
-  const held = workos.hold("exchange");
+  const held = workos.hold();
   const callback = fetch(`${worker.http}/v1/account/callback?state=${state}&code=code-late`, {
     headers: { cookie },
   });

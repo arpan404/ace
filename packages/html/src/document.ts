@@ -4,7 +4,33 @@ import { validateHtml } from "./validation.ts";
 import { withoutScripts } from "./mode.ts";
 import { baseStyles } from "./base-styles.ts";
 import { legacyBaseStyles } from "./base-styles-v1.ts";
-import { frameBridge, pageBridge, pageBridgeHash, themeProperties } from "./scripts.ts";
+import {
+  frameBridge,
+  pageBridge,
+  pageBridgeHash,
+  panelFrameBridge,
+  panelPageBridge,
+  themeProperties,
+} from "./scripts.ts";
+import { mcpAppFrameBridge, mcpAppPageBridge } from "./mcp-app-scripts.ts";
+
+/**
+ * What a sandboxed page's frame carries: a chat visualization's height and theme, a package
+ * panel's typed channel (ADR 0200 §5.2), or an MCP app page's JSON-RPC, held to the panel's
+ * bounds (ADR 0202 §4). Same documents, sandbox and CSP every way.
+ */
+type Channel = "visualization" | "panel" | "mcp-app";
+
+const pageBridges: Record<Channel, string> = {
+  visualization: "",
+  panel: `<script>${panelPageBridge}</script>`,
+  "mcp-app": `<script>${mcpAppPageBridge}</script>`,
+};
+const frameBridges: Record<Channel, string> = {
+  visualization: frameBridge,
+  panel: panelFrameBridge,
+  "mcp-app": mcpAppFrameBridge,
+};
 
 /**
  * Inline scripts and styles only; no endpoints, storage, workers, frames, forms, eval or
@@ -71,6 +97,7 @@ function themedDocument(
   theme: HtmlTheme,
   mode: HtmlMode,
   kit: HtmlStyleKit | undefined,
+  channel: Channel,
 ): string {
   const document = parse(mode === "static" ? withoutScripts(html) : html);
   const policy = mode === "static" ? staticHtmlCsp : htmlCsp;
@@ -87,11 +114,13 @@ function themedDocument(
     .map(([key, value]) => `--${key}:${value}`)
     .join(";");
   const prefix = parseFragment(
-    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${kitStyles(kit)}</style><style>:root{${tokens}}html{background:transparent;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>`,
+    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${kitStyles(kit)}</style><style>:root{${tokens}}html{background:transparent;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>${pageBridges[channel]}`,
   );
   head.childNodes.unshift(...prefix.childNodes);
   return serialize(document);
 }
+/** A panel's page takes its whole place and scrolls itself. */
+const filling = "html,body{margin:0;height:100%}iframe{height:100%}";
 /** The outer document scrolls its page: full screen, a window, the phone's viewer. */
 const scrolling = "html,body{margin:0}";
 /**
@@ -108,10 +137,12 @@ function outerDocument(
   mode: HtmlMode,
   kit: HtmlStyleKit | undefined,
   root: string,
+  channel: Channel = "visualization",
 ): string {
   if (!validateHtml(html).valid) throw new Error("Invalid visualization document");
-  const page = themedDocument(html, theme, mode, kit);
-  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${root}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>${frameBridge}</script></body></html>`;
+  const page = themedDocument(html, theme, mode, kit, channel);
+  const bridge = frameBridges[channel];
+  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${root}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>${bridge}</script></body></html>`;
 }
 
 /** A data URL starts with an opaque origin. */
@@ -150,6 +181,25 @@ export function inlineVisualizationUrl(
 ): string {
   return dataUrl(outerDocument(html, theme, mode, kit, fitted));
 }
+/**
+ * A package panel's page (ADR 0200 §5.2) in the same sandbox as a visualization: the trusted
+ * outer document, the opaque-origin `allow-scripts` frame and its `default-src 'none'` CSP, the
+ * page bridge, and the panel's typed channel in place of height and theme alone. It fills its
+ * place and scrolls itself, and always runs its scripts, on the current style kit.
+ */
+export function panelUrl(html: string, theme: HtmlTheme): string {
+  return dataUrl(outerDocument(html, theme, "interactive", styleKitVersion, filling, "panel"));
+}
+
+/**
+ * An MCP app's page as a panel (ADR 0202 §4): exactly a package panel's sandbox and policy, so
+ * whatever the page declares it reaches no network, with MCP Apps' JSON-RPC in place of the
+ * panel's own messages.
+ */
+export function mcpAppPanelUrl(html: string, theme: HtmlTheme): string {
+  return dataUrl(outerDocument(html, theme, "interactive", styleKitVersion, filling, "mcp-app"));
+}
+
 /**
  * The downloadable and web new-window form: the same sandbox inside a standalone page. Outside
  * the desktop app's visualization session, network hints are limited only by the page bridge.

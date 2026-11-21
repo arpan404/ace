@@ -1,12 +1,12 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { z } from "zod";
 import { bunBinary } from "../../../scripts/runtimes.ts";
 import { startPreview } from "./preview-server.ts";
+import { viteBuild } from "./vite-build.ts";
 
 /*
  * The editor budget run's machine (docs/editor/workbench.md 59): a real daemon (`ace start`) in a
@@ -28,10 +28,7 @@ export function webBuild(): Promise<string> {
   build ??= (async () => {
     const out = mkdtempSync(join(tmpdir(), "ace-editor-perf-web-"));
     process.once("exit", () => rmSync(out, { recursive: true, force: true }));
-    await promisify(execFile)("bunx", ["vite", "build", "--outDir", out, "--emptyOutDir"], {
-      cwd: web,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    await viteBuild(["--outDir", out, "--emptyOutDir"]);
     return out;
   })();
   return build;

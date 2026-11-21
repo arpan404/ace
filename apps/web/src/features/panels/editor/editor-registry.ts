@@ -1,3 +1,4 @@
+import type { Indent } from "@ace/editor";
 import type { ClientApi } from "@ace/client";
 import { ensureEditorReady } from "@/features/editor";
 import {
@@ -36,6 +37,13 @@ const registries = new WeakMap<ClientApi, BufferRegistry>();
 /** Every registry made, for hot exit and for asking before the editor tab closes. */
 const made = new Set<BufferRegistry>();
 const attributions = new Map<string, Attribution>();
+/** How files that show no indentation of their own indent (Settings › Editor). */
+let fallbackIndent: Indent = { tabs: false, size: 2 };
+
+/** The editor panel passes on the device's default indentation as the setting changes. */
+export function setDefaultIndent(indent: Indent): void {
+  fallbackIndent = indent;
+}
 /** The device's one draft store (IndexedDB), shared by every registry. */
 const drafts = deviceDrafts();
 
@@ -99,6 +107,7 @@ export function editorRegistry(client: ClientApi): BufferRegistry {
     },
     ready: ensureEditorReady,
     attribute: authorOf,
+    indent: () => fallbackIndent,
   });
   registries.set(client, registry);
   if (made.size === 0) {

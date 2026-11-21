@@ -883,6 +883,33 @@ Turn a client's sign-in away.
 
 ## Spade and the market
 
+### `ace spade skill import FROM [flags]`
+
+Keep a SKILL.md folder, or one in a git repository, as a Spade skill.
+
+The folder must meet the Agent Skills specification: SKILL.md with name (the folder's name: lower-case letters, digits and single hyphens, at most 64) and description (at most 1,024 characters), and license, compatibility, metadata and allowed-tools as the specification has them. It passes the market's skill checks too: no secrets, within a skill's limits. Every file is kept as it came; hidden files are left out. Fields Spade doesn't use are kept and listed. allowed-tools grants nothing: Spade's gate still decides each call the skill's instructions lead to.
+
+- `FROM`: The skill's folder, or a git address (https, ssh or user@host:path)
+
+- `--path FOLDER`: With a git address, the skill's folder in the repository; its root otherwise
+- `--git`: Read FROM as a git repository, a local one's path included
+- `--replace`: Replace a skill written in Spade with the same name
+
+    ace spade skill import ./triage-mail
+    # A folder on this machine
+
+    ace spade skill import https://github.com/example/skills --path triage-mail
+    # One skill from a repository's folder
+
+### `ace spade skill export SKILL [DIR]`
+
+Write a Spade skill as a SKILL.md folder that meets the Agent Skills specification.
+
+The folder is DIR/<name>, which must not exist yet. SKILL.md keeps the specification's fields and its body as they were; fields the specification doesn't define move under metadata as spade.field.<name>, and metadata.spade.version and metadata.spade.source say how it was written and where the skill came from. Importing the folder again gives back the same skill. A plugin's skills export with their plugin.
+
+- `SKILL`: The skill's name or id
+- `DIR`: Where to write its folder; this folder when omitted
+
 ### `ace spade status`
 
 Whether Spade is on, and how it is.
@@ -935,6 +962,40 @@ With TEXT it sends one message and prints the reply. Without it, on a terminal, 
 
     ace spade chat writer "Draft the release notes"
     # One message
+
+### `ace bot running`
+
+Every bot: what it does now, its spend today, its network and next wake.
+
+One row per bot, its workers under it, in the order the app's Running page shows: needs you, working, failed, sleeping, paused, then idle.
+
+### `ace bot stop BOT`
+
+End a bot's work now, and its workers'; its routines stay on.
+
+- `BOT`: A bot's id or name
+
+### `ace bot pause BOT`
+
+Stop a bot and hold it: nothing of it fires until you resume it.
+
+Its wakes are kept and its routines' slots wait; messages to it wait too. It holds through a restart of Spade.
+
+- `BOT`: A bot's id or name
+
+### `ace bot resume BOT`
+
+End a pause: what came due fires once, and what waited is answered.
+
+- `BOT`: A bot's id or name
+
+### `ace bot unarchive BOT`
+
+Bring back a bot Undo archived: the routines that were on come back on.
+
+Nothing of it was deleted. Its routines that were on run again from their next time; the ones that were paused stay paused.
+
+- `BOT`: A bot's id or name
 
 ### `ace feature list`
 
@@ -993,6 +1054,77 @@ Delete an automation.
 - `AUTOMATION`: The automation id
 
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace bot init [NAME] [flags]`
+
+Make a package folder: bot.json, a skill, a card, a scenario test and a README.
+
+Every file is valid as written: the folder passes ace bot check and ace bot test before you change a word. Templates: blank (it answers when you write to it), watcher (a schedule, a network effect and a card), club-member (answers when mentioned in a thread or club). With --from, one of your own bots becomes the package: its task, face, personality, routines as triggers, the skills and apps it uses, and each effect its calls had, declared with a TODO where you say why. Its conversation, notes, knowledge, workspace files, keys and grants stay with the bot.
+
+- `NAME`: The bot's name, like "Fare watcher"; with --from, the bot's own name when omitted
+
+- `--template T`: What it starts as: blank, watcher or club-member
+- `--from BOT`: One of your bots, by name or id, to start from
+- `--spade DIR`: With --from: a development Spade's data folder, reached directly instead of through ace
+- `--path PATH`: Where to make it; ./<name> otherwise
+
+    ace bot init "Fare watcher" --template watcher
+    # A bot that checks on a schedule and shows a card
+
+    ace bot init --from "Release notes"
+    # Your bot Release notes as a package folder to finish and publish
+
+### `ace bot check [PATH] [flags]`
+
+The market's checks on a package, with every problem at its place; no account.
+
+The same reader Spade and the market use. Problems print as path: sentence and exit 1. Warnings (a thin why on an effect, a TODO left to write, no scenario tests) don't fail the check. With --against, the version other bots call is compared too: a change to a contract that would break them (a field gone or newly required, less text taken, an output that may hold what callers never saw) is refused, since a breaking change takes a new name.
+
+- `PATH`: The package's folder; this one when omitted
+
+- `--against PATH`: The version other bots call (its folder or bot.json): a contract change that breaks them is refused
+
+### `ace bot test [PATH] [flags]`
+
+Run the package's scenario tests on Spade's engine with a scripted model, offline.
+
+Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN. With --cases, one of your bots' kept runs (Keep as a test) replay instead, on the version in PATH or the one the bot runs, through your Spade: free on the recorded steps, every outside call answered from the recording. --model replays them on one of your models, at your cost, said first.
+
+- `PATH`: The package's folder; this one when omitted
+
+- `--cases BOT`: Replay this bot's kept runs (by name or id) instead of the scenarios
+- `--model ROLE`: With --cases: replay on a model (current, a role like review, or endpoint/model), at your cost
+- `--spade DIR`: With --cases: a development Spade's data folder, reached directly instead of through ace
+
+    ace bot test --cases "Fare watcher" .
+    # Does this folder's version still do what Fare watcher's kept runs did?
+
+### `ace bot dev [PATH] [flags]`
+
+Install the package here as a development bot, and update it on every save.
+
+It installs once, linked to the local package of its name (local/<name>), its routines paused, and shows Development in your list. Each save is checked and applied as an update at the bot's next quiet moment. A save that asks for more (an effect, a trigger kind, an app) asks you again. The bot belongs to the folder: renaming it in bot.json renames the same bot, and another folder makes another bot. Ctrl-C to stop watching; the bot stays.
+
+- `PATH`: The package's folder; this one when omitted
+
+- `--spade DIR`: A development Spade's data folder, reached directly instead of through ace
+- `--once`: Install or update once, then stop
+
+### `ace bot publish [PATH] [flags]`
+
+Check and test the package, then publish it free: ace market publish spade-bot PATH.
+
+Before uploading it reads the latest version published in the market (ACE_MARKET_URL for a development one) and refuses a change to a contract that would break the bots calling it; a breaking change takes a new name. The market's signer refuses the same change.
+
+- `PATH`: The package's folder; this one when omitted
+
+- `--version VERSION`: The version to publish, such as 1.0.0
+- `--against PATH`: The version other bots call (its folder or bot.json): a contract change that breaks them is refused
+- `--name NAME`: The entry's name; the folder's otherwise
+- `--changelog TEXT|-|@FILE`: What changed in this version
+- `--draft`: Stop at the draft and print its id
+- `--unlisted`: Reached by its link, not by search
+- `--wait`: Watch until it is live or blocked
 
 ### `ace market discover`
 
@@ -1333,6 +1465,35 @@ Apply for ace's verified mark.
 ### `ace market verification check`
 
 Check your proofs again now.
+
+### `ace org audit export [flags]`
+
+Write this org host's audit log as JSON Lines, with its signed checkpoints.
+
+The log Spade keeps on this host (ADR 0206 §4.2): a header naming the organization, the host and its audit key, then each entry chained to the one before and each checkpoint the host signed. --from and --to take a date or milliseconds since 1970; without them, the whole log. Nothing in it is message text or a bot's arguments.
+
+- `--from WHEN`: The first moment to include
+- `--to WHEN`: The last moment to include
+- `--out FILE`: Write it to FILE instead of standard output
+
+    ace org audit export --out audit.jsonl
+    # The whole log, to a file
+
+    ace org audit export --from 2026-11-01 --to 2026-12-01
+    # One month of it
+
+### `ace org audit verify FILE [flags]`
+
+Check an exported audit log's chain and signed checkpoints, offline.
+
+Every entry must chain to the one before and every checkpoint must be signed by the audit key over the chain's head at that point, so an entry changed or removed before the last checkpoint no longer matches. --key is the host's audit key as the organization registered it (base64url); without it, this machine's Spade gives its own, which proves only that the file is this host's log as it is now.
+
+- `FILE`: A file ace org audit export wrote
+
+- `--key KEY`: The host's registered audit key, base64url
+
+    ace org audit verify audit.jsonl --key 4YnbPAZLpD557zJQT9bDShIgb4lSIpvda8dHoDmZPM8
+    # Against the key the organization registered
 
 ## Agent tools
 
@@ -1710,6 +1871,8 @@ everywhere.
   appeals | appeal ID --answer TEXT --approve|--keep
   verify|unverify HANDLE --reason TEXT
   official add|remove ACCOUNT
+  notice PROVIDER allowed|unclear|refused --note TEXT
+                                       a subscription's terms change; devices only tighten
 
 The old ace market VERB spellings still work for now.
 ```

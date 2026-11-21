@@ -261,7 +261,13 @@ This is the phone-permission model on top of ADR 0171's effects.
     as ADR 0163 amendment 1 says.
   - A switch the person turns off narrows the ceiling too: that effect is undeclared for this
     bot. The person can turn effects off later in the bot's Security page, and turn on again only
-    what the package declared.
+    what the package declared. Turning one on there is the person's grant, as on the review.
+  - **How the review starts them.** A package by ace starts with what it declares on. One from
+    anyone else starts with only low-risk reaches on: `network` to the hosts it names. Its strong
+    effects start off for the person to turn on: acting in pages or apps as the person
+    (`drive_site`, `drive_app`), a `tool` grant, `network` without hosts, publishing, and the
+    person-only effects (sending as the person, paying, changing access). The person-only ones
+    still go to the person each time once on.
 - **Everything else is decided as for any bot.** A packaged bot starts on the auto-review. A
   package can't ask for Full access; turning it on is the person's, per bot (0163 amendment 2).
   The sandbox, taint, provenance, the classifier and the reviewer are unchanged. The ceiling is
@@ -448,8 +454,9 @@ Two kinds, in this order: cards everywhere first, then panels on web and desktop
   - out of the page: `height`, and `action {name, value}` for an action the panel declares, its
     value checked against that action's schema.
 
-  A panel action reaches the bot as `panel_action`, the person's input in its own conversation,
-  and anything the bot does about it goes through the gate. Nothing else crosses. A page can't
+  A panel action reaches the bot as `panel_action` in its own conversation, and anything the bot
+  does about it goes through the gate. It is the page's input, never the person's, unless the
+  person confirmed it on ace's own line (amendment 1 below). Nothing else crosses. A page can't
   call tools, read the conversation or open a link by itself; a link is a card's `open` action.
 
 - **Follows the Suit.** The page gets the person's theme tokens on `init` and on every change, as
@@ -540,19 +547,22 @@ Two kinds, in this order: cards everywhere first, then panels on web and desktop
   the callee's gate, ceiling and grants, and the callee's reviewer reads the person's words only
   from the callee's own conversation (0161 §7). A caller can't lend its grants or borrow the
   callee's. During that turn, an effect outside the contract's own `effects` is refused, inside
-  the package's ceiling.
+  the package's ceiling. (Amendment 2 below: until the reply that serves the call ends, and in
+  every helper and worker it starts, for good.)
 - **The answer is typed.** The callee answers with `contract_return {call, output}`. Spade checks
   the output against the schema. One that doesn't fit goes back to the callee with the problems,
   at most twice, and then the caller gets `failed` with them. The caller treats the output as
   another agent's data: it is untrusted when the callee read anything untrusted during the call,
-  as a helper's result is (0152 §6).
+  as a helper's result is (0152 §6). (Amendment 2 below: or had any in view as the call arrived.
+  The caller checks the output as a reader, passing fields its schema doesn't name.)
 - **Who may call whom.** In v1, the person's own bots, on this machine and on the person's other
   machines through 0132's asks. The person can turn calls off per bot. Other people's agents
   never call in v1 (open question 4).
 - **Exactly once, and stoppable.** Each call carries an idempotency key from the caller, as 0132
   §9's asks do, and both sides store it as events, so a restart neither loses nor repeats it.
   Stop on the caller stops the callee's turn for that call. Stop on the callee fails the call as
-  `stopped`.
+  `stopped`. (Amendment 2 below: a restart carries on with the callee the call pinned; Stop
+  reaches a call another machine may hold.)
 - **Stable names.** A contract's name and its schemas move with the package's versions. The dev
   kit compares a new version with the previous one and refuses a change that breaks callers; a
   breaking change takes a new name.
@@ -759,5 +769,94 @@ Process tests through Spade's API, with `spade-testkit`'s fake model and a real 
 - a contract call is delivered once across a restart of either side, and Stop on the caller stops
   the callee's turn;
 - a panel's page can't reach the network or the host page, and only declared actions reach the
-  bot (desktop isolation as 0077 proves it);
+  bot (desktop isolation as 0077 proves it), as its untrusted input; a `confirm` action goes only
+  on a real press of the host's Confirm (amendment 1);
 - `ace bot test` runs a package's scenarios with no network and no real model.
+
+## Amendment 1: a panel never speaks for the person
+
+Accepted 2026-11-20, after a security review of §5.2 as first built. It found that the page's
+check of user activation was the only thing between a panel and the person's standing: the
+page's own script could post an action straight to the outer document, which relayed it, the host
+checked only its declaration and rate, and Spade stored it as the person's input. Code in the
+sandbox could act for the person with nobody there. The review also found the 16 KiB bound was
+measured in UTF-16 units after the browser had copied and the bridge had serialized the whole
+message.
+
+What changes:
+
+- **What a page sends is the page's.** A `panel_action` carries `by`: `page` unless the person
+  confirmed it in ace. The bot reads a page's action as untrusted input from its package's panel,
+  `<panel_action … from="page" untrusted="true">`, told it is not the person's words, consent or
+  an answer to anything it asked them. It taints the turn exactly as another bot's message does
+  (`spade_core::context::untrusted_event`): a write the gate would run, or a note, asks the
+  person, and the reviewer counts it among the untrusted sources, never the person's words. It is
+  its own event, so it can't answer a question or an approval. An action stored before `by` was
+  kept reads as the page's.
+- **An action that needs the person's intent is confirmed outside the page.** A package declares
+  it with `"confirm": true` on the action. The host never sends it as the page asks: it draws one
+  line of its own under the page, the panel's name, the action's label and its value in words
+  ("Watched trips asks to send “Book this fare” with KTM-DEL."), with Cancel and Confirm. Only a
+  press on Confirm that the browser made from real input (`isTrusted`, which a script's click
+  never is) and that lands at least 600 ms after the line appeared sends it, with
+  `confirmed: true`, as the person's. The delay keeps a page from placing a button where Confirm
+  will appear. While a line waits, the page can't swap it for another; Cancel sends nothing. Web
+  and desktop share this control: on both the page is in a frame of another origin (an iframe, or
+  a `<webview>` in its own process) that can't reach the app's document, and the check is the
+  same. Spade refuses a `confirm` action without `confirmed: true`, and refuses `confirmed` on an
+  action that doesn't declare it, so neither an old client nor a forged request can skip it.
+  Any other action whose handling would lead to an outward effect needs no declaration: since it
+  is untrusted input, the gate asks the person on ace's own approval before such a call runs.
+- **The outer bridge checks too, and its transport is bounded.** Messages out of a page are JSON
+  text. The outer document drops anything that isn't a string unread, refuses a string longer
+  than 16 KiB on its length alone, and counts UTF-8 bytes (at most 16,384) before parsing it. It
+  relays an action only while the person is pressing or typing in the page, since activation in a
+  frame activates its ancestors, and it relays the text itself. The host reads only such text,
+  bounded the same way, so a message of six thousand euro signs (18,000 bytes in 6,000 units) is
+  dropped where it used to pass. The page's helper still checks activation, but none of these is
+  what keeps the person's word: the bullets above are.
+
+Tests: the `spade_core::panel` tables (a page can't send a `confirm` action, a confirmed one reads
+as the person's, a page's taints the turn); Spade's process test (the bot's note after a page's
+action waits for the person, after a confirmed one it runs); the host's tests (a script's click on
+Confirm and Cancel send nothing, a real press sends once after the line arms); `@ace/html`'s
+bounds; and the real-Electron isolation test (forged posts with no gesture go nowhere, oversized
+and multibyte messages are dropped, the host's control tells a script's click from a real one).
+
+## Amendment 2: what a contract call holds, and who may make one
+
+Accepted 2026-11-20. A security review of §7 as first built found six ways a call could reach past what it promised.
+Each is fixed at its cause:
+
+1. **The effects hold until the serving reply ends, and bind every descendant.** A call's
+   effects no longer stop holding when the callee returns: they hold the reply that serves the
+   call until that reply ends (a restart's interruption isn't an end), so a tool later in the same
+   reply can't use an effect the contract left out. A helper that reply starts stays held to the
+   calls of that reply for as long as it lives; a worker made under a call keeps the call's scope
+   on its link (`worker_of.held`), for good.
+2. **Taint at entry counts.** A call's output is untrusted when the callee had untrusted content
+   in view as the call arrived (another bot's message, a page it read, a summary drawn from
+   either), or read some during the call. The call's own message isn't counted.
+3. **Stop reaches a call another machine may hold.** The outbox marks a queued entry as maybe
+   there before each send, so a crash or a lost answer leaves the mark. Stop then sends `stop`
+   under the key, again after the backoff, until that machine answers: one that never had it is
+   withdrawn, one that had it ends `stopped` there. Only an entry never tried is withdrawn here
+   alone.
+4. **Only Spade sends to another machine's Spade, and a caller is a bot of the sending machine.**
+   The daemon forwards `spade.remote` only from Spade's own socket (loopback, ace's local token);
+   a paired device with operate is refused, so it can't forge a call from a bot. The receiving
+   Spade takes a `contract_call` only from another machine (never ace's own thread asks), with
+   the calling bot's id and name both given; an id naming one of its own bots is refused, and the
+   callee reads the sending machine on the call (`<contract_call … machine="Laptop">`), as that
+   machine's daemon stamped and signed it (0132 §8).
+5. **A restart resumes from what was stored.** A `contract_call` job run again finds its
+   `contract_called` and carries on with the bot (and machine) it pinned, its delivery and its
+   outcome, before any name lookup or admission check. A rename, or a new bot with the old name,
+   never gets a second delivery.
+6. **Callers read output leniently.** The market signs a new optional output field as
+   compatible, so a caller holding the older contract passes fields its schema doesn't name and
+   still checks every field it names. The callee's own check stays strict.
+
+Tests: `contracts_security.rs` and `contracts_fleet_security.rs` in `spade-server`, the folds in
+`spade_core::contract`, and `spade-remote.test.ts` in the daemon. Each fails with its fix turned
+off.

@@ -346,6 +346,12 @@ async function fromToken(
   }
 }
 
+/** What a person can install when a usage command's executable isn't on the machine. */
+function installNotice(cli: string, executable: string): string {
+  const binary = executable.split(/[\\/]/).pop() ?? executable;
+  return `Install the ${cli} CLI (${binary}) to see ${cli}’s limits`;
+}
+
 async function fromCommand(
   source: Extract<UsageSource, { kind: "command" }>,
   account: UsageAccount,
@@ -371,8 +377,10 @@ async function fromCommand(
     if (stdout.length > maxBytes) throw new Error("too large");
     answer = JSON.parse(stdout);
   } catch (error) {
-    // A CLI that isn't installed has no usage to show; a lapsed login is reported, not retried.
-    if (error instanceof UsageRunError && error.kind === "missing") return undefined;
+    // A CLI that isn't installed has no usage to show: say what to install. A lapsed login is
+    // reported, not retried.
+    if (error instanceof UsageRunError && error.kind === "missing")
+      return { ok: false, reason: "unavailable", message: installNotice(cli, executable) };
     if (error instanceof UsageRunError && error.kind === "signed_out")
       return { ok: false, reason: "signed_out", message: `Sign in again in ${cli}` };
     return { ok: false, reason: "unavailable", message: `${cli} usage is unavailable` };

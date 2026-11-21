@@ -136,6 +136,7 @@ it("invalid triage and doctor options are rejected before repairing folders", as
     ["triage", "text", "--kind", "unknown", "--json"],
     ["doctor", "--fix", "--unexpected", "value", "--json"],
   ])
-    expect((await invoke(home, args)).code).toBe(4);
+    // A bad option is a usage error: 64, not the old refusal code 4 (ADR 0178).
+    expect((await invoke(home, args)).code).toBe(64);
   expect(await readdir(home)).toEqual([]);
 });

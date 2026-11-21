@@ -1,6 +1,6 @@
 import type { EditorDocument, Position } from "@ace/editor";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { lineHeight, visualColumn } from "./geometry.ts";
+import { visualColumn } from "./geometry.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { rowOfColumn, rowOffset } from "./wrap.ts";
 
@@ -19,6 +19,7 @@ export function caretBox(
   position: Position,
   gutter: number,
   cell: number,
+  lineHeight: number,
   before = false,
 ): { left: number; top: number } {
   const text = doc?.line(position.line) ?? "";
@@ -42,6 +43,7 @@ export function useReveal(options: {
   scroller: RefObject<HTMLDivElement | null>;
   gutter: number;
   cell: number;
+  lineHeight: number;
   wrap: boolean;
   viewport: { width: number; height: number };
   onScroll(scroll: { top: number; left: number }): void;
@@ -50,11 +52,11 @@ export function useReveal(options: {
   /** False when there is nothing to scroll yet: no document, or a wrapped layout still coming. */
   reveal(position: Position, side: boolean): boolean;
 } {
-  const { doc, layout, scroller, gutter, cell, wrap, viewport, onScroll } = options;
+  const { doc, layout, scroller, gutter, cell, lineHeight, wrap, viewport, onScroll } = options;
   const box = useCallback(
     (position: Position, side: boolean): { left: number; top: number } =>
-      caretBox(doc, layout, position, gutter, cell, side),
-    [doc, layout, gutter, cell],
+      caretBox(doc, layout, position, gutter, cell, lineHeight, side),
+    [doc, layout, gutter, cell, lineHeight],
   );
   // Every caller says which side of a hard break it wants, so the callback does not change when
   // a caret's stored side does: a jump that already ran must not run again for a move.
@@ -83,7 +85,18 @@ export function useReveal(options: {
       onScroll({ top: element.scrollTop, left: element.scrollLeft });
       return true;
     },
-    [box, scroller, doc, layout, gutter, wrap, viewport.height, viewport.width, onScroll],
+    [
+      box,
+      scroller,
+      doc,
+      layout,
+      gutter,
+      lineHeight,
+      wrap,
+      viewport.height,
+      viewport.width,
+      onScroll,
+    ],
   );
   return { caretBox: box, reveal };
 }

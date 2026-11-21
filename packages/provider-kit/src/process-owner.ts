@@ -5,6 +5,7 @@ import { win32 } from "node:path";
 import { openLibrary, runsOnBun } from "./bun-ffi.ts";
 import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
+import { signalTreeMember } from "./process-tree.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -20,6 +21,21 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
   return () => journals.delete(journal);
 }
 
+/**
+ * What a group signal may reach. Given a group, the daemon's guard answers "whole" when no
+ * member is protected (another home's daemon or what is below it, a kept process, a stop's
+ * caller), or else the members that may be signalled, each to be signalled on its own.
+ */
+export type GroupGuard = (group: number) => "whole" | readonly { pid: number; start: string }[];
+let groupGuard: GroupGuard | undefined;
+/** Install the guard every group signal passes through; returns its removal. */
+export function guardGroupSignals(guard: GroupGuard): () => void {
+  groupGuard = guard;
+  return () => {
+    if (groupGuard === guard) groupGuard = undefined;
+  };
+}
+
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
   if (process.platform === "win32") {
     // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
@@ -30,6 +46,20 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
       process.emitWarning(`Could not stop Windows process tree ${pid}: ${String(error)}`);
     }
     return;
+  }
+  if (groupGuard) {
+    let allowed: ReturnType<GroupGuard>;
+    try {
+      allowed = groupGuard(pid);
+    } catch (error) {
+      // Who is in the group is unknown, so no one in it is signalled; later sweeps report it.
+      process.emitWarning(`Process group ${pid} could not be checked: ${String(error)}`);
+      allowed = [];
+    }
+    if (allowed !== "whole") {
+      for (const member of allowed) signalTreeMember(member, signal);
+      return;
+    }
   }
   try {
     process.kill(-pid, signal);
@@ -109,10 +139,21 @@ export function admitProcess(
     if (ownersSize() === 0) process.removeListener("exit", cleanup);
   };
 }
+/**
+ * Heard each time a process group becomes owned: its leader's pid and, when whoever started it
+ * read one (a probe's worker does, before the probe can exit), its macOS unique id.
+ */
+type OwnershipListener = (pid: number, unique?: string) => void;
+const ownershipListeners = new Set<OwnershipListener>();
+/** Hear when a process group becomes owned (a watch starts then); returns the unsubscribe. */
+export function onGroupOwned(listener: OwnershipListener): () => void {
+  ownershipListeners.add(listener);
+  return () => ownershipListeners.delete(listener);
+}
 export function registerGroup(
   pid: number,
   stop: (graceMs: number) => Promise<unknown>,
-  metadata: { name: string; cwd?: string } = { name: "ace-process" },
+  metadata: { name: string; cwd?: string; unique?: string } = { name: "ace-process" },
   destroy?: () => void,
 ): void {
   const end = destroy ?? (() => killGroup(pid, "SIGKILL"));
@@ -124,6 +165,12 @@ export function registerGroup(
   }
   if (ownersSize() === 0) process.on("exit", cleanup);
   owned.set(pid, { stop, destroy: end });
+  for (const listener of ownershipListeners)
+    try {
+      listener(pid, metadata.unique);
+    } catch (error) {
+      process.emitWarning(`A process ownership listener failed: ${String(error)}`);
+    }
 }
 /**
  * Ownership ends even when a journal cannot record it. This runs in exit listeners, where a
@@ -172,6 +219,11 @@ export function installShutdownHandlers({
   process.on("SIGINT", onInt);
   process.on("SIGTERM", onTerm);
   return dispose;
+}
+
+/** The leaders of every process group this process owns now. */
+export function ownedGroupLeaders(): number[] {
+  return [...owned.keys()];
 }
 
 export async function stopOwnedGroups(graceMs = 500): Promise<void> {

@@ -4,12 +4,9 @@ import type { CSSProperties } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
-import { previewParts } from "./content-search-preview.ts";
-import { matchCount } from "./content-search-store.ts";
+import { countedWords, matchCount, previewParts } from "@ace/ui-core";
 
 const count = (value: number) => value.toLocaleString();
-export const plural = (value: number, one: string, many: string) =>
-  `${count(value)} ${value === 1 ? one : many}`;
 
 /** A preview line trimmed so its first match shows, every match marked. */
 function Preview(props: { line: FileSearchLine }) {
@@ -57,7 +54,7 @@ export function FileRow(props: { file: FileSearchFile; open: boolean; onToggle()
       type="button"
       data-search-row
       aria-expanded={open}
-      aria-label={`${file.path}, ${plural(matches, "result", "results")}`}
+      aria-label={`${file.path}, ${countedWords(matches, "result", "results")}`}
       title={file.path}
       onClick={props.onToggle}
       className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui outline-none select-none hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)]"

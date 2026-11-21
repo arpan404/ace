@@ -11,6 +11,7 @@ import type {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { z } from "zod";
+import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { MarketEntryKey } from "./market-address.ts";
 import { MarketFailure } from "./market-model.ts";
@@ -61,7 +62,12 @@ export async function market<T extends MarketResult["op"]>(
       { type: "marketplace.request", operation, ...(grant ? { personGrant: grant } : {}) },
       signal ? { signal } : {},
     );
-  let result = (await ask()).result;
+  let { result } = await withStanding(
+    client,
+    () => ask(),
+    ({ result: reply }) =>
+      reply.op === "error" && reply.code === "reauth" && isStandingRefusal(reply.message),
+  );
   // A sensitive action the market takes only from the person (ADR 0190): this window asks for a
   // grant naming that one request, as it builds it from its own operation, with its own session,
   // and sends the request again with it. What the daemon said the request was isn't used.
@@ -163,20 +169,39 @@ async function readAll(client: ClientApi, review: MarketReview, signal: AbortSig
   return { review, items };
 }
 
-export const reviewKey = (key: EntryKey, update: boolean) =>
-  [...marketKey, "review", key.source, key.type, key.name, update ? "update" : "install"] as const;
+export const reviewKey = (key: EntryKey, update: boolean, rollback = false, bot = "") =>
+  [
+    ...marketKey,
+    "review",
+    key.source,
+    key.type,
+    key.name,
+    rollback ? "rollback" : update ? "update" : "install",
+    bot,
+  ] as const;
 
 /**
  * The entry's review, prepared once and held while its page and review are open (the daemon
  * keeps it 30 minutes). `update` reviews the newer version of an installed entry.
  */
-export function useMarketReview(key: EntryKey, options: { update: boolean; enabled: boolean }) {
+export function useMarketReview(
+  key: EntryKey,
+  options: {
+    update: boolean;
+    rollback?: boolean | undefined;
+    /** The bot an update or rollback moves: one bot package can make several. */
+    bot?: string | undefined;
+    enabled: boolean;
+  },
+) {
+  const rollback = options.rollback === true;
   return useDaemonQuery<PreparedReview>({
-    queryKey: reviewKey(key, options.update),
+    queryKey: reviewKey(key, options.update, rollback, options.bot),
     enabled: options.enabled,
     staleTime: reviewStale,
     retry: false,
-    read: (client, signal) => prepareReview(client, key, options.update, signal),
+    read: (client, signal) =>
+      prepareReview(client, key, options.update, signal, rollback, options.bot),
   });
 }
 
@@ -187,12 +212,17 @@ async function prepareReview(
   key: EntryKey,
   update: boolean,
   signal: AbortSignal,
+  rollback = false,
+  bot?: string,
 ) {
+  const which = { type: typeOf(key.type), name: key.name, ...(bot ? { bot } : {}) };
   const prepared = await market(
     client,
-    update
-      ? { op: "prepareUpdate", type: typeOf(key.type), name: key.name }
-      : { op: "prepare", ...keyOnly(key) },
+    rollback
+      ? { op: "prepareRollback", ...which }
+      : update
+        ? { op: "prepareUpdate", ...which }
+        : { op: "prepare", ...keyOnly(key) },
     "review",
     signal,
   );
@@ -254,13 +284,20 @@ export function useCancelReview() {
   };
 }
 
+/** An installed entry as an operation names it; a bot package's by its bot. */
+const installedKeyOf = (input: { type: string; name: string; target?: string | undefined }) => ({
+  type: typeOf(input.type),
+  name: input.name,
+  ...(input.type === "spade-bot" && input.target ? { bot: input.target } : {}),
+});
+
 /** Turns a withdrawn or turned-off entry back on, from its pinned bytes. */
 export function useTurnOn() {
   const client = useClient();
   const forget = useForget();
   return useMutation({
-    mutationFn: (input: { type: string; name: string }) =>
-      market(client, { op: "turnOn", type: typeOf(input.type), name: input.name }, "done"),
+    mutationFn: (input: { type: string; name: string; target?: string | undefined }) =>
+      market(client, { op: "turnOn", ...installedKeyOf(input) }, "done"),
     onSettled: forget,
   });
 }
@@ -283,8 +320,8 @@ export function useRemove() {
   const client = useClient();
   const forget = useForget();
   return useMutation({
-    mutationFn: (input: { type: string; name: string }) =>
-      market(client, { op: "remove", type: typeOf(input.type), name: input.name }, "done"),
+    mutationFn: (input: { type: string; name: string; target?: string | undefined }) =>
+      market(client, { op: "remove", ...installedKeyOf(input) }, "done"),
     onSettled: forget,
   });
 }

@@ -111,7 +111,7 @@ test("a credential that hasn't proved the person's standing never turns Full acc
       expect(await unproven.put(path + JSON.stringify(body), path, body)).toMatchObject({
         kind: "error",
         code: "forbidden",
-        message: expect.stringContaining("signed in as you"),
+        message: "Confirm your identity to continue.",
       });
     expect(unproven.seen).toEqual([]);
     // Going back to the auto-review never needs it, and carries no stamp.
@@ -143,5 +143,26 @@ test("an agent's device never turns Full access on, but may turn it off", async 
     });
     expect(agent.stampOf(bot)).toBeUndefined();
     agent.close();
+  }
+});
+
+test("a change only Spade can tell loosens anything carries the person's stamp from a proven socket and goes unstamped from any other", async ({
+  onTestFinished,
+}) => {
+  // Spade refuses one that loosens without the stamp and makes one that tightens (ADR 0171,
+  // amendment 7), so an unproven caller can still tighten.
+  const commands = "/v1/agents/a_1/security/commands";
+  const proven = await proxied({ device: "phone", proven: true }, (close) => onTestFinished(close));
+  expect(await proven.put("p", commands, { commands: "outside" })).toMatchObject({ status: 200 });
+  expect(proven.stampOf(commands)).toMatch(/^v1\./);
+  proven.close();
+  for (const device of ["cli", "ace-agent"]) {
+    const other = await proxied({ device, proven: false }, (close) => onTestFinished(close));
+    expect(await other.put("u", commands, { commands: "sandboxed" })).toMatchObject({
+      status: 200,
+    });
+    expect(other.seen).toHaveLength(1);
+    expect(other.stampOf(commands)).toBeUndefined();
+    other.close();
   }
 });

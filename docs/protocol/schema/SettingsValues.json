@@ -354,6 +354,9 @@
     "remote.lan": {
       "type": "boolean"
     },
+    "remote.machineLocalhost": {
+      "type": "boolean"
+    },
     "remote.mcpPublicUrl": {
       "anyOf": [
         {
@@ -578,6 +581,7 @@
     "remote.agentTransfers",
     "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
+    "remote.machineLocalhost",
     "remote.relayMcp",
     "remote.relayWebhooks",
     "remote.tailscaleWebhooks",

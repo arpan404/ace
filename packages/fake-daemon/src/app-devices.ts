@@ -293,6 +293,23 @@ export class FakeAppDevices {
     return session;
   }
 
+  /**
+   * A `list` asked on the main socket, as another machine's `@` picker reads this machine's
+   * devices through its client (ADR 0198); false for anything else.
+   */
+  answerList(message: { type: string }, push: (message: DeviceServerMessage) => void): boolean {
+    if (message.type !== "devices.request") return false;
+    const request = DeviceClientMessage.safeParse(message);
+    if (!request.success || request.data.operation.op !== "list") return false;
+    push({
+      type: "devices.result",
+      requestId: request.data.requestId,
+      ok: true,
+      data: { devices: [...this.sessions.values()].map((s) => s.device), issues: this.issues() },
+    });
+    return true;
+  }
+
   /** One authenticated devices channel, as `deviceTransport()` opens against a real daemon. */
   transport(): DeviceTransport {
     let channel: Channel | undefined;

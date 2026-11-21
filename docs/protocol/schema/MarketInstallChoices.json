@@ -13,6 +13,16 @@
       "maxItems": 64,
       "type": "array"
     },
+    "effects": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "propertyNames": {
+        "maxLength": 2100,
+        "type": "string"
+      },
+      "type": "object"
+    },
     "needs": {
       "additionalProperties": {
         "type": "boolean"

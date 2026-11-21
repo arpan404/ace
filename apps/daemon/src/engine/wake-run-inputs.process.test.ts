@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import { CommandId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -59,4 +60,82 @@ test("a provider's own note in a woken run keeps no wake origin; the adapter's w
   expect(byText(notification)).toMatchObject({ origin: { kind: "background_completion" } });
   expect(byText(imageNote)).toBeDefined();
   expect(byText(imageNote)).not.toHaveProperty("origin");
+});
+
+test("a thread that ran ace's own notice reads done afterwards, with nothing left queued", async () => {
+  const frames = scriptFrames();
+  // The provider starts both turns for input it was given, as Claude does for a sent message.
+  const turn = { on: "send" as const, frames: [frames.frame(start, end)] };
+  const h = await harness([turn, turn], frames);
+  cleanups.push(h.close);
+  const id = await h.create();
+  await vi.waitFor(() => expect(h.store.getThread(id)?.status.state).toBe("done"));
+  // A parcel's arrival notice (ADR 0182): ace's message to the agent, not the person's.
+  const sent = h.internalCommand(
+    {
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "Parcel pcl-1 arrived" }],
+      delivery: "queue",
+      trigger: "background_completion",
+      origin: { kind: "background_completion" },
+    },
+    "parcel-arrival:pcl-1",
+  );
+  expect(sent.ok).toBe(true);
+  await h.engine.flush();
+  await vi.waitFor(() => {
+    const run = Object.values(h.store.snapshotThread(id).runs).find(
+      (candidate) => candidate.trigger === "background_completion",
+    );
+    expect(run?.state).toBe("completed");
+  });
+  expect(h.store.getThread(id)?.status).toEqual({ state: "done" });
+  expect(h.engine.queue(id).pendingCount).toBe(0);
+});
+
+test("a provider's own child waking the root while a message is on its way never takes that message", async () => {
+  const frames = scriptFrames();
+  const message = "message-on-its-way";
+  let ctx: (typeof h.contexts)[number] | undefined;
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    // The message is claimed; before it reaches the provider, a native child's result wakes the
+    // root in a run of its own, and then the handover fails.
+    beforeSend: async (threadId, commandId) => {
+      if (commandId !== message || !ctx) return;
+      ctx.onFrame(
+        frames.frame(
+          { type: "turn.started", agent: "root", trigger: "subagent_result", nativeTurnId: "w" },
+          { type: "turn.ended", agent: "root", outcome: "completed", nativeTurnId: "w" },
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(
+          Object.values(h.store.snapshotThread(threadId).runs).some(
+            (run) => run.trigger === "subagent_result" && run.state === "completed",
+          ),
+        ).toBe(true),
+      );
+      throw new Error("The checkpoint could not be written");
+    },
+  });
+  cleanups.push(h.close);
+  const id = await h.create();
+  ctx = h.contexts[0];
+  await vi.waitFor(() => expect(h.store.getThread(id)?.status.state).toBe("done"));
+  const sent = h.command(
+    {
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "Also check the tests" }],
+      delivery: "queue",
+    },
+    "person",
+    message,
+  );
+  expect(sent.ok).toBe(true);
+  await vi.waitFor(() => expect(h.engine.queue(id).reason).toBe("not_sent"));
+  // Still the person's to send: held in the queue, never marked delivered.
+  expect(h.engine.queue(id).messages.map((entry) => entry.id)).toEqual([message]);
+  expect(h.engine.inputFate(id, CommandId.parse(message))).toEqual({ state: "waiting" });
 });

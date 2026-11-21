@@ -6,14 +6,18 @@ mod ace_link;
 mod ace_wait;
 mod apps;
 mod bots;
+mod cards;
 mod cloud_account;
 mod connectors;
+mod contracts;
 mod decision;
 mod goal;
 mod helper;
 mod knowledge;
 mod memory;
+mod notify;
 pub mod outward;
+mod panels;
 mod plugins;
 mod self_edit;
 mod services;
@@ -38,13 +42,17 @@ use spade_core::tools::{Registry, ToolDef};
 pub(crate) use ace::reattaches;
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
+pub use cards::CardShow;
 pub use cloud_account::CloudAccount;
 pub use connectors::ConnectorSource;
+pub use contracts::{ContractCall, ContractReturn, ContractsFind};
 pub use decision::DecisionLog;
 pub use goal::{TaskGoal, TaskPlan};
 pub use helper::HelperTool;
 pub use knowledge::KnowledgeTool;
 pub use memory::{AskUser, MemoryTool};
+pub use notify::{Notify, PackageSuggest};
+pub use panels::PanelUpdate;
 pub use plugins::PluginTools;
 pub use self_edit::{ClubAdd, ProfileUpdate, TaskUpdate};
 pub use services::service_tools;
@@ -230,6 +238,11 @@ pub trait Tool: Send + Sync {
     /// credentials of its own, so nothing it does reaches anyone as the person. A sandbox that
     /// holds files alone doesn't make it so (ADR 0163, amendment 2).
     fn sealed(&self) -> bool {
+        false
+    }
+    /// A tool of an app the person connected (a connector's), under the Apps switch of the bot's
+    /// Permissions (ADR 0171, amendment 7).
+    fn connected_app(&self) -> bool {
         false
     }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the

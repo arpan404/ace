@@ -44,7 +44,7 @@ import {
 import type { SuitPage } from "@ace/protocol/suit-parts";
 import { pageForRoutes } from "./route-page.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
-import { usePushToTalk } from "@/features/spade/index.ts";
+import { usePushToTalk } from "@/boot/desktop-push-to-talk.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";

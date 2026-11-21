@@ -1,5 +1,5 @@
 import { access, mkdir, readdir, realpath, symlink, writeFile } from "node:fs/promises";
-import { basename, delimiter, isAbsolute, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import { findExecutable, versionManagerShim } from "@ace/provider-kit/discovery";
 
 /**
@@ -128,7 +128,10 @@ export async function prepareTestToolPath(
     for (const name of await readdir(system).catch(() => []))
       if (name !== toolDirectoryMarker) candidates.push([name, join(system, name)]);
   const targets = await Promise.all(
-    candidates.map(([, candidate]) => realpath(candidate).catch(() => undefined)),
+    candidates.map(async ([name, candidate]) => {
+      const target = await realpath(candidate).catch(() => undefined);
+      return target && (await npmEntry(name, target));
+    }),
   );
   const links = new Map<string, string>();
   candidates.forEach(([name, candidate], index) => {
@@ -137,6 +140,20 @@ export async function prepareTestToolPath(
   });
   await Promise.all([...links].map(([name, target]) => symlink(target, join(directory, name))));
   return directory;
+}
+
+/**
+ * npm and npx as npm's own CLI scripts, which a standard Node install's `bin` links to. Some
+ * installs put a wrapper there instead (mise's `npm` runs `mise reshim` after global installs)
+ * that finds `node` beside its own path, so linked into the tool directory it finds none.
+ */
+async function npmEntry(name: string, target: string): Promise<string> {
+  if (name !== "npm" && name !== "npx") return target;
+  const cli = join(dirname(target), "../lib/node_modules/npm/bin", `${name}-cli.js`);
+  return access(cli).then(
+    () => realpath(cli),
+    () => target,
+  );
 }
 
 /** Marks a directory `prepareTestToolPath` built. */

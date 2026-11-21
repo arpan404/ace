@@ -10,6 +10,8 @@ import {
   type MarketNeed,
   type MarketProblem,
 } from "@ace/protocol/marketplace";
+import { inlineContractFiles } from "./contract-files.ts";
+import { readPackage } from "./package.ts";
 import { secretFieldNames, secretValueProblems } from "./secrets.ts";
 
 /*
@@ -32,6 +34,18 @@ const known = new Set([
   "needs",
   "notes",
   "personality",
+]);
+
+/** Fields only version 3 reads; on a version 2 recipe they are kept as raw data, unused. */
+const v3Only = new Set([
+  "requires",
+  "uses",
+  "triggers",
+  "effects",
+  "limits",
+  "tests",
+  "style",
+  "pricing",
 ]);
 
 export interface ReadRecipe {
@@ -67,6 +81,9 @@ function fromV1(file: z.infer<typeof BotFileV1>, notes: string[]): Recipe {
   return {
     format: "spade-bot",
     version: 2,
+    triggers: [],
+    effects: [],
+    tests: [],
     name: file.name,
     blurb: "",
     task: file.task,
@@ -89,32 +106,61 @@ function fromV1(file: z.infer<typeof BotFileV1>, notes: string[]): Recipe {
  * `bot.json`'s text as a recipe, with every problem that refuses it. `folders` are the skill
  * folders the recipe's own archive holds (`skills/<name>` with a `SKILL.md`).
  */
-export function readRecipe(text: string, folders: ReadonlySet<string> = new Set()): ReadRecipe {
+export function readRecipe(
+  text: string,
+  folders: ReadonlySet<string> = new Set(),
+  options: {
+    spade?: string | undefined;
+    /** The package's other files, for its contracts' schema files: a path to its text. */
+    files?: ((path: string) => string | undefined) | undefined;
+  } = {},
+): ReadRecipe {
   const problems: MarketProblem[] = [];
   const notes: string[] = [];
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    return { recipe: undefined, problems: [{ path, message: "bot.json isn't JSON" }], notes };
+    return {
+      recipe: undefined,
+      problems: [{ path, message: "bot.json isn't JSON", rule: "package.not-object" }],
+      notes,
+    };
   }
   for (const field of secretFieldNames(json))
-    problems.push({ path, message: `${field} is named like a secret; a recipe never carries one` });
-  problems.push(...secretValueProblems(text, path));
+    problems.push({
+      path,
+      message: `${field} is named like a secret; a recipe never carries one`,
+      rule: "package.secret",
+    });
+  for (const found of secretValueProblems(text, path))
+    problems.push(Object.assign(found, { rule: "package.secret" }));
   const version = Versioned.safeParse(json);
   let recipe: Recipe | undefined;
   if (version.success && version.data.version === 1) {
     const v1 = BotFileV1.safeParse(json);
     if (v1.success) recipe = fromV1(v1.data, notes);
     else problems.push(...issues(v1.error));
+  } else if (version.success && version.data.version === 3) {
+    // Its contracts' schema files are written in first, as Spade does (ADR 0200 §7).
+    const inlined = inlineContractFiles(json, options.files ?? (() => undefined));
+    problems.push(...inlined.problems.map(({ rule, message }) => ({ path, message, rule })));
+    const read = readPackage(AnyRecord.parse(inlined.bot), options);
+    problems.push(...read.problems);
+    recipe = read.recipe;
   } else {
-    const v2 = Recipe.safeParse(json);
-    if (v2.success) {
+    // Version 2 has nothing of version 3's: those fields are only raw data here.
+    const fields = AnyRecord.safeParse(json).data ?? {};
+    const v2 = Recipe.safeParse(
+      Object.fromEntries(Object.entries(fields).filter(([key]) => !v3Only.has(key))),
+    );
+    if (v2.success && v2.data.version === 2) {
       const extra: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(json as Record<string, unknown>))
-        if (!known.has(key)) extra[key] = value;
+      for (const [key, value] of Object.entries(fields)) if (!known.has(key)) extra[key] = value;
       recipe = Object.keys(extra).length ? { ...v2.data, extra } : v2.data;
-    } else problems.push(...issues(v2.error));
+    } else if (v2.success)
+      problems.push({ path, message: "bot.json: version is 1, 2 or 3", rule: "package.version" });
+    else problems.push(...issues(v2.error));
   }
   if (recipe) problems.push(...referenceProblems(recipe, folders));
   return { recipe: problems.length ? undefined : recipe, problems, notes };

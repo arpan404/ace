@@ -8,12 +8,12 @@ configure({ asyncUtilTimeout: 10000 });
 
 afterEach(() => vi.restoreAllMocks());
 
-test("a file row's menu opens it in a new tab", async () => {
+test("a file row's menu opens it to the side", async () => {
   const { tree, outputs } = await renderTree();
   await expand(tree, ["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
-  await menuPick(await row(tree, "apps/web/src/relay/socket.ts"), /^Open in new tab/);
-  // A new tab never replaces the preview it came from (tree-open.test.tsx, in the app).
-  expect(outputs.opened).toEqual([{ path: "apps/web/src/relay/socket.ts", how: "tab" }]);
+  await menuPick(await row(tree, "apps/web/src/relay/socket.ts"), /^Open to the side/);
+  // The editor opens it in the group beside the focused one (tree-open.test.tsx, in the app).
+  expect(outputs.opened).toEqual([{ path: "apps/web/src/relay/socket.ts", how: "side" }]);
 });
 
 test("Shift+F10 opens a row's menu, each action showing its shortcut", async () => {
@@ -22,8 +22,8 @@ test("Shift+F10 opens a row's menu, each action showing its shortcut", async () 
   await userEvent.keyboard("{Shift>}{F10}{/Shift}");
   const menu = await screen.findByRole("menu");
   expect(within(menu).getByRole("menuitem", { name: /^Rename/ }).textContent).toContain("F2");
-  const newTab = within(menu).getByRole("menuitem", { name: /^Open in new tab/ });
-  expect(newTab.textContent).toMatch(/Ctrl\+(Enter|↵)$/);
+  const side = within(menu).getByRole("menuitem", { name: /^Open to the side/ });
+  expect(side.textContent).toMatch(/Ctrl\+(Enter|↵)$/);
 });
 
 test("a folder row's New file starts in that folder", async () => {

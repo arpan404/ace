@@ -8,12 +8,13 @@ import {
   type SessionCarrier,
 } from "./carrier.ts";
 import { placeFiles } from "./place.ts";
-import { claudeCwd, claudeProjectFolder, rewriteSession } from "./rewrite.ts";
+import { claudeCwd, claudeProjectFolder, renameSession, rewriteSession } from "./rewrite.ts";
 
 /**
  * Claude Code keeps a session as `projects/<folder>/<id>.jsonl`, with its subagents' transcripts
  * in `projects/<folder>/<id>/subagents/`, where `<folder>` is named after the checkout. A resume
- * looks the id up under the current checkout's folder, so the copy moves to the target's.
+ * looks the id up under the current checkout's folder, so the copy moves to the target's. The
+ * copy takes a fresh id: its file, its subagents' folder and every record's `sessionId`.
  */
 export const claudeCarrier: SessionCarrier = {
   provider: "claude",
@@ -28,25 +29,36 @@ export const claudeCarrier: SessionCarrier = {
     }
     return { nativeSessionId, files: await bounded(plan.files) };
   },
-  async place({ home, staged, session, targetCwd }) {
+  async place({ home, staged, session, targetCwd, newId }) {
     const folder = claudeProjectFolder(targetCwd);
     if (!folder) throw new SessionNotCarried("The project's folder name is too long for Claude");
+    const from = session.nativeSessionId;
+    const to = newId();
+    const ids = new Map([[from.toLowerCase(), to]]);
     await placeFiles({
       home,
       staged,
-      files: session.files.map((from) => ({ from, to: inFolder(from, folder) })),
-      rewrite: (text) => rewriteSession(text, session.sourceCwd, targetCwd, claudeCwd),
+      files: session.files.map((file) => ({ from: file, to: inFolder(file, folder, from, to) })),
+      rewrite: (text) =>
+        renameSession(rewriteSession(text, session.sourceCwd, targetCwd, claudeCwd), ids),
     });
-    return { nativeSessionId: session.nativeSessionId, action: "resume" };
+    return { nativeSessionId: to, action: "resume" };
   },
 };
 
-/** `projects/<any>/rest` → `projects/<folder>/rest`. */
-function inFolder(relative: string, folder: string): string {
+/**
+ * `projects/<any>/<id>.jsonl` → `projects/<folder>/<fresh>.jsonl`, and the same for the files
+ * in `projects/<any>/<id>/`.
+ */
+function inFolder(relative: string, folder: string, id: string, fresh: string): string {
   const parts = relative.split(/[\\/]/);
   if (parts[0] !== "projects" || parts.length < 3)
     throw new SessionNotCarried("A Claude session file is outside its projects folder");
-  return ["projects", folder, ...parts.slice(2)].join("/");
+  const [name = "", ...rest] = parts.slice(2);
+  const renamed = name === id ? fresh : name === `${id}.jsonl` ? `${fresh}.jsonl` : undefined;
+  if (renamed === undefined)
+    throw new SessionNotCarried("A Claude session file isn't named after its session");
+  return ["projects", folder, renamed, ...rest].join("/");
 }
 
 /** The plan's files within the size limits, each one a session file. */

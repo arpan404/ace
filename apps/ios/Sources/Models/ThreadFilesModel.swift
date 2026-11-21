@@ -248,6 +248,7 @@ enum FilesPatch: Decodable, Sendable {
     case upload(FileUpload)
     case memory(FileMemory)
     case tree(FileTree)
+    case contents(ContentSearch)
     private enum Keys: String, CodingKey { case type, seq }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -257,6 +258,7 @@ enum FilesPatch: Decodable, Sendable {
         case "files.upload": self = .upload(try FileUpload(from: decoder))
         case "files.memory": self = .memory(try FileMemory(from: decoder))
         case "files.tree": self = .tree(try FileTree(from: decoder))
+        case "files.contents": self = .contents(try ContentSearch(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown files patch")
         }
     }
@@ -304,6 +306,8 @@ enum FilesPatch: Decodable, Sendable {
     var downloads: [String: FileDownload] = [:]
     var uploads: [String: FileUpload] = [:]
     var memory: [String: FileMemory] = [:]
+    /// Each thread's search in file contents, as the bridge last sent it.
+    var contents: [String: ContentSearch] = [:]
     @ObservationIgnored private var scopeTrees: [String: FilesTreeModel] = [:]
     /// Bumped only when a scope's tree first appears, so each view re-reads its own model once.
     private(set) var treesRevision = 0
@@ -314,6 +318,7 @@ enum FilesPatch: Decodable, Sendable {
         case .upload(let upload): uploads[upload.id] = upload
         case .memory(let memory): self.memory[memory.key] = memory
         case .tree(let tree): self.tree(tree.key).apply(tree)
+        case .contents(let search): contents[search.threadId] = search
         }
     }
     /// The tree for `key`, made on first use.
@@ -331,6 +336,7 @@ enum FilesPatch: Decodable, Sendable {
         downloads = [:]
         uploads = [:]
         memory = [:]
+        contents = [:]
         scopeTrees.removeAll()
         treesRevision += 1
     }
@@ -381,4 +387,12 @@ extension ClientModel {
     func moreFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.more", "scope": scope.wire, "path": path]) }
     func retryFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.retry", "scope": scope.wire, "path": path]) }
     func refreshFilesTree(_ scope: FilesScope) { action(["type": "files.tree.refresh", "scope": scope.wire]) }
+
+    /// Search a thread's file contents (`bridge/checkout-content-search.ts`): the running search
+    /// stops at once and this one starts once typing pauses, or at once with `now`.
+    func searchFileContents(_ threadId: String, _ query: ContentQuery, now: Bool = false) {
+        action(["type": "files.contents.search", "threadId": threadId, "query": query.wire, "now": now])
+    }
+    /// Stop the thread's content search and forget its results.
+    func stopFileContentsSearch(_ threadId: String) { action(["type": "files.contents.stop", "threadId": threadId]) }
 }

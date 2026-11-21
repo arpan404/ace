@@ -10,6 +10,11 @@ import type {
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
 import {
+  spadeContractAsk,
+  spadeContractResult,
+  type SpadeContractOutcome,
+} from "./contract-words.ts";
+import {
   spadeCardQuestions,
   spadeConnectOf,
   type SpadeQuestion,
@@ -21,8 +26,16 @@ import {
   type SpadeCapabilityState,
 } from "./fold-capabilities.ts";
 import type { SpadeQuiet } from "./quiet.ts";
+import { spadeJoinWorkers, type SpadeWorkersEntry } from "./delegations.ts";
 import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
-import { spadeRiskWeight, spadeStepFacts, type SpadeStepWeight } from "./step-facts.ts";
+import { spadeCardChosen, spadeCardShown, type SpadeCardRow } from "./cards.ts";
+import { spadeNoticeSent, type SpadeNoticeRow } from "./notices.ts";
+import {
+  spadeRiskWeight,
+  spadeStepFacts,
+  spadeStepLine,
+  type SpadeStepWeight,
+} from "./step-facts.ts";
 import type { SpadeRefusedHost } from "./wire.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
@@ -81,8 +94,9 @@ export type SpadeReplyPart =
        * detail there.
        */
       logged?: number;
-      /** Why the auto-review refused it, when it did. */
+      /** Why the review refused the call or why the call failed. */
       reason?: string;
+      reviewedAllow?: true;
       /** One line of what it touched: its command, a file's path, a page's address. */
       detail?: string;
       /** It deletes or can't be undone, or acts outside the bot (`spadeStepFacts`). */
@@ -101,6 +115,8 @@ export type SpadeReplyPart =
   | ({ kind: "question"; key: string } & SpadeQuestionCard)
   /** `web_search` had nothing set up to search with: a line that opens its setting. */
   | { kind: "search-setup"; key: string }
+  /** The next step ran on another model of the bot's route: where, and why (ADR 0205 §2). */
+  | { kind: "served"; key: string; line: string }
   /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** A call that asked the person, where it asked, with how they answered (`SpadeRequest`). */
@@ -175,7 +191,7 @@ export type SpadeEntry =
       /** Sent here from a group the bot is in (ADR 0132). */
       fromGroup?: { id: string; name: string };
       /** Written by the person in an ace thread (ADR 0198). */
-      fromThread?: { id: string; title: string };
+      fromThread?: { id: string; title: string; machine?: string | undefined };
       /** When Spade stored it; a message not stored yet has none. */
       at?: number;
       /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
@@ -222,6 +238,21 @@ export type SpadeEntry =
       result: string;
       at?: number;
     }
+  /**
+   * A call this bot made to another bot's contract (ADR 0200 §7): one line where it was made,
+   * settled in place when its result arrives. `result` is the output's fields, or why not.
+   */
+  | {
+      kind: "contract";
+      key: string;
+      job: string;
+      bot: string;
+      machine?: string | undefined;
+      contract: string;
+      outcome: SpadeContractOutcome | undefined;
+      result: string;
+      at?: number;
+    }
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /** A card asked outside the open reply: where it arrived. */
@@ -232,7 +263,16 @@ export type SpadeEntry =
    */
   | ({ kind: "request"; key: string; at?: number } & SpadeRequest)
   /** An event that is nobody's words, as one quiet line where it happened (`spadeQuietLine`). */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number };
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number }
+  /** The bots and ace agents one call started, as one card where the first started. */
+  | SpadeWorkersEntry
+  /**
+   * A card the bot showed (ADR 0200 §5.1): its own row where it was first shown, updated in
+   * place by each later version.
+   */
+  | ({ kind: "card"; key: string; at?: number } & SpadeCardRow)
+  /** A bot's own notice (`notify`, ADR 0200 §4.2), where it was sent, with what became of it. */
+  | ({ kind: "notice"; key: string; at?: number } & SpadeNoticeRow);
 
 /**
  * A call that asked the person, kept where it asked so its bubble stays in place once answered.
@@ -355,11 +395,13 @@ export interface SpadeConversationState {
   waitingSince: number | undefined;
   /** Open wakes and the names their words use (ADR 0160, 0161). */
   capabilities: SpadeCapabilityState;
+  /** The latest state the bot set on each of its panels (ADR 0200 §5.2), by panel id. */
+  panels: Map<string, unknown>;
 }
 
 /** What a `status` frame said, and the last `seq` folded when it came. */
 export interface SpadeReported {
-  state: "idle" | "working" | "waiting" | "sleeping";
+  state: "idle" | "working" | "waiting" | "sleeping" | "paused" | "updating";
   status: string | undefined;
   seq: number;
 }
@@ -411,6 +453,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     waited: 0,
     waitingSince: undefined,
     capabilities: emptySpadeCapabilities(),
+    panels: new Map(),
   };
 }
 
@@ -504,8 +547,13 @@ function countWaiting(state: SpadeConversationState, at: number) {
 
 function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored: SpadeStored) {
   const key = `s${stored.seq}`;
-  const capability = foldSpadeCapability(state.capabilities, event, (quiet) =>
-    steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
+  const capability = foldSpadeCapability(
+    state.capabilities,
+    event,
+    (quiet) => steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
+    (call, worker) =>
+      spadeJoinWorkers(state.entries, call, worker) ||
+      steer(state, { kind: "workers", key, call, workers: [worker], ...stamp(stored) }),
   );
   if (capability !== undefined) return capability;
   switch (event.type) {
@@ -523,7 +571,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       steer(state, {
         kind: "user",
         key,
-        text: event.text,
+        // A contract call reads as what it asks, never as raw input (ADR 0200 §7).
+        text: event.from_agent?.contract
+          ? spadeContractAsk(event.from_agent.contract.contract, event.from_agent.contract.input)
+          : event.text,
         images: event.images,
         ...(event.documents.length ? { documents: event.documents } : {}),
         ...(event.voice ? { voice: event.voice } : {}),
@@ -535,7 +586,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
           : {}),
         ...(event.from_thread
-          ? { fromThread: { id: event.from_thread.id, title: event.from_thread.title } }
+          ? {
+              fromThread: {
+                id: event.from_thread.id,
+                title: event.from_thread.title,
+                ...(event.from_thread.machine ? { machine: event.from_thread.machine } : {}),
+              },
+            }
           : {}),
         ...recalledOf(event.context),
         ...stamp(stored),
@@ -563,6 +620,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return updateOpen(state, event.reply, (entry) =>
         entry.live.startsWith(event.text) ? undefined : { ...entry, live: event.text },
       );
+    case "step_served":
+      return event.line
+        ? updateReply(state, event.reply, (entry) => ({
+            ...entry,
+            parts: [...entry.parts, { kind: "served" as const, key, line: event.line ?? "" }],
+          }))
+        : false;
     case "step_finished": {
       const index = replyAt(state, event.reply);
       if (index !== undefined)
@@ -708,6 +772,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         event.is_error ? "failed" : "done",
         stored.seq,
       );
+      if (event.is_error && typeof event.content === "string") {
+        const reason = spadeStepLine(event.content);
+        if (reason)
+          patchCall(state, event.reply, event.call_id, (part) =>
+            part.state === "failed" && part.reason !== reason ? { ...part, reason } : undefined,
+          );
+      }
       remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
       if (spadeNeedsSearchSetup(event.name, event.content, event.is_error === true))
         updateReply(state, event.reply, (entry) =>
@@ -807,6 +878,19 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         reply: event.reply,
       });
       return true;
+    case "contract_called":
+      steer(state, {
+        kind: "contract",
+        key,
+        job: event.job,
+        bot: event.name || "Another bot",
+        ...(event.machine_name ? { machine: event.machine_name } : {}),
+        contract: event.contract,
+        outcome: undefined,
+        result: "",
+        ...stamp(stored),
+      });
+      return true;
     case "job_finished": {
       state.jobs.delete(event.job);
       const stopped = state.stopping.delete(event.job);
@@ -821,6 +905,20 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         state.entries[at] = { ...line, outcome, result: event.content ?? "" };
         return true;
       }
+      // A contract call's line settles with what came back; its result opens a reply, as any.
+      const call = state.entries.findIndex(
+        (entry) => entry.kind === "contract" && entry.job === event.job,
+      );
+      const asked = state.entries[call];
+      if (asked?.kind === "contract") {
+        const read = spadeContractResult(event.content ?? "");
+        state.entries[call] = {
+          ...asked,
+          outcome: stopped ? "stopped" : read.outcome,
+          result: read.result,
+        };
+        return true;
+      }
       // Its result goes to Spade like a message: what Spade says about it reads below it.
       steer(state, { kind: "job", key, name: event.name, outcome, files: event.files });
       return true;
@@ -828,6 +926,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "call_reviewed": {
       // A refusal returns to the bot as `Not run: <reason>`; its step says so (ADR 0163).
       if (event.verdict === "refuse") return refuseCall(state, event.call_id, event.reason);
+      if (event.verdict === "allow" && event.reply && event.model)
+        return patchCall(state, event.reply, event.call_id, (part) =>
+          part.reviewedAllow ? undefined : { ...part, reviewedAllow: true },
+        );
       if (event.verdict !== "escalate") return false;
       state.reviews.set(event.call_id, event.reason);
       updateRequest(state, event.call_id, (request) => ({ ...request, reason: event.reason }));
@@ -924,6 +1026,46 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         bot: event.bot,
         name: event.name,
         task: event.task,
+        ...stamp(stored),
+      });
+      return true;
+    case "card_shown": {
+      const row = spadeCardShown(event);
+      if (!row) return false;
+      const at = cardAt(state, event.card);
+      const placed = at === undefined ? undefined : state.entries[at];
+      if (at !== undefined && placed?.kind === "card") {
+        // A replayed or older version never draws over a newer one.
+        if (placed.version >= row.version) return false;
+        state.entries[at] = { ...placed, ...row };
+        return true;
+      }
+      steer(state, { kind: "card", key, ...row, ...stamp(stored) });
+      return true;
+    }
+    case "notice_sent": {
+      const row = spadeNoticeSent(event);
+      if (!row) return false;
+      steer(state, { kind: "notice", key, ...row, ...stamp(stored) });
+      return true;
+    }
+    case "card_action": {
+      const at = cardAt(state, event.card);
+      const placed = at === undefined ? undefined : state.entries[at];
+      const next = placed?.kind === "card" ? spadeCardChosen(placed, event) : undefined;
+      if (at === undefined || !placed || !next) return false;
+      state.entries[at] = { ...placed, ...next };
+      return true;
+    }
+    case "panel_updated":
+      state.panels.set(event.surface, event.data);
+      return true;
+    case "panel_action":
+      // Where it came in: the page's own, or the person's confirm.
+      steer(state, {
+        kind: "quiet",
+        key,
+        quiet: { kind: "panel-action", label: event.label || event.action, by: event.by },
         ...stamp(stored),
       });
       return true;
@@ -1042,6 +1184,15 @@ function remembered(
  * Change the request for `callId` where it stands, the newest first: a reply's part or an entry
  * of its own. Answers come soon after the ask, so the walk back is short. False when none is.
  */
+/** Where card `cardId` stands among the entries, walking back from the newest. */
+function cardAt(state: SpadeConversationState, cardId: string): number | undefined {
+  for (let index = state.entries.length - 1; index >= 0; index--) {
+    const entry = state.entries[index];
+    if (entry?.kind === "card" && entry.cardId === cardId) return index;
+  }
+  return undefined;
+}
+
 function updateRequest(
   state: SpadeConversationState,
   callId: string,

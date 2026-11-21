@@ -10,6 +10,7 @@ import {
   parseSpadeImport,
   parseSpadeLiveFrame,
   parseSpadeTemplates,
+  spadeTemplateRoutinesLine,
   spadeBotFileName,
   spadeBubbles,
   spadeGroupLine,
@@ -280,6 +281,35 @@ test("templates read with their face, one without a readable face gets the one i
   );
   expect(read?.[0]?.face).toMatchObject({ body: "bird", pair: "sky" });
   expect(read?.[1]?.face).toEqual(faceForId("odd"));
+});
+
+test("a template's routines read in Spade's words, said in one quiet line", () => {
+  const read = parseSpadeTemplates(
+    JSON.stringify({
+      templates: [
+        {
+          id: "inbox",
+          name: "Inbox",
+          routines: [
+            { name: "Morning inbox", schedule: "weekdays at 8:00", words: "Weekdays at 8:00" },
+            // From a Spade before words: its schedule as written.
+            { name: "Weekly review", schedule: "fridays at 17:00" },
+            "not a routine",
+          ],
+        },
+        { id: "research", name: "Research" },
+      ],
+    }),
+  );
+  expect(read?.[0]?.routines).toEqual([
+    { name: "Morning inbox", words: "Weekdays at 8:00" },
+    { name: "Weekly review", words: "fridays at 17:00" },
+  ]);
+  expect(spadeTemplateRoutinesLine(read?.[0]?.routines ?? [])).toBe(
+    "Morning inbox, weekdays at 8:00 · Weekly review, fridays at 17:00",
+  );
+  expect(read?.[1]?.routines).toEqual([]);
+  expect(spadeTemplateRoutinesLine([])).toBe("");
 });
 
 test("an import's answer keeps each line the machine left out", () => {

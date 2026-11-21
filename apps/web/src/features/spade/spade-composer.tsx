@@ -14,7 +14,7 @@ import {
 } from "@/features/thread/index.ts";
 import { prepareSpadeFiles, type SpadeMessage } from "./spade-attachments.ts";
 import { MicButton, TalkLine, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
-import { onPushToTalk, reportPushToTalk, type PushPhase } from "./spade-push-to-talk.ts";
+import { onPushToTalk, reportPushToTalk, type PushPhase } from "@/boot/desktop-push-to-talk.ts";
 import { useTalkMode } from "./spade-talk-mode.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
 

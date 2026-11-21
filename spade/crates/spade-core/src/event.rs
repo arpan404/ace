@@ -204,6 +204,10 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seen: Option<usize>,
     },
+    /// Which model of the bot's route served the step that follows, and why the earlier ones
+    /// didn't (ADR 0205 §2). Stored only for a route of more than one model. The model never
+    /// reads it.
+    StepServed(crate::routing::fallback::Served),
     /// The gate stopped a tool call to ask the person.
     ApprovalRequested {
         reply: String,
@@ -273,6 +277,10 @@ pub enum Known {
         /// Allow this tool without asking again in this conversation.
         #[serde(default)]
         always: bool,
+        /// For a shared bot (ADR 0206 §2.3), the member whose stamped answer this is: one of
+        /// its approvers, checked. Absent for every other bot's answer and older events.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<Box<crate::org::Member>>,
     },
     ToolStarted {
         reply: String,
@@ -343,6 +351,28 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         refused: Vec<RefusedHost>,
     },
+    /// What one call of a package's code used (ADR 0203 §4), stored right after its
+    /// `tool_finished` like `command_ran`: its component, the time it ran (waits on Spade not
+    /// counted), its fuel and peak memory, why it gave no answer when it gave none, the hosts its
+    /// `http` reached, and each tool it called through Spade with how that ended. The model never
+    /// reads it; the Running page sums it beside spend.
+    CodeRan {
+        reply: String,
+        call_id: String,
+        component: String,
+        run_ms: u64,
+        fuel: u64,
+        peak_memory: u64,
+        /// Why it gave no answer (`deadline`, `fuel`, `memory`, `trap`, `stopped`, `refused`,
+        /// `lost`); none when it answered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cut: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reached: Vec<String>,
+        /// `name: ran`, `name: refused`, `name: declined`, …, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        calls: Vec<String>,
+    },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.
     JobStarted {
@@ -401,6 +431,15 @@ pub enum Known {
             deserialize_with = "lenient_authorized"
         )]
         launch: Option<Authorized>,
+        /// For a call Spade's classifier raised to the person (ADR 0172): the effect it read in
+        /// it, which the call is then held to as well as to its own (ADR 0200 §3.4). A word this
+        /// build doesn't know reads as [`crate::effect::Effect::Unknown`], never as none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_effect"
+        )]
+        raised: Option<crate::effect::Effect>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.
@@ -431,6 +470,10 @@ pub enum Known {
         /// The model that checks this goal, when the person chose one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         verifier: Option<String>,
+        /// The routine run that opened it, for a trigger that says `"verify": true` (ADR 0204
+        /// §3): the run counts as done only once this goal's check says so.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<String>,
     },
     /// The person ended the goal without it being done (ADR 0159); `failed` when they ended it
     /// as failed (ADR 0164), which its episode records.
@@ -740,6 +783,71 @@ pub enum Known {
         /// The machine it came from, by name.
         from: String,
     },
+    /// A card the bot showed (ADR 0200 §5.1), checked against its blocks' rules: its own row in
+    /// the conversation. Every version is one; the chat shows the latest. The model reads only
+    /// its call's result. Boxed: a card is larger than most events.
+    CardShown(Box<crate::card::Shown>),
+    /// The person pressed a choice on a card. Stored once per card version, and read by the bot
+    /// like a job's result, as a `<card_action>`.
+    CardAction {
+        card: String,
+        version: u32,
+        action: String,
+        /// The choice's label, fixed when the card was shown.
+        label: String,
+    },
+    /// The bot set the state of its package's panel `surface` (ADR 0200 §5.2), checked against
+    /// the panel's state schema. Every update is one; the panel shows the latest. The model reads
+    /// only its call's result.
+    PanelUpdated {
+        surface: String,
+        call_id: String,
+        data: Value,
+    },
+    /// A declared action from panel `surface`, its value checked against the action's schema.
+    /// Stored once per `key`, and read by the bot as a `<panel_action>`: input from its package's
+    /// page, untrusted like another bot's message, unless the person sent it through ace's own
+    /// confirm (§5.2, amendment 1).
+    PanelAction {
+        surface: String,
+        key: String,
+        action: String,
+        /// The words the bot reads for it, from the declaration.
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<Value>,
+        /// Who stands behind it; one stored before this was kept is the page's.
+        #[serde(default)]
+        by: PanelSender,
+    },
+    /// This bot called another bot's contract (ADR 0200 §7) as job `job`: stored once, before the
+    /// call is delivered, so its steps can say "Asked Flight watcher: cheapest_fare".
+    ContractCalled(Box<crate::contract::Called>),
+    /// The bot answered a contract call (ADR 0200 §7) with output that doesn't fit the
+    /// contract's output schema; the problems went back to it.
+    ContractMisfit {
+        call: String,
+        problems: Vec<String>,
+    },
+    /// A contract call made to this bot ended: its output fit, or it never did.
+    ContractEnded {
+        call: String,
+        #[serde(flatten)]
+        ending: crate::contract::Ending,
+    },
+    /// A bot's own notice to the person (`notify`, ADR 0200 §4.2), as Spade decided it under
+    /// ADR 0195: sent now, held for the brief, or not sent. Its words are the bot's.
+    NoticeSent {
+        call_id: String,
+        /// The notice's id on the notice stream and in what waits for the person.
+        id: String,
+        title: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        body: String,
+        reach: crate::reach::Reach,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        why: Option<crate::reach::Why>,
+    },
 }
 
 /// The events after the bot's latest arrival from another machine (all of them when it never
@@ -840,6 +948,16 @@ pub struct TaskChange {
     pub why: String,
 }
 
+/// Who stands behind a panel's action (ADR 0200 §5.2, amendment 1): its page alone, whatever the
+/// page did to send it, or the person, who pressed Confirm on the line ace drew outside the page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelSender {
+    #[default]
+    Page,
+    Person,
+}
+
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was
 /// answering the person).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -850,6 +968,9 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+    /// The contract call it delivers, when it is one (ADR 0200 §7). Boxed: most carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<Box<crate::contract::Request>>,
 }
 
 /// Where a call may run on the person's answer, from least to most: held by the sandbox only, as
@@ -881,6 +1002,13 @@ fn lenient_authorized<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<Authorized>, D::Error> {
     let value = Option::<Value>::deserialize(deserializer)?;
     Ok(value.map(|value| serde_json::from_value(value).unwrap_or(Authorized::Contained)))
+}
+
+fn lenient_effect<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<crate::effect::Effect>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| crate::effect::Effect::declared(&value)))
 }
 
 /// The helper behind an approval asked in its bot's conversation (ADR 0152).
@@ -917,6 +1045,10 @@ pub struct FromThread {
     pub title: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+    /// The person's other machine the thread is on, by name, when its ace asked through the
+    /// fleet; `None` for this machine's ace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// A bot as a group names it: its id, name and machine (host id; `None` for this machine).

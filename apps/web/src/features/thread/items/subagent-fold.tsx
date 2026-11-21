@@ -28,9 +28,13 @@ export function SubagentSection(props: {
   /** The facts are current: the section is named and toned by them, else only by its count. */
   fresh: boolean;
   folded: boolean;
+  /** Its name in place of "3 subagents": what Spade calls the agents a bot started. */
+  title?: string | undefined;
   children: ReactNode;
 }) {
-  const { title, status } = subagentGroupLine(useLive(props.fresh), props.states);
+  const line = subagentGroupLine(useLive(props.fresh), props.states);
+  const { status } = line;
+  const title = props.title ?? line.title;
   return (
     <section aria-label={title} data-group-status={props.folded ? status : undefined}>
       {props.children}
@@ -52,6 +56,8 @@ export function SubagentFold(props: {
   /** Held by the caller, so it survives the group showing one live row for a while. */
   open: boolean;
   onToggle(): void;
+  /** Its heading in place of "3 subagents" (see `SubagentSection`). */
+  title?: string | undefined;
   children: ReactNode;
 }) {
   const { entries } = props;
@@ -61,7 +67,9 @@ export function SubagentFold(props: {
   const running = states.some((state) => !subagentTerminal(state));
   const live = useLive(props.fresh);
   // A stale group claims no state, not even that they all ran: just how many and the stale words.
-  const { title, tone, word, counts } = subagentGroupLine(live, states);
+  const line = subagentGroupLine(live, states);
+  const { tone, word, counts } = line;
+  const title = props.title ?? line.title;
   const { startedAt, endedAt } = subagentSpan(entries);
   return (
     <>

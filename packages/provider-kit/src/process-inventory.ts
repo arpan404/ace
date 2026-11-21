@@ -6,6 +6,7 @@ import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./pro
 import { WindowsSid, windowsTreeRuntime, type WindowsTreeRuntime } from "./process-identity.ts";
 import type { WindowsProcessRecord } from "./process-identity.ts";
 import { guardedTick, inventoryRetryMs } from "./inventory-retry.ts";
+import { killGroup } from "./process-owner.ts";
 export interface ProcessJournal {
   add(pid: number, metadata: { name: string; cwd?: string }): void;
   remove(pid: number): void;
@@ -42,7 +43,6 @@ export interface InventoryRuntime {
   /** Runs `run` once after `milliseconds`; returns its cancel. Retries of failed deletes use it. */
   later?: (run: () => void, milliseconds: number) => () => void;
 }
-const NoSuchProcess = z.object({ code: z.literal("ESRCH") });
 export const inventoryRuntime: InventoryRuntime = {
   identity: processIdentity,
   childExited: childHasExited,
@@ -51,13 +51,8 @@ export const inventoryRuntime: InventoryRuntime = {
   alive(group) {
     return !processGroupIsGone(group);
   },
-  kill(group) {
-    try {
-      process.kill(-group, "SIGKILL");
-    } catch (error) {
-      if (!NoSuchProcess.safeParse(error).success) throw error;
-    }
-  },
+  // Through the group guard: a previous run's group may hold another home's daemon.
+  kill: (group) => killGroup(group, "SIGKILL"),
 };
 /** Only kernel identities and non-secret labels persist; provider input never enters this journal. */
 export class ProcessInventory implements ProcessJournal {
@@ -371,6 +366,39 @@ export function windowsTreeRecorded(
       .some((row) => {
         const entry = WindowsTreeEntry.parse(JSON.parse(String(row.entry)));
         return entry.tree === key || (entry.pid === leader.pid && entry.start === leader.start);
+      });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Read-only, for `ace stop`: what the inventory records as owned by one daemon process (its pid
+ * and start), by pid and start: POSIX group leaders, and on Windows each tree's leader and the
+ * members its recorder proved.
+ */
+export function readOwnedGroups(
+  journal: string,
+  owner: { pid: number; start: string },
+): { pid: number; start: string }[] {
+  if (!existsSync(journal)) return [];
+  const db = new DatabaseSync(journal, { readOnly: true });
+  try {
+    // A home whose inventory never recorded a process has no table: nothing owned, not unknown.
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='processes'").get())
+      return [];
+    return db
+      .prepare("SELECT entry FROM processes ORDER BY pid")
+      .all()
+      .flatMap((row) => {
+        const value: unknown = JSON.parse(String(row.entry));
+        const posix = Entry.safeParse(value);
+        const entry = posix.success ? posix : WindowsTreeEntry.safeParse(value);
+        return entry.success &&
+          entry.data.ownerPid === owner.pid &&
+          entry.data.ownerStart === owner.start
+          ? [{ pid: entry.data.pid, start: entry.data.start }]
+          : [];
       });
   } finally {
     db.close();

@@ -6,6 +6,7 @@ import {
   type Addressee,
   type AskedLine,
   type ContentPart,
+  type DeviceContextItem,
   type Speaker,
 } from "@ace/protocol";
 
@@ -32,6 +33,22 @@ export function personText(input: readonly ContentPart[]): string {
     )
     .join("")
     .trim();
+}
+
+/**
+ * The devices the person named, as the addressee's Spade reads them (ADR 0198): `here` is that
+ * Spade's own machine, which for a bot on another machine is that machine, not this one.
+ */
+export function devicesFor(
+  to: Extract<Addressee, { kind: "bot" | "club" }>,
+  devices: readonly DeviceContextItem[],
+): DeviceContextItem[] {
+  const target = to.machine;
+  return devices.map((device) =>
+    target
+      ? { ...device, machine: { ...device.machine, here: device.machine.id === target.id } }
+      : device,
+  );
 }
 
 /** Where every addressee starts: not delivered yet. */
@@ -137,6 +154,7 @@ export function askProgress(
       name: each.bot.name,
       ...(each.bot.avatar !== undefined ? { avatar: each.bot.avatar } : {}),
       ...(club ? { club } : {}),
+      ...(to.machine ? { machine: to.machine } : {}),
       about: reply.about,
       ask: reply.ask,
     },
@@ -169,7 +187,7 @@ export function askProgress(
         state: answer.waiting.length ? "waiting" : "answering",
         ...(answer.waiting.length
           ? {
-              detail: `${answer.waiting.map((each) => each.name).join(" and ")} needs you in Spade`,
+              detail: `${answer.waiting.map((each) => each.name).join(" and ")} needs you in Spade${to.machine ? ` on ${to.machine.name}` : ""}`,
             }
           : status
             ? { detail: status }

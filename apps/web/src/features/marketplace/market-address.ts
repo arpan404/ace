@@ -18,7 +18,15 @@ export interface MarketEntryKey {
 /** A page pushed over a place. */
 export type MarketPage =
   | { kind: "entry"; entry: MarketEntryKey }
-  | { kind: "review"; entry: MarketEntryKey; update: boolean }
+  | {
+      kind: "review";
+      entry: MarketEntryKey;
+      update: boolean;
+      /** Back to a linked bot's earlier version (ADR 0200 §6.1). */
+      rollback?: boolean | undefined;
+      /** Which bot an update or rollback moves: one bot package can make several. */
+      bot?: string | undefined;
+    }
   | { kind: "publisher"; handle: string }
   | { kind: "collection"; id: string }
   | { kind: "profile" }
@@ -56,6 +64,7 @@ export function placeOf(type: string): MarketPlace {
 }
 
 const slug = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const botId = /^[A-Za-z0-9_-]{1,80}$/;
 const sourceId = /^(?:market|git:[a-z0-9]{1,32})$/;
 
 function entryOf(word: string, rawName: string): MarketEntryKey | undefined {
@@ -103,14 +112,18 @@ export function parseMarket(value: unknown): MarketView | undefined {
     const handle = text.slice(1);
     return slug.test(handle) ? view("discover", [{ kind: "publisher", handle }]) : view("discover");
   }
-  const [first = "", second = "", third] = text.split("/");
+  const [first = "", second = "", third, fourth] = text.split("/");
   if (first === "collection" && slug.test(second))
     return view("discover", [{ kind: "collection", id: second }]);
   const entry = entryOf(first, second);
   if (!entry) return view("discover");
   const pages: MarketPage[] = [{ kind: "entry", entry }];
-  if (third === "review" || third === "update")
-    pages.push({ kind: "review", entry, update: third === "update" });
+  // `bot/flight-watcher/update/<bot id>`: the bot an update or rollback moves.
+  const bot = fourth && botId.test(fourth) ? { bot: fourth } : {};
+  if (third === "review") pages.push({ kind: "review", entry, update: false });
+  if (third === "update") pages.push({ kind: "review", entry, update: true, ...bot });
+  if (third === "rollback")
+    pages.push({ kind: "review", entry, update: true, rollback: true, ...bot });
   return view(placeOf(entry.type), pages);
 }
 
@@ -124,7 +137,7 @@ export function formatMarket(at: MarketView): string {
     case "entry":
       return entryText(top.entry);
     case "review":
-      return `${entryText(top.entry)}/${top.update ? "update" : "review"}`;
+      return `${entryText(top.entry)}/${top.rollback ? "rollback" : top.update ? "update" : "review"}${top.update && top.bot ? `/${top.bot}` : ""}`;
     case "publisher":
       return `@${top.handle}`;
     case "collection":

@@ -34,6 +34,35 @@ pub fn recipe_key(agent: &str) -> String {
     format!("{BOT_RECIPE}:{agent}")
 }
 
+/// The settings key prefix for a bot linked to an agent package (ADR 0200 §3.9): the package and
+/// version, the manifest as installed, the person's effect switches, as JSON the server shapes.
+pub const BOT_PACKAGE: &str = "bot_package";
+
+/// One bot's package settings key.
+pub fn package_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE}:{agent}")
+}
+
+/// The setting a bot a packaged bot made keeps its maker's ceiling under (ADR 0200 §3.4).
+pub fn made_under_key(agent: &str) -> String {
+    format!("package_ceiling:{agent}")
+}
+
+/// The settings key for the accent the person chose for a bot (ADR 0200 §5.3), over its
+/// package's: `{"accent": "#rrggbb"}`, or `{"accent": null}` for its face's colour.
+pub fn style_key(agent: &str) -> String {
+    format!("bot_style:{agent}")
+}
+
+/// The settings key prefix for an update the person accepted while its bot was working, held
+/// for its next still moment (ADR 0200 §6.1).
+pub const BOT_PACKAGE_HELD: &str = "bot_package_held";
+
+/// One bot's held-update settings key.
+pub fn package_held_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE_HELD}:{agent}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub id: String,
@@ -104,14 +133,31 @@ impl Store {
         Ok(())
     }
 
-    /// [`Store::create_agent`] for a bot another bot made, in one transaction with who made it
-    /// (the setting `made_by`, key and value) and `note` appended to its maker's conversation
-    /// `maker`: all of it is stored, or none. Answers the maker's stored note.
+    /// [`Store::create_agent`] with `settings` (key and value) stored in the same transaction:
+    /// a bot that must never exist without them (a package's ceiling) has them from its start.
+    pub fn create_agent_with(
+        &self,
+        new: NewAgent<'_>,
+        first: &[Event],
+        settings: &[(&str, &str)],
+        now_ms: i64,
+    ) -> Result<()> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        create_agent_in(&tx, &new, first, now_ms)?;
+        put_settings(&tx, settings)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// [`Store::create_agent`] for a bot another bot made, in one transaction with `settings`
+    /// (who made it, and what its maker's package lets it do) and `note` appended to its maker's
+    /// conversation `maker`: all of it is stored, or none. Answers the maker's stored note.
     pub fn create_made_agent(
         &self,
         new: NewAgent<'_>,
         first: &[Event],
-        made_by: (&str, &str),
+        settings: &[(&str, &str)],
         maker: &str,
         note: &Event,
         now_ms: i64,
@@ -119,11 +165,7 @@ impl Store {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         create_agent_in(&tx, &new, first, now_ms)?;
-        tx.execute(
-            "INSERT INTO settings (key, value) VALUES (?1, ?2)
-             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            params![made_by.0, made_by.1],
-        )?;
+        put_settings(&tx, settings)?;
         let stored = append_in(&tx, maker, std::slice::from_ref(note), now_ms)?;
         tx.commit()?;
         Ok(stored)
@@ -309,6 +351,16 @@ impl Store {
     /// Deletes the agent, its conversation and the conversation's events. Spending stays in the
     /// ledger, so the day's spend still shows it. Returns whether the agent existed.
     pub fn delete_agent(&self, id: &str) -> Result<bool> {
+        self.delete_agent_audited(id, &[])
+    }
+
+    /// [`Store::delete_agent`] with `entries` appended to the audit chain in the same
+    /// transaction (a shared bot's `bot.deleted`, ADR 0206 §4.1): both happen, or neither.
+    pub fn delete_agent_audited(
+        &self,
+        id: &str,
+        entries: &[spade_core::org::audit::Entry],
+    ) -> Result<bool> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let conversation: Option<String> = tx
@@ -321,6 +373,11 @@ impl Store {
         let Some(conversation) = conversation else {
             return Ok(false);
         };
+        // Its package link goes: what its watch records, recorded first, while the bot is named.
+        crate::watch::changing_in(&tx, &self.watching, &package_key(id), None)?;
+        if let Some(at) = entries.iter().map(|entry| entry.occurred_at).max() {
+            crate::org_audit::audit_in(&tx, entries, at)?;
+        }
         tx.execute("DELETE FROM agents WHERE id = ?1", params![id])?;
         // Its helpers' hidden conversations go with it (ADR 0152).
         crate::helpers::delete_of(&tx, &conversation)?;
@@ -343,6 +400,20 @@ impl Store {
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",
             params![recipe_key(id)],
+        )?;
+        // The package it is linked to, and the ceiling its maker's package held it to (ADR 0200).
+        // Which pages its panels show; a page no bot shows any more is collected later.
+        for key in [
+            package_key(id),
+            made_under_key(id),
+            style_key(id),
+            crate::panels::panels_key(id),
+        ] {
+            tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        }
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![package_held_key(id)],
         )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",
@@ -445,6 +516,17 @@ pub(crate) fn character_faces(tx: &Transaction<'_>) -> rusqlite::Result<()> {
 }
 
 /// Inserts the agent and its conversation with `first` as its first events, in `tx`.
+fn put_settings(tx: &Transaction<'_>, settings: &[(&str, &str)]) -> Result<()> {
+    for (key, value) in settings {
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+    }
+    Ok(())
+}
+
 fn create_agent_in(
     tx: &Transaction<'_>,
     new: &NewAgent<'_>,

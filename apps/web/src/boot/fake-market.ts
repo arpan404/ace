@@ -1,4 +1,5 @@
 import { marketPickFixture, marketPublishFixture, type MarketplaceSeed } from "@ace/fake-daemon";
+import { packageEntries, packageInstalls } from "./fake-market-packages.ts";
 import type {
   MarketDiscover,
   MarketEntrySummary,
@@ -159,10 +160,32 @@ function summary(
   };
 }
 
+/** A bot's recipe carries its face, as a published one does; the rest of a listing is bare. */
+function listing(entry: MarketEntrySummary) {
+  if (entry.type !== "spade-bot") return { summary: entry };
+  return {
+    summary: entry,
+    review: {
+      body: {
+        type: "spade-bot" as const,
+        botName: entry.title,
+        face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
+        task: entry.line,
+        model: "fast" as const,
+        routines: [],
+        notes: [],
+        brings: [],
+        needs: [],
+        spadeReady: true,
+      },
+    },
+  };
+}
+
 export function fakeMarket(now: number): MarketplaceSeed {
   const listed = [
-    ...byAce.map((listing, index) => summary(listing, ace, index, now)),
-    ...byHarbour.map((listing, index) => summary(listing, harbour, index + 3, now)),
+    ...byAce.map((item, index) => summary(item, ace, index, now)),
+    ...byHarbour.map((item, index) => summary(item, harbour, index + 3, now)),
   ];
   const find = (name: string) => listed.filter((entry) => entry.name === name);
   const picks = ["mizzle", "inbox", "research", "meeting-notes", "tarn"].flatMap(find);
@@ -193,7 +216,7 @@ export function fakeMarket(now: number): MarketplaceSeed {
     rankedAt: now,
   };
   return {
-    entries: listed.map((entry) => ({ summary: entry })),
+    entries: [...listed.map(listing), ...packageEntries(now)],
     featured: picks.map(({ type, name }) => ({ type, name })),
     categories: [
       { id: "mail", title: "Mail" },
@@ -221,6 +244,7 @@ export function fakeMarket(now: number): MarketplaceSeed {
         state: "on",
         update: "1.0.0",
       },
+      ...packageInstalls(now),
     ],
     publishing: publishing(discover, listed),
     pick: marketPickFixture(),

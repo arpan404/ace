@@ -1,6 +1,7 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
 import { MachineCodeRequest, MachineCodeResult } from "./machine-access.ts";
 import { ChannelClose, PairRedeem, PairResult } from "./relay-channel.ts";
+import { TunnelPorts, TunnelRefused } from "./machine-tunnel.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
 import { MediaConnectRequest, MediaConnectResult } from "./media-connection.ts";
 import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
@@ -352,7 +353,9 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...CoreClientMessage.options,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
-export const ServerMessage = z.discriminatedUnion("type", [
+// One flat union under a written type, its members listed in two halves: inferred whole, its type
+// grows past what the compiler writes out (TS7056).
+const serverMessageFirst = z.discriminatedUnion("type", [
   CliResult,
   StorageResult,
   AdmissionResult,
@@ -409,6 +412,10 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SourceControlResult,
   HostedRepositoriesResult,
   WorkspaceChanged,
+]);
+const serverMessageSecond = z.discriminatedUnion("type", [
+  TunnelPorts,
+  TunnelRefused,
   WorkspaceCloneProgress,
   TerminalResult,
   TerminalOutput,
@@ -466,7 +473,16 @@ export const ServerMessage = z.discriminatedUnion("type", [
   NotificationUnregisterResult,
   ...CoreServerMessage.options,
 ]);
-export type ServerMessage = z.infer<typeof ServerMessage>;
+export type ServerMessage =
+  | z.output<typeof serverMessageFirst>
+  | z.output<typeof serverMessageSecond>;
+export type ServerMessageInput =
+  | z.input<typeof serverMessageFirst>
+  | z.input<typeof serverMessageSecond>;
+export const ServerMessage: z.ZodType<ServerMessage, ServerMessageInput> = z.discriminatedUnion(
+  "type",
+  [...serverMessageFirst.options, ...serverMessageSecond.options],
+);
 
 export type EventBatch = Extract<ServerMessage, { type: "events" }>;
 export type Progress = Extract<ServerMessage, { type: "progress" }>;

@@ -210,7 +210,9 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     for 2 s, or the person edits it, the bar turns into the ordinary changed-line mark (muted ink)
     and the label goes; hovering any changed-line mark names who changed it and when.
 44. The person's own unsaved lines carry a muted ink bar. Lines changed since HEAD but not in this
-    session keep today's change marks. Three marks, three meanings, one place.
+    session keep today's change marks. Three marks, three meanings, one place. A press on a
+    change mark shows that hunk under its lines (what it replaced, then what is there now) with
+    Revert, which puts the committed lines back and saves through the versioned write, and Close.
 45. When an agent changes files open in the editor, the status line says so ("Claude Code changed
     2 open files") with Next change (⌥F5), which steps through unseen blocks across open editors.
     Attribution: a change is credited to the thread whose live turn reported an edit tool call on
@@ -402,7 +404,9 @@ that refused a silent overwrite, full view's width.
   client already receives; if those records prove unreliable (finding 2), the fix is a daemon
   bug fix, not a new message.
 - **Keymap** entries get a `editor` scope in `lib/keymap.ts`.
-- **Settings › Editor** gains Auto save.
+- **Settings › Editor** (this device): Auto save; font size, line height and font; tab size and
+  indent with (for files whose own indentation can't be detected); word wrap, whitespace, indent
+  guides, sticky scroll and cursor blinking. Open editors follow each change at once.
 - Related ADRs: [0178](../adr/0178-rust-files-and-editor-core.md) (Rust files and editor core),
   [0193](../adr/0193-one-editor-per-thread.md) (this decision), [0056](../adr/0056-web-performance-architecture.md) (first-chunk budgets:
   the editor's code loads with its kind, never in the thread's first chunk).
