@@ -290,8 +290,8 @@ import QuartzCore
         self.intake = intake
         let answers = FrameAnswers()
         let runtime = makeRuntime(target, database, { [weak self] data in
-            decoder.decode(data) { patches in
-                if let accepted = intake.push(patches, bytes: data.count) { answers.acknowledge(accepted) }
+            decoder.decode(data) { patches, bytes in
+                if let accepted = intake.push(patches, bytes: bytes) { answers.acknowledge(accepted) }
                 Task { @MainActor in
                     guard let self, self.runtimeEpoch == epoch else { return }
                     self.takeFrames()

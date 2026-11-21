@@ -12,6 +12,8 @@ struct BridgeFrames {
     private var transferId: String?
     private var nextIndex = 0
     private var assembly = Data()
+    /// A transfer has begun and its last fragment is still to come.
+    var assembling: Bool { transferId != nil }
 
     mutating func decode(_ data: Data) throws -> [BridgePatch] {
         do {
@@ -58,11 +60,19 @@ private enum FrameError: Error { case budget, order }
 final class FrameDecoder: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ace.client.frames", qos: .userInitiated)
     private var frames = BridgeFrames()
+    /// Bytes of the fragments taken since the last frame that ended no transfer.
+    private var carried = 0
     /// Decodes `data`, then hands `done` the frame's complete patches, or nil when it could not be
-    /// read (the assembly resets).
-    func decode(_ data: Data, then done: @escaping @Sendable ([BridgePatch]?) -> Void) {
+    /// read (the assembly resets), with the bytes they weigh. A frame that ends a transfer weighs
+    /// every fragment of it, so a patch sent in pieces counts whole toward the early-ack cap
+    /// (`FrameIntake.answeredLimit`).
+    func decode(_ data: Data, then done: @escaping @Sendable ([BridgePatch]?, Int) -> Void) {
         queue.async { [self] in
-            done(HostTrace.measure("host.decodeFrame", bytes: data.count) { try? frames.decode(data) })
+            let patches = HostTrace.measure("host.decodeFrame", bytes: data.count) { try? frames.decode(data) }
+            carried += data.count
+            let bytes = frames.assembling ? data.count : carried
+            if !frames.assembling { carried = 0 }
+            done(patches, bytes)
         }
     }
 }

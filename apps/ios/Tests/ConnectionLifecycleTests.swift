@@ -153,6 +153,34 @@ import Testing
         await close(model, session)
     }
 
+    /// A patch sent in fragments weighs every fragment toward the cap, not only the last: one
+    /// reassembled patch past the cap waits for the main thread instead of being answered early.
+    @Test func aReassembledPatchPastTheCapWaitsForTheMainThread() async throws {
+        let (model, session) = try await connected()
+        model.open("t")
+        let epoch = try #require(model.thread?.epoch)
+        let text = String(repeating: "x", count: FrameIntake.answeredLimit + 100_000)
+        let bytes = try JSONSerialization.data(withJSONObject: item(epoch, "big", text, index: 0))
+        let size = 16_000
+        let chunks = stride(from: 0, to: bytes.count, by: size).map { bytes[$0..<min($0 + size, bytes.count)] }
+        for (index, chunk) in chunks.enumerated().dropLast() {
+            session.send([fragment(index, last: false, chunk)])
+        }
+        // The fragments before the last carry no rows; the main thread answers them.
+        await settle { session.acks.count == chunks.count - 1 }
+        #expect(session.acks.count == chunks.count - 1)
+        session.send([fragment(chunks.count - 1, last: true, try #require(chunks.last))])
+        busy(until: { session.acks.count >= chunks.count }, for: 0.5)
+        #expect(session.acks.count == chunks.count - 1)
+        await settle { session.acks.count == chunks.count && model.thread?.items["big"] != nil }
+        #expect(session.acks.count == chunks.count)
+        #expect(model.thread?.items["big"] != nil)
+        await close(model, session)
+    }
+    private func fragment(_ index: Int, last: Bool, _ chunk: Data) -> [String: Any] {
+        ["type": "fragment", "id": "transfer", "index": index, "last": last, "data": chunk.base64EncodedString()]
+    }
+
     private func connected() async throws -> (ClientModel, Session) {
         let sessions = Sessions()
         let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
