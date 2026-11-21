@@ -98,6 +98,12 @@ export class HostRuntime {
     const own = this.now() + (this.options?.limits.ackTimeoutMs ?? 300_000);
     return () => Math.min(own, ...this.deadlines) - this.now();
   }
+  /** A fenced turn must not keep running: stop it here, never relying on its notice being stored. */
+  private stopFencedRun(run: SdkRunBoundary | undefined): void {
+    void run?.cancel().catch(() => {
+      /* Supervised shutdown handles unresolved cancellation. */
+    });
+  }
   private async frame(
     kind: CursorEnvelope["kind"],
     body: unknown,
@@ -168,8 +174,9 @@ export class HostRuntime {
   private async overflow(scope: SendOptions | undefined, error: unknown): Promise<void> {
     if (this.transportFenced || !this.options) return;
     this.transportFenced = true;
+    this.stopFencedRun(this.run);
     // A failed journal/oversized callback cannot carry its own failure. This small
-    // emergency frame fences the parent, which owns cancellation and process exit.
+    // emergency frame fences the parent, which owns process exit.
     await this.emit(
       {
         schemaVersion: 1,
@@ -418,6 +425,8 @@ export class HostRuntime {
         },
       });
       this.run = segmentRun;
+      // A frame inside the SDK's send may have fenced the turn before the run was known.
+      if (this.transportFenced) this.stopFencedRun(segmentRun);
       await this.frame("segment", { nativeRunId: segmentRun.id }, input, segmentRun);
       const run = segmentRun;
       this.completion = this.consume(run, input).finally(() => {
