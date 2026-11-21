@@ -199,7 +199,7 @@ struct SettingsSheet: View {
 
     /// A page on ace's site, opened in the system browser.
     private func legalLink(_ page: AceLegal.Page, id: String) -> some View {
-        Link(destination: page.url) { InsetRow(page.title, systemImage: page.symbol) }
+        Link(destination: page.url) { InsetRow(page.title, icon: page.icon) }
             .accessibilityIdentifier(id)
     }
 
