@@ -26,14 +26,14 @@ struct AccountBadgeLook: Decodable, Equatable {
 /// The curated badge colours and icons, in the order the web's picker offers them.
 @MainActor enum AccountBadgeStyle {
     static let colours = ["neutral", "blue", "green", "amber", "rose", "violet"]
-    static let icons: [(id: String, label: String, symbol: String)] = [
-        ("briefcase", "Briefcase", "briefcase.fill"), ("house", "House", "house.fill"),
-        ("flask", "Flask", "flask.fill"), ("rocket", "Rocket", "paperplane.fill"),
-        ("moon", "Moon", "moon.fill"), ("wrench", "Wrench", "wrench.adjustable.fill"),
-        ("code", "Code", "chevron.left.forwardslash.chevron.right"), ("star", "Star", "star.fill"),
-        ("heart", "Heart", "heart.fill"), ("lightning", "Lightning", "bolt.fill"),
+    static let icons: [(id: String, label: String, icon: AceIcon.Name)] = [
+        ("briefcase", "Briefcase", .briefcase), ("house", "House", .house),
+        ("flask", "Flask", .flask), ("rocket", "Rocket", .rocket),
+        ("moon", "Moon", .moon), ("wrench", "Wrench", .wrench),
+        ("code", "Code", .code), ("star", "Star", .star),
+        ("heart", "Heart", .heart), ("lightning", "Lightning", .lightning),
     ]
-    static func symbol(_ icon: String) -> String? { icons.first { $0.id == icon }?.symbol }
+    static func icon(_ id: String) -> AceIcon.Name? { icons.first { $0.id == id }?.icon }
     /// The web's project tints for each colour, light then dark (`--project-N`).
     static func fill(_ colour: String) -> Color {
         switch colour {
@@ -66,9 +66,10 @@ struct AccountBadgeMark: View {
     var body: some View {
         ZStack {
             Circle().fill(AccountBadgeStyle.fill(look.color))
-            if let icon = look.icon, let symbol = AccountBadgeStyle.symbol(icon) {
-                Image(systemName: symbol).font(.system(size: size * Self.glyphScale, weight: AceDesign.Typeface.strong))
-                    .contentTransition(.symbolEffect(.replace))
+            if let id = look.icon, let icon = AccountBadgeStyle.icon(id) {
+                // Sized by the badge, which is already sized for the text around it.
+                Image(ace: icon).resizable().scaledToFit()
+                    .frame(width: size * Self.glyphScale, height: size * Self.glyphScale)
             } else {
                 Text(look.text).font(.system(size: size * (look.text.count > 1 ? Self.twoLetterScale : Self.oneLetterScale), weight: AceDesign.Typeface.strong, design: .rounded))
                     .minimumScaleFactor(0.6).lineLimit(1)

@@ -41,6 +41,47 @@ export function deviceProducer(deviceId: string): IngestProducer & { stop(): voi
   });
 }
 
+/**
+ * An Android device whose screen doesn't change: its encoder makes a keyframe as its stream
+ * starts and then only when asked (scrcpy's video reset); `asked` counts the requests.
+ */
+export function stillDeviceProducer(
+  deviceId: string,
+): IngestProducer & { stop(): void; asked(): number } {
+  let socket: Socket | undefined;
+  let asked = 0;
+  let n = 0;
+  const key = () => socket?.write(frame(1, 1, new Uint8Array([0, 0, 0, 1, 0x65, n++ & 0xff])));
+  const stop = () => {
+    socket?.destroy();
+    socket = undefined;
+  };
+  return {
+    source: `device:${deviceId}`,
+    kind: "scrcpy",
+    origin: { kind: "scrcpy", host: "127.0.0.1", port: 0 },
+    deviceId,
+    epoch: () => 0,
+    consumers: { deliver: () => {} },
+    keyframe: () => {
+      asked++;
+      key();
+    },
+    stop,
+    asked: () => asked,
+    point: (address) => {
+      stop();
+      if (!address) return Promise.resolve();
+      const connection = createConnection(address.socket);
+      socket = connection;
+      connection.on("error", () => {});
+      connection.write(frame(5, 0, address.token.slice()));
+      key();
+      return Promise.resolve();
+    },
+  };
+}
+
 function producer(
   ids: Pick<IngestProducer, "source" | "kind" | "origin" | "threadId" | "deviceId">,
 ): IngestProducer & { stop(): void } {

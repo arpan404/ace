@@ -45,7 +45,7 @@ struct RowWithActions<Actions: View>: View {
 /// a full tap target.
 struct RowActionsMark: View {
     var body: some View {
-        Image(systemName: "ellipsis.circle").font(.title3)
+        AceIcon(.dotsThree, size: AceDesign.Size.barIcon, relativeTo: .title3)
             .foregroundStyle(AceDesign.Ink.action)
             .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())

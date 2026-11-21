@@ -62,7 +62,7 @@ struct SpadeProfileLibrary: View {
         Section("Pages") {
             SpadeProfileRows(part: library.pages, none: "\(name) hasn't written any pages yet.",
                              failed: "Couldn't read the pages.", retry: retry) { page in
-                Label(page.title, systemImage: "doc.text")
+                Label(page.title, ace: .fileText)
             }
         }
         Section("Files") {
@@ -74,7 +74,7 @@ struct SpadeProfileLibrary: View {
                             .aceFont(AceDesign.TextRole.meta)
                     }
                 } label: {
-                    Label(file.name, systemImage: file.folder ? "folder" : "doc")
+                    Label(file.name, ace: file.folder ? .folder : .file)
                 }
             }
         }
@@ -82,7 +82,7 @@ struct SpadeProfileLibrary: View {
             SpadeProfileRows(part: library.skills, none: "\(name) hasn't used a skill yet.",
                              failed: "Couldn't read the skills.", retry: retry) { skill in
                 LabeledContent { Text(skill.word).aceFont(AceDesign.TextRole.meta) } label: {
-                    Label(skill.name, systemImage: "square.stack")
+                    Label(skill.name, ace: .stack)
                 }
             }
         }

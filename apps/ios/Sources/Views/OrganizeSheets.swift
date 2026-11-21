@@ -18,7 +18,7 @@ struct MoveThreadSheet: View {
                 .escapeCloses { dismiss() }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                        Button { dismiss() } label: { Image(ace: .x) }
                             .accessibilityLabel("Close").accessibilityIdentifier("move.close")
                     }
                 }
@@ -55,7 +55,7 @@ struct MoveProjectList: View {
                 .listRowBackground(Color.clear)
             case "ready":
                 if projects.isEmpty {
-                    EmptyState(systemImage: "folder", title: query.isEmpty ? "No other project" : "No projects match",
+                    EmptyState(icon: .folder, title: query.isEmpty ? "No other project" : "No projects match",
                                line: query.isEmpty ? "Add one on your computer first." : nil)
                         .listRowBackground(Color.clear)
                 } else {

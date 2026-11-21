@@ -100,7 +100,7 @@ struct EditProjectView: View {
         .navigationTitle("Edit project").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button { if dirty { discarding = true } else { done(.cancelled) } } label: { Image(systemName: "xmark") }
+                Button { if dirty { discarding = true } else { done(.cancelled) } } label: { Image(ace: .x) }
                     .accessibilityLabel("Close").accessibilityIdentifier("project.edit.close")
             }
             ToolbarItem(placement: .confirmationAction) {
@@ -198,7 +198,7 @@ struct EditProjectView: View {
             ForEach($notes) { $note in
                 HStack(alignment: .firstTextBaseline) {
                     TextField("Note", text: $note.text, axis: .vertical).lineLimit(1...6)
-                    Button { notes.removeAll { $0.id == note.id } } label: { Image(systemName: "minus.circle") }
+                    Button { notes.removeAll { $0.id == note.id } } label: { Image(ace: .minusCircle) }
                         .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.destructive)
                         .rowButtonTarget()
                         .accessibilityLabel("Remove note")

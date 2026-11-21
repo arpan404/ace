@@ -212,6 +212,55 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     await until(() => pictures.length > held, 5_000);
   });
 
+  it("a still device's view over the relay starts with a picture on a fresh subscribe, and again when its viewer subscribes again", async () => {
+    const t = await setup(cleanups);
+    const deviceId = "android:Pixel";
+    const device = t.device(deviceId, true);
+    const opens = () => t.received.filter((m) => m.type === "connection.open");
+    const { client, first } = await t.media(t.phone, await t.mint(t.phone.deviceId));
+    expect(first).toMatchObject({ type: "welcome" });
+    await until(() => opens().length > 0);
+    const connection = opens().at(-1);
+    if (connection?.type !== "connection.open") throw new Error("no connection");
+    await until(() => device.source.streaming());
+    // The device's only picture so far went by with nobody watching.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const keys: number[] = [];
+    const assembler = new StreamAssembler();
+    const reading = { on: true };
+    void (async () => {
+      while (reading.on) {
+        const frame = await client.receiveFrame().catch(() => undefined);
+        if (!(frame instanceof Uint8Array)) continue;
+        const envelope = assembler.push(frame);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (message?.kind !== "device.frame" || message.sourceId !== deviceId) continue;
+        if (message.frame.key) keys.push(message.frame.sequence);
+        // Acked through the relay, as a phone acks what it shows.
+        await client
+          .send({
+            type: "devices.ack",
+            deviceId,
+            streamId: message.frame.streamId,
+            sequence: message.frame.sequence,
+          })
+          .catch(() => {});
+      }
+    })();
+    cleanups.push(() => {
+      reading.on = false;
+    });
+    expect(device.bind(connection.connection)).toMatch(/^view-/);
+    await until(() => keys.length > 0, 5_000);
+    // The view comes back with what it had: the device makes no picture of its own, yet the view
+    // starts from one, made because ace-media asked for it.
+    const before = keys.length;
+    const asked = device.asked();
+    expect(device.bind(connection.connection)).toMatch(/^view-/);
+    await until(() => keys.length > before, 5_000);
+    expect(device.asked()).toBeGreaterThan(asked);
+  });
+
   it("revocations are answered within 50 ms p99 while the normal lane is saturated and a relay stream carries pictures", async () => {
     const t = await setup(cleanups);
     const tab = t.tab();

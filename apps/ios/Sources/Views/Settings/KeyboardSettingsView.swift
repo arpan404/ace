@@ -12,7 +12,7 @@ struct KeyboardSettingsView: View {
         let keymap = PhoneKeymap(stored: stored)
         List {
             Section {
-                InsetRow(systemImage: nil, title: "Send with Return") {
+                InsetRow(icon: nil, title: "Send with Return") {
                     Toggle("Send with Return", isOn: $returnSends).labelsHidden()
                 }
                 .accessibilityElement(children: .combine)
@@ -54,14 +54,14 @@ struct KeyboardSettingsView: View {
     @ViewBuilder private func row(_ entry: PhoneKeymapTable.Entry, keymap: PhoneKeymap) -> some View {
         let keys = PhoneKeymap.format(keymap.keys(entry.id))
         if entry.fixed {
-            InsetRow(entry.label, systemImage: nil, value: keys)
+            InsetRow(entry.label, icon: nil, value: keys)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("keyboard.shortcut.\(entry.id)")
         } else {
             NavigationLink {
                 ShortcutEditor(entry: entry, keys: keymap.keys(entry.id))
             } label: {
-                InsetRow(entry.label, systemImage: nil, value: keys, subtitle: keymap.isChanged(entry.id) ? "Changed" : nil)
+                InsetRow(entry.label, icon: nil, value: keys, subtitle: keymap.isChanged(entry.id) ? "Changed" : nil)
             }
             .accessibilityIdentifier("keyboard.shortcut.\(entry.id)")
         }
@@ -76,7 +76,7 @@ struct ShortcutEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var modifiers: Set<String>
     @State private var key: String
-    private static let modifierRows = [("ctrl", "Control", "control"), ("alt", "Option", "option"), ("shift", "Shift", "shift"), ("mod", "Command", "command")]
+    private static let modifierRows = [("ctrl", "Control"), ("alt", "Option"), ("shift", "Shift"), ("mod", "Command")]
 
     init(entry: PhoneKeymapTable.Entry, keys: String) {
         self.entry = entry
@@ -108,15 +108,15 @@ struct ShortcutEditor: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                ForEach(Self.modifierRows, id: \.0) { id, name, symbol in
-                    InsetRow(systemImage: symbol, title: name) {
+                ForEach(Self.modifierRows, id: \.0) { id, name in
+                    InsetRow(icon: nil, title: name) {
                         Toggle(name, isOn: Binding(get: { modifiers.contains(id) }, set: { on in
                             withAnimation { if on { modifiers.insert(id) } else { modifiers.remove(id) } }
                         })).labelsHidden()
                         .accessibilityIdentifier("shortcut.modifier.\(id)")
                     }
                 }
-                InsetRow(systemImage: "keyboard", title: "Key") {
+                InsetRow(icon: .keyboard, title: "Key") {
                     Picker("Key", selection: Binding(get: { key }, set: { next in withAnimation { key = next } })) {
                         ForEach(PhoneKeymapTable.keyOrder, id: \.self) { value in Text(PhoneKeymapTable.keyNames[value] ?? value).tag(value) }
                     }

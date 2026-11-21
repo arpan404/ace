@@ -936,3 +936,52 @@ fn a_page_that_changes_size_plans_its_views_again_at_its_new_shape() {
     let later = ingest(&mut engine, 1, h264(false, 1, 1, Vec::new()), at(2_000));
     assert!(wants(&later).is_empty());
 }
+
+/// `v1`'s view of `t1` opened again on the same connection, as a subscribe again does.
+fn open_again(engine: &mut Engine, viewer: &str, now: Now) -> Vec<Effect> {
+    send(
+        engine,
+        json!({ "type": "viewer.open", "viewer": viewer, "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false }),
+        &[],
+        now,
+    )
+}
+
+#[test]
+fn a_view_opened_again_soon_after_on_a_still_source_has_its_keyframe_asked_for_once_the_spacing_ends()
+ {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // The producer's keyframe, which the first view plays; nothing moves on screen after it.
+    ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    // The viewer subscribes again 50 ms later: its new view needs a keyframe, inside the spacing.
+    let soon = open_again(&mut engine, "v2", at(NOW.mono_ms + 50));
+    assert_eq!(keyframes(&soon), 0, "spaced");
+    engine.tick(at(NOW.mono_ms + 150));
+    assert_eq!(keyframes(&engine.effects().collect::<Vec<_>>()), 0);
+    // Once the spacing ends it is asked for, and only once.
+    engine.tick(at(NOW.mono_ms + 300));
+    assert_eq!(keyframes(&engine.effects().collect::<Vec<_>>()), 1);
+    engine.tick(at(NOW.mono_ms + 600));
+    assert_eq!(keyframes(&engine.effects().collect::<Vec<_>>()), 0);
+}
+
+#[test]
+fn a_spaced_keyframe_request_goes_unasked_when_the_producers_own_keyframe_comes_first() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    engine.effects().for_each(drop);
+    ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    open_again(&mut engine, "v2", at(NOW.mono_ms + 50));
+    // A moving source's next keyframe came before the spacing ended: nothing is owed.
+    ingest(
+        &mut engine,
+        1,
+        h264(true, 1, 1, Vec::new()),
+        at(NOW.mono_ms + 100),
+    );
+    engine.tick(at(NOW.mono_ms + 300));
+    assert_eq!(keyframes(&engine.effects().collect::<Vec<_>>()), 0);
+}

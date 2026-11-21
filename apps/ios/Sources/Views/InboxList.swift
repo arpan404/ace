@@ -278,7 +278,7 @@ struct InboxList: View {
 private struct TabEmpty: View {
     let tab: MergedInbox.Tab
     var body: some View {
-        EmptyState(systemImage: tab.id == "snoozed" ? "moon.zzz" : tab.id == "settled" ? "checkmark.circle" : "tray",
+        EmptyState(icon: tab.id == "snoozed" ? .bellSimpleZ : tab.id == "settled" ? .checkCircle : .tray,
                    title: tab.empty, line: tab.emptyLine)
             .padding(.top, AceDesign.Space.section * 2)
             .accessibilityIdentifier("threads.empty.\(tab.id)")

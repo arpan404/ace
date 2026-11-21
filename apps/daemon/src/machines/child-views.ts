@@ -149,6 +149,8 @@ export function unconfirmableView(
         ? `Stopped here. ${name} is no longer paired with this machine, so the stop can't be confirmed; its work there may still be running.`
         : `Stopped here. ${name} no longer has this child, so the stop can't be confirmed.`,
     truncated: false,
+    // Its pairing went before it confirmed: it may still be running there, and stays unvouched.
+    ...(why === "unpaired" ? { contact: "unconfirmed" as const } : {}),
   };
 }
 
@@ -258,7 +260,14 @@ export function monitoredChild(
     role: clip(row.role, 40),
     state: cancelling ? "cancelling" : view.state,
     ...(cancelling
-      ? { step: clip(`Cancel sent; waiting for ${name} to confirm`, 60) }
+      ? {
+          step: clip(
+            row.lost_at !== null
+              ? `${name} is no longer paired; can't confirm it stopped`
+              : `Cancel sent; waiting for ${name} to confirm`,
+            60,
+          ),
+        }
       : view.step
         ? { step: clip(view.step, 60) }
         : {}),

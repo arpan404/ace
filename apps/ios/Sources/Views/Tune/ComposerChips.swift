@@ -130,7 +130,7 @@ struct AccessRows: View {
                     }
                     Spacer(minLength: AceTheme.Spacing.sm)
                     if item.mode == selected {
-                        Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(AceTheme.Colours.foreground)
+                        AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                     }
                 }
                 .padding(.vertical, AceTheme.Spacing.xs)

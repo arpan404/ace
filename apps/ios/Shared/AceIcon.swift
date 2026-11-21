@@ -1,16 +1,16 @@
 import SwiftUI
 
 /// One of ace's own icons from `Icons.xcassets` (ADR 0156: the `@ace/icons` set the web draws;
-/// regular weight, bold only at 12pt). It takes `currentColor`: set the row's tier with `foregroundStyle`.
+/// regular weight, bold only at 12pt, filled only for the short list `generate-icons.ts` writes:
+/// row status marks, a starred or picked choice). It takes `currentColor`: set the row's tier with `foregroundStyle`.
 /// `size` is the point size at the default text size and grows with Dynamic Type beside
 /// `relativeTo`. Decorative: the control or row it sits in carries the words.
 ///
-/// Swapping an SF Symbol is mechanical with the table in `scripts/generate-icons.ts`:
-/// `Image(systemName: "folder")` → `AceIcon(.folder)`,
-/// `Label("Copy", systemImage: "doc.on.doc")` → `Label("Copy", ace: .copy)`,
-/// `Button("Archive", systemImage: "archivebox") { … }` → `Button("Archive", ace: .archive) { … }`.
+/// The app draws no SF Symbols (`scripts/check-no-sf-symbols.ts`); the table in
+/// `scripts/icon-names.ts` says which icon replaced each one: an image becomes `AceIcon(.folder)`,
+/// a label `Label("Copy", ace: .copy)`, a button `Button("Archive", ace: .archive) { … }`.
 struct AceIcon: View {
-    enum Weight: Sendable { case regular, bold }
+    enum Weight: Sendable { case regular, bold, fill }
     let name: Name
     let weight: Weight
     @ScaledMetric private var size: CGFloat
@@ -32,8 +32,13 @@ struct AceIcon: View {
 
 extension AceIcon.Name {
     /// The icon's image in `Icons.xcassets`.
+    /// A name with no filled drawing draws its outline when asked for `.fill`.
     func asset(_ weight: AceIcon.Weight = .regular) -> String {
-        weight == .bold ? "icon-\(rawValue)-bold" : "icon-\(rawValue)"
+        switch weight {
+        case .regular: "icon-\(rawValue)"
+        case .bold: "icon-\(rawValue)-bold"
+        case .fill: Self.filled.contains(self) ? "icon-\(rawValue)-fill" : "icon-\(rawValue)"
+        }
     }
 }
 

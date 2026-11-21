@@ -4,26 +4,26 @@ import LocalAuthentication
 /// Device-owner authentication at launch and after the chosen time away.
 struct AppLockView: View {
     @Bindable var lock: AppLock
-    private var authentication: (name: String, symbol: String) {
+    private var authenticationName: String {
         let context = LAContext()
         _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
         switch context.biometryType {
-        case .faceID: return ("Face ID", "faceid")
-        case .touchID: return ("Touch ID", "touchid")
-        default: return ("Passcode", "lock")
+        case .faceID: return "Face ID"
+        case .touchID: return "Touch ID"
+        default: return "Passcode"
         }
     }
     var body: some View {
         List {
             Section {
-                InsetRow(systemImage: nil, title: "Lock with \(authentication.name)") {
-                    Toggle("Lock with \(authentication.name)", isOn: Binding(get: { lock.enabled }, set: { on in Task { await lock.setEnabled(on) } }))
+                InsetRow(icon: nil, title: "Lock with \(authenticationName)") {
+                    Toggle("Lock with \(authenticationName)", isOn: Binding(get: { lock.enabled }, set: { on in Task { await lock.setEnabled(on) } }))
                         .labelsHidden()
                 }
                 .disabled(lock.authenticating)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("settings.lock.enabled")
-                InsetRow(systemImage: nil, title: "Lock after") {
+                InsetRow(icon: nil, title: "Lock after") {
                     Picker("Lock after", selection: Binding(get: { lock.timeout }, set: { lock.setTimeout($0) })) {
                         ForEach(AppLock.timeouts, id: \.self) { seconds in Text(Self.label(seconds)).tag(seconds) }
                     }
@@ -32,7 +32,7 @@ struct AppLockView: View {
                 .disabled(!lock.enabled)
                 .accessibilityIdentifier("settings.lockTimeout")
             } footer: {
-                Text(authentication.name == "Passcode" ? "Your passcode unlocks ace. Turning the lock off asks for it first." : "\(authentication.name) or your passcode unlocks ace. Turning the lock off asks for it first.")
+                Text(authenticationName == "Passcode" ? "Your passcode unlocks ace. Turning the lock off asks for it first." : "\(authenticationName) or your passcode unlocks ace. Turning the lock off asks for it first.")
             }
             .insetRowBackground()
         }

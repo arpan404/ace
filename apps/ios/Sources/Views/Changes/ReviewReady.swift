@@ -124,7 +124,7 @@ struct ReviewReadySheet: View {
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { actions }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(ace: .x) }
                         .accessibilityLabel("Close").accessibilityIdentifier("review.sheet.close")
                 }
                 if model.canOperate {

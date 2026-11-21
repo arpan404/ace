@@ -47,10 +47,10 @@ struct ThreadToolbar: ToolbarContent {
         }
         if let panel {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(action: panel.toggle) { Image(systemName: "sidebar.right") }
+                Button(action: panel.toggle) { Image(ace: .sidebarRight) }
                     .barGlyph()
                     .accessibilityShowsLargeContentViewer {
-                        Image(systemName: "sidebar.right")
+                        Image(ace: .sidebarRight)
                         Text(panel.shown ? "Hide panel" : "Show panel")
                     }
                     .accessibilityLabel(panel.shown ? "Hide panel" : "Show panel")

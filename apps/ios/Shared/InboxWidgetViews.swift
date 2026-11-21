@@ -133,7 +133,7 @@ struct AccessoryCount: View {
         ZStack {
             AccessoryWidgetBackground()
             VStack(spacing: 0) {
-                Image(systemName: RowStatusMark.symbol("sparkle") ?? "sparkle").font(LockType.meta)
+                RowStatusMark.drawn(.sparkle, weight: .fill, size: LockType.glyph)
                 Text(summary.map { $0.needsYou.formatted() } ?? "–")
                     .font(LockType.title.weight(LockType.strong))
                     .monospacedDigit()

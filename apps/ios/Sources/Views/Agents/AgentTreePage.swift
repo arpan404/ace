@@ -123,7 +123,7 @@ struct AgentTreePage: View {
         .contextMenu {
             if model.canOperate && row.stoppable {
                 Button(role: .destructive) { self.request(.agent(id: row.id, name: row.name, descendants: row.descendants)) } label: {
-                    Label("Stop", systemImage: "stop.circle")
+                    Label("Stop", ace: .stopCircle)
                 }
             }
         }

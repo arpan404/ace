@@ -271,7 +271,7 @@ struct InboxView: View {
                         PairingView(machines: machines) { pairing = false }
                             .toolbar {
                                 ToolbarItem(placement: .cancellationAction) {
-                                    Button { pairing = false } label: { Image(systemName: "xmark") }
+                                    Button { pairing = false } label: { Image(ace: .x) }
                                         .accessibilityLabel("Close").accessibilityIdentifier("pairing.close")
                                 }
                             }

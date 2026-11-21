@@ -47,15 +47,15 @@ struct FleetMapReply: Decodable, Equatable {
     var devices: [Row] { rows.filter { $0.kind == "device" } }
     var needing: [Row] { rows.filter { $0.problem != nil } }
 
-    /// The SF Symbol for a row's art (`MapArt`).
-    static func symbol(_ art: String) -> String {
+    /// The icon for a row's art (`MapArt`).
+    static func icon(_ art: String) -> AceIcon.Name {
         switch art {
-        case "desktop": "desktopcomputer"
-        case "server": "server.rack"
-        case "phone": "iphone"
-        case "tablet": "ipad"
-        case "browser": "globe"
-        default: "laptopcomputer"
+        case "desktop": .desktopTower
+        case "server": .hardDrives
+        case "phone": .deviceMobile
+        case "tablet": .deviceTablet
+        case "browser": .globe
+        default: .laptop
         }
     }
 }

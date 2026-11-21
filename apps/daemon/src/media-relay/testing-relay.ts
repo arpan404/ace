@@ -16,7 +16,7 @@ import { startFilesRelay } from "../files-relay.ts";
 import { RemoteAuth } from "../remote-auth.ts";
 import { Store } from "../store.ts";
 import { MediaRelayStreams } from "./streams.ts";
-import { deviceProducer, tabProducer } from "./testing-producer.ts";
+import { deviceProducer, stillDeviceProducer, tabProducer } from "./testing-producer.ts";
 import { StreamAssembler, decodeStreamMessage } from "@ace/browser/stream";
 
 export const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
@@ -225,13 +225,19 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
       },
     };
   }
-  /** An Android device producing into ace-media, and a view of it bound to a relay connection. */
-  function androidDevice(deviceId: string) {
-    const producer = deviceProducer(deviceId);
+  /**
+   * An Android device producing into ace-media (`still`: one whose screen doesn't change), and a
+   * view of it bound to a relay connection.
+   */
+  function androidDevice(deviceId: string, still = false) {
+    const stillOne = still ? stillDeviceProducer(deviceId) : undefined;
+    const producer = stillOne ?? deviceProducer(deviceId);
     cleanups.push(() => producer.stop());
     const source = runtime.sources.add(producer);
     return {
       source,
+      /** The keyframes ace-media asked a still device for. */
+      asked: () => stillOne?.asked() ?? 0,
       bind(connection: string): string | undefined {
         return runtime.viewers.bind({
           requester: {

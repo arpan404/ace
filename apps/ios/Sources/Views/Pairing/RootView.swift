@@ -40,7 +40,7 @@ struct LockView: View {
     let lock: AppLock
     var body: some View {
         VStack(spacing: AceDesign.Space.margin) {
-            Image(systemName: "lock.fill").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
+            AceIcon(.lock, size: AceDesign.Size.icon, relativeTo: .body)
                 .foregroundStyle(AceDesign.Ink.muted)
             Text("ace is locked").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).foregroundStyle(AceDesign.Ink.primary)
             if lock.failed {
@@ -61,6 +61,6 @@ struct LockView: View {
 struct PrivacyCover: View {
     var body: some View {
         AceDesign.Surface.background.ignoresSafeArea()
-            .overlay { Image(systemName: "lock.fill").foregroundStyle(AceDesign.Ink.faint) }
+            .overlay { Image(ace: .lock).foregroundStyle(AceDesign.Ink.faint).accessibilityHidden(true) }
     }
 }

@@ -103,9 +103,9 @@ struct LargeFileView: View {
                 .accessibilityIdentifier("file.large.query")
             Text(findCount).monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
                 .accessibilityIdentifier("file.large.count")
-            Button { Task { await step(forward: false) } } label: { Image(systemName: "chevron.up") }
+            Button { Task { await step(forward: false) } } label: { Image(ace: .caretUp) }
                 .disabled(search.found == 0 || searching).accessibilityLabel("Previous match").accessibilityIdentifier("file.large.previous")
-            Button { Task { await step(forward: true) } } label: { Image(systemName: "chevron.down") }
+            Button { Task { await step(forward: true) } } label: { Image(ace: .caretDown) }
                 .disabled(query.isEmpty || searching).accessibilityLabel("Next match").accessibilityIdentifier("file.large.next")
             // The match's part header is often scrolled off once find centres the match; its
             // Edit stays here, beside the match it opens on.

@@ -151,7 +151,7 @@ struct NeedsRunPage: View {
             } else {
                 Button("Review") { reviewing = true }.buttonStyle(PillButtonStyle(kind: .secondary))
                     .accessibilityIdentifier("run.plan.review")
-                if model.canOperate && !request.tooLargeToApprove {
+                if model.canOperate && request.planApprovable {
                     Button("Approve") {
                         model.answerNeed(request, in: threadId, answer: ["kind": "plan", "decision": "approve"])
                         decided()
@@ -193,8 +193,7 @@ struct NeedsRunPage: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: AceDesign.Space.related)
-                    Image(systemName: "chevron.right")
-                        .font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
+                    AceIcon(.caretRight, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 .frame(minHeight: AceDesign.Size.tap)
