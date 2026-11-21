@@ -272,7 +272,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                     ? { viewer, connection }
                     : undefined;
                 /** This view's pictures, opened once it is set up (opening replaces the old one's). */
-                const pending = new SetupPictures();
+                const early = new SetupPictures();
                 // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
                 stop = await service.subscribeEvery(deviceId, actor, (frame) => {
                   live();
@@ -280,7 +280,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                   // watches (until this view's H.264 starts) never reaches one. ace-media
                   // delivers this view on the client's media connection.
                   if (frame.header.codec !== "h264" || viewer) return;
-                  pending.push(framePicture(frame));
+                  early.push(framePicture(frame));
                 });
                 setup();
                 const state = stateForPeer(
@@ -303,7 +303,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                   ...(operation.link ? { hint: operation.link } : {}),
                 });
                 // The keyframe the capture made for this view during setup comes first.
-                pending.open(opened, keyframe);
+                early.open(opened, keyframe);
                 const follow = new LinkFollow({
                   link: () => opened.link(),
                   now: peer.now ?? (() => performance.now()),
