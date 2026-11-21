@@ -82,6 +82,8 @@ export interface BrowserView {
   features?: readonly string[] | undefined;
   /** A recording of the shown tab runs, started by the person or an agent. */
   recording?: { by: BrowserActorView } | undefined;
+  /** A recording ended on its own or its end may be incomplete; a new recording clears it. */
+  recordingNotice?: string | undefined;
   /** What its live video runs on while ace-media carries it (ADR 0148). */
   acceleration?: import("@ace/protocol").MediaAcceleration | undefined;
 }

@@ -119,6 +119,7 @@ const view = (state: BrowserState): BrowserView => ({
   annotation: state.annotation,
   features: state.features,
   recording: state.recording,
+  recordingNotice: state.recordingNotice,
   acceleration: state.acceleration,
 });
 

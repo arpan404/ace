@@ -51,7 +51,7 @@ import {
   StartPage,
 } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
-import { RecordingIndicator } from "./recording-indicator.tsx";
+import { RecordingIndicator, RecordingNotice } from "./recording-indicator.tsx";
 import { useCursorStyle } from "./use-cursor-style.ts";
 import { usePageCursor } from "./use-page-state.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
@@ -471,6 +471,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         progress={page.loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
       {tools.toolbar && <DeviceToolbar tools={tools} />}
+      {live && !live.closed && <RecordingNotice view={live} className="truncate px-3 py-1" />}
       {live && !live.closed && (
         <DegradedLine acceleration={live.acceleration} className="truncate px-3 py-1" />
       )}
