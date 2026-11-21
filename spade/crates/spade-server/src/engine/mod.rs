@@ -19,6 +19,7 @@ mod compact;
 mod computer;
 mod continuation;
 mod contracts;
+mod contracts_outside;
 mod contracts_remote;
 mod control;
 mod digests;
@@ -87,6 +88,10 @@ pub use brain::BrainSource;
 pub use cards::CardError;
 pub use cases::{CaseError, KeepInput};
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
+pub use contracts_outside::{
+    CallState as OutsideCallState, FROM_OUTSIDE, LONGEST_WAIT as OUTSIDE_LONGEST_WAIT,
+    Offered as OutsideOffered, OutsideCaller, Refused as OutsideRefused, Via as OutsideVia,
+};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
 pub use episodes::episode_json;
@@ -199,6 +204,9 @@ pub struct Engine {
     /// What a test runs right before a call is screened.
     screening_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
+    /// The outside MCP requests making a call now, by grant and request id, to their call
+    /// (ADR 0202 §3): a legacy client's cancel names its request.
+    outside_requests: Mutex<HashMap<String, String>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
@@ -398,6 +406,7 @@ impl Engine {
                 u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
             ),
             live: Mutex::default(),
+            outside_requests: Mutex::default(),
             record_lock: Mutex::default(),
             app_forms: app_forms::Open::default(),
             package_busy: crate::packages::Changing::default(),
