@@ -28,6 +28,9 @@ for (const args of [
   ["fmt", "--all", "--check"],
   ["clippy", "--workspace", "--all-targets", "--locked"],
   ["test", "--workspace", "--locked"],
+  // The crash, race and import-mark tests need ace-history's test hooks.
+  ["clippy", "--workspace", "--all-targets", "--locked", "--features", "ace-history/test-hooks"],
+  ["test", "--workspace", "--locked", "--features", "ace-history/test-hooks"],
   ["deny", "check", "licenses", "sources"],
 ])
   cargo(args);
