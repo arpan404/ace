@@ -348,6 +348,7 @@ fn run(
     // Its worker ends; the next call starts one with the new version's components.
     if let Some(code) = engine.code() {
         code.retire(bot);
+        crate::code::warm(engine, bot);
     }
     Ok(link)
 }

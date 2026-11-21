@@ -267,6 +267,7 @@ pub fn from_recipe(
         },
     )?;
     let id = made.agent.id.clone();
+    crate::code::warm(engine, &id);
     let furnished = furnish(
         engine,
         Furnishing {

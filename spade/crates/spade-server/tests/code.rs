@@ -348,3 +348,72 @@ async fn codes_answer_is_untrusted_when_it_was_called_with_untrusted_content_in_
     assert_eq!(answer["untrusted"], true, "{answer}");
     Ok(())
 }
+
+#[tokio::test]
+async fn an_update_whose_component_imports_more_asks_for_more_and_starts_it_off() -> Result {
+    let (spade, _titles) = spade(Vec::new(), Vec::new(), no_http()).await?;
+    let v1 = recipe(json!([]), json!([entry("fares", &["spade:package/tools"])]));
+    let (bot, _chat) = install(
+        &spade,
+        &v1,
+        sent(&[("fares", &component(false))]),
+        json!({ "code:fares": true }),
+    )
+    .await?;
+    let before = spade
+        .engine
+        .bot_package(&bot)
+        .unwrap_or_else(|| panic!("linked"));
+    let v2 = recipe(
+        json!([{ "effect": "network", "hosts": ["api.example-fares.com"], "why": "Reads fares." }]),
+        json!([entry(
+            "fares",
+            &["spade:package/tools", "spade:package/http"]
+        )]),
+    );
+    let (status, planned) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package/plan"),
+            json!({ "recipe": v2 }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{planned}");
+    let asks: Vec<&str> = planned["plan"]["asks_more"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(asks.contains(&"code:fares"), "{planned}");
+    let (status, moved) = spade
+        .post(
+            &format!("/v1/agents/{bot}/package"),
+            json!({ "recipe": v2, "transaction": "update-1", "code": sent(&[("fares", &component(true))]) }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{moved}");
+    let after = spade
+        .engine
+        .bot_package(&bot)
+        .unwrap_or_else(|| panic!("linked"));
+    assert!(!after.on.contains("code:fares"), "{:?}", after.on);
+    assert_ne!(after.code.get("fares"), before.code.get("fares"));
+    // Its local identity counts the code: another version.
+    assert_ne!(after.package.hash, before.package.hash);
+    let shown = &moved["package"]["code"][0];
+    assert_eq!(shown["on"], false, "{moved}");
+    // The person turns it on again in the bot's Security page.
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{bot}/package/effects"),
+            json!({ "key": "code:fares", "on": true }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let on = spade
+        .engine
+        .bot_package(&bot)
+        .unwrap_or_else(|| panic!("linked"));
+    assert!(on.on.contains("code:fares"));
+    Ok(())
+}

@@ -29,6 +29,9 @@ use tokio::process::Command;
 /// sandbox, offline, or an error when this machine can't hold it so.
 pub type Launch = Arc<dyn Fn(&Path) -> Result<Command, String> + Send + Sync>;
 
+/// The longest [`Code::list`] waits for a listing another caller started.
+const LIST_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// One machine's code: its blob store, its bots' workers and what each component offers.
 pub struct Code {
     root: PathBuf,
@@ -203,9 +206,20 @@ impl Code {
                 .cloned()
                 .collect()
         };
-        if wanted.is_empty() {
-            return;
+        if !wanted.is_empty() {
+            self.list_now(bot, pins, wanted).await;
         }
+        // Another listing of the same component may still be under way: its answer is waited
+        // for, so whoever asks is offered its tools once this returns.
+        let deadline = tokio::time::Instant::now() + LIST_WAIT;
+        while pins.values().any(|sha| self.listed(sha).is_none())
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+
+    async fn list_now(&self, bot: &str, pins: &BTreeMap<String, String>, wanted: Vec<String>) {
         let worker = self.bot(bot, pins).await;
         for sha in wanted {
             let listed = match &worker {
@@ -303,6 +317,22 @@ pub fn sandboxed(runner: spade_sandbox::Runner, workers: Workers) -> Launch {
     })
 }
 
+/// Asks `bot`'s components for their tools now, in the background, so its next turn is offered
+/// them: after an install or a step, and as Spade opens.
+pub fn warm(engine: &crate::engine::Engine, bot: &str) {
+    let (Some(code), Some(link)) = (engine.code(), engine.bot_package(bot)) else {
+        return;
+    };
+    if link.code.is_empty() {
+        return;
+    }
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let bot = bot.to_owned();
+    handle.spawn(async move { code.list(&bot, &link.code).await });
+}
+
 /// Every pin a bot's link, a step it is taking or a step held for it names, and every bot: what
 /// [`Code::collect`] keeps. Run as Spade opens, before any call.
 pub fn collect_unused(engine: &crate::engine::Engine) {
@@ -327,4 +357,7 @@ pub fn collect_unused(engine: &crate::engine::Engine) {
         }
     }
     code.collect(&live, &bots);
+    for bot in &bots {
+        warm(engine, bot);
+    }
 }
