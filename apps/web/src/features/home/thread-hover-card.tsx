@@ -50,11 +50,11 @@ export function ThreadHoverContent(props: {
   const linkedPr = card.prs?.[0];
   const queued =
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
+  // Older Claude threads may have stored the model field from a synthetic error message.
+  const liveModel = entry.live?.model === "<synthetic>" ? undefined : entry.live?.model;
   // A queued switch names its account and model together, never its account with the old model.
   const model =
-    (queued ? entry.switch?.selection.model : undefined) ??
-    entry.live?.model ??
-    entry.execution?.model;
+    (queued ? entry.switch?.selection.model : undefined) ?? liveModel ?? entry.execution?.model;
   return (
     <HoverCardContent
       // Beside the row, level with its top, so it never covers the rows below; it flips to the

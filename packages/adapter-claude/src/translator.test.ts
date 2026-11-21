@@ -353,7 +353,7 @@ const noModelCall = {
 /** A turn whose background shell finishes while Claude retries, then loses the network. */
 function networkLossWithFinishedShell() {
   const h = harness();
-  h.init();
+  h.system("init", { model: "claude-opus-4-1" });
   h.tool("bash", "Bash", { command: "xcodebuild test", run_in_background: true });
   h.system("task_started", { task_id: "b", task_type: "local_bash", is_backgrounded: true });
   h.system("task_notification", { task_id: "b", status: "completed" });
@@ -369,6 +369,11 @@ const threadStates = (h: ReturnType<typeof harness>) =>
   h.events.flatMap((event) =>
     event.type === "thread.updated" && event.status ? [event.status.state] : [],
   );
+
+test("a synthetic error message preserves Claude's reported model", () => {
+  const h = networkLossWithFinishedShell();
+  expect(h.state.agents["root"]?.agent.model).toBe("claude-opus-4-1");
+});
 
 test("a run lost to a network error never reads done while Claude folds its queued notifications", () => {
   const h = networkLossWithFinishedShell();
