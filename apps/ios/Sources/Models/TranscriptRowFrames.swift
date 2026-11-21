@@ -40,6 +40,11 @@ struct TranscriptRowFrames: Equatable, Sendable {
         return true
     }
 
+    /// The feed moved the scroll `delta` points itself: the content's top is that much higher
+    /// now, before the scroll view reports it, so a second correction in the meantime measures
+    /// from where the rows went rather than adding the same drift again.
+    mutating func shifted(by delta: CGFloat) { origin -= delta }
+
     /// The height of each row on screen.
     var heights: [String: CGFloat] { content.mapValues(\.height) }
 

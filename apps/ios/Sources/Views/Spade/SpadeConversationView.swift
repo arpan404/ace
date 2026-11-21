@@ -149,7 +149,8 @@ struct SpadeConversationView: View {
             if Int(new.contentHeight) != Int(old.contentHeight) {
                 SpadeFeedTrace.laidOut(contentHeight: new.contentHeight, viewport: new.viewport, rows: spade.order.count)
             }
-            if new.y < old.y - 1 { change { $0.scrolled(towardOlder: true) } }
+            // Measured from the newest place the drag reached, so a slow drag counts too.
+            if scroll.travel.moved(to: new.y) { change { $0.scrolled(towardOlder: true) } }
         }
         .onScrollPhaseChange { _, phase in scrollPhase(phase) }
         .onChange(of: spade.order.count) { restack() }
@@ -172,6 +173,7 @@ struct SpadeConversationView: View {
     private func scrollPhase(_ phase: ScrollPhase) {
         switch phase {
         case .tracking, .interacting:
+            if !scroll.moving { scroll.travel.began(at: scroll.place.y) }
             scroll.moving = true
             change { $0.touched() }
         case .decelerating, .animating:
@@ -192,9 +194,11 @@ struct SpadeConversationView: View {
         if next != follow { follow = next }
     }
 
-    /// Moves the rows to the other stack when the chat outgrew a plain one, never mid-scroll.
+    /// Moves the rows to the other stack when the chat outgrew a plain one, never mid-scroll and
+    /// never while the person reads back: it waits for them at the end.
     private func restack() {
-        if scroll.stack.update(rows: spade.order.count, moving: scroll.moving) != nil { stackSwitches += 1 }
+        let held = scroll.moving || !follow.mayRestack
+        if scroll.stack.update(rows: spade.order.count, moving: held) != nil { stackSwitches += 1 }
     }
 
     private func problemLine(_ text: String) -> some View {
@@ -265,6 +269,7 @@ struct SpadeConversationView: View {
         sends += 1
         // What the person sent shows at the end, wherever they were reading.
         follow.sent()
+        restack()
         withAnimation { reader.scrollTo(Self.endID, anchor: .bottom) }
         Task {
             let outcome: SpadeOutcome
@@ -340,4 +345,6 @@ private struct SpadeWorkingLine: View {
     /// A finger, its fling or an animated scroll is moving the chat.
     var moving = false
     var stack = TranscriptStackChoice()
+    /// How far the person's drag has moved back toward older messages.
+    var travel = DragTravel()
 }

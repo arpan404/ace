@@ -146,10 +146,54 @@ import Testing
         busy(until: { session.acks.count >= frames }, for: 2)
         #expect(session.acks.count < frames)
         #expect(session.acks.count > 1)
-        await settle { session.acks.count == frames }
+        // The last frames are answered on decode, so their rows may land a moment after the acks.
+        await settle { session.acks.count == frames && model.thread?.order.count == frames }
         #expect(session.acks.count == frames)
-        #expect(model.thread?.order.count == frames)
+        #expect(model.thread?.order == (0..<frames).map { "r\($0)" })
         await close(model, session)
+    }
+
+    /// A patch sent in fragments weighs every fragment toward the cap, not only the last: one
+    /// reassembled patch past the cap waits for the main thread instead of being answered early.
+    @Test func aReassembledPatchPastTheCapWaitsForTheMainThread() async throws {
+        let (model, session) = try await connected()
+        model.open("t")
+        let epoch = try #require(model.thread?.epoch)
+        let text = String(repeating: "x", count: FrameIntake.answeredLimit + 100_000)
+        let bytes = try JSONSerialization.data(withJSONObject: item(epoch, "big", text, index: 0))
+        let size = 16_000
+        let chunks = stride(from: 0, to: bytes.count, by: size).map { bytes[$0..<min($0 + size, bytes.count)] }
+        for (index, chunk) in chunks.enumerated().dropLast() {
+            session.send([fragment(index, last: false, chunk)])
+        }
+        // The fragments before the last carry no rows; the main thread answers them.
+        await settle { session.acks.count == chunks.count - 1 }
+        #expect(session.acks.count == chunks.count - 1)
+        session.send([fragment(chunks.count - 1, last: true, try #require(chunks.last))])
+        busy(until: { session.acks.count >= chunks.count }, for: 0.5)
+        #expect(session.acks.count == chunks.count - 1)
+        await settle { session.acks.count == chunks.count && model.thread?.items["big"] != nil }
+        #expect(session.acks.count == chunks.count)
+        #expect(model.thread?.items["big"] != nil)
+        await close(model, session)
+    }
+    /// The cap counts frames answered early until the main thread has applied them, not only
+    /// until it has taken them: taken but still batched, they are rows the bridge counts as shown.
+    @Test func framesTakenButNotYetAppliedStillCountTowardTheCap() throws {
+        let intake = FrameIntake()
+        intake.opened("t", epoch: 1)
+        var frames = BridgeFrames()
+        let patches = try frames.decode(try frame([item(1, "a", "A", index: 0)]))
+        let half = FrameIntake.answeredLimit / 2 + 1
+        #expect(intake.push(patches, bytes: half) == true)
+        let taken = intake.take()
+        // Taken into the main thread's batch, not applied yet: the next one would pass the cap.
+        #expect(intake.push(patches, bytes: half) == nil)
+        intake.applied(taken.map(\.counted).reduce(0, +))
+        #expect(intake.push(patches, bytes: half) == true)
+    }
+    private func fragment(_ index: Int, last: Bool, _ chunk: Data) -> [String: Any] {
+        ["type": "fragment", "id": "transfer", "index": index, "last": last, "data": chunk.base64EncodedString()]
     }
 
     private func connected() async throws -> (ClientModel, Session) {
