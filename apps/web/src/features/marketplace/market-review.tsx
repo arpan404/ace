@@ -276,7 +276,12 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
             title={nav.offline ? offlineTitle("Get") : undefined}
             onClick={run}
           >
-            {install.isPending ? pendingWords[reviewAction(review)] : reviewAction(review)}
+            {install.isPending
+              ? // A replacement install that isn't a linked bot's update reads as getting it.
+                moving
+                ? pendingWords[reviewAction(review)]
+                : "Getting…"
+              : reviewAction(review)}
           </Button>
         )}
       </ReviewFoot>
