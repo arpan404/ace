@@ -133,6 +133,7 @@ export class BrowserSession {
       async (on) => {
         await Promise.all(this.tabs.all().map((tab) => tab.cursor.setRecording(on)));
       },
+      () => this.emit(),
     );
     this.tabs = new SessionTabs(this.host(), () => this.options.backend);
     this.shownWake = new RecoveryRetry(options.navigationClock);
@@ -364,6 +365,7 @@ export class BrowserSession {
       blocked: this.blocked,
       annotation: viewed?.annotation.owner,
       recording: this.recordings.by,
+      recordingNotice: this.recordings.notice,
       video: this.videoStatus(),
       // Read while the constructor still sets up the tabs, before the live capture exists.
       acceleration: (this.live as LiveCapture | undefined)?.video.acceleration(),

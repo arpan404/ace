@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import type { BrowserArtifact } from "@ace/protocol";
 import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { markedJpeg, type FakePage } from "./backend-test-support.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
@@ -26,6 +27,7 @@ async function thread() {
   const home = await mkdtemp(join(tmpdir(), "ace-recording-privacy-"));
   const clock = { now: 1_000_000 };
   const recorder = new FakeMediaRecorder();
+  const artifacts: BrowserArtifact[] = [];
   const backend = new TabbedHeadless();
   const service = new BrowserService({
     dataDir: home,
@@ -35,6 +37,7 @@ async function thread() {
     navigationClock: new TestNavigationClock(),
     now: () => clock.now,
     recorder,
+    onArtifact: (_, artifact) => void artifacts.push(artifact),
   });
   cleanups.push(async () => {
     await service.close();
@@ -57,7 +60,7 @@ async function thread() {
     });
   };
   const recorded = () => recorder.last()?.units.map((unit) => unit.height) ?? [];
-  return { service, backend, clock, recorder, page, frame, recorded };
+  return { service, backend, clock, recorder, page, frame, recorded, artifacts };
 }
 
 it("records the public tab it follows, through ace-media's picture encode", async () => {
@@ -199,4 +202,33 @@ it("two recordings started at once on different tabs: one runs, the other is ref
   t.frame(results[0]?.status === "fulfilled" ? 0 : 1, 3);
   await t.service.stopRecording("thread").catch(() => {});
   expect(t.recorder.recordings.every((recording) => recording.stopped)).toBe(true);
+});
+
+it("a recording ace-media ends on its own stops showing as active, and its stop saves what was written and says it failed", async () => {
+  const t = await thread();
+  await t.service.startRecording("thread");
+  t.frame(0, 3);
+  t.recorder.last()?.fail("ingest-closed");
+  // Its capture is gone: the browser no longer says it records, and says why.
+  expect(t.service.state("thread").recording).toBeUndefined();
+  expect(t.service.state("thread").recordingNotice).toMatch(/couldn't be written/);
+  await expect(t.service.stopRecording("thread")).rejects.toMatchObject({
+    code: "recording_failed",
+    detail: "ingest-closed",
+  });
+  expect(t.artifacts).toEqual([expect.objectContaining({ mimeType: "video/mp4" })]);
+  expect(t.service.state("thread").recordingNotice).toMatch(/saved to this thread/);
+  // A new recording starts afresh.
+  await t.service.startRecording("thread");
+  expect(t.service.state("thread").recordingNotice).toBeUndefined();
+});
+
+it("a stop whose last moment ace-media couldn't confirm returns the recording and says its end may be incomplete", async () => {
+  const t = await thread();
+  t.recorder.truncate = true;
+  await t.service.startRecording("thread");
+  t.frame(0, 3);
+  const artifact = await t.service.stopRecording("thread");
+  expect(artifact.mimeType).toBe("video/mp4");
+  expect(t.service.state("thread").recordingNotice).toMatch(/end may be incomplete/);
 });

@@ -435,6 +435,11 @@ export const BrowserState = z.object({
    */
   recording: z.object({ by: BrowserTabActor }).optional(),
   /**
+   * What the person should know about the last recording: it stopped on its own because it
+   * couldn't be written, or its end may be incomplete. Cleared when the next one starts.
+   */
+  recordingNotice: z.string().max(256).optional(),
+  /**
    * Optional page features this daemon supports, such as `annotate`; `page-cursor`: agents'
    * cursors are drawn in the page itself, so clients draw none over frames. `engines`: the
    * daemon reports which engines can open now, and `embedded-engine` is there while the desktop
