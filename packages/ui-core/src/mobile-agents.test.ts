@@ -55,7 +55,12 @@ test("the Agents header counts the subagents the thread's chip counts, before ev
   const working: AgentStatus = { state: "working", activity: "tool" };
   // The daemon knows two subagents work; only one row has arrived on this phone.
   const read = reader([agent("root", working), agent("helper", working, "root")], 2);
-  const chip = livePill({ activity: readTurnActivity(read, "root").activity });
+  const chip = livePill({
+    activity: readTurnActivity(read, "root").activity,
+    queued: 0,
+    goal: undefined,
+    requestShown: false,
+  });
   expect(chip?.segments.find((segment) => segment.kind === "subagents")?.label).toBe("2 subagents");
   expect(agentSheet(read).summary.text).toBe("Working with 2 subagents");
 });

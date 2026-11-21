@@ -1,6 +1,6 @@
 import { pluralCount } from "./counts.ts";
 import { treeOnlyWaits } from "@ace/projection";
-import type { QueueSnapshot, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import type { AgentStatus, QueueSnapshot, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import { agentName } from "./agents.ts";
 import { describeWake } from "./snooze.ts";
 import type { Tone } from "./status.ts";
