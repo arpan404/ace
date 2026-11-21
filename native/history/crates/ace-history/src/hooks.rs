@@ -192,12 +192,9 @@ mod disabled {
     pub fn at_path(_point: &str, _subject: &str) {}
     #[inline(always)]
     pub fn failure() -> Option<String> {
-        config()
-            .get("failRequests")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
+        None
     }
-
+    #[inline(always)]
     pub fn clock_shift() -> f64 {
         0.0
     }
