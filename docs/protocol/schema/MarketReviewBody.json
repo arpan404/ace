@@ -147,6 +147,13 @@
           "maxItems": 32,
           "type": "array"
         },
+        "code": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketCodeRow.json"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
         "effects": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/MarketEffectRow.json"

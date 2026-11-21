@@ -10,6 +10,7 @@ import {
   type MarketProblem,
 } from "@ace/protocol/marketplace";
 import { surfaceProblems } from "./surfaces.ts";
+import { codeProblems } from "./code.ts";
 
 /*
  * An agent package's manifest, `bot.json` at version 3 (ADR 0200 §3), read the way Spade reads it
@@ -58,6 +59,7 @@ const known = new Set([
   "pricing",
   "surfaces",
   "contracts",
+  "code",
   ...identity,
   ...executions,
 ]);
@@ -283,6 +285,9 @@ export function readPackage(
   });
   const contracts = readContracts(json["contracts"], declared);
   problems.push(...contracts.problems.map(problem));
+  // Its WebAssembly components (ADR 0203): the manifest's list here, the binary's on the signer.
+  const code = codeProblems(json["code"], effects);
+  problems.push(...code.map(problem));
   const extra: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(json)) if (!known.has(key)) extra[key] = value;
   const {
@@ -290,6 +295,7 @@ export function readPackage(
     effects: _effects,
     pricing: _pricing,
     contracts: _contracts,
+    code: _code,
     ...rest
   } = json;
   for (const field of [...identity, ...executions, ...Object.keys(extra)])
@@ -300,6 +306,7 @@ export function readPackage(
     triggers,
     effects: kept,
     ...(contracts.problems.length ? {} : { contracts: contracts.kept }),
+    ...(code.length || json["code"] === undefined ? {} : { code: json["code"] }),
   });
   if (!read.success) return { recipe: undefined, problems: [...problems, ...issues(read.error)] };
   const recipe: Recipe = Object.keys(extra).length ? { ...read.data, extra } : read.data;

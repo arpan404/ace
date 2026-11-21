@@ -18,6 +18,7 @@ import {
 import { marketPublishOperations, marketPublishResults } from "./marketplace-publish-ops.ts";
 import { SpadePersonality } from "./marketplace-catalog.ts";
 import {
+  PackageCodeImport,
   PackageEffectWord,
   PackageGrant,
   PackageLimits,
@@ -147,6 +148,19 @@ export const MarketEffectRow = z.strictObject({
 });
 export type MarketEffectRow = z.infer<typeof MarketEffectRow>;
 
+/**
+ * One WebAssembly component a package ships, as a row on its review (ADR 0203 §5): "Runs its own
+ * code: fares. It can call Spade's tools as this bot." Its imports are the binary's: the signer
+ * read them from the bytes and refused a version whose manifest said otherwise.
+ */
+export const MarketCodeRow = z.strictObject({
+  name: z.string().min(1).max(24),
+  imports: z.array(PackageCodeImport).max(7),
+  why: z.string().max(500),
+  sentence: z.string().max(2000),
+});
+export type MarketCodeRow = z.infer<typeof MarketCodeRow>;
+
 /** What an update or rollback of a linked bot does, for its review (ADR 0200 §6.1). */
 export const MarketBotUpdate = z.strictObject({
   bot: z.string().min(1).max(80),
@@ -209,6 +223,8 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     linked: z.boolean().optional(),
     /** Its declared effects, each a switch the person sets; nothing is granted before Install. */
     effects: z.array(MarketEffectRow).max(32).optional(),
+    /** Its own code, a row per component; every version with code was read by a maintainer. */
+    code: z.array(MarketCodeRow).max(4).optional(),
     /** Its triggers other than schedules, which `routines` lists. */
     triggers: z.array(PackageTrigger).max(40).optional(),
     limits: PackageLimits.optional(),

@@ -60,6 +60,15 @@ export {
   type MarketReads,
   type Published,
 } from "./published.ts";
+export {
+  codeProblems,
+  codeReviewRow,
+  componentProblem,
+  mostComponentBytes,
+  mostComponents,
+  outsideWorld,
+  wasmKind,
+} from "./code.ts";
 export { readSchema, schemaLimits, schemaMisfits, type Misfit, type Schema } from "./schema.ts";
 export {
   effectKey,

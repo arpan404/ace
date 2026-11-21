@@ -6,6 +6,7 @@ import type { Recipe } from "@ace/protocol/marketplace";
 import { readRecipe } from "../recipe.ts";
 import { checkSkill, folderSecretProblems, type SkillInspection } from "./skill.ts";
 import { panelProblems } from "./panels.ts";
+import { codeFileAllowed, componentProblem } from "../code.ts";
 
 /** A recipe's facts for its review, with each skill folder it holds checked as a skill. */
 export interface BotInspection {
@@ -77,16 +78,29 @@ export function checkBot(
   for (const file of rest) {
     if (file.path === "bot.json" || file.path === "market.json") continue;
     // A package's executables are a skill's scripts, run in the sandbox; nothing else runs.
+    // Its WebAssembly components and their sources (ADR 0203): only what bot.json names.
+    if (packaged && file.path.startsWith("code/") && !file.executable) {
+      if (!codeFileAllowed(file.path, read.recipe))
+        problems.push({
+          path: file.path,
+          message: `${file.path} isn't a component bot.json names; code/ holds components, code/src/ and code/build.json`,
+        });
+      else if (file.path.endsWith(".wasm") && !file.path.startsWith("code/src/")) {
+        const problem = componentProblem(file.path, file.content);
+        if (problem) problems.push({ path: file.path, message: problem });
+      }
+      continue;
+    }
     if (packaged && file.executable)
       problems.push({
         path: file.path,
-        message: `${file.path} is executable outside skills/; a package runs code only as a skill's script or through a plugin`,
+        message: `${file.path} is executable outside skills/; a package runs code only as a skill's script, through a plugin or as a component under code/`,
       });
     else if (!(packaged && packageFile.test(file.path)))
       problems.push({
         path: file.path,
         message: packaged
-          ? `${file.path} isn't part of a package (bot.json, README.md, assets/, skills/, tests/, cards/, panels/, contracts/)`
+          ? `${file.path} isn't part of a package (bot.json, README.md, assets/, skills/, tests/, cards/, panels/, contracts/, code/)`
           : `${file.path} isn't part of a recipe (bot.json and skills/<name>/ only)`,
       });
   }
@@ -96,6 +110,12 @@ export function checkBot(
     (Array.isArray(raw["tests"])
       ? raw["tests"].filter((test): test is string => typeof test === "string")
       : []);
+  for (const code of read.recipe?.code ?? [])
+    if (!rest.some((file) => file.path === code.file))
+      problems.push({
+        path: code.file,
+        message: `${code.file} is named in code but isn't in the package`,
+      });
   for (const test of tests)
     if (!rest.some((file) => file.path === test))
       problems.push({ path: test, message: `${test} is named in tests but isn't in the package` });

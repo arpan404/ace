@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketCodeRow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "imports": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageCodeImport.json"
+      },
+      "maxItems": 7,
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 24,
+      "minLength": 1,
+      "type": "string"
+    },
+    "sentence": {
+      "maxLength": 2000,
+      "type": "string"
+    },
+    "why": {
+      "maxLength": 500,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "imports",
+    "why",
+    "sentence"
+  ],
+  "type": "object"
+}
