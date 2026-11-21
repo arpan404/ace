@@ -111,11 +111,12 @@ export function spadeListRows(
 }
 
 /**
- * A bot waiting on a worker it started, with nothing more to say: the row names that, since the
- * request is the worker's, shown on the workers row in the bot's chat (`spade-worker-rows.ts`).
+ * A bot waiting on a worker it started: the row names that, since the request is the worker's,
+ * shown on the workers row in the bot's chat (`spade-worker-rows.ts`). Spade's own status for
+ * such a wait is generic ("A worker is waiting for you"), so it is replaced too.
  */
 function workerWaitLine(agent: SpadeAgent, line: string): string {
-  return agent.state === "waiting" && agent.waitingFor === "worker" && !agent.status
+  return agent.state === "waiting" && agent.waitingFor === "worker"
     ? "An agent it started needs you"
     : line;
 }

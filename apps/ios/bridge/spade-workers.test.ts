@@ -124,7 +124,14 @@ test("a worker never reads as done while its thread still works, even before ace
 
 test("a bot waiting on one of its workers says so in the list, where its chat shows the request", async () => {
   const { patches, spade } = await setUp((api) => {
-    api.addAgent({ name: "Research", state: "waiting", waiting_for: "worker", last_activity: 5 });
+    // As the live server says it for every worker wait.
+    api.addAgent({
+      name: "Research",
+      state: "waiting",
+      waiting_for: "worker",
+      status: "A worker is waiting for you",
+      last_activity: 5,
+    });
   });
   spade.handle({ type: "spade.watch", on: true });
 
