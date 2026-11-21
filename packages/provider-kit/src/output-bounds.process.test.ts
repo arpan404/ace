@@ -51,3 +51,28 @@ test.each(["stderr", "total"])(
     expect(await child.exited).toMatchObject({ reason: "output-limit", signal: "SIGKILL" });
   },
 );
+
+test("opting into stderr drops keeps the process and its later stderr lines", async () => {
+  const dropped: number[] = [];
+  const lines: string[] = [];
+  const child = spawnSupervised({
+    command: process.execPath,
+    args: [
+      "-e",
+      'process.stderr.write("x".repeat(64) + "\\nafter\\n"); process.stdout.write("ok\\n");',
+    ],
+    env: {},
+    name: "stderr-drop",
+    maxLineBytes: 8,
+    onStderrLineDropped(line) {
+      if (line.phase !== "start") dropped.push(line.bytes);
+    },
+  });
+  child.stderr.on("line", (line: string) => lines.push(line));
+  onTestFinished(async () => {
+    await child.stop({ graceMs: 0 });
+  });
+  expect(await child.exited).toMatchObject({ reason: "exit", code: 0 });
+  expect(dropped).toEqual([64]);
+  expect(lines).toEqual(["after"]);
+});
