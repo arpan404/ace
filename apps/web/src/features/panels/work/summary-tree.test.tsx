@@ -129,9 +129,7 @@ test("a question an agent works on without waiting for doesn't read as asking th
   const { app, work } = await openNested();
   await agentRow(work, "Check daemon search limits");
   // The great-grandchild keeps working; its question isn't blocking, so it isn't the person's yet.
-  act(() =>
-    app.daemon.apply(nestedDelegationIds.review, [{ ...nestedQuestion(), blocking: false }]),
-  );
+  act(() => app.daemon.apply(nestedDelegationIds.review, [nestedQuestion(false)]));
   await waitFor(async () =>
     expect(
       (await agentRow(work, "Check daemon search limits")).getAttribute("aria-label"),

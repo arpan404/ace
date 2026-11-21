@@ -165,17 +165,19 @@ test("the viewed thread's own main agent asking is the main agent, with nothing 
   ).toBeUndefined();
 });
 
+/** A question from "asker" in t1. */
+const ask = (id: string, blocking: boolean, createdAt: number, text: string) =>
+  Interaction.parse({
+    id,
+    agentId: "asker",
+    threadId: "t1",
+    blocking,
+    state: "pending",
+    request: { kind: "question", questions: [{ id: "q", text, options: [] }] },
+    createdAt,
+  });
+
 test("Now names the request the person can answer first: blocking before not, newest first", () => {
-  const ask = (id: string, blocking: boolean, createdAt: number, text: string) =>
-    Interaction.parse({
-      id,
-      agentId: "asker",
-      threadId: "t1",
-      blocking,
-      state: "pending",
-      request: { kind: "question", questions: [{ id: "q", text, options: [] }] },
-      createdAt,
-    });
   const asking: AgentStatus = { state: "blocked", on: "human", refs: [] };
   const works = new Map([
     [
