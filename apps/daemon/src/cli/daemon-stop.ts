@@ -41,6 +41,9 @@ import { CliFailure } from "./output.ts";
  * all: the request, the receipt, the daemon's exit and the sweep.
  */
 
+/** At most this much of `--timeout` is kept for SIGTERM to an older daemon, and its exit. */
+const FALLBACK_MS = 3_000;
+
 type Receipt = z.infer<typeof ShutdownReceipt>;
 type Daemon = TreeMember & { owner: string | undefined };
 
@@ -106,7 +109,10 @@ export async function stopCommand(
 ) {
   validateArgs(args, [], 1);
   const connection = hostConnection(home);
-  const deadline = performance.now() + timeoutMs(args);
+  const total = timeoutMs(args);
+  const deadline = performance.now() + total;
+  // The last slice of the deadline is kept for the fallback signal an older daemon needs.
+  const politeDeadline = deadline - Math.min(FALLBACK_MS, total / 4);
   const remaining = () => Math.max(0, deadline - performance.now());
   const journal = join(home, "processes.sqlite");
   // Before the request: once shutdown begins, the records it reads start to change.
@@ -145,10 +151,11 @@ export async function stopCommand(
   const receipt = await receiptFor(home, admission, deadline);
   let state: StopFacts["daemon"] = daemon ? "running" : "unknown";
   if (daemon) {
-    if (await exited(daemon, io, deadline)) state = "exited";
     // An older daemon closes on a request but leaves its process running; a signal ends it.
-    // Windows has no polite signal, and its daemon exits on its own.
-    else if (io.platform !== "win32" && remaining() > 0) {
+    // Windows has no polite signal, and its daemon exits on its own, so it waits it all out.
+    const fallback = io.platform !== "win32";
+    if (await exited(daemon, io, fallback ? politeDeadline : deadline)) state = "exited";
+    else if (fallback && remaining() > 0) {
       signalTreeMember(daemon, "SIGTERM", io);
       if (await exited(daemon, io, deadline)) state = "exited";
     }
