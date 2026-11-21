@@ -123,11 +123,19 @@ private struct AttachmentThumb: View {
         .accessibilityAddTraits(.isImage)
         .accessibilityIdentifier("attachment.image.\(ref)")
         // Loads when the row is on screen; a cancelled load (scrolled away) starts again on return.
+        // A read the host was too busy for (its previews' places full) is tried again a little
+        // later, twice, while the tile stays on screen.
         .task(id: ref) {
             guard image == nil, let access, !ref.isEmpty else { return }
-            let read = await access.thumbnail(itemId, ref, max(size.width, size.height) * scale)
-            if Task.isCancelled { return }
-            if let read { loaded = read } else { failed = true }
+            for pause in [Duration.zero, .seconds(1), .seconds(3)] {
+                if pause != .zero { try? await Task.sleep(for: pause) }
+                if Task.isCancelled { return }
+                if let read = await access.thumbnail(itemId, ref, max(size.width, size.height) * scale) {
+                    if !Task.isCancelled { loaded = read }
+                    return
+                }
+            }
+            if !Task.isCancelled { failed = true }
         }
     }
 }
