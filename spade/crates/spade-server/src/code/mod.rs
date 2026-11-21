@@ -269,3 +269,62 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 fn is_sha(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit())
 }
+
+/// Where a machine's workers start from: the worker binary (Spade's own with
+/// [`spade_wasm::launch::WORKER_ARG`], or `spade-wasm`) and the folders the sandbox hides.
+#[derive(Debug, Clone)]
+pub struct Workers {
+    pub program: PathBuf,
+    pub args: Vec<std::ffi::OsString>,
+    pub home: PathBuf,
+    pub spade_data: PathBuf,
+    pub ace_data: Option<PathBuf>,
+}
+
+/// Starts each worker inside the bot's sandbox, offline (ADR 0203 §3). A machine whose sandbox
+/// can't hold it so runs no code: its calls answer why.
+pub fn sandboxed(runner: spade_sandbox::Runner, workers: Workers) -> Launch {
+    Arc::new(move |folder: &Path| {
+        if !runner.holds_offline() {
+            return Err(
+                "code runs only inside the bot's sandbox, which this machine can't hold offline"
+                    .to_owned(),
+            );
+        }
+        let place = spade_wasm::launch::Place {
+            program: workers.program.clone(),
+            args: workers.args.clone(),
+            folder: folder.to_path_buf(),
+            home: workers.home.clone(),
+            spade_data: workers.spade_data.clone(),
+            ace_data: workers.ace_data.clone(),
+        };
+        spade_wasm::launch::command(&runner, &place)
+    })
+}
+
+/// Every pin a bot's link, a step it is taking or a step held for it names, and every bot: what
+/// [`Code::collect`] keeps. Run as Spade opens, before any call.
+pub fn collect_unused(engine: &crate::engine::Engine) {
+    let Some(code) = engine.code() else {
+        return;
+    };
+    let Ok(agents) = engine.store().agents() else {
+        return;
+    };
+    let mut live = HashSet::new();
+    let mut bots = HashSet::new();
+    for agent in &agents {
+        bots.insert(agent.id.clone());
+        if let Some(link) = engine.bot_package(&agent.id) {
+            live.extend(link.code.values().cloned());
+            if let Some(pending) = &link.pending {
+                live.extend(pending.code.values().cloned());
+            }
+        }
+        if let Some(held) = crate::packages::held::of(engine, &agent.id) {
+            live.extend(held.code.values().cloned());
+        }
+    }
+    code.collect(&live, &bots);
+}

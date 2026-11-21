@@ -347,6 +347,16 @@ async fn run() -> Result<(), Failure> {
     let person_home = env(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
+    // A bot's code runs in its own worker, inside its sandbox, offline (ADR 0203 §3): Spade's own
+    // binary, started with --code-worker.
+    let code_workers = spade_server::code::Workers {
+        program: std::env::current_exe().map_err(other)?,
+        args: vec![spade_wasm::launch::WORKER_ARG.into()],
+        home: person_home.clone(),
+        spade_data: home.dir.clone(),
+        ace_data: env("SPADE_ACE_HOME").map(std::path::PathBuf::from),
+    };
+    let code_runner = runner.clone();
     let security = spade_server::security::Security::start(spade_server::security::Setup {
         runner,
         store: Store::open(&home.database()).map_err(other)?,
@@ -519,6 +529,10 @@ async fn run() -> Result<(), Failure> {
         None => None,
     };
 
+    // Each linked bot's components' tools (ADR 0203 §2).
+    tools = tools.with_source(Arc::new(spade_server::code::tools::CodeTools::new(
+        bots.clone(),
+    )));
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
         models,
@@ -535,6 +549,15 @@ async fn run() -> Result<(), Failure> {
     .map_err(other)?;
     bots.set(&engine);
     engine.set_security(security.clone());
+    engine.set_code(spade_server::code::Code::new(
+        &home.dir.join("code"),
+        spade_server::code::sandboxed(code_runner, code_workers),
+        Arc::new(spade_server::code::http::Proxied {
+            security: security.clone(),
+        }),
+    ));
+    // Bytes no version names any more, and folders of bots gone, before any call.
+    spade_server::code::collect_unused(&engine);
     // Workers get connectors only from their makers' (ADR 0161).
     engine.set_connector_grants(connectors.clone());
     if let Some(plugins) = &plugins {
