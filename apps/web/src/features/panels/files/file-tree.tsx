@@ -131,7 +131,9 @@ export function FileTree(props: {
     ? focusKey
     : (navigable.find((row) => row.key === currentPath)?.key ?? navigable[0]?.key);
 
-  const toggle = (folder: string, expand?: boolean) => {
+  const toggle = (key: string, expand?: boolean) => {
+    // A compacted chain ("apps/web/src") folds and opens as its first folder.
+    const folder = tree.rows.find((row) => row.key === key)?.chain?.[0] ?? key;
     const shouldOpen = expand ?? !opened.has(folder);
     props.onExpanded([...toggledFolders(opened, folder, shouldOpen)]);
   };

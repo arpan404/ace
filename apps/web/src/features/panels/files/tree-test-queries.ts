@@ -8,10 +8,15 @@ import { expect } from "vitest";
 
 export const threadId = ThreadId.parse("thread-cold-start");
 
-/** A tree row by its checkout path ("apps/" for a folder), once it is listed. */
+/**
+ * A tree row by its checkout path ("apps/" for a folder), once it is listed. A folder compacted
+ * into its chain's row ("apps/server/src") is found by any folder in it.
+ */
 export function row(tree: HTMLElement, path: string) {
   return waitFor(() => {
-    const found = tree.querySelector<HTMLElement>(`[data-path="${path}"]`);
+    const found = tree.querySelector<HTMLElement>(
+      `[data-path="${path}"], [data-chain~="${path}"]`,
+    );
     if (!found) throw new Error(`${path} is not listed yet`);
     return found;
   });

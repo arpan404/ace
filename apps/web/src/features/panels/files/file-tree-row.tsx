@@ -148,7 +148,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           className="shrink-0 self-start mt-2 text-subtle-foreground"
         />
         <RenameField
-          name={field.name ?? row.name}
+          name={field.name ?? (row.chain ? (row.name.split("/").at(-1) ?? row.name) : row.name)}
           folder={folder}
           label={field.label}
           onCommit={field.commit}
@@ -174,6 +174,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         data-variant={folder ? "folder" : "file"}
         data-path={row.key}
         data-row={row.key}
+        data-chain={row.chain?.join(" ")}
         data-ignored={row.ignored || undefined}
         aria-level={row.depth + 1}
         aria-posinset={props.place?.position}

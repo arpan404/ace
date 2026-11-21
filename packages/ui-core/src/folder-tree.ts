@@ -312,6 +312,12 @@ export interface FolderRow {
   folder?: string;
   /** What an error row says. */
   error?: string;
+  /**
+   * A row that stands for a chain of folders, each the only entry of the one before
+   * (`compactFolderRows`): their keys from the first, whose folding the row shows and toggles,
+   * to the last, which `key` names and whose entries show under it.
+   */
+  chain?: readonly string[];
 }
 
 const row = (
@@ -365,6 +371,19 @@ function statusRow(
  * Folders that aren't open list nothing.
  */
 export function folderRows(folders: FolderStates, expanded: ReadonlySet<string>): FolderRow[] {
+  return listedRows(folders, expanded, (entry) => [entry]);
+}
+
+/**
+ * The rows of `folderRows`, with each folder entry drawn as the chain `chainOf` gives for it (the
+ * entry first): one row for the whole chain, folded as its first folder is, its last folder's
+ * entries under it. A chain of one is an ordinary row.
+ */
+export function listedRows(
+  folders: FolderStates,
+  expanded: ReadonlySet<string>,
+  chainOf: (entry: FolderEntry) => readonly FolderEntry[],
+): FolderRow[] {
   const rows: FolderRow[] = [];
   const walk = (folder: string, depth: number) => {
     const state = folders[folder];
@@ -373,9 +392,20 @@ export function folderRows(folders: FolderStates, expanded: ReadonlySet<string>)
       return;
     }
     for (const entry of state.entries) {
+      const chain = entryOpens(entry) ? chainOf(entry) : [entry];
+      const last = chain.at(-1) ?? entry;
       const open = entryOpens(entry) && expanded.has(folderKey(entry.path));
-      rows.push(row(entry, depth, open, folders));
-      if (open) walk(folderKey(entry.path), depth + 1);
+      const shown = row(last, depth, open, folders);
+      rows.push(
+        chain.length > 1
+          ? {
+              ...shown,
+              name: chain.map((each) => each.name).join("/"),
+              chain: chain.map((each) => folderKey(each.path)),
+            }
+          : shown,
+      );
+      if (open) walk(folderKey(last.path), depth + 1);
     }
     if (state.loading && state.entries.length === 0)
       rows.push(statusRow("loading", folder, depth + 1, "Loading…"));
