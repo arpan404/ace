@@ -8,7 +8,8 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useMachines, type Machine } from "@/lib/machines.ts";
+import type { Machine } from "@/lib/machines.ts";
+import { useSpaceMachines } from "@/features/ace-account/index.ts";
 import { readAgents } from "./spade-api.ts";
 import { readMain } from "./spade-move-api.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
@@ -61,7 +62,8 @@ async function machineAgents(client: ClientApi, signal: AbortSignal) {
  * that machine is; `useSpadeHost` copies the choice to every machine.
  */
 export function useSpadeRoster(ready: boolean) {
-  const machines = useMachines();
+  // Only the window's space's machines: an organization's shared bots never list in Personal.
+  const machines = useSpaceMachines();
   const results = useQueries({
     queries: machines.map((machine) => ({
       queryKey: [...agentsKey, spadeMachineKey(machine)],

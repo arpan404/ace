@@ -10,6 +10,7 @@ import { useMarkAccent } from "./spade-accent.ts";
 import { GroupFaces } from "./spade-group-faces.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import type { SpadeRowState } from "./spade-list-rows.ts";
+import { SharedWord } from "./spade-shared-lines.tsx";
 import { shownMembers, type RosterGroup } from "./use-spade-groups.ts";
 import { useFaceState } from "./use-face-state.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -103,6 +104,8 @@ function RowText(props: {
   line: string;
   state: SpadeRowState;
   development?: boolean;
+  /** A word after the name, such as a shared bot's. */
+  after?: ReactNode;
 }) {
   const unseen = props.state === "unseen";
   const tone = lineTone[props.state];
@@ -120,6 +123,7 @@ function RowText(props: {
           {props.name}
         </span>
         {props.development && <DevelopmentWord />}
+        {props.after}
       </span>
       <span
         data-tone={tone}
@@ -193,6 +197,7 @@ export function BotListRow(props: {
         line={props.line}
         state={props.state}
         development={spadeIsDevelopment(bot.package)}
+        after={<SharedWord bot={bot} />}
       />
     </Link>
   );

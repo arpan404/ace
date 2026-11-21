@@ -1,5 +1,11 @@
 import {
   BellSimpleIcon,
+  ClipboardTextIcon,
+  HardDrivesIcon,
+  LockSimpleIcon,
+  PackageIcon,
+  SlidersHorizontalIcon,
+  UsersThreeIcon,
   CodeIcon,
   RobotIcon,
   DatabaseIcon,
@@ -22,9 +28,16 @@ import {
 } from "@ace/icons";
 import { ComputerUseIcon, SpadeIcon } from "@/components/ace-icons.tsx";
 import type { IconGlyph } from "@/components/icon.tsx";
+import { orgAllows, type OrgPermission } from "@ace/client/ace-org";
 
 export type SettingsPath =
   | "/settings/profile"
+  | "/settings/organization"
+  | "/settings/organization/sign-in"
+  | "/settings/organization/hosts"
+  | "/settings/organization/policy"
+  | "/settings/organization/registry"
+  | "/settings/organization/audit"
   | "/settings/prompts"
   | "/settings/general"
   | "/settings/agents"
@@ -119,8 +132,79 @@ function spadePages(): SettingsPage[] {
   ];
 }
 
+/** A page of Settings › Organization, `nav` naming its row when the heading doesn't. */
+const organization = (nav?: string) => ({ label: "Organization", ...(nav ? { nav } : {}) });
+
+/**
+ * Settings › Organization (ADR 0206 §2.7): the window's organization, in its space only. Each
+ * page names what a role needs to see it; every member sees Members and Hosts.
+ */
+const organizationPages: readonly (SettingsPage & { needs?: OrgPermission })[] = [
+  {
+    to: "/settings/organization",
+    title: "Members",
+    icon: UsersThreeIcon,
+    group: "profile",
+    section: organization(),
+  },
+  {
+    to: "/settings/organization/sign-in",
+    title: "Sign-in",
+    icon: LockSimpleIcon,
+    group: "profile",
+    section: organization(),
+    needs: "sso:manage",
+  },
+  {
+    to: "/settings/organization/hosts",
+    title: "Hosts",
+    icon: HardDrivesIcon,
+    group: "profile",
+    section: organization(),
+  },
+  {
+    to: "/settings/organization/policy",
+    title: "Policy",
+    icon: SlidersHorizontalIcon,
+    group: "profile",
+    section: organization(),
+    needs: "policy:set",
+  },
+  {
+    to: "/settings/organization/registry",
+    title: "Registry",
+    icon: PackageIcon,
+    group: "profile",
+    section: organization(),
+    needs: "registry:publish",
+  },
+  {
+    to: "/settings/organization/audit",
+    title: "Audit log",
+    icon: ClipboardTextIcon,
+    group: "profile",
+    section: organization(),
+    needs: "audit:read",
+  },
+];
+
+/** What a role needs to open an Organization page; undefined: every member. */
+export function organizationPageNeeds(path: string): OrgPermission | undefined {
+  return organizationPages.find((page) => page.to === path)?.needs;
+}
+
+/** The Organization pages a member with `role` sees; none outside an organization's space. */
+export function visibleOrganizationPages(role: string | undefined): readonly SettingsPage[] {
+  if (role === undefined) return [];
+  return organizationPages.filter((page) => !page.needs || orgAllows(role, page.needs));
+}
+
+const isOrganizationPage = (page: SettingsPage) =>
+  organizationPages.some((each) => each.to === page.to);
+
 export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/profile", title: "Profile", icon: UserCircleIcon, group: "profile" },
+  ...organizationPages,
   { to: "/settings/agents", title: "Agents", icon: RobotIcon, group: "machine" },
   { to: "/settings/providers", title: "Providers", icon: TerminalWindowIcon, group: "machine" },
   { to: "/settings/prompts", title: "Prompts", icon: NotePencilIcon, group: "machine" },
@@ -148,9 +232,14 @@ export const settingsPages: readonly SettingsPage[] = [
 const isSpadePage = (page: SettingsPage) =>
   page.to === "/settings/spade" || page.to.startsWith("/settings/spade/");
 
-/** The pages this machine shows: Spade's only while the daemon shows Spade (ADR 0139). */
+/**
+ * The pages this machine shows: Spade's only while the daemon shows Spade (ADR 0139). The
+ * Organization pages are the space's, from `visibleOrganizationPages`.
+ */
 export function visibleSettingsPages(spadeShown: boolean): readonly SettingsPage[] {
-  return spadeShown ? settingsPages : settingsPages.filter((page) => !isSpadePage(page));
+  return settingsPages.filter(
+    (page) => !isOrganizationPage(page) && (spadeShown || !isSpadePage(page)),
+  );
 }
 
 /** The page a path belongs to: itself, else the deepest page it's a sub-page of. */

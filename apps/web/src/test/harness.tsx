@@ -17,6 +17,7 @@ import { fakeMachinePool, type FakeMachines } from "@/boot/fake-machines.ts";
 type ClientStorage = ReturnType<typeof memoryStorage>;
 import { type DaemonConnection, DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
+import { AceAccountBackendContext, type AceAccountBackend } from "@/features/ace-account/index.ts";
 import { threadWorkspace } from "@/features/panels/index.ts";
 import { preloadProjectDialogs } from "@/features/projects/index.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
@@ -118,6 +119,8 @@ export function harness(
     suits?: SuitTransport;
     /** `?suit=off` this session. */
     suitsOff?: boolean;
+    /** The window's ace account backend (ADR 0100); none by default, as a build without one. */
+    account?: () => AceAccountBackend | undefined;
   } = {},
 ) {
   const time = createTimeSource(options.uiClock ?? (() => Date.now()));
@@ -197,15 +200,17 @@ export function harness(
             }}
           >
             <DaemonConnectionContext.Provider value={connection}>
-              <App
-                client={client}
-                queryClient={options.queryClient ?? createQueryClient()}
-                storage={storage}
-                windowStorage={options.windowStorage}
-                history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
-                machines={machines}
-                suits={options.suits}
-              />
+              <AceAccountBackendContext value={options.account}>
+                <App
+                  client={client}
+                  queryClient={options.queryClient ?? createQueryClient()}
+                  storage={storage}
+                  windowStorage={options.windowStorage}
+                  history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
+                  machines={machines}
+                  suits={options.suits}
+                />
+              </AceAccountBackendContext>
             </DaemonConnectionContext.Provider>
           </AppFrame>
         </TimeContext.Provider>,

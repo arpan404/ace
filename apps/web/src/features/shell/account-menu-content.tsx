@@ -1,4 +1,5 @@
 import { DaemonMenuItems } from "./daemon-menu-content.tsx";
+import { SpaceMenuItems } from "./space-menu-items.tsx";
 import { ArchiveIcon, InfoIcon, KeyboardIcon, PlugsIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -58,6 +59,7 @@ export function AccountMenuContent() {
           </span>
         </span>
       </MenuItem>
+      <SpaceMenuItems />
       <MenuSeparator />
       <MenuItem
         icon={<ArchiveIcon aria-hidden />}

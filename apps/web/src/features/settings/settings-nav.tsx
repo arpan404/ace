@@ -11,10 +11,12 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
+import { useSpace } from "@/features/ace-account/index.ts";
 import { entryRoute, pageTitle, searchSettings } from "./settings-index.ts";
 import {
   settingsGroupTitles,
   settingsPageOf,
+  visibleOrganizationPages,
   visibleSettingsPages,
   type SettingsGroup,
   type SettingsPage,
@@ -96,7 +98,9 @@ export function SettingsNav() {
   const text = query.trim().toLowerCase();
   const spadeShown = useSpadeShown() === true;
   const found = searchSettings(query, spadeShown);
-  const visible = visibleSettingsPages(spadeShown);
+  // An organization's own pages, in its space, as far as the person's role there goes.
+  const role = useSpace().shown?.org?.role;
+  const visible = [...visibleSettingsPages(spadeShown), ...visibleOrganizationPages(role)];
   const pages = visible.filter(
     (page) =>
       page.title.toLowerCase().includes(text) || found.some((entry) => entry.page === page.to),
