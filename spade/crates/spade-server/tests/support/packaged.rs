@@ -95,7 +95,7 @@ pub async fn secure(spade: &Spade) -> Result {
         clock: Arc::new(SystemClock),
         ids: Arc::new(CountingIds::default()),
         bots,
-        person_key: None,
+        person_key: Some(spade.person_key_path.clone()),
     })
     .await;
     spade.engine.set_security(security);

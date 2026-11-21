@@ -483,34 +483,83 @@ impl Security {
         Ok(current)
     }
 
-    /// Sets where the bot's commands run; `None` follows the machine.
+    /// Sets where the bot's commands run; `None` follows the machine. A change that moves them
+    /// outside the sandbox loosens what the bot may do, so it runs only if `may_loosen` (the
+    /// person's stamp, ADR 0171 amendment 7); moving them back in never needs it.
     pub fn set_commands(
         &self,
         bot: &str,
         commands: Option<Commands>,
+        may_loosen: &dyn Fn() -> bool,
     ) -> Result<BotSecurity, SecurityError> {
         self.change(bot, |current| {
+            let machine = self.machine().commands;
+            let outside = |own: Option<Commands>| own.unwrap_or(machine) == Commands::Outside;
+            if outside(commands) && !outside(current.commands) && !may_loosen() {
+                return Err(SecurityError::PersonOnly(attest::CONFIRM));
+            }
             current.commands = commands;
             Ok(())
         })
     }
 
-    /// Sets one of the machine's network policies, checking each addition's form.
+    /// Sets where commands of bots without their own setting run; outside needs `may_loosen`.
+    pub fn set_machine_commands(
+        &self,
+        commands: Commands,
+        may_loosen: &dyn Fn() -> bool,
+    ) -> Result<MachineSecurity, SecurityError> {
+        let loosens = commands == Commands::Outside && self.machine().commands != Commands::Outside;
+        if loosens && !may_loosen() {
+            return Err(SecurityError::PersonOnly(attest::CONFIRM));
+        }
+        self.change_machine(|machine| machine.commands = commands)
+    }
+
+    /// Sets one of the machine's network policies, checking each addition's form. One that
+    /// reaches further (a freer mode, a host added, a default put back) needs `may_loosen`.
     pub fn set_machine_network(
         &self,
         which: Network,
         policy: NetworkPolicy,
+        may_loosen: &dyn Fn() -> bool,
     ) -> Result<MachineSecurity, SecurityError> {
         let policy = checked(policy)?;
+        let machine = self.machine();
+        let old = match which {
+            Network::Commands => &machine.network,
+            Network::Plugins => &machine.plugin_network,
+        };
+        if settings::widens(old, &policy) && !may_loosen() {
+            return Err(SecurityError::PersonOnly(attest::CONFIRM));
+        }
         self.change_machine(|machine| match which {
             Network::Commands => machine.network = policy,
             Network::Plugins => machine.plugin_network = policy,
         })
     }
 
-    /// Takes away a bot's own network policy, so it follows the machine's.
-    pub fn inherit_network(&self, bot: &str, which: Network) -> Result<BotSecurity, SecurityError> {
+    /// Takes away a bot's own network policy, so it follows the machine's; where the machine's
+    /// reaches further, only if `may_loosen`.
+    pub fn inherit_network(
+        &self,
+        bot: &str,
+        which: Network,
+        may_loosen: &dyn Fn() -> bool,
+    ) -> Result<BotSecurity, SecurityError> {
         self.change(bot, |current| {
+            let machine = self.machine();
+            let (own, followed) = match which {
+                Network::Commands => (&current.network, &machine.network),
+                Network::Plugins => (&current.plugin_network, &machine.plugin_network),
+            };
+            if own
+                .as_ref()
+                .is_some_and(|own| settings::widens(own, followed))
+                && !may_loosen()
+            {
+                return Err(SecurityError::PersonOnly(attest::CONFIRM));
+            }
             match which {
                 Network::Commands => current.network = None,
                 Network::Plugins => current.plugin_network = None,
@@ -536,15 +585,25 @@ impl Security {
         Ok(current)
     }
 
-    /// Sets one of a bot's network policies, checking each addition's form.
+    /// Sets one of a bot's network policies, checking each addition's form. One that reaches
+    /// further than what holds for the bot now needs `may_loosen`.
     pub fn set_network(
         &self,
         bot: &str,
         which: Network,
         policy: NetworkPolicy,
+        may_loosen: &dyn Fn() -> bool,
     ) -> Result<BotSecurity, SecurityError> {
         let policy = checked(policy)?;
         self.change(bot, |current| {
+            let held = settings::effective(current, &self.machine());
+            let old = match which {
+                Network::Commands => &held.network,
+                Network::Plugins => &held.plugin_network,
+            };
+            if settings::widens(old, &policy) && !may_loosen() {
+                return Err(SecurityError::PersonOnly(attest::CONFIRM));
+            }
             match which {
                 Network::Commands => current.network = Some(policy),
                 Network::Plugins => current.plugin_network = Some(policy),

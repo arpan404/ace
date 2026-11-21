@@ -501,8 +501,15 @@ A bot's Permissions ([ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md)
 are switches over these settings, not grants: Computer use, Browser and Simulators decide driving
 steps; Apps, Send as you and Payments refuse their effect while off; Commands and Network are the
 bot's `commands` and network settings. Each is kept per bot (`security:<bot>`, `permissions`)
-over the machine's default (`security.machine`), with the apps bots never use. Turning one on,
-and dropping an app from the never-use list, needs the person's stamp (`security::attest`).
+over the machine's default (`security.machine`), with the apps bots never use.
+
+Every route that can loosen what a bot may do needs the person's stamp (`security::attest`) to
+loosen and nothing to tighten: the Permissions and the never-use list, `commands` (a bot's and
+the machine's), the network policies (a bot's, a bot's `DELETE` back to the machine's, the
+machine's), adding a grant, a bot's connected apps, a package's effects and autonomy. Spade
+decides whether a change loosens against what holds now; ace's daemon stamps the change over the
+SHA-256 of its body when the caller proved the person's standing and forwards it unstamped
+otherwise. A shared bot's `configure` member stands for the person (ADR 0206 §2.3).
 
 Globs: `*` within a `/` segment, `**` across. A call a `tool` grant covers runs without a review
 while nothing untrusted is in view; with untrusted content in view it is reviewed, the grant named

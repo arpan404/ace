@@ -132,6 +132,23 @@ pub fn autonomy<'a>(chain: impl IntoIterator<Item = &'a BotSecurity>, machine: M
         .unwrap_or(machine)
 }
 
+/// Whether `new` reaches further than `old`: a freer mode (no network, then the listed sites,
+/// then any public host), or, on the listed sites, a host added or a default put back.
+pub fn widens(old: &NetworkPolicy, new: &NetworkPolicy) -> bool {
+    use spade_sandbox::egress::Mode;
+    let rank = |mode: Mode| match mode {
+        Mode::Off => 0,
+        Mode::AllowList => 1,
+        Mode::Open => 2,
+    };
+    if rank(new.mode) != rank(old.mode) {
+        return rank(new.mode) > rank(old.mode);
+    }
+    new.mode == Mode::AllowList
+        && (new.allow.iter().any(|host| !old.allow.contains(host))
+            || old.dropped.iter().any(|host| !new.dropped.contains(host)))
+}
+
 /// What holds for one bot: its own values over the machine's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Effective {

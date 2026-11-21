@@ -186,11 +186,14 @@ export function createSpadeHttp(context: {
     }
     if (body && body.length > requestBodyLimit(message.method, admitted.path))
       return fail(message.requestId, "too_large", "The body is too large for this route.");
-    // Turning Full access on is the person's alone: stamped as theirs, or not forwarded.
+    // Turning Full access on is the person's alone: stamped as theirs, or not forwarded. A change
+    // only Spade can tell loosens anything goes unstamped from a caller without their standing,
+    // and Spade makes it only if it tightens (ADR 0171, amendment 7).
     const guarded = personOnlyWrite(message.method, admitted.path, body);
-    const stamped = guarded ? await context.stamp(guarded) : undefined;
-    if (stamped && "refused" in stamped)
-      return fail(message.requestId, "forbidden", stamped.refused);
+    const proof = guarded ? await context.stamp(guarded) : undefined;
+    if (proof && "refused" in proof && !guarded?.optional)
+      return fail(message.requestId, "forbidden", proof.refused);
+    const stamped = proof && "stamp" in proof ? proof : undefined;
     // An answer to a shared bot's request: the member's, stamped, or not forwarded.
     const reply = answerWrite(message.method, admitted.path, body);
     const answered = reply ? await context.answerStamp?.(reply) : undefined;

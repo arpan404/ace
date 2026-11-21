@@ -436,7 +436,7 @@ async fn a_switch_turned_off_while_an_allowed_call_is_read_before_it_starts_keep
     tokio::task::spawn_blocking(move || is_reading.recv_timeout(Duration::from_secs(10))).await??;
     let engine = spade.engine.clone();
     tokio::task::spawn_blocking(move || {
-        spade_server::packages::set_switch(&engine, &bot, "send_as_person", false)
+        spade_server::packages::set_switch(&engine, &bot, "send_as_person", false, &|| false)
     })
     .await?
     .map_err(|e| e.to_string())?;

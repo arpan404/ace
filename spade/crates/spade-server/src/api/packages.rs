@@ -6,14 +6,14 @@
 use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_core::package::link::{Link, PackageId};
 
-use super::body::Body;
+use super::body::{Body, Digested};
 use super::{AppState, off_thread, problem};
 use crate::packages::envelope::{self, Envelope};
 use crate::packages::{self, PackageError, apply::Step, held::Asked};
@@ -41,6 +41,7 @@ fn refused(error: &PackageError) -> Response {
         PackageError::Busy(_) => StatusCode::CONFLICT,
         PackageError::Invalid(_) | PackageError::Unproven(_) => StatusCode::BAD_REQUEST,
         PackageError::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        PackageError::PersonOnly(_) => StatusCode::FORBIDDEN,
     };
     let message = error.to_string();
     (status, Json(json!({ "error": message, "detail": message }))).into_response()
@@ -263,9 +264,34 @@ struct SwitchBody {
 async fn switch(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<SwitchBody>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<SwitchBody>,
 ) -> Response {
-    off_thread(move || answer(packages::set_switch(&state.engine, &id, &body.key, body.on))).await
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    off_thread(move || {
+        // The person's stamp over this change, or on a shared bot the member whose `configure`
+        // stamp let it through (ADR 0206 §2.3).
+        let says = || {
+            member.is_some()
+                || state.engine.person_says(
+                    stamp.as_deref(),
+                    &id,
+                    &format!("package_effect:{digest}"),
+                )
+        };
+        answer(packages::set_switch(
+            &state.engine,
+            &id,
+            &body.key,
+            body.on,
+            &says,
+        ))
+    })
+    .await
 }
 
 #[derive(Deserialize)]

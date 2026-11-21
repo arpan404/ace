@@ -612,11 +612,19 @@ of each one being reviewed and escalated.
   so the bot looks again. Under Browser and Simulators a step that sends no input and picks no
   tab (`table`'s `holds` false) runs without a place; a screen step never does, since the list
   needs its app.
-- **Person-only to raise.** Turning a switch on, for a bot or as the default, following a default
-  that is on, and dropping an app from the list need the person's stamp from ace's daemon
-  (`x-ace-person`), as Full access does; a window without standing shows Confirm it's you. On a
-  shared bot an organization's owner or admin may raise one, and every outward step still goes to
-  its approvers.
+- **Person-only to loosen, on every route.** Anything that lets a bot do more needs the person's
+  stamp from ace's daemon (`x-ace-person`), as Full access does: turning a switch on, for a bot
+  or the default, or following a default that is on; dropping an app from the never-use list;
+  moving commands outside the sandbox (`…/security/commands`, a bot's or the machine's);
+  widening a network policy, the commands' or the plugins' (a freer mode, a host added, a
+  dropped default put back), or following a wider default (`DELETE …/network`); adding a grant
+  of any kind; letting a bot use more connected apps (`…/connectors`); turning a package's effect
+  on; raising autonomy. Tightening never needs it. Only Spade knows what holds now, so it decides
+  whether a change loosens; the daemon stamps each such change, over the SHA-256 of the bytes it
+  forwards, when the caller proved the person's standing, and otherwise forwards it unstamped. A
+  refusal says "Confirm your identity to continue.", so a window offers Confirm it's you. On a
+  shared bot the member whose `configure` stamp let the write through stands for the person
+  (ADR 0206 §2.3); its Permissions switches take an owner or admin.
 - **What is left.** A page or app the bot drives while untrusted content is in view can steer
   it; with the switch on, only the never-use list, the binding and the package's ceiling stand
   between that and the person's apps. Drive grants from earlier builds stay stored but decide

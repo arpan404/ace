@@ -25,6 +25,32 @@ impl Engine {
         self.security.get()
     }
 
+    /// Where the person's key is when Spade runs without its security service, once.
+    pub fn set_person_key(&self, path: std::path::PathBuf) {
+        let _ = self.person_key.set(path);
+    }
+
+    /// Whether `stamp` is the person's say on `target` becoming `value` (`security::attest`); a
+    /// good stamp is used up. Checked with the security service's key, else the one set with
+    /// [`Engine::set_person_key`]; with neither, nothing is the person's.
+    pub(crate) fn person_says(&self, stamp: Option<&str>, target: &str, value: &str) -> bool {
+        if let Some(security) = self.security() {
+            return security.person_says(stamp, target, value);
+        }
+        let Some(key) = self.person_key.get() else {
+            return false;
+        };
+        let claim =
+            |nonce: &str, now: i64| crate::security::attest::claim_in(&self.store, nonce, now);
+        crate::security::attest::Attestor::new(Some(key.clone())).person(
+            stamp,
+            target,
+            value,
+            self.clock.now_ms(),
+            &claim,
+        )
+    }
+
     /// `agent`'s parent bot, grandparent and so on, nearest first: the bots a worker's grants
     /// are narrowed by (ADR 0161, ADR 0167 decision 5).
     pub(crate) fn agent_ancestors(&self, agent: &str) -> Vec<String> {

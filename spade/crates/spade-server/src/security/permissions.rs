@@ -14,8 +14,7 @@ use super::settings::{BotSecurity, Commands, MachineSecurity, effective};
 use super::{Security, SecurityError};
 
 /// What a raise refused for want of the person's say tells the caller.
-pub const PERSON_ONLY: &str =
-    "Only the person can turn this on: do it in ace, on this computer or a paired device.";
+pub const PERSON_ONLY: &str = super::attest::CONFIRM;
 
 /// What a raise on a shared bot by a member who may not make it tells them.
 pub const NOT_YOURS: &str = "Only the organization's owners and admins can turn this on.";

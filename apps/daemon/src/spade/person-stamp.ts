@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { looseningRoute, looseningWrite } from "./loosen-stamp.ts";
 
 /*
  * The person's say on a Spade change only they may make (ADR 0163, amendment 2; ADR 0171,
@@ -20,6 +21,11 @@ export interface PersonOnlyWrite {
    * move, `accept:<bot>`: the person accepts that bot arriving by that move (ADR 0187).
    */
   value: string;
+  /**
+   * Only Spade can tell whether it loosens anything: stamped when the caller proved the
+   * person's standing, else forwarded unstamped and Spade makes it only if it tightens.
+   */
+  optional?: true;
 }
 
 const botAutonomy = /^\/v1\/agents\/([^/?#]+)\/security\/autonomy$/;
@@ -39,6 +45,8 @@ const mainHost = "/v1/main/host";
 
 /** The route a guarded change goes to, whatever its body; undefined for every other request. */
 export function personOnlyRoute(method: string, path: string): string | undefined {
+  const loosening = looseningRoute(method, path);
+  if (loosening) return `loosen:${loosening.target}`;
   if (method !== "PUT") return undefined;
   const bare = path.split("?")[0] ?? "";
   if (bare === machineAutonomy) return "machine";
@@ -75,13 +83,18 @@ export function personOnlyWrite(
   path: string,
   body: Buffer | undefined,
 ): PersonOnlyWrite | undefined {
+  const loosening = looseningWrite(method, path, body);
+  if (loosening) return loosening;
   const target = personOnlyRoute(method, path);
   if (target === undefined) return undefined;
   if (target.startsWith("move:")) return moveAcceptWrite(target, body);
   if (target === "main-host") return hostWrite(target, body);
-  if (target === "never-apps") return neverAppsWrite(body);
+  // Only Spade can tell whether these loosen anything (ADR 0171, amendment 7).
+  const optional = (write: PersonOnlyWrite | undefined) =>
+    write && { ...write, optional: true as const };
+  if (target === "never-apps") return optional(neverAppsWrite(body));
   if (target.startsWith("permissions:"))
-    return permissionWrite(target.slice("permissions:".length), body);
+    return optional(permissionWrite(target.slice("permissions:".length), body));
   let value: unknown;
   try {
     value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);

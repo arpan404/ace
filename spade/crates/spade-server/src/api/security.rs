@@ -17,7 +17,7 @@ use spade_core::autonomy::Mode;
 use spade_core::grant::{BY_PERSON, Scope};
 use spade_sandbox::egress::NetworkPolicy;
 
-use super::body::Body;
+use super::body::{Body, Digested};
 use super::{AppState, off_thread, problem};
 use crate::security::permissions::Asker;
 use crate::security::{Commands, Network, Security, SecurityError};
@@ -157,18 +157,63 @@ struct MachineCommands {
 
 async fn machine_commands(
     State(state): State<AppState>,
-    Body(body): Body<MachineCommands>,
+    headers: HeaderMap,
+    Digested(body, digest): Digested<MachineCommands>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
+    let says = Say::new(
+        &state,
+        &headers,
+        None,
+        "machine",
+        format!("commands:{digest}"),
+    );
     off_thread(
-        move || match security.change_machine(|machine| machine.commands = body.commands) {
+        move || match security.set_machine_commands(body.commands, &|| says.given()) {
             Ok(_) => Json(machine_view(&security)).into_response(),
             Err(error) => failed(error),
         },
     )
     .await
+}
+
+/// Who asks to loosen what a bot may do (ADR 0171, amendment 7), and whether they may: the
+/// person's stamp from ace's daemon over this change (`target`, `value`), or, on a shared bot, the
+/// member whose `configure` stamp let the write through (ADR 0206 §2.3). Read only when the
+/// change loosens, so a stamp is used up only then.
+struct Say {
+    engine: Arc<crate::engine::Engine>,
+    stamp: Option<String>,
+    member: bool,
+    target: String,
+    value: String,
+}
+
+impl Say {
+    fn new(
+        state: &AppState,
+        headers: &HeaderMap,
+        member: Option<&super::org_guard::Stamped>,
+        target: &str,
+        value: String,
+    ) -> Self {
+        Self {
+            engine: state.engine.clone(),
+            stamp: person_stamp(headers),
+            member: member.is_some(),
+            target: target.to_owned(),
+            value,
+        }
+    }
+
+    fn given(&self) -> bool {
+        self.member
+            || self
+                .engine
+                .person_says(self.stamp.as_deref(), &self.target, &self.value)
+    }
 }
 
 #[derive(Deserialize)]
@@ -300,29 +345,49 @@ fn person_stamp(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
-async fn set_machine_network(state: AppState, which: Network, body: NetworkPolicy) -> Response {
+/// The word a stamp over a change to one of the network policies starts with.
+fn network_word(which: Network) -> &'static str {
+    match which {
+        Network::Commands => "network",
+        Network::Plugins => "plugin_network",
+    }
+}
+
+async fn set_machine_network(
+    state: AppState,
+    headers: HeaderMap,
+    which: Network,
+    body: NetworkPolicy,
+    digest: String,
+) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.set_machine_network(which, body) {
-        Ok(_) => Json(machine_view(&security)).into_response(),
-        Err(error) => failed(error),
-    })
+    let value = format!("{}:{digest}", network_word(which));
+    let says = Say::new(&state, &headers, None, "machine", value);
+    off_thread(
+        move || match security.set_machine_network(which, body, &|| says.given()) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
     .await
 }
 
 async fn machine_network(
     State(state): State<AppState>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_machine_network(state, Network::Commands, body).await
+    set_machine_network(state, headers, Network::Commands, body, digest).await
 }
 
 async fn machine_plugin_network(
     State(state): State<AppState>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_machine_network(state, Network::Plugins, body).await
+    set_machine_network(state, headers, Network::Plugins, body, digest).await
 }
 
 #[derive(Deserialize)]
@@ -334,15 +399,27 @@ struct BotCommands {
 async fn commands(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<BotCommands>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<BotCommands>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.set_commands(&id, body.commands) {
-        Ok(_) => Json(view(&security, &id)).into_response(),
-        Err(error) => failed(error),
-    })
+    let member = member.map(|axum::Extension(member)| member);
+    let says = Say::new(
+        &state,
+        &headers,
+        member.as_ref(),
+        &id,
+        format!("commands:{digest}"),
+    );
+    off_thread(
+        move || match security.set_commands(&id, body.commands, &|| says.given()) {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
     .await
 }
 
@@ -385,23 +462,45 @@ async fn autonomy(
     .await
 }
 
-async fn inherit(state: AppState, id: String, which: Network) -> Response {
+async fn inherit(
+    state: AppState,
+    id: String,
+    headers: HeaderMap,
+    member: Option<super::org_guard::Stamped>,
+    which: Network,
+) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.inherit_network(&id, which) {
-        Ok(_) => Json(view(&security, &id)).into_response(),
-        Err(error) => failed(error),
-    })
+    let value = format!("{}:inherit", network_word(which));
+    let says = Say::new(&state, &headers, member.as_ref(), &id, value);
+    off_thread(
+        move || match security.inherit_network(&id, which, &|| says.given()) {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
     .await
 }
 
-async fn inherit_network(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    inherit(state, id, Network::Commands).await
+async fn inherit_network(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+) -> Response {
+    let member = member.map(|axum::Extension(member)| member);
+    inherit(state, id, headers, member, Network::Commands).await
 }
 
-async fn inherit_plugin_network(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    inherit(state, id, Network::Plugins).await
+async fn inherit_plugin_network(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+) -> Response {
+    let member = member.map(|axum::Extension(member)| member);
+    inherit(state, id, headers, member, Network::Plugins).await
 }
 
 async fn agent(State(state): State<AppState>, Path(id): Path<String>) -> Response {
@@ -415,31 +514,71 @@ async fn agent(State(state): State<AppState>, Path(id): Path<String>) -> Respons
     .await
 }
 
-async fn set_network(state: AppState, id: String, which: Network, body: NetworkPolicy) -> Response {
+/// A bot's network change, as its route reads it.
+struct NetworkChange {
+    id: String,
+    headers: HeaderMap,
+    member: Option<super::org_guard::Stamped>,
+    body: NetworkPolicy,
+    digest: String,
+}
+
+async fn set_network(state: AppState, which: Network, change: NetworkChange) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.set_network(&id, which, body) {
-        Ok(_) => Json(view(&security, &id)).into_response(),
-        Err(error) => failed(error),
-    })
+    let NetworkChange {
+        id,
+        headers,
+        member,
+        body,
+        digest,
+    } = change;
+    let value = format!("{}:{digest}", network_word(which));
+    let says = Say::new(&state, &headers, member.as_ref(), &id, value);
+    off_thread(
+        move || match security.set_network(&id, which, body, &|| says.given()) {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
     .await
 }
 
 async fn network(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_network(state, id, Network::Commands, body).await
+    let member = member.map(|axum::Extension(member)| member);
+    let change = NetworkChange {
+        id,
+        headers,
+        member,
+        body,
+        digest,
+    };
+    set_network(state, Network::Commands, change).await
 }
 
 async fn plugin_network(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_network(state, id, Network::Plugins, body).await
+    let member = member.map(|axum::Extension(member)| member);
+    let change = NetworkChange {
+        id,
+        headers,
+        member,
+        body,
+        digest,
+    };
+    set_network(state, Network::Plugins, change).await
 }
 
 #[derive(Deserialize)]
@@ -505,12 +644,24 @@ async fn grants(State(state): State<AppState>, Path(id): Path<String>) -> Respon
 async fn grant(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     member: Option<axum::Extension<super::org_guard::Stamped>>,
-    Body(scope): Body<Scope>,
+    Digested(scope, digest): Digested<Scope>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
+    // Every grant lets the bot do more without asking (ADR 0171, amendment 7).
+    let says = Say::new(
+        &state,
+        &headers,
+        member.as_ref().map(|axum::Extension(member)| member),
+        &id,
+        format!("grant:{digest}"),
+    );
+    if !says.given() {
+        return failed(SecurityError::PersonOnly(crate::security::attest::CONFIRM));
+    }
     // A shared bot's grant names the member who made it (ADR 0206 §4.1).
     let by = match &member {
         Some(axum::Extension(super::org_guard::Stamped(member))) => {
