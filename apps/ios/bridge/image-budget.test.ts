@@ -1,15 +1,15 @@
 import { expect, test } from "vitest";
-import { SpadeImageBudget } from "./spade-image.ts";
+import { ImageBudget } from "./image-budget.ts";
 
 /*
- * Pictures read for a Spade chat hold at most so many bytes in flight: a chat scrolled past many
+ * Pictures read for the phone hold at most so many bytes in flight: a chat scrolled past many
  * images reads them a few at a time, never all at once.
  */
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("a read past the budget waits until enough of the bytes in flight are done", async () => {
-  const budget = new SpadeImageBudget(10);
+  const budget = new ImageBudget(10);
   const order: string[] = [];
   const read = (name: string, bytes: number, done: Promise<void>) =>
     budget.run(bytes, async () => {
@@ -29,7 +29,7 @@ test("a read past the budget waits until enough of the bytes in flight are done"
 });
 
 test("reads that fit together run together, and one larger than the budget still runs alone", async () => {
-  const budget = new SpadeImageBudget(10);
+  const budget = new ImageBudget(10);
   const running: number[] = [];
   let most = 0;
   const read = (bytes: number) =>
@@ -47,7 +47,7 @@ test("reads that fit together run together, and one larger than the budget still
 });
 
 test("a read that fails gives its bytes back to the budget", async () => {
-  const budget = new SpadeImageBudget(10);
+  const budget = new ImageBudget(10);
 
   await expect(budget.run(8, () => Promise.reject(new Error("gone")))).rejects.toThrow("gone");
 

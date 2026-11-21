@@ -23,7 +23,6 @@ import {
   spadeListRows,
   spadePlaceLine,
 } from "./spade-rows.ts";
-import { SpadeImageBudget, spadeImageBudgetBytes } from "./spade-image.ts";
 import { SpadeWorkerTree } from "./spade-worker-tree.ts";
 import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
 
@@ -106,8 +105,6 @@ type Open = { id: string; stop: () => void } & (
 );
 
 export class NativeSpade {
-  /** The pictures read for the chat, a budget of bytes at a time (`spade-image.ts`). */
-  readonly images = new SpadeImageBudget(spadeImageBudgetBytes);
   private status: SpadeStatus | undefined;
   private enabled: boolean | undefined;
   private agents: SpadeAgent[] | undefined;

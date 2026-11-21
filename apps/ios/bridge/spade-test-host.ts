@@ -4,6 +4,7 @@ import { FakeDaemon, FakeSpadeApi, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { until } from "./test-host.ts";
 import { NativeSpade } from "./spade.ts";
+import { ImageBudget, imageBudgetBytes } from "./image-budget.ts";
 import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
 import type { SpadeBubbleRow, SpadeListRow } from "./spade-rows.ts";
 
@@ -87,7 +88,11 @@ export async function setUp(
       owner,
       spade,
       request,
-      { id: () => crypto.randomUUID(), now: () => Date.now() },
+      {
+        id: () => crypto.randomUUID(),
+        now: () => Date.now(),
+        images: new ImageBudget(imageBudgetBytes),
+      },
       new AbortController().signal,
     );
   return { daemon, api, spade, patches, ask };

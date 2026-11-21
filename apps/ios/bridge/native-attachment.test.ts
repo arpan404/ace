@@ -197,3 +197,30 @@ test("a file from the thread's Attachments list opens without naming a message; 
   await expect(ask(notesSha, "elsewhere")).rejects.toThrow("Attachment unavailable");
   await expect(ask("0".repeat(64))).rejects.toThrow("Attachment unavailable");
 });
+
+test("a HEIC stored without a preview is drawn as a picture, read from its original", async () => {
+  const bytes = "heic bytes";
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const heic: Attachment = {
+    sha256: sha,
+    bytes: Buffer.byteLength(bytes),
+    mimeType: "image/heic",
+    name: "Pasted image.heic",
+    kind: "binary",
+    thumbnailAvailable: false,
+  };
+  const fake = sentFromWeb("heic", [{ type: "text", text: "Look" }], [heic]);
+  fake.seedServices({
+    attachmentTexts: [
+      { threadId: "heic", sha256: sha, text: bytes, name: heic.name, mimeType: "image/heic" },
+    ],
+  });
+  const { owner, row, itemId } = await personsRow(fake, "heic");
+
+  expect(row.attachments).toEqual([
+    expect.objectContaining({ kind: "image", ref: sha, thumbnail: true, opens: true }),
+  ]);
+  const thumbnail = await read(owner, { threadId: "heic", itemId, ref: sha, variant: "thumbnail" });
+  expect(thumbnail).toMatchObject({ kind: "image", mimeType: "image/heic" });
+  expect(Buffer.from(thumbnail.data, "base64").toString()).toBe(bytes);
+});
