@@ -26,26 +26,71 @@ export const enrollRefusals: Record<EnrollRefusal, string> = {
   unavailable: "Couldn't reach your ace account. Try again.",
 };
 
+/** How long a member's standing stands before an answer on it is checked with the backend. */
+export const MEMBER_RECHECK_MS = 60_000;
+
+/** The backend's word on a member grant (`POST /v1/grants/standing`). */
+export type MemberRecheck = (
+  grant: string,
+) => Promise<{ current: boolean; role?: string | undefined }>;
+
 /**
  * A member's standing proven on one socket: until the grant's expiry, under the owner generation
  * it was proven under. Deprovisioned, a member gets no fresh grant, so their standing (and with
- * it every stamp they could make) ends at the last one's expiry.
+ * it every stamp they could make) ends at the last one's expiry. Before an answer is stamped,
+ * `checked` asks the backend again about a standing older than {@link MEMBER_RECHECK_MS} (ADR
+ * 0206 §8.1): a member the backend no longer has as active with this role, or a check that
+ * can't be made, ends the standing there.
  */
-export function orgStanding(deps: { now: () => number; holds: (generation: number) => boolean }) {
-  let proven: { until: number; generation: number; member: Member } | undefined;
+export function orgStanding(deps: {
+  now: () => number;
+  holds: (generation: number) => boolean;
+  recheck?: MemberRecheck;
+}) {
+  type Proven = {
+    until: number;
+    generation: number;
+    member: Member;
+    grant?: string | undefined;
+    checkedAt: number;
+  };
+  let proven: Proven | undefined;
   const current = (): Member | undefined =>
     proven && proven.until > deps.now() && deps.holds(proven.generation)
       ? proven.member
       : undefined;
   return {
     /** Takes a proof begun under `generation`, unless the owner changed since. */
-    prove(next: { until: number; generation: number; member: Member }): boolean {
+    prove(next: { until: number; generation: number; member: Member; grant?: string }): boolean {
       if (!deps.holds(next.generation)) return false;
-      proven = next;
+      proven = { ...next, checkedAt: deps.now() };
       return true;
     },
     /** The member this socket proved, while that still counts. */
     current,
+    /**
+     * The member, for an answer: as `current`, with a standing older than a minute confirmed
+     * by the backend first. Fails closed.
+     */
+    async checked(): Promise<Member | undefined> {
+      const held = proven;
+      if (!held || current() === undefined) return undefined;
+      if (deps.now() - held.checkedAt <= MEMBER_RECHECK_MS) return held.member;
+      let answer: { current: boolean; role?: string | undefined } | undefined;
+      try {
+        answer = held.grant && deps.recheck ? await deps.recheck(held.grant) : undefined;
+      } catch {
+        answer = undefined;
+      }
+      // Proven again while the backend answered: that newer proof decides the next answer.
+      if (proven !== held) return undefined;
+      if (!answer?.current || answer.role !== held.member.role) {
+        proven = undefined;
+        return undefined;
+      }
+      held.checkedAt = deps.now();
+      return current();
+    },
     /** Their role, while their standing counts. */
     role: (): string | undefined => {
       const member = current();

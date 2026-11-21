@@ -1020,6 +1020,17 @@ export function machineAccount(options: {
       };
     },
     /** The clock grants are checked against: a standing's `until` is on it. */
+    /**
+     * The account backend's word, now, on a member grant this host took (ADR 0206 §8.1). Throws
+     * when this machine has no backend to ask or the backend can't answer.
+     */
+    async memberStandingNow(
+      grant: string,
+    ): Promise<{ current: boolean; role?: string | undefined }> {
+      const current = active();
+      if (!current) throw new AccessError(503, "ace account is unavailable");
+      return backend.memberStanding(current.origin, grant, AbortSignal.timeout(10_000));
+    },
     grantClock(): number {
       return options.now();
     },

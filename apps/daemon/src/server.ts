@@ -479,6 +479,11 @@ export async function startServer(options: ServerOptions): Promise<{
       // The grant's own clock: its expiry was read against it.
       now: () => options.machineAccount?.grantClock() ?? auth.now(),
       holds: (generation) => options.machineAccount?.standingHolds(generation) === true,
+      recheck: async (grant) => {
+        const account = options.machineAccount;
+        if (!account) throw new Error("No ace account on this machine");
+        return account.memberStandingNow(grant);
+      },
     });
     /** Whether this socket is the organization's host shell (ADR 0206 §2.2): its owners only. */
     const hostShell = () =>
@@ -533,6 +538,7 @@ export async function startServer(options: ServerOptions): Promise<{
       hostCredential,
       personProven,
       memberStanding: () => memberStanding.current(),
+      memberStandingChecked: () => memberStanding.checked(),
       orgHost: () => options.machineAccount?.ownerOrg() !== undefined,
       spadeAuthorize,
       accountDevice: () => accountId,
@@ -890,7 +896,7 @@ export async function startServer(options: ServerOptions): Promise<{
             const taken =
               member &&
               (accountId === undefined || member.member.account === accountId) &&
-              memberStanding.prove(member)
+              memberStanding.prove({ ...member, grant: message.grant })
                 ? member
                 : undefined;
             // A grant names the policy it was minted under: a newer one is fetched (§3).
