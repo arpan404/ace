@@ -2,14 +2,9 @@ import { afterEach, expect, test } from "vitest";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { openHistory, type HistoryService } from "./index.ts";
-import {
-  ReaderProcess,
-  readerMemoryError,
-  readerMemoryLimitBytes,
-  systemReaderRuntime,
-} from "./reader-process.ts";
+import { readerMemoryError, readerMemoryLimitBytes } from "./reader-process.ts";
 import { residentSamplingAvailable } from "@ace/provider-kit/resident-memory";
-import { environment, claudeRecords, cwd } from "./test-support.ts";
+import { environment, claudeRecords, cwd, readerHooks, readerStarts } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -81,30 +76,19 @@ test.skipIf(!residentSamplingAvailable())(
     }
     const poison = join(home, "projects/p", "poison.jsonl");
     await transcript(poison, "poison prompt");
-    let launches = 0;
+    const starts = join(env.root, "starts.log");
     const service = await openHistory(
       {
         indexPath: join(env.root, "ace/index.sqlite"),
         instances: [{ id: "claude", provider: "claude", homeDir: home }],
       },
-      // The real reader process and its real memory limit.
-      (url, options) => {
-        launches++;
-        return new ReaderProcess(
-          url,
-          {
-            ...options,
-            execArgv: ["--import", new URL("./poison-preload.ts", import.meta.url).href],
-            env: {
-              ...process.env,
-              ACE_TEST_POISON_MARKER: "poison prompt",
-              ACE_TEST_POISON_BYTES: String(readerMemoryLimitBytes + 256 * 1024 * 1024),
-            },
-          },
-          systemReaderRuntime(),
-        );
-      },
       {
+        // The real reader and its real memory limit: decoding the poison transcript makes
+        // ace-history resident past it (its poison test hook).
+        ...readerHooks({
+          poison: { marker: "poison prompt", bytes: readerMemoryLimitBytes + 64 * 1024 * 1024 },
+          startLog: starts,
+        }),
         delay: (run, milliseconds) => {
           // Retire-on-idle stays off; crash recovery runs without waiting out its backoff.
           if (milliseconds === 5000) return () => {};
@@ -137,11 +121,11 @@ test.skipIf(!residentSamplingAvailable())(
       expect.stringContaining("stopped the history reader"),
     ]);
     expect(await titles(service)).toEqual(expected.toSorted());
-    const settled = launches;
+    const settled = (await readerStarts(starts)).length;
     for (let round = 0; round < 3; round++) {
       const again = await service.scan();
       expect(again.unsupported).toHaveLength(1);
     }
-    expect(launches).toBe(settled);
+    expect(await readerStarts(starts)).toHaveLength(settled);
   },
 );
