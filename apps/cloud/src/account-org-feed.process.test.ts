@@ -268,3 +268,26 @@ it("a user with more than a thousand memberships on record is deleted from every
     expect.objectContaining({ actor: { type: "idp", id: "directory" } }),
   ]);
 });
+
+it("a later event on the same page for a deleted user's membership logs nothing", async () => {
+  const kai = workosUser("user_kai", "Kai");
+  const { ownerToken, org } = await team("Gone then busy", kai);
+  await cron();
+  const entries = () => world.workos.orgs.audits().filter((each) => each.org === org).length;
+  const before = entries();
+  // One page: WorkOS deletes the user, then reports a change to the membership after it.
+  world.workos.orgs.deleteUser(kai.id);
+  world.workos.orgs.setRole(kai.id, org, "admin");
+  await cron();
+  await cron();
+  expect(await rowStatus(org, kai.id)).toBe("removed");
+  expect(await memberRow(ownerToken, org, kai.id)).toBeUndefined();
+  // Only her removal is on record: no join or role change for a membership that is gone.
+  const added = world.workos.orgs
+    .audits()
+    .filter((each) => each.org === org)
+    .slice(before)
+    .map((each) => each.event.action);
+  expect(added).toEqual(["org.member.removed"]);
+  expect(entries()).toBe(before + 1);
+});

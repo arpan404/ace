@@ -38,12 +38,18 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
   const touched = new Set<string>();
   const writes: D1PreparedStatement[] = [];
 
+  /**
+   * Memberships a user deletion earlier in this run tombstones, as `removingAccount`'s SQL does
+   * for every row it removes: from rows this run read (each guarded) or made itself.
+   */
+  const tombstonedInRun = new Set<string>();
   /** A row as a user deletion earlier in this run left it (`removingAccount`'s rule). */
   const afterDeletion = (account: string, known: KnownMember | undefined) => {
     const deleted = users.get(account)?.known;
-    return known && deleted !== undefined && known.status !== "removed" && known.version <= deleted
-      ? { ...known, status: "removed", version: deleted }
-      : known;
+    if (!known || deleted === undefined || known.status === "removed" || known.version > deleted)
+      return known;
+    tombstonedInRun.add(known.membership);
+    return { ...known, status: "removed", version: deleted };
   };
   async function row(org: string, account: string): Promise<Row> {
     const key = keyOf(org, account);
@@ -85,7 +91,8 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
     const current = await row(org, account);
     const deleted = {
       user: (await deletedUser(account)).known,
-      membership: (await deletedMembership(after.membership)).known,
+      membership:
+        (await deletedMembership(after.membership)).known || tombstonedInRun.has(after.membership),
     };
     const before = current.known;
     if (!accepts(before, after, deleted)) return undefined;
