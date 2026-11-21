@@ -292,6 +292,7 @@ impl Transcript {
             | Known::HookRan { .. }
             | Known::Shared { .. }
             | Known::CommandRan { .. }
+            | Known::CodeRan { .. }
             | Known::MemoryIndexed { .. }
             | Known::KnowledgeIndexed { .. }
             | Known::EpisodeStored { .. }

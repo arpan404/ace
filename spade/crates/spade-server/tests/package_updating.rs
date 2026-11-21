@@ -143,6 +143,7 @@ async fn an_update_a_crash_cut_short_reads_updating_while_it_is_taken_again_at_s
         notes_added: Vec::new(),
         notes_removed: Vec::new(),
         proof: Some(sealed("2.0.0")),
+        code: Default::default(),
     });
     spade.engine.set_bot_package(&bot, &link)?;
 

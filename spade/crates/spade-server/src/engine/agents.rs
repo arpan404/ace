@@ -377,6 +377,12 @@ impl Engine {
             let (security, id) = (security.clone(), id.to_owned());
             let _ = tokio::task::spawn_blocking(move || security.forget(&id)).await;
         }
+        // Its code worker ends, and its folder goes.
+        if matches!(deleted, Ok(true))
+            && let Some(code) = self.code()
+        {
+            code.retire(id);
+        }
         self.live
             .lock()
             .unwrap_or_else(|p| p.into_inner())

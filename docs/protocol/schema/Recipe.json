@@ -7,6 +7,11 @@
       "maxLength": 300,
       "type": "string"
     },
+    "checks": {
+      "items": {},
+      "maxItems": 32,
+      "type": "array"
+    },
     "code": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/PackageCode.json"
@@ -179,6 +184,9 @@
             "minLength": 1,
             "type": "string",
             "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+          },
+          "verify": {
+            "type": "boolean"
           }
         },
         "required": [

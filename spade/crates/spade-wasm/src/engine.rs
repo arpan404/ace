@@ -89,10 +89,14 @@ impl Clock {
     }
 }
 
-/// A call's memory and tables, bounded, with the largest memory it reached.
+/// A call's memory and tables, bounded. The memory bound holds every linear memory of the call's
+/// store together (a component may hold several, one per core instance), and the peak is theirs
+/// together too.
 #[derive(Debug)]
 pub struct Limiter {
     memory: usize,
+    /// Every linear memory's size now, summed.
+    total: usize,
     pub peak: usize,
 }
 
@@ -100,6 +104,7 @@ impl Limiter {
     pub fn new(memory_bytes: u64) -> Self {
         Self {
             memory: usize::try_from(memory_bytes).unwrap_or(usize::MAX),
+            total: 0,
             peak: 0,
         }
     }
@@ -113,15 +118,18 @@ impl Limiter {
 impl ResourceLimiter for Limiter {
     fn memory_growing(
         &mut self,
-        _current: usize,
+        current: usize,
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        // Past the bound the grow traps, so the call ends and says why.
-        if desired > self.memory {
+        // A memory being made grows from nothing; one growing adds what it grows by. Past the
+        // bound, all memories together, the grow traps, so the call ends and says why.
+        let total = self.total.saturating_sub(current).saturating_add(desired);
+        if total > self.memory {
             return Err(wasmtime::Error::new(Cutting(Cut::Memory)));
         }
-        self.peak = self.peak.max(desired);
+        self.total = total;
+        self.peak = self.peak.max(total);
         Ok(true)
     }
 

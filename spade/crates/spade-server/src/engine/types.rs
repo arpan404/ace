@@ -320,4 +320,6 @@ pub struct Activity {
     pub calls: Vec<String>,
     /// Its open contract calls to bots of other machines, by call id (ADR 0200 §6.2).
     pub remote_calls: Vec<String>,
+    /// What its package's own code used (ADR 0203 §4).
+    pub code: spade_core::running::CodeUse,
 }
