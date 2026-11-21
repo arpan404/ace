@@ -52,6 +52,9 @@ function grantClaims(token: string): { account?: string; orgRole?: string } {
  * grant is current, with the role it carries, until a test says its member left (`end`), has
  * another role now (`setRole`), or the backend can't be reached (`down`).
  */
+/** The token the test Worker asks the standing route with, as the backend's would expect. */
+export const standingToken = "market_standing_token_for_tests_0123456789a";
+
 export async function fakeOrgStanding() {
   const ended = new Set<string>();
   const roles = new Map<string, string>();
@@ -60,8 +63,9 @@ export async function fakeOrgStanding() {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
     request.on("end", () => {
-      if (down) {
-        response.writeHead(503).end();
+      // The backend answers only the market's own token.
+      if (down || request.headers.authorization !== `Bearer ${standingToken}`) {
+        response.writeHead(down ? 503 : 401).end();
         return;
       }
       let grant = "";
@@ -113,7 +117,9 @@ export async function launchMarketWorker(
           }),
           MARKET_PUBLIC_KEYS: JSON.stringify(keySetOf(marketKey)),
           MARKET_SIGNER_TOKEN: signerToken,
-          ...(options.standing ? { ACE_ORG_STANDING_URL: options.standing.url } : {}),
+          ...(options.standing
+            ? { ACE_ORG_STANDING_URL: options.standing.url, ACE_ORG_STANDING_TOKEN: standingToken }
+            : {}),
         },
       },
     ],

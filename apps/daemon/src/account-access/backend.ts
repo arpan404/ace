@@ -83,6 +83,7 @@ export function accountBackend(options: { fetch: typeof fetch }) {
      */
     async memberStanding(
       origin: string,
+      credential: string,
       grant: string,
       signal: AbortSignal,
     ): Promise<AceOrgStanding> {
@@ -91,7 +92,9 @@ export function accountBackend(options: { fetch: typeof fetch }) {
           `${origin}/v1/grants/standing`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            // The host's own organization credential: the backend answers a host only about its
+            // own organization's members.
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${credential}` },
             body: JSON.stringify({ grant }),
           },
           signal,

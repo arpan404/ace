@@ -1029,7 +1029,12 @@ export function machineAccount(options: {
     ): Promise<{ current: boolean; role?: string | undefined }> {
       const current = active();
       if (!current) throw new AccessError(503, "ace account is unavailable");
-      return backend.memberStanding(current.origin, grant, AbortSignal.timeout(10_000));
+      return backend.memberStanding(
+        current.origin,
+        current.token,
+        grant,
+        AbortSignal.timeout(10_000),
+      );
     },
     grantClock(): number {
       return options.now();

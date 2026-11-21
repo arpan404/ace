@@ -113,7 +113,11 @@ export default {
       waitUntil: (promise) => ctx.waitUntil(promise),
       grantKeys: grantKeys(env),
       orgStanding: (grant) =>
-        askOrgStanding(env.ACE_ORG_STANDING_URL, (target, init) => fetch(target, init), grant),
+        askOrgStanding(
+          { url: env.ACE_ORG_STANDING_URL, token: env.ACE_ORG_STANDING_TOKEN },
+          (target, init) => fetch(target, init),
+          grant,
+        ),
       newId,
       newToken,
       fetch: (target, init) => fetch(target, init),

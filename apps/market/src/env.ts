@@ -49,4 +49,6 @@ export interface Env {
    * reads or writes a private registry. Unset, no org grant is taken.
    */
   ACE_ORG_STANDING_URL?: string;
+  /** The market's token for that route (a secret), the account backend's ACE_MARKET_STANDING_TOKEN. */
+  ACE_ORG_STANDING_TOKEN?: string;
 }
