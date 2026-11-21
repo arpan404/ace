@@ -181,7 +181,8 @@ it("an agent's still of a watched Simulator is ace-media's, inside the frame's 2
   const before = d.platform.shots.length;
   const made = await d.service.screenshot(ios, person);
   expect(made.header).toMatchObject({ codec: "jpeg", width: 993, height: 2160 });
-  expect(ace.stills.asked.at(-1)).toMatchObject({ maxWidth: 1920, maxHeight: 2160 });
+  // Fresh: never the picture ace-media held from before the agent's last input.
+  expect(ace.stills.asked.at(-1)).toMatchObject({ maxWidth: 1920, maxHeight: 2160, fresh: true });
   expect(d.platform.shots.length).toBe(before);
   // ace-media can't make it (on Linux its still path decodes JPEG only): simctl's screenshot.
   ace.stills.makes = false;

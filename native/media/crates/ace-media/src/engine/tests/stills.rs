@@ -863,3 +863,49 @@ fn a_poster_whose_epoch_is_discarded_while_it_is_made_never_arrives() {
     effects.extend(arrive(&mut engine, &maker));
     assert_eq!(answers(&effects), [failed("p2", "private")]);
 }
+
+/// A still that must come from a picture arriving after it was asked (`still.take.fresh`).
+fn take_fresh(engine: &mut Engine, request: &str, deadline_ms: u32, now: Now) -> Vec<Effect> {
+    send(
+        engine,
+        json!({ "type": "still.take", "request": request, "source": "s1", "maxWidth": 320,
+                "maxHeight": 320, "maxPixels": 10_000_000, "quality": 80,
+                "deadlineMs": deadline_ms, "fresh": true }),
+        &[],
+        now,
+    )
+}
+
+#[test]
+fn a_fresh_still_is_never_the_picture_cached_before_it_was_asked() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    // The screen as it was before the agent's input.
+    feed(&mut engine, [key(1), delta(2)]);
+    let mut effects = take_fresh(&mut engine, "q1", 500, NOW);
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(
+        answers(&effects),
+        [],
+        "the cached picture predates the request"
+    );
+    // The next picture, after the input: the still is it.
+    let mut effects = feed(&mut engine, [delta(3)]);
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [still("q1", 3, (320, 240))]);
+}
+
+#[test]
+fn a_fresh_still_with_no_new_picture_by_its_deadline_fails_for_the_source_to_answer() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    feed(&mut engine, [key(1)]);
+    take_fresh(&mut engine, "q1", 500, NOW);
+    engine.tick(at(NOW.mono_ms + 600));
+    let mut effects: Vec<Effect> = engine.effects().collect();
+    effects.extend(arrive(&mut engine, &maker));
+    assert!(matches!(
+        answers(&effects).as_slice(),
+        [Answer::Failed { .. }]
+    ));
+}

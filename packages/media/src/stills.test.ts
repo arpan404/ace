@@ -132,3 +132,30 @@ it("a still fenced on the newest public epoch carries it to an ace-media that ho
   await expect(older.take()).resolves.toBe("source");
   expect(older.sent).toEqual([]);
 });
+
+it("a fresh still goes only to an ace-media that promises one; any other leaves it to the source's capture", async () => {
+  const fresh = (features: string[]) => {
+    const clock = new ManualClock();
+    const sent: ToMedia[] = [];
+    const media = new MediaStills({
+      health: () => "healthy",
+      send: (message) => (sent.push(message), true),
+      clock,
+      nextId: () => "still-1",
+      speaks: (feature) => features.includes(feature),
+    });
+    const taken = media.take(
+      { ...request, fresh: true },
+      async () => "source",
+      () => "ace-media",
+    );
+    return { sent, taken };
+  };
+  const promised = fresh(["still-fresh"]);
+  expect(promised.sent).toEqual([
+    { type: "still.take", request: "still-1", ...request, fresh: true },
+  ]);
+  const older = fresh(["privacy-open"]);
+  expect(await older.taken).toBe("source");
+  expect(older.sent).toEqual([]);
+});

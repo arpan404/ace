@@ -27,6 +27,12 @@ export type StillRequest = {
    * content still in flight when the source went public is never this still.
    */
   minEpoch?: number;
+  /**
+   * Only from a picture that reaches ace-media after the request, never the one it holds (an
+   * agent's still right after its input). Absent a new picture by the deadline, the source's
+   * own capture answers.
+   */
+  fresh?: boolean;
 };
 
 /** A still ace-media made: the JPEG, its size, and the path it took. */
@@ -73,6 +79,9 @@ export class MediaStills {
     // A fenced request goes only to a build that honours the fence; otherwise the source's own
     // capture answers rather than risk a still from before the epoch.
     if (request.minEpoch !== undefined && !(this.#options.speaks?.("privacy-open") ?? false))
+      return capture();
+    // Likewise a fresh one: a build that can't promise it might answer from the screen as it was.
+    if (request.fresh === true && !(this.#options.speaks?.("still-fresh") ?? false))
       return capture();
     const id = nextId();
     return new Promise<T>((resolve, reject) => {

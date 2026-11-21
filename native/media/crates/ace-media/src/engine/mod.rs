@@ -617,6 +617,7 @@ impl Engine {
                 quality,
                 deadline_ms,
                 min_epoch,
+                fresh,
             } => self.stills.take(
                 request,
                 &source,
@@ -628,6 +629,7 @@ impl Engine {
                 quality,
                 deadline_ms,
                 min_epoch,
+                fresh.unwrap_or(false),
                 now.mono_ms,
                 out,
             ),

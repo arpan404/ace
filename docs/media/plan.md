@@ -2578,3 +2578,10 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   send the end marker with egress off.
 - **ace-media fix.** A JPEG that reaches a picture source with no encoder running is for stills
   and never reaches its recording (it ended recordings with `unsupported-codec`).
+- **Review fixes.** A capture moves with its tab and page as one target, and a move the person
+  went past never attaches. A barrier (`source.sync`) on a picture source drains its encoder and
+  holds only once it handed everything over. The browser's recording slot is reserved before
+  anything awaits. A recording ace-media ends says so (`BrowserState.recordingNotice`) and its
+  stop fails with the reason; a truncated end returns with a notice. `still.take.fresh`
+  (feature `still-fresh`): a still only from a picture that arrives after the request; a
+  watched Simulator's agent still asks for it, and `simctl` answers when none comes in time.
