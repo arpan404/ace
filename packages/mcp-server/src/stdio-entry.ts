@@ -1,10 +1,11 @@
-import { z } from "zod";
 import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
-import { runStdioBridge } from "./stdio-bridge.ts";
 
 // Stdout is the MCP JSON-RPC stream, and Bun's console writes there directly. The MCP client the
-// bridge loads logs through console on some paths, so console goes to stderr from the start.
+// bridge loads logs through console on some paths, so console goes to stderr before any
+// dependency loads: static imports would evaluate ahead of this call.
 routeConsoleToStderr();
+const { z } = await import("zod");
+const { runStdioBridge } = await import("./stdio-bridge.ts");
 const environment = z
   .object({
     ACE_MCP_BRIDGE_URL: z.url().refine((value) => {

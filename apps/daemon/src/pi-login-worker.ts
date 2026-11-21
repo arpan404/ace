@@ -1,12 +1,12 @@
-import { z } from "zod";
 import { silenceConsole } from "@ace/provider-kit/console-guard";
 
 // The installed SDK owns all credential access and persistence in this isolated child.
 // Neither its return value nor its diagnostics leave the process. An API key arrives on stdin
 // and goes straight to the SDK's own prompt; it is never written anywhere by this worker.
 // Stdout carries only sign-in frames, and Bun's console writes there directly, so the SDK's
-// console is silenced before it is imported.
+// console is silenced before any dependency is imported.
 silenceConsole();
+const { z } = await import("zod");
 const Event = z.discriminatedUnion("type", [
   z.object({ type: z.literal("auth_url"), url: z.string().max(8192) }),
   z.object({
