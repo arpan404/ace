@@ -355,6 +355,10 @@ it.runIf(binary)(
   90_000,
 );
 
+/** A JPEG picture unit for a recording's tee. */
+const picture = (payload: Buffer, width: number, height: number) =>
+  ({ kind: "picture", keyframe: true, codec: 7, width, height, payload }) as const;
+
 it.runIf(binary)(
   "a picture recording stopped right after its last picture still holds every picture its encoder took",
   async () => {
@@ -367,8 +371,6 @@ it.runIf(binary)(
       private: () => false,
     });
     if (!start.ok) throw new Error(start.reason);
-    const picture = (payload: Buffer, width: number, height: number) =>
-      ({ kind: "picture", keyframe: true, codec: 7, width, height, payload }) as const;
     for (let n = 0; n < 8; n++) {
       start.recording.push(picture(still, 390, 844));
       await sleep(150);
