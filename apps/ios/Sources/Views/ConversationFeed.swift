@@ -656,6 +656,7 @@ struct ConversationFeed: View {
         reading.cancel(model: model)
         model.readingWillMove = nil
         model.readingMoved = nil
+        model.liveWindowWillGrow = nil
         model.onReadingNeedsFresh = nil
     }
     private func windowJoined(_ joined: Bool) {
@@ -687,6 +688,9 @@ struct ConversationFeed: View {
     /// place being reopened counts as not yet placed until its row is back where it was.
     private func revealWhenSettled() {
         let intent = intent
+        // The generation this reveal draws: a reload or reconnect reopens the same thread under a
+        // newer one, whose first screen this one isn't.
+        let epoch = thread.epoch
         let started = CACurrentMediaTime()
         var settle = TranscriptSettle(at: started)
         surface.untilSettled(.reveal, { time in
@@ -699,7 +703,7 @@ struct ConversationFeed: View {
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) { revealed = true }
-            model.threadShown(thread)
+            model.threadShown(thread, epoch: epoch)
             TranscriptJumpHooks.revealed(after: CACurrentMediaTime() - started, capped: outcome == .capped)
             TranscriptJumpHooks.landed { Double(intent.metrics.bottom) }
         }
