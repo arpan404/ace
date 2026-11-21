@@ -35,16 +35,16 @@ const marks = (units: EgressUnit[]) => units.map((unit) => unit.frame.payload[0]
 /** encode auto, delivery legacy, with ace-media ingesting every kind. */
 const allLegacy: SourceRoute = sourceRoute(
   "tab",
-  { encode: "auto", delivery: "legacy", recordings: "auto", stills: "auto" },
+  { encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" },
   "healthy",
   { ingest: sourceKinds, delivery: true },
 );
-/** A kind ace-media isn't taking now: its producer streams nowhere, and nothing comes back. */
+/** A kind whose producer can't stream into ace-media: nothing comes back on egress. */
 const onDaemon: SourceRoute = sourceRoute(
   "tab",
-  { encode: "auto", delivery: "legacy", recordings: "auto", stills: "auto" },
-  "restarting",
-  { ingest: sourceKinds, delivery: true },
+  { encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" },
+  "healthy",
+  { ingest: [], delivery: true },
 );
 
 /** A router whose route table the test changes, as `RouteWatch` would. */
@@ -121,7 +121,7 @@ it("a gap in a source's sequence is counted and marked on the next unit", () => 
 it("once the route moves the producer back to the daemon, egress still in flight is dropped, never delivered twice", () => {
   const settings = {
     encode: "auto",
-    delivery: "legacy",
+    delivery: "auto",
     recordings: "auto",
     stills: "auto",
   } as const;

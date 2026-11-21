@@ -11,29 +11,40 @@ import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import { BrowserService, connectBrowser, detectChromium } from "../src/index.ts";
 import type { BrowserMedia } from "../src/media-video.ts";
 import { decodeStreamMessage, StreamAssembler } from "../src/stream.ts";
-import { seededRandom, SimpleLink } from "./link-model.ts";
+import {
+  seededRandom,
+  SimpleLink,
+  threeGLink,
+  threeGProfiles,
+  type Path,
+  type ThreeGProfileName,
+} from "./link-model.ts";
 
 /*
- * Live video delivered by ace-media (D1), beside `video-link.ts`, which keeps measuring the
- * daemon's own path. Real headless Chrome streams a scrolling page into a real ace-media; a
- * standalone media-connection client (`@ace/media/testing/media-test-client`) takes the pieces
- * behind the same simulated phone link `video-link.ts` uses, and acks each one back up it.
+ * Live video delivered by ace-media (D1), the only delivery since X3. Real headless Chrome
+ * streams a scrolling page into a real ace-media; a standalone media-connection client
+ * (`@ace/media/testing/media-test-client`) takes the pieces behind a simulated phone link
+ * (`link-model.ts`), and acks each one back up it.
  *
  * Three runs:
  *
  * 1. **The link.** ace-media delivers over the default link (25 Mbit/s, 120 ms, 30 ms jitter):
  *    frames shown per second, median and p10, and the bytes the daemon sent for video on the
  *    main socket, which must be none.
- * 2. **The local hop, legacy.** No link: glass to glass (capture → arrival) on the daemon's own
- *    path, `media.delivery: legacy`.
- * 3. **The local hop, ace-media.** The same through ace-media. The hop is the difference of
- *    the two p95s.
+ * 2. **The local hop.** No link: glass to glass (capture → arrival) through ace-media.
+ * 3. **An old client.** A viewer that names no media connection: it gets no pictures, and the
+ *    daemon still sends no video bytes (X3's "Bytes").
+ * 4. **3G** (ADR 0149): ace-media's own delivery over the relay legs of `3g-1600` and `3g-400`,
+ *    the viewer's link hint saying so: frames shown per second, the coded width at p50, and glass
+ *    to glass at p50. The bars are the old 3G gate's: `3g-1600` at least 15 fps median, at least
+ *    1152 px wide at p50 and at most 1 s glass to glass at p50; `3g-400` at most 1.5 s glass to
+ *    glass at p50. Report only while the load average is above twice the cores.
  *
- * Part of `check:perf`: it fails when the median is below 59 fps or the p10 below 55, when the
- * daemon sent any video bytes, or when the hop adds more than 2 ms at p95, unless the one-minute
- * load average is 24 or more, in which case it reports and marks the numbers owed. Skipped where
- * no Chrome or no built ace-media is found (`ACE_MEDIA_TEST_BINARY`, or `native/media/target`).
- * ACE_MEDIA_LINK_SECONDS changes run 1's length; ACE_MEDIA_LINK_REPORT_ONLY=1 never fails.
+ * Part of `check:perf`: it fails when the median is below 59 fps or the p10 below 55, or when
+ * the daemon sent any video bytes, unless the one-minute load average is 24 or more, in which
+ * case it reports and marks the numbers owed; and when a 3G bar is missed on a quiet machine. Skipped where no Chrome or no built ace-media is
+ * found (`ACE_MEDIA_TEST_BINARY`, or `native/media/target`). ACE_MEDIA_LINK_SECONDS changes run
+ * 1's length; ACE_MEDIA_LINK_REPORT_ONLY=1 never fails.
  */
 
 const seconds = Number(process.env.ACE_MEDIA_LINK_SECONDS ?? 20);
@@ -106,7 +117,9 @@ const media: BrowserMedia = {
 };
 const service = new BrowserService({ dataDir: home, executablePath, now: clock, media });
 
-type Shown = { arrivedAt: number; capturedAt: number };
+type Shown = { arrivedAt: number; capturedAt: number; codedWidth: number };
+/** An ack on the wire: its JSON and the relay channel's framing. */
+const ackBytes = 120;
 /** Video bytes the daemon sent on its main socket. */
 let daemonVideoBytes = 0;
 let sessions = 0;
@@ -115,7 +128,14 @@ let sessions = 0;
  * One viewer for `ms`: through ace-media on a media connection when `delivered`, else on the
  * daemon's own socket; behind `link`, or straight on loopback.
  */
-async function watch(delivered: boolean, link: SimpleLink | undefined, ms: number) {
+async function watch(
+  delivered: boolean,
+  link: Path | undefined,
+  ms: number,
+  threeG?: (typeof threeGProfiles)[ThreeGProfileName],
+  /** The link back up, for the acks: its serialization, loss and jitter pace the view. */
+  uplink?: Path,
+) {
   const shown: Shown[] = [];
   const assembler = new StreamAssembler();
   let counting = false;
@@ -131,11 +151,13 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
     const envelope = assembler.push(piece);
     const message = envelope && decodeStreamMessage(envelope);
     if (message?.kind !== "browser.video") return;
-    const { sequence, timestamp } = message.chunk;
+    const { sequence, timestamp, codedWidth } = message.chunk;
     when(arrives, () => {
-      if (counting) shown.push({ arrivedAt: arrives, capturedAt: timestamp });
-      // Acks go back up the same link, as small messages.
-      when(link ? clock() + 60 : clock(), () => ack(sequence));
+      if (counting) shown.push({ arrivedAt: arrives, capturedAt: timestamp, codedWidth });
+      // Acks go back up as small messages: through the modelled uplink where there is one.
+      const now = clock();
+      const acked = uplink ? uplink.send(ackBytes, now) : now + (link ? 60 : 0);
+      when(acked, () => ack(sequence));
     });
   };
   let client: MediaTestClient | undefined;
@@ -177,8 +199,14 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
     threadId: "bench",
     requestId: "subscribe",
     binaryFrames: true,
-    viewport: pane,
+    viewport: threeG
+      ? {
+          ...pane,
+          link: { effectiveType: "3g", downlinkKbps: threeG.downKbps, rttMs: threeG.rttMs },
+        }
+      : pane,
     video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp8"] },
+    mediaClient: true,
   };
   if (delivered) {
     const grant = await runtime.connections.connect(owner);
@@ -192,7 +220,11 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
     client = opened;
     subscribedAt = clock();
     await bridge.handle({ ...subscribe, media: { connection: grant.connection } });
-  } else await bridge.handle(subscribe);
+  } else {
+    // An older client: it names no media connection, nor that it takes one.
+    const { mediaClient: _current, ...old } = subscribe;
+    await bridge.handle(old);
+  }
   await sleep(3_000);
   const start = clock();
   const before = daemonVideoBytes;
@@ -228,17 +260,36 @@ try {
   const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
   const p10 = sorted[Math.floor(sorted.length / 10)] ?? 0;
 
-  settings = { ...settings, delivery: "legacy" };
-  runtime.settingsChanged();
-  const legacy = await watch(false, undefined, hopSeconds * 1000);
-  settings = { ...settings, delivery: "auto" };
-  runtime.settingsChanged();
   const direct = await watch(true, undefined, hopSeconds * 1000);
+  /** ace-media's delivery over a 3G profile's relay legs (ADR 0149). */
+  const overThreeG = async (name: ThreeGProfileName) => {
+    const profile = threeGProfiles[name];
+    const { down, up } = threeGLink(profile, seededRandom(7), clock());
+    const run = await watch(true, down, seconds * 1000, profile, up);
+    const counts = Array.from({ length: seconds }, (_, index) => {
+      const from = run.start + index * 1000;
+      return run.shown.filter(({ arrivedAt }) => arrivedAt >= from && arrivedAt < from + 1000)
+        .length;
+    }).toSorted((a, b) => a - b);
+    return {
+      fpsMedian: counts[Math.floor(counts.length / 2)] ?? 0,
+      codedWidthP50: quantile(
+        run.shown.map((one) => one.codedWidth),
+        0.5,
+      ),
+      glassToGlassP50Ms: quantile(
+        run.shown.map(({ arrivedAt, capturedAt }) => arrivedAt - capturedAt),
+        0.5,
+      ),
+      sent: run.sent,
+    };
+  };
+  const threeG1600 = await overThreeG("3g-1600");
+  const threeG400 = await overThreeG("3g-400");
+  const old = await watch(false, undefined, hopSeconds * 1000);
   const g2g = (shown: Shown[]) => shown.map(({ arrivedAt, capturedAt }) => arrivedAt - capturedAt);
-  const legacyP95 = quantile(g2g(legacy.shown), 0.95);
   const directP95 = quantile(g2g(direct.shown), 0.95);
-  const hopMs =
-    legacyP95 === null || directP95 === null ? null : Math.max(0, directP95 - legacyP95);
+  const videoBytes = linked.sent + direct.sent + old.sent + threeG1600.sent + threeG400.sent;
 
   const load = loadavg()[0] ?? 0;
   const enforced = enforce && load < 24;
@@ -249,9 +300,12 @@ try {
       median,
       p10,
       min: sorted[0] ?? 0,
-      daemonVideoBytes: linked.sent + direct.sent,
-      glassToGlassLoopbackP95Ms: { legacy: legacyP95, aceMedia: directP95 },
-      hopMs,
+      daemonVideoBytes: videoBytes,
+      oldClientPictures: old.shown.length,
+      glassToGlassLoopbackP95Ms: directP95,
+      "3g-1600": threeG1600,
+      "3g-400": threeG400,
+      threeGEnforced: enforce && load <= 2 * availableParallelism(),
       // The subscribe reply's poster on this machine, and when it would arrive on 3g-400: one
       // round trip (400 ms) and its bytes at 400 kbit/s.
       poster: direct.poster
@@ -271,8 +325,25 @@ try {
     const misses = [
       median < 59 && `median ${median} fps (want >= 59)`,
       p10 < 55 && `p10 ${p10} fps (want >= 55)`,
-      linked.sent + direct.sent > 0 && `daemon sent ${linked.sent + direct.sent} video bytes`,
-      (hopMs ?? Infinity) > 2 && `local hop ${hopMs} ms at p95 (want <= 2)`,
+      videoBytes > 0 && `daemon sent ${videoBytes} video bytes`,
+      old.shown.length > 0 &&
+        `a viewer without a media connection got ${old.shown.length} pictures`,
+    ].filter((miss) => typeof miss === "string");
+    if (misses.length > 0) {
+      console.error(`media link: ${misses.join("; ")}`);
+      process.exitCode = 1;
+    }
+  }
+  // The 3G bars (ADR 0149), against ace-media's own delivery: report only on a busy machine.
+  if (enforce && load <= 2 * availableParallelism()) {
+    const misses = [
+      threeG1600.fpsMedian < 15 && `3g-1600 median ${threeG1600.fpsMedian} fps (want >= 15)`,
+      (threeG1600.codedWidthP50 ?? 0) < 1152 &&
+        `3g-1600 width ${threeG1600.codedWidthP50} px at p50 (want >= 1152)`,
+      (threeG1600.glassToGlassP50Ms ?? Infinity) > 1_000 &&
+        `3g-1600 glass to glass ${threeG1600.glassToGlassP50Ms} ms at p50 (want <= 1000)`,
+      (threeG400.glassToGlassP50Ms ?? Infinity) > 1_500 &&
+        `3g-400 glass to glass ${threeG400.glassToGlassP50Ms} ms at p50 (want <= 1500)`,
     ].filter((miss) => typeof miss === "string");
     if (misses.length > 0) {
       console.error(`media link: ${misses.join("; ")}`);

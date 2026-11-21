@@ -139,7 +139,7 @@ it.runIf(process.platform === "darwin" && ffmpeg && !!binary)(
     onTestFinished(() => platform.close());
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };

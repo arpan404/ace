@@ -17,6 +17,7 @@ import { expect, it, onTestFinished } from "vitest";
 import { encodeMediaFrame } from "@ace/media/frame";
 import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import { MediaRuntime } from "@ace/media/runtime";
+import type { RouteCapabilities } from "@ace/media/routes";
 import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { IngestSource } from "@ace/media/ingest-sources";
@@ -76,10 +77,12 @@ it.runIf(!!binary)(
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true }));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };
+    // The flip below: the screen's producer can't stream into ace-media any more.
+    const capabilities: RouteCapabilities = { ingest: ["screen"], delivery: false };
     const runtime = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -95,7 +98,7 @@ it.runIf(!!binary)(
       id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
-      capabilities: { ingest: ["screen"], delivery: false },
+      capabilities,
     });
     onTestFinished(() => runtime.dispose());
 

@@ -1084,6 +1084,25 @@
     },
     {
       "properties": {
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "type": {
+          "const": "screen.delivery",
+          "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "data": {},
         "error": {
           "type": "string"
@@ -1143,6 +1162,9 @@
         "type": {
           "const": "screen.result",
           "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
         }
       },
       "required": [
@@ -1170,6 +1192,9 @@
         "type": {
           "const": "devices.result",
           "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
         }
       },
       "required": [
@@ -1192,6 +1217,25 @@
       "required": [
         "type",
         "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "type": {
+          "const": "devices.delivery",
+          "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
+        }
+      },
+      "required": [
+        "type",
+        "deviceId"
       ],
       "type": "object"
     },
@@ -1306,6 +1350,9 @@
         "type": {
           "const": "browser.result",
           "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
         }
       },
       "required": [
@@ -1328,6 +1375,25 @@
       "required": [
         "type",
         "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.delivery",
+          "type": "string"
+        },
+        "undelivered": {
+          "$ref": "https://ace.local/protocol/v1/MediaUndelivered.json"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
       ],
       "type": "object"
     },

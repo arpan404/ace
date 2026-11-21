@@ -1,16 +1,17 @@
 import { FakeDaemon, ScenarioPlayer, failingSubagent } from "@ace/fake-daemon";
 import { waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
-import { ThreadId, type MediaStreamClientMessage, type MediaPoster } from "@ace/protocol";
+import {
+  MediaConnectionId,
+  ThreadId,
+  type MediaStreamClientMessage,
+  type MediaPoster,
+} from "@ace/protocol";
 import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
 import type { PosterDecoder } from "@/lib/video/poster.ts";
-import {
-  mediaRetryCooldownMs,
-  mediaRetryDelaysMs,
-  mediaSubscribeDeadlineMs,
-} from "@ace/browser/live-view";
+import { mediaRetryCooldownMs, mediaRetryDelaysMs } from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -25,6 +26,11 @@ function fakeMedia(initial: string | undefined) {
   const acks: MediaStreamClientMessage[] = [];
   const media: PreviewMedia = {
     binding: () => (connection ? { connection } : undefined),
+    get state() {
+      return connection
+        ? { state: "open" as const, connection: MediaConnectionId.parse(connection) }
+        : { state: "unavailable" as const, reason: "unavailable" };
+    },
     settled: () => Promise.resolve(),
     watch: (listener) => {
       watchers.add(listener);
@@ -281,15 +287,6 @@ test("the browser's video subscribes on the media connection, comes by it and is
   expect(mainAcks()).toEqual([]);
 });
 
-test("legacy delivery keeps the subscribe and its acks on the client's socket", async () => {
-  const { wire, link, subscribes, mainAcks } = await watching(undefined);
-  expect(subscribes()[0]).not.toHaveProperty("media");
-  wire.stream(video(1, true));
-  await waitFor(() => expect(mainAcks()).toHaveLength(1));
-  expect(mainAcks()[0]).toMatchObject({ type: "browser.ack", sequence: 1, video: true });
-  expect(link.acks).toEqual([]);
-});
-
 test("a reconnected media connection gets a subscribe naming its new id", async () => {
   const { link, subscribes } = await watching("mc_aaaaaaaaaa");
   link.move("mc_bbbbbbbbbb");
@@ -319,18 +316,6 @@ test("the browser's view carries the degraded sentence exactly while its video i
   await waitFor(() => expect(sentence()).toBeUndefined());
 });
 
-test("acks stay on the socket when the daemon serves the video there itself", async () => {
-  const { wire, link, subscribes, mainAcks } = await watching(
-    "mc_aaaaaaaaaa",
-    undefined,
-    "serves here",
-  );
-  expect(subscribes()[0]).toMatchObject({ media: { connection: "mc_aaaaaaaaaa" } });
-  wire.stream(video(1, true));
-  await waitFor(() => expect(mainAcks()).toHaveLength(1));
-  expect(link.acks).toEqual([]);
-});
-
 test("a refused connection subscribes again on the socket", async () => {
   const { subscribes, refused } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
   expect(refused).toEqual([expect.objectContaining({ media: { connection: "mc_aaaaaaaaaa" } })]);
@@ -351,14 +336,6 @@ test("video that still comes on the socket after the view moved to the media con
   await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(2));
 });
 
-test("a page's last picture replayed on the socket before the reply shows once the reply settles there", async () => {
-  const { preview, link, mainAcks } = await watching("mc_aaaaaaaaaa", undefined, "replays here");
-  // The page is static: nothing follows the replayed keyframe.
-  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(1));
-  await waitFor(() => expect(mainAcks()).toContainEqual(expect.objectContaining({ sequence: 1 })));
-  expect(link.acks).toEqual([]);
-});
-
 test("pictures held for a pending subscribe die with the view: its late reply shows and acks nothing", async () => {
   const view = await watching("mc_aaaaaaaaaa", undefined, "replays, answers later");
   // The replayed keyframe is held while the reply is pending; then nobody watches any more.
@@ -377,34 +354,6 @@ test("a disposed view's pending subscribe leaves nothing behind when its reply c
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(view.mainAcks()).toEqual([]);
   expect(view.preview.frame(thread)).toBeUndefined();
-});
-
-test("the reply of a subscribe a rebind replaced never shows the picture held for it", async () => {
-  const view = await watching("mc_aaaaaaaaaa", undefined, "replays, answers later");
-  // Replay 1 is held for the subscribe naming A; the connection moves before its reply comes.
-  view.link.move("mc_bbbbbbbbbb");
-  view.answer();
-  // The subscribe again (naming B) gets replay 2, and only that one is the view's.
-  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(2));
-  expect(view.mainAcks()).not.toContainEqual(expect.objectContaining({ sequence: 1 }));
-});
-
-test("a subscribe that times out stops holding video, and its late reply still settles delivery", async () => {
-  const view = await watching("mc_aaaaaaaaaa", undefined, "answers later");
-  // No answer in time: the video is the socket's until the daemon says otherwise.
-  view.fire(mediaSubscribeDeadlineMs);
-  view.wire.stream(video(1, true));
-  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(1));
-  await waitFor(() =>
-    expect(view.mainAcks()).toContainEqual(expect.objectContaining({ sequence: 1 })),
-  );
-  // The answer comes late: the daemon delivers by the media connection after all.
-  view.answer();
-  await waitFor(() => expect(view.subscribes().length).toBeGreaterThan(0));
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  view.link.deliver(video(2, true));
-  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(2));
-  expect(view.link.acks).toContainEqual(expect.objectContaining({ sequence: 2 }));
 });
 
 test("a poster still decoding when the view rebinds is never drawn", async () => {
@@ -549,21 +498,4 @@ test("a subscribe that succeeds resets the ladder for the next failure", async (
   view.link.move("mc_bbbbbbbbbb");
   await waitFor(() => expect(view.subscribes()).toHaveLength(4));
   await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
-});
-
-test("past the cooldown the view recovers on the socket once the daemon answers again", async () => {
-  const view = await watching("mc_aaaaaaaaaa", undefined, "fails everything");
-  await spend(view);
-  view.fire(mediaRetryCooldownMs);
-  await waitFor(() => expect(view.subscribes()).toHaveLength(6));
-  await settle();
-  // That socket try failed too; by the next cooldown's end the daemon answers again.
-  expect(view.pending(mediaRetryCooldownMs)).toBe(1);
-  view.answerAs("binds");
-  view.fire(mediaRetryCooldownMs);
-  await waitFor(() => expect(view.subscribes()).toHaveLength(7));
-  expect(named(view.subscribes()[6]!)).toBeUndefined();
-  view.wire.stream(video(1, true));
-  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(1));
-  expect(view.pending(mediaRetryCooldownMs)).toBe(0);
 });

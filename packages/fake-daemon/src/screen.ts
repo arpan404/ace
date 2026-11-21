@@ -16,10 +16,13 @@ import type { FakeServiceContext } from "./service-context.ts";
 import { FakeScreenError } from "./screen-error.ts";
 import { streamKinds } from "@ace/browser/stream";
 import { fakePicture } from "./screen-frame.ts";
+import type { FakeMediaConnections } from "./media-connections.ts";
 
 type Channel = {
   send(message: ScreenServerMessage | Uint8Array): void;
   subscriptions: Set<string>;
+  /** The media connection each subscribed session's pictures go to (X3: only there). */
+  media: Map<string, string>;
 };
 type Session = {
   state: ScreenState;
@@ -35,6 +38,8 @@ export interface FakeScreenOptions {
   id(): string;
   schedule(callback: () => void, delay: number): () => void;
   permissions?: ScreenPermissions;
+  /** ace-media's media connections; omitted: no live view gets pictures. */
+  media?: FakeMediaConnections;
 }
 /**
  * Fake desktop targets share the real wire states and scopes; a subscribed session's pictures
@@ -82,6 +87,11 @@ export class FakeScreen {
   private sequence = 0;
   constructor(options: FakeScreenOptions) {
     this.options = options;
+    // Acks come on the media connection now.
+    options.media?.onAck((message) => {
+      const ack = ScreenAck.safeParse({ ...(typeof message === "object" ? message : {}) });
+      if (ack.success) this.acks.push(ack.data);
+    });
     this.permissions = options.permissions ?? { screenRecording: true, accessibility: true };
   }
   private requireEnabled(): void {
@@ -93,7 +103,7 @@ export class FakeScreen {
     ack(raw: unknown): void;
     close(): void;
   } {
-    const channel: Channel = { send, subscriptions: new Set() };
+    const channel: Channel = { send, subscriptions: new Set(), media: new Map() };
     this.channels.add(channel);
     return {
       request: async (raw, human = true) => {
@@ -104,7 +114,28 @@ export class FakeScreen {
           if (!human)
             throw new FakeScreenError("forbidden", "Admin scope required for screen access");
           const data = await this.operate(channel, message.operation);
-          result = { type: "screen.result", requestId: message.requestId, ok: true, data };
+          const operation = message.operation;
+          const delivered =
+            operation.op === "subscribe" ? channel.media.get(operation.sessionId) : undefined;
+          result = {
+            type: "screen.result",
+            requestId: message.requestId,
+            ok: true,
+            data,
+            ...(operation.op !== "subscribe"
+              ? {}
+              : delivered
+                ? { media: { connection: delivered } }
+                : {
+                    undelivered: operation.media
+                      ? { code: "unavailable", reason: "Live video isn't available now." }
+                      : {
+                          code: "update",
+                          reason:
+                            "Update this app to see live video. This computer now sends it a newer way.",
+                        },
+                  }),
+          };
         } catch (error) {
           result = {
             type: "screen.result",
@@ -186,8 +217,11 @@ export class FakeScreen {
       codec: session.codec ?? "jpeg",
       keyframe: true,
     });
-    for (const channel of viewers)
-      if (this.channels.has(channel)) for (const piece of pieces) channel.send(piece);
+    // Only ace-media delivers: each view's pictures go on its media connection, never here.
+    for (const channel of viewers) {
+      const connection = channel.media.get(session.state.sessionId);
+      if (this.channels.has(channel) && connection) this.options.media?.send(connection, pieces);
+    }
   }
   private live(id: string): Session {
     const session = this.sessions.get(id);
@@ -464,11 +498,15 @@ export class FakeScreen {
         session.codec = op.settings.codec;
         this.paint(session);
         return { codec: op.settings.codec };
-      case "subscribe":
+      case "subscribe": {
         channel.subscriptions.add(op.sessionId);
+        const named = op.media?.connection;
+        if (named && this.options.media?.live(named)) channel.media.set(op.sessionId, named);
+        else channel.media.delete(op.sessionId);
         channel.send({ type: "screen.state", state: ScreenState.parse(session.state) });
         this.paint(session, channel);
         return;
+      }
       case "action":
       case "input":
       case "ui.act": {

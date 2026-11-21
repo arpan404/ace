@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { EncodeIds, nextEncodeId } from "./encode-ids.ts";
-import type { VideoEncode } from "./video-policy.ts";
+import type { VideoEncode } from "./backend.ts";
 
 const spec = (key: string): VideoEncode => ({
   key,

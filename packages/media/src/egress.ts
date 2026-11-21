@@ -20,8 +20,10 @@ export type EgressUnit = {
   gap: boolean;
 };
 
-/** The daemon's side of one source: its legacy viewers (`LiveVideo.publish` and the picture
- * hubs) and, until X2, the frames a recording tees into ace-media's recorder. */
+/**
+ * The daemon's side of one source: until X2, the frames a recording tees into ace-media's
+ * recorder. No viewer is fed from egress: ace-media delivers every live view itself (X3).
+ */
 export type LegacyConsumers = {
   deliver: (unit: EgressUnit) => void;
   /**

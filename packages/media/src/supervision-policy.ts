@@ -4,13 +4,14 @@ import type { ToMedia } from "./wire.ts";
 
 type WireSettings = Extract<ToMedia, { type: "init" }>["settings"];
 /**
- * The daemon's media settings. Recordings and stills are always ace-media's (X1): the wire keeps
- * their `legacy` value for older binaries, but the daemon never sends it. ace-media always
- * encodes (X2); only `delivery` still chooses a path.
+ * The daemon's media settings. Recordings and stills are always ace-media's (X1), and so are
+ * encoding (X2) and delivery (X3): the wire keeps their `legacy` value for older binaries, but
+ * the daemon never sends it, and no route reads them.
  */
-export type MediaSettings = Omit<WireSettings, "recordings" | "stills"> & {
+export type MediaSettings = Omit<WireSettings, "recordings" | "stills" | "delivery"> & {
   recordings: "auto";
   stills: "auto";
+  delivery: "auto";
 };
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
 
@@ -44,13 +45,12 @@ export function crashLoop(failures: readonly number[], now: number) {
 }
 
 /**
- * The settings a daemon starts with: ace-media encodes every source, records and makes stills
- * (`media.encode`, `media.recordings` and `media.stills` have no other value); the daemon still
- * delivers until X3.
+ * The settings a daemon starts with: ace-media encodes, delivers, records and makes stills for
+ * every source; no `media.*` setting has another value the daemon acts on.
  */
 export const defaultMediaSettings: MediaSettings = {
   recordings: "auto",
   stills: "auto",
   encode: "auto",
-  delivery: "legacy",
+  delivery: "auto",
 };

@@ -9,13 +9,10 @@ import type { MediaRelayPort, MediaRelayWatcher } from "./port.ts";
  */
 export class RuntimeRelayPort implements MediaRelayPort {
   readonly #live: Pick<MediaRuntime, "supervisor" | "connections">;
-  readonly #delivering: () => boolean;
   readonly #watchers = new Set<MediaRelayWatcher>();
 
-  /** `delivering`: whether ace-media delivers views now. */
-  constructor(live: Pick<MediaRuntime, "supervisor" | "connections">, delivering: () => boolean) {
+  constructor(live: Pick<MediaRuntime, "supervisor" | "connections">) {
     this.#live = live;
-    this.#delivering = delivering;
   }
 
   /** Watchers now, for diagnostics. */
@@ -27,8 +24,7 @@ export class RuntimeRelayPort implements MediaRelayPort {
   closeStream: MediaRelayPort["closeStream"] = (message) =>
     void this.#live.supervisor.revoke(message);
   need: MediaRelayPort["need"] = () => this.#live.supervisor.need();
-  available: MediaRelayPort["available"] = () =>
-    this.#delivering() && this.#live.supervisor.health() !== "unavailable";
+  available: MediaRelayPort["available"] = () => this.#live.supervisor.health() !== "unavailable";
   claim: MediaRelayPort["claim"] = (ticket, claimant) =>
     this.#live.connections.claimRelay(ticket, claimant);
 

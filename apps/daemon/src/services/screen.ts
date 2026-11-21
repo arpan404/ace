@@ -200,23 +200,12 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       if (!context.options.screen || !context.authorize("admin")) return;
       channel = screenConnection(context.options.screen, simulators, context.sessionId, {
         send: context.send,
-        // Subscribes naming a media connection go to ace-media (D1) while it serves screens.
+        // Its pictures come only from ace-media (D1, X3), on the client's media connection.
         delivery: {
           owner: () => mediaOwner(context),
           port: () => context.options.mediaDelivery?.(),
         },
         acceleration: context.options.mediaAcceleration,
-        media: {
-          bufferedBytes: () => context.socket.bufferedAmount,
-          write: (piece) =>
-            new Promise<void>((resolve, reject) => {
-              if (!context.connected() || !context.authorize("admin"))
-                return reject(new Error("Screen socket revoked"));
-              context.socket.send(piece, { binary: true, compress: false }, (error) =>
-                error ? reject(error) : resolve(),
-              );
-            }),
-        },
       });
     },
     close() {

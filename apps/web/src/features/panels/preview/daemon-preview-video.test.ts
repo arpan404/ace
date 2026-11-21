@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview } from "./daemon-preview.ts";
-import { streamingClient } from "./stream-test-support.ts";
+import { fakePreviewMedia, streamingClient } from "./stream-test-support.ts";
 import type { VideoDecoderConfig, VideoDecoderFactory } from "@/lib/video/codecs.ts";
 import type { BrowserVideoChunk } from "./thread-videos.ts";
 
@@ -86,9 +86,10 @@ async function watching(options: {
   const client = fakeClient(daemon);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
-  const wire = streamingClient(client);
+  const wire = streamingClient(client, await fakePreviewMedia(daemon, { injectedOnly: true }));
   const shown = { visible: options.visible ?? (() => true), listeners: new Set<() => void>() };
   const preview = daemonPreview(wire.api, {
+    ...(wire.media ? { media: wire.media } : {}),
     schedule: options.schedule ?? (() => () => {}),
     visibility: {
       visible: () => shown.visible(),
@@ -109,6 +110,8 @@ async function watching(options: {
   await waitFor(() =>
     expect(wire.requests).toContainEqual(expect.objectContaining({ type: "browser.subscribe" })),
   );
+  // Its reply settles delivery on the media connection before any picture comes.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const video = (sequence: number, key: boolean) =>
     wire.stream({
       kind: "browser.video",

@@ -47,11 +47,13 @@ function world() {
     why: undefined as string | undefined,
     settings: {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     } as MediaSettings,
     health: "healthy" as MediaHealth,
+    /** What this build can stream into ace-media: emptied, a kind's route leaves it. */
+    capabilities,
     up: true,
     needs: 0,
     /** The running ace-media's agreed features (`ready.features`). */
@@ -62,7 +64,7 @@ function world() {
   let now = 0;
   let ids = 0;
   let bytes = 0;
-  const routes = () => mediaRoutes(state.settings, state.health, capabilities);
+  const routes = () => mediaRoutes(state.settings, state.health, state.capabilities);
   const router = new EgressRouter((kind) => routes()[kind]);
   const sources = new IngestSources({
     port: {
@@ -81,7 +83,7 @@ function world() {
     router,
     routes,
     settings: () => state.settings,
-    capabilities: () => capabilities,
+    capabilities: () => state.capabilities,
     randomBytes: (length) => new Uint8Array(length).fill(++bytes),
     id: () => `s${++ids}`,
     why: () => state.why,
@@ -181,6 +183,15 @@ describe("IngestSources", () => {
     expect(w.state.needs).toBe(1);
   });
 
+  it("keeps a source with the daemon while its kind can't stream into ace-media, without starting it", () => {
+    const w = world();
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
+    const l = producer();
+    w.sources.add(l.p);
+    expect(w.sent).toEqual([]);
+    expect(w.state.needs).toBe(0);
+  });
+
   it("wants ace-media while it starts, and opens the source once it is up", () => {
     const w = world();
     w.state.up = false;
@@ -203,7 +214,7 @@ describe("IngestSources", () => {
     w.router.push(encodeEgress(1, 0, unitFrame(1)));
     // ace-media stops answering (its route stops the producer); its status about the producer's end comes first,
     // long before the lane carrying its last units drains.
-    w.state.health = "restarting";
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab"]);
     expect(l.points.at(-1)).toBeUndefined();
     w.status("s1", "ended");
@@ -218,8 +229,8 @@ describe("IngestSources", () => {
     expect(w.closed()).toEqual(["s1"]);
     w.router.push(encodeEgress(1, 3, unitFrame(4)));
     expect(l.units).toHaveLength(3);
-    // The drain's own hold is released; the open source still wants ace-media back.
-    expect(w.state.needs).toBe(1);
+    // The drain's own hold is released, and a kind ace-media can't take holds nothing.
+    expect(w.state.needs).toBe(0);
   });
 
   it("a drain whose end marker never comes is reported interrupted, never clean", () => {
@@ -227,7 +238,7 @@ describe("IngestSources", () => {
     const l = producer();
     w.sources.add(l.p);
     w.status("s1", "starting");
-    w.state.health = "restarting";
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab"]);
     w.advance(drainMs - 1);
     expect(l.ended).toEqual([]);
@@ -241,7 +252,7 @@ describe("IngestSources", () => {
     const l = producer();
     w.sources.add(l.p);
     w.status("s1", "starting");
-    w.state.health = "restarting";
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab"]);
     w.router.push(encodeEgressEnd(1, 0, false));
     expect(l.events).toEqual(["point", "unpoint", "ended"]);
@@ -302,7 +313,7 @@ describe("IngestSources", () => {
     w.sources.add(l.p);
     w.status("s1", "starting");
     expect(l.points.at(-1)).toBeDefined();
-    w.state.health = "restarting";
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["simulator"]);
     // No producer of its own to drain: only ace-media's close ends its reading.
     expect(w.closed()).toEqual(["s1"]);
@@ -444,7 +455,7 @@ describe("IngestSources", () => {
     // Leaving, the producer is told to stop: it writes its pending picture and its ingest end.
     // ace-media's marker follows the encoder's last unit, and only then is the source closed.
     w.status("s2", "starting");
-    w.state.health = "restarting";
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab-pictures"]);
     expect(l.points.at(-1)).toBeUndefined();
     expect(w.closed()).toEqual([]);

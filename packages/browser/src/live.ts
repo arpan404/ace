@@ -83,7 +83,7 @@ export class LiveCapture {
     videoSource: () => LiveVideoSource | undefined = () => undefined,
   ) {
     this.videoSource = videoSource;
-    this.video = new LiveVideo({ now, playing: () => {}, statusChanged: () => this.videoStatus() });
+    this.video = new LiveVideo({ now, statusChanged: () => this.videoStatus() });
     this.tab = tab;
     this.scale = scale;
     this.cdp = cdp;
@@ -212,10 +212,6 @@ export class LiveCapture {
     const sink = this.sinks.get(id);
     if (sink) this.viewersChange(() => this.configureVideo(id, sink, capture));
   }
-  /** A viewer that joined again starts over at a keyframe. */
-  replay(id: string): void {
-    this.video.keyframe(id);
-  }
   /** The live video runs its own clock while anyone watches, screencast or not. */
   private tickVideo(): void {
     const run = this.attached && !this.closed && this.sinks.size > 0;
@@ -268,10 +264,8 @@ export class LiveCapture {
     this.demand();
   }
   private configureVideo(id: string, sink: ViewerSink, capture: CaptureViewer): void {
-    if (sink.video && capture.video) {
-      if (this.video.has(id)) this.video.configure(id, capture);
-      else this.video.add(id, sink.video, capture, sink.audio, { local: sink.local === true });
-    } else this.video.remove(id);
+    if (this.video.has(id)) this.video.configure(id, capture);
+    else this.video.add(id, capture, { local: sink.local === true });
   }
   private receive: (raw: unknown) => void = () => {};
   /** The tab this capture shows, fixed when the capture starts on its page. */

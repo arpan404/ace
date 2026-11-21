@@ -1,8 +1,6 @@
 import { describe, expect, it, onTestFinished } from "vitest";
 import { maxStillPictureBytes } from "@ace/media/ingest-writer";
 import { ingestServer, until } from "@ace/media/testing/ingest-server";
-import type { EgressUnit } from "@ace/media/egress";
-import type { MediaFrame } from "@ace/media/frame";
 import type { IngestAddress, IngestProducer } from "@ace/media/ingest-sources";
 import type {
   BrowserCdp,
@@ -14,37 +12,9 @@ import type {
   VideoMediaKind,
 } from "./backend.ts";
 import { mediaMissing, mediaVideoHost, noMedia, type BrowserMedia } from "./media-video.ts";
-import type { VideoEncode } from "./video-policy.ts";
+import type { VideoEncode } from "./backend.ts";
 
 const page = {} as BrowserCdp;
-
-function frame(encode: number, key: boolean, payload: number): MediaFrame {
-  return {
-    kind: 1,
-    flags: key ? 5 : 0,
-    ageUs: 4_000,
-    width: 640,
-    height: 400,
-    displayWidth: 640,
-    displayHeight: 400,
-    scale: 1000,
-    rotation: 0,
-    codec: 2,
-    encode,
-    epoch: 0,
-    codecString: "avc1.640020",
-    description: key ? new Uint8Array([1, 0x64, 0, 0x20]) : new Uint8Array(0),
-    extension: new Uint8Array(0),
-    payload: new Uint8Array([payload]),
-  };
-}
-
-const unit = (path: string, f: MediaFrame): EgressUnit => ({
-  source: path,
-  frame: f,
-  sequence: 0,
-  gap: false,
-});
 
 const address = (path: string): IngestAddress => ({
   url: "ws://127.0.0.1:9/ingest",
@@ -156,8 +126,6 @@ const spec = (key: string): VideoEncode => ({
   bitrate: 4_000_000,
 });
 
-const marks = (chunks: EncodedChunk[]) => chunks.map((chunk) => chunk.bytes[0]);
-
 describe("live video routed through ace-media", () => {
   it.each(["tab", "tab-pictures"] as const)(
     "a %s capture tells ace-media the codecs its encoder runs",
@@ -175,7 +143,7 @@ describe("live video routed through ace-media", () => {
     },
   );
 
-  it("a tab's own encoder is pointed at the ingest with its token, and egress units reach the capture as its chunks", async () => {
+  it("a tab's own encoder is pointed at the ingest with its token, under the daemon's own encode ids", async () => {
     const { media, added } = fakeMedia({ routed: true });
     const { host, captures } = fakeHost("tab", true);
     const e = events();
@@ -188,62 +156,9 @@ describe("live video routed through ace-media", () => {
     handle.encodes([spec("avc1/640"), spec("avc1/320")]);
     // The daemon's own encodes take ids above ace-media's, which start at 1 (D1).
     expect(captures[0]?.encodes[0]?.map((s) => s.id)).toEqual([2 ** 20, 2 ** 20 + 1]);
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, true, 9)));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, false, 10)));
-    producer?.consumers.deliver(unit("m1", frame(77, false, 11)));
-    expect(e.chunks).toEqual([
-      expect.objectContaining({
-        encode: "avc1/320",
-        key: true,
-        codec: "avc1.640020",
-        age: 4,
-        description: new Uint8Array([1, 0x64, 0, 0x20]),
-      }),
-      expect.objectContaining({ encode: "avc1/320", key: false }),
-    ]);
-    expect(e.chunks[1]).not.toHaveProperty("description");
     handle.close();
     expect(added[0]?.closed).toBe(true);
     expect(captures[0]?.closed).toBe(true);
-  });
-
-  it("a reopened path's keyframe waits for the old path's late deltas and its end marker", async () => {
-    const { media, added } = fakeMedia({ routed: true });
-    const { host } = fakeHost("tab", true);
-    const e = events();
-    const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink);
-    handle.encodes([spec("avc1/640")]);
-    const producer = added[0]?.producer;
-    await producer?.point(address("m1"));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
-    // ace-media reopened the source: the new path's keyframe overtakes the old one's deltas.
-    await producer?.point(address("m2"));
-    producer?.consumers.deliver(unit("m2", frame(2 ** 20, true, 4)));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 2)));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 3)));
-    expect(marks(e.chunks)).toEqual([1, 2, 3]);
-    producer?.pathEnded?.("m1", false);
-    producer?.consumers.deliver(unit("m2", frame(2 ** 20, false, 5)));
-    expect(marks(e.chunks)).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  it("a path cut by ace-media's death lets the next one in from its keyframe only", async () => {
-    const { media, added } = fakeMedia({ routed: true });
-    const { host } = fakeHost("tab", true);
-    const e = events();
-    const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink);
-    handle.encodes([spec("avc1/640")]);
-    const producer = added[0]?.producer;
-    await producer?.point(address("m1"));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
-    // ace-media died: the producer stops, its path ended as cut, then a new ace-media takes it.
-    await producer?.point(undefined);
-    producer?.pathEnded?.("m1", true);
-    await producer?.point(address("m2"));
-    producer?.consumers.deliver(unit("m2", frame(2 ** 20, false, 2)));
-    producer?.consumers.deliver(unit("m2", frame(2 ** 20, true, 3)));
-    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 9)));
-    expect(marks(e.chunks)).toEqual([1, 3]);
   });
 
   it("while ace-media can't take a capture, the capture says why, and stops saying it once it streams again", async () => {
@@ -301,8 +216,6 @@ describe("live video routed through ace-media", () => {
       "hello",
     );
     expect(added[0]?.keys).toEqual([2 ** 20]);
-    added[0]?.producer.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
-    expect(e.chunks.map((c) => c.encode)).toEqual(["avc1/640"]);
   });
 
   it.each(["tab-pictures", "user-tab"] as const)(
@@ -623,9 +536,6 @@ it("out of daemon ids, the source reopens, and waiting encodes run once the old 
   expect(captures[0]?.encodes.at(-1)?.map((s) => s.key)).toEqual(["a"]);
   expect(added[0]?.reconnects).toBe(1);
   await producer?.point(address("m2"));
-  // The old path's late unit of `b` keeps its label.
-  producer?.consumers.deliver(unit("m1", frame(first + 1, true, 1)));
-  expect(e.chunks.map((c) => c.encode)).toEqual(["b"]);
   // Its end marker: ids start over past `a`, and `c` runs.
   producer?.pathEnded?.("m1", false);
   expect(captures[0]?.encodes.at(-1)).toEqual([

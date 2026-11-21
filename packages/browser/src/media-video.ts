@@ -1,30 +1,25 @@
-import type { EgressUnit } from "@ace/media/egress";
 import type { IngestAddress, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
 import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import { IngestWriter, maxStillPictureBytes, stillPictureFrame } from "@ace/media/ingest-writer";
-import { PathMerge } from "@ace/media/path-merge";
 import type {
   CapturePrivacy,
   CaptureEvents,
-  EncodedAudio,
-  EncodedChunk,
   VideoCaptureHandle,
   VideoHost,
   VideoIngestTarget,
   VideoMediaKind,
 } from "./backend.ts";
 import { EncodeIds, mediaKey, type IdRange } from "./encode-ids.ts";
-import type { VideoEncode } from "./video-policy.ts";
+import type { VideoEncode } from "./backend.ts";
 
 /*
  * A browser's video, encoded only through ace-media (E4, X2, docs/media/plan.md "Routes"). Tabs
  * of ace's Chrome and the desktop's views keep their own WebCodecs encoder, which streams its
  * chunks straight into ace-media's ingest (binary); tabs only seen as JPEG screencasts (a
  * private context, "Use my Chrome") have ace-media encode their pictures on this computer's
- * hardware encoder. Either way the units come back on egress to the same `CaptureEvents`, so
- * the live video, its viewers and recordings are unchanged while delivery is legacy. A capture
- * that moves between ace-media paths (a reconnect, a restart) goes through one `PathMerge`, so
- * its units stay in order. While ace-media can't take a capture, nothing streams and the
+ * hardware encoder, the pictures on the source's own ingest. Either way ace-media delivers every
+ * view itself (X3): no unit comes back to the daemon's viewers, and a capture tells the live
+ * video only that it plays. While ace-media can't take a capture, nothing streams and the
  * capture says why (`CaptureEvents.stalled`); without ace-media at all a capture can't open.
  */
 
@@ -101,46 +96,7 @@ function reported(
 
 type Ids = { threadId?: string; tabId?: string };
 
-/** How long a capture's new path waits for its old path's end before starting at a keyframe. */
-const holdMs = 1_000;
 let captures = 0;
-
-/** A unit off egress as the chunk a capture's listener takes; undefined for other kinds. */
-function chunkOf(unit: EgressUnit, ids: EncodeIds): EncodedChunk | undefined {
-  const { frame } = unit;
-  if (frame.kind !== 1) return undefined;
-  const encode = ids.key(frame.encode, unit.source);
-  if (encode === undefined) return undefined;
-  const key = (frame.flags & 1) !== 0;
-  const described = key && (frame.flags & 4) !== 0 && frame.description.length > 0;
-  return {
-    encode,
-    key,
-    codec: frame.codecString,
-    codedWidth: frame.width,
-    codedHeight: frame.height,
-    ...(described ? { description: frame.description } : {}),
-    age: frame.ageUs / 1000,
-    bytes: frame.payload,
-  };
-}
-
-function audioOf(unit: EgressUnit): EncodedAudio | undefined {
-  const { frame } = unit;
-  if (frame.kind !== 2 || frame.description.length < 5) return undefined;
-  const view = new DataView(
-    frame.description.buffer,
-    frame.description.byteOffset,
-    frame.description.byteLength,
-  );
-  return {
-    codec: "opus",
-    sampleRate: view.getUint32(0),
-    channels: frame.description[4] ?? 1,
-    age: frame.ageUs / 1000,
-    bytes: frame.payload,
-  };
-}
 
 function wire(address: IngestAddress): VideoIngestTarget {
   return {
@@ -150,9 +106,9 @@ function wire(address: IngestAddress): VideoIngestTarget {
   };
 }
 
-const consumers = (deliver: (unit: EgressUnit) => void) => ({
-  deliver,
-});
+/** A browser source takes nothing back on egress: ace-media delivers its views (X3), and its
+ * recordings come from the screencast. */
+const consumers = { deliver: () => {} };
 
 /** The routed host for each backend host, one per inner host. */
 export function mediaVideoHosts(
@@ -201,15 +157,9 @@ export function mediaVideoHost(
   };
 }
 
-type Unit = { chunk: EncodedChunk } | { audio: EncodedAudio };
-
-/** The merge's name for "not streaming anywhere": nothing is ever delivered on it. */
-const offPath = "off";
-
 /**
- * A capture whose own encoder streams into ace-media. Each ace-media path's units come back on
- * egress through one merge, so a path's units are handed on only after the previous path's last
- * ones. A capture that can't stream into ace-media doesn't open.
+ * A capture whose own encoder streams into ace-media, which delivers its views. A capture that
+ * can't stream into ace-media doesn't open.
  */
 async function streamed(
   open: (events: CaptureEvents) => Promise<VideoCaptureHandle>,
@@ -219,28 +169,11 @@ async function streamed(
   ids: Ids,
   limits: MediaVideoLimits,
 ): Promise<VideoCaptureHandle> {
-  const merge = new PathMerge<Unit>(offPath, {
-    emit: (unit) => {
-      if ("chunk" in unit) events.chunk(unit.chunk);
-      else events.audio?.(unit.audio);
-    },
-    stream: (unit) => ("chunk" in unit ? unit.chunk.encode : "audio"),
-    key: (unit) => !("chunk" in unit) || unit.chunk.key,
-    bytes: (unit) => ("chunk" in unit ? unit.chunk.bytes.length : unit.audio.bytes.length),
-    schedule: (callback, ms) => {
-      const timer = setTimeout(callback, ms);
-      return () => clearTimeout(timer);
-    },
-    holdMs,
-  });
   const handle = await open({
     // The encoder's chunks go to ace-media's ingest; nothing comes this way.
     chunk: () => {},
     failed: (encode) => events.failed(encode),
-    ended: (reason) => {
-      merge.dispose();
-      events.ended(reason);
-    },
+    ended: (reason) => events.ended(reason),
   });
   const ingest = handle.ingest?.bind(handle);
   if (!ingest) {
@@ -254,9 +187,6 @@ async function streamed(
   const run = () => handle.encodes(encodeIds.stamp(last));
   /** The ace-media path the capture streams to; undefined while it streams nowhere. */
   let current: string | undefined;
-  /** The last path the merge was moved to, and the paths whose end has come (interrupted?). */
-  let path = offPath;
-  const ended = new Map<string, boolean>([[offPath, false]]);
   const name = `capture-${++captures}`;
   const source = media.add({
     source: name,
@@ -264,23 +194,10 @@ async function streamed(
     origin: { kind },
     ...ids,
     epoch: () => 0,
-    consumers: consumers((unit) => {
-      const chunk = chunkOf(unit, encodeIds);
-      if (chunk) return merge.deliver(unit.source, { chunk });
-      const audio = audioOf(unit);
-      if (audio) merge.deliver(unit.source, { audio });
-    }),
+    consumers,
     point: (address) => {
       current = address?.path;
-      if (address) {
-        const from = path;
-        path = address.path;
-        merge.switching(path);
-        // Nothing more comes on a path already ended (or on none): the new one goes on at once.
-        const end = ended.get(from);
-        if (end !== undefined) merge.ended(from, end);
-        events.stalled?.(undefined);
-      }
+      if (address) events.stalled?.(undefined);
       if (encodeIds.pointed(current) && last.some((spec) => spec.key.startsWith(mediaKey))) {
         // ace-media's plan was the old path's: its encodes stop before the capture moves (the
         // encoder drops a stopped encode's output at once), so none of their units reach the
@@ -296,9 +213,7 @@ async function streamed(
       const key = encodeIds.key(encode, current);
       if (key !== undefined) handle.keyframe(key);
     },
-    pathEnded: (gone, interrupted) => {
-      ended.set(gone, interrupted);
-      merge.ended(gone, interrupted);
+    pathEnded: (gone) => {
       // Every path open when the daemon's ids ran out has ended: encodes waiting for one run.
       if (encodeIds.ended(gone)) run();
     },
@@ -322,7 +237,6 @@ async function streamed(
     },
   });
   if (!source) {
-    merge.dispose();
     handle.close();
     throw new Error(mediaMissing);
   }
@@ -336,7 +250,6 @@ async function streamed(
     codecs: (codecs) => source.codecs([...codecs]),
     ...(handle.audio ? { audio: (on: boolean) => handle.audio?.(on) } : {}),
     close: () => {
-      merge.dispose();
       source.close();
       handle.close();
     },
@@ -465,10 +378,7 @@ function pictureCapture(options: {
     ...options.ids,
     epoch: () => privacy.epoch,
     private: () => privacy.private,
-    consumers: consumers((unit) => {
-      const chunk = chunkOf(unit, encodeIds);
-      if (open && chunk) events.chunk(chunk);
-    }),
+    consumers,
     point: (address) => {
       encodeIds.pointed(address?.path);
       pointAt(address);

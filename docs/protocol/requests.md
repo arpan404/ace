@@ -3335,6 +3335,8 @@ Example:
 | viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
 | video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 
 Example:
 
@@ -3343,6 +3345,7 @@ Example:
   "media": {
     "connection": "mc_QsuC6YfNWdcmYxcM7krwm7u1aWcoH3xvY7YwirZ_KlGn"
   },
+  "mediaClient": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",

@@ -3,6 +3,7 @@ import { loadavg } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ClientChannel } from "@ace/relay";
+import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
 import { b64, binary, firstChunk, hex, setup, until } from "./testing-relay.ts";
 
 // A relay media stream end to end (D2): the real self-hosted relay, the real ace-media binary
@@ -156,6 +157,59 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     expect(await firstChunk(after)).toBe(true);
+  });
+
+  it("a device's pictures reach a relay client on its media connection, pause at the ack window and resume after an ack", async () => {
+    const t = await setup(cleanups);
+    const deviceId = "android:Pixel";
+    const device = t.device(deviceId);
+    const opens = () => t.received.filter((m) => m.type === "connection.open");
+    const ticket = await t.mint(t.phone.deviceId);
+    const { client, first } = await t.media(t.phone, ticket);
+    expect(first).toMatchObject({ type: "welcome" });
+    await until(() => opens().length > 0);
+    const connection = opens().at(-1);
+    if (connection?.type !== "connection.open") throw new Error("no connection");
+    await until(() => device.source.streaming());
+    expect(device.bind(connection.connection)).toMatch(/^view-/);
+    const pictures: { sequence: number; streamId: string; key: boolean }[] = [];
+    const assembler = new StreamAssembler();
+    const reading = { on: true };
+    void (async () => {
+      while (reading.on) {
+        const frame = await client.receiveFrame().catch(() => undefined);
+        if (!(frame instanceof Uint8Array)) continue;
+        const envelope = assembler.push(frame);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (message?.kind === "device.frame" && message.sourceId === deviceId)
+          pictures.push({
+            sequence: message.frame.sequence,
+            streamId: message.frame.streamId,
+            key: message.frame.key,
+          });
+      }
+    })();
+    cleanups.push(() => {
+      reading.on = false;
+    });
+    // Real pictures of the device, starting at a keyframe, on this media connection.
+    await until(() => pictures.length > 0);
+    expect(pictures[0]?.key).toBe(true);
+    // Unacked, they stop at the view's window while the device keeps producing.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    const held = pictures.length;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(pictures.length).toBe(held);
+    // An ack through the relay frees the window: pictures come again.
+    const last = pictures.at(-1);
+    if (!last) throw new Error("no picture");
+    await client.send({
+      type: "devices.ack",
+      deviceId,
+      streamId: last.streamId,
+      sequence: last.sequence,
+    });
+    await until(() => pictures.length > held, 5_000);
   });
 
   it("revocations are answered within 50 ms p99 while the normal lane is saturated and a relay stream carries pictures", async () => {

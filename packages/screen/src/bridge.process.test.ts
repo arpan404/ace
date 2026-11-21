@@ -1,14 +1,9 @@
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, screenConnection, Simulators } from "./index.ts";
-import { fakeScreenMedia, manager, ready } from "./testing/support.ts";
+import { manager, ready } from "./testing/support.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
-import type { ScreenServerMessage } from "@ace/protocol";
-import {
-  decodeStreamMessage,
-  isStreamPiece,
-  StreamAssembler,
-  type StreamMessage,
-} from "@ace/browser/stream";
+import { ScreenState, type ScreenServerMessage } from "@ace/protocol";
+import { updateReason } from "@ace/media/media-viewers";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -20,7 +15,6 @@ it("human devices can discover sessions, delegate to a scoped agent and observe 
   const messages: ScreenServerMessage[] = [];
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: (message) => messages.push(message),
-    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   cleanups.push(async () => connection.close());
   await connection.request({
@@ -68,7 +62,6 @@ it("a disconnect while start is in progress closes the resulting capture", async
   await test.screen.enable(true);
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: () => {},
-    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   const request = connection.request({
     type: "screen.request",
@@ -86,11 +79,9 @@ it("status exposes enablement without sessions and changes reach every human con
     second: ScreenServerMessage[] = [];
   const a = screenConnection(test.screen, new Simulators("linux"), "human-a", {
     send: (message) => first.push(message),
-    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   const b = screenConnection(test.screen, new Simulators("linux"), "human-b", {
     send: (message) => second.push(message),
-    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   cleanups.push(async () => {
     a.close();
@@ -139,29 +130,14 @@ it("an enablement observer cannot prevent the global stop from releasing live ta
   release();
 });
 
-it("a subscribed session's pictures arrive as stream kind screenFrame, named by the session", async () => {
-  const ace = fakeScreenMedia();
-  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" }, { media: ace.media });
+it("an older client's subscribe gets no pictures and its session's error asks it to update", async () => {
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
   cleanups.push(test.close);
   const state = await ready(test.screen);
-  await ace.stream(state.sessionId);
-  const assembler = new StreamAssembler();
-  const pictures: StreamMessage[] = [];
-  const first = Promise.withResolvers<void>();
   const messages: ScreenServerMessage[] = [];
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: (message) => messages.push(message),
-    media: {
-      bufferedBytes: () => 0,
-      write: async (piece) => {
-        // Every binary message is a stream piece: no other framing reaches a viewer.
-        expect(isStreamPiece(piece)).toBe(true);
-        const envelope = assembler.push(piece);
-        const message = envelope && decodeStreamMessage(envelope);
-        if (message) pictures.push(message);
-        first.resolve();
-      },
-    },
+    delivery: { owner: () => phoneOwner, port: () => fakeDelivery().port },
   });
   cleanups.push(async () => connection.close());
   await connection.request({
@@ -169,37 +145,54 @@ it("a subscribed session's pictures arrive as stream kind screenFrame, named by 
     requestId: "watch",
     operation: { op: "subscribe", sessionId: state.sessionId },
   });
-  // Live views are video only: the session's stills never reach the viewer until it asks.
-  await connection.request({
-    type: "screen.request",
-    requestId: "video",
-    operation: {
-      op: "stream.configure",
-      sessionId: state.sessionId,
-      settings: { codec: "h264", maxWidth: 1280, maxHeight: 800, fps: 60, bitrate: 8_000_000 },
-    },
-  });
-  // The session's video, back from ace-media's egress.
-  ace.unit(state.sessionId, 1, true);
-  await first.promise;
-  const [picture] = pictures;
-  expect(
-    pictures.every((message) => message.kind !== "screen.frame" || message.frame.codec !== "jpeg"),
-  ).toBe(true);
-  expect(picture?.kind).toBe("screen.frame");
-  if (picture?.kind !== "screen.frame") return;
-  expect(picture.sourceId).toBe(state.sessionId);
-  expect(picture.frame.key).toBe(true);
-  // An ack is never answered; a malformed one is refused.
+  const reply = messages.find(
+    (message) => message.type === "screen.result" && message.requestId === "watch",
+  );
+  // An older client can't read `undelivered`: the session's state says why in `error`, which it
+  // already shows.
+  const told = messages.findLast((message) => message.type === "screen.state");
+  expect(told?.type === "screen.state" && ScreenState.parse(told.state).error).toBe(updateReason);
+  expect(reply).toMatchObject({ ok: true, undelivered: { code: "update" } });
+  expect(reply).not.toHaveProperty("media");
+  // Acks are the media connection's now: one here is read and changes nothing.
   const before = messages.length;
-  connection.ack({
-    type: "screen.ack",
-    sessionId: state.sessionId,
-    streamId: picture.frame.streamId,
-    sequence: picture.frame.sequence,
-  });
+  connection.ack({ type: "screen.ack", sessionId: state.sessionId, streamId: "s", sequence: 1 });
   expect(messages.length).toBe(before);
   expect(() => connection.ack({ type: "screen.ack", sessionId: state.sessionId })).toThrow();
+});
+
+it("a subscribe naming a media connection while ace-media can't serve screens says why", async () => {
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const messages: ScreenServerMessage[] = [];
+  const delivery = fakeDelivery();
+  const port = {
+    ...delivery.port,
+    serves: () => false,
+    unserved: () => "Live video is starting. It shows in a moment.",
+  };
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: (message) => messages.push(message),
+    delivery: { owner: () => phoneOwner, port: () => port },
+  });
+  cleanups.push(async () => connection.close());
+  await connection.request({
+    type: "screen.request",
+    requestId: "watch",
+    operation: {
+      op: "subscribe",
+      sessionId: state.sessionId,
+      media: { connection: "mc_phoneconnection1" },
+      mediaClient: true,
+    },
+  });
+  expect(
+    messages.find((message) => message.type === "screen.result" && message.requestId === "watch"),
+  ).toMatchObject({
+    ok: true,
+    undelivered: { code: "unavailable", reason: "Live video is starting. It shows in a moment." },
+  });
 });
 
 it("a request it can't read is refused at once rather than left unanswered", async () => {
@@ -208,7 +201,6 @@ it("a request it can't read is refused at once rather than left unanswered", asy
   const sent: ScreenServerMessage[] = [];
   const connection = screenConnection(test.screen, new Simulators("linux"), "human", {
     send: (message) => sent.push(message),
-    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   cleanups.push(async () => connection.close());
   await expect(
@@ -237,7 +229,6 @@ it("a resubscribe on the same media connection that fails keeps delivering on th
   const results: ScreenServerMessage[] = [];
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: (message) => results.push(message),
-    media: { write: async () => {}, bufferedBytes: () => 0 },
     delivery: { owner: () => phoneOwner, port: () => d.port },
     // What the session runs on, read for the state a subscribe answers with: failing here
     // fails the subscribe after its view was granted.
@@ -280,6 +271,71 @@ it("a resubscribe on the same media connection that fails keeps delivering on th
   expect(d.views.size).toBe(0);
 });
 
+it("a session's delivery status goes only to a subscriber that asked for it", async () => {
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const messages: ScreenServerMessage[] = [];
+  const delivery = fakeDelivery();
+  const port = { ...delivery.port, granted: () => false, sourceState: () => "pending" as const };
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: (message) => messages.push(message),
+    delivery: { owner: () => phoneOwner, port: () => port },
+  });
+  cleanups.push(async () => connection.close());
+  const subscribe = (requestId: string, deliveryStatus: boolean) =>
+    connection.request({
+      type: "screen.request",
+      requestId,
+      operation: {
+        op: "subscribe",
+        sessionId: state.sessionId,
+        media: { connection: "mc_phoneconnection1" },
+        mediaClient: true,
+        ...(deliveryStatus ? { deliveryStatus: true } : {}),
+      },
+    });
+  const statuses = () => messages.filter((message) => message.type === "screen.delivery");
+  // A client of before `deliveryStatus`: its decoder would close on an unknown message type.
+  await subscribe("older", false);
+  expect(statuses()).toEqual([]);
+  await subscribe("current", true);
+  expect(statuses().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+});
+
+it("a session's view refused at ace-media's viewer limit says so in its reply and status", async () => {
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const messages: ScreenServerMessage[] = [];
+  const delivery = fakeDelivery();
+  // Its source streams, but ace-media refused the view: it holds as many as it may.
+  const port = { ...delivery.port, granted: () => false, why: () => "limit" };
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: (message) => messages.push(message),
+    delivery: { owner: () => phoneOwner, port: () => port },
+  });
+  cleanups.push(async () => connection.close());
+  await connection.request({
+    type: "screen.request",
+    requestId: "watch",
+    operation: {
+      op: "subscribe",
+      sessionId: state.sessionId,
+      media: { connection: "mc_phoneconnection1" },
+      mediaClient: true,
+      deliveryStatus: true,
+    },
+  });
+  const limit = { code: "refused", reason: expect.stringMatching(/^Too many live views/) };
+  expect(messages).toContainEqual(
+    expect.objectContaining({ type: "screen.result", requestId: "watch", undelivered: limit }),
+  );
+  expect(messages.findLast((message) => message.type === "screen.delivery")).toMatchObject({
+    undelivered: limit,
+  });
+});
+
 it("a view on a media connection shows the session's video whether its helper encodes or ace-media encodes its pictures", async () => {
   const test = await manager({ FAKE_V2: "1" });
   cleanups.push(test.close);
@@ -290,7 +346,6 @@ it("a view on a media connection shows the session's video whether its helper en
   const results: ScreenServerMessage[] = [];
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: (message) => results.push(message),
-    media: { write: async () => {}, bufferedBytes: () => 0 },
     delivery: { owner: () => phoneOwner, port: () => port },
   });
   cleanups.push(async () => connection.close());

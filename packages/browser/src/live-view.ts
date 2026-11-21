@@ -7,6 +7,7 @@ export { PictureQueue, type SourcePicture } from "./picture-queue.ts";
 export { SharedStreams } from "./shared-streams.ts";
 export {
   channelPath,
+  nonePath,
   isMediaRefusal,
   mediaRetryCooldownMs,
   mediaRetryDelaysMs,

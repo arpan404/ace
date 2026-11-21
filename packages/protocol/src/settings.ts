@@ -158,10 +158,11 @@ export const SettingsValues = z.object({
    */
   "media.encode": z.enum(["auto"]),
   /**
-   * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps
-   * the daemon's own fanout on each client's main socket; `auto` lets clients open a media
-   * connection to ace-media, which paces, scales and sends every viewer's pictures itself. It
-   * falls back to `legacy` whenever ace-media isn't healthy. Global only; read live.
+   * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): always `auto`,
+   * ace-media on each client's media connection, which paces, scales and sends every viewer's
+   * pictures itself. The daemon's own fanout is gone (X3) and nothing reads this key any more: a
+   * stored or written `legacy`, from an older build, means `auto`. While ace-media can't serve,
+   * live views say why.
    */
   "media.delivery": z.enum(["auto", "legacy"]),
   /**

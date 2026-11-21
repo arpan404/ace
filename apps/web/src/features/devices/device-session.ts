@@ -246,7 +246,7 @@ export function useDeviceSession(endpoint: ChannelEndpoint | undefined) {
   const daemon = useOptionalClient();
   useEffect(() => {
     if (!endpoint) return;
-    const web = endpoint.kind === "fake" || !daemon ? undefined : mediaFor(daemon);
+    const web = daemon ? mediaFor(daemon) : undefined;
     web?.relayWith(mediaRelayFor(endpoint));
     const media = web?.route;
     const entry = acquire(endpoint, media);

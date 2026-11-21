@@ -1,4 +1,4 @@
-import { encodeBrowserVideo } from "@ace/browser/stream";
+import { encodeBrowserVideo } from "@ace/browser/stream-encode";
 import type { BrowserVideoRequest } from "@ace/protocol";
 import type { ScreenFrame } from "./browser.ts";
 

@@ -36,6 +36,7 @@ const picturesHost: VideoHost = {
 const viewer = (paused: boolean): CaptureViewer => ({
   viewport: { width: 800, height: 600, devicePixelRatio: 1, paused },
   video: { codecs: ["avc1.42E033"] },
+  delivered: true,
 });
 
 it("stops the screencast feeding the video once its only viewer is hidden", async () => {
@@ -52,7 +53,7 @@ it("stops the screencast feeding the video once its only viewer is hidden", asyn
     () => ({ host: picturesHost, page: page.cdp }),
   );
   await live.start();
-  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  live.subscribe("phone", {}, viewer(false));
   await vi.advanceTimersByTimeAsync(500);
   const started = page.calls.lastIndexOf("Page.startScreencast");
   expect(started).toBeGreaterThan(-1);
@@ -105,7 +106,7 @@ it("a screencast picture captured before the tab's privacy changed never reaches
     () => ({ host, page: page.cdp }),
   );
   await live.start();
-  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  live.subscribe("phone", {}, viewer(false));
   await until(() => frame !== undefined && opened);
   const screencast = (data: string, timestamp?: number) =>
     frame?.({
@@ -172,7 +173,7 @@ it("after the tab stops being private, ace-media hears the epoch once, and pictu
     () => ({ host, page: page.cdp }),
   );
   await live.start();
-  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  live.subscribe("phone", {}, viewer(false));
   await until(() => frame !== undefined && opened);
   const screencast = (data: string, timestamp: number) =>
     frame?.({ data, sessionId: 1, metadata: { deviceWidth: 800, deviceHeight: 600, timestamp } });
@@ -228,7 +229,7 @@ it("a capture opens in the tab's privacy: a tab already private, and a capture r
     () => ({ host, page: page.cdp }),
   );
   await live.start();
-  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  live.subscribe("phone", {}, viewer(false));
   await vi.advanceTimersByTimeAsync(500);
   expect(opens[0]).toEqual({ epoch: 1, private: true });
   // Still private, a new epoch (public then private again), and the capture is replaced.

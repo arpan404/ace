@@ -3,6 +3,7 @@ import type {
   MediaPoster,
   MediaStreamClientMessage,
   MediaSubscribed,
+  MediaUndelivered,
 } from "@ace/protocol";
 import type { StreamMessage } from "./stream.ts";
 import type { PictureChunk } from "./stream-picture.ts";
@@ -11,24 +12,27 @@ import { DeliveryCandidates, type CandidateShape } from "./delivery-candidates.t
 /**
  * A client's media connection as a live-view channel sees it (ADR 0147 §4): what to name in a
  * subscribe, the pictures that arrive on it and where acks go. The screen and device channels
- * take one, so their pictures can come by ace-media while their state and requests stay on the
- * channel. Without one, or while it has no binding, everything stays on the channel.
+ * take one, so their pictures come by ace-media while their state and requests stay on the
+ * channel. Only ace-media delivers live pictures (X3): without a binding, a view gets none and
+ * says why.
  */
 export interface MediaRoute {
-  /** The binding a subscribe names now; absent: deliver on the channel. */
+  /** The binding a subscribe names now; absent: no media connection, so no pictures. */
   binding(): MediaBinding | undefined;
   /** The decoders to name with a binding, best first. */
   codecs(): readonly string[];
   /** Called whenever `binding()` changes: every held stream subscribes again. */
   watch(listener: () => void): () => void;
   onStream(listener: (message: StreamMessage) => void): () => void;
-  /** Sends on the media connection; false when it can't, and the ack goes by the channel. */
+  /** Sends on the media connection; false when it can't (the ack has nowhere else to go). */
   ack(message: MediaStreamClientMessage): boolean;
+  /** Why there is no binding now, for the person; absent: it is still connecting. */
+  unavailable?(): string | undefined;
 }
 
 /**
  * How long a subscribe naming a media connection may wait for its reply before its source stops
- * waiting and falls back to the channel; a later reply still settles it.
+ * waiting and says so; a later reply still settles it.
  */
 export const mediaSubscribeDeadlineMs = 15_000;
 
@@ -44,61 +48,70 @@ const family = (codec: string) => {
   return head === "hev1" ? "hvc1" : head;
 };
 
-/** Where a picture came from, or goes back to: the channel itself (legacy delivery). */
+/**
+ * Where a picture came from: the channel itself. Only stills (a person's screenshot) come this
+ * way since X3; a live picture on it belongs to no delivery and is dropped.
+ */
 export const channelPath = "channel";
+/** A delivery nobody serves: no pictures come, and `undelivered` says why. */
+export const nonePath = "none";
 
-/** How an ack for a picture travels: the media connection, the channel, or nowhere (stale). */
+/**
+ * How an ack for a picture travels: the media connection, or nowhere (stale). `channel` is
+ * never answered since X3 (the daemon sends no live pictures there); it stays in the type
+ * until every client stops naming it.
+ */
 export type AckWay = "media" | "channel" | "stale";
 
 /** One subscribe of one source: its generation, what it named, and what the daemon answered. */
 interface Delivery {
   generation: number;
-  /** The connection the subscribe named; undefined: none (the channel). */
+  /** The connection the subscribe named; undefined: none (no binding). */
   asked: string | undefined;
-  /** The reply's answer: that connection, or `channelPath`; undefined until it comes. */
+  /** The reply's answer: that connection, or `nonePath`; undefined until it comes. */
   via: string | undefined;
+  /** Why no pictures come, once `via` is `nonePath`. */
+  undelivered?: MediaUndelivered;
+  /**
+   * Why its pictures haven't come yet though it may deliver: the daemon's word that its source
+   * isn't streaming, or what the delivery it replaced said. The first picture on it clears this,
+   * so a picture kept from before never passes for a live one meanwhile.
+   */
+  waiting?: MediaUndelivered;
 }
 
-/** Waits before a failed subscribe is tried again, by attempt; then it stays on the channel. */
+/** Waits before a failed subscribe is tried again, by attempt; then the source gives up. */
 export const mediaRetryDelaysMs = [1_000, 2_000, 5_000, 10_000] as const;
 
 /**
- * Once the retries are spent, how long a source waits before it is tried again (on the
- * channel). Nothing skips it: not a page shown again, nor an agent opening the browser.
+ * Once the retries are spent, how long a source waits before it is tried again. Nothing skips
+ * it: not a page shown again, nor an agent opening the browser.
  */
 export const mediaRetryCooldownMs = 30_000;
 
 /** What a failed subscribe leaves to do: subscribe again now, later, or nothing. */
 export type FailedSubscribe = "resubscribe" | "retry" | "ignore";
 
-/**
- * Each source's deliveries, one generation per subscribe (ADR 0147 §4). Every subscribe opens a
- * generation; its reply, refusal, failure or timeout is matched to it, and one a later subscribe
- * superseded changes nothing. Every picture is stamped with its source's generation as it
- * arrives, and only when it came the way that generation expects (the connection it named, else
- * the channel); while a subscribe naming a connection waits for its reply, pictures from either
- * way are held as candidates, bounded, and the reply releases the settled way's. Acks for an older
- * generation are dropped, never sent through the current one.
- *
- * - A subscribe refused for its connection subscribes again on the channel, and that connection
- *   isn't named again for the source until the binding changes.
- * - A subscribe answered without `media` (ace-media doesn't deliver that kind now) is the
- *   channel's.
- * - A subscribe that fails otherwise keeps the delivery it replaced when that way still holds
- *   (the daemon regrants the old view), else falls back to the channel; either way it is tried
- *   again on `mediaRetryDelaysMs`.
- * - A subscribe that gets no answer in time (`abandon`) falls back to the channel; its late reply
- *   still settles it.
- *
- * Shared by the screen and device channels (pictures) and the browser's view (video chunks).
- * Also the poster each subscribe brought back, and the codecs each source's viewer couldn't
- * decode.
- */
+/** Why a view without a binding gets nothing, when its route doesn't say. */
+const connecting: MediaUndelivered = {
+  code: "connecting",
+  reason: "Connecting to live video…",
+};
+/** A subscribe that got no answer in time. */
+const unanswered: MediaUndelivered = {
+  code: "timeout",
+  reason: "Live video didn't answer. ace tries again shortly.",
+};
+/** A subscribe that failed, and kept no delivery from before. */
+const failedSubscribe: MediaUndelivered = {
+  code: "failed",
+  reason: "Live video couldn't start. ace tries again shortly.",
+};
+
 /**
  * A source's current delivery, for a viewer whose pictures arrive outside this client (a native
- * decoder): its generation, the way its pictures come (`channelPath` or a media connection), or
- * undefined while the subscribe's reply is pending and pictures may come either way, and the
- * poster accepted for it.
+ * decoder): its generation, the way its pictures come (a media connection, or `nonePath` with
+ * why), or undefined while the subscribe's reply is pending, and the poster accepted for it.
  */
 export interface DeliveryState {
   source: string;
@@ -106,8 +119,34 @@ export interface DeliveryState {
   path: string | undefined;
   /** The still this subscribe's reply brought back, accepted for it, until its first picture. */
   poster?: MediaPoster;
+  /** Why no pictures come, while `path` is `nonePath`. */
+  undelivered?: MediaUndelivered;
 }
 
+/**
+ * Each source's deliveries, one generation per subscribe (ADR 0147 §4). Every subscribe opens a
+ * generation; its reply, refusal, failure or timeout is matched to it, and one a later subscribe
+ * superseded changes nothing. Every picture is stamped with its source's generation as it
+ * arrives, and only when it came on the connection that generation named; while a subscribe
+ * naming a connection waits for its reply, its pictures are held as candidates, bounded, and the
+ * reply releases them. Acks for an older generation are dropped, never sent through the current
+ * one.
+ *
+ * Only ace-media delivers (X3). A subscribe answered without `media` (ace-media can't serve it,
+ * or this client had no binding to name) gets no pictures: its delivery is `nonePath`, and
+ * `undelivered` says why, the daemon's reason or, without a binding, the route's own.
+ *
+ * - A subscribe refused for its connection is tried again (`retry`), and that connection isn't
+ *   named again for the source until the binding changes.
+ * - A subscribe that fails otherwise keeps the delivery it replaced when that connection is
+ *   still the binding (the daemon regrants the old view); either way it is tried again on
+ *   `mediaRetryDelaysMs`.
+ * - A subscribe that gets no answer in time (`abandon`) says so; its late reply still settles it.
+ *
+ * Shared by the screen and device channels (pictures) and the browser's view (video chunks).
+ * Also the poster each subscribe brought back, and the codecs each source's viewer couldn't
+ * decode.
+ */
 export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   #route: MediaRoute | undefined;
   #deliveryListeners = new Set<(state: DeliveryState) => void>();
@@ -118,6 +157,8 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   #previous = new Map<string, Delivery>();
   /** Failed subscribes in a row, per source, for the retry delay. */
   #attempts = new Map<string, number>();
+  /** Subscribes in a row answered without delivery, per source, for `unservedDelay`. */
+  #unserved = new Map<string, number>();
   /** Refused for this source: not named again while it is the binding. */
   #refused = new Map<string, string>();
   #posters = new Map<string, MediaPoster>();
@@ -142,7 +183,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    */
   begin(source: string): {
     generation: number;
-    fields: { media?: MediaBinding; codecs?: string[] };
+    fields: { media?: MediaBinding; codecs?: string[]; mediaClient: true; deliveryStatus: true };
   } {
     const binding = this.#route?.binding();
     const codecs = this.codecs(source);
@@ -153,12 +194,26 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     if (replaced?.via !== undefined) this.#previous.set(source, replaced);
     const asked =
       binding && this.#refused.get(source) !== binding.connection ? binding.connection : undefined;
-    this.#deliveries.set(source, { generation, asked, via: undefined });
+    // A retry keeps saying why the last one got nothing, until a picture comes on this one.
+    const waiting = replaced && reasonOf(replaced);
+    this.#deliveries.set(source, {
+      generation,
+      asked,
+      via: undefined,
+      ...(waiting ? { waiting } : {}),
+    });
     this.#emit(source);
-    if (!binding || !asked) return { generation, fields: {} };
+    // Every subscribe says this client takes pictures only from a media connection.
+    if (!binding || !asked)
+      return { generation, fields: { mediaClient: true, deliveryStatus: true } };
     return {
       generation,
-      fields: { media: binding, ...(codecs.length ? { codecs: codecs.slice(0, 8) } : {}) },
+      fields: {
+        media: binding,
+        ...(codecs.length ? { codecs: codecs.slice(0, 8) } : {}),
+        mediaClient: true,
+        deliveryStatus: true,
+      },
     };
   }
   /** The generation of `source`'s current subscribe, if it has one. */
@@ -188,21 +243,38 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   }
   /**
    * The reply to `generation`'s subscribe: delivery by the media connection only when it names
-   * the one asked for. A reply to a superseded subscribe changes nothing.
+   * the one asked for; otherwise none, and why (`undelivered`, or the route's own reason when
+   * the subscribe named no connection). A reply to a superseded subscribe changes nothing.
    */
-  subscribed(source: string, generation: number, media: MediaSubscribed | undefined): Settled<F> {
+  subscribed(
+    source: string,
+    generation: number,
+    media: MediaSubscribed | undefined,
+    undelivered?: MediaUndelivered,
+  ): Settled<F> {
     const delivery = this.#current(source, generation);
     if (!delivery) return { pictures: [] };
     const bound = delivery.asked !== undefined && media?.connection === delivery.asked;
-    const via = bound && delivery.asked ? delivery.asked : channelPath;
+    const via = bound && delivery.asked ? delivery.asked : nonePath;
     delivery.via = via;
+    if (bound) {
+      delete delivery.undelivered;
+      this.#unserved.delete(source);
+      // Bound, but not played yet (ace-media refused the view at its limit, say): it says why
+      // until a picture comes, as a `*.delivery` push would.
+      if (undelivered) delivery.waiting = undelivered;
+    }
+    // Without a binding, this client knows better than the daemon why: it named none.
+    else delivery.undelivered = delivery.asked ? (undelivered ?? failedSubscribe) : this.#why();
     this.#previous.delete(source);
     this.#attempts.delete(source);
     if (bound && media?.poster) this.#posters.set(source, media.poster);
-    this.#emit(source);
     // What came the settled way while the reply was on its way shows now; the rest is dropped.
     const held = this.#candidates.get(source)?.settle(via);
     this.#candidates.delete(source);
+    // Pictures already came on it: nothing it was waiting for still holds.
+    if (bound && held?.pictures.length) delete delivery.waiting;
+    this.#emit(source);
     return {
       pictures: (held?.pictures ?? []).map((frame) => ({ frame, generation })),
       ...(held?.needsKeyframe && held.ask ? { ask: { frame: held.ask, generation } } : {}),
@@ -210,50 +282,65 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   }
   /**
    * `generation`'s subscribe got no answer in time. While it is still the current one and
-   * unsettled, nothing more is held for it: delivery falls back to the channel, and what was
-   * held is dropped. A late reply (`subscribed` with the same generation) still settles it.
+   * unsettled, nothing more is held for it: the view says so, and what was held is dropped. A
+   * late reply (`subscribed` with the same generation) still settles it.
    */
   abandon(source: string, generation: number): void {
     const delivery = this.#current(source, generation);
     if (!delivery || delivery.via !== undefined) return;
-    delivery.via = channelPath;
+    delivery.via = nonePath;
+    delivery.undelivered = unanswered;
     this.#previous.delete(source);
     this.#candidates.delete(source);
     this.#emit(source);
   }
   /**
    * `generation`'s subscribe failed with `error`. Unless a later subscribe superseded it, or a
-   * timeout already settled it, nothing more is held for it, and:
-   * - refused for the connection it named: `resubscribe` now (it goes on the channel);
-   * - otherwise the delivery it replaced is kept when that way still holds, else the source falls
-   *   back to the channel, and it is to be tried again (`retry`, after `retryDelay`).
+   * timeout already settled it, nothing more is held for it, and it is to be tried again
+   * (`retry`, after `retryDelay`):
+   * - refused for the connection it named: that connection isn't named again for the source
+   *   until the binding changes;
+   * - otherwise the delivery it replaced is kept when its connection is still the binding, else
+   *   the view gets no pictures and says why.
    */
   failed(source: string, generation: number, error: unknown): FailedSubscribe {
     const delivery = this.#current(source, generation);
     if (!delivery || delivery.via !== undefined) return "ignore";
     this.#candidates.delete(source);
-    if (delivery.asked && isMediaRefusal(error)) {
-      this.#refused.set(source, delivery.asked);
-      return "resubscribe";
-    }
+    if (delivery.asked && isMediaRefusal(error)) this.#refused.set(source, delivery.asked);
     const previous = this.#previous.get(source);
     this.#previous.delete(source);
     const holds =
-      previous?.via === channelPath ||
-      (previous?.via !== undefined && previous.via === this.#route?.binding()?.connection);
+      previous?.via !== undefined &&
+      previous.via !== nonePath &&
+      previous.via === this.#route?.binding()?.connection;
     if (previous && holds) this.#deliveries.set(source, previous);
-    else delivery.via = channelPath;
-    // The delivery it replaced, back again, or the channel: either way, its way is known now.
+    else {
+      delivery.via = nonePath;
+      delivery.undelivered = failedSubscribe;
+    }
+    // The delivery it replaced, back again, or none: either way, its way is known now.
     this.#emit(source);
     return "retry";
   }
   /**
    * Its retries are spent: the connection bound now isn't named for `source` again until the
-   * binding changes, so its next subscribe is the channel's.
+   * binding changes, so its next subscribe names none (and says why).
    */
   giveUp(source: string): void {
     const connection = this.#route?.binding()?.connection;
     if (connection) this.#refused.set(source, connection);
+  }
+  /**
+   * How long until a source whose subscribe was answered without delivery (ace-media couldn't
+   * serve it, or there was no connection to name) asks again: the ladder's steps, then the
+   * cooldown, for as long as it isn't delivered. Its source may become available at any time,
+   * so it never gives up, and it names the connection each time.
+   */
+  unservedDelay(source: string): number {
+    const attempt = this.#unserved.get(source) ?? 0;
+    this.#unserved.set(source, attempt + 1);
+    return mediaRetryDelaysMs[attempt] ?? mediaRetryCooldownMs;
   }
   /** How long until a failed source is tried again; undefined once the retries are spent. */
   retryDelay(source: string): number | undefined {
@@ -266,29 +353,35 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    * A picture of `source` arrived by `path` (`channelPath`, or a media connection): it stamped
    * with its generation to show now, or undefined. Undefined while a subscribe naming a connection
    * waits for its reply (it is held as a candidate, released by `subscribed`), and when it didn't
-   * come the way the current subscribe expects (it belongs to an earlier one: dropped).
+   * come on the connection the current subscribe named (an earlier one's, or the channel's).
    */
   arrive(source: string, path: string, frame: F): Stamped<F> | undefined {
     const delivery = this.#deliveries.get(source);
-    // No subscribe of its own (a still, or a stream held before media): the channel's, as ever.
+    // No subscribe of its own: only a still (a person's screenshot) comes this way.
     if (!delivery) return path === channelPath ? { frame, generation: 0 } : undefined;
     if (delivery.via === undefined && delivery.asked !== undefined) {
-      // Unsettled: it may come either way until the reply says which. Held, not shown yet.
-      if (path === delivery.asked || path === channelPath) {
+      // Unsettled: held until the reply says whether it delivers, not shown yet.
+      if (path === delivery.asked) {
         let held = this.#candidates.get(source);
         if (!held) this.#candidates.set(source, (held = new DeliveryCandidates<F>()));
         held.hold(path, frame);
       }
       return undefined;
     }
-    return expected(delivery) === path ? { frame, generation: delivery.generation } : undefined;
+    if (delivered(delivery) !== path) return undefined;
+    // A picture on the current delivery: whatever said it was waiting no longer holds.
+    if (delivery.waiting) {
+      delete delivery.waiting;
+      this.#emit(source);
+    }
+    return { frame, generation: delivery.generation };
   }
   /** Whether what comes by `path` for `source` (sound, say) is its current delivery's. */
   expects(source: string, path: string): boolean {
     const delivery = this.#deliveries.get(source);
-    if (!delivery) return path === channelPath;
+    if (!delivery) return false;
     if (delivery.via === undefined && delivery.asked !== undefined) return false;
-    return expected(delivery) === path;
+    return delivered(delivery) === path;
   }
   /** Whether a picture stamped `generation` is still `source`'s; unstamped counts as current. */
   current(source: string, generation: number | undefined): boolean {
@@ -297,17 +390,42 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   }
   /** How the ack for `source`'s picture stamped `generation` travels. */
   way(source: string, generation: number | undefined): AckWay {
-    if (!this.current(source, generation)) return "stale";
+    // An unstamped ack is a still's, or a client that predates generations: nothing to ack.
+    if (generation === undefined || !this.current(source, generation)) return "stale";
     const delivery = this.#deliveries.get(source);
-    const path = delivery ? expected(delivery) : channelPath;
-    if (path === channelPath) return "channel";
-    // An unstamped ack is a client that predates generations: it may only speak for the channel.
-    if (generation === undefined) return "stale";
+    const path = delivery ? delivered(delivery) : undefined;
     // Its connection closed since: nothing of it can be acked anywhere else.
-    return this.#route?.binding()?.connection === path ? "media" : "stale";
+    return path !== undefined && this.#route?.binding()?.connection === path ? "media" : "stale";
   }
   poster(source: string): MediaPoster | undefined {
     return this.#posters.get(source);
+  }
+  /**
+   * Whether `source`'s subscribe named a connection and ace-media couldn't serve it: it asks
+   * again on `unservedDelay`. One that named none waits for a binding instead (`watch`).
+   */
+  unserved(source: string): boolean {
+    const delivery = this.#deliveries.get(source);
+    return delivery?.via === nonePath && delivery.asked !== undefined;
+  }
+  /**
+   * Why `source`'s current delivery gets no pictures, or hasn't yet: undefined once a picture
+   * came on it, or while nothing says otherwise.
+   */
+  undelivered(source: string): MediaUndelivered | undefined {
+    const delivery = this.#deliveries.get(source);
+    return delivery && reasonOf(delivery);
+  }
+  /**
+   * The daemon's word on `source`'s bound view (`*.delivery`): why its source isn't streaming
+   * into ace-media now. Its word that the view is granted clears nothing: a grant can come
+   * before the source streams, so only a picture on the current delivery clears the reason.
+   */
+  report(source: string, undelivered: MediaUndelivered | undefined): void {
+    const delivery = this.#deliveries.get(source);
+    if (!delivery || delivery.via === nonePath || !undelivered) return;
+    delivery.waiting = undelivered;
+    this.#emit(source);
   }
   /**
    * `source`'s delivery ends (its stream invalidated): whatever its pending subscribe still gets
@@ -323,11 +441,13 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.end(source);
     this.#refused.delete(source);
     this.#attempts.delete(source);
+    this.#unserved.delete(source);
   }
   reset(): void {
     this.#deliveries.clear();
     this.#previous.clear();
     this.#attempts.clear();
+    this.#unserved.clear();
     this.#candidates.clear();
     this.#refused.clear();
     this.#posters.clear();
@@ -341,17 +461,24 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.#deliveryListeners.add(listener);
     return () => void this.#deliveryListeners.delete(listener);
   }
+  /** Why a subscribe that named no connection gets nothing: the route's word, or connecting. */
+  #why(): MediaUndelivered {
+    const reason = this.#route?.unavailable?.();
+    return reason ? { code: "unavailable", reason } : connecting;
+  }
   #emit(source: string): void {
     const delivery = this.#deliveries.get(source);
     if (!delivery) return;
     // Unsettled only while a named connection's reply is on its way; otherwise its way is known.
     const pending = delivery.via === undefined && delivery.asked !== undefined;
     const poster = this.#posters.get(source);
+    const undelivered = reasonOf(delivery);
     const state = {
       source,
       generation: delivery.generation,
-      path: pending ? undefined : expected(delivery),
+      path: pending ? undefined : delivered(delivery),
       ...(poster ? { poster } : {}),
+      ...(undelivered ? { undelivered } : {}),
     };
     // A copy: a listener may stop listening while it hears this.
     for (const listener of Array.from(this.#deliveryListeners)) listener(state);
@@ -377,5 +504,12 @@ export interface Stamped<F = PictureChunk> {
   generation: number;
 }
 
-/** The way a delivery's pictures come: its answer, or before it, what it asked for. */
-const expected = (delivery: Delivery): string => delivery.via ?? delivery.asked ?? channelPath;
+/**
+ * The way a delivery's pictures come: its answer, or before it, what it asked for; a subscribe
+ * that named nothing gets nothing.
+ */
+const delivered = (delivery: Delivery): string => delivery.via ?? delivery.asked ?? nonePath;
+
+/** Why a delivery gets no pictures (`nonePath`), or none yet (`waiting`). */
+const reasonOf = (delivery: Delivery): MediaUndelivered | undefined =>
+  delivery.via === nonePath ? delivery.undelivered : delivery.waiting;

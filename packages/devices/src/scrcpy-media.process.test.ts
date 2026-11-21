@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, onTestFinished } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
+import type { RouteCapabilities } from "@ace/media/routes";
 import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
 import type { Frame } from "@ace/screen";
 import { fixture, media, nal, type Cleanup } from "./testing/fake-scrcpy.ts";
@@ -42,10 +43,13 @@ it.runIf(!!binary)(
     onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };
+    // A route flips when the kind's producer can or can't stream into ace-media; no setting
+    // chooses it.
+    const capabilities: RouteCapabilities = { ingest: ["scrcpy"], delivery: false };
     const runtime = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -61,7 +65,7 @@ it.runIf(!!binary)(
       id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
-      capabilities: { ingest: ["scrcpy"], delivery: false },
+      capabilities,
     });
     onTestFinished(() => runtime.dispose());
 

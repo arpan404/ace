@@ -163,7 +163,7 @@ export function attachRelayService(
         void channel.send(message).catch(() => channel.close());
         return true;
       },
-      // Each piece fits one encrypted binary message; a frame waits out a backlog by dropping.
+      // Download chunks: each piece fits one encrypted binary message; a backlog refuses one.
       sendStream(pieces) {
         if (channel.bufferedBytes > 256 * 1024) return false;
         for (const piece of pieces) void channel.sendBinary(piece).catch(() => channel.close());
@@ -189,14 +189,6 @@ export function attachRelayService(
       send(message) {
         void send(message).catch(() => channel.close());
       },
-      media: {
-        bufferedBytes: () => channel.bufferedBytes,
-        write: async (piece) => {
-          if (!authorize("admin")) throw new Error("Screen stream access revoked");
-          await channel.sendBinary(piece);
-        },
-      },
-      failed: () => channel.close(),
     });
     return {
       accept(message: ClientMessage) {

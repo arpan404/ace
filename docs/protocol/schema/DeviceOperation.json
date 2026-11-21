@@ -321,6 +321,10 @@
         "codecs": {
           "$ref": "https://ace.local/protocol/v1/MediaCodecs.json"
         },
+        "deliveryStatus": {
+          "const": true,
+          "type": "boolean"
+        },
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
@@ -329,6 +333,10 @@
         },
         "media": {
           "$ref": "https://ace.local/protocol/v1/MediaBinding.json"
+        },
+        "mediaClient": {
+          "const": true,
+          "type": "boolean"
         },
         "op": {
           "const": "subscribe",

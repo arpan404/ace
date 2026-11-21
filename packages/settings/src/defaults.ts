@@ -61,7 +61,7 @@ export const defaults: SettingsValues = {
   "market.askBeforeAgentPublish": false,
   "devices.emulatorWindow": false,
   "media.encode": "auto",
-  "media.delivery": "legacy",
+  "media.delivery": "auto",
   "devices.enabled": true,
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},

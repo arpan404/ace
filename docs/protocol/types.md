@@ -6443,12 +6443,15 @@ Example:
 | viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
 | video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 
 Example:
 
 ```json
 {
   "binaryFrames": true,
+  "deliveryStatus": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",
@@ -8494,6 +8497,7 @@ Example:
 | error | no | string | {"maxLength":2048} |
 | blocked | no | [BrowserOriginBlock.json](schema/BrowserOriginBlock.json) |  |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
@@ -8543,6 +8547,23 @@ Example:
 }
 ```
 
+### browser.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.delivery"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "browser.delivery"
+}
+```
+
 ### browser.frame
 
 | Field | Required | Type | Constraints |
@@ -8557,10 +8578,10 @@ Example:
 {
   "frame": {
     "data": "example",
-    "height": 107,
-    "sequence": 8,
-    "timestamp": 1,
-    "width": 107
+    "height": 102,
+    "sequence": 0,
+    "timestamp": 3,
+    "width": 102
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -8601,33 +8622,11 @@ Example:
 ```json
 {
   "page": {
-    "focus": {
-      "inputMode": "example",
-      "rect": {
-        "height": 3,
-        "width": 7,
-        "x": 5,
-        "y": 7
-      },
-      "type": "example"
-    },
-    "picker": {
-      "kind": "datetime-local",
-      "min": "example",
-      "options": [],
-      "pickerId": "example",
-      "rect": {
-        "height": 4,
-        "width": 3,
-        "x": 4,
-        "y": 3
-      },
-      "value": "example"
-    },
+    "cursor": "example",
     "tooltip": {
       "text": "example",
-      "x": 4,
-      "y": 8
+      "x": 3,
+      "y": 0
     }
   },
   "tabId": "example",
@@ -14297,19 +14296,20 @@ Example:
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
 
 ```json
 {
-  "codecs": [
-    "wl"
-  ],
+  "deliveryStatus": true,
   "deviceId": "ios:847934C2AAd66-3Ad42C43dA78B2b1E71f14",
   "media": {
     "connection": "mc_8jVj2aFIOlmo0nRRlGfFS"
   },
+  "mediaClient": true,
   "op": "subscribe"
 }
 ```
@@ -14694,6 +14694,7 @@ Example:
 | data | no | any JSON value |  |
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
@@ -14753,6 +14754,27 @@ Example:
 }
 ```
 
+### devices.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"devices.delivery"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "deviceId": "android:ENIdmETPYhrYmh.RD7i0F1U6Cd8o.aJdQLwNncUQJ6peQWGBT8XWjSnjIaWGwtS2dW08r3FjRLcW8hEheijE6ajtlHuyi6xggrzWR1VFsq8KJEI.IsKxQ-n",
+  "type": "devices.delivery",
+  "undelivered": {
+    "code": "example",
+    "reason": "example"
+  }
+}
+```
+
 ### devices.enabled
 
 | Field | Required | Type | Constraints |
@@ -14764,7 +14786,7 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "type": "devices.enabled"
 }
 ```
@@ -14782,7 +14804,6 @@ Example:
 ```json
 {
   "devices": [],
-  "issues": [],
   "type": "devices.inventory"
 }
 ```
@@ -14801,10 +14822,10 @@ Example:
 
 ```json
 {
-  "deviceId": "android:wT2XLCKbBfsm.L3DFYAd_ktyHNs.J692u.-RA_E1o.aiOmDYR-i7Br45ey4_ZRG",
-  "dropped": 4,
+  "deviceId": "android:4mZ0SYq9FX9ObQ4FP-I2WCIEGS63N7UyI6bkyR3PDD5ii-t5HZKzd2q8j1wWyrxk21CQXwjMzDOq3DxzATUetVbgodXc.rvtaPixMUw2s",
+  "dropped": 3,
   "lines": [],
-  "sequence": 2,
+  "sequence": 4,
   "type": "devices.logs"
 }
 ```
@@ -28060,6 +28081,24 @@ Example:
 "b6XOiqbBUGmrD3BFdqAqU_9Fbx42EJDjUMDdwrBwXJB"
 ```
 
+## MediaUndelivered
+
+[JSON Schema](schema/MediaUndelivered.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | string | {"minLength":1,"maxLength":64} |
+| reason | yes | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "code": "example",
+  "reason": "example"
+}
+```
+
 ## Mention
 
 [JSON Schema](schema/Mention.json), input validation.
@@ -39780,12 +39819,18 @@ Example:
 | sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
 
 ```json
 {
+  "codecs": [
+    "Ri0.M.TtvS"
+  ],
+  "deliveryStatus": true,
   "media": {
     "connection": "mc_2otTIQbL4ydth2_lWmeZlAWc-pCdPxIK9vQr36"
   },
@@ -40117,6 +40162,23 @@ Example:
 }
 ```
 
+### screen.delivery
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"screen.delivery"` |  |
+| sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
+
+Example:
+
+```json
+{
+  "sessionId": "K8Mudup77vg22rN_tvXsVLNhONA7bVd6HhXGOpl-7RvkG0tMRtwo",
+  "type": "screen.delivery"
+}
+```
+
 ### screen.result
 
 | Field | Required | Type | Constraints |
@@ -40129,14 +40191,17 @@ Example:
 | errorCode | no | ["forbidden","permission_denied","screen_disabled","denied","target_gone","not_supported","bounds","busy","timeout","internal","target_busy","foreground_required","focus_changed","window_minimized","window_offscreen","secure_input_required","clipboard_changed","window_ambiguous","key_unsupported","modifier_unsupported","no_key_window","delivery_unconfirmed"] |  |
 | holder | no | object | {"properties":{"sessionId":{"$ref":"https://ace.local/protocol/v1/ScreenId.json"},"owner":{"type":"string","maxLength":1024}},"required":["sessionId","owner"]} |
 | media | no | [MediaSubscribed.json](schema/MediaSubscribed.json) |  |
+| undelivered | no | [MediaUndelivered.json](schema/MediaUndelivered.json) |  |
 
 Example:
 
 ```json
 {
   "data": null,
-  "ok": false,
-  "requestId": "K8Mudup77vg22rN_tvXsVLNhONA7bVd6HhXGOpl-7RvkG0tMRtwo",
+  "error": "example",
+  "errorCode": "internal",
+  "ok": true,
+  "requestId": "Y",
   "type": "screen.result"
 }
 ```

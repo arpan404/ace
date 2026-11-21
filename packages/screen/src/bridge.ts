@@ -4,18 +4,14 @@ import {
   ScreenError,
   ScreenClientMessage,
   ScreenState,
+  type MediaUndelivered,
   type ScreenServerMessage,
 } from "@ace/protocol";
-import { streamKinds } from "@ace/browser/stream";
-import {
-  LinkFollow,
-  PictureChannel,
-  pictureLinkLimits,
-  type PictureTransport,
-  type PictureView,
-} from "@ace/browser/picture-channel";
 import {
   mediaSubscribed,
+  mediaUndelivered,
+  pendingUndelivered,
+  updateReason,
   viewLink,
   viewSwap,
   viewViewport,
@@ -23,24 +19,26 @@ import {
   type MediaDeliveryPort,
 } from "@ace/media/media-viewers";
 import type { MediaOwner } from "@ace/media/media-connections";
-import { framePicture } from "./frame-picture.ts";
 import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
 
+/**
+ * The ace-media sources that show a screen session: its helper's encode, or for a JPEG-only
+ * helper ace-media's encode of its pictures (X2).
+ */
+const showsSession =
+  (sessionId: string) => (producer: { kind: string; sessionId?: string | undefined }) =>
+    (producer.kind === "screen" || producer.kind === "screen-pictures") &&
+    producer.sessionId === sessionId;
+
 export type ScreenPeer = {
   send: (message: ScreenServerMessage) => void;
-  /** The shared media stream: one binary message (a stream piece) per write. */
-  media: PictureTransport;
-  /** A write failed or access was revoked: the transport should close. */
-  failed?(error: unknown): void;
-  /** Clock for keyframe pacing; defaults to the wall clock and timers. */
-  now?(): number;
-  after?(ms: number, run: () => void): () => void;
   /**
    * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
    * connection is: its session, device and admission (a main session, or a channel of its own).
-   * Without it, or while ace-media doesn't serve screens, they are served here.
+   * Nothing else delivers a session's pictures (X3): without it, or while ace-media doesn't serve
+   * screens, a subscribe's reply says why (`undelivered`).
    */
   delivery?: { owner: () => MediaOwner | undefined; port: () => MediaDeliveryPort | undefined };
   /** ace-media's reports of what each session's video runs on, for `ScreenState.acceleration`. */
@@ -48,7 +46,7 @@ export type ScreenPeer = {
 };
 /**
  * Attach only after the host transport authenticates a human device. A subscribed session's
- * pictures go out as stream kind `screenFrame`, paced by the viewer's `screen.ack`.
+ * pictures come from ace-media on the client's media connection, never on this one.
  */
 export function screenConnection(
   manager: ScreenManager,
@@ -63,42 +61,25 @@ export function screenConnection(
     const watch = subscriptions.get(sessionId);
     if (!watch) return;
     subscriptions.delete(sessionId);
+    old.delete(sessionId);
+    status.delete(sessionId);
     watch.release();
     if (watch.media) peer.delivery?.port()?.unbind(watch.media.viewer);
   };
   let closed = false;
   let pending = 0;
-  const later =
-    peer.after ??
-    ((ms: number, run: () => void) => {
-      const timer = setTimeout(run, ms);
-      return () => clearTimeout(timer);
-    });
-  /** Each watched session's stream request, kept within this viewer's link. */
-  const follows = new Map<string, LinkFollow>();
-  let cancelTick: (() => void) | undefined;
-  const tick = () => {
-    for (const follow of follows.values()) follow.tick();
-    cancelTick = follows.size && !closed ? later(1000, tick) : undefined;
-  };
-  const pictures = new PictureChannel(streamKinds.screenFrame, {
-    transport: peer.media,
-    now: peer.now ?? (() => performance.now()),
-    after:
-      peer.after ??
-      ((ms, run) => {
-        const timer = setTimeout(run, ms);
-        return () => clearTimeout(timer);
-      }),
-    failed: (error) => {
-      // Pictures that can't get out end every view on this connection; the host closes it.
-      for (const sessionId of subscriptions.keys()) end(sessionId);
-      peer.failed?.(error);
-    },
-  });
+  /** Sessions this connection watches from a client older than X3 (no `mediaClient`). */
+  const old = new Set<string>();
+  /** Sessions whose subscriber reads `screen.delivery` (`deliveryStatus`): only they get one. */
+  const status = new Set<string>();
+  /**
+   * A session's state as this connection sees it: with what its video runs on and, for an older
+   * client, why its view is empty in the field it already shows (`error`).
+   */
   const accelerated = (state: ScreenState): ScreenState => {
     const acceleration = peer.acceleration?.for("sessionId", state.sessionId);
-    return acceleration ? { ...state, acceleration } : state;
+    const told = old.has(state.sessionId) ? { ...state, error: updateReason } : state;
+    return acceleration ? { ...told, acceleration } : told;
   };
   const unwatch = manager.watch((state) => {
     if (!closed) peer.send({ type: "screen.state", state: accelerated(state) });
@@ -144,13 +125,31 @@ export function screenConnection(
       local: false,
       audio: false,
       ...(link ? { link } : {}),
-      shows: (producer) =>
-        (producer.kind === "screen" || producer.kind === "screen-pictures") &&
-        producer.sessionId === sessionId,
+      shows: showsSession(sessionId),
+      onGrant: (granted, why) =>
+        delivered(sessionId, granted ? undefined : waiting(sessionId, why)),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
     return viewer;
+  };
+  /**
+   * Tells this connection whether its bound view of the session gets pictures now: on every
+   * change of the view's grant in ace-media, with the reason while it doesn't.
+   */
+  const delivered = (sessionId: string, undelivered: MediaUndelivered | undefined) => {
+    // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
+    if (closed || !status.has(sessionId)) return;
+    peer.send({ type: "screen.delivery", sessionId, ...(undelivered ? { undelivered } : {}) });
+  };
+  /** Why the session's granted view gets no pictures yet: ace-media's `why`, else its source's. */
+  const waiting = (sessionId: string, why: string | undefined) => {
+    const port = peer.delivery?.port();
+    return pendingUndelivered(
+      port?.sourceState(showsSession(sessionId)) ?? "pending",
+      port?.unserved("screen"),
+      why,
+    );
   };
   return {
     async request(input) {
@@ -276,20 +275,17 @@ export function screenConnection(
             const media =
               viewer !== undefined && connection !== undefined ? { viewer, connection } : undefined;
             const swap = viewSwap(peer.delivery?.port(), previous?.media, media);
-            const now = peer.now ?? (() => performance.now());
-            /** This view's pictures, opened once it is set up (opening replaces the old one's). */
-            let view: PictureView | undefined;
+            if (operation.mediaClient === true) old.delete(sessionId);
+            else old.add(sessionId);
+            if (operation.deliveryStatus === true) status.add(sessionId);
+            else status.delete(sessionId);
             let stop: (() => void) | undefined;
             let state: ScreenState;
             try {
-              // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
-              stop = manager.subscribeEvery(sessionId, (frame) => {
-                // Live views are video only, encoded by ace-media and back through egress: the
-                // stills agents read never reach a viewer. ace-media delivers this view on the
-                // client's media connection: none of its pictures go on this socket.
-                if (closed || viewer) return;
-                if (frame.header.codec === "h264") view?.push(framePicture(frame));
-              });
+              // ace-media delivers the view on the client's media connection: the capture runs
+              // while it is held, and none of its pictures go on this socket. A view it doesn't
+              // deliver holds it too, so the session looks and acts the same to every client.
+              stop = manager.subscribeEvery(sessionId, () => {});
               state = accelerated(ScreenState.parse(manager.state(sessionId)));
             } catch (error) {
               stop?.();
@@ -300,36 +296,32 @@ export function screenConnection(
             swap.commit();
             subscriptions.delete(sessionId);
             previous?.release();
-            const opened = pictures.open(sessionId, {
-              keyframe: () => void manager.requestKeyframe(sessionId).catch(() => {}),
-              guard: () => {
-                if (closed) throw new Error("Screen connection closed");
-              },
-              link: pictureLinkLimits,
-              ...(operation.link ? { hint: operation.link } : {}),
-            });
-            view = opened;
-            const follow = new LinkFollow({
-              link: () => opened.link(),
-              now,
-              apply: (settings) => manager.configureStream(sessionId, settings),
-            });
-            follows.set(sessionId, follow);
-            cancelTick ??= later(1000, tick);
-            const release = () => {
-              stop?.();
-              opened.close();
-              follow.close();
-              if (follows.get(sessionId) === follow) follows.delete(sessionId);
-            };
-            subscriptions.set(sessionId, { media, release });
+            subscriptions.set(sessionId, { media, release: () => stop?.() });
             peer.send({ type: "screen.state", state });
             if (viewer && operation.media) {
-              const poster = await peer.delivery?.port()?.poster(viewer);
-              respond({ ok: true, media: mediaSubscribed(operation.media.connection, poster) });
+              const port = peer.delivery?.port();
+              const poster = await port?.poster(viewer);
+              // Bound, but not played yet (the session isn't streaming into ace-media, or
+              // ace-media refused the view): the reply and the view say why until it is.
+              const undelivered = port?.granted(viewer)
+                ? undefined
+                : waiting(sessionId, port?.why(viewer));
+              respond({
+                ok: true,
+                media: mediaSubscribed(operation.media.connection, poster),
+                ...(undelivered ? { undelivered } : {}),
+              });
+              if (undelivered) delivered(sessionId, undelivered);
               return;
             }
-            break;
+            // No pictures will come: the view says why instead of staying blank.
+            respond({
+              ok: true,
+              undelivered: mediaUndelivered(operation.media !== undefined, peer.delivery?.port(), [
+                "screen",
+              ]),
+            });
+            return;
           }
           case "stream.configure": {
             // A view ace-media delivers is planned there at the size it asks for.
@@ -349,11 +341,7 @@ export function screenConnection(
               data = { codec: operation.settings.codec };
               break;
             }
-            // The view's request, with its bit rate held to what its link carries.
-            const follow = follows.get(operation.sessionId);
-            data = follow
-              ? await follow.ask(operation.settings)
-              : await manager.configureStream(operation.sessionId, operation.settings);
+            data = await manager.configureStream(operation.sessionId, operation.settings);
             break;
           }
           case "unsubscribe":
@@ -388,16 +376,12 @@ export function screenConnection(
         pending--;
       }
     },
+    /** Acks go on the media connection now: the daemon sends no pictures to ack here. */
     ack(input) {
-      const message = ScreenAck.parse(input);
-      if (!closed)
-        pictures.ack(message.sessionId, message.streamId, message.sequence, message.keyframe);
+      ScreenAck.parse(input);
     },
     close() {
       closed = true;
-      cancelTick?.();
-      cancelTick = undefined;
-      pictures.close();
       for (const sessionId of subscriptions.keys()) end(sessionId);
       unwatch();
       unwatchAcceleration?.();

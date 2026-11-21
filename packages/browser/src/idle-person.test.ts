@@ -1,6 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { connectBrowser } from "./index.ts";
-import { idleThread, settle } from "./idle-test-support.ts";
+import { idleThread, settle, watch } from "./idle-test-support.ts";
 import type { PersonFile } from "./person-requests.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 
@@ -92,21 +91,8 @@ it("a watched tab whose window would not show is tried again, its video saying s
   const t = await idleThread();
   await t.idleFor(defaultTabLifecycle.restAfterMs);
   t.backend.fail("show a", 2);
-  const bridge = connectBrowser(t.service, {
-    connectionId: "viewer",
-    authorize: () => true,
-    send: () => true,
-    sendStream: () => true,
-  });
-  cleanups.push(async () => bridge.close());
-  await bridge.handle({
-    type: "browser.subscribe",
-    threadId: "thread",
-    requestId: "subscribe",
-    binaryFrames: true,
-    viewport: { width: 640, height: 400, devicePixelRatio: 1 },
-    video: { codecs: ["vp8"] },
-  });
+  // A viewer ace-media delivers (X3): the capture opens for it.
+  await watch(t.service);
   await expect
     .poll(() => t.service.state("thread").video)
     .toMatchObject({ status: "retrying", attempts: 1 });
@@ -126,22 +112,10 @@ it("a viewer that leaves stops the retries", async () => {
   const t = await idleThread();
   await t.idleFor(defaultTabLifecycle.restAfterMs);
   t.backend.fail("show a");
-  const bridge = connectBrowser(t.service, {
-    connectionId: "viewer",
-    authorize: () => true,
-    send: () => true,
-    sendStream: () => true,
-  });
-  await bridge.handle({
-    type: "browser.subscribe",
-    threadId: "thread",
-    requestId: "subscribe",
-    binaryFrames: true,
-    viewport: { width: 640, height: 400, devicePixelRatio: 1 },
-    video: { codecs: ["vp8"] },
-  });
+  // A viewer ace-media delivers (X3): the capture opens for it.
+  const viewer = await watch(t.service);
   await expect.poll(() => t.service.state("thread").video?.status).toBe("retrying");
-  bridge.close();
+  viewer.leave();
   await expect.poll(() => t.service.state("thread").video).toBeUndefined();
   t.navigationClock.advance(60_000);
   await settle();

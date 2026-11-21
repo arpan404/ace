@@ -36,7 +36,7 @@ function runtime() {
 
 it("repeated lookups through the delivery factory keep one watcher, and each message reaches the streams once", () => {
   const live = runtime();
-  const port = new RuntimeRelayPort(live, () => true);
+  const port = new RuntimeRelayPort(live);
   const relay = lateMediaRelay(() => daemonDelivery(live, port).relay, {
     hostKeys: keyPair(),
   });
@@ -48,7 +48,7 @@ it("repeated lookups through the delivery factory keep one watcher, and each mes
 
 it("a watcher that unsubscribes hears nothing more", () => {
   const live = runtime();
-  const port = new RuntimeRelayPort(live, () => true);
+  const port = new RuntimeRelayPort(live);
   let heard = 0;
   const stop = port.watch({ message: () => heard++, exit: () => heard++ });
   port.message({ type: "relay.dialed", stream: "s" }, new Uint8Array(0));

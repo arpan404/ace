@@ -5,7 +5,22 @@ import type {
   BrowserDialog,
   MediaAcceleration,
 } from "@ace/protocol";
-import type { VideoEncode } from "./video-policy.ts";
+
+/** One encode a capture runs: ace-media's plan for its views (`source.want`), or its first. */
+export interface VideoEncode {
+  /**
+   * Stable while the encoder's codec and size are: a new key is a new encoder (and a keyframe).
+   * The bit and frame rates are not part of it; the encoder takes new ones in place.
+   */
+  key: string;
+  codec: string;
+  width: number;
+  height: number;
+  fps: number;
+  bitrate: number;
+  /** The encode's id in ace-media's frames, while its capture streams there (E4). */
+  id?: number | undefined;
+}
 
 /** Opaque CDP results are parsed by their owning operation before use. */
 export interface BrowserCdp {
