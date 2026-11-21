@@ -71,7 +71,12 @@ export interface CodexChannel {
 }
 
 export type HostConfig = {
-  spawn(flow: OutputFlow, dropped: (line: DroppedOutputLine) => void): SupervisedProcess;
+  /** `stderrDropped` hears oversized stderr lines; stderr is diagnostics, so they never kill. */
+  spawn(
+    flow: OutputFlow,
+    dropped: (line: DroppedOutputLine) => void,
+    stderrDropped: (line: DroppedOutputLine) => void,
+  ): SupervisedProcess;
   /** A dedicated host serves one channel and stops with it; every frame goes to that channel. */
   dedicated: boolean;
   initialize: unknown;
@@ -221,6 +226,12 @@ export class CodexHost {
         },
       },
       (line) => this.#dropped(line),
+      (line) => {
+        // A split line reports "start" first; note it once, with its final size.
+        if (line.phase === "start") return;
+        const note = `ace dropped a stderr line of ${line.bytes} bytes`;
+        for (const tenant of this.#tenants) tenant.handlers.stderr(note);
+      },
     );
     const proc = this.#proc;
     const drain = () => {

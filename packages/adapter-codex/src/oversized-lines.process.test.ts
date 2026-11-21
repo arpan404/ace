@@ -184,6 +184,24 @@ test.each(["oversized", "partial-reply"])(
   },
 );
 
+test.each([true, false])(
+  "an oversized stderr line is dropped with a note and the host keeps serving (shared %s)",
+  async (shared) => {
+    const h = await harness(shared);
+    const a = await h.open();
+    await send(a, "stderr-flood");
+    await a.wait((f) => f.dir === "stderr" && f.data === "still here");
+    const stderr = a.frames.filter((f) => f.dir === "stderr").map((f) => String(f.data));
+    expect(stderr).toEqual([
+      expect.stringMatching(/^ace dropped a stderr line of \d+ bytes$/),
+      "still here",
+    ]);
+    await send(a, "next");
+    await a.wait((f) => completed(f) && a.frames.filter(completed).length === 2);
+    expect(a.exits).toEqual([]);
+  },
+);
+
 test("oversized history pages retry smaller and omit only turns whose summary is also oversized", async () => {
   const h = await harness();
   const neighbour = await h.open();
