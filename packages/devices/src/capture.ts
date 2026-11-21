@@ -4,7 +4,6 @@ import { deviceWindowBundles, type Frame, type ScreenManager, ScreenStopError } 
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { DeviceError } from "./sdk.ts";
-import { screenrecordCapture } from "./android-screenrecord.ts";
 import { scrcpyCapture } from "./scrcpy-capture.ts";
 import { installedScrcpyJar } from "./scrcpy-jar.ts";
 import type { DevicePlatform } from "./platform.ts";
@@ -252,16 +251,14 @@ export async function startCapture(options: {
         checkAbort();
         return await scrcpyCapture({ ...options, jar, ...(host ? { host } : {}) });
       } catch (error) {
-        // scrcpy could not start on this image: agents still get stills from screenrecord.
+        // scrcpy could not start on this image: agents still get stills from the device itself
+        // (`adb exec-out screencap`, through the one-off screenshot).
         checkAbort();
         why = error instanceof Error ? error.message : "scrcpy-server didn't start";
       }
     }
   }
-  return screenrecordCapture(
-    { ...options, liveViewUnavailable: androidLiveViewError(why) },
-    checkAbort,
-  );
+  throw androidLiveViewError(why);
 }
 /** Why an Android capture without scrcpy refuses a live view, which is video only. */
 function androidLiveViewError(why: string): DeviceError {

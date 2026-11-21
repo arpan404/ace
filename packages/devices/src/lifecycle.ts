@@ -164,7 +164,7 @@ export async function startDevice(
           "The live view didn't send its first frame",
           session.device.platform === "ios"
             ? "Restart the Simulator live view. If using the screen helper, check Screen Recording permission."
-            : "Restart the emulator live view and check that ffmpeg and Android screenrecord are installed.",
+            : "Restart the emulator live view; if it persists, check that scrcpy-server can run on this image.",
         ),
       );
     });

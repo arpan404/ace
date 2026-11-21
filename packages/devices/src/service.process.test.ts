@@ -983,7 +983,7 @@ it("a first-frame timeout explains how to repair the Android live view", async (
   const rejected = expect(starting).rejects.toMatchObject({
     code: "timeout",
     message: "The live view didn't send its first frame",
-    hint: expect.stringContaining("ffmpeg"),
+    hint: expect.stringContaining("scrcpy-server"),
   });
   await h.frameDeadline.promise;
   h.deadlines();

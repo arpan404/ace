@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { expect, it, onTestFinished } from "vitest";
 import { SimulatorJpeg } from "./simulator-jpeg.ts";
-import { deviceImageStream, deviceStillStream } from "./stream-control.ts";
+import { deviceStillStream } from "./stream-control.ts";
 
 /** A screen painted one flat colour, as serve-sim's MJPEG would carry it. */
 const screen = (red: number) =>
