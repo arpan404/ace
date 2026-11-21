@@ -3,8 +3,10 @@ import { EgressRouter, type EgressUnit } from "./egress.ts";
 import { encodeEgress, encodeEgressEnd, type MediaFrame } from "./frame.ts";
 import {
   drainMs,
+  failedReason,
   IngestSources,
   maxIngestReopens,
+  restartingReason,
   type IngestAddress,
   type IngestProducer,
 } from "./ingest-sources.ts";
@@ -43,6 +45,7 @@ function unitFrame(mark: number): MediaFrame {
 /** The daemon's sources with ace-media faked at its control lane and egress lane. */
 function world() {
   const state = {
+    why: undefined as string | undefined,
     settings: {
       encode: "auto",
       delivery: "legacy",
@@ -79,6 +82,7 @@ function world() {
     capabilities: () => capabilities,
     randomBytes: (length) => new Uint8Array(length).fill(++bytes),
     id: () => `s${++ids}`,
+    why: () => state.why,
     schedule: (run, ms) => {
       const timer = { at: now + ms, run, cancelled: false };
       timers.push(timer);
@@ -119,6 +123,7 @@ function producer(kind: SourceKind = "tab", source = "p") {
   const refused: (string | undefined)[] = [];
   const keyframes: number[] = [];
   const events: string[] = [];
+  const stops: string[] = [];
   const p: IngestProducer = {
     source,
     kind,
@@ -141,8 +146,9 @@ function producer(kind: SourceKind = "tab", source = "p") {
       ended.push([path, interrupted]);
     },
     refused: (reason) => void refused.push(reason),
+    stopped: (reason) => void stops.push(reason),
   };
-  return { p, points, units, ended, refused, keyframes, events };
+  return { p, points, units, ended, refused, keyframes, events, stops };
 }
 
 describe("IngestSources", () => {
@@ -167,15 +173,6 @@ describe("IngestSources", () => {
     expect(w.state.needs).toBe(1);
   });
 
-  it("keeps a source with the daemon while its setting is legacy, without starting ace-media", () => {
-    const w = world();
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
-    const l = producer();
-    w.sources.add(l.p);
-    expect(w.sent).toEqual([]);
-    expect(w.state.needs).toBe(0);
-  });
-
   it("wants ace-media while it starts, and opens the source once it is up", () => {
     const w = world();
     w.state.up = false;
@@ -196,9 +193,9 @@ describe("IngestSources", () => {
     w.sources.add(l.p);
     w.status("s1", "starting");
     w.router.push(encodeEgress(1, 0, unitFrame(1)));
-    // The route leaves ace-media; ace-media's status about the producer's end comes first,
+    // ace-media stops answering (its route stops the producer); its status about the producer's end comes first,
     // long before the lane carrying its last units drains.
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.health = "restarting";
     w.sources.routesChanged(["tab"]);
     expect(l.points.at(-1)).toBeUndefined();
     w.status("s1", "ended");
@@ -213,7 +210,8 @@ describe("IngestSources", () => {
     expect(w.closed()).toEqual(["s1"]);
     w.router.push(encodeEgress(1, 3, unitFrame(4)));
     expect(l.units).toHaveLength(3);
-    expect(w.state.needs).toBe(0);
+    // The drain's own hold is released; the open source still wants ace-media back.
+    expect(w.state.needs).toBe(1);
   });
 
   it("a drain whose end marker never comes is reported interrupted, never clean", () => {
@@ -221,7 +219,7 @@ describe("IngestSources", () => {
     const l = producer();
     w.sources.add(l.p);
     w.status("s1", "starting");
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.health = "restarting";
     w.sources.routesChanged(["tab"]);
     w.advance(drainMs - 1);
     expect(l.ended).toEqual([]);
@@ -230,18 +228,18 @@ describe("IngestSources", () => {
     expect(w.closed()).toEqual(["s1"]);
   });
 
-  it("the producer is pointed back before its old path is reported ended", () => {
+  it("the producer is stopped before its old path is reported ended", () => {
     const w = world();
     const l = producer();
     w.sources.add(l.p);
     w.status("s1", "starting");
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.health = "restarting";
     w.sources.routesChanged(["tab"]);
     w.router.push(encodeEgressEnd(1, 0, false));
     expect(l.events).toEqual(["point", "unpoint", "ended"]);
   });
 
-  it("ace-media exiting points every producer back first, then ends its paths as cut; a restart gives fresh tokens and handles", () => {
+  it("ace-media exiting stops every producer first, then ends its paths as cut; a restart gives fresh tokens and handles", () => {
     const w = world();
     const l = producer();
     w.sources.add(l.p);
@@ -275,7 +273,7 @@ describe("IngestSources", () => {
     expect(l.points.at(-1)).toMatchObject({ path: "s2" });
   });
 
-  it("gives up after a few reconnects in a row, until its route changes again", () => {
+  it("gives up after a few reconnects in a row, saying so, until its route changes again", () => {
     const w = world();
     const l = producer();
     w.sources.add(l.p);
@@ -285,17 +283,18 @@ describe("IngestSources", () => {
       w.status(id, "retrying");
     }
     expect(w.opened()).toHaveLength(maxIngestReopens + 1);
+    expect(l.stops).toEqual([failedReason]);
     w.sources.routesChanged(["tab"]);
     expect(w.opened()).toHaveLength(maxIngestReopens + 2);
   });
 
-  it("a Simulator ace-media reads itself is closed there at once when it moves back, so its reader drains and the end marker follows its last unit", () => {
+  it("a Simulator ace-media reads itself is closed there at once when its route stops it, so its reader drains and the end marker follows its last unit", () => {
     const w = world();
     const l = producer("simulator");
     w.sources.add(l.p);
     w.status("s1", "starting");
     expect(l.points.at(-1)).toBeDefined();
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.health = "restarting";
     w.sources.routesChanged(["simulator"]);
     // No producer of its own to drain: only ace-media's close ends its reading.
     expect(w.closed()).toEqual(["s1"]);
@@ -303,7 +302,7 @@ describe("IngestSources", () => {
     expect(l.ended.at(-1)).toEqual(["s1", false]);
   });
 
-  it("a source ace-media ended with a reason stays on the daemon until its route changes", () => {
+  it("a source ace-media ended with a reason stays stopped until its route changes or ace-media starts again", () => {
     const w = world();
     const l = producer("tab-pictures");
     w.sources.add(l.p);
@@ -311,10 +310,14 @@ describe("IngestSources", () => {
     w.status("s1", "ended", "encoder-unavailable");
     expect(l.refused).toEqual(["encoder-unavailable"]);
     expect(l.points.at(-1)).toBeUndefined();
-    w.sources.replay();
     expect(w.opened()).toHaveLength(1);
     w.sources.routesChanged(["tab-pictures"]);
     expect(w.opened()).toHaveLength(2);
+    w.status("s2", "starting");
+    w.status("s2", "ended", "encoder-unavailable");
+    // A new ace-media is asked again: the daemon has no other path to fall back on.
+    w.sources.replay();
+    expect(w.opened()).toHaveLength(3);
   });
 
   it("a JPEG source's encodes are kept and sent again after a restart, its pictures carry their text, and leaving closes it at once", () => {
@@ -340,7 +343,7 @@ describe("IngestSources", () => {
     ]);
     // ace-media reads these pictures itself: the close is ordered after the last one.
     w.status("s2", "starting");
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.health = "restarting";
     w.sources.routesChanged(["tab-pictures"]);
     expect(w.closed()).toEqual(["s2"]);
     w.router.push(encodeEgressEnd(2, 0, false));
@@ -404,4 +407,55 @@ it("ace-media's plan reaches the producer streaming to it, and no other", () => 
   // A plan for another source's id is not this producer's.
   w.sources.message({ type: "source.want", source: "other", encodes });
   expect(wants).toHaveLength(2);
+});
+
+describe("a stopped source says why, so its live views never go blank without a reason", () => {
+  it("ace-media exiting tells each streaming producer it is restarting, and a restart streams again", () => {
+    const w = world();
+    const l = producer();
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.state.up = false;
+    w.state.health = "restarting";
+    w.sources.exited();
+    expect(l.stops).toEqual([restartingReason]);
+    w.state.up = true;
+    w.state.health = "healthy";
+    w.sources.replay();
+    w.status("s2", "starting");
+    expect(l.points.at(-1)).toMatchObject({ path: "s2" });
+  });
+
+  it("an unavailable ace-media's reason reaches a source added meanwhile and the ones it stopped", () => {
+    const w = world();
+    const streaming = producer("tab", "a");
+    w.sources.add(streaming.p);
+    w.status("s1", "starting");
+    w.state.health = "unavailable";
+    w.state.why = "ace-media is unavailable: crashed 5 times";
+    w.sources.routesChanged(["tab"]);
+    expect(streaming.stops).toEqual(["ace-media is unavailable: crashed 5 times"]);
+    const late = producer("screen", "b");
+    w.sources.add(late.p);
+    expect(late.stops).toEqual(["ace-media is unavailable: crashed 5 times"]);
+    expect(late.points).toEqual([]);
+  });
+
+  it("a source added while ace-media is only starting waits without a word", () => {
+    const w = world();
+    w.state.up = false;
+    w.state.health = "restarting";
+    const l = producer();
+    w.sources.add(l.p);
+    expect(l.stops).toEqual([]);
+  });
+
+  it("a source ace-media ended says ace-media's reason", () => {
+    const w = world();
+    const l = producer("tab-pictures");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.status("s1", "ended", "encoder-unavailable");
+    expect(l.stops).toEqual(["encoder-unavailable"]);
+  });
 });

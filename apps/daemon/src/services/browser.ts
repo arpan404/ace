@@ -83,7 +83,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   };
   // ace's Chrome, the desktop's views and the person's own Chrome share one daemon-wide budget.
   const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
-  // Live video through ace-media while `media.encode` says so (E4); the browser's own otherwise.
+  // Live video is encoded only by ace-media (E4, X2).
   const media = options.browser?.media ?? startMedia(context);
   const browser = new BrowserService({
     ...options.browser,

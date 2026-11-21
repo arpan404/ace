@@ -13,9 +13,9 @@ import {
 } from "./settings-page-wire.ts";
 
 /*
- * Settings › Beta's new media pipeline switch on the phone: one toggle over `media.encode` and
- * `media.delivery`, read and worded as web's Beta page does (`@ace/ui-core`). Turning it on or
- * off writes both in one `settings.setMany`, which the machine applies all or none. Pure.
+ * Settings › Beta's new media pipeline switch on the phone: one toggle over `media.delivery`, read
+ * and worded as web's Beta page does (`@ace/ui-core`). Turning it on or off writes it in one
+ * `settings.setMany`. Pure.
  */
 
 /** The row's id, the same anchor web's Settings search uses. */
@@ -25,16 +25,16 @@ const locked = (values: ReadValues) =>
   mediaPipelineKeys.some((key) => values.get(key)?.provenance === "environment");
 
 export function mediaPipelineRow(values: ReadValues): PageRow {
-  const [encode, delivery] = mediaPipelineKeys.map((key) => values.get(key));
-  const { on, partly } = mediaPipelineState(encode?.value, delivery?.value);
+  const delivery = values.get("media.delivery");
+  const { on } = mediaPipelineState(delivery?.value);
   return {
     id: mediaPipelineRowId,
     key: null,
     title: mediaPipelineSwitch.title,
     control: { kind: "toggle" },
     value: on,
-    note: partly ? mediaPipelineSwitch.partly : null,
-    source: pageSource(encode) ?? pageSource(delivery),
+    note: null,
+    source: pageSource(delivery),
     locked: locked(values) ? lockedByEnvironment : null,
     empty: null,
   };

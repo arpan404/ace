@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { MediaRecording, recordingRoute } from "./recordings.ts";
-import { legacyMediaSettings } from "./supervision-policy.ts";
+import { defaultMediaSettings } from "./supervision-policy.ts";
 import { ManualClock } from "./supervisor-test-support.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
 
@@ -38,8 +38,8 @@ const part = (index: number) => ({
 });
 
 it("routes a recording to ace-media only when the setting is auto and ace-media is healthy", () => {
-  const auto = { ...legacyMediaSettings, recordings: "auto" } as const;
-  expect(recordingRoute(legacyMediaSettings, "healthy")).toBe("legacy");
+  const auto = { ...defaultMediaSettings, recordings: "auto" } as const;
+  expect(recordingRoute(defaultMediaSettings, "healthy")).toBe("legacy");
   expect(recordingRoute(auto, "healthy")).toBe("ace-media");
   expect(recordingRoute(auto, "restarting")).toBe("legacy");
   expect(recordingRoute(auto, "unavailable")).toBe("legacy");

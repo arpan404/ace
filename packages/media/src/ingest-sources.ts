@@ -12,14 +12,15 @@ import type { FromMedia, ToMedia } from "./wire.ts";
 
 /**
  * Producers that stream into ace-media's ingest (docs/media/plan.md, phase 2, E1–E4): the
- * daemon's side, one for every kind (browser tabs, screens, devices). While a kind's route says
- * `producer: "ace-media"`, each producer's source is opened in ace-media with a fresh id,
- * single-use token and egress handle, and once ace-media reports it `starting` the producer is
- * pointed at the ingest. When the route moves back (a setting, or ace-media restarting or
- * unavailable) the producer is pointed back at the daemon, and its handle keeps delivering until
- * ace-media's end marker for it arrives on egress, after its last unit. The handle closes only
- * then; a marker that never comes within `drainMs` is reported as a cut path, never as a clean
- * one. The daemon's state is the truth: every ace-media start opens each source again.
+ * daemon's side, one for every kind (browser tabs, screens, devices). ace-media is the only
+ * path a producer has. While a kind's route says `producer: "ace-media"`, each producer's source
+ * is opened in ace-media with a fresh id, single-use token and egress handle, and once ace-media
+ * reports it `starting` the producer is pointed at the ingest. When the route stops it (ace-media
+ * restarting or unavailable) the producer is told to stop streaming, and its handle keeps
+ * delivering until ace-media's end marker for it arrives on egress, after its last unit. The
+ * handle closes only then; a marker that never comes within `drainMs` is reported as a cut path,
+ * never as a clean one. The daemon's state is the truth: every ace-media start opens each source
+ * again, including one whose earlier opens failed.
  */
 
 export type Origin = Extract<ToMedia, { type: "source.open" }>["origin"];
@@ -57,9 +58,9 @@ export type IngestProducer = {
   /** The daemon's legacy consumers of this source, fed from egress. */
   consumers: LegacyConsumers;
   /**
-   * Points the producer at ace-media (an address) or back at the daemon (undefined). Resolves
-   * once the producer has switched; a rejection keeps this source on the daemon until its route
-   * changes again.
+   * Points the producer at ace-media (an address), or stops it streaming (undefined): it has no
+   * other path. Resolves once the producer has switched; a rejection keeps this source stopped
+   * until its route changes or ace-media starts again.
    */
   point: (address: IngestAddress | undefined) => Promise<void>;
   /** ace-media's egress dropped deltas or a consumer needs one: a keyframe of this encode. */
@@ -69,8 +70,17 @@ export type IngestProducer = {
    * or it was cut and units may be missing. Always after the `point` that left it.
    */
   pathEnded?: (path: string, interrupted: boolean) => void;
-  /** ace-media ended the source with a reason: it stays on the daemon until its route changes. */
+  /**
+   * ace-media ended the source with a reason, or its opens kept failing: it stays stopped until
+   * its route changes or ace-media starts again. Its live views say why.
+   */
   refused?: (reason: string | undefined) => void;
+  /**
+   * The source's video stopped and won't come back on its own soon (ace-media exited, is
+   * unavailable, or kept failing it): why, for its live views. The next `point` with an address
+   * means it streams again.
+   */
+  stopped?: (reason: string) => void;
   /**
    * The privacy epochs this producer stamped that the daemon knows were clear: the source was
    * public for all of each one. A poster shows a picture only from these (D1). Absent: none, so
@@ -105,6 +115,11 @@ export type IngestSourcesOptions = {
   schedule: (callback: () => void, milliseconds: number) => () => void;
   log?: (message: string, fields: Record<string, unknown>) => void;
   /**
+   * Why sources can't stream now, while ace-media is restarting or unavailable; undefined while
+   * it is only starting (a source then waits without a word).
+   */
+  why?: () => string | undefined;
+  /**
    * A producer's open in ace-media changed: its id there now, or none. Viewers delivered by
    * ace-media follow it (D1).
    */
@@ -122,8 +137,13 @@ export type IngestSourcesOptions = {
  */
 export const h264Only: readonly string[] = ["avc1.42E033"];
 
-/** Reconnects after the producer's connection ended, before the source stays on the daemon. */
+/** Reconnects after the producer's connection ended, before the source stays stopped. */
 export const maxIngestReopens = 3;
+/** What a source's views say when ace-media stopped and gave no reason of its own. */
+export const restartingReason = "ace-media stopped and is starting again";
+/** What they say when ace-media kept failing the source. */
+export const failedReason = "ace-media couldn't take this video";
+
 /** Longest a handle waits for its end marker after its producer was pointed away. */
 export const drainMs = 2_000;
 
@@ -140,7 +160,8 @@ const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>([
 
 type Entry = {
   producer: IngestProducer;
-  state: "daemon" | "opening" | "ingest";
+  /** `off`: not streaming anywhere (ace-media isn't up, or the source failed there). */
+  state: "off" | "opening" | "ingest";
   /** The open in the running ace-media, while there is one. */
   live: Path | undefined;
   /** Keeps ace-media running while settings want this source there, through restarts. */
@@ -150,7 +171,7 @@ type Entry = {
   codecs: string[] | undefined;
   /** Bumped by every switch, so a late answer to an older one is ignored. */
   generation: number;
-  /** Ingest failed or was refused: it stays on the daemon until its route changes. */
+  /** Ingest failed or was refused: it stays off until its route changes or ace-media restarts. */
   failed: boolean;
   reopens: number;
   closed: boolean;
@@ -210,7 +231,7 @@ export class IngestSources {
   add(producer: IngestProducer): IngestSource {
     const entry: Entry = {
       producer,
-      state: "daemon",
+      state: "off",
       live: undefined,
       release: undefined,
       encodes: undefined,
@@ -222,6 +243,10 @@ export class IngestSources {
     };
     this.#entries.add(entry);
     this.#sync(entry);
+    if (entry.state === "off") {
+      const why = this.#options.why?.();
+      if (why) producer.stopped?.(why);
+    }
     return {
       streaming: () => entry.state === "ingest",
       reconnect: () => this.#reconnect(entry),
@@ -274,13 +299,20 @@ export class IngestSources {
       if (kinds.includes(entry.producer.kind)) {
         entry.failed = false;
         entry.reopens = 0;
+        const was = entry.state;
         this.#sync(entry);
+        if (was !== "off" && entry.state === "off")
+          entry.producer.stopped?.(this.#options.why?.() ?? restartingReason);
       }
   }
 
-  /** The supervisor's `replay`: ace-media is up, with a new ingest. */
+  /** The supervisor's `replay`: ace-media is up, with a new ingest. Failed sources try again. */
   replay(): void {
-    for (const entry of this.#entries) this.#sync(entry);
+    for (const entry of this.#entries) {
+      entry.failed = false;
+      entry.reopens = 0;
+      this.#sync(entry);
+    }
   }
 
   /** The supervisor's `onExit`: every id, token and handle of that process is gone. */
@@ -290,9 +322,10 @@ export class IngestSources {
       this.#live(entry, undefined);
       entry.generation++;
       const was = entry.state;
-      entry.state = "daemon";
+      entry.state = "off";
       if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
       if (live) this.#finish(live, true, false);
+      if (was !== "off") entry.producer.stopped?.(this.#options.why?.() ?? restartingReason);
     }
     // Deleting while iterating a Map is safe: finished paths aren't visited again.
     for (const path of this.#paths.values()) this.#finish(path, true, false);
@@ -356,6 +389,7 @@ export class IngestSources {
       entry.failed = true;
       this.#leave(entry);
       entry.producer.refused?.(message.reason);
+      entry.producer.stopped?.(message.reason);
       return;
     }
     if (entry.state === "ingest") this.#reconnect(entry);
@@ -371,8 +405,8 @@ export class IngestSources {
     }
     const route = this.#options.routes()[kind];
     const desired = route.producer === "ace-media" && !entry.failed;
-    if (desired && entry.state === "daemon") this.#open(entry, route);
-    else if (!desired && entry.state !== "daemon") this.#leave(entry);
+    if (desired && entry.state === "off") this.#open(entry, route);
+    else if (!desired && entry.state !== "off") this.#leave(entry);
     else if (desired && entry.live && entry.live.route.egress !== route.egress) {
       entry.live.route = route;
       this.#send({ type: "source.egress", source: entry.live.id, on: route.egress });
@@ -466,17 +500,18 @@ export class IngestSources {
         });
         entry.failed = true;
         this.#leave(entry);
+        entry.producer.stopped?.(failedReason);
       },
     );
   }
 
-  /** Points the producer back at the daemon; its path drains until its marker. */
+  /** Stops the producer streaming; its path drains until its marker. */
   #leave(entry: Entry): void {
     const live = entry.live;
     this.#live(entry, undefined);
     entry.generation++;
     const was = entry.state;
-    entry.state = "daemon";
+    entry.state = "off";
     if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
     if (live) this.#retire(live);
     if (!this.wanted(entry.producer.kind)) {
@@ -486,18 +521,19 @@ export class IngestSources {
   }
 
   #reconnect(entry: Entry): void {
-    if (entry.closed || entry.state === "daemon") return;
+    if (entry.closed || entry.state === "off") return;
     const live = entry.live;
     this.#live(entry, undefined);
-    entry.state = "daemon";
+    entry.state = "off";
     entry.generation++;
     if (live) this.#retire(live);
     if (++entry.reopens > maxIngestReopens) {
       entry.failed = true;
       void entry.producer.point(undefined).catch(() => {});
+      entry.producer.stopped?.(failedReason);
       return;
     }
-    // Reopened at once, without a detour to the daemon: the producer gets its new address.
+    // Reopened at once: the producer gets its new address.
     this.#sync(entry);
   }
 
@@ -560,7 +596,7 @@ export class IngestSources {
     this.#entries.delete(entry);
     const live = entry.live;
     this.#live(entry, undefined);
-    entry.state = "daemon";
+    entry.state = "off";
     // The capture is gone: nothing is left to deliver to.
     if (live) this.#finish(live, true, true);
     entry.release?.();

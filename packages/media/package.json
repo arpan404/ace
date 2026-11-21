@@ -17,7 +17,7 @@
     "./epochs": "./src/epochs.ts",
     "./recordings": "./src/recordings.ts",
     "./stills": "./src/stills.ts",
-    "./tee": "./src/tee.ts",
+    "./testing/stamped-producer": "./src/testing/stamped-producer.ts",
     "./session-link": "./src/session-link.ts",
     "./ingest-sources": "./src/ingest-sources.ts",
     "./ingest-writer": "./src/ingest-writer.ts",

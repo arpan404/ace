@@ -243,18 +243,18 @@ it.runIf(real)(
     supervisor.send({ type: "source.close", source: "a" });
     expect(router.drops().unknown).toBe(0);
 
-    // ace-media dies: the route goes back to the daemon within 2 s.
+    // ace-media dies: the route stops the tab's producer within 2 s.
     const pid = supervisor.snapshot().pid ?? 0;
     const killed = performance.now();
     process.kill(pid, "SIGKILL");
     await until(
-      () => changes.some((c) => c.at > killed && c.routes.tab.producer === "daemon"),
+      () => changes.some((c) => c.at > killed && c.routes.tab.producer === "none"),
       deadline,
       "route fallback after process death",
     );
-    const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "daemon");
+    const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "none");
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
-    expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "legacy" });
+    expect(back?.routes.tab).toMatchObject({ egress: false, deliverer: "legacy" });
   },
   processBudgetMs,
 );

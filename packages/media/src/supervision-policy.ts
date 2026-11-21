@@ -34,14 +34,13 @@ export function crashLoop(failures: readonly number[], now: number) {
   return { recent, looping: recent.length >= supervisionTimings.crashLimit };
 }
 
-/** The setting gate: ace-media is only ever started while some setting asks for it. */
-export function mediaWanted(settings: MediaSettings): boolean {
-  return Object.values(settings).some((value) => value === "auto");
-}
-
-export const legacyMediaSettings: MediaSettings = {
+/**
+ * The settings a daemon starts with: ace-media encodes every source (`media.encode` has no other
+ * value), and the daemon still delivers, records and makes stills.
+ */
+export const defaultMediaSettings: MediaSettings = {
   recordings: "legacy",
   stills: "legacy",
-  encode: "legacy",
+  encode: "auto",
   delivery: "legacy",
 };

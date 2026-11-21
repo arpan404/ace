@@ -48,7 +48,8 @@ export type ViewerTarget = z.infer<typeof ViewerTarget>;
 const Settings = z.strictObject({
   recordings: z.enum(["auto", "legacy"]),
   stills: z.enum(["auto", "legacy"]),
-  encode: z.enum(["auto", "legacy"]),
+  /** Phase 2 removed the daemon's own encoders: ace-media always encodes. */
+  encode: z.literal("auto"),
   delivery: z.enum(["auto", "legacy"]),
 });
 const Remote = z.strictObject({

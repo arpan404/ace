@@ -39,7 +39,7 @@ test("only an admin device may switch the media pipeline, alone or in a batch", 
   const single = message({
     type: "settings.set",
     requestId: "m2",
-    key: "media.encode",
+    key: "media.delivery",
     value: "auto",
     layer: { kind: "global" },
   });

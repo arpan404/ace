@@ -1,10 +1,14 @@
 import { expect, it } from "vitest";
 import { MediaStills, stillRoute, type StillRequest } from "./stills.ts";
-import { legacyMediaSettings, type MediaHealth, type MediaSettings } from "./supervision-policy.ts";
+import {
+  defaultMediaSettings,
+  type MediaHealth,
+  type MediaSettings,
+} from "./supervision-policy.ts";
 import { ManualClock } from "./supervisor-test-support.ts";
 import type { ToMedia } from "./wire.ts";
 
-const auto: MediaSettings = { ...legacyMediaSettings, stills: "auto" };
+const auto: MediaSettings = { ...defaultMediaSettings, stills: "auto" };
 const request: StillRequest = {
   source: "s1",
   maxWidth: 1568,
@@ -49,14 +53,14 @@ function stills(options: { settings?: MediaSettings; health?: MediaHealth; up?: 
 }
 
 it("routes a still to ace-media only when the setting is auto and ace-media is healthy", () => {
-  expect(stillRoute(legacyMediaSettings, "healthy")).toBe("legacy");
+  expect(stillRoute(defaultMediaSettings, "healthy")).toBe("legacy");
   expect(stillRoute(auto, "healthy")).toBe("ace-media");
   expect(stillRoute(auto, "restarting")).toBe("legacy");
   expect(stillRoute(auto, "unavailable")).toBe("legacy");
 });
 
 it("leaves stills to the legacy maker by default, sending nothing to ace-media", async () => {
-  const { take, sent, legacyCalls } = stills({ settings: legacyMediaSettings });
+  const { take, sent, legacyCalls } = stills({ settings: defaultMediaSettings });
   await expect(take()).resolves.toBe("legacy");
   expect(sent).toEqual([]);
   expect(legacyCalls()).toBe(1);

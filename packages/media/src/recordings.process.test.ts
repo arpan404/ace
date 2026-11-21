@@ -6,16 +6,16 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { MediaRecording, recordingRoute } from "./recordings.ts";
 import {
-  legacyMediaSettings,
+  defaultMediaSettings,
   MediaSupervisor,
   nodeMediaHost,
   systemMediaClock,
   type MediaExit,
 } from "./supervisor.ts";
-import { MediaTee, nodeIngestConnect } from "./tee.ts";
+import { nodeIngestConnect, StampedProducer } from "./testing/stamped-producer.ts";
 
 // The daemon's recording route against the real ace-media (`bun run check:media` builds it and
-// sets ACE_MEDIA_TEST_BINARY): the supervisor, a tee'd H.264 source stamped at read time, the
+// sets ACE_MEDIA_TEST_BINARY): the supervisor, an H.264 source stamped at read time, the
 // 100 ms epochs and their decisions, the source going private and public, and ace-media killed
 // mid-recording. Unit tests can't show the parts that come out the other end.
 const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
@@ -100,16 +100,16 @@ async function until(condition: () => boolean, ms = 10_000): Promise<void> {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 it.runIf(binary)(
-  "records a tee'd source through ace-media: nothing private written, and a kill -9 continues in a new part",
+  "records an ingested source through ace-media: nothing private written, and a kill -9 continues in a new part",
   async () => {
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-rec-"));
     const directory = join(runtimeDir, "recording");
-    const settings = { ...legacyMediaSettings, recordings: "auto" } as const;
+    const settings = { ...defaultMediaSettings, recordings: "auto" } as const;
     const exits: MediaExit[] = [];
     let secret = false;
     let handle = 0;
     let recording: MediaRecording | undefined;
-    let tee: MediaTee | undefined;
+    let tee: StampedProducer | undefined;
     const supervisor: MediaSupervisor = new MediaSupervisor({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -145,7 +145,7 @@ it.runIf(binary)(
     await until(() => supervisor.health() === "healthy");
     expect(recordingRoute(settings, supervisor.health())).toBe("ace-media");
 
-    tee = new MediaTee(
+    tee = new StampedProducer(
       {
         source: "s1",
         handle: () => ++handle,
@@ -169,7 +169,7 @@ it.runIf(binary)(
       clock: systemMediaClock,
       private: () => secret,
       epoch: 1,
-      // The tee applies each epoch as it gets it, so it acknowledges at once.
+      // The producer applies each epoch as it gets it, so it acknowledges at once.
       issue: (issued) => recording?.acknowledged(tee?.epoch(issued) ?? issued.epoch),
       keyframe: () => {},
     });

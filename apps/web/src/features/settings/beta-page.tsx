@@ -43,18 +43,15 @@ export function BetaSettings() {
 }
 
 /**
- * The new media pipeline (ADR 0147): one switch over `media.encode` and `media.delivery`. On
- * means both are `auto`; anything else shows off, and a mixed pair says only part is on. A
- * failed write says so in the row, and the switch keeps showing what the daemon holds.
+ * The new media pipeline (ADR 0147): one switch over `media.delivery` (ace-media always encodes).
+ * A failed write says so in the row, and the switch keeps showing what the daemon holds.
  *
- * Producers follow `media.encode` at their next keyframe, but `media.delivery` is chosen when a
- * view subscribes (the bridges' `bindMedia`), so a view already open keeps its path until it
- * is opened again.
+ * Delivery is chosen when a view subscribes (the bridges' `bindMedia`), so a view already open
+ * keeps its path until it is opened again.
  */
 function MediaPipelineRow() {
   const id = useId();
   const row = settingRow("beta.mediaPipeline");
-  const [encode, setEncode] = useSetting(settingKeys.mediaEncode);
   const [delivery, setDelivery] = useSetting(settingKeys.mediaDelivery);
   const loaded = useMediaSettingsLoaded();
   const offline = useConnectionState() !== "ready";
@@ -63,7 +60,7 @@ function MediaPipelineRow() {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const [error, setError] = useState<string>();
-  const { on, partly } = mediaPipelineState(encode, delivery);
+  const { on } = mediaPipelineState(delivery);
 
   const turn = async (next: boolean) => {
     const value = mediaPipelineValue(next);
@@ -71,15 +68,15 @@ function MediaPipelineRow() {
     setError(undefined);
     // A spinner only once the write is slow, as every settings control does.
     timer.current = setTimeout(() => setSlow(true), 400);
-    // Each write rolls back on its own if the daemon refuses it, so the row shows what's stored.
-    const results = await Promise.allSettled([setEncode(value), setDelivery(value)]);
-    clearTimeout(timer.current);
-    setSaving(false);
-    setSlow(false);
-    const failed = results.find((result) => result.status === "rejected");
-    if (failed) {
-      const reason = failed.reason instanceof Error ? failed.reason.message : undefined;
-      setError(mediaPipelineRefused(next, reason));
+    // The write rolls back on its own if the daemon refuses it, so the row shows what's stored.
+    try {
+      await setDelivery(value);
+    } catch (failure) {
+      setError(mediaPipelineRefused(next, failure instanceof Error ? failure.message : undefined));
+    } finally {
+      clearTimeout(timer.current);
+      setSaving(false);
+      setSlow(false);
     }
   };
 
@@ -92,7 +89,6 @@ function MediaPipelineRow() {
       description={
         <>
           <span className="block">{mediaPipelineSwitch.description}</span>
-          {partly && <span className="block">{mediaPipelineSwitch.partly}</span>}
           {error && (
             <span role="alert" className="block text-destructive">
               {error}
@@ -113,12 +109,9 @@ function MediaPipelineRow() {
   );
 }
 
-/** Both media settings have come from the daemon, so the switch never shows a fallback. */
+/** The delivery setting has come from the daemon, so the switch never shows a fallback. */
 function useMediaSettingsLoaded(): boolean {
   const backend = useSettingsBackend();
-  const both = () => {
-    const values = backend.values.get();
-    return settingKeys.mediaEncode.key in values && settingKeys.mediaDelivery.key in values;
-  };
-  return useSyncExternalStore(backend.values.subscribe, both, both);
+  const loaded = () => settingKeys.mediaDelivery.key in backend.values.get();
+  return useSyncExternalStore(backend.values.subscribe, loaded, loaded);
 }

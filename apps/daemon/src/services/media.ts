@@ -12,7 +12,7 @@ import type { MediaDeliveryPort } from "@ace/media/media-viewers";
 import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import {
-  legacyMediaSettings,
+  defaultMediaSettings,
   mediaBinaryPath,
   nodeMediaHost,
   systemMediaClock,
@@ -24,13 +24,12 @@ import type { MediaRelayPort } from "../media-relay/port.ts";
 import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
- * The daemon's ace-media for live video (E4, ADR 0147): one `MediaRuntime`, made once the
- * binary is found and `media.encode` asks for it. Until then, and whenever ace-media isn't
- * healthy, every capture takes the browser's own path.
+ * The daemon's ace-media for live video (ADR 0147): one `MediaRuntime`, made once the binary is
+ * found. ace-media is the only encoder: without the binary, or while ace-media isn't healthy,
+ * live views say they are retrying and why.
  */
 
 const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
-const mediaKeys = ["media.encode", "media.delivery"] as const;
 
 /** The binary this daemon runs: the bundled one in a release, the Cargo build from source. */
 export function findMediaBinary(): string | undefined {
@@ -72,8 +71,8 @@ export type DaemonMedia = BrowserMedia & {
   delivery(): DaemonDelivery | undefined;
   /**
    * For a long-lived producer (a screen session): its source, kept until closed. Before the
-   * runtime exists (`media.encode` never asked for it) the producer waits, and is added once it
-   * does, so a session started under `legacy` still moves when the setting turns `auto`.
+   * runtime exists (it is made once the binary's version is read) the producer waits, and is
+   * added once it does.
    */
   attach(producer: IngestProducer): IngestSource;
   /** What ace-media runs on, kept across its restarts and before the runtime exists (empty). */
@@ -96,11 +95,10 @@ export function startMedia(context: ServiceContext): DaemonMedia | undefined {
 }
 
 function createMedia(context: ServiceContext): DaemonMedia | undefined {
-  if (process.platform === "win32") return undefined; // No lanes in the binary there yet.
   const binary = findMediaBinary();
   if (!binary) return undefined;
   const { services, id, config, resources } = context;
-  let settings: MediaSettings = legacyMediaSettings;
+  let settings: MediaSettings = defaultMediaSettings;
   let runtime: MediaRuntime | undefined;
   let starting: Promise<void> | undefined;
   let closed = false;
@@ -151,21 +149,15 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     }));
 
   const read = async () => {
-    const [encode, delivery] = await Promise.all(
-      mediaKeys.map(async (key) => MediaSetting((await services.settings?.get(key))?.value)),
-    );
-    settings = {
-      ...legacyMediaSettings,
-      encode: encode ?? "legacy",
-      delivery: delivery ?? "legacy",
-    };
-    if (settings.encode === "auto" || settings.delivery === "auto") await start();
+    const delivery = MediaSetting((await services.settings?.get("media.delivery"))?.value);
+    settings = { ...defaultMediaSettings, delivery };
     runtime?.settingsChanged();
   };
+  // The runtime is made at once; ace-media itself starts on its first need.
+  void start();
   void read().catch(() => {});
   const stop = services.settings?.onChange((layer, keys) => {
-    if (layer.kind === "global" && mediaKeys.some((key) => keys.includes(key)))
-      void read().catch(() => {});
+    if (layer.kind === "global" && keys.includes("media.delivery")) void read().catch(() => {});
   });
   resources.own(() => {
     closed = true;

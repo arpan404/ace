@@ -111,10 +111,7 @@ const adminOnlyBatches: { name: string; entries: { key: SettingsKey; value: Json
   { name: "storage retention", entries: [{ key: "storage.retentionDays", value: 30 }] },
   {
     name: "the new media pipeline",
-    entries: [
-      { key: "media.encode", value: "auto" },
-      { key: "media.delivery", value: "auto" },
-    ],
+    entries: [{ key: "media.delivery", value: "auto" }],
   },
 ];
 test.each(adminOnlyBatches)(

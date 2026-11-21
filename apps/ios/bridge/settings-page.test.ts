@@ -560,16 +560,15 @@ test("without a Downloads folder on the machine, the Browser page says downloads
 
 const pipeline = (shown: SettingsPage) => row(shown, "beta.mediaPipeline");
 const media = (daemon: FakeDaemon) => ({
-  encode: daemon.services.settings.get("media.encode"),
   delivery: daemon.services.settings.get("media.delivery"),
 });
 
-test("Beta's media pipeline switch reads in web's words and turns both settings on together", async () => {
+test("Beta's media pipeline switch reads in web's words and turns delivery on", async () => {
   const p = await ports();
   const shown = await page(p, "beta");
   expect(shown.title).toBe("Beta");
   const video = shown.sections.find((section) => section.id === "video");
-  expect(video?.footer).toMatch(/^Encodes and streams live video with ace-media/);
+  expect(video?.footer).toMatch(/^Streams live video to your devices with ace-media/);
   expect(pipeline(shown)).toMatchObject({
     title: "New media pipeline",
     control: { kind: "toggle" },
@@ -586,7 +585,7 @@ test("Beta's media pipeline switch reads in web's words and turns both settings 
 
   expect(written.ok).toBe(true);
   expect(written.page && pipeline(written.page).value).toBe(true);
-  expect(media(p.daemon)).toEqual({ encode: "auto", delivery: "auto" });
+  expect(media(p.daemon)).toEqual({ delivery: "auto" });
 });
 
 test("Beta's Spade switch shows the machine's setting, and turning it off saves it there", async () => {
@@ -613,11 +612,10 @@ test("Beta's Spade switch shows the machine's setting, and turning it off saves 
   expect(row(await page(p, "beta"), "beta.spade").value).toBe(false);
 });
 
-test("a half-on pipeline shows off, says only part is on, and turning it off sets both back", async () => {
+test("turning the switch off puts delivery back on the daemon", async () => {
   const p = await ports();
-  p.daemon.services.settings.write("media.encode", "auto");
-  const shown = pipeline(await page(p, "beta"));
-  expect(shown).toMatchObject({ value: false, note: "Only part of the new pipeline is on." });
+  p.daemon.services.settings.write("media.delivery", "auto");
+  expect(pipeline(await page(p, "beta"))).toMatchObject({ value: true, note: null });
 
   await writeSettingsPage(p, {
     type: "settings.page.set",
@@ -626,13 +624,12 @@ test("a half-on pipeline shows off, says only part is on, and turning it off set
     value: false,
   });
 
-  expect(media(p.daemon)).toEqual({ encode: "legacy", delivery: "legacy" });
+  expect(media(p.daemon)).toEqual({ delivery: "legacy" });
 });
 
 test("the switch shows a change made on another device when the page is read again", async () => {
   const p = await ports();
   expect(pipeline(await page(p, "beta")).value).toBe(false);
-  p.daemon.services.settings.write("media.encode", "auto");
   p.daemon.services.settings.write("media.delivery", "auto");
   expect(pipeline(await page(p, "beta")).value).toBe(true);
 });
@@ -655,5 +652,5 @@ test("a phone the machine won't let change it is told so politely and nothing is
       "Couldn't turn the new media pipeline on: this phone isn't allowed to change settings on this machine.",
   });
   expect(written.page && pipeline(written.page).value).toBe(false);
-  expect(media(daemon)).toEqual({ encode: "legacy", delivery: "legacy" });
+  expect(media(daemon)).toEqual({ delivery: "legacy" });
 });

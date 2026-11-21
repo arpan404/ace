@@ -1,18 +1,17 @@
 import { createConnection } from "node:net";
-import { ReadStamper, type IssuedEpoch } from "./epochs.ts";
-import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
-import type { FromMedia, ToMedia } from "./wire.ts";
+import { ReadStamper, type IssuedEpoch } from "../epochs.ts";
+import { encodeMediaFrame, type MediaFrame } from "../frame.ts";
+import type { FromMedia, ToMedia } from "../wire.ts";
 
 /**
- * The tee (docs/media/plan.md, "Routes and setting combinations"): frames the daemon already
- * receives, copied into ace-media's ingest for a consumer there, such as the recorder. The
- * daemon is this producer, so it stamps each frame with the epoch it holds when it reads it
- * (`ReadStamper`, with the 100 ms rule after a private epoch) and acknowledges an epoch as soon
- * as it applies it.
+ * A producer for process tests against the real ace-media: it opens a source, writes units to
+ * the ingest socket, and stamps each with the epoch it holds when it reads it (`ReadStamper`,
+ * with the 100 ms rule after a private epoch), acknowledging an epoch as soon as it applies it.
+ * Tests drive the recorder and privacy barrier with it without a browser, screen or device.
  */
 
 /** One encoded unit as the daemon has it. */
-export type TeeUnit = {
+export type TestUnit = {
   kind: "video" | "audio";
   keyframe: boolean;
   /** MediaFrame codec: 1 H.264 Annex B, 2 H.264 AVCC, 3 HEVC Annex B, 4 HEVC HVCC, 9 Opus. */
@@ -34,7 +33,7 @@ export interface IngestSocket {
   destroy(): void;
 }
 
-export type MediaTeeOptions = {
+export type StampedProducerOptions = {
   source: string;
   /** A handle never used before in this ace-media process. */
   handle: () => number;
@@ -45,15 +44,15 @@ export type MediaTeeOptions = {
   connect: (path: string) => IngestSocket;
   now: () => number;
   randomBytes: (length: number) => Uint8Array;
-  /** The tee dropped deltas while ace-media fell behind: ask the producer for a keyframe. */
+  /** The producer dropped deltas while ace-media fell behind: ask the producer for a keyframe. */
   keyframe: () => void;
 };
 
 /** Past this many queued bytes, deltas are dropped until the next keyframe. */
-export const teeQueueLimit = 4 * 1024 * 1024;
+export const producerQueueLimit = 4 * 1024 * 1024;
 
-export class MediaTee {
-  readonly #options: MediaTeeOptions;
+export class StampedProducer {
+  readonly #options: StampedProducerOptions;
   #socket: IngestSocket | undefined;
   /** The token of a `source.open` ace-media hasn't confirmed yet. */
   #token: Uint8Array | undefined;
@@ -61,7 +60,7 @@ export class MediaTee {
   #epoch: number;
   #skipping = false;
 
-  constructor(options: MediaTeeOptions, epoch: number) {
+  constructor(options: StampedProducerOptions, epoch: number) {
     this.#options = options;
     this.#epoch = epoch;
     this.#stamper = new ReadStamper(epoch);
@@ -69,7 +68,7 @@ export class MediaTee {
 
   /**
    * Opens the source in the running ace-media at the current epoch. Called at start and after
-   * every ace-media start (the daemon's replay). False when it isn't running. The tee connects
+   * every ace-media start (the daemon's replay). False when it isn't running. It connects
    * once ace-media reports the source `starting`: a hello that overtook its `source.open` would
    * name a token ace-media doesn't know yet.
    */
@@ -92,7 +91,7 @@ export class MediaTee {
     return true;
   }
 
-  /** ace-media's messages; the tee needs `source.status` for its own source. */
+  /** ace-media's messages; the producer needs `source.status` for its own source. */
   message(message: FromMedia): void {
     if (message.type !== "source.status" || message.source !== this.#options.source) return;
     const token = this.#token;
@@ -107,18 +106,18 @@ export class MediaTee {
     this.#skipping = true;
   }
 
-  /** Applies a new epoch to what the tee reads from now on. It is acknowledged at once. */
+  /** Applies a new epoch to what the producer reads from now on. It is acknowledged at once. */
   epoch(issued: IssuedEpoch): number {
     this.#stamper.apply(issued.epoch, issued.followsPrivate, this.#options.now());
     this.#epoch = issued.epoch;
     return issued.epoch;
   }
 
-  push(unit: TeeUnit): void {
+  push(unit: TestUnit): void {
     const socket = this.#socket;
     if (!socket) return;
     if (unit.kind === "video") {
-      if (socket.queued > teeQueueLimit && !this.#skipping) {
+      if (socket.queued > producerQueueLimit && !this.#skipping) {
         this.#skipping = true;
         this.#options.keyframe();
       }

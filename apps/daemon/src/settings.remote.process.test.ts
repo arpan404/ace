@@ -117,7 +117,6 @@ test("a remote reset restores permitted preferences without changing this host, 
   await f.settings.set("host.displayName", "Build host", { kind: "global" });
   await f.settings.set("providers.default", "claude", { kind: "global" });
   await f.settings.set("access.defaultMode", "full-access", { kind: "global" });
-  await f.settings.set("media.encode", "auto", { kind: "global" });
   await f.settings.set("media.delivery", "auto", { kind: "global" });
   const paired = await f.pair(["read", "operate"]);
   const client = await f.connectTicket(paired.device.id, (await f.ticket(paired.token)).ticket);
@@ -130,7 +129,6 @@ test("a remote reset restores permitted preferences without changing this host, 
   });
   expect((await f.settings.get("remote.enabled")).value).toBe(true);
   expect((await f.settings.get("host.displayName")).value).toBe("Build host");
-  expect((await f.settings.get("media.encode")).value).toBe("auto");
   expect((await f.settings.get("media.delivery")).value).toBe("auto");
   expect((await f.settings.get("providers.default")).provenance).toBe("defaults");
   expect((await f.settings.get("access.defaultMode")).value).toBe("auto-review");

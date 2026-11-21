@@ -160,7 +160,7 @@ it("an end marker reaches its source after its units whatever the route, and a g
   router.push(encodeEgress(handle, 0, frame(1)));
   router.push(encodeEgress(handle, 1, frame(2)));
   // The route already left ace-media: the marker still arrives, clean, since nothing is missing.
-  table.route = { ...allLegacy, producer: "daemon", egress: false };
+  table.route = { ...allLegacy, producer: "none", egress: false };
   router.push(encodeEgressEnd(handle, 2, false));
   expect(marks(a.got.deliver)).toEqual([1, 2]);
   expect(ended).toEqual([false]);
@@ -183,7 +183,7 @@ it("a draining handle keeps the route it was opened with while the kind's route 
   const a = consumers();
   let draining = true;
   const handle = router.open("a", "tab", a.sinks, () => (draining ? allLegacy : table.route));
-  table.route = { ...allLegacy, producer: "daemon", egress: false };
+  table.route = { ...allLegacy, producer: "none", egress: false };
   router.push(encodeEgress(handle, 0, frame(1)));
   draining = false;
   router.push(encodeEgress(handle, 1, frame(2)));

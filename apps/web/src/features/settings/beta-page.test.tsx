@@ -4,14 +4,12 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const name = "New media pipeline";
-const partial = "Only part of the new pipeline is on.";
 
 function stored(app: ReturnType<typeof harness>) {
-  const settings = app.daemon.services.settings;
-  return { encode: settings.get("media.encode"), delivery: settings.get("media.delivery") };
+  return { delivery: app.daemon.services.settings.get("media.delivery") };
 }
 
-test("turning the new media pipeline on routes both encoding and delivery through ace-media", async () => {
+test("turning the new media pipeline on routes delivery through ace-media", async () => {
   const app = harness();
   await app.open("/settings/beta");
   const toggle = await screen.findByRole("switch", { name });
@@ -19,13 +17,12 @@ test("turning the new media pipeline on routes both encoding and delivery throug
 
   await userEvent.click(toggle);
 
-  await waitFor(() => expect(stored(app)).toEqual({ encode: "auto", delivery: "auto" }));
+  await waitFor(() => expect(stored(app)).toEqual({ delivery: "auto" }));
   expect(toggle.getAttribute("aria-checked")).toBe("true");
 });
 
-test("turning it off puts both encoding and delivery back on the current pipeline", async () => {
+test("turning it off puts delivery back on the daemon", async () => {
   const app = harness();
-  app.daemon.services.settings.write("media.encode", "auto");
   app.daemon.services.settings.write("media.delivery", "auto");
   await app.open("/settings/beta");
   const toggle = await screen.findByRole("switch", { name });
@@ -33,22 +30,8 @@ test("turning it off puts both encoding and delivery back on the current pipelin
 
   await userEvent.click(toggle);
 
-  await waitFor(() => expect(stored(app)).toEqual({ encode: "legacy", delivery: "legacy" }));
+  await waitFor(() => expect(stored(app)).toEqual({ delivery: "legacy" }));
   expect(toggle.getAttribute("aria-checked")).toBe("false");
-});
-
-test("a half-on pipeline shows off, says only part is on, and turning it on sets both", async () => {
-  const app = harness();
-  app.daemon.services.settings.write("media.encode", "auto");
-  await app.open("/settings/beta");
-  const toggle = await screen.findByRole("switch", { name });
-  expect(await screen.findByText(partial)).toBeTruthy();
-  expect(toggle.getAttribute("aria-checked")).toBe("false");
-
-  await userEvent.click(toggle);
-
-  await waitFor(() => expect(stored(app)).toEqual({ encode: "auto", delivery: "auto" }));
-  await waitFor(() => expect(screen.queryByText(partial)).toBeNull());
 });
 
 test("a save the daemon refuses says so in the row and the switch keeps the stored state", async () => {
@@ -65,5 +48,5 @@ test("a save the daemon refuses says so in the row and the switch keeps the stor
     /^Couldn't turn the new media pipeline on/,
   );
   await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
-  expect(stored(app)).toEqual({ encode: "legacy", delivery: "legacy" });
+  expect(stored(app)).toEqual({ delivery: "legacy" });
 });

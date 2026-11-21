@@ -34,14 +34,7 @@ export type MediaExit = InFlightWork & {
   restartInMs?: number | undefined;
 };
 
-export type MediaPhase =
-  | "disabled"
-  | "idle"
-  | "starting"
-  | "running"
-  | "stopping"
-  | "backoff"
-  | "unavailable";
+export type MediaPhase = "idle" | "starting" | "running" | "stopping" | "backoff" | "unavailable";
 
 export type MediaSnapshot = {
   health: MediaHealth;
@@ -59,7 +52,7 @@ export type MediaSnapshot = {
 
 export function phaseHealth(phase: MediaPhase): MediaHealth {
   if (phase === "running") return "healthy";
-  return phase === "disabled" || phase === "unavailable" ? "unavailable" : "restarting";
+  return phase === "unavailable" ? "unavailable" : "restarting";
 }
 
 const keptLines = 20;
