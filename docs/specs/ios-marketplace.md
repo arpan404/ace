@@ -198,7 +198,7 @@ touches only its own area's file.
 Paths below are under `apps/ios/` unless they say otherwise; Swift views are in
 `Sources/Views/Market/`, models in `Sources/Models/`.
 
-1. **Foundations.** Blocked by nothing. Owns: `packages/ui-core/src/market/` (a new `market`
+1. **Foundations** (#2498). Blocked by nothing. Owns: `packages/ui-core/src/market/` (a new `market`
    export holding the rules moved out of the web's `market-model.ts` and
    `market-package-words.ts`, which then import them); `bridge/market.ts`, `market-home.ts`,
    `market-review.ts` and `market-installed.ts` with their tests; the market lines in
@@ -207,20 +207,20 @@ Paths below are under `apps/ios/` unless they say otherwise; Swift views are in
    `MarketHomeView`, `MarketEntryView`, `MarketReviewSheet`, `MarketInstalledView` and
    `MarketBotsApproval`; the Marketplace entries in `SearchPlaces.swift` and
    `SettingsTools.swift`; the storefront glyph in the phone's generated set.
-2. **Browse.** Blocked by 1. Discover, search, the type filter, categories, sources and the
+2. **Browse** (#2500). Blocked by 1. Discover, search, the type filter, categories, sources and the
    publisher page. Owns `MarketHomeView`, `MarketShelf`, `MarketRow`, `MarketSearch`,
    `MarketCategoryView`, `MarketSourcesView`, `MarketPublisherView` and `bridge/market-home.ts`.
-3. **Entry page and install.** Blocked by 1. The entry page, the review sheet, install, remove
+3. **Entry page and install** (#2501). Blocked by 1. The entry page, the review sheet, install, remove
    and restore. Owns `MarketEntryView`, `MarketReviewSheet`, `MarketReviewSections`,
    `MarketChoices` and `bridge/market-review.ts`, plus the links in from Spade's New bot sheet,
    Skills and plugins, and `ace://market`.
-4. **Installed and updates.** Blocked by 1; its Update opens slice 3's sheet, so it merges after 3. Owns `MarketInstalledView`, `MarketInstalledRow` and `bridge/market-installed.ts`.
-5. **The person's standing on the iPhone.** Blocked by nothing. The Secure Enclave key, naming
+4. **Installed and updates** (#2502). Blocked by 1; its Update opens slice 3's sheet, so it merges after 3. Owns `MarketInstalledView`, `MarketInstalledRow` and `bridge/market-installed.ts`.
+5. **The person's standing on the iPhone** (#2499). Blocked by nothing. The Secure Enclave key, naming
    it at pairing, answering `device.standing` on every socket, and Pair again on the machine's
    row. Owns the pairing and socket code it changes in `Sources/Bridge`, `Sources/Relay`,
    `Sources/Views/Pairing`, `Sources/Views/Machines` and the bridge's pairing module. Touches no
    marketplace file.
-6. **Bots approval and Confirm it's you.** Blocked by 1 and 5. Owns `MarketBotsApproval`,
+6. **Bots approval and Confirm it's you** (#2503). Blocked by 1 and 5. Owns `MarketBotsApproval`,
    `MarketConfirmPerson` and the person-only paths in `bridge/market.ts`.
 
 ## Out of scope
