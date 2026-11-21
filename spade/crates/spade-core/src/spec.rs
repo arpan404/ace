@@ -144,7 +144,7 @@ fn pretty(value: &serde_json::Value) -> String {
 fn rules_json() -> serde_json::Value {
     serde_json::json!({
         "license": "Apache-2.0",
-        "about": "Every rule a reader of the Spade Agent Format refuses a package by. A refusal names its rule's `id`, which never changes, so a conformance case matches a refusal by id and never by words. `schema` says whether the part's JSON Schema alone decides it. Written from spade_core::rule; don't edit by hand.",
+        "about": "Every rule a reader of the Spade Agent Format refuses a package by. A refusal names its rule's `id`, which never changes, so a conformance case matches a refusal by id and never by words. `schema` says whether the part's JSON Schema alone decides it, for a case whose every word is in the file the schema reads (bot.json, or one schema). Written from spade_core::rule; don't edit by hand.",
         "version": VERSION,
         "rules": crate::rule::RULES,
     })

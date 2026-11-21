@@ -27,6 +27,8 @@ export const packageRuntime = "1";
 /** The Spade Agent Format version this build writes, and the major it reads (ADR 0201 §6). */
 export const formatSpec = "1.0";
 const specMajor = formatSpec.split(".")[0];
+/** Where `bot.json`'s JSON Schema is published, for editors (ADR 0201 §4). */
+export const botSchemaAddress = `https://spec.acehq.dev/${formatSpec}/bot.schema.json`;
 /** Whether `version` is `<major>.<minor>` of the format's major this build reads. */
 export const servedSpec = (version: unknown): boolean =>
   typeof version === "string" && new RegExp(`^${specMajor}\\.[0-9]+$`).test(version);

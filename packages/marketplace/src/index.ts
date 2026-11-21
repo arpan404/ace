@@ -62,7 +62,9 @@ export {
 } from "./published.ts";
 export { readSchema, schemaLimits, schemaMisfits, type Misfit, type Schema } from "./schema.ts";
 export {
+  botSchemaAddress,
   effectKey,
+  formatSpec,
   grantedEffects,
   packageRuntime,
   readPackage,

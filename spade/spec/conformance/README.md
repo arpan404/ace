@@ -45,9 +45,9 @@ file's `about` says what its steps and expectations mean.
 `spade-conform` (`spade/crates/spade-conform`) runs every case, level by level, through an
 implementation's doors, and reports each case passed or failed:
 
-- the reader door: `<cmd> read <folder>` answers `{accepted, problems: [{rule, message}]}`, and
-  `<cmd> fit <file>` (`{schema, at, values}`) answers `{accepted, problems, values: [{fits,
-misfits}]}`;
+- the reader door: `<cmd> read <folder>` answers `{accepted, problems: [{rule, message}]}`;
+  `<cmd> fit <file>`, for a file of `{schema, at, values}`, answers `{accepted, problems,
+  values}`, each value's answer `{fits, misfits}`;
 - the HTTP door: the runtime's API root, its token in `SPADE_CONFORM_TOKEN`;
 - the scenario door: `<cmd> <folder>` answers the report `spade --bot-test` prints. The runner
   judges the calls it lists itself.
