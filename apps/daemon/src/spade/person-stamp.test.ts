@@ -117,3 +117,41 @@ test("passing Spade's host choice on is the person's, stamped over the whole rec
     );
   expect(personOnlyWrite("GET", "/v1/main/host", body)).toBe(undefined);
 });
+
+test("turning a Permissions switch on, or changing the never-use list, needs the person", () => {
+  const bot = "/v1/agents/a_1/security/permissions";
+  const machine = "/v1/security/permissions";
+  const never = "/v1/security/never-apps";
+  const cases: [string, Buffer | undefined, unknown][] = [
+    [
+      bot,
+      json({ key: "computer_use", on: true }),
+      { target: "a_1", value: "permission:computer_use:true" },
+    ],
+    // Following the default can raise a bot.
+    [bot, json({ key: "browser", on: null }), { target: "a_1", value: "permission:browser:null" }],
+    [bot, json({ key: "browser" }), { target: "a_1", value: "permission:browser:null" }],
+    [
+      machine,
+      json({ key: "devices", on: true }),
+      { target: "machine", value: "permission:devices:true" },
+    ],
+    // The list as sent, whatever it adds or drops: the daemon can't see which.
+    [
+      never,
+      json({ apps: ["1Password", "Mail"] }),
+      { target: "machine", value: "never_apps:1Password\u001fMail" },
+    ],
+    // Turning a switch off never does, nor does a body Spade won't take.
+    [bot, json({ key: "computer_use", on: false }), undefined],
+    [machine, json({ key: "devices", on: false }), undefined],
+    [machine, json({ key: "devices" }), undefined],
+    [bot, json({ key: "Not A Switch", on: true }), undefined],
+    [never, json({ apps: [1] }), undefined],
+    [bot, Buffer.from("{not json"), undefined],
+  ];
+  for (const [path, body, expected] of cases)
+    expect(personOnlyWrite("PUT", path, body), `${path} ${body?.toString()}`).toEqual(expected);
+  // Sent in parts, it couldn't be read whole before it is stamped.
+  for (const path of [bot, machine, never]) expect(personOnlyRoute("PUT", path)).toBeDefined();
+});

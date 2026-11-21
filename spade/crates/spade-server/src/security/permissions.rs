@@ -170,7 +170,8 @@ impl Security {
     ) -> Result<MachineSecurity, SecurityError> {
         let list = never::clean(given).map_err(|why| SecurityError::Invalid(why.to_owned()))?;
         let drops = !never::dropped(&self.never_apps(), &list).is_empty();
-        if drops && !self.person_says(stamp, "machine", &stamped_list(&list)) {
+        // The stamp signs the list as the person's client sent it, before Spade tidies it.
+        if drops && !self.person_says(stamp, "machine", &stamped_list(given)) {
             return Err(SecurityError::PersonOnly(PERSON_ONLY));
         }
         self.change_machine(|machine| machine.never_apps = list)
