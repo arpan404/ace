@@ -121,3 +121,14 @@ test("a worker never reads as done while its thread still works, even before ace
   expect(row.title).toBe("Started 2 agents");
   expect(row.workers.map((worker) => worker.tone)).toEqual(["working", "working"]);
 });
+
+test("a bot waiting on one of its workers says so in the list, where its chat shows the request", async () => {
+  const { patches, spade } = await setUp((api) => {
+    api.addAgent({ name: "Research", state: "waiting", waiting_for: "worker", last_activity: 5 });
+  });
+  spade.handle({ type: "spade.watch", on: true });
+
+  const row = await until(() => patches.state?.list.rows?.find((each) => each.name === "Research"));
+
+  expect([row.state, row.line]).toEqual(["needs-you", "An agent it started needs you"]);
+});

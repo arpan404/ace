@@ -79,7 +79,7 @@ export function spadeListRows(
       group: null,
       faces: [botFace(agent)],
       state: row.state,
-      line: row.line,
+      line: workerWaitLine(shown, row.line),
       pinned: agent.pinnedAt !== undefined,
     };
     return { listed, at: agent.lastActivity };
@@ -108,6 +108,16 @@ export function spadeListRows(
     ({ at }) => at,
   );
   return [...main, ...rest].map(({ listed }) => listed);
+}
+
+/**
+ * A bot waiting on a worker it started, with nothing more to say: the row names that, since the
+ * request is the worker's, shown on the workers row in the bot's chat (`spade-worker-rows.ts`).
+ */
+function workerWaitLine(agent: SpadeAgent, line: string): string {
+  return agent.state === "waiting" && agent.waitingFor === "worker" && !agent.status
+    ? "An agent it started needs you"
+    : line;
 }
 
 /** What the Spade tab says about Spade itself while it isn't ready, and whether it offers Turn on. */
