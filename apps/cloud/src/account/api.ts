@@ -1,7 +1,7 @@
 import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
-import { opaqueToken, sealer } from "./crypto.ts";
+import { digest, opaqueToken, sealer } from "./crypto.ts";
 import { accountDeletions, deleteAccountRoute, sweepDeletions } from "./deletion.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
@@ -247,9 +247,12 @@ export function accountApi(
       }
       // A machine credential reads as the session it lives on, without saying more of it.
       const principal = await principals.read(token);
-      return principal
-        ? json(200, { account: principal.account, expiresAt: principal.expiresAt })
-        : fail(401, "unauthenticated");
+      if (principal)
+        return json(200, { account: principal.account, expiresAt: principal.expiresAt });
+      // The session that asked for a deletion still waiting on WorkOS opens nothing, but its
+      // app learns the deletion is pending: a retry or the hourly sweep finishes it.
+      if (await deletions.askedBy(await digest(token))) return fail(409, "deletion_pending");
+      return fail(401, "unauthenticated");
     }
     return fail(404, "not_found");
   }
