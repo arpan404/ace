@@ -85,6 +85,7 @@ test("Settings › Spade sets the default switches and the apps bots never use",
   // A bot that sets none of its own follows it.
   expect(spade.security.permissions.on("scout", "browser")).toBe(true);
 
+  await userEvent.click(section.getByText(/Never let bots use · 14 apps/));
   const list = within(section.getByRole("list", { name: "Apps bots never use" }));
   expect(list.getByText("1Password")).toBeTruthy();
   await userEvent.click(list.getByRole("button", { name: "Remove 1Password" }));

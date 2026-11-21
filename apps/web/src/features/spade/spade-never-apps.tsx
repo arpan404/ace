@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { isStandingRefusal } from "@/boot/person-standing.ts";
 import { ConfirmPerson } from "@/features/ace-account/index.ts";
-import { SettingFooter, SettingList, SettingRow } from "@/components/setting-row.tsx";
+import {
+  SettingDisclosure,
+  SettingFooter,
+  SettingList,
+  SettingRow,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -10,9 +15,9 @@ import { Refusal } from "./spade-settings-rows.tsx";
 
 /**
  * The apps bots never use through Computer use (ADR 0171, amendment 7), under its switch in
- * Settings › Spade: the one safety net left once Computer use is on. Each app with Remove, and a
- * name to add. Removing one lets bots use it, so it is the person's alone: Confirm it's you
- * shows in the list's foot until they do.
+ * Settings › Spade: the one safety net left once Computer use is on. Folded behind its count;
+ * open, each app with Remove, and a name to add. Removing one lets bots use it, so it is the
+ * person's alone: Confirm it's you shows in the list's foot until they do.
  */
 export function NeverApps(props: {
   apps: readonly string[];
@@ -44,13 +49,12 @@ export function NeverApps(props: {
     if (!app) return;
     if (await save([...props.apps, app])) setName("");
   };
+  const count = `${props.apps.length} ${props.apps.length === 1 ? "app" : "apps"}`;
   return (
-    <>
-      <SettingRow
-        title="Never let bots use"
-        description="Bots never use these apps, even with Computer use on."
-        density="compact"
-      />
+    <SettingDisclosure title={`Never let bots use · ${count}`}>
+      <p data-setting-slot="" className="pb-2 text-xs text-muted-foreground">
+        Bots never use these apps, even with Computer use on.
+      </p>
       <SettingList aria-label="Apps bots never use">
         {props.apps.map((app) => (
           <li key={app}>
@@ -94,6 +98,6 @@ export function NeverApps(props: {
           {refusal && <Refusal>{refusal}</Refusal>}
         </form>
       </SettingFooter>
-    </>
+    </SettingDisclosure>
   );
 }

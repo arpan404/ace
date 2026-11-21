@@ -207,8 +207,8 @@ Spade is one of ace's places. It adds no navigation of its own.
   you, Payments). A switch the bot sets itself offers Use default. With Computer use on, one quiet
   line under it says the bot never uses the apps listed in Settings. Turning a switch on without
   the person's standing shows Confirm it's you in its row; a refusal says why there. Settings ›
-  Spade › Security has the same rows as the default, with "Never let bots use" under Computer use:
-  each app with Remove, and a name to Add. Steps run under a switch show nothing extra in the
+  Spade › Security has the same rows as the default, with "Never let bots use · N apps" folded under
+  Computer use: open, each app with Remove, and a name to Add. Steps run under a switch show nothing extra in the
   steps line.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
   words (only exceptions stand out), and Take over only while it drives (it is at work and the
