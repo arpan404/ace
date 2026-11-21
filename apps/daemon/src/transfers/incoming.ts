@@ -1,4 +1,5 @@
 import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
+import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import { rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
@@ -407,7 +408,7 @@ export class IncomingTransfers {
     await ensureDirectory(this.deps.directory);
     const reused =
       call.method === "remote" && call.remote
-        ? await this.sameOrigin(call.remote.normalized)
+        ? await this.sameOrigin(originKey(call.remote))
         : this.earlierCopy(device, call);
     let parentError: IncomingTransfer["error"];
     // A live move must have somewhere to land before the source stops its agent.
@@ -498,7 +499,7 @@ export class IncomingTransfers {
     for (const holder of holders) {
       try {
         if (record.method === "remote") {
-          const wanted = record.begin.remote?.normalized;
+          const wanted = record.begin.remote && originKey(record.begin.remote);
           const origin = await this.deps.git.transferOrigin(holder.path);
           if (wanted && origin?.normalized === wanted) return holder.workspaceId;
           continue;
@@ -1097,4 +1098,13 @@ function realSleep(ms: number): Promise<void> {
     const timer = setTimeout(resolve, ms);
     timer.unref();
   });
+}
+
+/**
+ * The key of the origin a sender names, as this machine keys its own projects' origins: read
+ * from its URL, never the sender's own key, which an older build made with other rules (one
+ * that put an SSH path from a home and one from the root under one key).
+ */
+function originKey(remote: { url: string }): string {
+  return normalizeRemoteUrl(remote.url);
 }

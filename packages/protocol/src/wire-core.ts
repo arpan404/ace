@@ -334,7 +334,9 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * error code and live-end reason), `raw-on-demand` (items whose raw payloads clients
        * only show, in snapshots, pages, turn steps and live item events, come without them and
        * marked `rawOmitted`; `item.raw` reads them), `storage-hold` (accepts the `storage`
-       * admission hold; without it the daemon sends that hold as `user`, ADR 0176). Unknown
+       * admission hold; without it the daemon sends that hold as `user`, ADR 0176),
+       * `moved-status` (accepts the `moved` thread status; without it the daemon sends a moved
+       * thread as `waiting` on `upstream`, ADR 0191). Unknown
        * names are ignored; without a name the daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
