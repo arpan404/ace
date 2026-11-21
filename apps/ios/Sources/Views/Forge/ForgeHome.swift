@@ -201,6 +201,16 @@ struct ForgeHome: View {
         }
     }
 
+    /// The project the lists read, on a chip beside Filters as the web's toolbar shows it, so
+    /// the choice is in sight on every iOS (the title's subtitle shows only on iOS 26).
+    @ViewBuilder private var projectChip: some View {
+        if projects.count > 1, let name = projects.first(where: { $0.id == chosen })?.name {
+            Menu { projectPicker } label: { InboxChip(title: name) }
+                .accessibilityIdentifier("forge.project")
+                .accessibilityLabel("Project, \(name)")
+        }
+    }
+
     /// Where New issue opens: only from a list read for the machine and project now chosen (a list
     /// kept from the last project while the next one loads names another repository).
     private var newIssueTarget: ForgeNewIssueTarget? {
@@ -265,7 +275,8 @@ struct ForgeHome: View {
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
-    /// New pull request or New issue, where the person can make one, then the list's filter.
+    /// New pull request or New issue, where the person can make one, then the project and the
+    /// list's filter.
     @ViewBuilder private var chipActions: some View {
         if kind == .pulls, session?.client.canOperate == true, chosen != nil, features?.create == true {
             Button("New pull request") { creating = true }
@@ -278,6 +289,7 @@ struct ForgeHome: View {
                 .buttonStyle(.secondaryAction).controlSize(.small)
                 .accessibilityIdentifier("forge.newissue")
         }
+        projectChip
         if kind == .inbox {
             ForgeNotificationsFilterMenu(filter: $filters.notifications, reasons: notificationReasons)
         } else {
