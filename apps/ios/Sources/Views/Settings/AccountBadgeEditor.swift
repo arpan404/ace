@@ -60,7 +60,7 @@ struct BadgeFields: View {
                 } action: { draft.icon = nil }
                 ForEach(AccountBadgeStyle.icons, id: \.id) { icon in
                     choice(selected: draft.icon == icon.id, label: "Use \(icon.label.lowercased()) badge") {
-                        Image(systemName: icon.symbol).font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong))
+                        AceIcon(icon.icon, size: AceDesign.Size.icon, relativeTo: .body)
                     } action: { draft.icon = icon.id; draft.letters = "" }
                 }
             }

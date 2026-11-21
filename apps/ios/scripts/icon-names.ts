@@ -264,6 +264,8 @@ export const extra = [
   "clock-countdown",
   "lock-open",
   "play-circle",
+  // Account badges, the web's curated set (`account-badge-icons.ts`).
+  "briefcase",
 ];
 
 /**

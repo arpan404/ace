@@ -26,6 +26,7 @@ extension AceIcon {
         case bellSlash = "bell-slash"
         case bookOpen = "book-open"
         case brain = "brain"
+        case briefcase = "briefcase"
         case broom = "broom"
         case browsers = "browsers"
         case camera = "camera"

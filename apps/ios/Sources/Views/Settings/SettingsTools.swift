@@ -19,20 +19,6 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .devices: "Simulators and devices"
         }
     }
-    var symbol: String {
-        switch self {
-        case .agents: "person.2"
-        case .projects: "folder"
-        case .automations: "clock.arrow.circlepath"
-        case .usage: "chart.bar"
-        case .skills: "book"
-        case .providers: "person.crop.circle"
-        case .sourceControl: "arrow.triangle.branch"
-        case .prompts: "text.alignleft"
-        case .computer: "macwindow"
-        case .devices: "iphone"
-        }
-    }
     /// The tool's glyph in More, as the approved mockup draws them.
     var icon: AceIcon.Name {
         switch self {
