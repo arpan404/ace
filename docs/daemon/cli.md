@@ -1084,13 +1084,20 @@ The same reader Spade and the market use. Problems print as path: sentence and e
 
 - `--against PATH`: The version other bots call (its folder or bot.json): a contract change that breaks them is refused
 
-### `ace bot test [PATH]`
+### `ace bot test [PATH] [flags]`
 
 Run the package's scenario tests on Spade's engine with a scripted model, offline.
 
-Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN.
+Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN. With --cases, one of your bots' kept runs (Keep as a test) replay instead, on the version in PATH or the one the bot runs, through your Spade: free on the recorded steps, every outside call answered from the recording. --model replays them on one of your models, at your cost, said first.
 
 - `PATH`: The package's folder; this one when omitted
+
+- `--cases BOT`: Replay this bot's kept runs (by name or id) instead of the scenarios
+- `--model ROLE`: With --cases: replay on a model (current, a role like review, or endpoint/model), at your cost
+- `--spade DIR`: With --cases: a development Spade's data folder, reached directly instead of through ace
+
+    ace bot test --cases "Fare watcher" .
+    # Does this folder's version still do what Fare watcher's kept runs did?
 
 ### `ace bot dev [PATH] [flags]`
 
