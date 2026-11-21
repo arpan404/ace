@@ -333,6 +333,22 @@ pub fn markdown() -> String {
          - A test walks the table and fails when a v1 tool goes missing or its effect gets \
          stronger without an alias.\n\n",
     );
+    out.push_str(&modules());
+    out.push_str("## Aliases\n\n");
+    out.push_str(&aliases());
+    out.push_str(
+        "\n## Not part of the API\n\n\
+         Harness internals (compaction, titles, the check of done) and these tools, which may \
+         change in any build: ",
+    );
+    out.push_str(&internal());
+    out.push_str(".\n");
+    out
+}
+
+/// Each module's heading, its line and its tools' table, as the reference and the spec list them.
+pub fn modules() -> String {
+    let mut out = String::new();
     for module in Module::ALL {
         out.push_str(&format!("## `{}`\n\n{}\n\n", module.name(), module.about()));
         let tools: Vec<&Tool> = TOOLS.iter().filter(|t| t.module == module).collect();
@@ -341,50 +357,56 @@ pub fn markdown() -> String {
         }
         out.push_str("| Tool | Effect | Since |\n| --- | --- | --- |\n");
         for tool in tools {
-            let effect = match tool.source {
-                Source::Table => super::table(tool.name).map_or("?", Effect::name).to_owned(),
-                Source::Ace(Effect::Drive) => "`read`, or `drive` when it acts (ace's)".to_owned(),
-                Source::Ace(most) => format!("`{}` (ace's)", most.name()),
-                Source::Called => "the called tool's".to_owned(),
-            };
-            let effect = if effect.starts_with('`') || effect.contains(' ') {
-                effect
-            } else {
-                format!("`{effect}`")
-            };
             out.push_str(&format!(
-                "| `{}` | {effect} | {} |\n",
-                tool.name, tool.since
+                "| `{}` | {} | {} |\n",
+                tool.name,
+                effect_words(tool),
+                tool.since
             ));
         }
         out.push('\n');
     }
-    out.push_str("## Aliases\n\n");
-    if ALIASES.is_empty() {
-        out.push_str("None. `spade.v1` is the first version.\n");
-    } else {
-        out.push_str("| Old name | Now calls | Since | Kept until |\n| --- | --- | --- | --- |\n");
-        for alias in ALIASES {
-            out.push_str(&format!(
-                "| `{}` | `{}` | {} | {} |\n",
-                alias.name, alias.to, alias.from, alias.until
-            ));
-        }
-    }
-    out.push_str(
-        "\n## Not part of the API\n\n\
-         Harness internals (compaction, titles, the check of done) and these tools, which may \
-         change in any build: ",
-    );
-    out.push_str(
-        &INTERNAL
-            .iter()
-            .map(|name| format!("`{name}`"))
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
-    out.push_str(".\n");
     out
+}
+
+/// A tool's effect as the reference writes it.
+pub fn effect_words(tool: &Tool) -> String {
+    let effect = match tool.source {
+        Source::Table => super::table(tool.name).map_or("?", Effect::name).to_owned(),
+        Source::Ace(Effect::Drive) => "`read`, or `drive` when it acts (ace's)".to_owned(),
+        Source::Ace(most) => format!("`{}` (ace's)", most.name()),
+        Source::Called => "the called tool's".to_owned(),
+    };
+    if effect.starts_with('`') || effect.contains(' ') {
+        effect
+    } else {
+        format!("`{effect}`")
+    }
+}
+
+/// The aliases' table, or the line that there are none.
+pub fn aliases() -> String {
+    if ALIASES.is_empty() {
+        return "None. `spade.v1` is the first version.\n".to_owned();
+    }
+    let mut out =
+        String::from("| Old name | Now calls | Since | Kept until |\n| --- | --- | --- | --- |\n");
+    for alias in ALIASES {
+        out.push_str(&format!(
+            "| `{}` | `{}` | {} | {} |\n",
+            alias.name, alias.to, alias.from, alias.until
+        ));
+    }
+    out
+}
+
+/// The tools outside the API, in code, joined.
+pub fn internal() -> String {
+    INTERNAL
+        .iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// What breaks a published version: each name in `published` must still be a tool whose effect,

@@ -5,7 +5,12 @@ import type {
   MarketScanReport,
 } from "@ace/protocol/marketplace";
 import { MarketErrorCode } from "@ace/protocol/marketplace";
-import { parseSpadePersonality, spadePersonalityWords } from "@ace/ui-core/spade-chat";
+import {
+  allowedToolsSentence,
+  parseSpadePersonality,
+  spadePersonalityWords,
+  unusedFieldsSentence,
+} from "@ace/ui-core/spade-chat";
 
 /*
  * The marketplace's words and choices (ADR 0168 §12), pure: how a type is named, what keeps an
@@ -43,6 +48,21 @@ const sentence = (text: string) => {
   const trimmed = text.trim();
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 };
+
+/** What a skill's SKILL.md says beyond its name: licence, needs, allowed-tools, unused fields. */
+function skillStandardLines(body: {
+  license?: string | undefined;
+  compatibility?: string | undefined;
+  allowedTools?: string[] | undefined;
+  unused?: string[] | undefined;
+}): string[] {
+  return [
+    ...(body.license ? [`Licence: ${body.license}.`] : []),
+    ...(body.compatibility ? [`It says it needs: ${sentence(body.compatibility)}`] : []),
+    allowedToolsSentence(body.allowedTools ?? []),
+    unusedFieldsSentence(body.unused ?? []),
+  ].filter((line): line is string => line !== undefined);
+}
 
 /** What was being done when something failed, so its sentence can say so. */
 export type MarketStep =
@@ -212,6 +232,7 @@ export function canDoSentences(review: MarketReview): string[] {
         body.flagged
           ? `${count(body.files, "file")}, ${body.flagged} of them scripts or programs a bot can run under its gate.`
           : `${count(body.files, "file")}, none of them scripts.`,
+        ...skillStandardLines(body),
       ];
     case "spade-plugin":
       return [

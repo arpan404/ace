@@ -111,9 +111,12 @@
       ]
     },
     "make-a-bot": {
-      "version": 2,
-      "hash": "012497e8b28eddd25de7e26a69a64eea436e7b75bd8fc147a97f7b611cd3518d",
-      "previous": ["f05b15e1e903c73b1f332ea4f52c8ea46bd03aad1034499718c808f53ad7474e"]
+      "version": 3,
+      "hash": "f23cad74a9c081d23146cd35f8b1116bed5861136dc5d5c9fd488a2124be77ce",
+      "previous": [
+        "012497e8b28eddd25de7e26a69a64eea436e7b75bd8fc147a97f7b611cd3518d",
+        "f05b15e1e903c73b1f332ea4f52c8ea46bd03aad1034499718c808f53ad7474e"
+      ]
     },
     "make-a-suit": {
       "version": 22,

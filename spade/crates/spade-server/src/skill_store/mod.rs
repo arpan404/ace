@@ -12,7 +12,11 @@
 //!
 //! The store answers [`SkillLibrary`], so `skill_search`, `skill_load`, the frozen index and
 //! proposals all read it. A proposal goes to ace while ace is there and to the store otherwise.
+//!
+//! [`bridge`] imports `SKILL.md` folders made to the shared Agent Skills specification as `spade`
+//! skills and gives any non-plugin skill back for export (ADR 0202 §1).
 
+mod bridge;
 mod folders;
 mod library;
 mod market;
@@ -31,6 +35,7 @@ use spade_store::{SkillOrigin, Store, StoredSkill};
 use crate::clock::Clock;
 use crate::tools::{AceLibrary, SkillLibrary, WriteError};
 
+pub use bridge::{ExportedSkill, IMPORTED, ImportError, ImportedFile, ImportedSkill, spec_name};
 pub use market::Synced;
 pub use mirror::Mirrored;
 pub use plugin_rows::{PluginAccess, PluginFiles, PluginSkill};

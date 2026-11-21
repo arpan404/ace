@@ -1164,6 +1164,14 @@
       "bytes": 811,
       "sha256": "a72bce7a72136e607af3099fac5db41e0e8e94242a3ab6d255ebe6ad1d08d7d8"
     },
+    "schema/CliSpadeSkillExport.json": {
+      "bytes": 479,
+      "sha256": "9741126fec0ebb653b96e35c9308f2b35952432cb291f2cfc342aafd099cd2f4"
+    },
+    "schema/CliSpadeSkillImport.json": {
+      "bytes": 740,
+      "sha256": "6fab4e4675216c58ec859d55d8d64f4c4683ca431f0e0dfb4d29bd986c4c43bb"
+    },
     "schema/CliSpadeStatus.json": {
       "bytes": 451,
       "sha256": "f1d41dce00d3356e3e68712b6985be8738b947b1dba1eac006e69f16d0c987d5"
@@ -3265,8 +3273,8 @@
       "sha256": "c47c3bb7e4bfe5e003c0d2b66f396bc5b42168874062f662e58d223d86422b88"
     },
     "schema/MarketReviewBody.json": {
-      "bytes": 5841,
-      "sha256": "eda3cc0d72bf959b37c1203ef1b36b861c9c8c9e543e5368e6d503a5eab2ce9d"
+      "bytes": 6379,
+      "sha256": "dd4b84cec139470fe0212578005f821dd6120e8bba6412db800959cee3d1f4f4"
     },
     "schema/MarketReviewId.json": {
       "bytes": 183,
@@ -6733,10 +6741,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1370654,
-      "sha256": "2a166404a89497ac5f1545a1147fce16f4727c182c7d40840410aa9024c585a1"
+      "bytes": 1371967,
+      "sha256": "baaeb6182eb097023867c1d55be5fa8a67406a475cf91981409b21ac7607632b"
     }
   },
-  "input": "47c7d7f6f3a6c32a0c89b166963e03243e4aa1c03eec092c4630cd0e20056a10",
+  "input": "295672c905bbf76e23f39c2ab77f81e777c1a58e055c0884b0c1020359044a64",
   "version": 1
 }

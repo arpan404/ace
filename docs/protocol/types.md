@@ -10806,6 +10806,54 @@ Example:
 }
 ```
 
+## CliSpadeSkillExport
+
+[JSON Schema](schema/CliSpadeSkillExport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| path | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| source | yes | string |  |
+
+Example:
+
+```json
+{
+  "files": 8,
+  "name": "example",
+  "path": "example",
+  "source": "example"
+}
+```
+
+## CliSpadeSkillImport
+
+[JSON Schema](schema/CliSpadeSkillImport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| name | yes | string |  |
+| source | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| skipped | yes | array | {"items":{"type":"string"}} |
+| warnings | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliProblem.json"}} |
+
+Example:
+
+```json
+{
+  "files": 3,
+  "id": "example",
+  "name": "example",
+  "skipped": [],
+  "source": "example",
+  "warnings": []
+}
+```
+
 ## CliSpadeStatus
 
 [JSON Schema](schema/CliSpadeStatus.json), input validation.
@@ -26278,6 +26326,10 @@ Example:
 | description | yes | string | {"maxLength":1024} |
 | files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | flagged | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| license | no | string | {"maxLength":200} |
+| compatibility | no | string | {"maxLength":500} |
+| allowedTools | no | array | {"maxItems":64,"items":{"type":"string","maxLength":120}} |
+| unused | no | array | {"maxItems":64,"items":{"type":"string","maxLength":120}} |
 
 Example:
 
@@ -26286,6 +26338,7 @@ Example:
   "description": "example",
   "files": 3,
   "flagged": 7,
+  "license": "example",
   "skillName": "example",
   "type": "spade-skill"
 }

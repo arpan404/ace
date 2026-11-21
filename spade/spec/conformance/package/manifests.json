@@ -1,0 +1,103 @@
+{
+  "license": "Apache-2.0",
+  "part": "package",
+  "about": "The package part's cases: the manifest's fields, its runtime and build, what identity and executions it may not carry, its modules and triggers. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    }
+  },
+  "cases": [
+    {
+      "id": "package/base-manifest",
+      "name": "the base manifest",
+      "with": {}
+    },
+    {
+      "id": "package/runtime-as-a-number",
+      "name": "runtime as a number",
+      "with": {
+        "requires": {
+          "runtime": 1
+        }
+      },
+      "refused": "requires.runtime is a string"
+    },
+    {
+      "id": "package/runtime-this-build-doesnt-serve",
+      "name": "a runtime this build doesn't serve",
+      "with": {
+        "requires": {
+          "runtime": "2"
+        }
+      },
+      "refused": "Needs a newer Spade"
+    },
+    {
+      "id": "package/publisher-in-the-file",
+      "name": "a publisher in the file",
+      "with": {
+        "publisher": "acme"
+      },
+      "refused": "signed manifest"
+    },
+    {
+      "id": "package/price",
+      "name": "a price",
+      "with": {
+        "pricing": {
+          "kind": "paid"
+        }
+      },
+      "refused": "Paid"
+    },
+    {
+      "id": "package/server",
+      "name": "a server",
+      "with": {
+        "mcpServers": {}
+      },
+      "refused": "plugin"
+    },
+    {
+      "id": "package/module-this-build-doesnt-have",
+      "name": "a module this build doesn't have",
+      "with": {
+        "uses": ["task", "telepathy"]
+      },
+      "refused": "telepathy"
+    },
+    {
+      "id": "package/triggers-as-an-object",
+      "name": "triggers as an object",
+      "with": {
+        "triggers": {}
+      },
+      "refused": "triggers is a list"
+    },
+    {
+      "id": "package/uses-as-a-word",
+      "name": "uses as a word",
+      "with": {
+        "uses": "task"
+      },
+      "refused": "uses lists runtime modules"
+    }
+  ]
+}
