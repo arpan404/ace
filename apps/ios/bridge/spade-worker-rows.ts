@@ -12,7 +12,7 @@ import {
  * The workers a bot started (ADR 0161) as the iPhone's chat draws them: the card's heading, then
  * one row per worker with how it stands now, from ace's thread list for an ace agent and from
  * the bots list for a bot it made. A worker waiting on the person says what for, and names the
- * thread whose request Swift shows inline. Pure: the facts come in, no I/O.
+ * threads of its delegated tree whose requests Swift shows inline. Pure: the facts come in, no I/O.
  */
 
 export type SpadeWorkerTone = "needs-you" | "working" | "failed" | "rest";
@@ -22,8 +22,13 @@ export interface SpadeWorkerLine {
   id: string;
   name: string;
   kind: "ace" | "bot";
-  /** An ace agent's thread, which a tap opens and whose requests show under it. */
+  /** An ace agent's thread, which a tap opens. */
   thread: string | null;
+  /**
+   * While it waits on the person: the threads of its tree that do, its own first, then each
+   * delegated one below it, whose requests show under it. Empty otherwise.
+   */
+  asking: string[];
   /** A bot's conversation, which a tap opens. */
   conversation: string | null;
   tone: SpadeWorkerTone;
@@ -45,6 +50,8 @@ export interface SpadeWorkerFacts {
    * oldest open request asks for; undefined while the list doesn't say.
    */
   listed(thread: string): { state: SubagentState; asking: string | undefined } | undefined;
+  /** The threads of `thread`'s tree that wait on the person, as ace lists them: its own first. */
+  waiting(thread: string): string[];
   /** A bot from the bots list, for its chat and its own words. */
   bot(id: string): SpadeAgent | undefined;
   /** A bot worker as its maker's tree last said it: the only word on whether it has started. */
@@ -54,6 +61,7 @@ export interface SpadeWorkerFacts {
 /** Nothing known yet: every worker still at work, never done (AGENTS.md priority 1). */
 export const unknownWorkers: SpadeWorkerFacts = {
   listed: () => undefined,
+  waiting: () => [],
   bot: () => undefined,
   node: () => undefined,
 };
@@ -95,7 +103,14 @@ function workerLine(
     const words = state === "human" ? spadeAskingWords(listed?.asking) : subagentLabels[state];
     return {
       state,
-      line: { ...shared, thread: worker.id, conversation: null, tone: tones[state], line: words },
+      line: {
+        ...shared,
+        thread: worker.id,
+        asking: state === "human" ? facts.waiting(worker.id) : [],
+        conversation: null,
+        tone: tones[state],
+        line: words,
+      },
     };
   }
   const agent = facts.bot(worker.id);
@@ -108,6 +123,7 @@ function workerLine(
     line: {
       ...shared,
       thread: null,
+      asking: [],
       conversation: agent?.conversation ?? null,
       tone: tones[state],
       line: words,

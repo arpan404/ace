@@ -1,4 +1,6 @@
 import type { ClientCore } from "@ace/client";
+import type { ThreadListEntry } from "@ace/protocol";
+import { delegatedState } from "@ace/ui-core";
 import { listedSubagentState } from "@ace/ui-core/subagent-group";
 import type { SpadeAgent } from "@ace/ui-core/spade-chat";
 import type { SpadeBubbleRow } from "./spade-rows.ts";
@@ -8,19 +10,29 @@ import type { SpadeWorkerFacts } from "./spade-worker-rows.ts";
  * The open Spade chat's ace workers as ace's thread list has them, live: while a conversation is
  * open this holds the SDK's list (shared with the inbox) and calls `changed` when a worker's
  * thread changes, or the list as a whole does, so the chat's rows follow without reopening it.
+ * A worker the daemon's list doesn't hold (an older chat's, past the loaded window, or archived)
+ * is read from its own thread instead, through a lease that yields to the views that need room,
+ * so it never reads as running forever.
  */
 
 const listWide = new Set(["ids", "unconfirmed", "sync", "error"]);
+const threadWide = new Set(["thread", "unconfirmed", "sync", "error"]);
+
+type Owner = Pick<ClientCore, "threads" | "thread">;
+type Lease = ReturnType<ClientCore["thread"]>;
+type Listed = ReturnType<SpadeWorkerFacts["listed"]>;
 
 export class SpadeWorkerWatch {
   private lease: ReturnType<ClientCore["threads"]> | undefined;
   private stopObserving: (() => void) | undefined;
-  /** The ace workers the open chat shows, by thread. */
+  /** The ace workers the open chat shows, and the delegated threads they wait on, by thread. */
   private shown: ReadonlySet<string> = new Set();
-  private readonly owner: Pick<ClientCore, "threads">;
+  /** Workers the list doesn't hold, each read from its own thread. */
+  private readonly direct = new Map<string, { lease: Lease; stop: () => void }>();
+  private readonly owner: Owner;
   private readonly changed: () => void;
 
-  constructor(owner: Pick<ClientCore, "threads">, changed: () => void) {
+  constructor(owner: Owner, changed: () => void) {
     this.owner = owner;
     this.changed = changed;
   }
@@ -30,13 +42,28 @@ export class SpadeWorkerWatch {
     agents: () => readonly SpadeAgent[] | undefined,
     node: SpadeWorkerFacts["node"],
   ): SpadeWorkerFacts {
+    // Built once per read, and only when a worker waits on the person.
+    let children: Map<string, string[]> | undefined;
     return {
       // The list is held only once a chat shows an ace worker.
       listed: (thread) => {
         const store = this.store();
         if (!store) return undefined;
-        const state = listedSubagentState(store, thread);
-        return state && { state, asking: store.thread(thread)?.live?.asking?.[0]?.kind };
+        const entry = store.thread(thread);
+        if (entry) {
+          this.forget(thread);
+          const state = listedSubagentState(store, thread);
+          return state && { state, asking: entry.live?.asking?.[0]?.kind };
+        }
+        // Only the daemon's own list says a thread is missing from it.
+        if (!store.loaded || store.unconfirmed || store.syncing || store.error) return undefined;
+        return this.read(thread);
+      },
+      waiting: (thread) => {
+        const store = this.store();
+        if (!store) return [thread];
+        children ??= childrenOf(store);
+        return [thread, ...waitingBelow(thread, store, children)];
       },
       bot: (id) => agents()?.find((agent) => agent.id === id),
       node,
@@ -45,11 +72,17 @@ export class SpadeWorkerWatch {
 
   /** The open chat's rows as last put: only their ace workers' threads redraw it. */
   showing(rows: readonly { row: SpadeBubbleRow }[]): void {
-    this.shown = new Set(
-      rows.flatMap(({ row }) =>
-        row.kind === "workers" ? row.workers.flatMap(({ thread }) => thread ?? []) : [],
-      ),
-    );
+    const workers = new Set<string>();
+    const shown = new Set<string>();
+    for (const { row } of rows) {
+      if (row.kind !== "workers") continue;
+      for (const worker of row.workers) {
+        if (worker.thread) workers.add(worker.thread);
+        for (const thread of [worker.thread ?? [], worker.asking].flat()) shown.add(thread);
+      }
+    }
+    this.shown = shown;
+    for (const thread of this.direct.keys()) if (!workers.has(thread)) this.forget(thread);
   }
 
   stop(): void {
@@ -57,7 +90,39 @@ export class SpadeWorkerWatch {
     this.stopObserving = undefined;
     this.lease?.release();
     this.lease = undefined;
+    for (const thread of this.direct.keys()) this.forget(thread);
     this.shown = new Set();
+  }
+
+  /** A worker the list doesn't hold, from its own thread; undefined until that says. */
+  private read(thread: string): Listed {
+    let held = this.direct.get(thread);
+    if (!held) {
+      let lease: Lease;
+      try {
+        lease = this.owner.thread(thread, { optional: true });
+      } catch {
+        return undefined;
+      }
+      const stop = lease.store.observe((keys) => {
+        if (keys === "all" || [...keys].some((key) => threadWide.has(key))) this.changed();
+      });
+      held = { lease, stop };
+      this.direct.set(thread, held);
+    }
+    const { store } = held.lease;
+    if (store.error || store.syncing || store.unconfirmed) return undefined;
+    const status = store.thread?.status;
+    if (!status || status.state === "new") return undefined;
+    return { state: delegatedState(status), asking: store.thread?.live?.asking?.[0]?.kind };
+  }
+
+  private forget(thread: string) {
+    const held = this.direct.get(thread);
+    if (!held) return;
+    this.direct.delete(thread);
+    held.stop();
+    held.lease.release();
   }
 
   private store() {
@@ -77,4 +142,31 @@ export class SpadeWorkerWatch {
     });
     return this.lease.store;
   }
+}
+
+type Listing = { ids: readonly string[]; thread(id: string): ThreadListEntry | undefined };
+
+/** Each listed thread's delegated children, by the thread that delegated them. */
+function childrenOf(list: Listing): Map<string, string[]> {
+  const children = new Map<string, string[]>();
+  for (const id of list.ids) {
+    const parent = list.thread(id)?.delegatedBy;
+    if (parent) children.set(parent, [...(children.get(parent) ?? []), id]);
+  }
+  return children;
+}
+
+/** The listed threads below `thread` that wait on the person, nearest first. */
+function waitingBelow(thread: string, list: Listing, children: Map<string, string[]>): string[] {
+  const found: string[] = [];
+  const seen = new Set([thread]);
+  const queue = [...(children.get(thread) ?? [])];
+  // An array's iterator reaches what is pushed while it runs: breadth first.
+  for (const id of queue) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (list.thread(id)?.status.state === "needs_you") found.push(id);
+    queue.push(...(children.get(id) ?? []));
+  }
+  return found;
 }
