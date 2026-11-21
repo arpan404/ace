@@ -1,4 +1,4 @@
-import { fitsScript } from "./scripts.ts";
+import { fitsScript, framePlacement } from "./scripts.ts";
 
 /*
  * The bridges of an MCP app's page shown as a panel (ADR 0202 §4), in the same sandbox as a
@@ -65,10 +65,7 @@ export const mcpAppPageBridge = `(() => {
  * does.
  */
 export const mcpAppFrameBridge = `(() => {
-  const template = document.getElementById('ace-page');
-  const frame = template.content.querySelector('iframe');
-  document.body.append(frame);
-  template.remove();
+  ${framePlacement}
   const embedded = parent !== window;
   const fits = ${fitsScript};
   const own = new Set(['ace.panel.fault', 'ace.panel.pong']);
@@ -101,7 +98,7 @@ export const mcpAppFrameBridge = `(() => {
     if (event.source !== parent || !data || typeof data !== 'object') return;
     if (data.type === 'ace.html.theme' || data.type === 'ace.panel.theme') {
       if (data.scheme === 'light' || data.scheme === 'dark') document.documentElement.style.colorScheme = data.scheme;
-      frame.contentWindow.postMessage({ type: 'ace.html.theme', tokens: data.tokens, scheme: data.scheme }, '*');
-    } else if (data.type === 'ace.panel.ping' || data.jsonrpc === '2.0') frame.contentWindow.postMessage(data, '*');
+      toFrame({ type: 'ace.html.theme', tokens: data.tokens, scheme: data.scheme });
+    } else if (data.type === 'ace.panel.ping' || data.jsonrpc === '2.0') toFrame(data);
   });
 })();`;

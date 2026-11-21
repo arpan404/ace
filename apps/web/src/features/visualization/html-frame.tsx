@@ -8,14 +8,16 @@ import {
 } from "@ace/protocol";
 import {
   heightFromTitle,
-  inlineVisualizationUrl,
-  mcpAppPanelUrl,
+  inlineVisualizationFrame,
+  mcpAppPanelFrame,
+  pageMessage,
+  panelFrame,
   panelMessageFromTitle,
   panelTheme,
-  panelUrl,
   themeMessage,
+  visualizationFrame,
   visualizationPartition,
-  visualizationUrl,
+  type FramedPage,
   type HtmlTheme,
 } from "@ace/html";
 
@@ -36,8 +38,11 @@ export interface PanelChannel {
 }
 
 interface SurfaceProps {
-  /** The sandboxed document, built once per page so theme changes never reload it. */
-  source: string;
+  /**
+   * The sandboxed outer document and the page it is handed once loaded, built once per page so
+   * theme changes never reload it.
+   */
+  source: FramedPage;
   title: string;
   theme: HtmlTheme;
   /** CSS height of the surface. */
@@ -80,12 +85,13 @@ export function HtmlFrame(props: {
   panel?: PanelChannel | undefined;
 }) {
   // A new document only for new HTML, mode or fit; the theme then updates live. Inline, the
-  // frame is sized to its page, so that document never shows a scrollbar (`inlineVisualizationUrl`).
-  const build: typeof visualizationUrl = props.panel
-    ? (html, theme) => (props.panel?.mcpApp ? mcpAppPanelUrl(html, theme) : panelUrl(html, theme))
+  // frame is sized to its page, so that document never shows a scrollbar (`inlineVisualizationFrame`).
+  const build: typeof visualizationFrame = props.panel
+    ? (html, theme) =>
+        props.panel?.mcpApp ? mcpAppPanelFrame(html, theme) : panelFrame(html, theme)
     : props.fill
-      ? visualizationUrl
-      : inlineVisualizationUrl;
+      ? visualizationFrame
+      : inlineVisualizationFrame;
   const [built, setBuilt] = useState(() => ({
     html: props.html,
     mode: props.mode,
@@ -144,7 +150,9 @@ function IframeSurface(props: SurfaceProps) {
   }, [onHeight, panel]);
   // An opaque-origin frame can only be addressed with "*"; only the outer bridge reads it.
   const post = (message: unknown) => frame.current?.contentWindow?.postMessage(message, "*");
+  // The outer document loads empty; the page goes in first, then what it is sent.
   const send = () => {
+    post(pageMessage(props.source.page));
     if (panel) panel.onReady(post);
     else post(themeMessage(theme.current));
   };
@@ -158,7 +166,7 @@ function IframeSurface(props: SurfaceProps) {
     <iframe
       ref={frame}
       title={props.title}
-      src={props.source}
+      src={props.source.url}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       onLoad={send}
@@ -189,11 +197,12 @@ function WebviewSurface(props: SurfaceProps) {
     const post = (message: unknown) =>
       runInGuest(element, `postMessage(${JSON.stringify(message)}, "*")`);
     element.setAttribute("partition", visualizationPartition);
-    element.setAttribute("src", source);
+    element.setAttribute("src", source.url);
     element.setAttribute("title", title);
     element.style.cssText = "display:flex;width:100%;height:100%;border:0";
     const domReady = () => {
       ready.current = true;
+      post(pageMessage(source.page));
       if (panel) panel.onReady(post);
       else post(themeMessage(theme.current));
     };

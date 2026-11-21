@@ -55,15 +55,25 @@ async function verify(context: CommandContext): Promise<void> {
     });
 }
 
+/**
+ * The organization space `ace login --org` selected, for a command given no --org. A daemon
+ * that isn't running, or a machine with no space, selects none.
+ */
+async function space(context: CommandContext): Promise<string | undefined> {
+  if (option(context.args, "org") !== undefined) return undefined;
+  const { selectedOrg } = await import("../ace-account.ts");
+  return selectedOrg((await context.config()).dataDir).catch(() => undefined);
+}
+
 export const orgHandlers: Handlers = {
   "org.audit.export": exportLog,
   "org.audit.verify": verify,
   "org.registry.key": async (context) => {
     const { registryKeyCommand } = await import("../org-registry.ts");
-    await registryKeyCommand(context.args);
+    await registryKeyCommand(context.args, await space(context));
   },
   "org.registry.sign": async (context) => {
     const { registrySignCommand } = await import("../org-registry.ts");
-    await registrySignCommand(context.args);
+    await registrySignCommand(context.args, await space(context));
   },
 };

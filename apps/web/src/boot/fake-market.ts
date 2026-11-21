@@ -1,5 +1,10 @@
 import { marketPickFixture, marketPublishFixture, type MarketplaceSeed } from "@ace/fake-daemon";
+import { faceForId } from "@ace/ui-core/bot-face";
 import { packageEntries, packageInstalls } from "./fake-market-packages.ts";
+// Real Suits' manifests, so a listed Suit draws its window as a published one does.
+import loam from "../../../../packages/plugins/builtin-suits/loam/suit.json?raw";
+import mizzle from "../../../../packages/plugins/builtin-suits/mizzle/suit.json?raw";
+import tarn from "../../../../packages/plugins/builtin-suits/tarn/suit.json?raw";
 import type {
   MarketDiscover,
   MarketEntrySummary,
@@ -160,8 +165,32 @@ function summary(
   };
 }
 
-/** A bot's recipe carries its face, as a published one does; the rest of a listing is bare. */
+const manifests: Readonly<Record<string, string>> = {
+  mizzle,
+  tarn,
+  "harbour-dusk": loam,
+};
+
+/**
+ * A bot's recipe carries its face and a Suit its manifest, as published ones do; the rest of a
+ * listing is bare.
+ */
 function listing(entry: MarketEntrySummary) {
+  const manifest = entry.type === "suit" ? manifests[entry.name] : undefined;
+  if (manifest)
+    return {
+      summary: entry,
+      items: [
+        {
+          kind: "text" as const,
+          section: "Files",
+          path: "suit.json",
+          text: manifest,
+          before: false,
+          truncated: false,
+        },
+      ],
+    };
   if (entry.type !== "spade-bot") return { summary: entry };
   return {
     summary: entry,
@@ -169,7 +198,8 @@ function listing(entry: MarketEntrySummary) {
       body: {
         type: "spade-bot" as const,
         botName: entry.title,
-        face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
+        // Each recipe its own face, as published bots have, from its name.
+        face: { kind: "character", v: 1, ...faceForId(entry.name) },
         task: entry.line,
         model: "fast" as const,
         routines: [],

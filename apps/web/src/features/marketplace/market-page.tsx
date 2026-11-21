@@ -1,11 +1,18 @@
 import { CaretLeftIcon } from "@ace/icons";
 import { Fragment } from "react";
-import { part } from "@/lib/suit-part.ts";
 import type { MarketPage as Page, MarketView } from "./market-address.ts";
 import { useMarketEntry } from "./market-api.ts";
-import { AppsPage } from "./market-apps.tsx";
+import { AppPage } from "./market-app-page.tsx";
+import { AppsPage, useMarketApps } from "./market-apps.tsx";
 import { CatalogsPage } from "./market-catalogs.tsx";
-import { BotsPage, DiscoverPage, LooksPage, SearchResults, ToolsPage } from "./market-discover.tsx";
+import {
+  AppSearch,
+  BotsPage,
+  DiscoverPage,
+  LooksPage,
+  SearchResults,
+  ToolsPage,
+} from "./market-discover.tsx";
 import { EntryPage } from "./market-entry.tsx";
 import { InstalledPage } from "./market-installed.tsx";
 import { useMarketNav } from "./market-nav.ts";
@@ -21,7 +28,7 @@ import { ReviewPage } from "./market-review.tsx";
  */
 
 const placeNames = {
-  discover: "Discover",
+  discover: "Home",
   looks: "Looks",
   bots: "Bots",
   tools: "Tools",
@@ -34,6 +41,10 @@ function EntryCrumb(props: { page: Extract<Page, { kind: "entry" | "review" }> }
   return <>{props.page.kind === "review" ? (props.page.update ? "Update" : "Review") : title}</>;
 }
 
+function AppCrumb(props: { id: string }) {
+  return <>{useMarketApps()?.find((app) => app.id === props.id)?.name ?? props.id}</>;
+}
+
 function NamedCrumb(props: { kind: "publisher" | "collection"; id: string }) {
   return <>{usePageTitle(props.kind, props.id)}</>;
 }
@@ -44,6 +55,8 @@ function crumbKey(page: Page): string {
     case "entry":
     case "review":
       return `${page.kind}:${page.entry.source}/${page.entry.type}/${page.entry.name}`;
+    case "app":
+      return `app:${page.id}`;
     case "publisher":
       return `publisher:${page.handle}`;
     case "collection":
@@ -60,6 +73,8 @@ function crumbOf(page: Page) {
     case "entry":
     case "review":
       return <EntryCrumb page={page} />;
+    case "app":
+      return <AppCrumb id={page.id} />;
     case "publisher":
       return <NamedCrumb kind="publisher" id={page.handle} />;
     case "collection":
@@ -121,6 +136,8 @@ function TopPage(props: { page: Page }) {
           bot={page.bot}
         />
       );
+    case "app":
+      return <AppPage id={page.id} />;
     case "publisher":
       return <PublisherPage handle={page.handle} />;
     case "collection":
@@ -148,7 +165,7 @@ function Place(props: { view: MarketView; query: string }) {
     case "tools":
       return <ToolsPage query={query} />;
     case "apps":
-      return query ? <SearchResults query={query} /> : <AppsPage />;
+      return query ? <AppSearch query={query} /> : <AppsPage />;
     case "installed":
       return query ? <SearchResults query={query} /> : <InstalledPage />;
   }
@@ -158,7 +175,8 @@ function Place(props: { view: MarketView; query: string }) {
 export function MarketLayer(props: { view: MarketView; query: string }) {
   const top = props.view.pages.at(-1);
   return (
-    <div {...part("page")} data-page={top ? "market-entry" : "marketplace"}>
+    // The Screen around it is the Suit's page (`marketplace` or `market-entry`).
+    <div>
       {top ? (
         <>
           <Crumbs view={props.view} />

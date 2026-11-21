@@ -79,7 +79,11 @@ export function useLibrarySuit(id: string | undefined): SuitDetail | undefined {
 /** What a Suit entry looks like: installed, it is the library's; else its review's, if held. */
 export function useSuitLook(key: EntryKey, installedAs?: string): SuitDetail | undefined {
   const installed = useLibrarySuit(key.type === "suit" ? (installedAs ?? key.name) : undefined);
-  const held = useHeldReview(key);
+  // Its window is drawn from its review: prepared once and kept, as a bot's face is.
+  const held = useMarketReview(key, {
+    update: false,
+    enabled: key.type === "suit" && installed === undefined,
+  }).data;
   return installed ?? (held ? suitFromReview(held.review, held.items) : undefined);
 }
 

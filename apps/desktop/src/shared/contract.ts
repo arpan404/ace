@@ -241,11 +241,14 @@ export const ClipboardImage = z.object({
 
 export const VisualizationWindow = z.object({
   title: z.string().trim().min(1).max(160),
-  // A 16 MiB page after attribute escaping and URL encoding (base64 images grow little).
+  // The outer document only: the page is handed to it once it loads, since Chromium loads no
+  // URL over 2 MiB.
   url: z
     .string()
-    .max(64 * 1024 * 1024)
+    .max(2 * 1024 * 1024)
     .startsWith("data:text/html"),
+  // A 16 MiB page with its bridge, styles and theme.
+  page: z.string().max(20 * 1024 * 1024),
 });
 export type VisualizationWindow = z.infer<typeof VisualizationWindow>;
 

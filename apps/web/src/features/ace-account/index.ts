@@ -11,7 +11,12 @@ export {
 export { useConfirmPersonNotice } from "./confirm-person-notice.tsx";
 export { ConfirmPerson } from "./confirm-person.tsx";
 export type { AceAccountBackend, AceAccountStore } from "./session-store.ts";
-export { accountMachineLists, platformName, type AccountMachine } from "./account-machines.ts";
+export {
+  accountMachineLine,
+  accountMachineLists,
+  platformName,
+  type AccountMachine,
+} from "./account-machines.ts";
 export { useAccountMachines } from "./use-account-machines.ts";
 export { useAccountPicture } from "./use-account-picture.ts";
 export { AccountMachineRow } from "./account-machine-row.tsx";
@@ -30,3 +35,13 @@ export {
   machineSignOutQuestion,
   type SignOutQuestion,
 } from "./sign-out-copy.ts";
+export { orgKey, useSpace, type SpaceState } from "./space-context.tsx";
+export {
+  machinesInSpace,
+  personalSpace,
+  roleWord,
+  shownSpace,
+  spaceAllows,
+  type ShownSpace,
+} from "./spaces.ts";
+export { useSpaceMachines } from "./use-space-machines.ts";

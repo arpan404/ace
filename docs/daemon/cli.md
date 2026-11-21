@@ -707,14 +707,18 @@ Whether this machine is signed in to ace, and as whom.
 
 Sign this machine in to your ace account.
 
-Prints an address to open in a browser, then waits until the sign-in finishes there.
+Prints an address to open in a browser, then waits until the sign-in finishes there. With --org, the sign-in goes through that organization's sign-in policy (its SSO, say) and must be by one of its members; the organization is then this machine's space, which ace org commands act in when they name none (ADR 0206). A sign-in by someone who isn't a member is ended and the machine stays as it was.
 
 - `--origin URL`: Another ace account server
+- `--org ORG`: Sign in to this organization (org_…) and select it
 
 Shortcut: `ace login`.
 
     ace login
     # Sign in
+
+    ace login --org org_01ACME
+    # Sign in to an organization's space
 
 ### `ace account logout`
 
@@ -1494,6 +1498,32 @@ Every entry must chain to the one before and every checkpoint must be signed by 
 
     ace org audit verify audit.jsonl --key 4YnbPAZLpD557zJQT9bDShIgb4lSIpvda8dHoDmZPM8
     # Against the key the organization registered
+
+### `ace org registry key [flags]`
+
+Make an organization's registry key in this machine's keychain.
+
+The registry key signs what the organization's private registry offers (ADR 0206 §5.2). It is made and kept in this machine's keychain and never leaves it. Prints the upload an owner publishes from their own ace app, which countersigns it; with --rotate, the next key, signed by the one before it. Make it on the machine that will sign: an org host signs while people sleep.
+
+- `--org ORG`: The organization's id (org_…); without it, the one ace login --org selected
+- `--owner ACCOUNT`: The owner's account id who will publish it
+- `--rotate`: Make the next key, signed by the current one
+- `--dev-market URL`: A development market instead of market.acehq.dev
+
+    ace org registry key --org org_01ACME --owner user_01OWNER
+    # The first key, for an owner to publish
+
+### `ace org registry sign [flags]`
+
+Sign what waits in an organization's registry with this machine's key.
+
+Pulls the registry's versions that passed ace's scan, checks them again on the stored bytes (format, scan, contracts, a bot package's own tests) and signs each with registry: ORG and the key the market's chain ends with (ADR 0206 §5.2). A version that fails is held or blocked, never signed. An org host whose keychain holds the key runs this on its own every ten minutes.
+
+- `--org ORG`: The organization's id (org_…); without it, the one ace login --org selected
+- `--dev-market URL`: A development market instead of market.acehq.dev
+
+    ace org registry sign --org org_01ACME
+    # Sign what waits
 
 ## Agent tools
 

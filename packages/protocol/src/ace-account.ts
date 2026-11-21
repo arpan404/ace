@@ -47,6 +47,15 @@ export const AceAccountSession = z.object({
 });
 export const AceAccountGrant = AceAccountSession.extend({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /**
+   * The organization this sign-in entered (ADR 0206 §1.4, `ace login --org`): present only when
+   * the sign-in was started with that `org`, WorkOS put the session in it, and the account is an
+   * active member. Absent for every other sign-in, and from older backends.
+   */
+  org: z
+    .string()
+    .regex(/^org_[A-Za-z0-9]{1,64}$/)
+    .optional(),
 });
 export type AceAccountGrant = z.infer<typeof AceAccountGrant>;
 

@@ -16,6 +16,7 @@ import type { Context, IdPrefix } from "./context.ts";
 import type { Env } from "./env.ts";
 import { configuredKeys, defaultKeysUrl, fetchedKeys, type KeySource } from "./grant-keys.ts";
 import { failure, json, notFound, tooMany } from "./http.ts";
+import { askOrgStanding } from "./org-standing.ts";
 import { databases } from "./store/databases.ts";
 import { aggregateDownloads } from "./store/downloads.ts";
 import { matchRoute, routeClass, type Route } from "./routes.ts";
@@ -111,6 +112,12 @@ export default {
       now: Date.now(),
       waitUntil: (promise) => ctx.waitUntil(promise),
       grantKeys: grantKeys(env),
+      orgStanding: (grant) =>
+        askOrgStanding(
+          { url: env.ACE_ORG_STANDING_URL, token: env.ACE_ORG_STANDING_TOKEN },
+          (target, init) => fetch(target, init),
+          grant,
+        ),
       newId,
       newToken,
       fetch: (target, init) => fetch(target, init),
