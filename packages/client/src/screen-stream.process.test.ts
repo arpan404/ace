@@ -158,7 +158,7 @@ it("authenticates a dedicated screen socket, correlates results, and draws no li
   expect(await client.request({ op: "sessions" })).toEqual([state]);
   expect(client.getSnapshot().states).toEqual([state]);
   const shown: SourcePicture[] = [];
-  const stop = client.watchPictures("app", (picture) => void shown.push(picture));
+  const stop = client.watchPictures("app", (drawn) => void shown.push(drawn));
   onTestFinished(stop);
   await client.request({
     op: "subscribe",

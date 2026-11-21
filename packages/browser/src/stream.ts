@@ -1,9 +1,5 @@
 import { BrowserFrame, ThreadId } from "@ace/protocol";
-import {
-  streamKinds,
-  StreamEnvelopeError,
-  type StreamEnvelope,
-} from "./stream-envelope.ts";
+import { streamKinds, StreamEnvelopeError, type StreamEnvelope } from "./stream-envelope.ts";
 import { decodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
 import { decodeBrowserAudio, type BrowserAudioChunk } from "./stream-audio.ts";
 import { decodeDownloadChunk, type DownloadChunkMessage } from "./stream-download.ts";

@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
-import { MediaBinding, MediaCodecs, MediaSubscribed, MediaUndelivered } from "./media-connection.ts";
+import {
+  MediaBinding,
+  MediaCodecs,
+  MediaSubscribed,
+  MediaUndelivered,
+} from "./media-connection.ts";
 import { ScreenAgentScope } from "./screen-ui.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import {

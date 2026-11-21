@@ -163,7 +163,11 @@ describe("a tab whose capture keeps ending before its first picture", () => {
     for (let failure = 1; failure <= 4; failure++) {
       const opens = t.encoder.opened.length;
       t.encoder.opened.at(-1)?.ended(noPicture);
-      expect(t.video.status()).toEqual({ status: "retrying", reason: noPicture, attempts: failure });
+      expect(t.video.status()).toEqual({
+        status: "retrying",
+        reason: noPicture,
+        attempts: failure,
+      });
       const endedAt = t.now();
       while (t.encoder.opened.length === opens) await t.run(50);
       waits.push(t.now() - endedAt);

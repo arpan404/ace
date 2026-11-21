@@ -193,7 +193,11 @@ describe("media connection", () => {
     const { media, sockets, clock, asked } = harness([unavailable]);
     media.start();
     await media.settled();
-    expect(media.state).toEqual({ state: "unavailable", reason: "unavailable", message: "ace-media is not running" });
+    expect(media.state).toEqual({
+      state: "unavailable",
+      reason: "unavailable",
+      message: "ace-media is not running",
+    });
     expect(media.binding()).toBeUndefined();
     expect(sockets).toHaveLength(0);
     // ace-media may come back: it asks again later.

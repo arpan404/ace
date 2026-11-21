@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { EgressUnit } from "@ace/media/egress";
-import type { MediaFrame } from "@ace/media/frame";
 import type { IngestAddress, IngestProducer } from "@ace/media/ingest-sources";
 import type {
   BrowserCdp,
@@ -15,34 +13,6 @@ import { mediaVideoHost, type BrowserMedia } from "./media-video.ts";
 import type { VideoEncode } from "./backend.ts";
 
 const page = {} as BrowserCdp;
-
-function frame(encode: number, key: boolean, payload: number): MediaFrame {
-  return {
-    kind: 1,
-    flags: key ? 5 : 0,
-    ageUs: 4_000,
-    width: 640,
-    height: 400,
-    displayWidth: 640,
-    displayHeight: 400,
-    scale: 1000,
-    rotation: 0,
-    codec: 2,
-    encode,
-    epoch: 0,
-    codecString: "avc1.640020",
-    description: key ? new Uint8Array([1, 0x64, 0, 0x20]) : new Uint8Array(0),
-    extension: new Uint8Array(0),
-    payload: new Uint8Array([payload]),
-  };
-}
-
-const unit = (path: string, f: MediaFrame): EgressUnit => ({
-  source: path,
-  frame: f,
-  sequence: 0,
-  gap: false,
-});
 
 const address = (path: string): IngestAddress => ({
   url: "ws://127.0.0.1:9/ingest",
@@ -156,17 +126,6 @@ const spec = (key: string): VideoEncode => ({
   fps: 60,
   bitrate: 4_000_000,
 });
-
-const daemonChunk = (encode: string, key: boolean, mark: number): EncodedChunk => ({
-  encode,
-  key,
-  codec: "avc1.42E033",
-  codedWidth: 640,
-  codedHeight: 400,
-  bytes: new Uint8Array([mark]),
-});
-
-const marks = (chunks: EncodedChunk[]) => chunks.map((chunk) => chunk.bytes[0]);
 
 describe("live video routed through ace-media", () => {
   it.each(["tab", "tab-pictures"] as const)(

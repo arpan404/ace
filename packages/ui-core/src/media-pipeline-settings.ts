@@ -19,7 +19,10 @@ export const mediaPipelineKeys = ["media.encode"] as const;
  * What the switch shows for the stored value: on only when `media.encode` is `auto`. `partly` is
  * never true any more (delivery has no `legacy`); it stays for clients that still read it.
  */
-export function mediaPipelineState(encode: unknown, _delivery?: unknown): {
+export function mediaPipelineState(
+  encode: unknown,
+  _delivery?: unknown,
+): {
   on: boolean;
   partly: boolean;
 } {

@@ -11,6 +11,7 @@ import type {
   VideoHost,
 } from "./backend.ts";
 import type { VideoEncode } from "./backend.ts";
+import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { BrowserService, connectBrowser } from "./index.ts";
 import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
@@ -239,16 +240,21 @@ export async function idleThread() {
 /** Lets pending callbacks run, so a held step is reached. */
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
-/** A person's video viewer of the thread: the chunks it was sent, in order. */
+/**
+ * A person's video viewer of the thread, on a media connection ace-media delivers (X3): the
+ * capture runs for it. `chunks` stays empty: nothing comes on the main socket any more.
+ */
 export async function watch(service: BrowserService, connectionId = "viewer") {
   const chunks: BrowserVideoChunk[] = [];
   const assembler = new StreamAssembler();
   /** While set, the viewer's transport pushes back: chunks wait in its queue. */
   const link = { blocked: false };
+  const delivery = fakeDelivery();
   const bridge = connectBrowser(service, {
     connectionId,
     authorize: () => true,
     send: () => true,
+    media: { owner: () => phoneOwner, delivery: () => delivery.port },
     sendStream: (pieces) => {
       if (link.blocked) return false;
       for (const piece of pieces) {
@@ -273,6 +279,7 @@ export async function watch(service: BrowserService, connectionId = "viewer") {
     binaryFrames: true,
     viewport: { width: 640, height: 400, devicePixelRatio: 1 },
     video: { codecs: ["vp8"] },
+    media: { connection: "mc_viewerconnection" },
   });
   const ack = (sequence: number) =>
     bridge.handle({

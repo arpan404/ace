@@ -332,8 +332,7 @@ export class ScreenStreamClient {
     this.pictures.discardSource(sessionId);
     void this.send({ op: "subscribe", sessionId, ...fields }, {}, generation).catch(
       (error: unknown) => {
-        if (this.media.failed(sessionId, generation, error) === "retry")
-          this.retryLater(sessionId);
+        if (this.media.failed(sessionId, generation, error) === "retry") this.retryLater(sessionId);
       },
     );
   }
@@ -424,7 +423,12 @@ export class ScreenStreamClient {
         if (opened) {
           this.release(
             opened.sessionId,
-            this.media.subscribed(opened.sessionId, opened.generation, frame.media, frame.undelivered),
+            this.media.subscribed(
+              opened.sessionId,
+              opened.generation,
+              frame.media,
+              frame.undelivered,
+            ),
           );
           if (this.media.poster(opened.sessionId)) this.publish({ ...this.snapshot });
         }

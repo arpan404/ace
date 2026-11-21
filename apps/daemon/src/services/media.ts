@@ -170,8 +170,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   });
 
   return {
-    delivery: () =>
-      runtime && relayPort ? daemonDelivery(runtime, relayPort) : undefined,
+    delivery: () => (runtime && relayPort ? daemonDelivery(runtime, relayPort) : undefined),
     acceleration,
     pid: () => runtime?.supervisor.snapshot().pid,
     add: (producer) => runtime?.sources.add(producer),

@@ -125,3 +125,47 @@ test("a resubscribe on the same connection that fails keeps delivering on the vi
   expect(live.size).toBe(0);
   expect(views.size).toBe(0);
 });
+
+test("a subscribe without a media connection gets no capture, no pictures, and a status asking its client to update", async () => {
+  const { bridge: client, results, service, views } = await bridge();
+  await client.handle(subscribe(a));
+  expect(results).toContainEqual(
+    expect.objectContaining({
+      type: "browser.result",
+      requestId: `subscribe-${a}`,
+      ok: true,
+      undelivered: expect.objectContaining({ code: "update" }),
+    }),
+  );
+  expect(views.size).toBe(0);
+  expect(service.state("thread").video).toBeUndefined();
+});
+
+test("a subscribe ace-media can't serve now gets no pictures and says why", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  const reason = "Live video is starting. It shows in a moment.";
+  const client = connectBrowser(t.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: {
+      owner: () => owner,
+      delivery: () => ({ ...d.port, serves: () => false, unserved: () => reason }),
+    },
+  });
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  expect(results).toContainEqual(
+    expect.objectContaining({
+      type: "browser.result",
+      ok: true,
+      undelivered: { code: "unavailable", reason },
+    }),
+  );
+  expect(d.views.size).toBe(0);
+  client.close();
+});

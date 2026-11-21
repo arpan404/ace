@@ -160,12 +160,7 @@ export class MediaRuntime {
       // Frames must be in ace-media for it to deliver them: the producer streams there.
       serves: (kind) => this.routes.routes()[kind].deliverer === "ace-media",
       unserved: (kind) =>
-        undeliveredReason(
-          kind,
-          this.#settings(),
-          this.supervisor.health(),
-          this.#capabilities,
-        ),
+        undeliveredReason(kind, this.#settings(), this.supervisor.health(), this.#capabilities),
       bind: (intent) => this.viewers.bind(intent),
       granted: (viewer) => this.viewers.granted(viewer),
       poster: (viewer) => this.viewers.poster(viewer),

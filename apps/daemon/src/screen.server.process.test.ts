@@ -183,5 +183,3 @@ it("unauthenticated clients cannot enable screen access", async () => {
   expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
   expect((await closed)[0]).toBe(4001);
 });
-
-function ignore() {}

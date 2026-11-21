@@ -46,7 +46,6 @@ export function encodeBrowserVideo(
   return encodeStream(streamKinds.browserVideo, id, meta, bytes);
 }
 
-
 /** One chunk's binary messages: its header and bytes. */
 export function encodeBrowserAudio(
   id: number,
@@ -75,7 +74,6 @@ export function encodeBrowserAudio(
   }
   return encodeStream(streamKinds.browserAudio, id, meta, bytes);
 }
-
 
 /** One picture's binary messages: its header and bytes, cut into socket-sized pieces. */
 export function encodePicture(
@@ -110,7 +108,6 @@ export function encodePicture(
   return encodeStream(kind, id, meta, bytes);
 }
 
-
 /** One frame's binary messages: its header and its JPEG, cut into socket-sized pieces. */
 export function encodeBrowserFrame(
   id: number,
@@ -132,4 +129,3 @@ export function encodeBrowserFrame(
   meta.set(tab, 28 + thread.length);
   return encodeStream(streamKinds.browserFrame, id, meta, jpeg);
 }
-

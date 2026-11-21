@@ -24,8 +24,7 @@ export class RuntimeRelayPort implements MediaRelayPort {
   closeStream: MediaRelayPort["closeStream"] = (message) =>
     void this.#live.supervisor.revoke(message);
   need: MediaRelayPort["need"] = () => this.#live.supervisor.need();
-  available: MediaRelayPort["available"] = () =>
-    this.#live.supervisor.health() !== "unavailable";
+  available: MediaRelayPort["available"] = () => this.#live.supervisor.health() !== "unavailable";
   claim: MediaRelayPort["claim"] = (ticket, claimant) =>
     this.#live.connections.claimRelay(ticket, claimant);
 

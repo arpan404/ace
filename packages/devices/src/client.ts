@@ -554,7 +554,12 @@ export class DeviceClient {
           if (message.ok)
             this.release(
               late.sourceId,
-              this.media.subscribed(late.sourceId, late.generation, message.media, message.undelivered),
+              this.media.subscribed(
+                late.sourceId,
+                late.generation,
+                message.media,
+                message.undelivered,
+              ),
             );
           return;
         }
@@ -580,7 +585,12 @@ export class DeviceClient {
           if (pending.operation.op === "subscribe" && pending.generation !== undefined) {
             this.release(
               pending.operation.deviceId,
-              this.media.subscribed(pending.operation.deviceId, pending.generation, message.media, message.undelivered),
+              this.media.subscribed(
+                pending.operation.deviceId,
+                pending.generation,
+                message.media,
+                message.undelivered,
+              ),
             );
             if (this.media.poster(pending.operation.deviceId)) this.notify();
           }

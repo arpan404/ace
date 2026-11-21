@@ -96,10 +96,16 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
   /** What the person's live view shows now: the tab's pixels, unmasked. */
   const frameImage = async () =>
     bytesImage(
-      await f.service.screenshot("thread", undefined, undefined, {}, {
-        kind: "human",
-        connectionId: "person",
-      }),
+      await f.service.screenshot(
+        "thread",
+        undefined,
+        undefined,
+        {},
+        {
+          kind: "human",
+          connectionId: "person",
+        },
+      ),
     );
   return {
     ...f,

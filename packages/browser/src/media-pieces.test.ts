@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { encodeStream, StreamAssembler, streamKinds } from "./stream-envelope.ts";
+import { encodeStream, StreamAssembler } from "./stream-envelope.ts";
 
 test("large media pieces each fit one encrypted relay fragment and reassemble unchanged", () => {
   const payload = new Uint8Array(300_000).fill(37);

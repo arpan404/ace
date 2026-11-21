@@ -345,7 +345,6 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   let disposed = false;
   const stops: (() => void)[] = [];
   let version = 0;
-  let requests = 0;
   let download: BrowserDownload | undefined;
   let gateway = true;
   /** A change to one thread (or, without one, to every thread: the download, the gateway). */
@@ -392,7 +391,6 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     frames.get(threadId)?.release();
     frames.delete(threadId);
   };
-  const requestId = () => `browser-${++requests}`;
   const call = async (
     type: "browser.unsubscribe" | "browser.close" | "browser.recording.stop",
     threadId: string,

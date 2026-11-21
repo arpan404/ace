@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/protocol";
 import { z } from "zod";
-import { streamKinds, StreamEnvelopeError } from "./stream-envelope.ts";
+import { StreamEnvelopeError } from "./stream-envelope.ts";
 
 /*
  * The browser audio kind's header (`streamKinds.browserAudio`): one encoded chunk of a tab's

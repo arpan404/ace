@@ -256,11 +256,9 @@ export function screenConnection(
             // No pictures will come: the view says why instead of staying blank.
             respond({
               ok: true,
-              undelivered: mediaUndelivered(
-                operation.media !== undefined,
-                peer.delivery?.port(),
-                ["screen"],
-              ),
+              undelivered: mediaUndelivered(operation.media !== undefined, peer.delivery?.port(), [
+                "screen",
+              ]),
             });
             return;
           }

@@ -1,11 +1,6 @@
 import type { BrowserVideoStatus, MediaAcceleration } from "@ace/protocol";
 import { listens } from "./audio-fanout.ts";
-import type {
-  BrowserCdp,
-  VideoCaptureHandle,
-  VideoEncode,
-  VideoHost,
-} from "./backend.ts";
+import type { BrowserCdp, VideoCaptureHandle, VideoEncode, VideoHost } from "./backend.ts";
 import { longestFrameSide, type CaptureViewer } from "./capture-policy.ts";
 import { mediaKey } from "./encode-ids.ts";
 

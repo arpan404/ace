@@ -166,7 +166,8 @@ export function connectBrowser(
     const media = options.media;
     const delivery = media?.delivery();
     const owner = media?.owner();
-    if (!owner || !delivery || !browserKinds.some((kind) => delivery.serves(kind))) return undefined;
+    if (!owner || !delivery || !browserKinds.some((kind) => delivery.serves(kind)))
+      return undefined;
     // Another subscriber of this thread already has the connection's view: share it.
     const shared = entry?.views.get(connection);
     if (shared !== undefined) return { viewer: shared, created: false };

@@ -6,11 +6,7 @@ import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
 import type { PosterDecoder } from "@/lib/video/poster.ts";
-import {
-  mediaRetryCooldownMs,
-  mediaRetryDelaysMs,
-  mediaSubscribeDeadlineMs,
-} from "@ace/browser/live-view";
+import { mediaRetryCooldownMs, mediaRetryDelaysMs } from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -493,4 +489,3 @@ test("a subscribe that succeeds resets the ladder for the next failure", async (
   await waitFor(() => expect(view.subscribes()).toHaveLength(4));
   await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
 });
-

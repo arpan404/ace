@@ -111,7 +111,8 @@ export class LiveViewer {
     // The media connection is the main session's; a devices channel of the same device and
     // admission may name it.
     const main = await welcomed(url, token, {});
-    const socket = surface === "devices" ? await welcomed(url, token, { channel: "devices" }) : main;
+    const socket =
+      surface === "devices" ? await welcomed(url, token, { channel: "devices" }) : main;
     const viewer = new LiveViewer(socket, surface);
     if (socket !== main) viewer.#main = main;
     const grant = await mediaConnect(main);

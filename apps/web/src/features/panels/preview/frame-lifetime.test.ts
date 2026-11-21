@@ -1,5 +1,4 @@
 import { mediaSubscribeDeadlineMs } from "@ace/browser/live-view";
-import { decodeDeadlineMs } from "@/lib/video/stream.ts";
 import { fakePreviewMedia } from "./stream-test-support.ts";
 import { FakeDaemon, ScenarioPlayer, failingSubagent, fakeTransport } from "@ace/fake-daemon";
 import { BrowserState, DeviceId, ServerMessage } from "@ace/protocol";

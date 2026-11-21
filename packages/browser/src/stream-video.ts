@@ -1,6 +1,6 @@
 import { BrowserVideoCodec, ThreadId } from "@ace/protocol";
 import { z } from "zod";
-import { streamKinds, StreamEnvelopeError } from "./stream-envelope.ts";
+import { StreamEnvelopeError } from "./stream-envelope.ts";
 
 /*
  * The browser video kind's header (`streamKinds.browserVideo`): one encoded chunk of a tab's

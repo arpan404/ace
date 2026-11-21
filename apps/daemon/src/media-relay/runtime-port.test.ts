@@ -34,7 +34,6 @@ function runtime() {
   });
 }
 
-
 it("repeated lookups through the delivery factory keep one watcher, and each message reaches the streams once", () => {
   const live = runtime();
   const port = new RuntimeRelayPort(live);

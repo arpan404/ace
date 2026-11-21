@@ -14,26 +14,25 @@ import { decodeStreamMessage, StreamAssembler } from "../src/stream.ts";
 import { seededRandom, SimpleLink } from "./link-model.ts";
 
 /*
- * Live video delivered by ace-media (D1), beside `video-link.ts`, which keeps measuring the
- * daemon's own path. Real headless Chrome streams a scrolling page into a real ace-media; a
- * standalone media-connection client (`@ace/media/testing/media-test-client`) takes the pieces
- * behind the same simulated phone link `video-link.ts` uses, and acks each one back up it.
+ * Live video delivered by ace-media (D1), the only delivery since X3. Real headless Chrome
+ * streams a scrolling page into a real ace-media; a standalone media-connection client
+ * (`@ace/media/testing/media-test-client`) takes the pieces behind a simulated phone link
+ * (`link-model.ts`), and acks each one back up it.
  *
  * Three runs:
  *
  * 1. **The link.** ace-media delivers over the default link (25 Mbit/s, 120 ms, 30 ms jitter):
  *    frames shown per second, median and p10, and the bytes the daemon sent for video on the
  *    main socket, which must be none.
- * 2. **The local hop, legacy.** No link: glass to glass (capture → arrival) on the daemon's own
- *    path, `media.delivery: legacy`.
- * 3. **The local hop, ace-media.** The same through ace-media. The hop is the difference of
- *    the two p95s.
+ * 2. **The local hop.** No link: glass to glass (capture → arrival) through ace-media.
+ * 3. **An old client.** A viewer that names no media connection: it gets no pictures, and the
+ *    daemon still sends no video bytes (X3's "Bytes").
  *
- * Part of `check:perf`: it fails when the median is below 59 fps or the p10 below 55, when the
- * daemon sent any video bytes, or when the hop adds more than 2 ms at p95, unless the one-minute
- * load average is 24 or more, in which case it reports and marks the numbers owed. Skipped where
- * no Chrome or no built ace-media is found (`ACE_MEDIA_TEST_BINARY`, or `native/media/target`).
- * ACE_MEDIA_LINK_SECONDS changes run 1's length; ACE_MEDIA_LINK_REPORT_ONLY=1 never fails.
+ * Part of `check:perf`: it fails when the median is below 59 fps or the p10 below 55, or when
+ * the daemon sent any video bytes, unless the one-minute load average is 24 or more, in which
+ * case it reports and marks the numbers owed. Skipped where no Chrome or no built ace-media is
+ * found (`ACE_MEDIA_TEST_BINARY`, or `native/media/target`). ACE_MEDIA_LINK_SECONDS changes run
+ * 1's length; ACE_MEDIA_LINK_REPORT_ONLY=1 never fails.
  */
 
 const seconds = Number(process.env.ACE_MEDIA_LINK_SECONDS ?? 20);
@@ -228,17 +227,11 @@ try {
   const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
   const p10 = sorted[Math.floor(sorted.length / 10)] ?? 0;
 
-  settings = { ...settings, delivery: "auto" };
-  runtime.settingsChanged();
-  const legacy = await watch(false, undefined, hopSeconds * 1000);
-  settings = { ...settings, delivery: "auto" };
-  runtime.settingsChanged();
   const direct = await watch(true, undefined, hopSeconds * 1000);
+  const old = await watch(false, undefined, hopSeconds * 1000);
   const g2g = (shown: Shown[]) => shown.map(({ arrivedAt, capturedAt }) => arrivedAt - capturedAt);
-  const legacyP95 = quantile(g2g(legacy.shown), 0.95);
   const directP95 = quantile(g2g(direct.shown), 0.95);
-  const hopMs =
-    legacyP95 === null || directP95 === null ? null : Math.max(0, directP95 - legacyP95);
+  const videoBytes = linked.sent + direct.sent + old.sent;
 
   const load = loadavg()[0] ?? 0;
   const enforced = enforce && load < 24;
@@ -249,9 +242,9 @@ try {
       median,
       p10,
       min: sorted[0] ?? 0,
-      daemonVideoBytes: linked.sent + direct.sent,
-      glassToGlassLoopbackP95Ms: { legacy: legacyP95, aceMedia: directP95 },
-      hopMs,
+      daemonVideoBytes: videoBytes,
+      oldClientPictures: old.shown.length,
+      glassToGlassLoopbackP95Ms: directP95,
       // The subscribe reply's poster on this machine, and when it would arrive on 3g-400: one
       // round trip (400 ms) and its bytes at 400 kbit/s.
       poster: direct.poster
@@ -271,8 +264,9 @@ try {
     const misses = [
       median < 59 && `median ${median} fps (want >= 59)`,
       p10 < 55 && `p10 ${p10} fps (want >= 55)`,
-      linked.sent + direct.sent > 0 && `daemon sent ${linked.sent + direct.sent} video bytes`,
-      (hopMs ?? Infinity) > 2 && `local hop ${hopMs} ms at p95 (want <= 2)`,
+      videoBytes > 0 && `daemon sent ${videoBytes} video bytes`,
+      old.shown.length > 0 &&
+        `a viewer without a media connection got ${old.shown.length} pictures`,
     ].filter((miss) => typeof miss === "string");
     if (misses.length > 0) {
       console.error(`media link: ${misses.join("; ")}`);
