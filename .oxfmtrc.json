@@ -17,6 +17,7 @@
     "spade/spec/conformance/rules.json",
     "spade/target/**",
     "spade/crates/spade-server/shipped/**",
-    "spade/crates/spade-classify/model/REPORT.md"
+    "spade/crates/spade-classify/model/REPORT.md",
+    "spade/crates/spade-server/src/a2a/card/*-signed.json"
   ]
 }

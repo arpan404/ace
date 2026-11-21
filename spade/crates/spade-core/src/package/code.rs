@@ -11,6 +11,7 @@
 //! manifest rules, and `spade/spec/code.md` is the part.
 
 pub mod binary;
+pub mod run;
 
 use std::collections::BTreeSet;
 

@@ -209,6 +209,10 @@ struct Local {
 
 type Slot = std::sync::Mutex<Option<Process>>;
 
+/// The MCP Apps extension and the one page type Spade draws (ADR 0202 §4).
+pub const MCP_APPS_EXTENSION: &str = "io.modelcontextprotocol/ui";
+pub const MCP_APP_MIME: &str = "text/html;profile=mcp-app";
+
 /// Why a closed client refuses.
 const WITHDRAWN: &str = "Spade's access to the server was withdrawn";
 
@@ -435,6 +439,31 @@ impl McpClient {
                 .map_err(|error| ToolsError::Protocol(self.config.scrub(error.to_string())))?,
         };
         Ok(result)
+    }
+
+    /// Reads one resource (`resources/read`), as its JSON: an MCP app's page under `ui://`
+    /// (ADR 0202 §4). Credentials this client knows are removed from it, as from a call's answer.
+    pub async fn read_resource(&self, uri: &str) -> Result<Value, ToolsError> {
+        let params: rmcp::model::ReadResourceRequestParams =
+            serde_json::from_value(json!({ "uri": uri }))
+                .map_err(|error| ToolsError::Protocol(error.to_string()))?;
+        let (peer, epoch, _) = self.peer().await.map_err(not_run_if_unavailable)?;
+        self.refuse_if_closed()?;
+        let read = tokio::time::timeout(self.config.timeout(), peer.read_resource(params))
+            .await
+            .map_err(|_| ToolsError::Timeout)?;
+        match read {
+            Ok(result) => {
+                let mut value = serde_json::to_value(result)
+                    .map_err(|error| ToolsError::Protocol(error.to_string()))?;
+                self.config.scrub_value(&mut value);
+                Ok(value)
+            }
+            // Reading changes nothing, so a failed read is as good as not sent.
+            Err(error) => Err(self
+                .config
+                .scrub_error(not_run_if_unavailable(self.failed(error, epoch).await))),
+        }
     }
 
     /// The cached listing when it belongs to the live session, which still answers a ping;
@@ -750,6 +779,11 @@ impl ClientHandler for Listener {
             capabilities.elicitation =
                 Some(ElicitationCapability::new().with_form(FormElicitationCapability::new()));
         }
+        // MCP Apps (ADR 0202 §4): Spade can show an app's `ui://` pages, as panels, so a server
+        // may link them. One that keeps a text-only variant for other clients still answers it.
+        let mut ui = serde_json::Map::new();
+        ui.insert("mimeTypes".into(), json!([MCP_APP_MIME]));
+        capabilities.extensions = Some([(MCP_APPS_EXTENSION.to_owned(), ui)].into_iter().collect());
         // The newest revision with sessions, which carry the list-change stream; servers still
         // on earlier revisions answer with theirs.
         ClientConfig::new(

@@ -96,6 +96,9 @@ pub(super) struct NewAgent {
     /// A package's panel pages (ADR 0200 §5.2), by path: `panels/<id>/index.html` to its text.
     #[serde(default)]
     pages: std::collections::BTreeMap<String, String>,
+    /// A package's components (ADR 0203 §5), by path: `code/<name>.wasm` to its bytes in base64.
+    #[serde(default)]
+    code: std::collections::BTreeMap<String, String>,
     /// Made from one message: the bot names itself in its first reply, and is "New bot" until
     /// then when no name was given.
     #[serde(default)]
@@ -354,6 +357,7 @@ impl NewAgent {
             envelope: self.envelope,
             switches: self.switches,
             pages: self.pages,
+            code: self.code,
             also: self.template.is_some() || self.first_message.is_some(),
         }
     }

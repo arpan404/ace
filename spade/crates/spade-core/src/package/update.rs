@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::Manifest;
+use super::code::run as code;
 use super::link::Link;
 use crate::personality::Personality;
 use crate::routine::Trigger;
@@ -128,6 +129,7 @@ pub fn plan(link: &Link, now: Current<'_>, next: &Manifest) -> Plan {
     let (notes_removed, notes_added, notes_kept) = note_steps(link, now.notes, next);
     let old_keys: BTreeSet<String> = old.effect_keys().into_iter().collect();
     let next_keys: BTreeSet<String> = next.effect_keys().into_iter().collect();
+    let code = code_switches(link, next);
     Plan {
         name: field(
             made.name.as_str(),
@@ -152,14 +154,60 @@ pub fn plan(link: &Link, now: Current<'_>, next: &Manifest) -> Plan {
         notes_removed,
         notes_added,
         notes_kept,
-        on: link.on.intersection(&next_keys).cloned().collect(),
+        on: link
+            .on
+            .intersection(&next_keys)
+            .cloned()
+            .chain(code.on)
+            .collect(),
         asks_more: next
             .effect_keys()
             .into_iter()
             .filter(|key| !old_keys.contains(key))
+            .chain(code.asks_more)
             .collect(),
-        off: link.on.difference(&next_keys).cloned().collect(),
+        off: link
+            .on
+            .difference(&next_keys)
+            .filter(|key| code::switch_component(key).is_none())
+            .cloned()
+            .chain(code.off)
+            .collect(),
     }
+}
+
+/// The components' switches after a move (ADR 0203 §5).
+struct CodeSwitches {
+    on: Vec<String>,
+    asks_more: Vec<String>,
+    off: Vec<String>,
+}
+
+/// A component stays on when it was on and asks for nothing more; one that is new, or imports
+/// something it didn't, asks for more and starts off; one that was on and is gone goes off.
+fn code_switches(link: &Link, next: &Manifest) -> CodeSwitches {
+    let mut out = CodeSwitches {
+        on: Vec::new(),
+        asks_more: Vec::new(),
+        off: Vec::new(),
+    };
+    for component in &next.code {
+        let key = code::switch_key(&component.name);
+        let old = link.manifest.code.iter().find(|c| c.name == component.name);
+        if code::asks_more(old, component) {
+            out.asks_more.push(key);
+        } else if link.on.contains(&key) {
+            out.on.push(key);
+        }
+    }
+    for key in &link.on {
+        if let Some(name) = code::switch_component(key)
+            && !next.code.iter().any(|c| c.name == name)
+        {
+            out.off.push(key.clone());
+        }
+    }
+    out
 }
 
 fn routine_steps(

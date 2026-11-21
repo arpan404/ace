@@ -25,7 +25,7 @@ beside version 2's fields:
 | `tests`     | `tests/<name>.json` scenario files in the package                                                                                                                                                |
 | `surfaces`  | Cards (`cards/<name>.json`) and panels (`panels/<id>/index.html` with a title, a state schema and declared actions), [surfaces.md](surfaces.md)                                                  |
 | `checks`    | What a result is held to before it counts as done: `{name, on, kind, rule \| text}`, `schema` rules on `contract:<name>` and `card:<id>`, `criterion` lines on `goal` ([quality.md](quality.md)) |
-| `code`      | WebAssembly components under `code/<name>.wasm`, each with its world, its imports (held to the binary's) and why ([code.md](code.md))                                                            |
+| `code`      | WebAssembly components under `code/<name>.wasm`, each with its world, its imports (held to the binary's) and why; each has a switch, `code:<name>` ([code.md](code.md))                          |
 
 A schedule, event or webhook trigger may say `"verify": true`: each run opens a goal and ends in
 the check of done ([quality.md](quality.md), Checks). Version 2's `routines` read as schedule triggers. Refused whole: anything named or shaped like a

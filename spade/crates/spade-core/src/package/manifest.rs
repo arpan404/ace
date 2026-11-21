@@ -297,6 +297,18 @@ impl Manifest {
         self.effects.iter().map(Declared::key).collect()
     }
 
+    /// Every switch the person has for the package: each declared effect's, then each
+    /// component's (`code:<name>`, ADR 0203 §5), which keeps its code off while off.
+    pub fn switch_keys(&self) -> Vec<String> {
+        let mut keys = self.effect_keys();
+        keys.extend(
+            self.code
+                .iter()
+                .map(|c| super::code::run::switch_key(&c.name)),
+        );
+        keys
+    }
+
     /// Whether the routine named `name` is checked before its run counts as done.
     pub fn verifies(&self, name: &str) -> bool {
         self.verified.iter().any(|v| v == name)

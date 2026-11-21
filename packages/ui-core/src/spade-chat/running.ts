@@ -53,11 +53,21 @@ export interface SpadeRunningBot {
     unusual: boolean;
   };
   network: { sentBytes: number; receivedBytes: number; hosts: string[]; refused: number };
+  /** What its package's own code used (ADR 0203 §4); undefined for a bot that ran none. */
+  code?: SpadeRunningCode | undefined;
   nextWake: { at: number; what: string } | undefined;
   workers: SpadeRunningWorker[];
   actions: SpadeRunningAction[];
   /** A development bot (ADR 0200 §9): linked to a package folder on its machine. */
   development: boolean;
+}
+
+/** A bot's package code: calls, the time they ran, and components whose last calls all failed. */
+export interface SpadeRunningCode {
+  calls: number;
+  runMs: number;
+  cutOff: number;
+  failing: { component: string; reason: string }[];
 }
 
 const count = z.number().int().nonnegative().catch(0).default(0);
@@ -112,6 +122,18 @@ const rowShape = z.object({
     })
     .catch({ sent_bytes: 0, received_bytes: 0, hosts: [], refused: 0 })
     .default({ sent_bytes: 0, received_bytes: 0, hosts: [], refused: 0 }),
+  code: z
+    .object({
+      calls: count,
+      run_ms: count,
+      cut_off: count,
+      failing: z
+        .array(z.object({ component: z.string(), reason: z.string().catch("") }))
+        .catch([])
+        .default([]),
+    })
+    .nullish()
+    .catch(undefined),
   next_wake: z
     .object({ at_ms: z.number(), what: z.string().catch("") })
     .nullish()
@@ -166,6 +188,15 @@ export function parseSpadeRunningBot(raw: unknown): SpadeRunningBot | undefined 
       hosts: row.network.hosts,
       refused: row.network.refused,
     },
+    code:
+      row.code && row.code.calls > 0
+        ? {
+            calls: row.code.calls,
+            runMs: row.code.run_ms,
+            cutOff: row.code.cut_off,
+            failing: row.code.failing,
+          }
+        : undefined,
     nextWake: row.next_wake ? { at: row.next_wake.at_ms, what: row.next_wake.what } : undefined,
     workers: row.workers.map((worker) => ({ ...worker, name: worker.name || "Worker" })),
     actions: row.actions.filter(isAction),
@@ -246,6 +277,18 @@ export function spadeRunningUsesWords(uses: SpadeRunningBot["uses"]): string {
 export function spadeRunningSpendWords(spend: SpadeRunningBot["spend"]): string {
   const said = `${spadeMoney(spend.todayMicros)} today · ${spadeMoney(spend.monthMicros)} this month`;
   return spend.unusual ? `${said} · Spending fast` : said;
+}
+
+/**
+ * Its package code in words, beside spend: "Code: 12 calls · 3.4 s", then each failing component
+ * ("fares failing: Its last 3 calls failed: it ran past its deadline."). Undefined with none.
+ */
+export function spadeRunningCodeWords(code: SpadeRunningCode | undefined): string | undefined {
+  if (!code) return undefined;
+  const seconds = code.runMs >= 1000 ? `${(code.runMs / 1000).toFixed(1)} s` : `${code.runMs} ms`;
+  const calls = `Code: ${code.calls} ${code.calls === 1 ? "call" : "calls"} · ${seconds}`;
+  const failing = code.failing.map((f) => `${f.component} failing: ${f.reason}`);
+  return [calls, ...failing].join(" · ");
 }
 
 /** The spend alert's line in words: "Alerts above $1.00 an hour"; undefined while alerts are off. */

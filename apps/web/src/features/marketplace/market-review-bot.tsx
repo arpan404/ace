@@ -2,7 +2,7 @@ import type { MarketReviewBody } from "@ace/protocol/marketplace";
 import { Switch } from "@/components/ui/switch.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { effectStartsOn, updateSentences } from "@ace/ui-core/spade-chat";
-import { decidedEachTime, effectWords, triggerWhen } from "./market-package-words.ts";
+import { codeKey, decidedEachTime, effectWords, triggerWhen } from "./market-package-words.ts";
 import { needCatalogue } from "./market-model.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { ReplayLine } from "@/features/spade/index.ts";
@@ -105,6 +105,40 @@ function EffectChoices(props: {
   );
 }
 
+/**
+ * Its own code (ADR 0203 §5): each component a row with the sentence its binary's imports make,
+ * why it is there, and a switch that starts on; one turned off doesn't run.
+ */
+function CodeChoices(props: {
+  recipe: Recipe;
+  effects: Readonly<Record<string, boolean>>;
+  onEffects(next: (before: Record<string, boolean>) => Record<string, boolean>): void;
+}) {
+  const rows = props.recipe.code ?? [];
+  if (!rows.length) return null;
+  return (
+    <>
+      <Head>Runs its own code</Head>
+      {rows.map((row) => {
+        const key = codeKey(row.name);
+        return (
+          <div key={key} className="mk-fact-row">
+            <span className="mk-words">
+              <span className="mk-name">{row.sentence}</span>
+              <span className="mk-meta">{row.why}</span>
+            </span>
+            <Switch
+              aria-label={`Run ${row.name}`}
+              checked={props.effects[key] !== false}
+              onCheckedChange={(on) => props.onEffects((before) => ({ ...before, [key]: on }))}
+            />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 /** A recipe's or package's choices on its install review. */
 export function RecipeChoices(props: {
   recipe: Recipe;
@@ -139,6 +173,7 @@ export function RecipeChoices(props: {
         effects={props.effects}
         onEffects={props.onEffects}
       />
+      <CodeChoices recipe={recipe} effects={props.effects} onEffects={props.onEffects} />
       {recipe.needs.length > 0 && (
         <>
           <Head>Apps</Head>

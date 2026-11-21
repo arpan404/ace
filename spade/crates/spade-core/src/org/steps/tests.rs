@@ -41,6 +41,7 @@ fn link(version: &str, hash: &str, on: &[&str]) -> Link {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
+        code: BTreeMap::new(),
     }
 }
 

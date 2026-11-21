@@ -13,20 +13,30 @@ struct Vector {
 }
 
 fn vector() -> Vector {
-    let raw: Value =
-        serde_json::from_str(include_str!("../policy-vector.json")).expect("the vector");
+    let raw: Value = serde_json::from_str(include_str!("../policy-vector.json"))
+        .unwrap_or_else(|e| panic!("the vector: {e}"));
     Vector {
-        keys: serde_json::from_value(raw["keys"].clone()).expect("keys"),
-        org: raw["org"].as_str().expect("org").to_owned(),
-        body: raw["body"].as_str().expect("body").to_owned(),
-        statement: raw["statement"].as_str().expect("statement").to_owned(),
+        keys: serde_json::from_value(raw["keys"].clone()).unwrap_or_else(|e| panic!("keys: {e}")),
+        org: raw["org"]
+            .as_str()
+            .unwrap_or_else(|| panic!("org"))
+            .to_owned(),
+        body: raw["body"]
+            .as_str()
+            .unwrap_or_else(|| panic!("body"))
+            .to_owned(),
+        statement: raw["statement"]
+            .as_str()
+            .unwrap_or_else(|| panic!("statement"))
+            .to_owned(),
     }
 }
 
 #[test]
 fn the_backends_statement_verifies_with_its_grant_key() {
     let v = vector();
-    let statement = verify(&v.statement, &v.keys, &v.body, &v.org).expect("verified");
+    let statement =
+        verify(&v.statement, &v.keys, &v.body, &v.org).unwrap_or_else(|e| panic!("verified: {e}"));
     assert_eq!(statement.version, 4);
     assert_eq!(statement.set_by, "user_01JSPADE");
 }
@@ -34,9 +44,15 @@ fn the_backends_statement_verifies_with_its_grant_key() {
 #[test]
 fn a_policy_with_a_bad_signature_another_key_another_body_or_org_is_refused() {
     let v = vector();
-    let (claims, signature) = v.statement.split_once('.').expect("two parts");
+    let (claims, signature) = v
+        .statement
+        .split_once('.')
+        .unwrap_or_else(|| panic!("two parts"));
     // One character of the signature changed.
-    let last = signature.chars().last().expect("a character");
+    let last = signature
+        .chars()
+        .last()
+        .unwrap_or_else(|| panic!("a character"));
     let flipped = format!(
         "{claims}.{}{}",
         &signature[..signature.len() - 1],
@@ -47,9 +63,13 @@ fn a_policy_with_a_bad_signature_another_key_another_body_or_org_is_refused() {
         Err(Refused::Signature)
     );
     // Claims respelled to a higher version: the signature is over the old ones.
-    let raised = String::from_utf8(URL_SAFE_NO_PAD.decode(claims).expect("claims"))
-        .expect("text")
-        .replace("\"version\":4", "\"version\":9");
+    let raised = String::from_utf8(
+        URL_SAFE_NO_PAD
+            .decode(claims)
+            .unwrap_or_else(|e| panic!("claims: {e}")),
+    )
+    .unwrap_or_else(|e| panic!("text: {e}"))
+    .replace("\"version\":4", "\"version\":9");
     let forged = format!("{}.{signature}", URL_SAFE_NO_PAD.encode(raised));
     assert_eq!(
         verify(&forged, &v.keys, &v.body, &v.org),

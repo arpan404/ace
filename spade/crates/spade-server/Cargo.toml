@@ -38,6 +38,7 @@ spade-conform = { path = "../spade-conform" }
 spade-sandbox = { path = "../spade-sandbox", default-features = false }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
+spade-wasm = { path = "../spade-wasm" }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "io-util"] }
 tokio-stream.workspace = true

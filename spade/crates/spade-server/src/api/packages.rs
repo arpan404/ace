@@ -133,6 +133,9 @@ struct UpdateBody {
     /// The version's panel pages (ADR 0200 §5.2), by path; kept once the step is accepted.
     #[serde(default)]
     pages: std::collections::BTreeMap<String, String>,
+    /// The version's components (ADR 0203 §5), by path, in base64: kept now, pinned by the step.
+    #[serde(default)]
+    code: std::collections::BTreeMap<String, String>,
 }
 
 /// The manifest and identity an update or rollback moves `bot` to: a market package's only from
@@ -215,11 +218,19 @@ async fn update(
     off_thread(move || {
         crate::org::acting::as_member(by.as_ref(), || {
             let asked = proven(&state.engine, &id, &body).and_then(|(manifest, package)| {
+                let pages = packages::panels::pages(&manifest, &body.pages)?;
+                let pins = crate::code::accept::accepted(
+                    &manifest,
+                    &body.code,
+                    body.envelope.as_ref(),
+                    state.engine.code().as_deref(),
+                )
+                .map_err(PackageError::Invalid)?;
+                let package = envelope::with_code(package, &pins);
                 // An org host moves only to a version its organization's policy allows (§3).
                 if let Some(why) = state.engine.org_package_refusal(&package) {
                     return Err(PackageError::Refused(why));
                 }
-                let pages = packages::panels::pages(&manifest, &body.pages)?;
                 let asked = packages::held::ask(
                     &state.engine,
                     &id,
@@ -229,6 +240,7 @@ async fn update(
                         proof: body.envelope.as_ref().and_then(packages::proof::kept),
                         transaction: body.transaction,
                         time_zone: body.time_zone,
+                        code: pins,
                     },
                 )?;
                 // Its pages are the accepted version's from now on, also while the step is held for

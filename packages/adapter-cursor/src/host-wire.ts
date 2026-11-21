@@ -1,6 +1,7 @@
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { HostRefusal } from "./host-refusal.ts";
+import { Console } from "node:console";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
@@ -17,6 +18,36 @@ const Reply = z.object({
   result: z.unknown().optional(),
   error: z.unknown().optional(),
 });
+const consoleMethods = [
+  "log",
+  "error",
+  "warn",
+  "info",
+  "debug",
+  "dir",
+  "dirxml",
+  "table",
+  "trace",
+  "group",
+  "groupCollapsed",
+  "groupEnd",
+  "count",
+  "countReset",
+  "time",
+  "timeEnd",
+  "timeLog",
+  "assert",
+] as const;
+/**
+ * Stdout is the JSON-RPC channel, and stderr is patched to redact and bound each line. Bun's
+ * console writes to fds 1 and 2 directly, past both patches, so every console method is sent
+ * through the patched stderr instead.
+ */
+function routeConsoleToStderr() {
+  const sink = new Console({ stdout: process.stderr, stderr: process.stderr });
+  for (const method of consoleMethods)
+    Object.assign(console, { [method]: sink[method].bind(sink) });
+}
 /** All writes await the shared bounded pipe writer, including onDelta callbacks. */
 export function hostWire(
   dispatch: (method: string, params: unknown) => Promise<unknown>,
@@ -42,6 +73,7 @@ export function hostWire(
     oversizedStderr = false;
   };
   process.on("exit", flushStderr);
+  routeConsoleToStderr();
   process.stderr.write = (
     chunk: string | Uint8Array,
     encoding?: BufferEncoding | ((error?: Error | null) => void),

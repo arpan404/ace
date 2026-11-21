@@ -442,6 +442,7 @@ async fn crashed_mid_update(proof: Option<Value>) -> Result<(Spade, String)> {
         notes_added: Vec::new(),
         notes_removed: Vec::new(),
         proof,
+        code: Default::default(),
     });
     spade
         .engine

@@ -50,6 +50,15 @@ const file = (path: string, content = "{}", executable = false) => ({
   executable,
 });
 
+/** A component entry as `bot.json` names it. */
+const code = (name: string) => ({
+  name,
+  file: `code/${name}.wasm`,
+  world: "spade:package/bot-tools@1.0.0",
+  imports: ["spade:package/tools"],
+  why: "Exact work.",
+});
+
 describe("agent packages", () => {
   it("read a version 3 manifest, its schedule triggers as routines", () => {
     const { recipe, problems } = read(watcher);
@@ -84,6 +93,14 @@ describe("agent packages", () => {
     expect(
       effectKey({ effect: "network", hosts: ["b.example.com", "a.example.com"], why: "x" }),
     ).toBe("network:hosts:a.example.com,b.example.com");
+  });
+
+  it("run each component the review listed unless the person turned it off there", () => {
+    const recipe = read({ ...watcher, code: [code("fares"), code("dates")] }).recipe!;
+    const granted = grantedEffects(recipe, { "code:dates": false });
+    expect(granted["code:fares"]).toBe(true);
+    expect(granted["code:dates"]).toBe(false);
+    expect(granted.send_as_person).toBe(false);
   });
 
   it("read version 2 as version 3 with nothing of version 3's", () => {
@@ -242,9 +259,9 @@ const suites = [
   "surfaces/manifests",
   "code/manifests",
   "package/checks",
-].map((file) => {
-  const url = new URL(`../../../spade/spec/conformance/${file}.json`, import.meta.url);
-  return [file, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
+].map((part) => {
+  const url = new URL(`../../../spade/spec/conformance/${part}.json`, import.meta.url);
+  return [part, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
 });
 
 describe.each(suites)("the conformance suite's %s manifests", (_part, suite) => {

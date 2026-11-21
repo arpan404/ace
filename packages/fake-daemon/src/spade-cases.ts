@@ -23,6 +23,9 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
  * person marked hidden as `•••`. Spade's own redaction of secrets and the person's names is
  * Spade's to test; here a seeded case holds what the test gives it.
  */
+
+/** "kept run" or "kept runs", for `n`. */
+const runs = (n: number) => (n === 1 ? "kept run" : "kept runs");
 export class FakeSpadeCases {
   /** Every kept case, `{summary, case}` as Spade answers, by agent. */
   readonly kept = new Map<string, Json[]>();
@@ -105,6 +108,7 @@ export class FakeSpadeCases {
     this.replays.push({ agent, body });
     const kept = (this.kept.get(agent) ?? []).slice(0, 20);
     const model = typeof body.model === "string";
+    // oxlint-disable-next-line oxc/no-map-spread -- Builds each case's answer anew; the kept run stays untouched.
     const cases = kept.map((each) => {
       const summary = each.summary as Json;
       const why = this.differs.get(text(summary.id));
@@ -119,7 +123,6 @@ export class FakeSpadeCases {
     });
     const passed = cases.filter((each) => each.passed).length;
     const failed = cases.length - passed;
-    const runs = (n: number) => (n === 1 ? "kept run" : "kept runs");
     const [same, worse] = model ? ["the same or better", "worse"] : ["replay the same", "don't"];
     const summary =
       cases.length === 0

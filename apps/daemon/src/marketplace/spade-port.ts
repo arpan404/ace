@@ -114,6 +114,7 @@ function identity(input: PackageInput) {
   return {
     recipe: input.manifest,
     ...(input.pages && Object.keys(input.pages).length > 0 ? { pages: input.pages } : {}),
+    ...(input.code && Object.keys(input.code).length > 0 ? { code: input.code } : {}),
     ...(input.signed
       ? {
           package: input.signed.package,

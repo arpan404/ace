@@ -137,6 +137,11 @@ pub struct Expect {
     /// always checked against the contract's schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Value>,
+    /// Fields a tool's answer holds, by tool name, each with this value: its last answer, read
+    /// as a JSON object. How a scenario checks what a package's own code answered
+    /// (`code_<component>_<tool>`, ADR 0203 §6).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub results: BTreeMap<String, Value>,
 }
 
 /// `tests/<name>.json`, read.
@@ -314,6 +319,9 @@ pub struct Observed {
     /// With `given.call`: what the call came to, once it ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub returned: Option<Returned>,
+    /// Each tool's last answer that wasn't an error, by tool name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub results: BTreeMap<String, String>,
 }
 
 /// What failed, in sentences; empty when the scenario passes.
@@ -398,7 +406,34 @@ pub fn check(scenario: &Scenario, observed: &Observed) -> Vec<String> {
     if scenario.given.call.is_some() {
         failures.extend(returned_failures(expect, observed.returned.as_ref()));
     }
+    for (tool, wanted) in &expect.results {
+        failures.extend(result_failures(tool, wanted, observed.results.get(tool)));
+    }
     failures
+}
+
+/// What failed about a tool's answer: none came, it isn't a JSON object, or a field differs.
+fn result_failures(tool: &str, wanted: &Value, answer: Option<&String>) -> Vec<String> {
+    let Some(answer) = answer else {
+        return vec![format!(
+            "{tool} gave no answer, and expect.results names it"
+        )];
+    };
+    let Ok(Value::Object(read)) = serde_json::from_str::<Value>(answer) else {
+        return vec![format!("{tool}'s answer isn't a JSON object: {answer}")];
+    };
+    wanted
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(field, value)| read.get(field.as_str()) != Some(value))
+        .map(|(field, value)| {
+            format!(
+                "{tool}'s answer has {field} {}, not {value}",
+                read.get(field.as_str()).unwrap_or(&Value::Null)
+            )
+        })
+        .collect()
 }
 
 /// What failed about a given call's answer: none came, it failed, or a field differs.

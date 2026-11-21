@@ -200,7 +200,7 @@ export function panelText(data: unknown): string | undefined {
 }
 
 /** `panelText`, as the bridges run it. */
-const fitsScript = `(data) => {
+export const fitsScript = `(data) => {
     if (typeof data !== 'string' || data.length > ${panelMessageBytes}) return undefined;
     let bytes = 0;
     for (let at = 0; at < data.length; at++) {

@@ -49,6 +49,7 @@ fn packaged(w: &World, on: bool) {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
+        code: Default::default(),
     };
     w.spade
         .engine
@@ -333,6 +334,7 @@ fn two_hosts(w: &World, first: &str, second: &str) {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
+        code: Default::default(),
     };
     w.spade
         .engine

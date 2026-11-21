@@ -1,6 +1,29 @@
 import { it, expect } from "vitest";
 import { harness, required, spawn, chunk, end } from "./test-helper.ts";
+import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { nativeAgentKey } from "./keys.ts";
+
+it("streams ACP thought text and closes the reasoning when a tool starts", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  const reasoning = () => Object.values(h.state.items).find((item) => item.type === "reasoning");
+
+  chunk(h, "Check ", "root-session", true);
+  chunk(h, "the config", "root-session", true);
+  expect(reasoning()).toMatchObject({ text: "Check the config", complete: false });
+  expect(h.state.agents["root"]?.agent.status).toMatchObject({
+    state: "working",
+    activity: "thinking",
+  });
+
+  h.update({ sessionUpdate: "tool_call", toolCallId: "read", kind: "read", status: "in_progress" });
+  expect(reasoning()).toMatchObject({ text: "Check the config", complete: true });
+  expect(h.state.agents["root"]?.agent.status).toMatchObject({
+    state: "working",
+    activity: "tool",
+    itemId: required(h.tools()[0]).id,
+  });
+});
 
 it("keeps a late registered child linked to its actual parent without losing its transcript", () => {
   const h = harness();
