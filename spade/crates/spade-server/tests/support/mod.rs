@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod code;
 pub mod contracts;
 pub mod fleet;
 pub mod gated;

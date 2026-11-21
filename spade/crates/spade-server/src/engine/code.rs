@@ -75,7 +75,7 @@ impl Engine {
         let _ = self.code.set(code);
     }
 
-    pub(crate) fn code(&self) -> Option<Arc<crate::code::Code>> {
+    pub fn code(&self) -> Option<Arc<crate::code::Code>> {
         self.code.get().cloned()
     }
 
