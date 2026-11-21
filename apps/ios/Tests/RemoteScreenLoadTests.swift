@@ -6,13 +6,17 @@ import Testing
 /// show: the machine's state as soon as it answers, or what went wrong with Try again. Never a
 /// placeholder that waits for nothing.
 @MainActor @Suite struct RemoteScreenLoadTests {
-    private static let status: ServiceValue = .object([
-        "ok": .bool(true),
-        "data": .object([
-            "enabled": .bool(true), "sessions": .number(0),
-            "permissions": .object(["screenRecording": .bool(true), "accessibility": .bool(false)]),
-        ]),
-    ])
+    private static let status = statusReply(enabled: true)
+    private static func statusReply(enabled: Bool) -> ServiceValue {
+        .object([
+            "ok": .bool(true),
+            "data": .object([
+                "enabled": .bool(enabled), "sessions": .number(0),
+                "permissions": .object(["screenRecording": .bool(true), "accessibility": .bool(false)]),
+            ]),
+        ])
+    }
+    private static let noTargets: ServiceValue = .object(["ok": .bool(true), "data": .object(["windows": .array([])])])
     private static let noSessions: ServiceValue = .object(["ok": .bool(true), "data": .array([])])
     private static let noShaped: ServiceValue = .object(["ok": .bool(true), "data": .object(["sessions": .array([])])])
 
@@ -41,7 +45,7 @@ import Testing
                 }
             }
         }
-        while screen.status == nil { await Task.yield() }
+        try await until("the status answer") { screen.status != nil }
         #expect(screen.page == .shown)
         #expect(screen.status?.permissions.accessibility == false)
         gate.open()
@@ -64,30 +68,60 @@ import Testing
         #expect(screen.page == .failed("The request timed out."))
     }
 
-    @Test func aReadCancelledBeforeItAnsweredOffersTryAgainRatherThanWaitingForever() async {
+    @Test func aReadCancelledBeforeItAnsweredOffersTryAgainRatherThanWaitingForever() async throws {
         let screen = RemoteScreen()
         let gate = Gate()
         let load = Task { await screen.load { _, _ in await gate.wait(); throw CancellationError() } }
-        while !gate.held { await Task.yield() }
+        try await until("the read waiting") { gate.held }
         load.cancel()
         gate.open()
         await load.value
         guard case .failed = screen.page else { Issue.record("Still \(screen.page) after the read was cancelled"); return }
     }
 
-    @Test func anOlderReadEndingLateKeepsTheNewerReadsWait() async {
+    @Test func anOlderReadFailingLateLeavesTheNewerReadWaitingWithoutItsError() async throws {
         let screen = RemoteScreen()
         let first = Gate(), second = Gate()
-        let older = Task { await screen.load { _, _ in await first.wait(); throw ServiceFailure(message: "Request cancelled") } }
-        while !first.held { await Task.yield() }
+        let older = Task { await screen.load { _, _ in await first.wait(); throw ServiceFailure(message: "The request timed out.") } }
+        try await until("the older read waiting") { first.held }
         let newer = Task { await screen.load { payload, _ in await second.wait(); return Self.answer(payload) } }
-        while !second.held { await Task.yield() }
+        try await until("the newer read waiting") { second.held }
         first.open()
         await older.value
-        // The older read's failure is said, but the newer read is still under way.
-        #expect(screen.reading)
+        #expect(screen.page == .reading)
+        #expect(screen.readProblem == nil)
         second.open()
         await newer.value
+        #expect(screen.page == .shown)
+    }
+
+    @Test func anOlderReadAnsweringLateNeverReplacesWhatTheNewerReadFound() async throws {
+        let screen = RemoteScreen()
+        let first = Gate()
+        let older = Task {
+            await screen.load { payload, _ in
+                await first.wait()
+                return Self.name(payload) == "status" ? Self.statusReply(enabled: false) : Self.answer(payload)
+            }
+        }
+        try await until("the older read waiting") { first.held }
+        await screen.load { payload, _ in Self.answer(payload) }
+        #expect(screen.status?.enabled == true)
+        first.open()
+        await older.value
+        #expect(screen.status?.enabled == true)
+        #expect(screen.page == .shown)
+    }
+
+    @Test func theSharePickersLookupSucceedingKeepsThePagesFailedReadAndItsTryAgain() async {
+        let screen = RemoteScreen()
+        await screen.load { payload, _ in
+            if Self.name(payload) == "sessions" { throw ServiceFailure(message: "The request timed out.", transport: true) }
+            return Self.answer(payload)
+        }
+        #expect(screen.readProblem == "The request timed out.")
+        await screen.targets { _, _ in Self.noTargets }
+        #expect(screen.readProblem == "The request timed out.")
         #expect(screen.page == .shown)
     }
 
@@ -97,4 +131,14 @@ import Testing
         screen.disconnected()
         guard case .failed = screen.page else { Issue.record("Still \(screen.page) while disconnected"); return }
     }
+}
+
+/// Yields until `ready` holds; fails the test instead of hanging when it never does.
+@MainActor private func until(_ what: String, _ ready: () -> Bool) async throws {
+    for _ in 0..<10_000 {
+        if ready() { return }
+        await Task.yield()
+    }
+    Issue.record("Never saw \(what)")
+    throw CancellationError()
 }

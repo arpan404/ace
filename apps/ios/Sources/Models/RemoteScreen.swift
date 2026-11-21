@@ -111,7 +111,10 @@ enum RemoteScreenPage: Equatable {
     private(set) var dialogPicks = false
     /// The person cancelled a wait in the sharing dialog: its ending needs no sentence.
     private var cancellingChoice = false
+    /// What went wrong in an action, a share or the picker's lookup.
     private(set) var problem: String?
+    /// Why the page's own read (on, permissions, the apps in use) failed; nil once one succeeds.
+    private(set) var readProblem: String?
     private(set) var busy = false
     private var owned: Set<String> = []
     private var previous: [String: RemoteScreenState.Holder] = [:]
@@ -124,7 +127,7 @@ enum RemoteScreenPage: Equatable {
     /// cancelled or never started says so, with Try again.
     var page: RemoteScreenPage {
         if status != nil { return .shown }
-        if let problem { return .failed(problem) }
+        if let readProblem { return .failed(readProblem) }
         return reading ? .reading : .failed("Computer use hasn't loaded.")
     }
     func refresh(_ model: ClientModel) async { await load(model.screenAsk) }
@@ -133,19 +136,31 @@ enum RemoteScreenPage: Equatable {
     func load(_ ask: ScreenAsk) async {
         generation += 1
         let mine = generation
+        // Each answer is kept only while this is still the latest read: an older one that ends
+        // late, well or badly, never replaces what a newer read shows or is waiting for.
+        let latest = { self.generation == mine }
         reading = true
-        defer { if generation == mine { reading = false } }
+        defer { if latest() { reading = false } }
         do {
-            status = try await request(ask, ["op": "status"])
-            problem = nil
-            states = try await request(ask, ["op": "sessions"])
-            sessions = try await shaped(ask)
+            let status: RemoteScreenStatus = try await request(ask, ["op": "status"])
+            guard latest() else { return }
+            self.status = status
+            readProblem = nil
+            let states: [RemoteScreenState] = try await request(ask, ["op": "sessions"])
+            guard latest() else { return }
+            self.states = states
+            let sessions = try await shaped(ask)
+            guard latest() else { return }
+            self.sessions = sessions
             owned = owned.filter { state($0)?.controller == "human" }
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+        } catch { if latest(), !Task.isCancelled { readProblem = error.localizedDescription } }
     }
-    func targets(_ model: ClientModel) async {
+    func targets(_ model: ClientModel) async { await targets(model.screenAsk) }
+    /// The windows and screens the share picker offers. Its failure is the picker's to say; the
+    /// page's own read keeps its error until a read of its own succeeds.
+    func targets(_ ask: ScreenAsk) async {
         do {
-            let inventory: RemoteScreenInventory = try await request(model, ["op": "targets"])
+            let inventory: RemoteScreenInventory = try await request(ask, ["op": "targets"])
             windows = inventory.windows; dialogPicks = inventory.chooser != nil; problem = nil
         }
         catch { if !Task.isCancelled { problem = error.localizedDescription } }

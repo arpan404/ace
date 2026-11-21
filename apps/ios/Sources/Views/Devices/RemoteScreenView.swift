@@ -89,7 +89,7 @@ struct RemoteScreenView: View {
             ProblemRow("Couldn't read computer use on this machine", detail: message, id: "screen.problem",
                        disabled: screen.reading, retry: retry)
         case .shown:
-            if let problem = screen.problem {
+            if let problem = screen.readProblem ?? screen.problem {
                 ProblemRow(problem, id: "screen.problem", disabled: screen.reading || screen.busy, retry: retry)
             }
         }
