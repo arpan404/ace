@@ -20,6 +20,8 @@ const Reply = z.object({
 });
 const consoleMethods = [
   "log",
+  "error",
+  "warn",
   "info",
   "debug",
   "dir",
@@ -37,8 +39,9 @@ const consoleMethods = [
   "assert",
 ] as const;
 /**
- * Stdout is the JSON-RPC channel. Bun's console writes to fd 1 directly, past the
- * process.stdout.write patch, so console output is sent through the redacting stderr path.
+ * Stdout is the JSON-RPC channel, and stderr is patched to redact and bound each line. Bun's
+ * console writes to fds 1 and 2 directly, past both patches, so every console method is sent
+ * through the patched stderr instead.
  */
 function routeConsoleToStderr() {
   const sink = new Console({ stdout: process.stderr, stderr: process.stderr });
