@@ -66,10 +66,13 @@ struct BridgeMachineAccess: MachineAccess {
     var secrets: any SecretStore = KeychainSecrets()
     /// This app install (ADR 0115), sent when pairing so the machine keeps one device for it.
     var installId: String? = nil
+    /// Each pairing names a new Secure Enclave key to the machine (ADR 0190 §7).
+    var standingKeys = StandingKeys()
 
     func perform(_ request: AccessRequest) async -> Result<AccessOutcome, ProblemNotice> {
         let target: ConnectionTarget?
         var body: [String: Any]
+        var standing: (tag: String, publicKey: String)?
         switch request {
         case .list: target = nil; body = ["op": "list"]
         case .remove(let hostId): target = nil; body = ["op": "remove", "hostId": hostId]
@@ -78,12 +81,18 @@ struct BridgeMachineAccess: MachineAccess {
             target = .pairing(endpoint: link.socketURL, pin: link.fingerprint)
             body = ["op": "pair", "code": link.code, "name": name, "url": link.socketURL.absoluteString, "fingerprint": link.fingerprint]
             if let installId { body["installId"] = installId }
+            // Only its public half goes to the bridge; the key stays in the Secure Enclave.
+            standing = standingKeys.make()
+            if let standing { body["standingKey"] = standing.publicKey }
         case .remember(let hostId, let paths):
             target = nil
             let encoded = (try? JSONEncoder().encode(paths)).flatMap { try? JSONSerialization.jsonObject(with: $0) }
             body = ["op": "remember", "hostId": hostId, "paths": encoded ?? []]
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return .failure(.unknown) }
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+            if let standing { standingKeys.discard(tag: standing.tag) }
+            return .failure(.unknown)
+        }
         let once = Once()
         // Only a pairing in progress stops with its task (the person went back). Listing, renaming,
         // removing and remembering always finish: a view going away mid-read must not read as
@@ -114,9 +123,23 @@ struct BridgeMachineAccess: MachineAccess {
             if let runtime = once.runtime { runtime.stop { continuation.resume() } } else { continuation.resume() }
         }
         once.release()
+        settleStandingKey(standing, request: request, outcome: outcome)
         return outcome
     }
 }
+extension BridgeMachineAccess {
+    /// A pairing's key is the machine's once it paired, and goes when it didn't; a removed
+    /// machine's key goes with it.
+    private func settleStandingKey(_ standing: (tag: String, publicKey: String)?, request: AccessRequest,
+                                   outcome: Result<AccessOutcome, ProblemNotice>) {
+        if case .remove(let hostId) = request, case .success = outcome { standingKeys.forget(hostId: hostId) }
+        guard let standing else { return }
+        if case .success(let paired) = outcome, let hostId = paired.paired?.hostId,
+           (try? standingKeys.keep(tag: standing.tag, for: hostId)) != nil { return }
+        standingKeys.discard(tag: standing.tag)
+    }
+}
+
 private final class Once: @unchecked Sendable {
     private let lock = NSLock()
     private var claimed = false

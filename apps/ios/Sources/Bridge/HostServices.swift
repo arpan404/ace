@@ -20,11 +20,19 @@ struct HostServices: Sendable {
     var saved = SavedFiles()
     /// The phone's loopback listeners for device tabs (ADR 0194), shared by every runtime.
     var loopback: LoopbackHub = .shared
+    /// The keys paired machines' sockets prove the person's standing with (ADR 0190 §7).
+    var standingKeys = StandingKeys()
+    /// The one paired machine and device this runtime may sign standing proofs for; nil: none.
+    var standingSigner: StandingSigner?
 
     /// A machine's connection may read its own device token and nothing else.
     static func connection(_ target: ConnectionTarget) -> HostServices {
         var services = HostServices()
-        if let key = target.secretKey { services.secretAccess = .read(key) }
+        if let key = target.secretKey {
+            services.secretAccess = .read(key)
+            // A paired machine's own key, for its own device's proofs only.
+            services.standingSigner = StandingSigner(hostId: target.hostId, deviceId: target.deviceId)
+        }
         // Saved downloads are this machine's: another machine's same ids are other files.
         services.saved.scope = target.hostId
         return services
@@ -75,6 +83,9 @@ struct HostServices: Sendable {
                   let data = Data(base64Encoded: try request.requireBody()) else { throw HostError.unsupported }
             let staged = try attachments.stage(data: data, name: capture.name, mimeType: capture.mimeType)
             return String(decoding: try JSONSerialization.data(withJSONObject: staged.json), as: UTF8.self)
+        case "standing.sign":
+            guard let standingSigner else { throw HostError.unsupported }
+            return try standingKeys.sign(try request.requireBody(), hostId: standingSigner.hostId, deviceId: standingSigner.deviceId)
         case "access.result":
             guard let result else { throw HostError.unsupported }
             result(try request.requireBody())
@@ -83,6 +94,7 @@ struct HostServices: Sendable {
         }
     }
 }
+struct StandingSigner: Sendable { let hostId: String; let deviceId: String }
 private struct SecretWrite: Decodable { let key: String; let token: String }
 private struct ChunkRead: Decodable { let localId: String; let offset: Int; let limit: Int }
 private struct FileWrite: Decodable { let id: String; let name: String; let offset: Int; let done: Bool }
