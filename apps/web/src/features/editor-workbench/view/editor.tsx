@@ -61,13 +61,19 @@ export function Editor(props: EditorProps) {
   const host: EditorHost = { ...props, reportStatus: status.report };
   const pendingFocus = useRef(false);
 
+  // Groups on screen last time: a focused group that wasn't among them was just made (a split,
+  // a drop on an edge), and the keyboard follows it there rather than staying in the old view.
+  const known = useRef(new Set(groups.map((group) => group.id)));
+  const ids = groups.map((group) => group.id).join(" ");
   useEffect(() => {
-    if (!pendingFocus.current) return;
+    const made = !known.current.has(focused.id);
+    known.current = new Set(ids.split(" "));
+    if (!pendingFocus.current && !made) return;
     pendingFocus.current = false;
     focusInside(
       root.current?.querySelector<HTMLElement>(`[data-group-id="${CSS.escape(focused.id)}"]`),
     );
-  }, [focused.id]);
+  }, [focused.id, ids]);
 
   const leadOf = (group: GroupNode) => {
     // The explorer's toggle sits at the left of the first strip on screen.

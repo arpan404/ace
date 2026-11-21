@@ -143,3 +143,18 @@ test("the file path starts where the shown editor's text starts", async () => {
   const crumbs = within(region(1)).getByRole("navigation", { name: "File path" });
   expect(crumbs.style.paddingLeft).toBe("68px");
 });
+
+test("split right puts the keyboard in the new group's view", async () => {
+  editorSize(1000);
+  await mountEditor(one([tab("a.ts")]), {
+    overrides: {
+      renderEditor: (view) => <textarea aria-label={`Source in ${view.group}`} />,
+    },
+  });
+  const first = within(region(1)).getByRole("textbox");
+  first.focus();
+  fireEvent.click(within(region(1)).getByRole("button", { name: "Split right" }));
+
+  const second = within(region(2)).getByRole("textbox");
+  expect(document.activeElement).toBe(second);
+});
