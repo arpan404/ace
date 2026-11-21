@@ -283,7 +283,9 @@ function OpenRequest(props: {
       data-variant={request.kind}
       data-state="waiting"
       onKeyDown={onKeyDown}
-      className={props.className}
+      // Focused to take its keys when it is brought into view: a target, not a control, so no
+      // ring around it (its buttons keep theirs).
+      className={cn(props.className, "outline-none")}
     >
       {request.kind !== "approval" && request.kind !== "question" && (
         <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">

@@ -7,7 +7,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useState } from "react";
 import {
   SettingAddRow,
   SettingCard,
@@ -15,29 +15,37 @@ import {
   settingsGroup,
 } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { openExternal } from "@/boot/open-external.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
+import { useOpenMarket } from "@/lib/open-market.ts";
 import { AddConnectorDialog } from "./spade-add-connector.tsx";
-import { connectHere, connectInBrowser } from "./spade-connect-flow.ts";
+import { UseInAnotherBot } from "./spade-app-bots.tsx";
+import { useAppConnect } from "./spade-app-connect.tsx";
+import { connectHere } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { LoadingRows } from "./spade-settings-loading.tsx";
-import { CouldNotRead } from "./spade-settings-rows.tsx";
+import { CouldNotRead, Refusal } from "./spade-settings-rows.tsx";
+import { isStandingRefusal } from "@/boot/person-standing.ts";
 
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
 /**
  * Settings › Spade › Apps, its first group (ADR 0131): the apps Spade is connected to, each with
- * its health (Working, Needs reconnect), the account, the bots that use it, named from `names`,
+ * its health (Working, Signed out), the account, the bots that use it, named from `names`,
  * and when a bot last used it; Reconnect when its sign-in ended, and Disconnect. Then Connect an
  * app.
  */
 export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<string, string> }) {
   const connectors = useSpadeConnectors(props.ready);
   const [adding, setAdding] = useState(false);
+  // One catalogue: with the Marketplace on, its Apps, where each app connects in place; without
+  // it, this catalogue dialog.
+  const market = useBetaEnabled("marketplace") === true;
+  const openMarket = useOpenMarket();
   return (
     <section aria-label="Connected apps" className={settingsGroup}>
       <SettingCard>
@@ -60,7 +68,9 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
                 now={connectors.dataUpdatedAt}
               />
             ))}
-            <SettingAddRow onClick={() => setAdding(true)}>Connect an app</SettingAddRow>
+            <SettingAddRow onClick={() => (market ? openMarket("apps") : setAdding(true))}>
+              Connect an app
+            </SettingAddRow>
           </>
         )}
       </SettingCard>
@@ -90,9 +100,10 @@ export function botNames(ids: readonly string[], names: ReadonlyMap<string, stri
 }
 
 /**
- * One connected app: its state in words, Reconnect when its sign-in ended, and Disconnect. A
- * device sign-in shows its code in the sentence, with Copy code and Open while Spade waits, and
- * Try again once it expired or was declined.
+ * One connected app: its state and account in one line, the bots that use it in the next. Its
+ * action is the shared connect flow's (Reconnect, followed in place, a failure that says what
+ * fixes it), or Use in another bot while it works; a device sign-in shows its code with Copy
+ * code and Open. Disconnect is a quiet word at the end.
  */
 function ConnectorRow(props: {
   connector: SpadeConnector;
@@ -104,94 +115,80 @@ function ConnectorRow(props: {
   const cache = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
-  const field = useId();
   const [busy, setBusy] = useState(false);
-  // A token connector reconnects with a new token, typed here.
-  const [token, setToken] = useState<string>();
   const refresh = () => cache.invalidateQueries({ queryKey: connectorsKey });
   const signedOut = connector.state === "needs_reconnect" || connector.state === "signing_in";
   const { device } = connector;
-  // The bots that use it, after its state: the state line stays one phrase of its own.
   const users = botNames(connector.bots, props.names);
   const copy = useCopy(() => toast.error({ title: "Couldn't copy the code" }));
-  const again = async () => {
+  const connect = useAppConnect({
+    app: {
+      catalogue: connector.catalogue,
+      name: connector.name,
+      connector,
+      ready: connector.signIn === "token" ? "key" : "sign_in",
+    },
+    size: "sm",
+    onConnected: () => void refresh(),
+  });
+  // A device sign-in starts again in place: its new code shows in this row.
+  const deviceAgain = async () => {
     setBusy(true);
-    const typed = token?.trim();
-    setToken(undefined);
-    // A device sign-in starts again in place: its new code shows in this row.
-    const outcome = typed
-      ? await connectHere(() => reconnect(client, connector.id, { token: typed }))
-      : device
-        ? await connectHere(() => reconnect(client, connector.id))
-        : await connectInBrowser(() => reconnect(client, connector.id));
+    const outcome = await connectHere(() => reconnect(client, connector.id));
     setBusy(false);
     await refresh();
     if (outcome.kind !== "done")
       toast.error({ title: `Couldn't reconnect ${connector.name}`, description: outcome.message });
   };
+  // A disconnect only the person may make shows its refusal in the row, with Confirm it's you.
+  const [refused, setRefused] = useState<string>();
   const remove = async () => {
     setBusy(true);
+    setRefused(undefined);
     try {
       await disconnect(client, connector.id);
       await refresh();
     } catch (error) {
-      toast.error({ title: `Couldn't disconnect ${connector.name}`, description: fault(error) });
+      if (isStandingRefusal(fault(error))) setRefused(fault(error));
+      else
+        toast.error({ title: `Couldn't disconnect ${connector.name}`, description: fault(error) });
     } finally {
       setBusy(false);
     }
   };
+  const state = [
+    connector.device ? spadeConnectorLine(connector) : spadeConnectorHealth(connector),
+    connector.account,
+    spadeCloudLine(connector),
+    connector.local && "On your own network",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <SettingRow
       title={connector.name}
       leading={<AppMark catalogue={connector.catalogue} name={connector.name} />}
       description={
         <>
-          <span>
-            {[
-              // Its health first (Working, Needs reconnect), then who it is signed in as.
-              connector.device ? spadeConnectorLine(connector) : spadeConnectorHealth(connector),
-              connector.account,
-              spadeCloudLine(connector),
-              connector.local && "On your own network",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+          <span className="block">
+            {refused ? (
+              <Refusal onConfirmed={() => void remove()}>{refused}</Refusal>
+            ) : (
+              (connect.status ?? state)
+            )}
           </span>
           <span className="block">
             {[
-              users.length > 0 ? users.join(", ") : "No bot uses it",
+              users.length > 0 ? `Used by ${users.join(", ")}` : "No bot uses it",
               spadeLastUsedWords(connector.lastUsedMs, props.now),
             ].join(" · ")}
           </span>
         </>
       }
-      htmlFor={token === undefined ? undefined : field}
       density="compact"
     >
       <div className="flex items-center gap-1.5">
-        {token !== undefined ? (
-          <form
-            className="flex items-center gap-1.5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (token.trim()) void again();
-            }}
-          >
-            <Input
-              id={field}
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Paste token"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              className="w-52"
-            />
-            <Button size="sm" type="submit" disabled={busy || !token.trim()}>
-              Connect
-            </Button>
-          </form>
-        ) : device?.state === "waiting" ? (
+        {device?.state === "waiting" ? (
           <>
             <Button size="sm" onClick={() => copy.copy(device.code)}>
               {copy.copied ? "Copied" : "Copy code"}
@@ -212,19 +209,13 @@ function ConnectorRow(props: {
             </Button>
           </>
         ) : device ? (
-          <Button size="sm" disabled={busy} onClick={() => void again()}>
+          <Button size="sm" disabled={busy} onClick={() => void deviceAgain()}>
             Try again
           </Button>
+        ) : signedOut ? (
+          connect.action
         ) : (
-          signedOut && (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => (connector.signIn === "token" ? setToken("") : void again())}
-            >
-              Reconnect
-            </Button>
-          )
+          <UseInAnotherBot connector={connector} size="sm" variant="ghost" />
         )}
         {connector.notice === "ace_signed_out" && (
           <Button
@@ -239,7 +230,7 @@ function ConnectorRow(props: {
           size="sm"
           variant="ghost"
           aria-label={`Disconnect ${connector.name}`}
-          disabled={busy}
+          disabled={busy || connect.busy}
           onClick={() => void remove()}
         >
           Disconnect

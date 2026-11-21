@@ -55,7 +55,7 @@ test("the official publisher's own page draws the logo in its head", async () =>
   const fixture = marketPublishFixture();
   const page = fixture.publishers?.[0];
   if (!page) throw new Error("the fixture has a publisher page");
-  await openApp("/chats?market=tools", {
+  await openApp("/chats?market=skill/official", {
     entries: [
       {
         summary: entry("spade-skill", "official", "Official", { byAce: true, publisher: official }),
@@ -77,8 +77,10 @@ test("the official publisher's own page draws the logo in its head", async () =>
     },
   });
   const market = await findMarket();
-  const skills = within(await within(market).findByRole("list", { name: "Skills" }));
-  await userEvent.click(await skills.findByRole("button", { name: "By ace" }));
+  await within(market).findByRole("heading", { level: 1, name: "Official" });
+  const [byline] = within(market).getAllByRole("button", { name: "By ace" });
+  if (!byline) throw new Error("the entry names its publisher");
+  await userEvent.click(byline);
   await within(market).findByRole("heading", { level: 1, name: /^ace/ });
 
   const head = market.querySelector(".mk-profile-head") as HTMLElement;

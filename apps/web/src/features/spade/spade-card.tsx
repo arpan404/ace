@@ -1,8 +1,10 @@
 import { ClockIcon, HandIcon, QuestionIcon } from "@ace/icons";
-import type { ReactNode } from "react";
+import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
+import { createContext, useContext, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { SpadeFace } from "./spade-face.tsx";
 
 /*
  * The chat's surfaces (docs/design/spade.md, "Conversation"): the bot's words in a soft fill with
@@ -39,7 +41,9 @@ export function RaisedCard(
       {...rest}
       {...part("card", "waiting", `spade-${asks}`)}
       className={cn(
-        "@container/card my-2 flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-raised p-5 shadow-chat-raised focus-ring pointer-coarse:p-4",
+        // Focused when the chat opens on it, for screen readers: a target, not a control, so
+        // no ring (its own buttons keep theirs).
+        "@container/card my-2 flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-raised p-5 shadow-chat-raised outline-none pointer-coarse:p-4",
         className,
       )}
     >
@@ -51,38 +55,59 @@ export function RaisedCard(
 const glyphs = { question: QuestionIcon, request: HandIcon };
 
 /**
- * A card's first line: the amber mark that it needs the person (a question's, or a request's
- * hand), its words, and on the right what pages it. Only an open card carries the mark.
+ * Whose card it is: the bot's face, given by the conversation the card sits in. A card outside a
+ * conversation (first run, a settings page) has none and leads with its needs-you mark instead.
+ */
+export const CardFace = createContext<SpadeAvatar | undefined>(undefined);
+
+/**
+ * A card's first line: who asks (the bot's small face, else the amber needs-you mark) and one
+ * sentence, with what pages it on the right. Everything under it starts at the card's own left
+ * edge, the face's, so the card reads as one column.
  */
 export function NeedsYouLine(props: {
   glyph: keyof typeof glyphs;
   children: ReactNode;
   aside?: ReactNode;
 }) {
+  const face = useContext(CardFace);
   const Glyph = glyphs[props.glyph];
   return (
     <div className="flex min-w-0 items-start gap-2.5 font-prose text-prose leading-[1.5]">
-      <Glyph aria-hidden weight="bold" className="mt-1 size-4 shrink-0 text-status-needs-you" />
-      <div className="min-w-0 flex-1">{props.children}</div>
+      {face ? (
+        <SpadeFace avatar={face} size={24} className="mt-px" />
+      ) : (
+        <Glyph aria-hidden weight="bold" className="mt-1 size-4 shrink-0 text-status-needs-you" />
+      )}
+      <div className="min-w-0 flex-1 font-medium">{props.children}</div>
       {props.aside && <div className="-mt-0.5 -mr-1.5 shrink-0">{props.aside}</div>}
     </div>
   );
 }
 
-/** What a card holds under its first line, starting where the line's words start. */
+/** What a card holds under its first line, on the card's one left edge. */
 export function CardBody(props: { children: ReactNode }) {
-  return <div className="flex min-w-0 flex-col gap-2 pl-6.5">{props.children}</div>;
+  return <div className="flex min-w-0 flex-col gap-3">{props.children}</div>;
+}
+
+/** Why it asks, in one quiet line under what it shows. */
+export function CardWhy(props: { children: ReactNode }) {
+  return <p className="text-ui leading-5 text-muted-foreground">{props.children}</p>;
 }
 
 /**
- * A raised card's footer: the quieter answers as words on the left, where the card's edge is,
- * and its one accent pill on the right (its key hint only where it fits, `cardKeyHint`).
+ * A raised card's footer: its answers together on the right, in one row, the quieter ones as
+ * words before its one accent pill (its key hint only where it fits, `cardKeyHint`). What isn't an
+ * answer (Later, a page count) can sit on the left, as `aside`.
  */
-export function CardFooter(props: { start: ReactNode; end: ReactNode }) {
+export function CardFooter(props: { start: ReactNode; end: ReactNode; aside?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <div className="-ml-3.5 flex items-center gap-1">{props.start}</div>
-      <div className="ml-auto flex items-center gap-1">{props.end}</div>
+      {props.aside && <div className="-ml-3.5 flex items-center gap-1">{props.aside}</div>}
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+        {props.start}
+        {props.end}
+      </div>
     </div>
   );
 }

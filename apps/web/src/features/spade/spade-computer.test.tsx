@@ -314,10 +314,14 @@ test("the profile holds the bot's routines and spending in Details, its notes an
   });
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  for (const section of ["Task", "Runs with", "Routines", "Apps", "Spending"])
+  for (const section of ["Task", "Runs with", "Routines"])
     await profile.findByRole("heading", { name: section });
   const routines = profile.getByRole("heading", { name: "Routines" }).closest("section");
   await waitFor(() => expect(routines?.textContent).toContain("Fare check"));
+  // What it may do and spend is on Permissions.
+  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
+  for (const section of ["Apps", "Spending"])
+    await profile.findByRole("heading", { name: section });
   expect(profile.getByText("$1.24")).toBeTruthy();
 
   await userEvent.click(profile.getByRole("tab", { name: "Library" }));

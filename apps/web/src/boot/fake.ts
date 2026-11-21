@@ -1,6 +1,7 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
 import { fakeMarket } from "./fake-market.ts";
+import { seedFakeSpadeEmpty } from "./fake-spade-empty.ts";
 import { seedFakeSpade } from "./fake-spade.ts";
 import { seedFakeMentions } from "./fake-mentions.ts";
 import {
@@ -292,6 +293,8 @@ export function bootFake(): {
   seedBuildServerUsage(server, Date.now());
   // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
   if (world === "spade") seedFakeSpade(daemon, server);
+  // `?fakeWorld=spade-empty`: Spade with no bots yet, for the first visit.
+  if (world === "spade-empty") seedFakeSpadeEmpty(daemon);
   // `?fakeWorld=mentions`: the Spade world, and a thread that asked its bots (ADR 0198).
   if (world === "mentions") seedFakeMentions(daemon, seedFakeSpade(daemon, server), server);
   if (world === "cross-device") seedMachineChildren(daemon, server);

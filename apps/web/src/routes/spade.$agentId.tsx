@@ -12,7 +12,7 @@ export const Route = createFileRoute("/spade/$agentId")({
   validateSearch: z.object({
     on: z.string().optional().catch(undefined),
     profile: z
-      .enum(["details", "work", "library", "computer", "permissions"])
+      .enum(["details", "permissions", "work", "library", "computer"])
       .optional()
       .catch(undefined),
     computer: z

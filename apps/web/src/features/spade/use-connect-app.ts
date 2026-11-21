@@ -27,7 +27,8 @@ export type ConnectPhase =
   /** A device sign-in: the code to enter on the app's page. */
   | { kind: "device"; id: string; code: string; url: string }
   | { kind: "connected"; connector: SpadeConnector }
-  | { kind: "failed"; message: string };
+  /** `needsAce`: the app signs in through Spade Cloud and this machine isn't signed in to ace. */
+  | { kind: "failed"; message: string; needsAce?: boolean };
 
 /** What starts a connection: a catalogue app (maybe with a key), or one to sign in to again. */
 export type ConnectTarget =
@@ -89,6 +90,7 @@ export function useConnectApp(props: {
     if (begun.kind === "started") return started(begun.started, begun.blocked);
     setPhase({
       kind: "failed",
+      needsAce: begun.kind === "needs_ace_account",
       message:
         begun.kind === "needs_ace_account"
           ? `${props.name} signs in through Spade Cloud: sign in to ace first, in Settings › Profile.`

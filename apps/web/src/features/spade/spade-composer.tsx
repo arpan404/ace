@@ -171,10 +171,10 @@ export function SpadeComposer(props: {
   return (
     <ComposerDock>
       {/*
-        The capsule grows in place: its buttons stay at the bottom edge as the words wrap, and the
-        field keeps the same room above and below its first line.
+        Spade's round button is 40px, inset 4px inside the capsule; the pill's one rule
+        (styles/composer-pill.css) centres every control and the first line on it.
       */}
-      <div className="[--composer-control:var(--spade-composer-button)] [&_[data-slot=composer][data-pill]]:min-h-13 [&_[data-slot=composer][data-pill]]:items-end [&_[data-slot=composer][data-pill]]:rounded-[1.625rem] [&_[data-slot=composer][data-pill]]:pb-1.5 [&_[data-slot=composer][data-pill]>[data-slot=composer-input]]:pt-4 [&_[data-slot=composer][data-pill]>[data-slot=composer-input]]:pb-2.5">
+      <div className="[--composer-control:var(--spade-composer-button)] [--composer-pill-inset:0.25rem]">
         {props.blocked && (
           <p id={reason} className="sr-only">
             {props.blocked}

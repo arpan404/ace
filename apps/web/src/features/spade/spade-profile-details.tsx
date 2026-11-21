@@ -6,15 +6,11 @@ import { SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
-import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { ProfilePackageLine } from "./spade-bot-package.tsx";
 import { ProfileContracts } from "./spade-profile-contracts.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
-import { ProfileSpending } from "./spade-bot-oversight.tsx";
 import { ProfileReach } from "./spade-bot-reach.tsx";
-import { ProfilePlugins } from "./spade-bot-plugins.tsx";
-import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import { ProfileCases } from "./spade-profile-cases.tsx";
@@ -93,11 +89,6 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
       <ProfileRoutines bot={bot} />
       <ProfileContracts bot={bot} />
       <ProfileCases bot={bot} />
-      <ProfileMakesBots bot={bot} />
-      <ProfileApps bot={bot} />
-      <ProfilePlugins bot={bot} />
-      <ProfileSecurity bot={bot} />
-      <ProfileSpending bot={bot} />
       <ProfileReach bot={bot} />
       <Foot bot={bot} />
     </>
@@ -131,7 +122,7 @@ const mayWords = { yes: "Yes", ask: "Ask me first", no: "No" } as const;
  * bots to its clubs, by itself, after asking, or never. With anything untrusted in view it asks
  * whatever this says.
  */
-function ProfileMakesBots(props: { bot: RosterBot }) {
+export function ProfileMakesBots(props: { bot: RosterBot }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [problem, setProblem] = useState<string>();

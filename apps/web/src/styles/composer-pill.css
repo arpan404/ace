@@ -3,17 +3,30 @@
  * send, its other controls (approvals, environment) waiting until it opens. Typing or a file
  * opens it to the usual message-over-controls layout. Only the layout changes; every element
  * stays mounted, so the caret and focus never move.
+ *
+ * One rule for every pill (a thread's, Spade's chats, clubs and New bot): each control sits in
+ * a box the control's height (`--composer-control`) on one line, inset the same from the
+ * field's edge all round (`--composer-pill-inset`), and the field's first line is padded to
+ * that box, so +, the words, the mic and the round button share one centre. As the words wrap
+ * the controls stay on the bottom line, and the corners stay concentric with the round button.
  */
 [data-slot="composer"][data-pill] {
-  min-height: 3rem;
+  /* Inherited, so a surface sets it once around its composer; 8px unless it does. */
+  --pill-inset: var(--composer-pill-inset, 0.5rem);
+  min-height: calc(var(--composer-control) + 2 * var(--pill-inset) + 2px);
   flex-direction: row;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.125rem;
-  border-radius: 9999px;
-  padding-inline: 0.375rem;
+  border-radius: calc(var(--composer-control) / 2 + var(--pill-inset) + 1px);
+  padding: var(--pill-inset);
 }
 [data-slot="composer"][data-pill] > [data-slot="composer-footer"] {
   display: contents;
+}
+[data-slot="composer"][data-pill] [data-slot="composer-add"],
+[data-slot="composer"][data-pill] [data-slot="composer-trailing"],
+[data-slot="composer"][data-pill] [data-slot="composer-primary"] {
+  height: var(--composer-control);
 }
 [data-slot="composer"][data-pill] [data-slot="composer-add"] {
   order: 1;
@@ -27,7 +40,8 @@
   order: 2;
   min-width: 5.5rem;
   flex: 1 1 0;
-  padding: 0 0.25rem;
+  /* Its first line centred in the controls' box: (control − one 20px line) / 2 above and below. */
+  padding: calc((var(--composer-control) - 1.25rem) / 2) 0.25rem;
 }
 [data-slot="composer"][data-pill] .message-input::before {
   overflow: hidden;

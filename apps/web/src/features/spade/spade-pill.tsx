@@ -7,6 +7,19 @@ import type { RosterBot } from "./use-spade-roster.ts";
 export const conversationPill =
   "ace-glass-dock absolute top-3 left-1/2 z-10 flex h-10 max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-input pr-4 pl-1.5 text-ui font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover";
 
+/**
+ * The scroll edge under the pill: the transcript fades into the page behind it, so words never
+ * run under the pill (the platform's scroll-edge effect, not a bar).
+ */
+export function PillEdge() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-16 bg-linear-to-b from-background from-40% to-transparent"
+    />
+  );
+}
+
 /** The pill's face, in px (`--spade-pill-face`). */
 const face = 28;
 

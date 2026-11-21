@@ -45,6 +45,7 @@ export const routePages = {
   "/spade/running": null,
   "/spade/groups/new": null,
   "/usage": "usage",
+  "/market": "marketplace",
   "/setup": "setup",
   "/pair": "settings",
   "/settings": "settings",

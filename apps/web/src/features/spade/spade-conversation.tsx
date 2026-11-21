@@ -26,7 +26,7 @@ import { SpadeTermsHold } from "./spade-terms-hold.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
-import { ConversationPill } from "./spade-pill.tsx";
+import { ConversationPill, PillEdge } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import {
@@ -235,6 +235,7 @@ export function Conversation(props: {
   const chat = (
     <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
       <h1 className="sr-only">{bot.name}</h1>
+      <PillEdge />
       <ConversationPill bot={bot} onOpen={() => openProfile()} />
       <Scroller
         top="pill"

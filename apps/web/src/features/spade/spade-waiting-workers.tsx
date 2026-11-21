@@ -54,7 +54,8 @@ function Waiting(props: {
       aria-label="Waiting for you"
       tabIndex={-1}
       data-request="workers"
-      className="mt-(--chat-turn-gap) flex w-full max-w-150 min-w-0 flex-col gap-3 focus-ring"
+      // Focused as the chat opens on it, for the keyboard: a target, not a control, so no ring.
+      className="mt-(--chat-turn-gap) flex w-full max-w-150 min-w-0 flex-col gap-3 outline-none"
     >
       {waiting.map((entry) =>
         entry.kind === "ace" && props.reachable ? (
@@ -72,7 +73,9 @@ function AceAsk(props: { entry: SpadeWorkerEntry }) {
   const { entry } = props;
   const request = useOpenRequest(entry.id);
   return (
-    <div data-worker-request={entry.id} tabIndex={-1} className="focus-ring">
+    // A target "Needs you" brings into view and to the keyboard, not a control: no ring around it
+    // (the card's own buttons keep theirs).
+    <div data-worker-request={entry.id} tabIndex={-1} className="outline-none">
       {request ? (
         <Suspense fallback={<Asks entry={entry} handlers={undefined} />}>
           <DeferredInteractionCard.Component

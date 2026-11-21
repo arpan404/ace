@@ -1,10 +1,34 @@
 import { useCallback, type ReactNode, type Ref } from "react";
 import { readingColumn } from "../lib/column.ts";
 
+/*
+ * The transcript's scroller keeps a scrollbar's room on both edges (`scrollbar-gutter: stable
+ * both-edges`), so its reading column is that much narrower than the dock's until the column
+ * reaches its widest. The dock keeps the same room (`--scrollbar-gap`, measured from that
+ * scroller: nothing where scrollbars float over content), so the composer and the words above it
+ * share one width.
+ */
 const composerInset = {
-  paddingLeft: "var(--transcript-gutter)",
-  paddingRight: "calc(var(--transcript-gutter) + var(--summary-inset, 0px))",
+  paddingLeft: "calc(var(--transcript-gutter) + var(--scrollbar-gap, 0px))",
+  paddingRight:
+    "calc(var(--transcript-gutter) + var(--summary-inset, 0px) + var(--scrollbar-gap, 0px))",
 };
+
+/**
+ * How far in the transcript's reading column starts from where the dock's would without any
+ * gap: its scroller's reserved scrollbar room, if that narrows it, else nothing. Both columns
+ * are `readingColumn`, so their left edges are compared with the dock's own gap taken back out.
+ */
+function scrollbarGap(column: HTMLElement | null, dock: HTMLElement): number {
+  const area = dock.querySelector<HTMLElement>("[data-composer-area]");
+  const text = [
+    ...(column?.querySelectorAll<HTMLElement>('[class*="max-w-(--column)"]') ?? []),
+  ].find((each) => !dock.contains(each));
+  if (!column || !area || !text) return 0;
+  const current = Number.parseFloat(column.style.getPropertyValue("--scrollbar-gap")) || 0;
+  const gap = text.getBoundingClientRect().left - (area.getBoundingClientRect().left - current);
+  return Math.max(0, Math.round(gap));
+}
 
 /**
  * Floating over the transcript on its reading column. A pinned summary beside the text insets
@@ -29,11 +53,13 @@ export function ComposerDock({
       const releaseRef = typeof ref === "function" ? ref(element) : undefined;
       if (ref && typeof ref !== "function") ref.current = element;
       const column = element.closest<HTMLElement>("[data-thread-column]");
-      const measure = () =>
+      const measure = () => {
         column?.style.setProperty(
           "--composer-clearance",
           `${element.getBoundingClientRect().height}px`,
         );
+        column?.style.setProperty("--scrollbar-gap", `${scrollbarGap(column, element)}px`);
+      };
       measure();
       const observer =
         typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
@@ -41,6 +67,7 @@ export function ComposerDock({
       return () => {
         observer?.disconnect();
         column?.style.removeProperty("--composer-clearance");
+        column?.style.removeProperty("--scrollbar-gap");
         if (typeof releaseRef === "function") releaseRef();
         else if (typeof ref === "function") ref(null);
         else if (ref) ref.current = null;

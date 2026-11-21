@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as HomeRouteImport } from "./routes/_home"
 import { Route as AutomationsRouteImport } from "./routes/automations"
+import { Route as MarketRouteImport } from "./routes/market"
 import { Route as PairRouteImport } from "./routes/pair"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
@@ -83,6 +84,11 @@ const HomeRoute = HomeRouteImport.update({
 const AutomationsRoute = AutomationsRouteImport.update({
   id: "/automations",
   path: "/automations",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MarketRoute = MarketRouteImport.update({
+  id: "/market",
+  path: "/market",
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -415,6 +421,7 @@ const HomeTThreadIdAgentsAgentIdRoute =
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsRouteWithChildren
+  "/market": typeof MarketRoute
   "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
@@ -480,6 +487,7 @@ export interface FileRoutesByFullPath {
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
+  "/market": typeof MarketRoute
   "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
   "/tray": typeof TrayRoute
@@ -546,6 +554,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/_home": typeof HomeRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
+  "/market": typeof MarketRoute
   "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
@@ -616,6 +625,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/automations"
+    | "/market"
     | "/pair"
     | "/settings"
     | "/setup"
@@ -681,6 +691,7 @@ export interface FileRouteTypes {
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
+    | "/market"
     | "/pair"
     | "/setup"
     | "/tray"
@@ -746,6 +757,7 @@ export interface FileRouteTypes {
     | "__root__"
     | "/_home"
     | "/automations"
+    | "/market"
     | "/pair"
     | "/settings"
     | "/setup"
@@ -815,6 +827,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   HomeRoute: typeof HomeRouteWithChildren
   AutomationsRoute: typeof AutomationsRouteWithChildren
+  MarketRoute: typeof MarketRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
@@ -838,6 +851,13 @@ declare module "@tanstack/react-router" {
       path: "/automations"
       fullPath: "/automations"
       preLoaderRoute: typeof AutomationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/market": {
+      id: "/market"
+      path: "/market"
+      fullPath: "/market"
+      preLoaderRoute: typeof MarketRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/pair": {
@@ -1453,6 +1473,7 @@ const SpadeRouteWithChildren = SpadeRoute._addFileChildren(SpadeRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
+  MarketRoute: MarketRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,

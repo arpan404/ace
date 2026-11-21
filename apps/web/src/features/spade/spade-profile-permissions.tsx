@@ -6,21 +6,46 @@ import { PermissionRows } from "./spade-permissions.tsx";
 import { ProfileEmpty } from "./spade-profile-parts.tsx";
 import { botSecurityKey, setBotPermission, useBotSecurity } from "./spade-security-api.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
+import { ProfileApps } from "./spade-bot-connectors.tsx";
+import { ProfilePlugins } from "./spade-bot-plugins.tsx";
+import { ProfileSecurity } from "./spade-bot-security.tsx";
+import { ProfileSpending } from "./spade-bot-oversight.tsx";
+import { ProfileMakesBots } from "./spade-profile-details.tsx";
 
 /**
  * The profile's Permissions tab (ADR 0171, amendment 7): what the bot may reach, one switch
  * each, over the default in Settings › Spade. Under Computer use, one line points to the apps
- * bots never use, which are the machine's. A Spade without Permissions says so.
+ * bots never use, which are the machine's. A Spade without Permissions says so. Then everything
+ * else about what it may do, gathered here from Details: its apps, plugins, the bots it may
+ * make, where its commands run, and its spending.
  */
 export function ProfilePermissions(props: { bot: RosterBot }) {
-  const client = useSpadeClient();
-  const machine = useSpadeMachine().key;
-  const cache = useQueryClient();
   const security = useBotSecurity(props.bot.id);
   const permissions = security.data?.permissions;
   if (security.isPending) return null;
-  if (!permissions)
-    return <ProfileEmpty>This version of Spade has no Permissions yet.</ProfileEmpty>;
+  return (
+    <>
+      {permissions ? (
+        <Switches bot={props.bot} />
+      ) : (
+        <ProfileEmpty>This version of Spade has no Permissions yet.</ProfileEmpty>
+      )}
+      <ProfileApps bot={props.bot} />
+      <ProfilePlugins bot={props.bot} />
+      <ProfileMakesBots bot={props.bot} />
+      <ProfileSecurity bot={props.bot} />
+      <ProfileSpending bot={props.bot} />
+    </>
+  );
+}
+
+/** The switches, over the default every bot follows. */
+function Switches(props: { bot: RosterBot }) {
+  const client = useSpadeClient();
+  const machine = useSpadeMachine().key;
+  const cache = useQueryClient();
+  const permissions = useBotSecurity(props.bot.id).data?.permissions;
+  if (!permissions) return null;
   return (
     <>
       <p className="mb-3 text-ui text-muted-foreground">

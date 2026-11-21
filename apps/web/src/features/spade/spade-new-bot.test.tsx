@@ -271,11 +271,9 @@ test("with the switch off, a template's bot is made with its routines paused", a
   );
 });
 
-test("More settings chooses the model and machine, and is never needed", async () => {
+test("the model and machine are chosen at the top of a new bot, and are never needed", async () => {
   const { spade, others } = await spadeApp("/spade", withSpade, { machines: [studio] });
   await openNew("New bot");
-  expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Machine: This machine" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Studio Mac" }));
   await screen.findByRole("button", { name: "Machine: Studio Mac" });
@@ -294,10 +292,9 @@ test("More settings chooses the model and machine, and is never needed", async (
   expect(spade.sent("POST", "/v1/agents")).toEqual([]);
 });
 
-test("More settings sets how the new bot talks, and it goes with the bot it makes", async () => {
+test("how the new bot talks is set at its top, and it goes with the bot it makes", async () => {
   const { spade } = await spadeApp("/spade", withSpade);
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
   const personality = within(await screen.findByRole("group", { name: "Personality" }));
   await userEvent.click(personality.getByRole("combobox", { name: "Tone" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Warm/ }));
@@ -316,11 +313,35 @@ test("More settings sets how the new bot talks, and it goes with the bot it make
 test("a machine chosen for a new bot that goes out of reach stays chosen, and says so", async () => {
   const { app } = await spadeApp("/spade", withSpade, { machines: [studio] });
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Machine: This machine" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Studio Mac" }));
   await screen.findByRole("button", { name: "Machine: Studio Mac" });
   app.crashMachine("studio");
   expect(await screen.findByText("Studio Mac isn't reachable right now.")).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: /^Message/ })).toBeNull();
+});
+
+test("with no bot yet, the list invites the first one, and a template there starts it picked", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withSpade(api);
+    api.teams.templates.push(digest);
+  });
+  const start = within(await screen.findByRole("region", { name: "Your first bot" }));
+  expect(start.getByRole("button", { name: "New bot" })).toBeTruthy();
+  await userEvent.click(await start.findByRole("button", { name: /^Morning digest/ }));
+  expect(
+    await screen.findByRole("heading", { name: "What should Morning digest do first?" }),
+  ).toBeTruthy();
+  await send("Start with tech news", "Morning digest");
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({ template: "digest" }),
+    ]),
+  );
+});
+
+test("the first bot's start leaves once there is a bot", async () => {
+  await spadeApp("/spade", ivy);
+  await botRow("Ivy");
+  expect(screen.queryByRole("region", { name: "Your first bot" })).toBeNull();
 });

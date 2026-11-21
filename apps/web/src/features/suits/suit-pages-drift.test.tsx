@@ -53,6 +53,7 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/spade/running": ["/spade/running", "spade"],
   "/spade/groups/new": ["/spade/groups/new", "spade"],
   "/usage": ["/usage", "usage"],
+  "/market": ["/market", "marketplace"],
   "/setup": ["/setup", "setup"],
   // Redirects to Fleet, where pairing lives.
   "/pair": null,

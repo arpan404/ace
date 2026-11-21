@@ -59,7 +59,7 @@ test("a linked bot's profile names its package and version, with Update and Roll
   expect(await screen.findByRole("button", { name: "Update to 2.1.0" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
   await waitFor(() =>
-    expect(new URLSearchParams(history.location.search).get("market")).toBe(
+    expect(new URLSearchParams(history.location.search).get("at")).toBe(
       "bot/flight-watcher/rollback/fares",
     ),
   );
@@ -116,7 +116,7 @@ async function securitySection() {
 
 test("a packaged bot's Security section has each declared effect as a switch with its reason", async () => {
   const { spade } = await spadeApp(
-    "/spade/fares?profile=details",
+    "/spade/fares?profile=permissions",
     linked({ version: "1.0.0", effects: declared }),
   );
   const security = await securitySection();

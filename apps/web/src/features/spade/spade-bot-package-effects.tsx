@@ -1,6 +1,6 @@
 import { decidedEachTime, effectWords, type SpadePackageEffect } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
@@ -24,9 +24,12 @@ export function ProfilePackageEffects(props: { bot: RosterBot }) {
   const cache = useQueryClient();
   const [saving, setSaving] = useState<string>();
   const [refusal, setRefusal] = useState<string>();
+  // The switch last turned, turned again once the person confirms it's them.
+  const last = useRef<{ row: SpadePackageEffect; on: boolean }>(undefined);
   const effects = bot.package?.effects ?? [];
   if (!effects.length) return null;
   const turn = async (row: SpadePackageEffect, on: boolean) => {
+    last.current = { row, on };
     setSaving(row.key);
     setRefusal(undefined);
     try {
@@ -65,7 +68,9 @@ export function ProfilePackageEffects(props: { bot: RosterBot }) {
       })}
       {refusal && (
         <p data-setting-slot="" className="py-2 text-xs">
-          <Refusal>{refusal}</Refusal>
+          <Refusal onConfirmed={() => last.current && void turn(last.current.row, last.current.on)}>
+            {refusal}
+          </Refusal>
         </p>
       )}
     </>
