@@ -115,6 +115,8 @@ fn endpoint_json(view: &EndpointView, in_keychain: Option<bool>) -> Value {
         "name": e.name,
         "format": e.format,
         "base_url": e.base_url,
+        // On this computer: offered before any other (ADR 0205 §1).
+        "local": spade_models::base_url::is_loopback(&e.base_url),
         "session_header": e.session_header,
         "header_names": e.headers.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>(),
         "needs_key": e.needs_key,

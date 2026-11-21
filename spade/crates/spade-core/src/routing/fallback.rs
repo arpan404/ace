@@ -172,7 +172,11 @@ mod tests {
     use super::*;
 
     fn route() -> Vec<String> {
-        vec!["local/small".to_owned(), "work/b".to_owned(), "work/c".to_owned()]
+        vec![
+            "local/small".to_owned(),
+            "work/b".to_owned(),
+            "work/c".to_owned(),
+        ]
     }
 
     #[test]

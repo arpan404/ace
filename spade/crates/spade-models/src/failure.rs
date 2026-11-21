@@ -230,11 +230,17 @@ mod tests {
             headers: Box::new(HeaderMap::new()),
         };
         for (error, expected) in [
-            (read("m", &refused(429, &[]), false), Some(Unserved::RateLimited)),
+            (
+                read("m", &refused(429, &[]), false),
+                Some(Unserved::RateLimited),
+            ),
             (read("m", &quota, false), Some(Unserved::Quota)),
             (read("m", &low_credit, false), Some(Unserved::Quota)),
             (read("m", &refused(402, &[]), false), Some(Unserved::Quota)),
-            (read("m", &refused(503, &[]), false), Some(Unserved::ServerError)),
+            (
+                read("m", &refused(503, &[]), false),
+                Some(Unserved::ServerError),
+            ),
             (read("m", &refused(400, &[]), false), None),
             (read("m", &refused(401, &[]), false), None),
             (read("m", &refused(408, &[]), false), None),

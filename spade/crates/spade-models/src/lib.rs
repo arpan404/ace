@@ -33,6 +33,6 @@ pub use prompt::{
     Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
 };
 pub use spade_keys::{KeyRequest, Keys};
-pub use terms::{CliTerms, TermsRecord, TermsStatus};
 pub use speech::{MOST_SPEECH_BYTES, MOST_SPEECH_CHARS, Speech, SpeechRequest};
+pub use terms::{CliTerms, TermsRecord, TermsStatus};
 pub use web_search::{WebFound, WebHit};

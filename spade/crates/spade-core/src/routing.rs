@@ -216,14 +216,7 @@ impl<M: Models> Routing<'_, M> {
             overrides
                 .roles
                 .get(&role)
-                .map(|route| {
-                    route
-                        .0
-                        .iter()
-                        .filter(|m| self.usable(m))
-                        .cloned()
-                        .collect()
-                })
+                .map(|route| route.0.iter().filter(|m| self.usable(m)).cloned().collect())
                 .unwrap_or_default()
         };
         let chosen = [self.bot, self.global]

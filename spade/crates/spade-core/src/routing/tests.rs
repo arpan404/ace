@@ -265,7 +265,10 @@ fn overrides_round_trip_as_role_names() {
         escalate: Some(true),
     };
     let text = serde_json::to_string(&stored).unwrap_or_default();
-    assert_eq!(text, r#"{"roles":{"verify":["b/stronger"]},"escalate":true}"#);
+    assert_eq!(
+        text,
+        r#"{"roles":{"verify":["b/stronger"]},"escalate":true}"#
+    );
     let read: Overrides = serde_json::from_str(&text).unwrap_or_default();
     assert_eq!(read, stored);
     // What an older build stored, one model per role, reads as a route of one.
@@ -354,5 +357,8 @@ fn a_route_never_gains_a_subscription() {
         route_of("a/strong", &stored, &none, Role::Main),
         ["a/strong", "a/mid"]
     );
-    assert_eq!(route_of("a/strong", &stored, &none, Role::Helper), ["a/fast"]);
+    assert_eq!(
+        route_of("a/strong", &stored, &none, Role::Helper),
+        ["a/fast"]
+    );
 }

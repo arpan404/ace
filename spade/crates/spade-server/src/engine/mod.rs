@@ -67,6 +67,7 @@ mod services;
 mod speech;
 mod style;
 mod suggest;
+mod terms;
 mod thread_asks;
 mod trim;
 mod try_again;
@@ -204,6 +205,9 @@ pub struct Engine {
     /// The market keys a package's signed manifest must verify with (ADR 0200 §3.2): the ones
     /// this build ships, unless a test trusts its own.
     market_keys: std::sync::RwLock<Vec<crate::packages::envelope::MarketKey>>,
+    /// What each coding CLI's maker allows (ADR 0205 §4): the shipped record unless a test sets
+    /// its own.
+    cli_terms: std::sync::RwLock<Arc<spade_models::CliTerms>>,
     /// Each conversation's activity, so listing conversations folds only those that changed.
     /// Every stored event goes through `append_events`, which drops the entry.
     activity: Mutex<HashMap<String, Activity>>,
@@ -395,6 +399,7 @@ impl Engine {
             record_lock: Mutex::default(),
             package_busy: crate::packages::Changing::default(),
             market_keys: std::sync::RwLock::new(crate::packages::envelope::shipped()),
+            cli_terms: std::sync::RwLock::new(Arc::new(spade_models::CliTerms::shipped())),
             activity: Mutex::default(),
             // Closed until `open_for_work`, so nothing runs before ace's tools are back.
             admission: AtomicBool::new(false),

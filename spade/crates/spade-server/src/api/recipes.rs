@@ -47,9 +47,9 @@ fn portable_status(error: &PortableError) -> StatusCode {
             StatusCode::BAD_REQUEST
         }
         PortableError::Agent(AgentError::NotFound) => StatusCode::NOT_FOUND,
-        PortableError::Agent(AgentError::Main(_) | AgentError::HasWorkers(_)) => {
-            StatusCode::CONFLICT
-        }
+        PortableError::Agent(
+            AgentError::Main(_) | AgentError::HasWorkers(_) | AgentError::Terms { .. },
+        ) => StatusCode::CONFLICT,
         PortableError::Agent(AgentError::Store(_)) | PortableError::Failed(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }

@@ -227,7 +227,7 @@ pub fn from_recipe(
     }
     let (granted, mut left_out) = connector_grants(connectors, &input.grants.connectors);
     let model = match recipe.model.as_str() {
-        "fast" => engine.fast_model().ok().flatten(),
+        "fast" => engine.fast_endpoint_model(),
         _ => None,
     }
     .unwrap_or_else(|| engine.new_bot_default());

@@ -143,18 +143,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_shipped_provider_is_unclear_until_its_terms_are_written() {
-        let shipped = CliTerms::from_json(SHIPPED).expect("the shipped record reads");
+    fn every_shipped_provider_is_unclear_until_its_terms_are_written() -> Result<(), String> {
+        let shipped = CliTerms::from_json(SHIPPED)?;
         assert!(shipped.version >= 1);
-        for provider in ["claude", "codex", "opencode", "cursor", "antigravity", "acp", "pi"] {
+        for provider in [
+            "claude",
+            "codex",
+            "opencode",
+            "cursor",
+            "antigravity",
+            "acp",
+            "pi",
+        ] {
             let record = shipped.record(provider);
             assert_eq!(record.status, TermsStatus::Unclear, "{provider}");
             assert!(!record.name.is_empty(), "{provider}");
         }
+        Ok(())
     }
 
     #[test]
-    fn a_status_other_than_unclear_needs_the_terms_it_was_read_from() {
+    fn a_status_other_than_unclear_needs_the_terms_it_was_read_from() -> Result<(), String> {
         let record = |status: &str, source: &str| {
             format!(
                 r#"{{"version":2,"providers":[{{"provider":"codex","status":"{status}",
@@ -163,10 +172,10 @@ mod tests {
         };
         assert!(CliTerms::from_json(&record("allowed", "null")).is_err());
         assert!(CliTerms::from_json(&record("refused", "\"\"")).is_err());
-        let refused = CliTerms::from_json(&record("refused", "\"https://example.com/terms\""))
-            .expect("a refusal with its source reads");
+        let refused = CliTerms::from_json(&record("refused", "\"https://example.com/terms\""))?;
         assert_eq!(refused.status("codex"), TermsStatus::Refused);
         assert_eq!(refused.status("claude"), TermsStatus::Unclear);
+        Ok(())
     }
 
     #[test]
