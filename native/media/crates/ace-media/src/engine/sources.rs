@@ -424,6 +424,25 @@ impl Sources {
         }
     }
 
+    /// A JPEG source whose producer ended gracefully: it closes as `source.close` would close it,
+    /// its marker waiting for the encoder's drain (bounded by [`DRAIN_MS`]).
+    fn drain(&mut self, id: &str, now: u64, out: &mut Vec<Effect>) {
+        let Some(mut source) = self.by_id.remove(id) else {
+            return;
+        };
+        if let Some(recording) = source.recording.take() {
+            finish(recording, &mut self.ended, out);
+        }
+        if let Some(token) = source.encoder {
+            out.push(Effect::Encode(EncodeEffect::Drain {
+                source: id.to_owned(),
+                token,
+            }));
+            self.draining
+                .insert(id.to_owned(), (source, now.saturating_add(DRAIN_MS)));
+        }
+    }
+
     /// A closed JPEG source is done: its encoder drained (`interrupted` false), or couldn't, or
     /// ran out of time. Its marker goes after its last unit, and its encoder thread ends.
     /// With `token`, only that encoder's drain: an earlier encoder's word ends nothing.
@@ -757,10 +776,11 @@ impl Sources {
                 out.push(Effect::CloseIngest(conn));
                 if let Some(source) = self.by_id.get_mut(&id) {
                     source.ingest = None;
-                    // An encoding JPEG source's pictures stopped, not its video: its encoder's
-                    // output ends with its close, after the encoder drains.
+                    // An encoding JPEG source's last picture is in: its encoder hands over what
+                    // it still holds, and the clean marker follows that (`drained`), so a
+                    // graceful end never loses the last pictures.
                     if source.encoder.is_some() {
-                        return;
+                        return self.drain(&id, now.mono_ms, out);
                     }
                     source.status = Status::Ended;
                     source.egress.end(source.handle, false, egress);

@@ -338,7 +338,7 @@ describe("IngestSources", () => {
     expect(w.opened()).toHaveLength(3);
   });
 
-  it("a JPEG source's encodes are kept and sent again after a restart, and leaving closes it at once", () => {
+  it("a JPEG source's encodes are kept and sent again after a restart, and leaving waits for the marker after its last picture", () => {
     const w = world();
     const l = producer("tab-pictures");
     const source = w.sources.add(l.p);
@@ -354,13 +354,30 @@ describe("IngestSources", () => {
       { type: "source.encodes", source: "s1", encodes },
       { type: "source.encodes", source: "s2", encodes },
     ]);
-    // ace-media reads these pictures itself: the close is ordered after the last one.
+    // Leaving, the producer is told to stop: it writes its pending picture and its ingest end.
+    // ace-media's marker follows the encoder's last unit, and only then is the source closed.
     w.status("s2", "starting");
     w.state.health = "restarting";
     w.sources.routesChanged(["tab-pictures"]);
-    expect(w.closed()).toEqual(["s2"]);
+    expect(l.points.at(-1)).toBeUndefined();
+    expect(w.closed()).toEqual([]);
     w.router.push(encodeEgressEnd(2, 0, false));
     expect(l.ended.at(-1)).toEqual(["s2", false]);
+    expect(w.closed()).toEqual(["s2"]);
+  });
+
+  it("a JPEG source whose marker never comes after it is told to stop is closed at the drain limit, interrupted", () => {
+    const w = world();
+    const l = producer("tab-pictures");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.state.health = "restarting";
+    w.sources.routesChanged(["tab-pictures"]);
+    w.advance(drainMs - 1);
+    expect(w.closed()).toEqual([]);
+    w.advance(1);
+    expect(w.closed()).toEqual(["s1"]);
+    expect(l.ended.at(-1)).toEqual(["s1", true]);
   });
 
   it("what a producer encodes reaches ace-media after its open, now and on every open after a restart", () => {

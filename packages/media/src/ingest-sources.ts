@@ -169,16 +169,12 @@ const pictureKinds: ReadonlySet<SourceKind> = new Set<SourceKind>([
 export const drainMs = 2_000;
 
 /**
- * Kinds ace-media ends itself: JPEG picture sources (their pictures come on the ingest, and
- * it encodes them), and a Simulator's serve-sim stream, which it opens. Only ace-media's close ends their reading, so leaving closes them
- * there at once; the end marker follows the last unit.
+ * Kinds ace-media reads itself: a Simulator's serve-sim stream, which it opens. Only ace-media's
+ * close ends its reading, so leaving closes it there at once; the end marker follows the last
+ * unit. Every other source (JPEG picture sources too) ends on its producer's ingest end, and is
+ * closed once ace-media's marker follows its last unit, or at the drain limit.
  */
-const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>([
-  "tab-pictures",
-  "user-tab",
-  "screen-pictures",
-  "simulator",
-]);
+const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>(["simulator"]);
 
 type Entry = {
   producer: IngestProducer;

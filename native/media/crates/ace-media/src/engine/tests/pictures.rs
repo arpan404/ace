@@ -305,21 +305,26 @@ fn closing_an_encoding_source_waits_for_its_encoder_to_drain_before_a_clean_end(
 }
 
 #[test]
-fn a_picture_source_whose_pictures_end_keeps_its_encoders_video_until_the_source_closes() {
+fn a_picture_sources_ingest_end_drains_its_encoder_and_the_clean_marker_follows_its_last_unit() {
     let (mut engine, lane) = encoding();
-    // The producer moves to another path: its pictures end on this ingest.
-    ingest(&mut engine, 7, frame(4, 0, 0, Vec::new()), NOW);
+    // The producer's last picture is in, and its ingest ends gracefully.
+    let effects = ingest(&mut engine, 7, frame(4, 0, 0, Vec::new()), NOW);
+    assert_eq!(encode_effects(&effects), ["Drain(p)"]);
+    // What the encoder still held comes out after: delivered, not thrown away.
     engine.encoded("p", 1, unit(2, true), NOW);
-    let _ = engine.effects().count();
+    engine.encoded("p", 1, unit(2, false), NOW);
     assert_eq!(
         lane.order(),
-        ["unit"],
-        "the encoder's video goes on, unended"
+        ["unit", "unit"],
+        "no marker while output may be pending"
     );
-    close(&mut engine, NOW);
     engine.encoder_drained("p", 1);
-    let _ = engine.effects().count();
-    assert_eq!(lane.order(), ["unit", "end"]);
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(encode_effects(&effects), ["Close(p)"]);
+    assert_eq!(lane.order(), ["unit", "unit", "end"]);
+    // The daemon's close after the marker changes nothing.
+    close(&mut engine, NOW);
+    assert_eq!(lane.order(), ["unit", "unit", "end"]);
 }
 
 #[test]
