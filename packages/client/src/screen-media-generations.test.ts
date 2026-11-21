@@ -388,6 +388,30 @@ describe("a subscribe answered without delivery", () => {
 });
 
 describe("a bound view whose source isn't streaming", () => {
+  it("shows the reason its bound reply gives (ace-media's viewer limit) until a picture comes", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    const [subscribe] = view.subscribes;
+    const limit = {
+      code: "refused",
+      reason: "Too many live views are open on this computer. Close one to see this one.",
+    };
+    view.server({
+      type: "screen.result",
+      requestId: subscribe!.requestId,
+      ok: true,
+      media: subscribe!.media,
+      undelivered: limit,
+    });
+    await flush();
+    expect(view.why()).toBe(limit.reason);
+    // Another view closed: ace-media plays this one, and its first picture clears the reason.
+    view.deliver(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    expect(view.why()).toBeUndefined();
+  });
+
   it("says why until the first picture comes on it, whatever the daemon says in between", async () => {
     const view = harness();
     view.client.retainStream("app");

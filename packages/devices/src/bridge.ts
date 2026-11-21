@@ -21,6 +21,7 @@ import {
   type MediaDeliveryPort,
 } from "@ace/media/media-viewers";
 import type { MediaOwner } from "@ace/media/media-connections";
+import type { MediaUndelivered } from "@ace/protocol";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
 import { heldPushes } from "./held-pushes.ts";
@@ -115,7 +116,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       audio: false,
       ...(link ? { link } : {}),
       shows: showsDevice(deviceId),
-      onGrant: (granted, refused) => tellDelivery(deviceId, granted, refused),
+      onGrant: (granted, why) =>
+        tellDelivery(deviceId, granted ? undefined : waiting(deviceId, why)),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
@@ -125,23 +127,24 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
    * Tells this connection whether its bound view of the device gets pictures now: on every
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
-  const tellDelivery = (deviceId: string, granted: boolean, refused?: string) => {
+  const tellDelivery = (deviceId: string, undelivered: MediaUndelivered | undefined) => {
     // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
     if (closed || !status.has(deviceId)) return;
-    const port = peer.delivery?.port();
-    const kinds = port?.sourceKinds(showsDevice(deviceId)) ?? [];
-    const undelivered = granted
-      ? undefined
-      : pendingUndelivered(
-          port?.sourceState(showsDevice(deviceId)) ?? "pending",
-          kinds.map((kind) => port?.unserved(kind)).find((reason) => reason !== undefined),
-          refused,
-        );
     void send({
       type: "devices.delivery",
       deviceId: AppDeviceId.parse(deviceId),
       ...(undelivered ? { undelivered } : {}),
     }).catch(() => {});
+  };
+  /** Why the device's granted view gets no pictures yet: ace-media's `why`, else its source's. */
+  const waiting = (deviceId: string, why: string | undefined) => {
+    const port = peer.delivery?.port();
+    const kinds = port?.sourceKinds(showsDevice(deviceId)) ?? [];
+    return pendingUndelivered(
+      port?.sourceState(showsDevice(deviceId)) ?? "pending",
+      kinds.map((kind) => port?.unserved(kind)).find((reason) => reason !== undefined),
+      why,
+    );
   };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
@@ -336,10 +339,19 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                     port?.unbind(held.viewer);
                   }
                 });
+                // Bound, but not played yet (the device isn't streaming into ace-media, or
+                // ace-media refused the view): the reply and the view say why until it is.
+                const waits =
+                  granted && !port?.granted(granted.viewer)
+                    ? waiting(deviceId, port?.why(granted.viewer))
+                    : undefined;
                 subscribed = {
                   state,
                   ...(granted
-                    ? { media: mediaSubscribed(granted.connection, poster) }
+                    ? {
+                        media: mediaSubscribed(granted.connection, poster),
+                        ...(waits ? { undelivered: waits } : {}),
+                      }
                     : {
                         // No pictures will come: the view says why instead of staying blank.
                         undelivered: deviceUndelivered(
@@ -410,11 +422,10 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               ...(subscribed.media ? { media: subscribed.media } : {}),
               ...(subscribed.undelivered ? { undelivered: subscribed.undelivered } : {}),
             });
-            // Bound, but the device isn't streaming into ace-media yet: say why until it does.
+            // Bound, but not played yet: the view says why until it is, as the reply did.
             const watched = "deviceId" in operation ? operation.deviceId : undefined;
-            const viewer = subscribed.media && watched && delivered.get(watched)?.viewer;
-            if (watched && viewer && !peer.delivery?.port()?.granted(viewer))
-              tellDelivery(watched, false);
+            if (watched && subscribed.media && subscribed.undelivered)
+              tellDelivery(watched, subscribed.undelivered);
           } else if (operation.op === "screenshot") {
             // The picture goes first as a still on this connection; the result names it.
             const picture = framePicture(await service.screenshot(operation.deviceId, actor));

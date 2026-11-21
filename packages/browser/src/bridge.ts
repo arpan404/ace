@@ -8,6 +8,7 @@ import {
   type BrowserServerMessage,
   type BrowserState,
   type DeviceScope,
+  type MediaUndelivered,
 } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 import type { EnginePreferencePort } from "./engine-move.ts";
@@ -201,7 +202,7 @@ export function connectBrowser(
       audio: viewport?.audio === true,
       ...(link ? { link } : {}),
       shows: showsThread(threadId),
-      onGrant: (granted, refused) => delivered(threadId, granted, refused),
+      onGrant: (granted, why) => delivered(threadId, granted ? undefined : waiting(threadId, why)),
     });
     if (bound === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
@@ -211,23 +212,24 @@ export function connectBrowser(
    * Tells this connection whether its bound view of the thread gets pictures now: on every
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
-  const delivered = (threadId: string, granted: boolean, refused?: string) => {
+  const delivered = (threadId: string, undelivered: MediaUndelivered | undefined) => {
     // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
     if (closed || !subscriptions.get(threadId)?.status.size) return;
-    const port = options.media?.delivery();
-    const kind = service.videoKind(threadId);
-    const undelivered = granted
-      ? undefined
-      : pendingUndelivered(
-          port?.sourceState(showsThread(threadId)) ?? "pending",
-          kind ? port?.unserved(kind) : undefined,
-          refused,
-        );
     options.send({
       type: "browser.delivery",
       threadId: ThreadId.parse(threadId),
       ...(undelivered ? { undelivered } : {}),
     });
+  };
+  /** Why the thread's granted view gets no pictures yet: ace-media's `why`, else its source's. */
+  const waiting = (threadId: string, why: string | undefined) => {
+    const port = options.media?.delivery();
+    const kind = service.videoKind(threadId);
+    return pendingUndelivered(
+      port?.sourceState(showsThread(threadId)) ?? "pending",
+      kind ? port?.unserved(kind) : undefined,
+      why,
+    );
   };
   /** Why this thread's view gets no pictures: the reason for its own source's kind. */
   const browserUndelivered = (threadId: string, named: boolean) => {
@@ -567,7 +569,13 @@ export function connectBrowser(
             }
             swap().commit();
             if (joined && message.media) {
-              const poster = await options.media?.delivery()?.poster(joined.viewer);
+              const port = options.media?.delivery();
+              const poster = await port?.poster(joined.viewer);
+              // Bound, but not played yet (its tab isn't streaming into ace-media, or ace-media
+              // refused the view): the reply and the view say why until the grant comes.
+              const undelivered = port?.granted(joined.viewer)
+                ? undefined
+                : waiting(threadId, port?.why(joined.viewer));
               if (!closed)
                 options.send({
                   type: "browser.result",
@@ -575,10 +583,9 @@ export function connectBrowser(
                   ok: true,
                   result: null,
                   media: mediaSubscribed(message.media.connection, poster),
+                  ...(undelivered ? { undelivered } : {}),
                 });
-              // Bound, but its tab isn't streaming into ace-media yet: the view says why until
-              // the grant comes (`onGrant`).
-              if (!options.media?.delivery()?.granted(joined.viewer)) delivered(threadId, false);
+              if (undelivered) delivered(threadId, undelivered);
               break;
             }
             // No pictures will come: the view says why instead of staying blank.

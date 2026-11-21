@@ -1,7 +1,10 @@
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { expect, test } from "vitest";
 import { BrowserServerMessage } from "@ace/protocol";
-import { updateReason } from "@ace/media/media-viewers";
+import { MediaViewers, updateReason } from "@ace/media/media-viewers";
+import { MediaConnections, MediaIssue } from "@ace/media/media-connections";
+import type { IngestProducer } from "@ace/media/ingest-sources";
+import type { ToMedia } from "@ace/media/wire";
 import { connectBrowser } from "./index.ts";
 import { idleThread } from "./idle-test-support.ts";
 
@@ -294,5 +297,133 @@ test("a subscriber that didn't ask for delivery status never gets one: an older 
   );
   expect(types).toContain("browser.result");
   expect(types).not.toContain("browser.delivery");
+  client.close();
+});
+
+/** A tab streaming into ace-media, as its producer. */
+const tab = (threadId: string): IngestProducer => ({
+  source: `capture-${threadId}`,
+  kind: "tab",
+  origin: { kind: "tab" },
+  threadId,
+  epoch: () => 0,
+  consumers: { deliver: () => {}, end: () => {} },
+  point: () => Promise.resolve(),
+  keyframe: () => {},
+});
+
+test("a view refused at ace-media's viewer limit says so, and plays once another view closes", async () => {
+  const t = await idleThread();
+  const sent: ToMedia[] = [];
+  const toMedia = (message: ToMedia) => {
+    sent.push(message);
+    return true;
+  };
+  let ids = 0;
+  const connections = new MediaConnections({
+    port: {
+      send: toMedia,
+      revoke: () => Promise.resolve("answered"),
+      directPort: () => 41_000,
+      need: () => () => {},
+      sleep: () => Promise.resolve(),
+    },
+    issue: new MediaIssue(),
+    now: () => 1_000_000,
+    randomBytes: (length) => new Uint8Array(length).fill(++ids % 250),
+    id: () => `id-${++ids}`,
+  });
+  const viewers = new MediaViewers({
+    connections,
+    live: () => [
+      { producer: tab("thread"), path: "source-1" },
+      { producer: tab("other"), path: "source-2" },
+    ],
+    send: toMedia,
+    id: () => `${++ids}`,
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const none = new Uint8Array(0);
+  const connection = await connections.connect(owner);
+  if (!connection.ok) throw new Error(connection.code);
+  // Another client's view holds ace-media's last slot.
+  const other =
+    viewers.bind({
+      requester: owner,
+      connection: connection.connection,
+      target: { kind: "browser", threadId: "other" },
+      codecs: ["vp8"],
+      viewport: { width: 640, height: 400, dpr: 1, scale: 1 },
+      local: false,
+      audio: false,
+      shows: (producer) => producer.threadId === "other",
+    }) ?? "";
+  viewers.received({ type: "viewer.playing", viewer: other, playing: true }, none);
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  const client = connectBrowser(t.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: {
+      owner: () => owner,
+      delivery: () => ({
+        ...d.port,
+        bind: (intent) => viewers.bind(intent),
+        granted: (viewer) => viewers.granted(viewer),
+        why: (viewer) => viewers.why(viewer),
+        unbind: (viewer) => viewers.unbind(viewer),
+        // ace-media refuses the view at its limit while the reply waits for its poster.
+        poster: (viewer) => {
+          viewers.received(
+            { type: "grant.refused", kind: "viewer.open", id: viewer, reason: "limit" },
+            none,
+          );
+          return Promise.resolve(undefined);
+        },
+      }),
+    },
+  });
+  const deliveries = () =>
+    results.filter(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    );
+  const limit = {
+    code: "refused",
+    reason: expect.stringMatching(/^Too many live views are open on this computer/),
+  };
+  await client.handle({
+    ...subscribe(a, connection.connection),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  // The reply and every push after it name the limit, never "starting".
+  expect(results).toContainEqual(
+    expect.objectContaining({ type: "browser.result", ok: true, undelivered: limit }),
+  );
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: limit });
+  const opened = () =>
+    sent.filter(
+      (message) =>
+        message.type === "viewer.open" &&
+        message.target.kind === "browser" &&
+        message.target.threadId === "thread",
+    );
+  const [refused] = opened();
+  // The other view closes: the refused one asks again and plays, and its subscriber hears it.
+  viewers.unbind(other);
+  expect(opened()).toHaveLength(2);
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: limit });
+  if (refused?.type !== "viewer.open") throw new Error("no view opened");
+  viewers.received({ type: "viewer.playing", viewer: refused.viewer, playing: true }, none);
+  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
   client.close();
 });

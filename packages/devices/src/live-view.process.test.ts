@@ -798,3 +798,21 @@ it("a device's delivery status goes only to a subscriber that asked for it", asy
   });
   expect(statuses().at(-1)).toMatchObject({ deviceId, undelivered: { code: "starting" } });
 });
+
+it("a device's view refused at ace-media's viewer limit says so in its reply and status", async () => {
+  // The device streams, but ace-media refused the view: it holds as many as it may.
+  const m = await mediaChannel([], { granted: () => false, why: () => "limit" });
+  await m.request("watch", {
+    op: "subscribe",
+    deviceId,
+    media: { connection: "mc_aaaaaaaaaaaa" },
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const limit = { code: "refused", reason: expect.stringMatching(/^Too many live views/) };
+  expect(m.answer("watch")).toMatchObject({ ok: true, undelivered: limit });
+  expect(m.sent.findLast((message) => message.type === "devices.delivery")).toMatchObject({
+    deviceId,
+    undelivered: limit,
+  });
+});

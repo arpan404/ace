@@ -260,6 +260,9 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     if (bound) {
       delete delivery.undelivered;
       this.#unserved.delete(source);
+      // Bound, but not played yet (ace-media refused the view at its limit, say): it says why
+      // until a picture comes, as a `*.delivery` push would.
+      if (undelivered) delivery.waiting = undelivered;
     }
     // Without a binding, this client knows better than the daemon why: it named none.
     else delivery.undelivered = delivery.asked ? (undelivered ?? failedSubscribe) : this.#why();

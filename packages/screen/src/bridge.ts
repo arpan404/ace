@@ -4,6 +4,7 @@ import {
   ScreenError,
   ScreenClientMessage,
   ScreenState,
+  type MediaUndelivered,
   type ScreenServerMessage,
 } from "@ace/protocol";
 import {
@@ -118,7 +119,8 @@ export function screenConnection(
       audio: false,
       ...(link ? { link } : {}),
       shows: showsSession(sessionId),
-      onGrant: (granted, refused) => delivered(sessionId, granted, refused),
+      onGrant: (granted, why) =>
+        delivered(sessionId, granted ? undefined : waiting(sessionId, why)),
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
@@ -128,18 +130,19 @@ export function screenConnection(
    * Tells this connection whether its bound view of the session gets pictures now: on every
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
-  const delivered = (sessionId: string, granted: boolean, refused?: string) => {
+  const delivered = (sessionId: string, undelivered: MediaUndelivered | undefined) => {
     // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
     if (closed || !status.has(sessionId)) return;
-    const port = peer.delivery?.port();
-    const undelivered = granted
-      ? undefined
-      : pendingUndelivered(
-          port?.sourceState(showsSession(sessionId)) ?? "pending",
-          port?.unserved("screen"),
-          refused,
-        );
     peer.send({ type: "screen.delivery", sessionId, ...(undelivered ? { undelivered } : {}) });
+  };
+  /** Why the session's granted view gets no pictures yet: ace-media's `why`, else its source's. */
+  const waiting = (sessionId: string, why: string | undefined) => {
+    const port = peer.delivery?.port();
+    return pendingUndelivered(
+      port?.sourceState(showsSession(sessionId)) ?? "pending",
+      port?.unserved("screen"),
+      why,
+    );
   };
   return {
     async request(input) {
@@ -289,10 +292,19 @@ export function screenConnection(
             subscriptions.set(sessionId, { media, release: () => stop?.() });
             peer.send({ type: "screen.state", state });
             if (viewer && operation.media) {
-              const poster = await peer.delivery?.port()?.poster(viewer);
-              respond({ ok: true, media: mediaSubscribed(operation.media.connection, poster) });
-              // Bound, but the session isn't streaming into ace-media yet: say why until it does.
-              if (!peer.delivery?.port()?.granted(viewer)) delivered(sessionId, false);
+              const port = peer.delivery?.port();
+              const poster = await port?.poster(viewer);
+              // Bound, but not played yet (the session isn't streaming into ace-media, or
+              // ace-media refused the view): the reply and the view say why until it is.
+              const undelivered = port?.granted(viewer)
+                ? undefined
+                : waiting(sessionId, port?.why(viewer));
+              respond({
+                ok: true,
+                media: mediaSubscribed(operation.media.connection, poster),
+                ...(undelivered ? { undelivered } : {}),
+              });
+              if (undelivered) delivered(sessionId, undelivered);
               return;
             }
             // No pictures will come: the view says why instead of staying blank.
