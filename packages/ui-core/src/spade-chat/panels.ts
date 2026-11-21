@@ -26,28 +26,28 @@ export interface SpadePanel {
   state: unknown;
 }
 
+const Panel = z.object({
+  id: z.string().min(1).max(40),
+  title: z.string().catch(""),
+  page: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullish()
+    .catch(undefined),
+  actions: z.array(z.string()).catch([]),
+  // Unread, none: Spade then refuses such an action from the page, so it never goes
+  // without the person.
+  confirm: z.array(z.object({ name: z.string(), label: z.string() })).catch([]),
+  state: z.unknown().optional(),
+});
+
 const Listed = z.object({
   panels: z
     .array(z.unknown())
     .catch([])
     .transform((items) =>
       items.flatMap((item) => {
-        const read = z
-          .object({
-            id: z.string().min(1).max(40),
-            title: z.string().catch(""),
-            page: z
-              .string()
-              .regex(/^[0-9a-f]{64}$/)
-              .nullish()
-              .catch(undefined),
-            actions: z.array(z.string()).catch([]),
-            // Unread, none: Spade then refuses such an action from the page, so it never goes
-            // without the person.
-            confirm: z.array(z.object({ name: z.string(), label: z.string() })).catch([]),
-            state: z.unknown().optional(),
-          })
-          .safeParse(item);
+        const read = Panel.safeParse(item);
         if (!read.success) return [];
         const { id, title, page, actions, confirm, state } = read.data;
         return [{ id, title: title || id, page: page ?? undefined, actions, confirm, state }];

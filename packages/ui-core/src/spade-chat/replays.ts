@@ -37,15 +37,18 @@ export const SpadeReplayEstimate = z.object({
 });
 export type SpadeReplayEstimate = z.infer<typeof SpadeReplayEstimate>;
 
+const ReplayAnswer = z.object({ replay: SpadeReplay });
+const EstimateAnswer = z.object({ estimate: SpadeReplayEstimate });
+
 /** Reads a replay answer; undefined when it isn't one. */
 export function parseSpadeReplay(value: unknown): SpadeReplay | undefined {
-  const read = z.object({ replay: SpadeReplay }).safeParse(value);
+  const read = ReplayAnswer.safeParse(value);
   return read.success ? read.data.replay : undefined;
 }
 
 /** Reads an estimate answer; undefined when it isn't one. */
 export function parseSpadeReplayEstimate(value: unknown): SpadeReplayEstimate | undefined {
-  const read = z.object({ estimate: SpadeReplayEstimate }).safeParse(value);
+  const read = EstimateAnswer.safeParse(value);
   return read.success ? read.data.estimate : undefined;
 }
 

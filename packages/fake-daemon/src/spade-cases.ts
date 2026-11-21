@@ -2,6 +2,8 @@ import type { FakeSpadeAnswer } from "./spade.ts";
 
 type Json = Record<string, unknown>;
 
+const runs = (n: number) => (n === 1 ? "kept run" : "kept runs");
+
 const reply = (body: unknown, status = 200): FakeSpadeAnswer => ({
   status,
   body: JSON.stringify(body),
@@ -108,18 +110,18 @@ export class FakeSpadeCases {
     const cases = kept.map((each) => {
       const summary = each.summary as Json;
       const why = this.differs.get(text(summary.id));
-      return {
+      const judged: Json = {
         id: summary.id,
         given: summary.given || "A kept run",
-        ...(summary.mark ? { mark: summary.mark } : {}),
         passed: why === undefined,
         lines: why === undefined ? [] : [why],
         outside: 0,
       };
+      if (summary.mark) judged.mark = summary.mark;
+      return judged;
     });
     const passed = cases.filter((each) => each.passed).length;
     const failed = cases.length - passed;
-    const runs = (n: number) => (n === 1 ? "kept run" : "kept runs");
     const [same, worse] = model ? ["the same or better", "worse"] : ["replay the same", "don't"];
     const summary =
       cases.length === 0
