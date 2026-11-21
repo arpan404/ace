@@ -2027,9 +2027,12 @@ Example:
   "id": 10,
   "request": {
     "call": {
-      "op": "describe"
+      "args": {},
+      "op": "browser",
+      "tool": "browser_fthysumudfmgdfrxaodus"
     },
     "origin": {
+      "accepts": [],
       "agentId": "example",
       "ceiling": "operate",
       "hostId": "example",

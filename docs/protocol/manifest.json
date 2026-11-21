@@ -33,12 +33,12 @@
       "sha256": "4a34aa975bbbe8db127c3bdbbf8a6078cf10c4937f2f10b311ba76b0cec78a46"
     },
     "push.md": {
-      "bytes": 133059,
-      "sha256": "b27ba24ee2d1390d6188daf0d00a7081018febe5ed04561c22c1c27d65007323"
+      "bytes": 133162,
+      "sha256": "06d8fecc5ee07f32cdc67b5ece4cfd137573f3d8488259d7c389017cc0776a38"
     },
     "requests.md": {
-      "bytes": 126694,
-      "sha256": "56270c53b6662e8723c9befc90f6b0ae59d5c371305b4eea0e78059eb7d96d0f"
+      "bytes": 126779,
+      "sha256": "0c75660dc9c9dc760cb681c0e171d712379acd12786faca86be6df8308e593ad"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -2685,8 +2685,8 @@
       "sha256": "9e8f48b925fcbb4ed91c46569cc7bfd2e47b17972eea4a4f46a13d5641f6c403"
     },
     "schema/MachineCallOrigin.json": {
-      "bytes": 873,
-      "sha256": "88e48de037cccbc689374941f4701073caef7142aa26e04f1a713981a3c1b533"
+      "bytes": 1017,
+      "sha256": "bb0c8b4d0818df1c8b43b1e4b88071e2643b4610fef03d96e497da90715efe44"
     },
     "schema/MachineCallRequest.json": {
       "bytes": 394,
@@ -6405,8 +6405,8 @@
       "sha256": "90fefcae9b0849146c82f5bf796e9288fc1545d2a6dbe3205fd86b0e1f11dd50"
     },
     "schema/WorkspaceActionResult.json": {
-      "bytes": 11311,
-      "sha256": "ef818b58d709952f9d80812b62f99fcd06c677fe9f71e0add32f54de3492e80b"
+      "bytes": 11511,
+      "sha256": "931284b4bfcbcbe0d89e8e2b7631bec339de94a9e1357b7428e64ad04df4a2c3"
     },
     "schema/WorkspaceChanged.json": {
       "bytes": 635,
@@ -6733,10 +6733,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1370287,
-      "sha256": "19bfa67cd6911623595c45600aeb701851bd3002e0bfce328b0b83b4f94ae5ac"
+      "bytes": 1370498,
+      "sha256": "a9bc175e549429562786ff19e5f724bea6bc66749bb4adc48c47b2681f69c20e"
     }
   },
-  "input": "f2cce469523c58765620fd6a94eef8f5413353a60198920363e1529d0b335194",
+  "input": "8fb82993d6300b46b4b8ac4e9e2cd03b8cb408458b15ef760338c4260e7e32ef",
   "version": 1
 }
