@@ -138,6 +138,75 @@ fn a_keyframe_request_makes_the_next_unit_a_keyframe_and_a_rate_change_does_not(
 }
 
 #[test]
+fn a_keyframe_request_on_a_still_source_is_a_keyframe_of_its_last_picture_with_its_epoch() {
+    let mut worker = fake(true);
+    let mut out = Vec::new();
+    worker.command(
+        Command::Configure(vec![spec(1, 1_000_000), spec(2, 500_000)]),
+        0,
+        &mut out,
+    );
+    // Nothing asked for before a picture: no unit to make.
+    worker.command(Command::Key(1), 500, &mut out);
+    assert!(units(&out).is_empty());
+    worker.command(picture(3), 1_000, &mut out);
+    worker.command(picture(3), 2_000, &mut out);
+    out.clear();
+    // The screen doesn't change, so no picture follows: soon after, the keyframe is made of the
+    // one it showed (a moving source's next picture would have been it).
+    worker.command(Command::Key(1), 60_000, &mut out);
+    worker.poll(60_000 + 10_000, &mut out);
+    assert!(units(&out).is_empty(), "a picture may still come");
+    worker.poll(60_000 + 300_000, &mut out);
+    worker.poll(60_000 + 400_000, &mut out);
+    let made = units(&out);
+    assert_eq!(made.len(), 1, "only the encode asked for");
+    assert_eq!(
+        (made[0].encode, made[0].flags & 1, made[0].epoch),
+        (1, 1, 3)
+    );
+    assert_eq!((made[0].width, made[0].height), (64, 48));
+    // No other encode moved, and the next picture goes on as before.
+    worker.command(picture(3), 61_000, &mut out);
+    let next: Vec<(u32, u32)> = units(&out)[1..]
+        .iter()
+        .map(|u| (u.encode, u.flags & 1))
+        .collect();
+    assert_eq!(next, [(1, 0), (2, 0)]);
+}
+
+#[test]
+fn a_drained_source_makes_no_keyframe_of_its_last_picture() {
+    let mut worker = fake(true);
+    let mut out = Vec::new();
+    worker.command(Command::Configure(vec![spec(1, 1_000_000)]), 0, &mut out);
+    worker.command(picture(1), 1_000, &mut out);
+    worker.command(Command::Drain, 2_000, &mut out);
+    out.clear();
+    worker.command(Command::Key(1), 3_000, &mut out);
+    worker.poll(500_000, &mut out);
+    assert!(units(&out).is_empty());
+}
+
+#[test]
+fn a_keyframe_request_on_a_moving_source_waits_for_its_next_picture() {
+    let mut worker = fake(true);
+    let mut out = Vec::new();
+    worker.command(Command::Configure(vec![spec(1, 1_000_000)]), 0, &mut out);
+    worker.command(picture(1), 1_000, &mut out);
+    worker.command(Command::Key(1), 2_000, &mut out);
+    worker.poll(10_000, &mut out);
+    worker.command(picture(2), 20_000, &mut out);
+    worker.poll(900_000, &mut out);
+    let keys: Vec<(u32, u32)> = units(&out).iter().map(|u| (u.flags & 1, u.epoch)).collect();
+    assert_eq!(
+        keys,
+        [(1, 1), (1, 2)],
+        "the new picture is the keyframe, made once"
+    );
+}
+
+#[test]
 fn a_hardware_encode_reports_its_steps_once_and_is_not_degraded() {
     let mut worker = fake(true);
     let mut out = Vec::new();

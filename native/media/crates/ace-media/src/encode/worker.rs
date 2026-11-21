@@ -128,6 +128,9 @@ struct Running {
     size: Size,
     chosen: Chosen,
     key_owed: bool,
+    /// When a keyframe was asked for and no picture has made it yet: past `still_after_us`, it
+    /// is made of the last picture.
+    key_asked_us: Option<u64>,
     description: Option<Vec<u8>>,
     codec_string: String,
     pending: VecDeque<Pending>,
@@ -139,13 +142,29 @@ struct Running {
     probation: Option<cutover::Probation>,
 }
 
+/// The last picture handed over: a still source sends no next one, so a keyframe asked for is
+/// made of this one.
+struct Last {
+    jpeg: Vec<u8>,
+    source_size: Size,
+    epoch: u32,
+    captured_us: u64,
+}
+
 pub struct Worker<B: Backends> {
     backends: B,
     encodes: BTreeMap<u32, Running>,
+    last: Option<Last>,
     last_pts: u64,
     epoch: u32,
     reported: Option<Acceleration>,
     failed: bool,
+}
+
+/// How long a keyframe asked for waits for the source's next picture before it is made of the
+/// last one: two of the encode's frame intervals, so a moving source's next picture is it.
+fn still_after_us(running: &Running) -> u64 {
+    (2_000_000 / u64::from(running.wire.fps.max(1))).clamp(20_000, 250_000)
 }
 
 /// The encode size: even sides, as every hardware encoder takes.
@@ -251,6 +270,7 @@ fn feed<B: Backends>(backends: &mut B, running: &mut Running, fed: &Fed) -> Resu
     {
         Ok(()) => {
             running.key_owed = false;
+            running.key_asked_us = None;
             running.steps = steps;
             if running.pending.len() >= PENDING_MAX {
                 running.pending.pop_front();
@@ -273,6 +293,7 @@ impl<B: Backends> Worker<B> {
         Self {
             backends,
             encodes: BTreeMap::new(),
+            last: None,
             last_pts: 0,
             epoch: 0,
             reported: None,
@@ -297,6 +318,7 @@ impl<B: Backends> Worker<B> {
             Command::Key(id) => {
                 if let Some(running) = self.encodes.get_mut(&id) {
                     running.key_owed = true;
+                    running.key_asked_us.get_or_insert(now_us);
                 }
             }
             Command::Drain => return self.drain(now_us, out),
@@ -317,6 +339,8 @@ impl<B: Backends> Worker<B> {
     /// so nothing is recovered onto another encoder: an error, or dropped output, makes it an
     /// unclean end, never `Drained`.
     fn drain(&mut self, now_us: u64, out: &mut Vec<Output>) {
+        // No picture follows a drain, and none is made again of the last one.
+        self.last = None;
         let mut clean = true;
         for running in self.encodes.values_mut() {
             if running.chosen.encoder.flush().is_err() {
@@ -410,6 +434,7 @@ impl<B: Backends> Worker<B> {
                     size: spec.size,
                     chosen,
                     key_owed: true,
+                    key_asked_us: None,
                     description: None,
                     pending: VecDeque::new(),
                     steps: Vec::new(),
@@ -428,21 +453,67 @@ impl<B: Backends> Worker<B> {
             return;
         };
         self.epoch = epoch;
-        let pts = self.last_pts.saturating_add(1).max(captured_us);
-        self.last_pts = pts;
-        let fed = Fed {
-            jpeg: &jpeg,
+        let ids: Vec<u32> = self.encodes.keys().copied().collect();
+        self.last = Some(Last {
+            jpeg,
             source_size,
-            pts,
             epoch,
             captured_us,
+        });
+        self.feed_last(&ids, out);
+    }
+
+    /// Keyframes asked for that no picture made in time: the source is still, and sends no next
+    /// picture, so each is made of the last one, for that encode alone.
+    fn still_keys(&mut self, now_us: u64, out: &mut Vec<Output>) {
+        if self.last.is_none() {
+            return;
+        }
+        let due: Vec<u32> = self
+            .encodes
+            .iter()
+            .filter(|(_, r)| {
+                r.key_asked_us
+                    .is_some_and(|asked| now_us.saturating_sub(asked) >= still_after_us(r))
+            })
+            .map(|(&id, _)| id)
+            .collect();
+        // Once each: a last picture that won't decode isn't tried again, and the key stays owed
+        // to the next picture.
+        for id in &due {
+            if let Some(running) = self.encodes.get_mut(id) {
+                running.key_asked_us = None;
+            }
+        }
+        if !due.is_empty() {
+            self.feed_last(&due, out);
+        }
+    }
+
+    /// The last picture, to each of `ids`' encoders, at the next timestamp.
+    fn feed_last(&mut self, ids: &[u32], out: &mut Vec<Output>) {
+        let Some(last) = self.last.take() else {
+            return;
         };
-        let ids: Vec<u32> = self.encodes.keys().copied().collect();
-        for id in ids {
+        let pts = self.last_pts.saturating_add(1).max(last.captured_us);
+        self.last_pts = pts;
+        let fed = Fed {
+            jpeg: &last.jpeg,
+            source_size: last.source_size,
+            pts,
+            epoch: last.epoch,
+            captured_us: last.captured_us,
+        };
+        self.feed_each(ids, &fed, out);
+        self.last = Some(last);
+    }
+
+    fn feed_each(&mut self, ids: &[u32], fed: &Fed, out: &mut Vec<Output>) {
+        for &id in ids {
             let Some(running) = self.encodes.get_mut(&id) else {
                 continue;
             };
-            let Err(error) = feed(&mut self.backends, running, &fed) else {
+            let Err(error) = feed(&mut self.backends, running, fed) else {
                 continue;
             };
             if !running.moved {
@@ -456,7 +527,7 @@ impl<B: Backends> Worker<B> {
             let Some(running) = self.encodes.get_mut(&id) else {
                 continue;
             };
-            if let Err(error) = feed(&mut self.backends, running, &fed) {
+            if let Err(error) = feed(&mut self.backends, running, fed) {
                 return self.fail(&error, out);
             }
         }
@@ -481,6 +552,10 @@ impl<B: Backends> Worker<B> {
     /// Takes every unit the encoders have finished. Hardware encoders finish on their own
     /// threads, so the caller polls between commands too.
     pub fn poll(&mut self, now_us: u64, out: &mut Vec<Output>) {
+        if self.failed {
+            return;
+        }
+        self.still_keys(now_us, out);
         if self.failed {
             return;
         }
