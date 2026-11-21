@@ -77,9 +77,10 @@ test("LM Studio is offered under From even when it isn't running, filled in with
 test("the model picker offers a running Ollama's models, and picking one chooses it", async () => {
   const { spade } = await spadeApp("/spade", withLocal);
   await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
-  await userEvent.click(local.getByRole("button", { name: /^qwen3:8b/ }));
+  await userEvent.click(local.getByRole("option", { name: /^qwen3:8b/ }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints/local/ollama")).toEqual([{ model: "qwen3:8b" }]),
   );

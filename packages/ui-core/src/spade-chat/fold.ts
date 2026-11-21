@@ -108,6 +108,8 @@ export type SpadeReplyPart =
   | ({ kind: "question"; key: string } & SpadeQuestionCard)
   /** `web_search` had nothing set up to search with: a line that opens its setting. */
   | { kind: "search-setup"; key: string }
+  /** The next step ran on another model of the bot's route: where, and why (ADR 0205 §2). */
+  | { kind: "served"; key: string; line: string }
   /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** A call that asked the person, where it asked, with how they answered (`SpadeRequest`). */
@@ -604,6 +606,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return updateOpen(state, event.reply, (entry) =>
         entry.live.startsWith(event.text) ? undefined : { ...entry, live: event.text },
       );
+    case "step_served":
+      return event.line
+        ? updateReply(state, event.reply, (entry) => ({
+            ...entry,
+            parts: [...entry.parts, { kind: "served" as const, key, line: event.line ?? "" }],
+          }))
+        : false;
     case "step_finished": {
       const index = replyAt(state, event.reply);
       if (index !== undefined)

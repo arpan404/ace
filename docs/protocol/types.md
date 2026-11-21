@@ -1315,6 +1315,34 @@ Example:
 }
 ```
 
+## AceOrgEnrollConsent
+
+[JSON Schema](schema/AceOrgEnrollConsent.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+| hostKey | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+| account | yes | string | {"minLength":1,"maxLength":256} |
+| nonce | yes | string | {"pattern":"^[A-Za-z0-9_-]{22,64}$"} |
+| expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| proof | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+
+Example:
+
+```json
+{
+  "account": "example",
+  "expiresAt": 5,
+  "hostId": "3RGKO4GPIIAI6ILSPL6TJD76LOPT5TNZ6WMJ2N5HGOMWRZXDR7HO",
+  "hostKey": "zVY37pgkBmaCsPfthLFKVwEGA4pNvI6XgEfTIwjDNMo",
+  "nonce": "3R33zXlVq4ZV-oZPHaG_x4m65XTzy7zYDMHLz1",
+  "org": "org_xwKXoWBZPX6wN7yrkPdwCRKDRA0oBYJELwkZ",
+  "proof": "O42ojyIDvgDFvo-57aHdGW8XYZVfcUFzYhu52VWgV3N"
+}
+```
+
 ## AceOrgHostEnrollRequest
 
 [JSON Schema](schema/AceOrgHostEnrollRequest.json), input validation.
@@ -1322,12 +1350,22 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | hostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+| consent | yes | [AceOrgEnrollConsent.json](schema/AceOrgEnrollConsent.json) |  |
 | auditKey | no | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
 
 Example:
 
 ```json
 {
+  "consent": {
+    "account": "example",
+    "expiresAt": 5,
+    "hostId": "KOVVYM5TC6MTR2BG5NJXYFVSVTXYDEPEUYICPBLAINWGFXZWQXGU",
+    "hostKey": "Mzif-Z8gHM8ArgCtHpdTczJL8Sx07upyWvM_Teid21Z",
+    "nonce": "RRGr9NJgdl_YJB85cF9QtBwrC5je8JNzRUpaIq6omAQV",
+    "org": "org_oREzRy",
+    "proof": "MCOJgFOwMjhUaZ7RnBaOMRi8Bb7K-0vOwHudXXSrRUu"
+  },
   "hostId": "BQOQE2PJVTYCXUF2UM65X65DEBOYZVACNIAHV5B5C43KAEWDVZVH"
 }
 ```
@@ -10783,7 +10821,7 @@ Example:
 | --- | --- | --- | --- |
 | op | yes | `"mcp.enroll"` |  |
 | scope | no | ["read","operate"] |  |
-| allow | no | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| allow | no | array | {"minItems":1,"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
 | ttlMs | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":31622400000},{"type":"null"}]} |
 | projects | no | array | {"minItems":1,"maxItems":256,"items":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}} |
 | name | no | string | {"minLength":1,"maxLength":256} |
@@ -12842,6 +12880,42 @@ Example:
 }
 ```
 
+### account.owner.enroll
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "org": "org_eRUX8mlfZW8HMzp2l49U4inoNdleu2HGrmMP3CoIsT0lHOaQsmuJP",
+  "requestId": "example",
+  "type": "account.owner.enroll"
+}
+```
+
+### account.owner.enroll.confirm
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll.confirm"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "org": "org_rx",
+  "requestId": "example",
+  "type": "account.owner.enroll.confirm"
+}
+```
+
 ## CoreServerMessage
 
 [JSON Schema](schema/CoreServerMessage.json), input validation.
@@ -13404,13 +13478,13 @@ Example:
 }
 ```
 
-### account.standing.result
+### account.owner.enroll.result
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| type | yes | `"account.standing.result"` |  |
+| type | yes | `"account.owner.enroll.result"` |  |
 | requestId | yes | string |  |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"until":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["ok","until"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"consent":{"$ref":"https://ace.local/protocol/v1/AceOrgEnrollConsent.json"}},"required":["ok","consent"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
 
 Example:
 
@@ -13418,8 +13492,56 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": true,
-    "until": 5
+    "consent": {
+      "account": "example",
+      "expiresAt": 7,
+      "hostId": "PED2ECKO2VXNYCWJZHVIHUER2WP6ZVL37AKP6TEFJAITJPKRLKCZ",
+      "hostKey": "4QqNPNtoca4qnSPK1lysCqJcOCScxiNQjWbREI7CFHh",
+      "nonce": "5e2MnKrELgDbwL2FkC3ckFQyflZi1",
+      "org": "org_Qc42yhFNIDomEuMRMeAc",
+      "proof": "2EkoZBWS7gNX7moaw_ug6R03JiVq7_RJJxoIPozqMPo"
+    },
+    "ok": true
+  },
+  "type": "account.owner.enroll.result"
+}
+```
+
+### account.owner.enroll.confirm.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll.confirm.result"` |  |
+| requestId | yes | string |  |
+| ok | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "ok": true,
+  "requestId": "example",
+  "type": "account.owner.enroll.confirm.result"
+}
+```
+
+### account.standing.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.standing.result"` |  |
+| requestId | yes | string |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"until":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"member":{"type":"object","properties":{"org":{"$ref":"https://ace.local/protocol/v1/AceOrgId.json"},"role":{"$ref":"https://ace.local/protocol/v1/AceOrgRole.json"}},"required":["org","role"]}},"required":["ok","until"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "code": "example",
+    "message": "example",
+    "ok": false
   },
   "type": "account.standing.result"
 }
@@ -13439,8 +13561,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "grantTtlMs": 1,
-    "ok": true
+    "code": "example",
+    "message": "example",
+    "ok": false
   },
   "type": "account.grant.refresh.result"
 }
@@ -21176,7 +21299,7 @@ Example:
 | sessionId | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":64},{"type":"null"}]} |
 | signInAgain | no | `true` |  |
 | relayHostId | no | string | {"pattern":"^[A-Z2-7]{52}$"} |
-| owner | no | union | {"anyOf":[{"type":"object","properties":{"account":{"type":"string","minLength":1,"maxLength":256}},"required":["account"]},{"type":"null"}]} |
+| owner | no | union | {"anyOf":[{"anyOf":[{"type":"object","properties":{"account":{"type":"string","minLength":1,"maxLength":256}},"required":["account"]},{"type":"object","properties":{"org":{"type":"string","pattern":"^org_[A-Za-z0-9]{1,64}$"}},"required":["org"]}]},{"type":"null"}]} |
 | login | no | object | {"properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},"expiresAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["url","expiresAt"]} |
 | machineCode | yes | object | {"properties":{"set":{"type":"boolean"},"lockedUntil":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["set"]} |
 
@@ -21184,10 +21307,6 @@ Example:
 
 ```json
 {
-  "login": {
-    "expiresAt": 8,
-    "url": "https://example.invalid/"
-  },
   "machineCode": {
     "set": false
   },
@@ -22992,14 +23111,15 @@ Example:
   "name": [],
   "recipe": {
     "blurb": "example",
-    "contracts": [],
-    "effects": [],
     "face": {},
     "format": "spade-bot",
+    "limits": {},
     "model": "capable",
     "name": "example",
     "plugins": [],
     "skills": [],
+    "tests": [],
+    "triggers": [],
     "version": 2
   },
   "routines": [],
@@ -23175,6 +23295,28 @@ Example:
   },
   "requestId": "example",
   "type": "marketplace.request"
+}
+```
+
+## MarketCodeRow
+
+[JSON Schema](schema/MarketCodeRow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":24} |
+| imports | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/PackageCodeImport.json"}} |
+| why | yes | string | {"maxLength":500} |
+| sentence | yes | string | {"maxLength":2000} |
+
+Example:
+
+```json
+{
+  "imports": [],
+  "name": "example",
+  "sentence": "example",
+  "why": "example"
 }
 ```
 
@@ -25005,6 +25147,7 @@ Example:
 | path | no | string | {"maxLength":512} |
 | line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | message | yes | string | {"maxLength":500} |
+| rule | no | string | {"maxLength":80} |
 
 Example:
 
@@ -25012,7 +25155,8 @@ Example:
 {
   "line": 8,
   "message": "example",
-  "path": "example"
+  "path": "example",
+  "rule": "example"
 }
 ```
 
@@ -26310,15 +26454,15 @@ Example:
   "leftOut": [],
   "op": "botRecipe",
   "recipe": {
-    "effects": [],
+    "contracts": [],
     "face": {},
     "format": "spade-bot",
     "name": "example",
     "requires": {},
-    "style": {
-      "accent": "#61Ce1d"
-    },
+    "spec": "1.5440569212",
     "task": "example",
+    "tests": [],
+    "uses": [],
     "version": 3
   }
 }
@@ -26498,12 +26642,13 @@ Example:
 ```json
 {
   "items": [],
+  "nextOffset": 6,
   "op": "reviewPage",
   "review": {
-    "blocked": "example",
     "body": {
       "botName": "example",
       "brings": [],
+      "code": [],
       "face": {},
       "linked": false,
       "model": "capable",
@@ -26512,22 +26657,35 @@ Example:
       "routines": [],
       "spadeReady": false,
       "task": "example",
-      "triggers": [],
-      "type": "spade-bot"
+      "type": "spade-bot",
+      "update": {
+        "asksMore": [],
+        "bot": "example",
+        "plan": {
+          "asks_more": [],
+          "face": "replace",
+          "name": "kept",
+          "notes_kept": 9,
+          "off": [],
+          "personality": "kept",
+          "routines": [],
+          "task": "same"
+        },
+        "rollback": false
+      }
     },
     "byAce": true,
-    "expiresAt": 6,
+    "expiresAt": 5,
     "from": "example",
     "hash": "51b77ff3950f2be9bc92925e36a9bbd830b697bc36eace11c30ffb302c3b2dcb",
     "id": "SyIwyNKmaZDg9IuNm8L9LD7Csrw4zEhF3-xZsLH9f1TBsQ0R30lOsHH-PdoyacMskRZkx",
-    "items": 9,
+    "items": 6,
     "name": "8.edd3-55ov",
     "reviewed": false,
     "signed": true,
     "source": "market",
     "title": "example",
     "type": "ace-plugin",
-    "unlisted": true,
     "version": "example"
   }
 }
@@ -26706,9 +26864,6 @@ Example:
     "botName": "example",
     "brings": [],
     "limits": {
-      "spend_alert": {
-        "usd_per_day": 7
-      },
       "workspace_mb": 7
     },
     "model": "fast",
@@ -26718,6 +26873,7 @@ Example:
     "routines": [],
     "spadeReady": true,
     "task": "example",
+    "triggers": [],
     "type": "spade-bot"
   },
   "byAce": true,
@@ -26829,6 +26985,7 @@ Example:
 | spadeReady | yes | boolean |  |
 | linked | no | boolean |  |
 | effects | no | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/MarketEffectRow.json"}} |
+| code | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MarketCodeRow.json"}} |
 | triggers | no | array | {"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
 | limits | no | [PackageLimits.json](schema/PackageLimits.json) |  |
 | unused | no | array | {"maxItems":64,"items":{"type":"string","maxLength":80}} |
@@ -26840,10 +26997,6 @@ Example:
 {
   "botName": "example",
   "brings": [],
-  "limits": {
-    "workers_at_once": 5,
-    "workspace_mb": 9
-  },
   "linked": false,
   "model": "fast",
   "needs": [],
@@ -26852,6 +27005,7 @@ Example:
   "spadeReady": false,
   "task": "example",
   "tools": [],
+  "triggers": [],
   "type": "spade-bot",
   "unused": []
 }
@@ -29823,7 +29977,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | decision | yes | `"approve"` |  |
-| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| scopes | yes | array | {"minItems":1,"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
 | projects | yes | [OutsideProjects.json](schema/OutsideProjects.json) |  |
 | expiresAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 
@@ -29863,7 +30017,7 @@ Example:
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | clientName | yes | string | {"minLength":1,"maxLength":256} |
 | domain | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":253},{"type":"null"}]} |
-| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| scopes | yes | array | {"minItems":1,"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
 | matchCode | yes | string | {"minLength":4,"maxLength":16} |
 | expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | redirectHost | no | string | {"minLength":1,"maxLength":253} |
@@ -29882,7 +30036,7 @@ Example:
   "redirectHost": "example",
   "requestId": "example",
   "scopes": [
-    "computer"
+    "spade-contracts"
   ]
 }
 ```
@@ -29931,7 +30085,7 @@ Example:
 | clientId | yes | string | {"minLength":1,"maxLength":2048} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
 | domain | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":253},{"type":"null"}]} |
-| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| scopes | yes | array | {"minItems":1,"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
 | projects | yes | [OutsideProjects.json](schema/OutsideProjects.json) |  |
 | createdAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | expiresAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
@@ -29971,7 +30125,7 @@ Example:
 | clientId | yes | string | {"minLength":1,"maxLength":2048} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
 | domain | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":253},{"type":"null"}]} |
-| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| scopes | yes | array | {"minItems":1,"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
 | projects | yes | [OutsideProjects.json](schema/OutsideProjects.json) |  |
 | createdAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | expiresAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
@@ -29998,7 +30152,7 @@ Example:
   "projects": "all",
   "revokedAt": null,
   "scopes": [
-    "threads:message"
+    "threads:stop"
   ],
   "started": []
 }
@@ -30038,7 +30192,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"outside.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"endpoints"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":7,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"endpoints"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
 
 Example:
 
@@ -30078,12 +30232,12 @@ Example:
 
 [JSON Schema](schema/OutsideScope.json), input validation.
 
-Type: ["threads:read","threads:start","threads:message","threads:stop","browser","computer"]. See JSON Schema for constraints.
+Type: ["threads:read","threads:start","threads:message","threads:stop","browser","computer","spade-contracts"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"computer"
+"spade-contracts"
 ```
 
 ## OutsideScreenUse
@@ -30124,6 +30278,44 @@ Example:
   "screen": [],
   "type": "outside.state"
 }
+```
+
+## PackageCode
+
+[JSON Schema](schema/PackageCode.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"pattern":"^[a-z][a-z0-9]{0,23}$"} |
+| file | yes | string | {"pattern":"^code\\/[a-z][a-z0-9]{0,23}\\.wasm$"} |
+| world | yes | `"spade:package/bot-tools@1.0.0"` |  |
+| imports | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/PackageCodeImport.json"}} |
+| why | yes | string | {"minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| timeout_s | no | integer | {"minimum":1,"maximum":300} |
+| memory_mb | no | integer | {"minimum":1,"maximum":512} |
+
+Example:
+
+```json
+{
+  "file": "code/huzakj.wasm",
+  "imports": [],
+  "name": "tmzpo3w",
+  "why": "example",
+  "world": "spade:package/bot-tools@1.0.0"
+}
+```
+
+## PackageCodeImport
+
+[JSON Schema](schema/PackageCodeImport.json), input validation.
+
+Type: ["spade:package/tools","spade:package/http","spade:package/log","spade:package/kv","wasi:clocks/wall-clock@0.2","wasi:clocks/monotonic-clock@0.2","wasi:random/random@0.2"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"spade:package/http"
 ```
 
 ## PackageContract
@@ -35965,6 +36157,7 @@ Example:
 | needs | no | object | {"default":{"connectors":[]},"properties":{"connectors":{"default":[],"maxItems":32,"type":"array","items":{"anyOf":[{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/RecipeConnectorId.json"},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["id","why"],"additionalProperties":false},{"type":"object","properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.","x-ace-url-maxLength":2048},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["url","why"],"additionalProperties":false}]}},"tools":{"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}},"additionalProperties":false} |
 | notes | no | array | {"default":[],"maxItems":50,"items":{"type":"string","maxLength":2000}} |
 | personality | no | [SpadePersonality.json](schema/SpadePersonality.json) |  |
+| spec | no | string | {"pattern":"^1\\.[0-9]+$"} |
 | requires | no | [PackageRequires.json](schema/PackageRequires.json) |  |
 | uses | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageModule.json"}} |
 | triggers | no | array | {"default":[],"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
@@ -35974,20 +36167,23 @@ Example:
 | tests | no | array | {"default":[],"maxItems":64,"items":{"type":"string","pattern":"^tests\\/[A-Za-z0-9._-]+\\.json$"}} |
 | style | no | object | {"properties":{"accent":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["accent"],"additionalProperties":false} |
 | surfaces | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageSurface.json"}} |
+| code | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/PackageCode.json"}} |
 
 Example:
 
 ```json
 {
-  "effects": [],
   "format": "spade-bot",
   "limits": {
-    "workspace_mb": 1
+    "spend_alert": {
+      "usd_per_day": 8
+    },
+    "workspace_mb": 2
   },
   "name": "example",
   "needs": {},
-  "style": {
-    "accent": "#ABDDCF"
+  "requires": {
+    "spade": "example"
   },
   "task": "example",
   "uses": [],

@@ -121,11 +121,20 @@ export function readRecipe(
   try {
     json = JSON.parse(text);
   } catch {
-    return { recipe: undefined, problems: [{ path, message: "bot.json isn't JSON" }], notes };
+    return {
+      recipe: undefined,
+      problems: [{ path, message: "bot.json isn't JSON", rule: "package.not-object" }],
+      notes,
+    };
   }
   for (const field of secretFieldNames(json))
-    problems.push({ path, message: `${field} is named like a secret; a recipe never carries one` });
-  problems.push(...secretValueProblems(text, path));
+    problems.push({
+      path,
+      message: `${field} is named like a secret; a recipe never carries one`,
+      rule: "package.secret",
+    });
+  for (const found of secretValueProblems(text, path))
+    problems.push(Object.assign(found, { rule: "package.secret" }));
   const version = Versioned.safeParse(json);
   let recipe: Recipe | undefined;
   if (version.success && version.data.version === 1) {
@@ -135,7 +144,7 @@ export function readRecipe(
   } else if (version.success && version.data.version === 3) {
     // Its contracts' schema files are written in first, as Spade does (ADR 0200 §7).
     const inlined = inlineContractFiles(json, options.files ?? (() => undefined));
-    problems.push(...inlined.problems.map((message) => ({ path, message })));
+    problems.push(...inlined.problems.map(({ rule, message }) => ({ path, message, rule })));
     const read = readPackage(AnyRecord.parse(inlined.bot), options);
     problems.push(...read.problems);
     recipe = read.recipe;
@@ -149,7 +158,8 @@ export function readRecipe(
       const extra: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(fields)) if (!known.has(key)) extra[key] = value;
       recipe = Object.keys(extra).length ? { ...v2.data, extra } : v2.data;
-    } else if (v2.success) problems.push({ path, message: "bot.json: version is 1, 2 or 3" });
+    } else if (v2.success)
+      problems.push({ path, message: "bot.json: version is 1, 2 or 3", rule: "package.version" });
     else problems.push(...issues(v2.error));
   }
   if (recipe) problems.push(...referenceProblems(recipe, folders));

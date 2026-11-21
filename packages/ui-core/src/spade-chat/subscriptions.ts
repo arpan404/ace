@@ -12,6 +12,19 @@ export interface SpadeSubscription {
   name: string;
   accounts: { id: string; label: string | undefined }[];
   models: { id: string; name: string }[];
+  terms: SpadeTerms;
+}
+
+/**
+ * What the provider's maker allows, as Spade's record reads it (ADR 0205 §4): `refused` is
+ * offered to no new bot; choosing one otherwise needs the person's tick on `acknowledgement`.
+ */
+export interface SpadeTerms {
+  status: "allowed" | "unclear" | "refused";
+  /** "This bot will run in your Codex CLI on your subscription. …" */
+  acknowledgement: string;
+  /** The person ticked Use it for this provider's current status. */
+  acknowledged: boolean;
 }
 
 /** Where a bot's model comes from in the picker: one account of one subscription. */
@@ -19,6 +32,7 @@ export interface SpadeSubscriptionSource {
   /** `cli:<provider>@<account>`: unique among endpoints, whose ids have no colon. */
   key: string;
   provider: string;
+  terms: SpadeTerms;
   account: string;
   /** "Codex", or "Codex · Work" when the provider has more than one account. */
   label: string;
@@ -35,6 +49,15 @@ const listing = z.object({
           .array(z.object({ id: z.string().min(1), label: z.string().nullish().catch(null) }))
           .catch([]),
         models: z.array(z.object({ id: z.string().min(1), name: z.string().catch("") })).catch([]),
+        // An older Spade has no record: its terms read as unclear and unacknowledged.
+        terms: z
+          .object({
+            status: z.enum(["allowed", "unclear", "refused"]).catch("unclear"),
+            acknowledgement: z.string().catch(""),
+            acknowledged: z.boolean().catch(false),
+          })
+          .catch({ status: "unclear", acknowledgement: "", acknowledged: false })
+          .default({ status: "unclear", acknowledgement: "", acknowledged: false }),
       }),
     )
     .catch([]),
@@ -53,24 +76,33 @@ export function parseSpadeSubscriptions(
       name: entry.name || entry.provider,
       accounts: entry.accounts.map((a) => ({ id: a.id, label: a.label ?? undefined })),
       models: entry.models.map((m) => ({ id: m.id, name: m.name || m.id })),
+      terms: entry.terms,
     })),
     error: parsed.data.error ?? undefined,
   };
 }
 
-/** One picker source per account, in ace's order. */
+/**
+ * One picker source per account, in ace's order. A provider whose terms refuse new use is left
+ * out: no new bot is put on it.
+ */
 export function spadeSubscriptionSources(
   providers: readonly SpadeSubscription[],
 ): SpadeSubscriptionSource[] {
   return providers.flatMap((entry) =>
-    entry.accounts.map((account) => ({
-      key: `cli:${entry.provider}@${account.id}`,
-      provider: entry.provider,
-      account: account.id,
-      label:
-        entry.accounts.length > 1 ? `${entry.name} · ${account.label ?? account.id}` : entry.name,
-      models: entry.models,
-    })),
+    entry.terms.status === "refused"
+      ? []
+      : entry.accounts.map((account) => ({
+          key: `cli:${entry.provider}@${account.id}`,
+          provider: entry.provider,
+          terms: entry.terms,
+          account: account.id,
+          label:
+            entry.accounts.length > 1
+              ? `${entry.name} · ${account.label ?? account.id}`
+              : entry.name,
+          models: entry.models,
+        })),
   );
 }
 

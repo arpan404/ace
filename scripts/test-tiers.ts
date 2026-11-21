@@ -38,6 +38,8 @@ export const nodeOnlySuites = [
   "apps/daemon/src/machine-credential.process.test.ts",
   // Its owner and its paired devices' keys (ADR 0190), on a backend of their own.
   "apps/daemon/src/machine-owner.process.test.ts",
+  // An organization's host and its members (ADR 0206), on a backend of their own.
+  "apps/daemon/src/org-host.process.test.ts",
   // `ace bot publish` and the maintainer's signer against the market Worker (ADR 0200 §8, §9):
   // the same harness, so the same reason.
   "apps/daemon/src/cli-bot-publish-market.process.test.ts",

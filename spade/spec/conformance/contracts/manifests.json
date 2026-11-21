@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "part": "contracts",
-  "about": "The contracts part's cases: a contract's declaration, its effects, examples and schema files. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "about": "The contracts part's cases: a contract's declaration, its effects, examples and schema files. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
   "base": {
     "format": "spade-bot",
     "version": 3,
@@ -213,7 +213,7 @@
           }
         ]
       },
-      "refused": "isn't among the package's effects"
+      "rule": "contracts.effect-undeclared"
     },
     {
       "id": "contracts/contract-with-a-credential-effect",
@@ -273,7 +273,7 @@
           }
         ]
       },
-      "refused": "isn't an effect a call may use"
+      "rule": "contracts.effect"
     },
     {
       "id": "contracts/two-contracts-of-one-name",
@@ -384,7 +384,7 @@
           }
         ]
       },
-      "refused": "a name of its own"
+      "rule": "contracts.name-unique"
     },
     {
       "id": "contracts/contract-named-in-capitals",
@@ -444,7 +444,7 @@
           }
         ]
       },
-      "refused": "lower-case words"
+      "rule": "contracts.name"
     },
     {
       "id": "contracts/contract-with-no-summary",
@@ -504,7 +504,7 @@
           }
         ]
       },
-      "refused": "summary"
+      "rule": "contracts.summary"
     },
     {
       "id": "contracts/contract-whose-string-has-no-length",
@@ -552,7 +552,7 @@
           }
         ]
       },
-      "refused": "maxLength"
+      "rule": "schema.max-length"
     },
     {
       "id": "contracts/contract-whose-example-doesnt-fit-its-output",
@@ -625,7 +625,7 @@
           }
         ]
       },
-      "refused": "examples[0].output.fare"
+      "rule": "contracts.example"
     },
     {
       "id": "contracts/contract-whose-schemas-live-in-its-file",
@@ -655,7 +655,7 @@
           }
         ]
       },
-      "refused": "contracts/cheapest-fare.json isn't in the package"
+      "rule": "contracts.file-missing"
     },
     {
       "id": "contracts/contract-schema-file-outside-contracts",
@@ -672,7 +672,7 @@
       "files": {
         "schemas/fare.json": "{\"input\": {\"type\": \"object\", \"properties\": {\"from\": {\"type\": \"string\", \"maxLength\": 3}, \"to\": {\"type\": \"string\", \"maxLength\": 3}}, \"required\": [\"from\", \"to\"]}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}}"
       },
-      "refused": "contracts[0].file is contracts/<name>.json"
+      "rule": "contracts.file"
     },
     {
       "id": "contracts/contract-with-schemas-both-in-bot-json-and-in-a-file",
@@ -703,7 +703,7 @@
       "files": {
         "contracts/cheapest-fare.json": "{\"input\": {\"type\": \"object\", \"properties\": {\"from\": {\"type\": \"string\", \"maxLength\": 3}, \"to\": {\"type\": \"string\", \"maxLength\": 3}}, \"required\": [\"from\", \"to\"]}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}}"
       },
-      "refused": "either in bot.json or in contracts/cheapest-fare.json"
+      "rule": "contracts.file-and-inline"
     },
     {
       "id": "contracts/contract-schema-file-with-another-field",
@@ -720,7 +720,7 @@
       "files": {
         "contracts/cheapest-fare.json": "{\"input\": {\"type\": \"object\", \"properties\": {\"from\": {\"type\": \"string\", \"maxLength\": 3}, \"to\": {\"type\": \"string\", \"maxLength\": 3}}, \"required\": [\"from\", \"to\"]}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}, \"examples\": []}"
       },
-      "refused": "it holds only input and output"
+      "rule": "contracts.file-content"
     },
     {
       "id": "contracts/contract-schema-file-that-isnt-json",
@@ -737,7 +737,7 @@
       "files": {
         "contracts/cheapest-fare.json": "input: {}"
       },
-      "refused": "isn't a JSON object of input and output"
+      "rule": "contracts.file-content"
     },
     {
       "id": "contracts/contract-schema-file-whose-schema-is-outside-the-subset",
@@ -754,7 +754,7 @@
       "files": {
         "contracts/cheapest-fare.json": "{\"input\": {\"type\": \"string\"}, \"output\": {\"type\": \"object\", \"properties\": {\"fare\": {\"type\": \"number\", \"minimum\": 0}}, \"required\": [\"fare\"]}}"
       },
-      "refused": "contracts[0].input"
+      "rule": "schema.max-length"
     },
     {
       "id": "contracts/contracts-as-an-object",
@@ -764,7 +764,7 @@
           "cheapest_fare": {}
         }
       },
-      "refused": "contracts is a list"
+      "rule": "contracts.list"
     },
     {
       "id": "contracts/contract-with-a-field-contracts-dont-have",
@@ -825,7 +825,7 @@
           }
         ]
       },
-      "refused": "isn't a field of a contract"
+      "rule": "contracts.field"
     }
   ]
 }

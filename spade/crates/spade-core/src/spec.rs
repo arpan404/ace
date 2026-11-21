@@ -5,14 +5,17 @@
 //! from what the data writes (`SPADE_WRITE_SPEC=1 cargo test -p spade-core spec_doc` writes them),
 //! so the spec and the readers can't drift. Pure: the test does the reading and writing.
 
+mod code;
 pub mod conformance;
 mod contracts;
 mod distribution;
+pub mod door;
 mod effects;
 mod index;
 mod markdown;
 mod package;
 mod runtime;
+pub mod schemas;
 mod surfaces;
 #[cfg(test)]
 mod tests;
@@ -32,7 +35,7 @@ pub struct Part {
 }
 
 /// The parts, in the order the spec reads.
-pub const PARTS: [Part; 6] = [
+pub const PARTS: [Part; 7] = [
     Part {
         id: "package",
         title: "Package",
@@ -64,6 +67,12 @@ pub const PARTS: [Part; 6] = [
         fixes: "Contract declaration, call and return, the bounded schema subset, input and output bounds, held effects, taint at entry, exactly-once keys, compatible changes.",
     },
     Part {
+        id: "code",
+        title: "Code",
+        version: "1.0",
+        fixes: "WebAssembly components a package ships: Spade's world `spade:package@1.0.0`, what a component may import, its manifest entry, the checks its binary passes and the bounds of a call.",
+    },
+    Part {
         id: "distribution",
         title: "Distribution",
         version: "1.0",
@@ -92,6 +101,7 @@ pub fn files() -> Result<Vec<File>, Vec<String>> {
             "runtime" => Ok(runtime::regions()),
             "surfaces" => Ok(surfaces::regions()),
             "contracts" => contracts::regions(),
+            "code" => Ok(code::regions()),
             _ => Ok(distribution::regions()),
         };
         match regions {
@@ -111,4 +121,39 @@ pub fn files() -> Result<Vec<File>, Vec<String>> {
     } else {
         Err(problems)
     }
+}
+
+/// A file the data writes whole: its path under `spade/spec/` and its text.
+pub struct Whole {
+    pub path: String,
+    pub text: String,
+}
+
+/// Every file the data writes whole: the rule table and the JSON Schemas.
+pub fn wholes() -> Vec<Whole> {
+    let mut out = vec![Whole {
+        path: "conformance/rules.json".to_owned(),
+        text: pretty(&rules_json()),
+    }];
+    out.extend(schemas::all().into_iter().map(|(name, schema)| Whole {
+        path: format!("schemas/{name}"),
+        text: pretty(&schema),
+    }));
+    out
+}
+
+/// JSON as the spec keeps it: two spaces, one value a line, a newline at the end.
+fn pretty(value: &serde_json::Value) -> String {
+    let mut text = serde_json::to_string_pretty(value).unwrap_or_default();
+    text.push('\n');
+    text
+}
+
+fn rules_json() -> serde_json::Value {
+    serde_json::json!({
+        "license": "Apache-2.0",
+        "about": "Every rule a reader of the Spade Agent Format refuses a package by. A refusal names its rule's `id`, which never changes, so a conformance case matches a refusal by id and never by words. `schema` says whether the part's JSON Schema alone decides it, for a case whose every word is in the file the schema reads (bot.json, or one schema). Written from spade_core::rule; don't edit by hand.",
+        "version": VERSION,
+        "rules": crate::rule::RULES,
+    })
 }

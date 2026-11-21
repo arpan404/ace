@@ -95,6 +95,12 @@ const list = <Item extends z.ZodType>(item: Item) =>
   );
 
 const MembershipList = list(WorkosMembership);
+const MembershipPage = z.looseObject({
+  data: z.array(z.unknown()).max(100),
+  list_metadata: z.looseObject({ after: z.string().nullish() }).nullish(),
+});
+/** Pages read when counting an organization's owners: 10,000 active members. */
+const MAX_MEMBERSHIP_PAGES = 100;
 const InvitationList = list(WorkosInvitation);
 const PortalLink = z.looseObject({ link: z.url() });
 const EventId = WorkosEvent.pick({ id: true });
@@ -171,6 +177,36 @@ export function workosOrgs(config: AccountConfig, fetcher: typeof fetch) {
         await call("GET", `/user_management/organization_memberships?${query}`),
       );
       return found[0];
+    },
+    /**
+     * The organization's active memberships whose role is `role`, read from WorkOS now, page by
+     * page. Stops once `enough` are found: a guard needs to know only whether another owner is.
+     */
+    async activeWithRole(org: string, role: string, enough: number): Promise<WorkosMembership[]> {
+      const found: WorkosMembership[] = [];
+      let after: string | undefined;
+      for (let page = 0; page < MAX_MEMBERSHIP_PAGES; page++) {
+        const query = new URLSearchParams({ organization_id: org, limit: "100" });
+        query.append("statuses", "active");
+        if (after) query.set("after", after);
+        const raw = parse(
+          MembershipPage,
+          await call("GET", `/user_management/organization_memberships?${query}`),
+        );
+        for (const each of raw.data) {
+          const parsed = WorkosMembership.safeParse(each);
+          if (
+            parsed.success &&
+            parsed.data.organization_id === org &&
+            parsed.data.status === "active" &&
+            parsed.data.role?.slug === role
+          )
+            found.push(parsed.data);
+        }
+        after = raw.list_metadata?.after ?? undefined;
+        if (found.length >= enough || !after || raw.data.length === 0) return found;
+      }
+      throw new Error("WorkOS listed more memberships than ace reads");
     },
     updateMembershipRole: async (membership: string, role: string) =>
       parse(

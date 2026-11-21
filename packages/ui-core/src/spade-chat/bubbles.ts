@@ -519,6 +519,18 @@ function replyBubbles(
     const bubble = bubbles[latest];
     if (bubble?.kind === "bot" && bubble.text) bubbles[latest] = { ...bubble, keep: entry.reply };
   }
+  // Where it ran when its route moved it (ADR 0205 §2): once per line, the one that says why
+  // before "like the step before".
+  const served = [
+    ...new Set(entry.parts.flatMap((part) => (part.kind === "served" ? [part.line] : []))),
+  ];
+  const said = served.filter((line) => line.includes(":"));
+  for (const line of said.length ? said : served.slice(0, 1))
+    bubbles.push({
+      kind: "quiet",
+      key: `${entry.key}:served:${line}`,
+      quiet: { kind: "served", line },
+    });
   // What it did, under what it said.
   const steps = spadeReplySteps(entry);
   if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps });

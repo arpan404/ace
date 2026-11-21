@@ -19,6 +19,7 @@ mod memory;
 mod moves;
 mod org;
 mod org_guard;
+mod outside;
 mod oversight;
 mod packages;
 mod panels;
@@ -125,7 +126,18 @@ pub fn router(state: AppState) -> Router {
         .route("/org/audit/export", get(org::export))
         .route("/agents/{id}/access", get(org::access).put(org::set_access))
         .route("/endpoints", post(endpoints::create))
-        .route("/endpoints/local", get(endpoints::local))
+        .route(
+            "/endpoints/local",
+            get(endpoints::local)
+                .patch(endpoints::update_local)
+                .delete(endpoints::delete_local),
+        )
+        .route(
+            "/endpoints/local/models",
+            get(endpoints::live_local)
+                .post(endpoints::save_local_model)
+                .delete(endpoints::delete_local_model),
+        )
         .route("/endpoints/local/{server}", post(endpoints::use_local))
         .route(
             "/endpoints/{id}",
@@ -216,6 +228,7 @@ pub fn router(state: AppState) -> Router {
         .merge(packages::routes())
         .merge(contracts::routes())
         .merge(thread_asks::routes())
+        .merge(outside::routes())
         .merge(moves::routes())
         .merge(wakes::routes())
         .merge(digests::routes())

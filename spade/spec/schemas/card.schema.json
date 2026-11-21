@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.acehq.dev/1.0/card.schema.json",
+  "title": "Spade Agent Format 1.0: A card",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "The card's title, briefly."
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "One block. kind fields: {rows: [{label, value}]}. metric: {label, value, unit?, change?}. progress: {label?, value, max}. table: {columns: [..], rows: [[..]]}. list: {items: [..], ordered?}. image: {file, alt} (a file in your workspace). link: {url, label?} (https). actions: {actions: [{kind: \"choose\", id, label} | {kind: \"open\", label, url} | {kind: \"open\", label, panel} (one of your package's panels)]}.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fields",
+              "metric",
+              "progress",
+              "table",
+              "list",
+              "image",
+              "link",
+              "actions"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "maxItems": 12
+    }
+  },
+  "required": [
+    "title"
+  ]
+}

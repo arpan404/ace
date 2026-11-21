@@ -51,6 +51,7 @@ describe("what a grant may do, in words", () => {
       ["threads:read", "threads:start", "browser", "computer"],
       "Read and start threads, use the browser and use the screen",
     ],
+    [["threads:read", "spade-contracts"], "Read threads and call your bots' contracts"],
   ] as const)("%j reads %s", (scopes, words) => {
     expect(scopeWords(scopes)).toBe(words);
   });

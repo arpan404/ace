@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "part": "surfaces",
-  "about": "The surfaces part's cases: cards and panels declared in the manifest, a panel's state and its actions. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "about": "The surfaces part's cases: cards and panels declared in the manifest, a panel's state and its actions. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
   "base": {
     "format": "spade-bot",
     "version": 3,
@@ -115,7 +115,7 @@
       "with": {
         "surfaces": {}
       },
-      "refused": "surfaces is a list"
+      "rule": "surfaces.list"
     },
     {
       "id": "surfaces/panels-page-outside-its-folder",
@@ -173,7 +173,7 @@
           }
         ]
       },
-      "refused": "panels/watchlist/index.html"
+      "rule": "surfaces.panel-file"
     },
     {
       "id": "surfaces/panel-with-no-title",
@@ -231,7 +231,7 @@
           }
         ]
       },
-      "refused": "title names the panel"
+      "rule": "surfaces.title"
     },
     {
       "id": "surfaces/surface-id-in-capitals",
@@ -289,7 +289,7 @@
           }
         ]
       },
-      "refused": "id is a short name"
+      "rule": "surfaces.id"
     },
     {
       "id": "surfaces/two-surfaces-with-one-id",
@@ -396,7 +396,7 @@
           }
         ]
       },
-      "refused": "an id of its own"
+      "rule": "surfaces.id-unique"
     },
     {
       "id": "surfaces/surface-kind-this-build-doesnt-have",
@@ -410,7 +410,7 @@
           }
         ]
       },
-      "refused": "Needs a newer Spade"
+      "rule": "surfaces.kind"
     },
     {
       "id": "surfaces/cards-file-outside-cards",
@@ -424,7 +424,7 @@
           }
         ]
       },
-      "refused": "cards/<name>.json"
+      "rule": "surfaces.card-file"
     },
     {
       "id": "surfaces/state-with-a-keyword-this-build-doesnt-enforce",
@@ -457,7 +457,7 @@
           }
         ]
       },
-      "refused": "isn't in the schema subset"
+      "rule": "schema.keyword"
     },
     {
       "id": "surfaces/state-requiring-a-field-it-doesnt-have",
@@ -494,7 +494,7 @@
           }
         ]
       },
-      "refused": "required names fields its properties have"
+      "rule": "schema.required"
     },
     {
       "id": "surfaces/state-nested-more-than-six-levels",
@@ -555,7 +555,7 @@
           }
         ]
       },
-      "refused": "nests at most 6 levels"
+      "rule": "schema.depth"
     },
     {
       "id": "surfaces/enum-of-no-words",
@@ -586,7 +586,7 @@
           }
         ]
       },
-      "refused": "enum lists 1 to 64 words"
+      "rule": "schema.enum"
     },
     {
       "id": "surfaces/two-actions-with-one-name",
@@ -639,7 +639,7 @@
           }
         ]
       },
-      "refused": "a name of its own"
+      "rule": "surfaces.action-name-unique"
     },
     {
       "id": "surfaces/action-named-with-a-dash",
@@ -689,7 +689,7 @@
           }
         ]
       },
-      "refused": "name is a short name"
+      "rule": "surfaces.action-name"
     },
     {
       "id": "surfaces/confirm-that-is-not-true-or-false",
@@ -740,7 +740,7 @@
           }
         ]
       },
-      "refused": "confirm is true or false"
+      "rule": "surfaces.confirm"
     }
   ]
 }

@@ -79,9 +79,9 @@ pub fn read_update<'a>(
     let schema = schema::read(state, "state").map_err(|found| {
         found
             .into_iter()
-            .map(|why| Problem {
+            .map(|found| Problem {
                 at: String::new(),
-                why,
+                why: found.text,
             })
             .collect::<Vec<_>>()
     })?;
@@ -177,7 +177,7 @@ pub fn act(
                 return Err(Refused::Misfit("it is larger than 8 KB".to_owned()));
             }
             let schema = schema::read(declared, "value")
-                .map_err(|found| Refused::Misfit(found.join("; ")))?;
+                .map_err(|found| Refused::Misfit(crate::rule::joined(&found, "; ")))?;
             let problems = schema.check(value, "value");
             if !problems.is_empty() {
                 let listed: Vec<String> = problems.iter().map(ToString::to_string).collect();

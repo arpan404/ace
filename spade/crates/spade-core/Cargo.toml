@@ -16,6 +16,10 @@ serde_json.workspace = true
 sha2.workspace = true
 spade-models = { path = "../spade-models" }
 url = "2"
+wasmparser = { version = "0.254", default-features = false, features = ["std", "validate", "features", "component-model", "simd"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+wat = "=1.254.2"

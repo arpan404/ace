@@ -40,6 +40,15 @@ tokio = { version = "1.54.1", features = [
 ] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 uuid = { version = "1", features = ["v4", "v7"] }
+# A package's WebAssembly components run on Wasmtime (ADR 0203 §3), pinned: the newest release
+# whose minimum Rust is Spade's. Only what Spade uses: Cranelift, the runtime and the component
+# model; no WASI, caching, profiling, debugging, GC, threads or async.
+wasmtime = { version = "=48.0.10", default-features = false, features = [
+  "cranelift",
+  "runtime",
+  "component-model",
+  "std",
+] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
