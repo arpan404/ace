@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "vitest";
 import { personOnlyRoute, personOnlyWrite, personStamp } from "./person-stamp.ts";
 
 const json = (value: unknown) => Buffer.from(JSON.stringify(value));
+const sha = (body: Buffer) => createHash("sha256").update(body).digest("hex");
 
 test("only a change that could turn Full access on needs the person", () => {
   const bot = "/v1/agents/a_1/security/autonomy";
@@ -37,7 +39,6 @@ test("only a change that could turn Full access on needs the person", () => {
     // Going back to the auto-review, and everything else, never does.
     ["PUT", bot, json({ autonomy: "auto_review" }), undefined],
     ["PUT", "/v1/security/autonomy", json({ autonomy: "auto_review" }), undefined],
-    ["PUT", "/v1/agents/a_1/security/commands", json({ commands: "outside" }), undefined],
     ["GET", bot, undefined, undefined],
     // A body Spade can't read is refused there, stamp or not.
     ["PUT", bot, Buffer.from("{not json"), undefined],
@@ -116,4 +117,95 @@ test("passing Spade's host choice on is the person's, stamped over the whole rec
       undefined,
     );
   expect(personOnlyWrite("GET", "/v1/main/host", body)).toBe(undefined);
+});
+
+test("turning a Permissions switch on, or changing the never-use list, is stamped when the caller can prove it", () => {
+  const bot = "/v1/agents/a_1/security/permissions";
+  const machine = "/v1/security/permissions";
+  const never = "/v1/security/never-apps";
+  const cases: [string, Buffer | undefined, unknown][] = [
+    [
+      bot,
+      json({ key: "computer_use", on: true }),
+      { target: "a_1", value: "permission:computer_use:true", optional: true },
+    ],
+    // Following the default can raise a bot.
+    [
+      bot,
+      json({ key: "browser", on: null }),
+      { target: "a_1", value: "permission:browser:null", optional: true },
+    ],
+    [
+      bot,
+      json({ key: "browser" }),
+      { target: "a_1", value: "permission:browser:null", optional: true },
+    ],
+    [
+      machine,
+      json({ key: "devices", on: true }),
+      { target: "machine", value: "permission:devices:true", optional: true },
+    ],
+    // The list as sent, whatever it adds or drops: the daemon can't see which.
+    [
+      never,
+      json({ apps: ["1Password", "Mail"] }),
+      { target: "machine", value: "never_apps:1Password\u001fMail", optional: true },
+    ],
+    // Turning a switch off never does, nor does a body Spade won't take.
+    [bot, json({ key: "computer_use", on: false }), undefined],
+    [machine, json({ key: "devices", on: false }), undefined],
+    [machine, json({ key: "devices" }), undefined],
+    [bot, json({ key: "Not A Switch", on: true }), undefined],
+    [never, json({ apps: [1] }), undefined],
+    [bot, Buffer.from("{not json"), undefined],
+  ];
+  for (const [path, body, expected] of cases)
+    expect(personOnlyWrite("PUT", path, body), `${path} ${body?.toString()}`).toEqual(expected);
+  // Sent in parts, it couldn't be read whole before it is stamped.
+  for (const path of [bot, machine, never]) expect(personOnlyRoute("PUT", path)).toBeDefined();
+});
+
+test("a change that may loosen what a bot may do is stamped over the bytes Spade receives", () => {
+  const outside = json({ commands: "outside" });
+  const open = json({ mode: "open", allow: [], dropped: [] });
+  const grant = json({ kind: "folder", path: "/Users/me/app", write: true });
+  const cases: [string, string, Buffer | undefined, unknown][] = [
+    ["PUT", "/v1/agents/a_1/security/commands", outside, `commands:${sha(outside)}`],
+    ["PUT", "/v1/security/commands", outside, `commands:${sha(outside)}`],
+    ["PUT", "/v1/agents/a_1/security/network", open, `network:${sha(open)}`],
+    ["PUT", "/v1/security/plugin-network", open, `plugin_network:${sha(open)}`],
+    ["DELETE", "/v1/agents/a_1/security/network", undefined, "network:inherit"],
+    ["DELETE", "/v1/agents/a_1/security/plugin-network", undefined, "plugin_network:inherit"],
+    ["POST", "/v1/agents/a_1/grants", grant, `grant:${sha(grant)}`],
+    [
+      "PUT",
+      "/v1/agents/a_1/connectors",
+      json({ all: true }),
+      `connectors:${sha(json({ all: true }))}`,
+    ],
+    [
+      "PUT",
+      "/v1/agents/a_1/package/effects",
+      json({ key: "pay", on: true }),
+      `package_effect:${sha(json({ key: "pay", on: true }))}`,
+    ],
+  ];
+  for (const [method, path, body, value] of cases) {
+    const target = path.startsWith("/v1/security") ? "machine" : "a_1";
+    expect(personOnlyWrite(method, path, body), `${method} ${path}`).toEqual({
+      target,
+      value,
+      optional: true,
+    });
+    // Sent in parts, it couldn't be read whole before it is stamped.
+    expect(personOnlyRoute(method, path), `${method} ${path}`).toBeDefined();
+  }
+  // Reads, revoking a grant and routes that loosen nothing aren't stamped.
+  for (const [method, path] of [
+    ["GET", "/v1/agents/a_1/security/network"],
+    ["DELETE", "/v1/agents/a_1/grants/g1"],
+    ["DELETE", "/v1/agents/a_1/security/commands"],
+    ["PUT", "/v1/agents/a_1/security/toolchains"],
+  ] as const)
+    expect(personOnlyWrite(method, path, json({})), `${method} ${path}`).toBeUndefined();
 });

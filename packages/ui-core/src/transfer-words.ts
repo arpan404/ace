@@ -15,6 +15,11 @@ export interface Refusal {
 /** The running sentence, by phase; a working thread's move by its stage (ADR 0191). */
 export function runningWords(transfer: Transfer): string {
   const to = transfer.target.name;
+  // Its machine isn't linked now: it waits for that machine, and never goes to another.
+  if (transfer.unlinked)
+    return transfer.live
+      ? `This thread is moving to ${to}, which isn't linked any more`
+      : `Waiting for ${to}, which isn't linked any more`;
   const live = liveWords(transfer);
   if (live) return live;
   switch (transfer.phase) {
@@ -110,6 +115,16 @@ function codeWords(code: string | undefined, machine: string): string {
       return "This thread moved to another machine. Continue it there.";
     case "target_too_old":
       return `${machine} runs an older ace that can't take a working thread. Let it finish here, or update ace there.`;
+    // A working thread's move that stopped before handing over (ADR 0191): it stays here.
+    case "process_still_running":
+    case "tree_still_working":
+      return "Something in the thread didn't stop, so it stayed here. Stop it, then try again.";
+    case "process_unconfirmed":
+      return "An agent here didn't confirm it stopped, so the thread stayed here. Try again.";
+    case "remote_child_unconfirmed":
+      return "A subagent on another machine never confirmed it stopped, so the thread stayed here.";
+    case "remote_children_unread":
+      return "The subagents on other machines couldn't all be checked in time, so the thread stayed here.";
     case "workspace_change_in_progress":
       return "The thread's checkout is still being changed. Try again once that's done.";
     case "workspace_preparing":
@@ -164,4 +179,10 @@ function codeWords(code: string | undefined, machine: string): string {
     default:
       return `Couldn't send it to ${machine}.`;
   }
+}
+
+/** What carrying a moving thread on here risks, said before the person chooses it. */
+export function carryOnWarning(transfer: Transfer): string {
+  const to = transfer.target.name;
+  return `If ${to} already took the thread, both may run. Carry on here?`;
 }

@@ -250,6 +250,10 @@ export async function fakeSpade() {
   let beforeCreate: (() => Promise<void> | void) | undefined;
   const hanging: ServerResponse[] = [];
   const packageCalls: { bot: string; method: string; path: string; body: unknown }[] = [];
+  /** The terms notices handed over, each as sent. */
+  const notices: unknown[] = [];
+  /** Whether a package's `fast` and `capable` routes hold a model that calls tools. */
+  let packageTools = { fast: true, capable: true };
   /** What Spade's plan says an update does: here, the person's edited task stays. */
   let packagePlan: unknown = {
     name: "same",
@@ -261,6 +265,9 @@ export async function fakeSpade() {
     asks_more: ["publish"],
     off: [],
   };
+  /** What a free replay of a bot's kept runs answers (ADR 0204 §2); none kept by default. */
+  let replay: unknown = { summary: "No kept runs to replay.", passed: 0, failed: 0, cases: [] };
+  const replayCalls: { bot: string; body: unknown }[] = [];
   const token = "spade-test-token";
   const server = createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`)
@@ -271,6 +278,15 @@ export async function fakeSpade() {
       ? JSON.parse(Buffer.concat(chunks).toString("utf8"))
       : undefined;
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method === "GET" && url.pathname === "/v1/models/package-routes")
+      return send(response, 200, {
+        fast: { tools: packageTools.fast, route: [] },
+        capable: { tools: packageTools.capable, route: [] },
+      });
+    if (request.method === "PUT" && url.pathname === "/v1/subscriptions/notices") {
+      notices.push(body);
+      return send(response, 200, { applied: true });
+    }
     if (request.method === "GET" && url.pathname === "/v1/agents")
       return send(response, 200, {
         // oxlint-disable-next-line oxc/no-map-spread -- Builds the answer from stored bots without changing them.
@@ -311,6 +327,11 @@ export async function fakeSpade() {
         deleted ? 200 : 404,
         deleted ? { ok: true } : { error: "no such agent" },
       );
+    }
+    const replayed = /^\/v1\/agents\/([^/]+)\/cases\/replay$/.exec(url.pathname);
+    if (replayed?.[1] && request.method === "POST") {
+      replayCalls.push({ bot: decodeURIComponent(replayed[1]), body });
+      return send(response, 200, { replay });
     }
     // A linked bot's package (ADR 0200): the plan it answers, each update and each withdrawal.
     const linked = /^\/v1\/agents\/([^/]+)\/package(\/plan|\/withdrawn)?$/.exec(url.pathname);
@@ -355,8 +376,17 @@ export async function fakeSpade() {
     allowed,
     /** Updates, rollbacks, withdrawals and resumptions of linked bots, in order. */
     packageCalls,
+    notices,
+    setPackageTools(next: { fast: boolean; capable: boolean }) {
+      packageTools = next;
+    },
     setPlan(plan: unknown) {
       packagePlan = plan;
+    },
+    /** The replays asked for, in order, and what the next answers. */
+    replayCalls,
+    setReplay(next: unknown) {
+      replay = next;
     },
     connection: () => (running ? { host: "127.0.0.1", port, token } : undefined),
     /** Spade's version as it reports it; undefined before it has answered. */
@@ -451,9 +481,11 @@ export async function marketplaceHarness(options: {
   spade: ReturnType<typeof fakeSpade> extends Promise<infer T> ? T : never;
   /** What the publish picker reads; a test sets the person's own skills and plugins. */
   pick?: PickPorts;
+  /** Where the service's clock starts: the real time, for grants a real market checks. */
+  clock?: number;
 }) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-market-")));
-  let clock = 1_700_000_000_000;
+  let clock = options.clock ?? 1_700_000_000_000;
   let ids = 0;
   const id = () => `id-${++ids}`;
   const suits = new SuitLibrary({
@@ -474,6 +506,8 @@ export async function marketplaceHarness(options: {
     on: boolean;
     beforeSuitInstall?: (() => Promise<void>) | undefined;
     onFetch?: ((url: string) => void) | undefined;
+    /** Answers in the market's place, as a compromised Worker or a network in between would. */
+    respond?: ((url: string) => Promise<Response> | undefined) | undefined;
   } = { on: true };
   const open = () =>
     MarketplaceService.open({
@@ -482,7 +516,7 @@ export async function marketplaceHarness(options: {
       id,
       fetch: (url, init) => {
         hooks.onFetch?.(String(url));
-        return fetch(url, init);
+        return hooks.respond?.(String(url)) ?? fetch(url, init);
       },
       enabled: async () => hooks.on,
       origin: options.origin,

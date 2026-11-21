@@ -161,6 +161,10 @@ export interface ServerOptions {
   remoteConfig?: import("./config.ts").Config;
   /** This machine's ace account and machine code (ADR 0111). */
   machineAccount?: import("./account-access/machine-account.ts").MachineAccount;
+  /** How often an org host's daemon forwards Spade's audit log and reads its policy. */
+  orgHostIntervals?: Partial<typeof import("./org-host/link.ts").orgHostIntervals>;
+  /** The fetch the org-host link calls ace's account backend with. */
+  orgHostFetch?: typeof fetch;
   network?: import("./network.ts").NetworkRuntime;
   webRoot?: string;
   applyRemoteSetting?: (key: string, value: unknown, commit: () => Promise<void>) => Promise<void>;

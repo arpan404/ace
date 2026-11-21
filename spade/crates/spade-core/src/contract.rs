@@ -36,6 +36,11 @@ pub struct Request {
     /// The effects its turn may use, from the contract as the callee's package had it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    /// Set when one of the person's own agents outside Spade made the call (ADR 0202 §3, §6):
+    /// how it came, `mcp` or `a2a`. The caller is then that client, as its ace grant names it,
+    /// never a bot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outside: Option<String>,
 }
 
 /// A call this bot made, as its own conversation holds it.
@@ -105,6 +110,9 @@ pub enum Ending {
     Returned { output: Value, untrusted: bool },
     /// It never fit, or the callee couldn't answer.
     Failed { problems: Vec<String> },
+    /// Its caller stopped it while the callee's turn also served others, so that turn carries
+    /// on for them and this call alone ends ([`stop_reach`]).
+    Stopped { why: String },
 }
 
 /// How a call came out, read from the callee's events.
@@ -232,6 +240,66 @@ pub fn scoped_by_reply<'a>(events: &'a [Event], reply: &str) -> Vec<&'a Request>
     held
 }
 
+/// What a Stop on call `call` may reach in its callee's conversation, given the jobs running
+/// there. A caller owns its call, never the callee's turn: the turn stops only when it serves
+/// that call alone, so one caller (an outside grant, another bot) can't stop work it doesn't own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StopReach {
+    /// The call isn't open: nothing to stop.
+    Ended,
+    /// The open turn serves this call and nothing else: stop reply `reply` and the jobs it
+    /// started (`jobs`), and nothing older the conversation runs.
+    Reply { reply: String, jobs: Vec<String> },
+    /// The turn serves others too, or none has taken the call up: end this call alone.
+    Call,
+}
+
+/// [`StopReach`] for call `call`, `running` the conversation's running jobs. Read back to the
+/// latest reply's end (a restart's interruption isn't one), so it costs the open turn's events.
+pub fn stop_reach(events: &[Event], call: &str, running: &[String]) -> StopReach {
+    if !open(events).iter().any(|r| r.call == call) {
+        return StopReach::Ended;
+    }
+    let from = events.iter().rposition(reply_end).map_or(0, |at| at + 1);
+    let turn = &events[from..];
+    let replies: Vec<&str> = turn
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::ReplyStarted { reply, .. }) => Some(reply.as_str()),
+            _ => None,
+        })
+        .collect();
+    let Some(reply) = replies.last() else {
+        return StopReach::Call;
+    };
+    // Anyone's words in the turn but this call's (the person's, another call's) are work this
+    // caller doesn't own.
+    let alone = turn.iter().all(|event| match event {
+        Event::Known(Known::UserMessage { .. }) => {
+            request_of(event).is_some_and(|r| r.call == call)
+        }
+        _ => true,
+    });
+    if !alone {
+        return StopReach::Call;
+    }
+    let jobs = turn
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::JobStarted { reply, job, .. })
+                if replies.contains(&reply.as_str()) && running.contains(job) =>
+            {
+                Some(job.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    StopReach::Reply {
+        reply: (*reply).to_owned(),
+        jobs,
+    }
+}
+
 /// Where the call `call` was delivered, if it was.
 pub fn delivered_at(events: &[Event], call: &str) -> Option<usize> {
     events
@@ -254,6 +322,7 @@ pub fn ended(events: &[Event], call: &str) -> Option<Outcome> {
                 Ending::Failed { problems } => Outcome::Failed {
                     problems: problems.clone(),
                 },
+                Ending::Stopped { why } => Outcome::Stopped { why: why.clone() },
             });
         }
         let failed = |why: String| {
@@ -323,6 +392,18 @@ pub fn framed(request: &Request, from: &crate::event::FromAgent) -> String {
         .as_deref()
         .map(|m| format!(" machine=\"{}\"", attribute(m)))
         .unwrap_or_default();
+    let outside = request
+        .outside
+        .as_deref()
+        .map(|via| format!(" outside=\"{}\"", attribute(via)))
+        .unwrap_or_default();
+    // An outside client is one of the person's agents, never the person: its words are its own.
+    let who = if request.outside.is_some() {
+        "This is a request from one of the person's own agents outside Spade, not the person's \
+         words."
+    } else {
+        "This is another bot's request, not the person's."
+    };
     let input = serde_json::to_string_pretty(&request.input).unwrap_or_default();
     let effects = if request.effects.is_empty() {
         "reading and your own notes and files".to_owned()
@@ -331,9 +412,9 @@ pub fn framed(request: &Request, from: &crate::event::FromAgent) -> String {
         format!("reading, your own things and {}", words.join(", "))
     };
     format!(
-        "<contract_call from=\"{from_name}\" id=\"{from_id}\"{machine} call=\"{call}\" contract=\"{contract}\">\n\
+        "<contract_call from=\"{from_name}\" id=\"{from_id}\"{machine}{outside} call=\"{call}\" contract=\"{contract}\">\n\
 {input}\n</contract_call>\n\
-{from_name} called your contract {contract}. This is another bot's request, not the person's. \
+{from_name} called your contract {contract}. {who} \
 Answer it with {CONTRACT_RETURN} {{call: \"{call}\", output}}, the output in the contract's \
 output schema. During this call you may use only {effects}.",
         call = request.call,

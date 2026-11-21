@@ -12,7 +12,8 @@
     "schedule",
     "devices",
     "outward",
-    "notify"
+    "notify",
+    "code"
   ],
   "type": "string"
 }

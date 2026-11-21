@@ -56,7 +56,7 @@ export function moveResolver(
   sameProject: (next: Machine) => string | undefined = () => undefined,
 ): { resolve(next: Machine): Promise<Move> } {
   const moves = new Map<string, Promise<Move>>();
-  let origin: Promise<string | undefined> | undefined;
+  let origin: Promise<Awaited<ReturnType<typeof projectOrigin>>> | undefined;
   const originOnce = () =>
     (origin ??= home?.client ? projectOrigin(home.client, project) : Promise.resolve(undefined));
   let subpath: Promise<string> | undefined;
@@ -71,8 +71,8 @@ export function moveResolver(
     // The earlier copy and the same repository there are asked for together.
     const [kept, same] = await Promise.all([
       copied && client ? registered(client, copied) : false,
-      Promise.all([originOnce(), subpathOnce()]).then(([url, folder]) =>
-        url && client ? projectWithOrigin(client, url, folder) : undefined,
+      Promise.all([originOnce(), subpathOnce()]).then(([found, folder]) =>
+        found && client ? projectWithOrigin(client, found, folder) : undefined,
       ),
     ]);
     if (copied && kept) return { project: copied };

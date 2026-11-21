@@ -1,3 +1,4 @@
+import { notDeleted } from "./tombstone.ts";
 import { z } from "zod";
 import { AceAccountGrant } from "@ace/protocol/ace-account";
 import type { Sealer } from "./crypto.ts";
@@ -15,12 +16,15 @@ const Row = z.object({
   /** Where the browser goes when the sign-in ends (return-to.ts), if the app asked. */
   return_to: z.string().nullable(),
   /** Who will hold the session (ADR 0190); NULL for sign-ins from before it was kept. */
-  holder: z.enum(["person", "machine"]).nullable().catch(null),
+  holder: z.enum(["person", "machine", "join"]).nullable().catch(null),
+  /** The organization a sign-in enters (ADR 0206 §1.4), passed to WorkOS as `organization_id`. */
+  org: z.string().nullable().optional(),
 });
 export type LoginRow = z.infer<typeof Row>;
 
 const changed = (result: D1Result) => result.meta.changes > 0;
-const columns = "id, secret, expires, phase, binding, verifier, session, issued, return_to, holder";
+const columns =
+  "id, secret, expires, phase, binding, verifier, session, issued, return_to, holder, org";
 
 /**
  * Pending sign-ins. A Worker keeps nothing between requests, so each step is a conditional
@@ -49,13 +53,15 @@ export function loginStore(db: D1Database, sealer: Sealer) {
       secret: string,
       expires: number,
       returnTo: string | null,
-      holder: "person" | "machine",
+      /** `join`: the join page's sign-in, which accepts an invitation and keeps no session. */
+      holder: "person" | "machine" | "join",
+      org: string | null = null,
     ) {
       await db
         .prepare(
-          "INSERT INTO logins (id, secret, expires, phase, return_to, holder) VALUES (?, ?, ?, 'new', ?, ?)",
+          "INSERT INTO logins (id, secret, expires, phase, return_to, holder, org) VALUES (?, ?, ?, 'new', ?, ?, ?)",
         )
-        .bind(id, secret, expires, returnTo, holder)
+        .bind(id, secret, expires, returnTo, holder, org)
         .run();
     },
     get: (id: string, now: number) =>
@@ -99,14 +105,22 @@ export function loginStore(db: D1Database, sealer: Sealer) {
         .bind(id)
         .run();
     },
-    /** False when the login was cancelled or expired while WorkOS was answering. */
+    /**
+     * Completes a sign-in with its session and the grant the app claims, only while that
+     * session still exists and its account has no deletion recorded: a deletion that removed
+     * the session first leaves no sealed grant and no success behind. False then, and when the
+     * login was cancelled or expired while WorkOS was answering.
+     */
     async complete(id: string, session: string, grant: AceAccountGrant, now: number) {
       return changed(
         await db
           .prepare(
-            "UPDATE logins SET phase = 'complete', verifier = NULL, session = ?, issued = ? WHERE id = ? AND phase = 'exchanging' AND expires > ?",
+            `UPDATE logins SET phase = 'complete', verifier = NULL, session = ?1, issued = ?2
+             WHERE id = ?3 AND phase = 'exchanging' AND expires > ?4
+               AND EXISTS (SELECT 1 FROM sessions WHERE token = ?1)
+               AND ${notDeleted("?5")}`,
           )
-          .bind(session, await sealer.seal(JSON.stringify(grant), id), id, now)
+          .bind(session, await sealer.seal(JSON.stringify(grant), id), id, now, grant.account.id)
           .run(),
       );
     },

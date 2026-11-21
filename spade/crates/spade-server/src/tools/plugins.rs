@@ -121,8 +121,12 @@ impl Tool for PluginCall {
     fn hints(&self) -> Option<spade_core::effect::Mcp> {
         Some(spade_core::effect::Mcp {
             read_only: self.def.risk == Risk::Read,
+            destructive: self.def.risk == Risk::Destructive,
             annotated: self.tool.annotated,
             declared: self.server.declared(&self.tool.name),
+            // A plugin's server is the person's install, not a server ace reviewed: its
+            // annotations lower nothing (ADR 0202 §2).
+            trusted: false,
         })
     }
 

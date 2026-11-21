@@ -66,3 +66,22 @@ test("standing proven before a release, or while it runs, stops counting the mom
   expect(owner.holds(during ?? before)).toBe(false);
   expect(owner.holds(owner.generation())).toBe(true);
 });
+
+test("given to an organization, the machine answers to it across a restart, and no person's proof claims it until it is released", async () => {
+  const { owner, root } = await owned("user_p");
+  const before = owner.generation();
+  let dropped = false;
+  // Only the owner, proven under the current generation, gives it.
+  expect(await owner.enroll("user_q", "org_team", before, () => {})).toBe(false);
+  expect(await owner.enroll("user_p", "org_team", before, () => (dropped = true))).toBe(true);
+  expect(dropped).toBe(true);
+  expect(owner.holds(before)).toBe(false);
+  const again = machineOwner(root);
+  await again.load();
+  expect(again.org()).toBe("org_team");
+  expect(again.current()).toBeUndefined();
+  expect(await again.claim("user_p", again.generation())).toBe(false);
+  await again.release(() => {});
+  expect(again.org()).toBeUndefined();
+  expect(await again.claim("user_q", again.generation())).toBe(true);
+});

@@ -15,7 +15,7 @@ import { betaKeys } from "@ace/settings/beta";
 import { pickPorts } from "../marketplace/pick-ports.ts";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
-import { MarketAgent } from "../marketplace/market-agent.ts";
+import { MarketAgent, membershipOf } from "../marketplace/market-agent.ts";
 import { hostMarketStanding } from "../marketplace/fresh-sign-in.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -122,6 +122,8 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       // A person's market grant goes only with the person's own request, never an agent's.
       const { operation, thread } = message;
       const personGrant = thread ? undefined : message.personGrant;
+      // So does a member's grant for an organization's registry (ADR 0206 §5.3).
+      const orgGrant = thread ? undefined : message.orgGrant;
       const agent = options.marketAgent;
       // A Suit or a Spade skill that runs nothing installs without the person, judged from the
       // daemon's own review of the bytes, never from the request (ADR 0178 §12.8).
@@ -138,7 +140,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
         const decided = standing();
         return "refusal" in decided
           ? decided.refusal
-          : market.asPerson(operation, personGrant, decided.run);
+          : market.asPerson(operation, personGrant, decided.run, orgGrant);
       };
       const run = agent
         ? () => (thread ? agent.forAgent(thread, operation) : asPerson(agent))
@@ -148,7 +150,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
               const decided = standing();
               return "refusal" in decided
                 ? decided.refusal
-                : serviceAlone(options, operation, personGrant, decided.run);
+                : serviceAlone(options, operation, personGrant, decided.run, orgGrant);
             }
           : undefined;
       if (!run) {
@@ -180,6 +182,7 @@ function serviceAlone(
   operation: MarketOperation,
   personGrant: string | undefined,
   by: "person" | "without-person",
+  orgGrant: string | undefined,
 ): Promise<MarketResult> {
   const { marketplace, machineAccount: account } = options;
   const grant = account ? () => account.marketGrant() : undefined;
@@ -187,7 +190,13 @@ function serviceAlone(
   return (
     marketplace?.request(
       operation,
-      operation.op === "publish" ? { grant, personGrant } : { withoutPerson },
+      operation.op === "publish"
+        ? { grant, personGrant }
+        : {
+            withoutPerson,
+            ...(orgGrant ? { orgGrant } : {}),
+            ...(account ? { membership: () => membershipOf(account) } : {}),
+          },
     ) ??
     Promise.resolve({
       op: "error",

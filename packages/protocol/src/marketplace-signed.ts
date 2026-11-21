@@ -17,6 +17,10 @@ import {
 export const MarketKeyId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const Signature = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
+/** An Ed25519 public key and signature, base64url. */
+export { PublicKey as MarketPublicKey, Signature as MarketSignature };
+/** A WorkOS organization id, ace's org id (ADR 0206 §1.1). */
+export const MarketOrgId = z.string().regex(/^org_[A-Za-z0-9]{1,64}$/);
 
 /** The market's public keys a build ships: two at a time, so one can rotate. */
 export const MarketKeySet = z.object({
@@ -43,6 +47,12 @@ export const VersionManifest = z.strictObject({
   size: z.number().int().nonnegative(),
   published: z.number().int().nonnegative(),
   key: MarketKeyId,
+  /**
+   * An organization's private registry signed this, with its own key (ADR 0206 §5.2): the
+   * version is the organization's, verified against its pinned key chain, never ace's keys.
+   * Absent on everything the market's signer signs.
+   */
+  registry: MarketOrgId.optional(),
 });
 export type VersionManifest = z.infer<typeof VersionManifest>;
 
@@ -170,3 +180,25 @@ export const MarketOfficialList = z.strictObject({
   key: MarketKeyId,
 });
 export type MarketOfficialList = z.infer<typeof MarketOfficialList>;
+
+/**
+ * A change to a coding subscription's terms between builds (ADR 0205 §4): one provider's status
+ * as ace read its maker's terms, a line for the person, and when it was read. Signed by the
+ * signer and served at `/v1/notices`. A device only ever lets one make a status stricter than
+ * the record its build ships; loosening needs a new build.
+ */
+export const MarketTermsNotice = z.strictObject({
+  provider: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
+  status: z.enum(["allowed", "unclear", "refused"]),
+  note: z.string().max(500),
+  at: z.number().int().nonnegative(),
+});
+export type MarketTermsNotice = z.infer<typeof MarketTermsNotice>;
+
+export const MarketNotices = z.strictObject({
+  format: z.literal("ace-market-notices"),
+  issued: z.number().int().nonnegative(),
+  notices: z.array(MarketTermsNotice).max(64),
+  key: MarketKeyId,
+});
+export type MarketNotices = z.infer<typeof MarketNotices>;

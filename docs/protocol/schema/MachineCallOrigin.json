@@ -2,6 +2,14 @@
   "$id": "https://ace.local/protocol/v1/MachineCallOrigin.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "accepts": {
+      "items": {
+        "maxLength": 32,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "agentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },

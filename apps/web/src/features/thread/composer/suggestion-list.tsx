@@ -38,6 +38,9 @@ export function SuggestionList(props: {
         align="start"
         sideOffset={8}
         anchor={() => props.anchor.current}
+        // A list taller than the room above flips below or shrinks to fit, never moving beside
+        // the composer: a popover's default would try its left and right sides next.
+        collisionAvoidance={{ fallbackAxisSide: "none" }}
         collisionPadding={{ top: 48, right: 8, bottom: 8, left: 8 }}
         initialFocus={false}
         finalFocus={false}

@@ -95,6 +95,11 @@ export type SpawnOptions = {
   schedule?: (run: () => void, ms: number) => () => void;
   /** Opt in to dropping oversized stdout lines. Stderr and total budgets still kill. */
   onStdoutLineDropped?: (line: DroppedOutputLine) => void;
+  /**
+   * Opt in to dropping oversized stderr lines, for children whose stderr is diagnostics only
+   * (it may carry inherited output from their own children). The total budget still kills.
+   */
+  onStderrLineDropped?: (line: DroppedOutputLine) => void;
   onOutputLimit?: (error: Error) => void;
   /**
    * Elide heavy JSON strings on stdout before any limit sees them, so inline images never
@@ -187,7 +192,7 @@ function spawnOwned(
     options.elideStdout ? elide(child.stdout, options.elideStdout) : child.stdout,
     options.onStdoutLineDropped,
   );
-  const stderr = gateOutput(child.stderr);
+  const stderr = gateOutput(child.stderr, options.onStderrLineDropped);
 
   let stopped = false;
   let failed = false;

@@ -1,3 +1,4 @@
+import { notDeleted } from "./tombstone.ts";
 import { z } from "zod";
 import { AceAccount } from "@ace/protocol/ace-account";
 import type { Sealer } from "./crypto.ts";
@@ -23,11 +24,18 @@ export type SessionStanding = z.infer<typeof Row>["standing"];
 const stored = (account: AceAccount, pictureUrl: string | undefined) =>
   JSON.stringify(pictureUrl ? { ...account, pictureUrl } : account);
 
-/** ace sessions in D1, keyed by the token's digest. Refresh tokens are sealed to that digest. */
-export function sessionStore(db: D1Database, sealer: Sealer) {
+/** A session row whose account has no deletion recorded. */
+const live = notDeleted("json_extract(sessions.account, '$.id')");
+
+/**
+ * ace sessions in D1, keyed by the token's digest. Refresh tokens are sealed to that digest.
+ * `newLease` names each refresh lease, so only the reader that took one acts on its refresh.
+ */
+export function sessionStore(db: D1Database, sealer: Sealer, newLease: () => string) {
   const select = (retired: boolean) =>
     db.prepare(
-      `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"}`,
+      // An account with a deletion recorded opens nothing: its asking session only retries it.
+      `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"} AND ${live}`,
     );
   async function read(hash: string, now: number, retired: boolean) {
     const raw = await select(retired).bind(hash, now).first();
@@ -49,7 +57,7 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
       .bind(hash);
   return {
     /**
-     * A new sign-in's session. `standing` is `person` for an app's sign-in, which only that app
+     * A new sign-in's session; false, and nothing written, when the account was deleted. `standing` is `person` for an app's sign-in, which only that app
      * holds, and `exposed` for a daemon's (`ace login`), which a machine keeps (ADR 0190).
      */
     async put(
@@ -60,10 +68,10 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
       signedIn: number,
       standing: "person" | "exposed",
       pictureUrl?: string,
-    ) {
-      await db
+    ): Promise<boolean> {
+      const result = await db
         .prepare(
-          "INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) VALUES (?, ?, ?, ?, ?, ?)",
+          `INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) SELECT ?, ?, ?, ?, ?, ? WHERE ${notDeleted()}`,
         )
         .bind(
           hash,
@@ -72,8 +80,10 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
           expires,
           signedIn,
           standing,
+          account.id,
         )
         .run();
+      return result.meta.changes > 0;
     },
     /** A session its token still opens: not expired, not retired. */
     get: (hash: string, now: number) => read(hash, now, false),
@@ -88,7 +98,9 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
      */
     async standingNow(hash: string, now: number): Promise<SessionStanding | undefined> {
       const raw = await db
-        .prepare("SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ?")
+        .prepare(
+          `SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ? AND ${live}`,
+        )
         .bind(hash, now)
         .first<{ standing: string }>();
       return raw ? Row.shape.standing.parse(raw.standing) : undefined;
@@ -101,25 +113,38 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
     /** The statement that retires a session's token: it opens nothing from then on. */
     retiring: (hash: string) =>
       db.prepare("UPDATE sessions SET retired = 1 WHERE token = ?").bind(hash),
-    /** Claims the right to spend the refresh token for `ms`; false while another holds it. */
-    async lease(hash: string, now: number, ms: number): Promise<boolean> {
+    /**
+     * Claims the right to spend the refresh token for `ms`: the lease's name, or undefined while
+     * another reader holds it. Read the token only after this: one read before it may already be
+     * spent by the reader that held the lease.
+     */
+    async lease(hash: string, now: number, ms: number): Promise<string | undefined> {
+      const lease = newLease();
       const result = await db
         .prepare(
-          "UPDATE sessions SET refreshing_until = ? WHERE token = ? AND expires > ? AND refreshing_until <= ?",
+          "UPDATE sessions SET refreshing_until = ?, refresh_lease = ? WHERE token = ? AND expires > ? AND refreshing_until <= ?",
         )
-        .bind(now + ms, hash, now, now)
+        .bind(now + ms, lease, hash, now, now)
         .run();
-      return result.meta.changes > 0;
+      return result.meta.changes > 0 ? lease : undefined;
     },
-    async release(hash: string) {
-      await db.prepare("UPDATE sessions SET refreshing_until = 0 WHERE token = ?").bind(hash).run();
+    /** Gives the lease back, if it is still this one: a lease that ran out may be another's now. */
+    async release(hash: string, lease: string) {
+      await db
+        .prepare(
+          "UPDATE sessions SET refreshing_until = 0, refresh_lease = NULL WHERE token = ? AND refresh_lease = ?",
+        )
+        .bind(hash, lease)
+        .run();
     },
     /**
-     * Stores a rotated refresh token and the session's renewed expiry. An UPDATE cannot revive a
-     * concurrently revoked session.
+     * Stores a rotated refresh token and the session's renewed expiry, and gives the lease back,
+     * only while `lease` still holds it. An UPDATE cannot revive a concurrently revoked session,
+     * nor overwrite the token a later lease's holder stored.
      */
     async rotate(
       hash: string,
+      lease: string,
       account: AceAccount,
       refresh: string,
       expires: number,
@@ -127,9 +152,21 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
     ): Promise<boolean> {
       const result = await db
         .prepare(
-          "UPDATE sessions SET account = ?, refresh = ?, expires = ?, refreshing_until = 0 WHERE token = ?",
+          "UPDATE sessions SET account = ?, refresh = ?, expires = ?, refreshing_until = 0, refresh_lease = NULL WHERE token = ? AND refresh_lease = ?",
         )
-        .bind(stored(account, pictureUrl), await sealer.seal(refresh, hash), expires, hash)
+        .bind(stored(account, pictureUrl), await sealer.seal(refresh, hash), expires, hash, lease)
+        .run();
+      return result.meta.changes > 0;
+    },
+    /**
+     * Ends a session on what its refresh found (WorkOS refused the token, or named another
+     * account), only while `lease` still holds it: a reader whose lease ran out spent a token
+     * another reader may already have replaced. False when it no longer held it.
+     */
+    async endLeased(hash: string, lease: string): Promise<boolean> {
+      const result = await db
+        .prepare("DELETE FROM sessions WHERE token = ? AND refresh_lease = ?")
+        .bind(hash, lease)
         .run();
       return result.meta.changes > 0;
     },

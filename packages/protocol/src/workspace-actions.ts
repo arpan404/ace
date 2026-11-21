@@ -191,10 +191,25 @@ export const WorkspaceActionResult = z.object({
        */
       unbornHead: z.boolean().optional(),
     }),
-    /** `origin`'s fetch URL; null for a project with no origin or no repository. */
-    z.object({ kind: z.literal("origin"), url: z.string().max(4096).nullable() }),
-    /** The project here with the same origin; null when there is none. */
-    z.object({ kind: z.literal("match"), workspaceId: WorkspaceId.nullable() }),
+    /**
+     * `origin`'s fetch URL; null for a project with no origin or no repository. `key` is its
+     * `normalizeRemoteUrl` key, absent from daemons before versioned keys.
+     */
+    z.object({
+      kind: z.literal("origin"),
+      url: z.string().max(4096).nullable(),
+      key: z.string().max(4096).optional(),
+    }),
+    /**
+     * The project here with the same origin; null when there is none. `keyVersion` 2: matched
+     * by versioned keys, which keep an SSH path from a home apart from one from the root. Absent
+     * from older daemons, whose match outside the public forges may be another repository.
+     */
+    z.object({
+      kind: z.literal("match"),
+      workspaceId: WorkspaceId.nullable(),
+      keyVersion: z.literal(2).optional(),
+    }),
     ...ProjectIdentityResults,
     z.object({ kind: z.literal("details"), details: ThreadDetails }),
     z.object({ kind: z.literal("pr"), status: ForgePrStatus.nullable() }),

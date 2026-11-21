@@ -65,14 +65,22 @@ export interface SpadeAgent {
   /** When the person pinned it (ms); undefined when it isn't pinned. */
   pinnedAt: number | undefined;
   state: SpadeAgentState;
-  /** What it waits on the person for while `waiting`: an approval, or a question. */
-  waitingFor: "approval" | "question" | undefined;
+  /**
+   * What it waits on the person for while `waiting`: an approval, a question, a worker it started
+   * that waits on them (ADR 0161), or a bot it called that does (ADR 0200 §6.2).
+   */
+  waitingFor: "approval" | "question" | "worker" | "callee" | undefined;
   /** Its cards the person left for later and hasn't answered or dismissed (ADR 0154). */
   questionsForLater: number;
   /** A few words on what it is doing now, while it works. */
   status: string | undefined;
   /** Why its latest reply on a subscription failed (signed out, out of quota), until one works. */
   problem: string | undefined;
+  /**
+   * Its subscription's maker no longer allows this (ADR 0205 §4): it waits for the person to pick
+   * one of `choices` (their own models) or another. Undefined while it isn't held.
+   */
+  termsHold: SpadeTermsHold | undefined;
   lastMessage: SpadeLastMessage | undefined;
   /** The conversation's seen cursor: the last event the person has seen; undefined when never marked. */
   seenSeq: number | undefined;
@@ -161,12 +169,21 @@ const agentShape = z.object({
   last_activity: time.default(0),
   pinned_at: z.number().nullish().catch(undefined),
   state: z.enum(["idle", "working", "waiting", "paused", "updating"]).optional().catch(undefined),
-  waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
+  waiting_for: z.enum(["approval", "question", "worker", "callee"]).nullish().catch(undefined),
   questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
   working: z.boolean().optional().catch(undefined),
   status: z.string().nullish().catch(undefined),
   problem: z.string().nullish().catch(undefined),
+  terms_hold: z
+    .object({
+      provider: z.string().catch(""),
+      name: z.string().catch(""),
+      text: z.string().min(1),
+      choices: z.array(z.string().min(1)).catch([]),
+    })
+    .nullish()
+    .catch(undefined),
   last_message: lastMessageShape.nullish().catch(undefined),
   seen_seq: z.number().int().nonnegative().nullish().catch(undefined),
   unseen: z.boolean().catch(false).default(false),
@@ -197,6 +214,16 @@ export function parseSpadeAvatar(raw: unknown, seed: string): SpadeAvatar {
   return avatarOf(raw, seed, false);
 }
 
+/** Why a bot on a subscription waits, and the person's own models it could move to. */
+export interface SpadeTermsHold {
+  provider: string;
+  name: string;
+  /** "Codex's terms no longer allow this. Pick another model for this bot." */
+  text: string;
+  /** `endpoint/model`s, the bot's route first. */
+  choices: string[];
+}
+
 /** One agent value; undefined when it has no id or no conversation. */
 export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
   const parsed = agentShape.safeParse(raw);
@@ -222,6 +249,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     questionsForLater: agent.questions_for_later ?? 0,
     status: agent.status || undefined,
     problem: agent.problem || undefined,
+    termsHold: agent.terms_hold ?? undefined,
     lastMessage: last
       ? {
           from: last.from,

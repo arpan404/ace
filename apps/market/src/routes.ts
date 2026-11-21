@@ -9,6 +9,7 @@ import {
   type Methods,
   type Route,
 } from "./route-keys.ts";
+import { orgRoutes } from "./route-orgs.ts";
 import { meRoutes, signerRoutes } from "./routes-more.ts";
 
 export type { EntryKey, Matched, Methods, Route, VersionKey } from "./route-keys.ts";
@@ -33,6 +34,7 @@ function publicPath(parts: readonly string[]): Methods | undefined {
     case "blocklist":
     case "verified":
     case "official":
+    case "notices":
     case "discover":
       return only(2) ? get({ kind: first }) : undefined;
     case "reports":
@@ -86,6 +88,8 @@ export function routesFor(pathname: string): Methods | undefined {
       return meRoutes(parts.slice(2));
     case "signer":
       return signerRoutes(parts.slice(2));
+    case "orgs":
+      return orgRoutes(parts.slice(2));
     default:
       return publicPath(parts);
   }
@@ -103,7 +107,8 @@ export function matchRoute(method: string, pathname: string): Matched {
 /** Who may call a route, which also says which rate limit applies to it. */
 export type RouteClass = "read" | "report" | "write" | "signer";
 export function routeClass(route: Route): RouteClass {
-  if (route.kind.startsWith("signer-")) return "signer";
+  if (route.kind.startsWith("signer-") || route.kind.startsWith("org-signer-")) return "signer";
+  if (route.kind === "org-registry" || route.kind === "org-key-add") return "write";
   if (route.kind === "report") return "report";
   if (route.kind === "publish" || route.kind === "withdraw" || route.kind.startsWith("me"))
     return "write";

@@ -207,6 +207,36 @@ test("moving to another machine opens its copy of the repository and takes the m
   expect(screen.queryByRole("list", { name: "Draft threads" })).toBeNull();
 });
 
+test("an older machine's match of a self-hosted SSH origin isn't trusted: the project is copied", async () => {
+  const { made, build } = machines();
+  // The build server runs a daemon from before versioned keys: to it, a home path and a path
+  // from the root on one host read as one repository.
+  build.projects.olderRemoteKeys = true;
+  addProject(made.daemon, "/Users/dev/code/notes");
+  addProject(made.daemon, "/Users/dev/code/app", "git@box:team/app.git");
+  addProject(build, "/home/ci/src/other-app", "ssh://git@box/team/app.git");
+  await made.open("/new");
+  await writeIn("app", "Fix the login bug");
+
+  await chooseMachine("This Mac", "Build server");
+  expect(await screen.findByRole("button", { name: "Project: app" })).toBeTruthy();
+  expect(await screen.findByText("Copied from This Mac when sent")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Project: other-app" })).toBeNull();
+});
+
+test("an older machine's match of a public forge's repository still opens its copy", async () => {
+  const { made, build } = machines();
+  build.projects.olderRemoteKeys = true;
+  addProject(made.daemon, "/Users/dev/code/notes");
+  addProject(made.daemon, "/Users/dev/code/ace", "git@github.com:acme/ace.git");
+  addProject(build, "/home/ci/src/ace-main", "https://github.com/acme/ace");
+  await made.open("/new");
+  await writeIn("ace", "Fix the flaky upload test");
+
+  await chooseMachine("This Mac", "Build server");
+  expect(await screen.findByRole("button", { name: "Project: ace-main" })).toBeTruthy();
+});
+
 test("a project the other machine lacks is copied there when the message is sent", async () => {
   const { made, build } = machines();
   made.daemon.linkTo(build);

@@ -7,6 +7,7 @@ import {
 } from "../rules.ts";
 import { entryManagement, entryState, type EntryTable } from "./rows.ts";
 import { versionsOf } from "./read.ts";
+import { isRegistryName } from "./registries.ts";
 
 /*
  * Keeping an entry's row in step with its versions, inside its type's catalogue (ADR 0174 §16).
@@ -112,6 +113,12 @@ export async function writeEntry(
             ON CONFLICT (type, name) DO UPDATE SET stamp = excluded.stamp`,
         )
         .bind(type, name);
+  // A registry's entry is never in the index: its changes move nothing a public reader's
+  // `since` cursor sees (ADR 0206 §5.1).
+  if (isRegistryName(name)) {
+    const [written] = await db.batch([update]);
+    return (written?.meta.changes ?? 0) === 1;
+  }
   const results = await db.batch([takeStamp(db, now), removal, update]);
   return (results[2]?.meta.changes ?? 0) === 1;
 }

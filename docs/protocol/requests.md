@@ -504,7 +504,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"outside.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"endpoints"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":7,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"endpoints"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
 
 Example:
 
@@ -617,14 +617,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"transfers.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]},{"type":"object","properties":{"op":{"type":"string","const":"carryOnHere"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "op": "cancel",
+    "op": "carryOnHere",
     "transferId": "example"
   },
   "requestId": "example",
@@ -1491,18 +1491,17 @@ Example:
 | operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
 | thread | no | [ThreadId.json](schema/ThreadId.json) |  |
 | personGrant | no | string | {"minLength":1,"maxLength":4096} |
+| orgGrant | no | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "name": "o",
-    "op": "prepareUpdate",
-    "type": "spade-bot"
+    "op": "installed"
   },
+  "orgGrant": "example",
   "requestId": "example",
-  "thread": "example",
   "type": "marketplace.request"
 }
 ```
@@ -2027,9 +2026,12 @@ Example:
   "id": 10,
   "request": {
     "call": {
-      "op": "describe"
+      "args": {},
+      "op": "browser",
+      "tool": "browser_fthysumudfmgdfrxaodus"
     },
     "origin": {
+      "accepts": [],
       "agentId": "example",
       "ceiling": "operate",
       "hostId": "example",
@@ -4207,5 +4209,41 @@ Example:
 {
   "requestId": "example",
   "type": "account.owner.release"
+}
+```
+
+### account.owner.enroll
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "org": "org_DiSyrs8e2JSNekk3LAThyFRYZR0scKt05gQHGFGw",
+  "requestId": "example",
+  "type": "account.owner.enroll"
+}
+```
+
+### account.owner.enroll.confirm
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll.confirm"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "org": "org_REwvuzTKyM824mp5NKfpl0imeQ4TUPulcuMLkDvJTOM6JVO9Nui6c",
+  "requestId": "example",
+  "type": "account.owner.enroll.confirm"
 }
 ```

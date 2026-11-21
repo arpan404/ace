@@ -19,7 +19,7 @@ import {
   MarketReportState,
 } from "./marketplace-publisher.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
-import { MarketVerificationProof, Signed } from "./marketplace-signed.ts";
+import { MarketOrgId, MarketVerificationProof, Signed } from "./marketplace-signed.ts";
 
 /*
  * The market Worker's publishing and signer routes (ADR 0168 §6, §7; ADR 0174 §9, §10), shared
@@ -95,6 +95,8 @@ export const SignerPending = z.object({
   verified: Signed.optional(),
   /** The official list as last signed. */
   official: Signed.optional(),
+  /** The terms notices as last signed (ADR 0205 §4). */
+  notices: Signed.optional(),
 });
 export type SignerPending = z.infer<typeof SignerPending>;
 
@@ -118,6 +120,8 @@ export const CollectionsUpload = z.object({ collections: z.array(MarketCollectio
 
 /** `PUT /v1/signer/official`: the whole signed official list (ADR 0174 §14). */
 export const SignedOfficialUpload = z.object({ official: Signed, basedOn: BasedOn });
+/** `PUT /v1/signer/notices`: the whole signed list of terms notices (ADR 0205 §4). */
+export const SignedNoticesUpload = z.object({ notices: Signed, basedOn: BasedOn });
 
 /* ---------------------------------------------------------------- the scan's context */
 
@@ -159,6 +163,8 @@ export const MarketQueueBody = z.object({
         newPublisher: z.boolean(),
         published: z.number().int().nonnegative(),
         scan: MarketScanReport.optional(),
+        /** An organization's registry holds it (ADR 0206 §5.1): released with `?registry=`. */
+        registry: MarketOrgId.optional(),
       }),
     )
     .max(500),

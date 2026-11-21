@@ -1,6 +1,7 @@
 import type { WithdrawalTarget } from "@ace/marketplace";
 import type { ScanContext } from "@ace/marketplace/scan";
 import type {
+  MarketBotReplay,
   MarketBotUpdate,
   MarketKeySet,
   MarketPublisher,
@@ -25,8 +26,9 @@ import { reauthSentence } from "./fresh-sign-in.ts";
 import { buildReview, reviewPage, type PreparedEntry, type PreparedReview } from "./review.ts";
 import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
 import { bytesJson, packageAsksMore } from "./package-diff.ts";
-import { checkFiles } from "@ace/marketplace/checks";
+import { checkFiles, panelPageTexts } from "@ace/marketplace/checks";
 import { badgesOf, type Trust } from "./trust.ts";
+import type { RegistryReview } from "./org-registry.ts";
 
 /*
  * The reviews the service holds open between `prepare` and `install` (ADR 0168): each names the
@@ -35,6 +37,8 @@ import { badgesOf, type Trust } from "./trust.ts";
  */
 
 const reviewLifetimeMs = 30 * 60_000;
+/** The longest an update review waits on the free replay of the bot's kept runs. */
+const replayBoundMs = 20_000;
 const maxPending = 32;
 
 interface Pending {
@@ -69,6 +73,20 @@ export class OpenReviews {
     this.#ports = ports;
   }
 
+  /** What the open review `id` installs from an organization's registry, if it does. */
+  registryReview(id: string): RegistryReview | undefined {
+    const review = this.#pending.get(id)?.review;
+    if (!review?.registry) return undefined;
+    return {
+      org: review.registry,
+      type: review.type,
+      name: review.name,
+      version: review.version,
+      hash: review.hash,
+      signedManifest: review.signedManifest,
+    };
+  }
+
   /** One page of an open review's items. */
   read(id: string, offset: number): MarketResult {
     const pending = this.#pending.get(id);
@@ -87,13 +105,17 @@ export class OpenReviews {
     version: string | undefined,
     /** An update of this linked bot (ADR 0200 §6.1). */
     bot?: string,
+    /** From an organization's registry, read as a member (ADR 0206 §5.4). */
+    registry?: PreparePorts["registry"],
   ): Promise<MarketResult> {
     const { store } = this.#ports;
     const source = store.source(sourceId);
     if (!source || !source.enabled) return error("not_found", "That source isn't on");
+    if (registry && source.kind !== "market")
+      return error("invalid", "Only market.acehq.dev has organizations' registries");
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
-    const ports = await this.#preparePorts(source.id);
+    const ports = { ...(await this.#preparePorts(source.id)), registry };
     const { entry, brings } = await prepareWithBrings(
       ports,
       store,
@@ -145,7 +167,11 @@ export class OpenReviews {
    * A review of the version a linked bot had before (ADR 0200 §6.1), from the bytes pinned here:
    * checked again, and needing no network. Installing it is the person's, as an update is.
    */
-  async prepareRollback(install: StoredInstall): Promise<MarketResult> {
+  async prepareRollback(
+    install: StoredInstall,
+    /** The registry the earlier version came from, once its checks passed (ADR 0206 §5.4). */
+    registry?: string,
+  ): Promise<MarketResult> {
     const { store } = this.#ports;
     if (install.type !== "spade-bot" || !install.linked || !install.target)
       return error("invalid", "Only a bot from a version 3 package rolls back");
@@ -174,6 +200,7 @@ export class OpenReviews {
       byAce: false,
       checked,
       previous: { version: install.version, files: current },
+      ...(registry ? { registry } : {}),
     };
     return this.#open(entry, [], { bot: install.target, rollback: true });
   }
@@ -193,6 +220,7 @@ export class OpenReviews {
       brings,
       spadeReady: entry.type === "spade-bot" ? this.#ports.spade.ready() : true,
     };
+    review.modelWarning = await this.#modelWarning(entry);
     if (moving) {
       const updating = await this.#plan(review, moving);
       if ("op" in updating) return updating;
@@ -201,6 +229,21 @@ export class OpenReviews {
     const built = buildReview(review);
     this.#pending.set(review.id, { review, items: built.items });
     return { op: "review", review: built.review };
+  }
+
+  /**
+   * Why a bot that uses apps or agents may not be able to act (ADR 0205 §3): none of the models
+   * it would think with calls tools. Nothing when it uses neither, or Spade can't say.
+   */
+  async #modelWarning(entry: PreparedEntry): Promise<string | undefined> {
+    const inspection = entry.checked.inspection;
+    if (inspection?.type !== "spade-bot" || inspection.recipe.version !== 3) return undefined;
+    const uses = inspection.recipe.uses ?? [];
+    if (!uses.includes("apps") && !uses.includes("agents")) return undefined;
+    if (!this.#ports.spade.ready()) return undefined;
+    const tools = await this.#ports.spade.packageTools().catch(() => undefined);
+    if (!tools || tools[inspection.recipe.model]) return undefined;
+    return "This bot works with apps and other agents, which takes a model that can call tools, and none of the models it would run on can. Add one in Settings › Spade › Models, or it won't be able to act.";
   }
 
   /** What moving the bot to the review's version does, by Spade's plan and the two manifests. */
@@ -220,7 +263,43 @@ export class OpenReviews {
       : undefined;
     const asksMore =
       before?.type === "spade-bot" ? packageAsksMore(before.recipe, next.recipe) : [];
-    return { bot: moving.bot, rollback: moving.rollback, plan, asksMore };
+    const replay = await this.#replay(moving.bot, manifest, review);
+    return {
+      bot: moving.bot,
+      rollback: moving.rollback,
+      plan,
+      asksMore,
+      ...(replay ? { replay } : {}),
+    };
+  }
+
+  /**
+   * The bot's kept runs replayed free on the review's version (ADR 0204 §2), within a bound: a
+   * replay that fails or takes too long leaves the review without its line, never holds it up.
+   */
+  async #replay(
+    bot: string,
+    manifest: unknown,
+    review: PreparedReview,
+  ): Promise<MarketBotReplay | undefined> {
+    const replay = this.#ports.spade.replayUpdate;
+    if (!replay) return undefined;
+    const next = review.checked.inspection;
+    const surfaces = next?.type === "spade-bot" ? next.recipe.surfaces : undefined;
+    const pages = panelPageTexts(surfaces, review.checked.files);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>((done) => {
+      timer = setTimeout(() => done(undefined), replayBoundMs);
+    });
+    try {
+      const replayed = await Promise.race([
+        replay.call(this.#ports.spade, bot, manifest, pages).catch(() => undefined),
+        late,
+      ]);
+      return replayed && replayed.cases.length > 0 ? replayed : undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** What the device's scan compares against: every listed entry, the signed lists. */
@@ -268,6 +347,11 @@ export class OpenReviews {
     hash: string,
     choices: Parameters<typeof installReview>[2],
     by: Installer,
+    /**
+     * Throws when what authorized this install no longer holds (a registry's membership, its
+     * grant's lifetime): run last, after every await before the install lands.
+     */
+    stillAllowed?: () => void,
   ): Promise<MarketResult> {
     const { store, trust } = this.#ports;
     const pending = this.#pending.get(id);
@@ -308,6 +392,9 @@ export class OpenReviews {
       await this.cancel(id);
       return error("blocked", `Blocked by ace's market: ${blocked}`);
     }
+    // Recovery and the lists' refreshes above took time: authorization is judged as it is now,
+    // with nothing awaited between it and the install.
+    stillAllowed?.();
     let installed;
     try {
       installed = await installReview(

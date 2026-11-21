@@ -1,5 +1,8 @@
 import { eachCatalogue, type Databases } from "./databases.ts";
-import { refreshEntry, stampValue, takeStamp } from "./entries.ts";
+import { refreshEntry, stampValue } from "./entries.ts";
+
+/** The counter copy writes mark themselves with (`applied_stamp`), apart from the index's stamp. */
+const copyMark = "(SELECT value FROM meta WHERE key = 'copy_stamp')";
 
 /*
  * Each catalogue's copy of the publishers it names (ADR 0174 §16). An entry's row depends on
@@ -45,8 +48,8 @@ const pageSize = 100;
 
 /**
  * Writes the copy into one catalogue if it is newer than the one there, in one batch that also
- * moves the generation of the publisher's entries, restamps its listed ones and records the
- * refresh still owed for this revision (`copy_refreshes`, from the first entry). True when this
+ * moves the generation of the publisher's entries, restamps its listed ones (taking the index's
+ * stamp only when it has some) and records the refresh still owed for this revision (`copy_refreshes`, from the first entry). True when this
  * call wrote the copy. The refresh itself is `refreshCopy`, a page at a time.
  */
 export async function applyCopy(
@@ -54,15 +57,32 @@ export async function applyCopy(
   copy: PublisherCopy,
   now: number,
 ): Promise<boolean> {
-  // Statements after the copy act only when this batch wrote it: its applied stamp is this one.
+  // The batch's own mark, apart from the index's stamp: statements after the copy act only when
+  // this batch wrote it.
   const applied = `EXISTS (SELECT 1 FROM publisher_copies WHERE id = ?1
-    AND applied_stamp = ${stampValue})`;
-  const [, written] = await db.batch([
-    takeStamp(db, now),
+    AND applied_stamp = ${copyMark})`;
+  const newer = "NOT EXISTS (SELECT 1 FROM publisher_copies WHERE id = ?1 AND revision >= ?2)";
+  const results = await db.batch([
+    // Started above every mark a copy already holds (they were the index's stamp before), so a
+    // batch never mistakes another's copy for its own.
+    db.prepare(
+      `INSERT OR IGNORE INTO meta (key, value) SELECT 'copy_stamp',
+          MAX(value, (SELECT COALESCE(MAX(applied_stamp), 0) FROM publisher_copies))
+        FROM meta WHERE key = 'stamp'`,
+    ),
+    db.prepare("UPDATE meta SET value = value + 1 WHERE key = 'copy_stamp'"),
+    // The index's stamp moves only when this copy changes a row the index shows: a publisher
+    // with nothing listed here (an organization's registry, say) moves no public cursor.
+    db
+      .prepare(
+        `UPDATE meta SET value = MAX(value + 1, ?3) WHERE key = 'stamp' AND ${newer}
+          AND EXISTS (SELECT 1 FROM entries WHERE publisher = ?1 AND listed = 1)`,
+      )
+      .bind(copy.id, copy.revision, now),
     db
       .prepare(
         `INSERT INTO publisher_copies (id, name, state, verified, created, revision, applied_stamp)
-          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ${stampValue})
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ${copyMark})
           ON CONFLICT (id) DO UPDATE SET name = excluded.name, state = excluded.state,
             verified = excluded.verified, created = excluded.created,
             revision = excluded.revision, applied_stamp = excluded.applied_stamp
@@ -83,7 +103,7 @@ export async function applyCopy(
       )
       .bind(copy.id, copy.revision),
   ]);
-  return (written?.meta.changes ?? 0) > 0;
+  return (results[3]?.meta.changes ?? 0) > 0;
 }
 
 /**

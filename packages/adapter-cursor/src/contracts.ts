@@ -21,6 +21,8 @@ export const Limits = z.strictObject({
   heapMb: z.number().int().min(64).max(1024).default(256),
   timeoutMs: z.number().int().positive().max(300000).default(30000),
   sendTimeoutMs: z.number().int().positive().max(600000).default(300000),
+  /** How long the host waits for ace to store one frame before fencing the turn. */
+  ackTimeoutMs: z.number().int().positive().max(600000).default(300000),
   graceMs: z.number().int().nonnegative().max(30000).default(5000),
 });
 export type CursorLimits = z.infer<typeof Limits>;

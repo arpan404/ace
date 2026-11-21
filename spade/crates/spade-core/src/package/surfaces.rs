@@ -3,13 +3,14 @@
 //! sets with `panel_update`, and the actions it may send back, each with its value's schema. Its
 //! page's bytes come beside the manifest and are kept by hash; the hash is Spade's, never the
 //! file's. The marketplace reads `surfaces` the same way (`packages/marketplace/src/surfaces.ts`,
-//! held to it by `rules.json`). Pure.
+//! held to it by the conformance suite, `spade/spec/conformance/`). Pure.
 
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::rule::{self, Problem};
 use crate::schema;
 
 pub const MOST_SURFACES: usize = 16;
@@ -117,7 +118,7 @@ fn words(value: Option<&Value>, most: usize) -> Option<String> {
 }
 
 /// Reads `surfaces`; every problem goes to `problems`.
-pub fn read(value: Option<&Value>, problems: &mut Vec<String>) -> Vec<Surface> {
+pub fn read(value: Option<&Value>, problems: &mut Vec<Problem>) -> Vec<Surface> {
     let Some(value) = value else {
         return Vec::new();
     };
@@ -125,7 +126,10 @@ pub fn read(value: Option<&Value>, problems: &mut Vec<String>) -> Vec<Surface> {
         .as_array()
         .filter(|items| items.len() <= MOST_SURFACES)
     else {
-        problems.push(format!("surfaces is a list of at most {MOST_SURFACES}"));
+        problems.push(Problem::new(
+            rule::SURFACES,
+            format!("surfaces is a list of at most {MOST_SURFACES}"),
+        ));
         return Vec::new();
     };
     let mut ids = BTreeSet::new();
@@ -133,20 +137,27 @@ pub fn read(value: Option<&Value>, problems: &mut Vec<String>) -> Vec<Surface> {
     for (i, item) in items.iter().enumerate() {
         let at = format!("surfaces[{i}]");
         let Some(fields) = item.as_object() else {
-            problems.push(format!("{at} is an object"));
+            problems.push(Problem::new(
+                rule::SURFACE_FIELD,
+                format!("{at} is an object"),
+            ));
             continue;
         };
         let id = match fields.get("id").and_then(Value::as_str) {
             Some(id) if surface_id(id) => id.to_owned(),
             _ => {
-                problems.push(format!(
-                    "{at}.id is a short name: lower-case letters, digits and dashes"
+                problems.push(Problem::new(
+                    rule::SURFACE_ID,
+                    format!("{at}.id is a short name: lower-case letters, digits and dashes"),
                 ));
                 continue;
             }
         };
         if !ids.insert(id.clone()) {
-            problems.push(format!("{at}: each surface has an id of its own"));
+            problems.push(Problem::new(
+                rule::SURFACE_ID_UNIQUE,
+                format!("{at}: each surface has an id of its own"),
+            ));
         }
         let file = fields.get("file").and_then(Value::as_str).unwrap_or("");
         match fields.get("kind").and_then(Value::as_str) {
@@ -157,7 +168,10 @@ pub fn read(value: Option<&Value>, problems: &mut Vec<String>) -> Vec<Surface> {
                         file: file.to_owned(),
                     });
                 } else {
-                    problems.push(format!("{at}.file is cards/<name>.json"));
+                    problems.push(Problem::new(
+                        rule::CARD_FILE,
+                        format!("{at}.file is cards/<name>.json"),
+                    ));
                 }
             }
             Some("panel") => {
@@ -165,14 +179,21 @@ pub fn read(value: Option<&Value>, problems: &mut Vec<String>) -> Vec<Surface> {
                     surfaces.push(Surface::Panel(panel));
                 }
             }
-            Some(kind) => problems.push(format!(
-                "{at}: Needs a newer Spade: this one has no {kind:?} surface"
+            Some(kind) => problems.push(Problem::new(
+                rule::SURFACE_KIND,
+                format!("{at}: Needs a newer Spade: this one has no {kind:?} surface"),
             )),
-            None => problems.push(format!("{at}.kind is card or panel")),
+            None => problems.push(Problem::new(
+                rule::SURFACE_KIND,
+                format!("{at}.kind is card or panel"),
+            )),
         }
     }
     if panels(&surfaces).count() > MOST_PANELS {
-        problems.push(format!("a package has at most {MOST_PANELS} panels"));
+        problems.push(Problem::new(
+            rule::PANELS,
+            format!("a package has at most {MOST_PANELS} panels"),
+        ));
     }
     surfaces
 }
@@ -182,15 +203,19 @@ fn read_panel(
     at: &str,
     id: String,
     file: &str,
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> Option<Panel> {
     let before = problems.len();
     if file != format!("panels/{id}/index.html") {
-        problems.push(format!("{at}.file is panels/{id}/index.html"));
+        problems.push(Problem::new(
+            rule::PANEL_FILE,
+            format!("{at}.file is panels/{id}/index.html"),
+        ));
     }
     let title = words(fields.get("title"), TITLE_CHARS).unwrap_or_else(|| {
-        problems.push(format!(
-            "{at}.title names the panel in a few words (at most {TITLE_CHARS} characters)"
+        problems.push(Problem::new(
+            rule::PANEL_TITLE,
+            format!("{at}.title names the panel in a few words (at most {TITLE_CHARS} characters)"),
         ));
         String::new()
     });
@@ -211,12 +236,15 @@ fn read_panel(
     })
 }
 
-fn read_actions(value: Option<&Value>, at: &str, problems: &mut Vec<String>) -> Vec<PanelAction> {
+fn read_actions(value: Option<&Value>, at: &str, problems: &mut Vec<Problem>) -> Vec<PanelAction> {
     let Some(value) = value else {
         return Vec::new();
     };
     let Some(items) = value.as_array().filter(|items| items.len() <= MOST_ACTIONS) else {
-        problems.push(format!("{at}.actions is a list of at most {MOST_ACTIONS}"));
+        problems.push(Problem::new(
+            rule::ACTIONS,
+            format!("{at}.actions is a list of at most {MOST_ACTIONS}"),
+        ));
         return Vec::new();
     };
     let mut names = BTreeSet::new();
@@ -226,15 +254,19 @@ fn read_actions(value: Option<&Value>, at: &str, problems: &mut Vec<String>) -> 
         let name = match item.get("name").and_then(Value::as_str) {
             Some(name) if action_name(name) => name.to_owned(),
             _ => {
-                problems.push(format!(
-                    "{at}.name is a short name: lower-case letters, digits and underscores"
+                problems.push(Problem::new(
+                    rule::ACTION_NAME,
+                    format!(
+                        "{at}.name is a short name: lower-case letters, digits and underscores"
+                    ),
                 ));
                 continue;
             }
         };
         if !names.insert(name.clone()) {
-            problems.push(format!(
-                "{at}: each action of a panel has a name of its own"
+            problems.push(Problem::new(
+                rule::ACTION_NAME_UNIQUE,
+                format!("{at}: each action of a panel has a name of its own"),
             ));
         }
         let label = match item.get("label") {
@@ -242,8 +274,9 @@ fn read_actions(value: Option<&Value>, at: &str, problems: &mut Vec<String>) -> 
             Some(label) => {
                 let read = words(Some(label), LABEL_CHARS);
                 if read.is_none() {
-                    problems.push(format!(
-                        "{at}.label is a few words (at most {LABEL_CHARS} characters)"
+                    problems.push(Problem::new(
+                        rule::ACTION_LABEL,
+                        format!("{at}.label is a few words (at most {LABEL_CHARS} characters)"),
                     ));
                 }
                 read
@@ -259,7 +292,10 @@ fn read_actions(value: Option<&Value>, at: &str, problems: &mut Vec<String>) -> 
             None => false,
             Some(Value::Bool(confirm)) => *confirm,
             Some(_) => {
-                problems.push(format!("{at}.confirm is true or false"));
+                problems.push(Problem::new(
+                    rule::CONFIRM,
+                    format!("{at}.confirm is true or false"),
+                ));
                 false
             }
         };

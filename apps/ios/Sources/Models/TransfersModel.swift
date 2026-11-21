@@ -37,7 +37,21 @@ struct TransferSheetState: Decodable, Equatable, Sendable {
         case checking(String)
         case machines([TransferMachineRow], empty: String?)
         case options(Machine, action: String, ignoredByDefault: Bool)
+        /// A machine that doesn't take projects from this one: why, and Allow projects there.
+        case allow(Allow)
         case status(Machine, action: String, line: TransferLineRow)
+    }
+    /// The machine that doesn't take projects yet, the sending machine's link device there and
+    /// the words for when the phone can't ask that machine.
+    struct Allow: Decodable, Equatable, Sendable {
+        struct Target: Decodable, Equatable, Sendable { let hostId: String; let name: String; let deviceId: String }
+        let machine: Target
+        let sender: String
+        /// "Continue on Old laptop".
+        let heading: String
+        /// "Allow projects on Old laptop".
+        let action: String
+        let unreached: String
     }
     /// `thread` or `project`.
     let kind: String
@@ -61,6 +75,7 @@ struct TransferSheetState: Decodable, Equatable, Sendable {
         case "options":
             self.step = .options(try step.decode(Machine.self, forKey: .machine), action: try step.decode(String.self, forKey: .action),
                                  ignoredByDefault: try step.decode(Bool.self, forKey: .ignoredByDefault))
+        case "allow": self.step = .allow(try box.decode(Allow.self, forKey: .step))
         case "status":
             self.step = .status(try step.decode(Machine.self, forKey: .machine), action: try step.decode(String.self, forKey: .action),
                                 line: try step.decode(TransferLineRow.self, forKey: .line))
@@ -74,6 +89,8 @@ struct TransferThreadState: Codable, Equatable, Sendable {
     let threadId: String
     let epoch: Int
     let canContinue: Bool
+    /// Why Continue on waits ("Its work already moved to Studio"); nil while it can be chosen.
+    var blocked: String? = nil
     let line: TransferLineRow?
 }
 

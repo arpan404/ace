@@ -301,6 +301,7 @@ pub fn measure(model: &Model) -> Measures {
             read_only: label == Read,
             annotated: true,
             declared: Some(if label == Read { Read } else { Network }),
+            ..Mcp::default()
         };
         let p = model.predict(&Subject::Tool {
             name,

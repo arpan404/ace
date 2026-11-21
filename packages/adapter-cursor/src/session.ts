@@ -56,7 +56,7 @@ export async function openCursorSession(
   const started = now();
   const frame = (
     dir: "send" | "note",
-    kind: "cancel" | "host-exit" | "snapshot",
+    kind: "cancel" | "host-exit" | "host-output" | "snapshot",
     body: unknown,
     operationId: string,
     segment: number,
@@ -81,7 +81,11 @@ export async function openCursorSession(
     });
   };
   const host = new CursorHost(
-    { ...options, ...(context.outputFlow ? { outputFlow: context.outputFlow } : {}) },
+    {
+      ...options,
+      ...(context.outputFlow ? { outputFlow: context.outputFlow } : {}),
+      ...(options.mcp ? { secrets: { ACE_MCP_BEARER: options.mcp.bearer } } : {}),
+    },
     async (data, payload) => {
       if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
       if (data.kind === "open") {
@@ -120,6 +124,9 @@ export async function openCursorSession(
         payload,
       });
     },
+    undefined,
+    // Stray host stdout is diagnostics: kept as raw data, which the translator does not show.
+    (text) => frame("note", "host-output", { text }, operation, segment),
   );
   let deliberate = false;
   let exited = false;

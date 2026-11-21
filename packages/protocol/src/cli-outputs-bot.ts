@@ -54,12 +54,40 @@ export const CliBotScenario = z.object({
 });
 export type CliBotScenario = z.infer<typeof CliBotScenario>;
 
-/** `ace bot test`: each scenario on Spade's engine with the scripted model (`spade --bot-test`). */
+/** One kept run replayed (ADR 0204 §2): what it was given, and why it didn't replay the same. */
+export const CliBotReplayCase = z.object({
+  id: z.string(),
+  given: z.string(),
+  mark: z.enum(["right", "wrong"]).optional(),
+  passed: z.boolean(),
+  lines: z.array(z.string()),
+  /** Calls outside the recording, answered "Not in the recording". */
+  outside: z.number().int().nonnegative(),
+});
+export type CliBotReplayCase = z.infer<typeof CliBotReplayCase>;
+
+/** `ace bot test --cases`: a bot's kept runs replayed, free on the recorded steps or on a model. */
+export const CliBotReplay = z.object({
+  mode: z.enum(["wiring", "model"]),
+  model: z.string().optional(),
+  cases: z.array(CliBotReplayCase),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  outside: z.number().int().nonnegative(),
+  summary: z.string(),
+});
+export type CliBotReplay = z.infer<typeof CliBotReplay>;
+
+/**
+ * `ace bot test`: each scenario on Spade's engine with the scripted model (`spade --bot-test`);
+ * with `--cases`, a bot's kept runs replayed instead (`replay`, and no scenarios).
+ */
 export const CliBotTest = z.object({
   name: z.string().nullable(),
   passed: z.boolean(),
   problems: z.array(z.string()),
   scenarios: z.array(CliBotScenario),
+  replay: CliBotReplay.optional(),
 });
 export type CliBotTest = z.infer<typeof CliBotTest>;
 

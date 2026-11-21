@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgInvitationRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "email": {
+      "maxLength": 320,
+      "pattern": "^[^\\s@]+@[^\\s@]+$",
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed."
+    },
+    "role": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgAssignableRole.json",
+      "default": "member"
+    }
+  },
+  "required": [
+    "email"
+  ],
+  "type": "object"
+}

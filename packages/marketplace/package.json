@@ -12,6 +12,8 @@
     "./profile": "./src/profile.ts",
     "./image": "./src/image.ts",
     "./signer": "./src/signer.ts",
+    "./registry": "./src/registry.ts",
+    "./registry-io": "./src/registry-io.ts",
     "./testing": "./src/testing.ts"
   },
   "scripts": {
@@ -28,5 +30,8 @@
     "@noble/hashes": "2.0.1",
     "yaml": "^2.8.1",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
   }
 }

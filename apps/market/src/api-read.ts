@@ -6,6 +6,7 @@ import { etagOf, failure, notFound } from "./http.ts";
 import { searchSort, searchSorted } from "./store/discover.ts";
 import { countDownload } from "./store/downloads.ts";
 import { categories, listedWithHash, signedVersion, withdrawnList } from "./store/read.ts";
+import { privateHeaders } from "./registry-access.ts";
 
 /*
  * The catalog API (ADR 0168 §3, ADR 0174 §6): no sign-in, no cookie, and nothing kept about who
@@ -16,11 +17,14 @@ import { categories, listedWithHash, signedVersion, withdrawnList } from "./stor
 
 const revalidate = { "cache-control": "public, max-age=0, must-revalidate" };
 
-/** JSON with a strong ETag; 304 when the caller already has these bytes. */
-async function tagged(request: Request, body: unknown): Promise<Response> {
+/**
+ * JSON with a strong ETag; 304 when the caller already has these bytes. A registry's answer
+ * (`members`) is never kept by a shared cache.
+ */
+export async function tagged(request: Request, body: unknown, members = false): Promise<Response> {
   const text = JSON.stringify(body);
   const etag = await etagOf(text);
-  const headers = { ...revalidate, etag };
+  const headers = { ...(members ? privateHeaders : revalidate), etag };
   if (request.headers.get("if-none-match") === etag)
     return new Response(null, { status: 304, headers });
   return new Response(text, {
@@ -58,6 +62,7 @@ export async function readRoute(
         entries: entries.map((entry) => ({ type: entry.type, name: entry.name })),
       });
     }
+    // A public name is never a registry's stored one: these reach the public market only.
     case "entry": {
       const page = await entryPage(dbs, route.type, route.name);
       if (!page) return notFound();
@@ -74,18 +79,30 @@ export async function readRoute(
       return list ? tagged(request, list.signed) : notFound();
     }
     case "object":
-      return object(request, route.hash, context);
+      return object(request, route.hash, "public", context);
     default:
       return undefined;
   }
 }
 
-async function object(request: Request, hash: string, context: Context): Promise<Response> {
-  const copies = await listedWithHash(context.dbs, hash);
+/**
+ * An archive by its hash, for `audience`'s readers: the public market's, or a registry's, whose
+ * route has authorized its member first.
+ */
+export async function object(
+  request: Request,
+  hash: string,
+  audience: string,
+  context: Context,
+): Promise<Response> {
+  const copies = await listedWithHash(context.dbs, hash, audience);
+  const members = audience !== "public";
   if (copies.length === 0) return notFound();
   const headers = {
     "content-type": "application/x-tar",
-    "cache-control": "public, max-age=31536000, immutable",
+    "cache-control": members
+      ? privateHeaders["cache-control"]
+      : "public, max-age=31536000, immutable",
     etag: `"${hash}"`,
   };
   if (request.headers.get("if-none-match") === headers.etag)

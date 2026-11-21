@@ -1,4 +1,6 @@
 import type { ClientApi } from "@ace/client";
+import { remoteKeyVersionPrefix } from "@ace/protocol";
+import { unambiguousRemoteKey } from "@ace/ui-core/project-groups";
 
 /*
  * The same repository on two machines (ADR 0102): project ids belong to one daemon, so a
@@ -6,17 +8,21 @@ import type { ClientApi } from "@ace/client";
  * that can't answer (an older one, or one that went away) has no copy to offer.
  */
 
-/** The project's `origin` fetch URL on the machine `client` reaches; undefined without one. */
+/**
+ * The project's `origin` on the machine `client` reaches: its fetch URL and, from a daemon that
+ * versions them, its remote key; undefined without one.
+ */
 export async function projectOrigin(
   client: ClientApi,
   project: string,
-): Promise<string | undefined> {
+): Promise<{ url: string; key?: string | undefined } | undefined> {
   try {
     const reply = await client.request({
       type: "workspace.request",
       operation: { op: "workspace.origin", workspaceId: project },
     });
-    return reply.result.kind === "origin" ? (reply.result.url ?? undefined) : undefined;
+    if (reply.result.kind !== "origin" || !reply.result.url) return undefined;
+    return { url: reply.result.url, key: reply.result.key };
   } catch {
     return undefined;
   }
@@ -29,16 +35,32 @@ export async function projectOrigin(
  */
 export async function projectWithOrigin(
   client: ClientApi,
-  url: string,
+  origin: { url: string; key?: string | undefined },
   subpath = "",
 ): Promise<string | undefined> {
   try {
     const reply = await client.request({
       type: "workspace.request",
-      operation: { op: "workspaces.match", url, ...(subpath ? { subpath } : {}) },
+      operation: { op: "workspaces.match", url: origin.url, ...(subpath ? { subpath } : {}) },
     });
-    return reply.result.kind === "match" ? (reply.result.workspaceId ?? undefined) : undefined;
+    if (reply.result.kind !== "match" || !reply.result.workspaceId) return undefined;
+    return trustedMatch(reply.result.keyVersion, origin.key) ? reply.result.workspaceId : undefined;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Whether a match is the same repository: one by versioned keys, or, from a daemon before them,
+ * one of a public forge's repository (its origin's key unversioned and unambiguous), whose keys
+ * never changed meaning. An older daemon's match elsewhere may be an SSH path from a home taken
+ * for one from the root, so New thread copies the project instead.
+ */
+function trustedMatch(keyVersion: 2 | undefined, originKey: string | undefined): boolean {
+  if (keyVersion === 2) return true;
+  return (
+    originKey !== undefined &&
+    !originKey.startsWith(remoteKeyVersionPrefix) &&
+    unambiguousRemoteKey(originKey)
+  );
 }

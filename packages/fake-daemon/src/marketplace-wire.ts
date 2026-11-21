@@ -429,6 +429,9 @@ export class FakeMarketplaceWire {
       case "cancel":
         this.#reviews.delete(operation.id);
         return { op: "done" };
+      // The fake world has no organizations' registries: nothing is installed from one.
+      case "registryRefresh":
+      case "registryLeft":
       case "installed":
         return { op: "installed", installed: [...this.#installed.values()] };
       case "remove":

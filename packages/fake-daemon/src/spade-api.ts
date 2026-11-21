@@ -14,8 +14,10 @@ import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { FakeSpadeA2aAgents } from "./spade-a2a-agents.ts";
 import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
+import { FakeSpadeCases } from "./spade-cases.ts";
 import { FakeSpadeRunning } from "./spade-running.ts";
 import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
@@ -144,6 +146,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly forgotSources: { agent: string; source: string }[] = [];
   /** Model servers on this computer, as `GET /v1/endpoints/local` answers (`{id, name, …}`). */
   localServers: Json[] = [];
+  /**
+   * How a local model added now does in Spade's tool check (ADR 0205 §3), by model id: `passed`
+   * unless named. Its checks read as running until the next listing.
+   */
+  localChecks = new Map<string, "passed" | "failed">();
+  private checking: Json[] = [];
+  /** Models whose running checks a listing already showed. */
+  private readonly checkShown = new WeakSet<Json>();
   /** Each bot's knowledge pages and past work (ADR 0164). */
   readonly knowledge: FakeSpadeKnowledge;
   /** Each bot's services (ADR 0160). */
@@ -162,8 +172,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly search = new FakeSpadeSearch();
   /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
   readonly wakes: FakeSpadeWakes;
+  /** Each bot's runs kept as tests (ADR 0204). */
+  readonly cases: FakeSpadeCases;
   /** How Spade reaches the person (ADR 0195). */
   readonly reach = new FakeSpadeReach();
+  readonly a2aAgents = new FakeSpadeA2aAgents();
   /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
   readonly running: FakeSpadeRunning;
   /** Packaged bots' panels (ADR 0200 §5.2). */
@@ -239,6 +252,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
       conversationOf,
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
       store: (conversation, event) => this.store(conversation, event),
+    });
+    this.cases = new FakeSpadeCases({
+      conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      now,
     });
     this.panels = new FakeSpadePanels({
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
@@ -587,9 +605,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
         parts.slice(3),
         body,
       );
+    if (root === "agents" && id && sub === "cases")
+      return this.cases.route(request.method, id, subId, body);
     if (root === "agents" && id && sub === "wakes")
       return this.wakes.route(request.method, id, subId, parts[4]);
     if (root === "reach" && !id) return this.reach.route(request.method, body);
+    if (root === "a2a-agents") return this.a2aAgents.route(request.method, id, body);
     if (root === "agents" && id && sub === "reach")
       return this.reach.agentRoute(request.method, id, body);
     if (root === "digests" && request.method === "GET")
@@ -729,6 +750,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
       return this.connectors.route(request.method, id, sub, body, this.roster());
+    if (root === "models" && request.method === "GET") this.endChecks();
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.keysPending
@@ -745,6 +767,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
       });
     if (root === "subscriptions" && request.method === "GET")
       return reply({ providers: this.subscriptions, error: null });
+    // The person ticked Use it for a provider's subscription (ADR 0205 §1).
+    if (root === "subscriptions" && id && sub === "terms" && request.method === "PUT") {
+      const found = this.subscriptions.find((each) => each.provider === id);
+      const terms = found?.terms as Json | undefined;
+      if (!found || terms?.status === "refused") return problem(400, "That isn't offered.");
+      found.terms = { ...terms, acknowledged: true };
+      return reply({ terms: found.terms });
+    }
     if (root === "endpoints" && id === "local" && request.method === "GET")
       return reply({ servers: this.localServers });
     if (root === "endpoints" && id === "local" && sub && request.method === "POST")
@@ -905,6 +935,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      // As Spade: another model ends a hold its subscription's terms put on it (ADR 0205).
+      if (typeof body.model === "string" && agent.terms_hold) {
+        agent.terms_hold = null;
+        agent.problem = null;
+      }
       // As Spade: whether it may make bots (ADR 0161, amendment 1).
       if (
         body.may_create_bots === "yes" ||
@@ -1032,6 +1067,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 
   /** As Spade: the local server added as a keyless endpoint the first time, the model saved on it. */
+  /** Checks a listing already showed running end now, as `localChecks` says. */
+  private endChecks(): void {
+    const shown = this.checking.filter((model) => this.checkShown.has(model));
+    for (const model of this.checking) this.checkShown.add(model);
+    this.checking = this.checking.filter((model) => !shown.includes(model));
+    for (const model of shown) {
+      const tools = this.localChecks.get(String(model.id)) ?? "passed";
+      model.capabilities = tools === "passed" ? ["tools"] : [];
+      model.probes = {
+        state: "checked",
+        plain: "passed",
+        tools,
+        structured: "passed",
+        why:
+          tools === "passed"
+            ? null
+            : "This model didn't call tools in Spade's check, so it can't run a bot.",
+      };
+    }
+  }
+
   private useLocalModel(server: string, model: string): FakeSpadeAnswer {
     const local = this.localServers.find((candidate) => candidate.id === server);
     if (!local || !model.trim()) return problem(404, "No such model server.");
@@ -1053,7 +1109,16 @@ export class FakeSpadeApi implements FakeSpadeServer {
       local.endpoint = server;
     }
     const models = endpoint.models as Json[];
-    if (!models.some((saved) => saved.id === model)) models.push({ id: model, source: "typed" });
+    if (!models.some((saved) => saved.id === model)) {
+      const added: Json = {
+        id: model,
+        source: "typed",
+        capabilities: [],
+        probes: { state: "checking" },
+      };
+      models.push(added);
+      this.checking.push(added);
+    }
     return reply({ endpoint, value: `${String(endpoint.id)}/${model.trim()}` });
   }
 
@@ -1064,6 +1129,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     body: Json,
     query: string,
   ): FakeSpadeAnswer {
+    if (id && sub === "probe" && method === "POST") {
+      const endpoint = this.endpoints.find((candidate) => candidate.id === id);
+      const model = (endpoint?.models as Json[] | undefined)?.find((each) => each.id === body.id);
+      if (!endpoint || !model) return problem(404, "no such model");
+      model.probes = { state: "checking" };
+      this.checking.push(model);
+      return reply({ probes: model.probes }, 202);
+    }
     if (!id && method === "POST") {
       const endpoint = {
         id: String(body.name ?? "endpoint")

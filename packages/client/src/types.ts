@@ -173,7 +173,16 @@ export interface ClientOptions {
 export interface OpenTail {
   items: number;
   bytes: number;
+  /**
+   * Resolves once the app has shown `threadId`'s tail. The full snapshot that replaces the tail
+   * is asked for then, or `tailShownMs` after the tail landed, whichever comes first, so a
+   * thread never rests on its tail. Without it the full snapshot is asked for at once, and a
+   * fast link can replace the tail before the app has drawn any of it.
+   */
+  shown?: (threadId: string) => Promise<void>;
 }
+/** The longest a tail waits for the app to show it before its full snapshot is asked for. */
+export const tailShownMs = 1_500;
 /** A screenful: what an app's first paint of a thread needs, about 48 KB at most. */
 export const screenTail: OpenTail = { items: 30, bytes: 48 * 1024 };
 export interface Limits {

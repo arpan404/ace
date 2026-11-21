@@ -150,7 +150,10 @@ pub(super) async fn run_tools(
                 background,
                 effect,
             });
-            if let Err(error) = engine.record(id, &started) {
+            // A shared bot's outward step is on the host's audit log with who allowed it,
+            // written with its start, so no step runs without its entry (ADR 0206 §4.2).
+            let entry = engine.effect_entry(id, &call.id, &name, &arguments, effect);
+            if let Err(error) = engine.record_audited(id, &started, entry) {
                 return Handled::Failed(error.to_string());
             }
             engine.computer_tool_started(id, &name);
@@ -282,7 +285,7 @@ async fn run_one(
     };
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
-    let mut work = tool.run_in(&key, arguments, facts);
+    let mut work = crate::tools::marked(tool.as_ref(), tool.run_in(&key, arguments, facts));
     // Its start, the first poll, still under the hold.
     let first = std::future::poll_fn(|cx| std::task::Poll::Ready(work.as_mut().poll(cx))).await;
     drop(held);

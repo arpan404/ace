@@ -255,6 +255,15 @@ export function spadeTemplateRoutinesLine(routines: readonly SpadeTemplateRoutin
     .join(" · ");
 }
 
+/** A template's `name`, or "Research 2", "Research 3"… when a bot in `taken` already has it. */
+export function spadeFreeName(name: string, taken: readonly string[]): string {
+  const used = new Set(taken.map((each) => each.trim().toLowerCase()));
+  if (!used.has(name.trim().toLowerCase())) return name;
+  let count = 2;
+  while (used.has(`${name} ${count}`.toLowerCase())) count += 1;
+  return `${name} ${count}`;
+}
+
 /** `GET /v1/templates`; undefined when the body has no list. */
 export function parseSpadeTemplates(body: string): SpadeTemplate[] | undefined {
   const list = spadeRecord(spadeJson(body))?.templates;

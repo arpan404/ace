@@ -15,6 +15,7 @@ import {
   type MarketEntryType,
   type MarketScanReport,
 } from "@ace/protocol/marketplace";
+import { shownName } from "./registries.ts";
 import { fromCatalogues, type Databases } from "./databases.ts";
 import { verifiedNames } from "./profiles.ts";
 
@@ -49,6 +50,8 @@ export async function scanContext(
   dbs: Databases,
   publisher: { handle: string; official: boolean },
   publicKeys: string | undefined,
+  /** Whose entries it compares with: the public market's, and a registry's own (ADR 0206). */
+  audiences: readonly string[] = ["public"],
 ): Promise<ScanContext> {
   const [entries, verified, blocklist] = await Promise.all([
     fromCatalogues(dbs, async ({ db }) => {
@@ -57,10 +60,12 @@ export async function scanContext(
           `SELECT e.type, e.name, p.name AS publisher,
             (SELECT COALESCE(SUM(v.counted), 0) FROM versions v
               WHERE v.type = e.type AND v.name = e.name) AS downloads
-            FROM entries e JOIN publisher_copies p ON p.id = e.publisher LIMIT 50000`,
+            FROM entries e JOIN publisher_copies p ON p.id = e.publisher
+            WHERE e.audience IN (SELECT value FROM json_each(?1)) LIMIT 50000`,
         )
+        .bind(JSON.stringify(audiences))
         .all<{ type: string; name: string; publisher: string; downloads: number }>();
-      return results;
+      return results.map((row) => Object.assign(row, { name: shownName(row.name) }));
     }),
     verifiedNames(dbs.publishers),
     storedBlocklist(dbs.moderation, publicKeys),

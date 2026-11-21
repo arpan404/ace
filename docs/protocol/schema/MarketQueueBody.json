@@ -89,6 +89,9 @@
           "publisher": {
             "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
           },
+          "registry": {
+            "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+          },
           "scan": {
             "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
           },

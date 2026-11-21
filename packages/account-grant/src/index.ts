@@ -1,4 +1,5 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { z } from "zod";
 
 /**
@@ -64,6 +65,23 @@ export const MarketGrantClaims = GrantClaims.extend({
    * Only `device` grants from a person's own session carry it.
    */
   action: z.string().min(1).max(512).optional(),
+  /**
+   * The organization this grant acts in (ADR 0206 §5.1), minted only after WorkOS answered, at
+   * most 60 seconds earlier, that the account is an active member. Without it the grant is the
+   * account's own.
+   */
+  org: z
+    .string()
+    .regex(/^org_[A-Za-z0-9]{1,64}$/)
+    .optional(),
+  /**
+   * The account's role in `org`, as that same WorkOS answer gave it (a role slug; authorize with
+   * `@ace/account-grant/org-roles`). The market reads it for who may publish to the
+   * organization's registry or change its key (ADR 0206 §5.1). Only with `org`.
+   */
+  orgRole: z.string().min(1).max(64).optional(),
+}).refine((claims) => claims.orgRole === undefined || claims.org !== undefined, {
+  message: "An organization role comes with its organization",
 });
 export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
 /** The market grant's issuer, `cloud.acehq.dev`, unless a deployment configures its own. */
@@ -163,11 +181,160 @@ export function pairedStandingText(input: {
   return `ace-paired-standing/v1\n${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.deviceId}`;
 }
 
+/** A WorkOS organization id: ace's org id (ADR 0206 §1.1). */
+export const OrgId = z.string().regex(/^org_[A-Za-z0-9]{1,64}$/);
+
+/**
+ * A format 3 grant: a member's standing on an organization's host (ADR 0206 §2.2). It names the
+ * organization, the member's WorkOS role slug as WorkOS gave it (the daemon maps it to
+ * permissions with `@ace/account-grant/org-roles`), the one host and device key it is for, and
+ * the organization's policy version. Format 1 and 2 parsers refuse it, so no daemon takes it as
+ * the person, and a personal machine refuses every one.
+ */
+export const MemberGrantClaims = z.strictObject({
+  v: z.literal(3),
+  kid: KeyId,
+  kind: z.literal("member"),
+  aud: z.literal(DEVICE_GRANT_AUDIENCE),
+  standing: z.literal("member"),
+  org: OrgId,
+  role: z.string().regex(/^[A-Za-z0-9_:-]{1,64}$/),
+  account: GrantClaims.shape.account,
+  subject: GrantClaims.shape.subject,
+  host: HostIdClaim,
+  key: DeviceKey,
+  /** The organization's policy version when it was minted; 0 before any policy was set. */
+  policy: z.number().int().nonnegative(),
+  iat: GrantClaims.shape.iat,
+  exp: GrantClaims.shape.exp,
+});
+export type MemberGrantClaims = z.infer<typeof MemberGrantClaims>;
+
+export function signMemberGrant(
+  claims: Omit<MemberGrantClaims, "v" | "kid" | "kind" | "aud" | "standing">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    MemberGrantClaims.parse({
+      ...claims,
+      v: 3,
+      kid: key.id,
+      kind: "member",
+      aud: DEVICE_GRANT_AUDIENCE,
+      standing: "member",
+    }),
+    key,
+  );
+}
+
+/** Verify a member grant's signature and lifetime. Throws `GrantError` on any failure. */
+export function verifyMemberGrant(
+  token: string,
+  keys: GrantKeySet,
+  now: number,
+): MemberGrantClaims {
+  return verifySigned(token, keys, now, "member", MemberGrantClaims);
+}
+
+/**
+ * The account backend's word on one version of an organization's policy (ADR 0206 §3): the
+ * SHA-256 of the policy body as stored, who set it and when. It has no expiry: a host applies a
+ * version only when it is higher than the one it holds, so an old statement can't be replayed.
+ */
+export const OrgPolicyStatement = z.strictObject({
+  v: z.literal(1),
+  kid: KeyId,
+  kind: z.literal("org-policy"),
+  org: OrgId,
+  version: z.number().int().positive(),
+  body_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  set_by: GrantClaims.shape.account,
+  set_at: z.number().int().nonnegative(),
+});
+export type OrgPolicyStatement = z.infer<typeof OrgPolicyStatement>;
+
+/** Hex SHA-256 of a policy body's exact text, as `body_sha256` names it. */
+export function policyBodySha256(body: string): string {
+  return Array.from(sha256(new TextEncoder().encode(body)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+export function signOrgPolicy(
+  claims: Omit<OrgPolicyStatement, "v" | "kid" | "kind">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    OrgPolicyStatement.parse({ ...claims, v: 1, kid: key.id, kind: "org-policy" }),
+    key,
+  );
+}
+
+/**
+ * Verify a policy statement's signature and that `body` is the text it was made over. Throws
+ * `GrantError` on any failure. Other grants are refused, as every grant parser refuses this.
+ */
+export function verifyOrgPolicy(
+  token: string,
+  keys: GrantKeySet,
+  body: string,
+): OrgPolicyStatement {
+  const statement = verifySignature(token, keys, OrgPolicyStatement);
+  if (statement.body_sha256 !== policyBodySha256(body))
+    throw new GrantError("Policy body doesn't match its statement");
+  return statement;
+}
+
+/**
+ * The account backend's word that an owner of `org` added a registry key (ADR 0206 §5.3): the
+ * SHA-256 of the key's exact upload, who asked and their role, from the same fresh WorkOS answer
+ * a grant needs. It authorizes nothing: no grant parser takes it, and it names no audience, so a
+ * market serving it in a key chain hands out no credential. Devices check a chain's first key
+ * with it.
+ */
+export const RegistryKeyAttestation = z.strictObject({
+  v: z.literal(1),
+  kid: KeyId,
+  kind: z.literal("registry-key"),
+  org: OrgId,
+  upload_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  account: GrantClaims.shape.account,
+  role: z.string().min(1).max(64),
+  at: z.number().int().nonnegative(),
+});
+export type RegistryKeyAttestation = z.infer<typeof RegistryKeyAttestation>;
+
+export function signRegistryKeyAttestation(
+  claims: Omit<RegistryKeyAttestation, "v" | "kid" | "kind">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    RegistryKeyAttestation.parse({ ...claims, v: 1, kid: key.id, kind: "registry-key" }),
+    key,
+  );
+}
+
+/**
+ * Verify an attestation's signature and that `upload` is the text it was made over. Throws
+ * `GrantError`; every grant is refused here, as every grant parser refuses an attestation.
+ */
+export function verifyRegistryKeyAttestation(
+  token: string,
+  keys: GrantKeySet,
+  upload: string,
+): RegistryKeyAttestation {
+  const statement = verifySignature(token, keys, RegistryKeyAttestation);
+  if (statement.upload_sha256 !== policyBodySha256(upload))
+    throw new GrantError("The attestation is for another key");
+  return statement;
+}
+
 const AnyGrantClaims = z.union([
   GrantClaims,
   CloudGrantClaims,
   MarketGrantClaims,
   StandingGrantClaims,
+  MemberGrantClaims,
 ]);
 
 function signClaims(claims: object, key: GrantSigningKey): string {
@@ -177,7 +344,7 @@ function signClaims(claims: object, key: GrantSigningKey): string {
 
 export function signMarketGrant(
   claims: Omit<GrantClaims, "v" | "kid"> &
-    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action">,
+    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action" | "org" | "orgRole">,
   key: GrantSigningKey,
 ): string {
   const full = MarketGrantClaims.parse({
@@ -295,11 +462,19 @@ export function verifyMarketGrant(
   return claims;
 }
 
-function verifySigned<Claims extends Pick<GrantClaims, "kid" | "kind" | "iat" | "exp">>(
+/**
+ * A market grant's claims as the backend signed them, whatever its lifetime: for a device
+ * reading, long after, an owner's grant kept as the countersignature of the request it named
+ * (ADR 0206 §5.3). It proves the backend minted those claims, never that they still hold.
+ */
+export function verifyMarketGrantSignature(token: string, keys: GrantKeySet): MarketGrantClaims {
+  return verifySignature(token, keys, MarketGrantClaims);
+}
+
+/** A signed statement's claims, once its signature verified against a published key. */
+function verifySignature<Claims extends { kid: string }>(
   token: string,
   keys: GrantKeySet,
-  now: number,
-  kind: GrantKind | undefined,
   schema: z.ZodType<Claims>,
 ): Claims {
   const [body, signature, extra] = token.split(".");
@@ -323,6 +498,17 @@ function verifySigned<Claims extends Pick<GrantClaims, "kid" | "kind" | "iat" | 
     valid = false;
   }
   if (!valid) throw new GrantError("Invalid grant signature");
+  return claims;
+}
+
+function verifySigned<Claims extends { kid: string; kind: string; iat: number; exp: number }>(
+  token: string,
+  keys: GrantKeySet,
+  now: number,
+  kind: GrantKind | "member" | undefined,
+  schema: z.ZodType<Claims>,
+): Claims {
+  const claims = verifySignature(token, keys, schema);
   if (kind !== undefined && claims.kind !== kind) throw new GrantError("Wrong grant kind");
   if (claims.exp <= now) throw new GrantError("Grant expired");
   if (claims.iat > now + GRANT_SKEW_MS || claims.exp - claims.iat > GRANT_LIFETIME_MS)

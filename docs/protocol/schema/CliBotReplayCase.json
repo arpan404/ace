@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliBotReplayCase.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "given": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "lines": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "mark": {
+      "enum": [
+        "right",
+        "wrong"
+      ],
+      "type": "string"
+    },
+    "outside": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "passed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "given",
+    "passed",
+    "lines",
+    "outside"
+  ],
+  "type": "object"
+}

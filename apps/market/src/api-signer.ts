@@ -78,14 +78,16 @@ export async function signerRoute(
   switch (route.kind) {
     case "signer-pending": {
       // Only versions waiting for the signer: held and blocked ones wait for a maintainer.
-      const [versions, withdrawals, list, blocklist, verified, official] = await Promise.all([
-        pendingVersions(dbs),
-        pendingWithdrawals(dbs),
-        withdrawnList(dbs.lists),
-        signedList(listDb(dbs, "blocklist"), "blocklist"),
-        signedList(listDb(dbs, "verified"), "verified"),
-        signedList(listDb(dbs, "official"), "official"),
-      ]);
+      const [versions, withdrawals, list, blocklist, verified, official, notices] =
+        await Promise.all([
+          pendingVersions(dbs),
+          pendingWithdrawals(dbs),
+          withdrawnList(dbs.lists),
+          signedList(listDb(dbs, "blocklist"), "blocklist"),
+          signedList(listDb(dbs, "verified"), "verified"),
+          signedList(listDb(dbs, "official"), "official"),
+          signedList(listDb(dbs, "notices"), "notices"),
+        ]);
       return json({
         versions,
         withdrawals,
@@ -93,10 +95,12 @@ export async function signerRoute(
         ...(blocklist ? { blocklist: blocklist.signed } : {}),
         ...(verified ? { verified: verified.signed } : {}),
         ...(official ? { official: official.signed } : {}),
+        ...(notices ? { notices: notices.signed } : {}),
       });
     }
     case "signer-object": {
-      if (!(await hashIsStored(dbs, route.hash))) return notFound();
+      // Only the public market's bytes: a registry's are its own signer's to read.
+      if (!(await hashIsStored(dbs, route.hash, "public"))) return notFound();
       const stored = await context.env.OBJECTS.get(objectKey(route.hash));
       return stored
         ? new Response(stored.body, { headers: { "content-type": "application/x-tar" } })
@@ -151,7 +155,8 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
   }
   const db = context.dbs.catalogue(key.type);
   const stored = db ? await versionForSigning(db, key) : undefined;
-  if (!db || !stored) return notFound();
+  // An organization's version is signed by its own registry key only (ADR 0206 §5.2).
+  if (!db || !stored || stored.audience !== "public") return notFound();
   // A held or blocked version waits for a maintainer, whatever the signer says.
   if (stored.state !== "pending" && stored.state !== "listed")
     return failure(409, "conflict", `That version is ${stored.state}; a maintainer decides it.`);

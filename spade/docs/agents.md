@@ -9,8 +9,9 @@ describe. Agents run on models from the person's own endpoints.
 ## Agents
 
 - **Main agent.** Created by the server on first start: name `Spade`, avatar `{"kind":"spade"}`,
-  empty task, the person's first usable model (first endpoint with a key and a saved model), else
-  no model (`""`): never a preset's, which the person hasn't set up. Until they choose one,
+  empty task, the person's first usable model (first endpoint with a key and a saved model, an
+  endpoint on this computer first, ADR 0205), else no model (`""`): never a preset's, which the
+  person hasn't set up, and never a subscription. Until they choose one,
   messages to it answer `409` and say so. At most one per service. It cannot be deleted, and its name and avatar
   cannot change (`409`); its task and model can. It shows only on the machine the fleet's host
   record names (see "Where Spade lives"); elsewhere it is left out of `GET /v1/agents` and
@@ -242,7 +243,31 @@ OpenAI `GET /models` (or Ollama's `/api/tags` shape), `endpoint` the person's en
 address if any. `POST /v1/endpoints/local/{server} {model}` adds the server as an
 `openai-chat` endpoint with no key the first time (an endpoint already at that address is used),
 saves the model on it and answers `{endpoint, value: "<endpoint>/<model>"}`; `404` for a server
-Spade doesn't know.
+Spade doesn't know. An endpoint whose id is `local` (one named "Local") keeps its own paths beside
+these: `PATCH` and `DELETE /v1/endpoints/local` and `/v1/endpoints/local/models` reach it.
+
+**Measured, not guessed** ([ADR 0205](../../docs/adr/0205-spade-bots-think-with-models-the-person-controls.md)
+§3). A model first saved through `POST /v1/endpoints/local/{server}` starts with no capabilities,
+and Spade sends it three fixed checks in the background, one after the other, each given two
+minutes: a plain answer, one call of a fake `get_weather` tool, and an answer shaped by a small
+JSON Schema. Each ends `passed`, `failed` (it answered, not as asked, or not in time) or
+`unreached` (the server never answered). They are kept as `local_probes:<endpoint>/<model>` and,
+when all three reached the model, set its `tools`; what they don't look at (images) is kept. A
+model of a local endpoint lists `probes`: `{"state": "checking"}`, `{"state": "unchecked"}`, or
+`{"state": "checked", at_ms, plain, tools, structured, why}`, `why` being the line the picker
+shows ("This model didn't call tools in Spade's check, so it can't run a bot.") or `null`.
+`POST /v1/endpoints/{id}/probe {id: model}` runs them again: `202` once they start, `409` while they
+run, `400` for a model not on this computer (its checks would cost money). A model that can't call
+tools serves `title` and `compact` only: `POST`/`PATCH /v1/agents` refuse it as a bot's model, as
+do `new_bot_model` and a route of any other role, the first usable model passes over it, and a
+`fast` package's bot runs on the capable model instead.
+
+**Known-good families.** `config/models.json`'s `local` list holds the local model families ace ran
+its first-party packages' cases on, on its own machines: `{family, name, passed, cases, checked}`,
+`passed` the share that passed. `qwen3` covers `qwen3:8b`, `qwen3-8b` and `qwen/qwen3-14b`, never
+`qwen3.5` or `qwen3-coder`. A local model of one lists `known_good: {name, passed, cases,
+checked}`, and the picker reads "Works well with Spade's packages". The list ships empty until
+those runs are made.
 
 The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
 from there on every start, holds presets: endpoint templates and known facts about model ids
@@ -331,11 +356,34 @@ deleted.
   8,192 tokens), it takes what the conversation's model takes (tools, images, PDFs) and, unless
   the person chose the model, its cold estimate is below the conversation model's cached one.
 
-API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, escalate}`) and
-`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source}], overrides: {roles, allowed,
-escalate}, escalate, spend: {today, month}}`; `source` is `bot`, `global`, `default` or `own`).
-`main` is refused there: change the bot's model. `PUT /v1/models/roles {roles: {review}}` sets
-oversight's `review_model`.
+- **Routes** ([ADR 0205](../../docs/adr/0205-spade-bots-think-with-models-the-person-controls.md)
+  §2). Each role is an ordered list of up to four models; a single model reads as a list of one.
+  `main`'s route is the bot's own model, then the bot's `main` route, else the global one. A step
+  runs on the first model that can serve it (it calls tools when the step offers them, reads
+  images when the prompt carries them, and its listed context holds the prompt). It moves to the
+  next only on a definite sign: the request never reached the endpoint (connection refused, DNS
+  or TLS failure), a `429` or a used-up quota, or a `5xx` once the usual three tries with backoff
+  are used up. A slow answer, a bad answer or a refusal never moves it; neither does a failure on
+  the route's last model, which is handled as for a lone model. A bot whose route has more than
+  one model stores `step_served {reply, model, skipped: [{model, reason}], line}` before each
+  step: `reason` is `unreachable`, `rate_limited`, `quota`, `server_error`, `no_tools`,
+  `no_images` or `too_small`, and `line` ("Ran on Model B: the local server was off.") is what
+  the reply shows when the step ran on another model than the route's first. The rest of the
+  reply starts from the model that served its last step; the next reply reads the route from its
+  start. A route never holds a subscription: one is refused when set, skipped when stored, and a
+  bot on a subscription runs on it alone. A helper's model leads its route when it is on the
+  `helper` route; a model the bot named runs alone.
+
+API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, routes: {<role>: [model]},
+escalate}`; `PUT` takes `roles: {<role>: model | [model] | null}`) and
+`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source, route}], overrides: {roles,
+routes, allowed, escalate}, escalate, spend: {today, month}}`; `source` is `bot`, `global`,
+`default` or `own`). `roles` keeps each override's first model, for clients from before routes.
+`PUT /v1/models/roles {roles: {review}}` sets oversight's `review_model` to the route's first.
+`GET /v1/models/package-routes` answers `{fast: {route, tools}, capable: {route, tools}}`: the
+models a package's bot naming `fast` or `capable` would think with, its model then the global
+`main` route, and whether any calls tools. The daemon's install review warns when a package that
+uses `apps` or `agents` has none there.
 
 ## Faces
 

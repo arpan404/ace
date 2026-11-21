@@ -269,3 +269,50 @@ test("a group joined by remote keeps one key however its machines list it, and n
   ]);
   expect(plain?.key).toContain(ace);
 });
+
+test.each([
+  {
+    behaviour: "two current daemons' keys of one self-hosted repository group",
+    lists: [
+      machine("mac", [project("1", "app", undefined, remote(["v2:box/~git/team/app"]))]),
+      machine("rijan", [project("2", "app", undefined, remote(["v2:box/~git/team/app"]))]),
+    ],
+    groups: [["mac/1", "rijan/2"]],
+  },
+  {
+    // During an upgrade the older daemon's `box/team/app` may be `git@box:team/app`, a home.
+    behaviour: "an older daemon's self-hosted key never groups with a current one",
+    lists: [
+      machine("mac", [project("1", "app", undefined, remote(["v2:box/team/app"]))]),
+      machine("rijan", [project("2", "app", undefined, remote(["box/team/app"]))]),
+    ],
+    groups: [["mac/1"], ["rijan/2"]],
+  },
+  {
+    behaviour: "two older daemons' self-hosted keys don't group either: either could be a home",
+    lists: [
+      machine("mac", [project("1", "app", undefined, remote(["box/team/app"]))]),
+      machine("rijan", [project("2", "app", undefined, remote(["box/team/app"]))]),
+    ],
+    groups: [["mac/1"], ["rijan/2"]],
+  },
+  {
+    behaviour: "a public forge's key groups across versions, since it never changed meaning",
+    lists: [
+      machine("mac", [project("1", "ace", undefined, remote([ace]))]),
+      machine("rijan", [project("2", "ace", undefined, remote([ace, "box/ace"]))]),
+      machine("omarchy", [project("3", "ace", undefined, remote([ace]))]),
+    ],
+    groups: [["mac/1", "omarchy/3"], ["rijan/2"]],
+  },
+  {
+    behaviour: "an older daemon's self-hosted checkout still joins through its identity",
+    lists: [
+      machine("mac", [project("1", "app", P, remote(["v2:box/team/app"]))]),
+      machine("rijan", [project("2", "app", P, remote(["box/team/app"]))]),
+    ],
+    groups: [["mac/1", "rijan/2"]],
+  },
+])("$behaviour", ({ lists, groups }) => {
+  expect(keysOf(lists).toSorted()).toEqual(groups);
+});

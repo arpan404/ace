@@ -31,6 +31,9 @@
     "publisher": {
       "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
     },
+    "registry": {
+      "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+    },
     "size": {
       "maximum": 9007199254740991,
       "minimum": 0,

@@ -27,6 +27,7 @@ final class MachineSession: Identifiable {
     @ObservationIgnored private var memo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
     @ObservationIgnored private var chatMemo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
     @ObservationIgnored private var projectCache = ProjectChoiceCache()
+    @ObservationIgnored private var projectRowCache = ProjectRowCache()
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Double) {
         self.defaults = defaults; self.now = now
@@ -51,6 +52,30 @@ final class MachineSession: Identifiable {
                     return ProjectChoice(id: id, name: showsMachineNames ? "\(row.project) · \(name(session.hostId))" : row.project)
                 }
             }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+    }
+
+    /// The Threads filter's projects on `machine` (every machine when empty): one row per
+    /// logical project across machines, its threads summed (ADR 0189). Built again only when a
+    /// machine's projects version moves.
+    func projectRows(machine: String) -> [ProjectFilterRow] {
+        let shown = sessions.filter { machine.isEmpty || $0.hostId == machine }
+        let membership = [machine] + shown.map { "\($0.hostId):\($0.client.projectsVersion)" }
+        return projectRowCache.rows(for: membership) {
+            ProjectFilterGroups.rows(shown.flatMap { session -> [ProjectFilterGroups.Checkout] in
+                var counts: [String: (name: String, threads: Int)] = [:]
+                var order: [String] = []
+                for row in session.client.inbox.values {
+                    // Each chat's hidden project is not a project to filter by (ADR 0099).
+                    guard let workspace = row.workspaceId, row.chat != true else { continue }
+                    if counts[workspace] == nil { order.append(workspace) }
+                    counts[workspace, default: (row.project, 0)].threads += 1
+                }
+                return order.sorted().compactMap { workspace in
+                    counts[workspace].map { ProjectFilterGroups.Checkout(machineId: session.hostId, workspaceId: workspace, name: $0.name,
+                                                                         logical: session.client.projectLogical[workspace] ?? [], threads: $0.threads) }
+                }
+            })
         }
     }
 
@@ -175,6 +200,19 @@ struct ProjectChoiceCache {
     mutating func choices(for key: [String], build: () -> [ProjectChoice]) -> [ProjectChoice] {
         if key != self.key { kept = build(); self.key = key }
         return kept
+    }
+}
+
+/// The filter's rows per machine scope (its first key), each kept until its machines' projects
+/// change, so the list's every-machine lookup and the menu's one-machine rows don't evict each other.
+struct ProjectRowCache {
+    private var kept: [String: (key: [String], rows: [ProjectFilterRow])] = [:]
+    mutating func rows(for key: [String], build: () -> [ProjectFilterRow]) -> [ProjectFilterRow] {
+        let scope = key.first ?? ""
+        if let held = kept[scope], held.key == key { return held.rows }
+        let rows = build()
+        kept[scope] = (key, rows)
+        return rows
     }
 }
 

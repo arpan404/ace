@@ -138,17 +138,27 @@ export interface ListedCopy {
   name: string;
   version: string;
   published: number;
+  /** Who may read it: `public`, or an organization's `org:<id>` (ADR 0206 §5.1). */
+  audience: string;
 }
 
 /**
- * Every signed version with these bytes, over every catalogue: only those are served to readers,
- * and a download counts for each of them.
+ * Every signed version with these bytes for `audience`, over every catalogue: only those are
+ * served to that audience's readers, and a download counts for each of them.
  */
-export async function listedWithHash(dbs: Databases, hash: string): Promise<ListedCopy[]> {
+export async function listedWithHash(
+  dbs: Databases,
+  hash: string,
+  audience: string,
+): Promise<ListedCopy[]> {
   return fromCatalogues(dbs, async ({ db }) => {
     const { results } = await db
-      .prepare("SELECT type, name, version, published FROM versions WHERE hash = ?1 AND listed = 1")
-      .bind(hash)
+      .prepare(
+        `SELECT v.type, v.name, v.version, v.published, e.audience FROM versions v
+          JOIN entries e ON e.type = v.type AND e.name = v.name
+          WHERE v.hash = ?1 AND v.listed = 1 AND e.audience = ?2`,
+      )
+      .bind(hash, audience)
       .all<ListedCopy>();
     return results;
   });

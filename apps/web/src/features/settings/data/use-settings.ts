@@ -10,6 +10,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { isStandingRefusal } from "@/boot/person-standing.ts";
+import { useConfirmPersonNotice } from "@/features/ace-account/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { UnavailableError } from "@/boot/fake-backend.ts";
@@ -152,13 +154,15 @@ const pendingAfterMs = 400;
  */
 export function useSettingWrite(title: string) {
   const toast = useToast();
+  const client = useClient();
+  const confirm = useConfirmPersonNotice();
   const [pending, setPending] = useState(false);
   const inFlight = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const run = useCallback(
     (write: () => Promise<void>) => {
-      const attempt = () => {
+      const attempt = (afterConfirmation = false) => {
         inFlight.current += 1;
         clearTimeout(timer.current);
         timer.current = setTimeout(() => setPending(inFlight.current > 0), pendingAfterMs);
@@ -170,16 +174,23 @@ export function useSettingWrite(title: string) {
         };
         write().then(done, (error: unknown) => {
           done();
+          if (
+            !afterConfirmation &&
+            error instanceof Error &&
+            isStandingRefusal(error.message) &&
+            confirm(client, () => attempt(true))
+          )
+            return;
           toast.error({
             title: `Couldn't save "${title}"`,
             description: error instanceof Error ? error.message : undefined,
-            actionProps: { children: "Retry", onClick: attempt },
+            actionProps: { children: "Retry", onClick: () => attempt() },
           });
         });
       };
       attempt();
     },
-    [toast, title],
+    [client, confirm, toast, title],
   );
   return { run, pending };
 }

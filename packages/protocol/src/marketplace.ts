@@ -18,6 +18,7 @@ import {
 import { marketPublishOperations, marketPublishResults } from "./marketplace-publish-ops.ts";
 import { SpadePersonality } from "./marketplace-catalog.ts";
 import {
+  PackageCodeImport,
   PackageEffectWord,
   PackageGrant,
   PackageLimits,
@@ -25,6 +26,10 @@ import {
   PackageTrigger,
 } from "./marketplace-package.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
+import { MarketKeyId, MarketOrgId } from "./marketplace-signed.ts";
+
+/** A SHA-256 digest, base64url: of a registry key's exact upload. */
+const MarketUploadDigest = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 
 export * from "./marketplace-base.ts";
 export * from "./marketplace-publish-pick.ts";
@@ -36,6 +41,7 @@ export * from "./marketplace-publisher.ts";
 export * from "./marketplace-scan.ts";
 export * from "./marketplace-service.ts";
 export * from "./marketplace-signed.ts";
+export * from "./marketplace-registry.ts";
 
 /*
  * ace's marketplace on the wire (ADR 0168): the entry model both sources produce, the review a
@@ -75,12 +81,29 @@ export const MarketInstalled = z.strictObject({
   /** A bot from a version 3 package: it stays linked, so it updates and rolls back (ADR 0200). */
   linked: z.boolean().optional(),
   /** The version a linked bot had before, kept pinned here so a rollback needs no network. */
-  previous: z.strictObject({ version: z.string().max(64), hash: MarketHash }).optional(),
+  previous: z
+    .strictObject({
+      version: z.string().max(64),
+      hash: MarketHash,
+      /**
+       * Where that version came from (ADR 0206 §5.4): this organization's registry, or `null`
+       * for the public market. Absent on records from before it was kept.
+       */
+      registry: MarketOrgId.nullable().optional(),
+    })
+    .optional(),
   /**
    * An update of a linked bot the person accepted while it worked: Spade applies it when the
    * bot's turn ends. `version` above stays the one running until then.
    */
   held: z.strictObject({ version: z.string().max(64) }).optional(),
+  /** From this organization's private registry (ADR 0206 §5.4), not the public market. */
+  registry: MarketOrgId.optional(),
+  /**
+   * Why its updates stopped, as a sentence: the account here is no longer a member of the
+   * registry's organization. It stays installed and on; nothing was deleted.
+   */
+  updatesStopped: z.string().max(300).optional(),
 });
 export type MarketInstalled = z.infer<typeof MarketInstalled>;
 
@@ -147,6 +170,38 @@ export const MarketEffectRow = z.strictObject({
 });
 export type MarketEffectRow = z.infer<typeof MarketEffectRow>;
 
+/** The free replay of the bot's kept runs on the version a review would move it to (ADR 0204 §2). */
+export const MarketBotReplay = z.object({
+  /** Spade's sentence: "18 of 20 kept runs replay the same. 2 don't: see why." */
+  summary: z.string().max(500),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  cases: z
+    .array(
+      z.object({
+        id: z.string().max(80),
+        given: z.string().max(300),
+        passed: z.boolean(),
+        lines: z.array(z.string().max(2000)).max(20),
+      }),
+    )
+    .max(200),
+});
+export type MarketBotReplay = z.infer<typeof MarketBotReplay>;
+
+/**
+ * One WebAssembly component a package ships, as a row on its review (ADR 0203 §5): "Runs its own
+ * code: fares. It can call Spade's tools as this bot." Its imports are the binary's: the signer
+ * read them from the bytes and refused a version whose manifest said otherwise.
+ */
+export const MarketCodeRow = z.strictObject({
+  name: z.string().min(1).max(24),
+  imports: z.array(PackageCodeImport).max(7),
+  why: z.string().max(500),
+  sentence: z.string().max(2000),
+});
+export type MarketCodeRow = z.infer<typeof MarketCodeRow>;
+
 /** What an update or rollback of a linked bot does, for its review (ADR 0200 §6.1). */
 export const MarketBotUpdate = z.strictObject({
   bot: z.string().min(1).max(80),
@@ -156,6 +211,8 @@ export const MarketBotUpdate = z.strictObject({
   plan: PackagePlan,
   /** What the new version asks for that the old one didn't, besides effects; it starts off. */
   asksMore: z.array(z.string().max(500)).max(64),
+  /** Its kept runs replayed free on the new version; absent with none, or when Spade couldn't. */
+  replay: MarketBotReplay.optional(),
 });
 export type MarketBotUpdate = z.infer<typeof MarketBotUpdate>;
 
@@ -175,6 +232,14 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     description: z.string().max(1024),
     files: z.number().int().nonnegative(),
     flagged: z.number().int().nonnegative(),
+    /** SKILL.md's `license`, shown as it says (ADR 0202 §1). */
+    license: z.string().max(200).optional(),
+    /** `compatibility`, shown; never a reason to refuse. */
+    compatibility: z.string().max(500).optional(),
+    /** `allowed-tools`: what the skill asks to run without asking. It grants nothing. */
+    allowedTools: z.array(z.string().max(120)).max(64).optional(),
+    /** Front matter fields this ace keeps but doesn't use. */
+    unused: z.array(z.string().max(120)).max(64).optional(),
   }),
   z.strictObject({
     type: z.literal("spade-plugin"),
@@ -209,6 +274,8 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     linked: z.boolean().optional(),
     /** Its declared effects, each a switch the person sets; nothing is granted before Install. */
     effects: z.array(MarketEffectRow).max(32).optional(),
+    /** Its own code, a row per component; every version with code was read by a maintainer. */
+    code: z.array(MarketCodeRow).max(4).optional(),
     /** Its triggers other than schedules, which `routines` lists. */
     triggers: z.array(PackageTrigger).max(40).optional(),
     limits: PackageLimits.optional(),
@@ -216,6 +283,11 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     unused: z.array(z.string().max(80)).max(64).optional(),
     /** For an update or a rollback of an installed bot. */
     update: MarketBotUpdate.optional(),
+    /**
+     * It uses apps or agents, which take a model that calls tools, and none of the models it
+     * would think with does (ADR 0205 §3). Installing still works; the bot can't act until then.
+     */
+    modelWarning: z.string().max(500).optional(),
   }),
 ]);
 export type MarketReviewBody = z.infer<typeof MarketReviewBodySchema>;
@@ -325,7 +397,33 @@ export const MarketOperation = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("home") }),
   z.strictObject({ op: z.literal("read"), ...entryKey }),
-  z.strictObject({ op: z.literal("prepare"), ...entryKey, version: MarketVersion.optional() }),
+  z.strictObject({
+    op: z.literal("prepare"),
+    ...entryKey,
+    version: MarketVersion.optional(),
+    /**
+     * An entry of this organization's private registry (ADR 0206 §5.4), read with the message's
+     * `orgGrant`. Only the market source has registries.
+     */
+    registry: MarketOrgId.optional(),
+    /**
+     * The person trusts the registry's key chain starting at this exact first key on this
+     * machine (ADR 0206 §5.3): their answer to `registry_trust`, the SHA-256 (base64url) of that
+     * key's upload as `registryKey.upload` named it, so another key reusing its id is never
+     * trusted with it. Needed once per chain.
+     */
+    trustKey: MarketUploadDigest.optional(),
+  }),
+  /**
+   * Reads which installed entries of an organization's registry have newer versions, with the
+   * message's `orgGrant`; a valid one also resumes updates stopped earlier.
+   */
+  z.strictObject({ op: z.literal("registryRefresh"), registry: MarketOrgId }),
+  /**
+   * The account here is no longer a member of the organization: its registry's installs stop
+   * updating and stay as they are (ADR 0206 §5.4). It only narrows, so any client may say it.
+   */
+  z.strictObject({ op: z.literal("registryLeft"), registry: MarketOrgId }),
   z.strictObject({
     op: z.literal("readReview"),
     id: MarketReviewId,
@@ -427,6 +525,17 @@ export const MarketErrorCode = z.enum([
    * with it as `personGrant`.
    */
   "person_grant",
+  /**
+   * An organization's registry needs a fresh proof of membership (ADR 0206 §5.3): the client
+   * sends the request again with an `orgGrant` for that organization, or the account isn't a
+   * member.
+   */
+  "not_member",
+  /**
+   * The device hasn't trusted this registry's key chain yet, or its first key was reset: the
+   * person answers with `trustKey`. `registryKey` names the key.
+   */
+  "registry_trust",
 ]);
 
 export const MarketResult = z.discriminatedUnion("op", [
@@ -482,6 +591,21 @@ export const MarketResult = z.discriminatedUnion("op", [
     request: z.string().max(200).optional(),
     /** For `person_grant`: the market request, `METHOD /path`, a person's grant must name. */
     action: z.string().min(1).max(512).optional(),
+    /** For `registry_trust`: the first key of the chain to trust, who added it and when. */
+    registryKey: z
+      .strictObject({
+        org: MarketOrgId,
+        key: MarketKeyId,
+        /** What `trustKey` answers with: the SHA-256 of this first key's exact upload. */
+        upload: MarketUploadDigest,
+        /** The key's public-key fingerprint, as the person compares it with the owner's. */
+        fingerprint: z.string().min(1).max(64),
+        addedBy: z.string().max(128),
+        at: z.number().int().nonnegative(),
+        /** A device that trusted another first key before: the chain was reset. */
+        reset: z.boolean(),
+      })
+      .optional(),
   }),
 ]);
 export type MarketResult = z.infer<typeof MarketResult>;
@@ -500,6 +624,12 @@ export const MarketClientMessage = z.strictObject({
    * call (ADR 0190): the market takes a sensitive action only with it. Never a machine's.
    */
   personGrant: z.string().min(1).max(4096).optional(),
+  /**
+   * A market grant acting in an organization (`org` claim), which the client got with the
+   * person's own session after the account backend's fresh membership check (ADR 0206 §5.3). The
+   * daemon reads that organization's registry with it, and installs from it only with it.
+   */
+  orgGrant: z.string().min(1).max(4096).optional(),
 });
 export type MarketClientMessage = z.infer<typeof MarketClientMessage>;
 

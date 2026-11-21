@@ -7,6 +7,8 @@ pub mod attest;
 pub mod checkpoints;
 mod confine;
 pub mod grants;
+pub mod member;
+pub mod permissions;
 pub mod read_only;
 pub mod settings;
 pub mod toolchains;
@@ -130,6 +132,10 @@ pub struct Security {
     issue_hook: Mutex<Option<AutonomyHook>>,
 }
 
+/// What a member who may not raise a shared bot to Full access is told.
+pub const FULL_ACCESS_NOT_YOURS: &str =
+    "Your organization doesn't let you turn on Full access for this shared bot.";
+
 /// What a test runs, with the bot's id, while a change to how that bot decides is being decided.
 pub type AutonomyHook = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -150,6 +156,13 @@ impl Drop for Reservation {
 
 /// Why work that waits for a reservation doesn't run now.
 pub const RESERVED: &str = "the bot's workspace is being restored from a checkpoint";
+
+impl Security {
+    /// The store Spade's security writes through: watched as the engine's is (ADR 0206 §4.1).
+    pub(crate) fn store(&self) -> &Store {
+        &self.store
+    }
+}
 
 impl Security {
     /// The service, with the egress proxy listening when this machine has a sandbox.
@@ -305,6 +318,33 @@ impl Security {
         mode: Option<Mode>,
         stamp: Option<&str>,
     ) -> Result<BotSecurity, SecurityError> {
+        let says = |value: &str| {
+            let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
+            self.attestor
+                .person(stamp, bot, value, self.clock.now_ms(), &claim)
+        };
+        self.set_autonomy_said(bot, mode, &says, attest::PERSON_ONLY)
+    }
+
+    /// Sets how a shared bot decides, as a member who configures it asks (ADR 0206 §2.3): a
+    /// raise to Full access only where `may_raise` (its organization's policy allows it, for
+    /// their role).
+    pub fn set_autonomy_as_member(
+        &self,
+        bot: &str,
+        mode: Option<Mode>,
+        may_raise: bool,
+    ) -> Result<BotSecurity, SecurityError> {
+        self.set_autonomy_said(bot, mode, &|_| may_raise, FULL_ACCESS_NOT_YOURS)
+    }
+
+    fn set_autonomy_said(
+        &self,
+        bot: &str,
+        mode: Option<Mode>,
+        says: &dyn Fn(&str) -> bool,
+        refused: &'static str,
+    ) -> Result<BotSecurity, SecurityError> {
         self.change(bot, |current| {
             // Read under the same lock as the write, with the machine's: a parent raised or a
             // machine default changed meanwhile is what this change is decided against.
@@ -323,12 +363,8 @@ impl Security {
                 || (with(mode) == Mode::FullAccess && with(current.autonomy) != Mode::FullAccess);
             if raises {
                 let value = mode.map_or("null", Mode::name);
-                let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
-                if !self
-                    .attestor
-                    .person(stamp, bot, value, self.clock.now_ms(), &claim)
-                {
-                    return Err(SecurityError::PersonOnly(attest::PERSON_ONLY));
+                if !says(value) {
+                    return Err(SecurityError::PersonOnly(refused));
                 }
                 current.full_access_confirmed = true;
             }
@@ -343,6 +379,42 @@ impl Security {
         let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
         self.attestor
             .person(stamp, target, value, self.clock.now_ms(), &claim)
+    }
+
+    /// The member whose answer stamp (`member`, ADR 0206 §2.3, as ace's daemon makes it) is
+    /// their answer `value` to the request `target`; the stamp is used up. Read as a member:
+    /// the answer stamp carries no role. `None` for anything that isn't one now.
+    pub fn member_answers(
+        &self,
+        stamp: Option<&str>,
+        target: &str,
+        value: &str,
+    ) -> Option<spade_core::org::Member> {
+        let (stamp, key) = (stamp?, self.attestor.key()?);
+        let now = self.clock.now_ms();
+        let (member, nonce) = member::check_answer(&key, stamp, target, value, now).ok()?;
+        attest::claim_in(&self.store, &nonce, now).then_some(member)
+    }
+
+    /// The member whose write stamp is their say on the request `target` (`<METHOD> <path>`)
+    /// with body digest `value`, with the role it was signed for; the stamp is used up.
+    pub fn member_requests(
+        &self,
+        stamp: Option<&str>,
+        role: Option<&str>,
+        name: Option<&str>,
+        target: &str,
+        value: &str,
+    ) -> Option<spade_core::org::Member> {
+        let (stamp, key) = (stamp?, self.attestor.key()?);
+        let now = self.clock.now_ms();
+        let (mut member, nonce) =
+            member::check_request(&key, stamp, role, target, value, now).ok()?;
+        if !attest::claim_in(&self.store, &nonce, now) {
+            return None;
+        }
+        member.name = member::name(name);
+        Some(member)
     }
 
     /// Waits here, while a change to how `bot` decides is being decided, when a test holds it.
@@ -418,34 +490,83 @@ impl Security {
         Ok(current)
     }
 
-    /// Sets where the bot's commands run; `None` follows the machine.
+    /// Sets where the bot's commands run; `None` follows the machine. A change that moves them
+    /// outside the sandbox loosens what the bot may do, so it runs only if `may_loosen` (the
+    /// person's stamp, ADR 0171 amendment 7); moving them back in never needs it.
     pub fn set_commands(
         &self,
         bot: &str,
         commands: Option<Commands>,
+        may_loosen: &dyn Fn() -> bool,
     ) -> Result<BotSecurity, SecurityError> {
         self.change(bot, |current| {
+            let machine = self.machine().commands;
+            let outside = |own: Option<Commands>| own.unwrap_or(machine) == Commands::Outside;
+            if outside(commands) && !outside(current.commands) && !may_loosen() {
+                return Err(SecurityError::PersonOnly(attest::CONFIRM));
+            }
             current.commands = commands;
             Ok(())
         })
     }
 
-    /// Sets one of the machine's network policies, checking each addition's form.
+    /// Sets where commands of bots without their own setting run; outside needs `may_loosen`.
+    pub fn set_machine_commands(
+        &self,
+        commands: Commands,
+        may_loosen: &dyn Fn() -> bool,
+    ) -> Result<MachineSecurity, SecurityError> {
+        let loosens = commands == Commands::Outside && self.machine().commands != Commands::Outside;
+        if loosens && !may_loosen() {
+            return Err(SecurityError::PersonOnly(attest::CONFIRM));
+        }
+        self.change_machine(|machine| machine.commands = commands)
+    }
+
+    /// Sets one of the machine's network policies, checking each addition's form. One that
+    /// reaches further (a freer mode, a host added, a default put back) needs `may_loosen`.
     pub fn set_machine_network(
         &self,
         which: Network,
         policy: NetworkPolicy,
+        may_loosen: &dyn Fn() -> bool,
     ) -> Result<MachineSecurity, SecurityError> {
         let policy = checked(policy)?;
+        let machine = self.machine();
+        let old = match which {
+            Network::Commands => &machine.network,
+            Network::Plugins => &machine.plugin_network,
+        };
+        if settings::widens(old, &policy) && !may_loosen() {
+            return Err(SecurityError::PersonOnly(attest::CONFIRM));
+        }
         self.change_machine(|machine| match which {
             Network::Commands => machine.network = policy,
             Network::Plugins => machine.plugin_network = policy,
         })
     }
 
-    /// Takes away a bot's own network policy, so it follows the machine's.
-    pub fn inherit_network(&self, bot: &str, which: Network) -> Result<BotSecurity, SecurityError> {
+    /// Takes away a bot's own network policy, so it follows the machine's; where the machine's
+    /// reaches further, only if `may_loosen`.
+    pub fn inherit_network(
+        &self,
+        bot: &str,
+        which: Network,
+        may_loosen: &dyn Fn() -> bool,
+    ) -> Result<BotSecurity, SecurityError> {
         self.change(bot, |current| {
+            let machine = self.machine();
+            let (own, followed) = match which {
+                Network::Commands => (&current.network, &machine.network),
+                Network::Plugins => (&current.plugin_network, &machine.plugin_network),
+            };
+            if own
+                .as_ref()
+                .is_some_and(|own| settings::widens(own, followed))
+                && !may_loosen()
+            {
+                return Err(SecurityError::PersonOnly(attest::CONFIRM));
+            }
             match which {
                 Network::Commands => current.network = None,
                 Network::Plugins => current.plugin_network = None,
@@ -471,15 +592,25 @@ impl Security {
         Ok(current)
     }
 
-    /// Sets one of a bot's network policies, checking each addition's form.
+    /// Sets one of a bot's network policies, checking each addition's form. One that reaches
+    /// further than what holds for the bot now needs `may_loosen`.
     pub fn set_network(
         &self,
         bot: &str,
         which: Network,
         policy: NetworkPolicy,
+        may_loosen: &dyn Fn() -> bool,
     ) -> Result<BotSecurity, SecurityError> {
         let policy = checked(policy)?;
         self.change(bot, |current| {
+            let held = settings::effective(current, &self.machine());
+            let old = match which {
+                Network::Commands => &held.network,
+                Network::Plugins => &held.plugin_network,
+            };
+            if settings::widens(old, &policy) && !may_loosen() {
+                return Err(SecurityError::PersonOnly(attest::CONFIRM));
+            }
             match which {
                 Network::Commands => current.network = Some(policy),
                 Network::Plugins => current.plugin_network = Some(policy),

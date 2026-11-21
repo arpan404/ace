@@ -164,6 +164,9 @@ struct SettingsSheet: View {
                     InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
                         .accessibilityElement(children: .combine)
                     link(.licences, "Licences", "doc.text", id: "settings.licences")
+                    legalLink(AceLegal.terms, id: "settings.legal.terms")
+                    legalLink(AceLegal.privacy, id: "settings.legal.privacy")
+                    legalLink(AceLegal.support, id: "settings.support")
                     ShareLink(item: report.json, preview: SharePreview("ace diagnostics")) {
                         InsetRow("Send diagnostics", systemImage: "square.and.arrow.up")
                     }
@@ -192,6 +195,12 @@ struct SettingsSheet: View {
     private func start() {
         dismiss()
         places?.startThread()
+    }
+
+    /// A page on ace's site, opened in the system browser.
+    private func legalLink(_ page: AceLegal.Page, id: String) -> some View {
+        Link(destination: page.url) { InsetRow(page.title, icon: page.icon) }
+            .accessibilityIdentifier(id)
     }
 
     private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {

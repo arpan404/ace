@@ -1,11 +1,17 @@
 import { join } from "node:path";
-import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
+import {
+  Signed,
+  VersionManifest,
+  type MarketInstalled,
+  type MarketOperation,
+  type MarketResult,
+} from "@ace/protocol/marketplace";
 import { privacySpans, withSentences } from "@ace/marketplace";
 import { homeOf, publicInstall, readListed, searchListings } from "./browse.ts";
 import { applyBlocklist, turnOnUnlessBlocked } from "./blocklist.ts";
 import { discover, publisherPage, report } from "./discover.ts";
 import { GitCatalogs } from "./git.ts";
-import { MarketHttp } from "./http.ts";
+import { MarketHttp, type MemberReads } from "./http.ts";
 import { removeInstall } from "./install.ts";
 import { undoJournal } from "./journal.ts";
 import { readWithdrawn, refreshSource, type RowMarks } from "./listings.ts";
@@ -20,10 +26,19 @@ import { publishRequest } from "./publish-request.ts";
 import { saveGitSource, sourcesOf } from "./sources.ts";
 import { spadeBot } from "./spade-bot.ts";
 import { spadeSkillFiles, spadeSkills } from "./spade-skills.ts";
-import { MarketStore } from "./store.ts";
+import { MarketStore, type StoredInstall } from "./store.ts";
 import { badgesOf, Trust } from "./trust.ts";
 import { TurnedOff } from "./turned-off.ts";
 import { markUpdates, turnOffWithdrawn } from "./upkeep.ts";
+import {
+  confirmRegistryInstall,
+  refreshRegistry,
+  requireMember,
+  stopUpdates,
+  trustedChain,
+  type Membership,
+} from "./org-registry.ts";
+import { Refused, type PreparePorts } from "./prepare.ts";
 import { holdsUpdates, reconcileBots, settleHeldUpdates } from "./arrived-bots.ts";
 
 export type { MarketPluginPort, MarketplaceOptions, MarketRequestPorts } from "./options.ts";
@@ -36,6 +51,28 @@ export type { MarketPluginPort, MarketplaceOptions, MarketRequestPorts } from ".
 
 const staleMs = 60 * 60_000;
 const dayMs = 24 * 60 * 60_000;
+
+/**
+ * Where the version before an install came from: as its record says (`null`, the public
+ * market), or for a record from before that was kept, as the earlier version's own signed
+ * manifest says, never the current version's source.
+ */
+function previousRegistry(install: StoredInstall): string | undefined {
+  const previous = install.previous;
+  if (!previous) return undefined;
+  if (previous.registry !== undefined) return previous.registry ?? undefined;
+  const signed = Signed.safeParse(install.previousSignedManifest);
+  return signed.success ? VersionManifest.safeParse(signed.data.body).data?.registry : undefined;
+}
+
+/** A registry's reads with the member's grant that proved membership, and what checked it. */
+interface MemberRead {
+  reads: MemberReads;
+  grant: string;
+  membership: Membership;
+  /** Proves membership again against this machine as it is at that moment. */
+  recheck: () => void;
+}
 
 export class MarketplaceService {
   readonly #options: MarketplaceOptions;
@@ -252,25 +289,52 @@ export class MarketplaceService {
           operation.name,
         );
       case "prepare":
-        return this.#serial(() =>
+        return this.#serial(async () =>
           this.#reviews.prepare(
             operation.source,
             operation.type,
             operation.name,
             operation.version,
+            undefined,
+            operation.registry === undefined
+              ? undefined
+              : await this.#registryRead(
+                  { org: operation.registry, trustKey: operation.trustKey },
+                  ports,
+                ),
           ),
         );
       case "readReview":
         return this.#reviews.read(operation.id, operation.offset);
       case "install":
-        return this.#serial(() =>
-          this.#reviews.install(
+        return this.#serial(async () => {
+          // A registry's review installs only if, now, in turn with every other install: the
+          // account is a member on this machine, the chain still extends what this device
+          // trusts, and it signs exactly what was reviewed.
+          const reviewed = this.#reviews.registryReview(operation.id);
+          let stillAllowed: (() => void) | undefined;
+          if (reviewed) {
+            if (reviewed.hash !== operation.hash)
+              return error("conflict", "The review names other bytes than the install");
+            const read = await this.#memberReads(reviewed.org, ports);
+            await confirmRegistryInstall(
+              read.reads,
+              this.#store,
+              reviewed,
+              { org: reviewed.org, grant: read.grant },
+              read.membership,
+              read.recheck,
+            );
+            stillAllowed = read.recheck;
+          }
+          return this.#reviews.install(
             operation.id,
             operation.hash,
             operation.choices,
             ports.withoutPerson === true ? "without-person" : "person",
-          ),
-        );
+            stillAllowed,
+          );
+        });
       case "cancel":
         await this.#reviews.cancel(operation.id);
         return { op: "done" };
@@ -298,14 +362,62 @@ export class MarketplaceService {
         if ("op" in install) return install;
         // A linked bot's update moves that bot (ADR 0200 §6.1).
         const bot = install.type === "spade-bot" && install.linked ? install.target : undefined;
-        return this.#serial(() =>
-          this.#reviews.prepare(install.source, install.type, install.name, install.update, bot),
+        const org = install.registry;
+        return this.#serial(async () =>
+          this.#reviews.prepare(
+            install.source,
+            install.type,
+            install.name,
+            install.update,
+            bot,
+            org === undefined ? undefined : await this.#registryRead({ org }, ports),
+          ),
         );
       }
+      case "registryRefresh":
+        return this.#serial(async () => {
+          const org = operation.registry;
+          requireMember(ports.orgGrant, org, ports.membership?.(), this.#options.now());
+          const http = this.#http();
+          if (!http || !ports.orgGrant)
+            return error("unavailable", "market.acehq.dev is turned off");
+          if (await refreshRegistry(http.member(org, ports.orgGrant), this.#store, org))
+            this.#emit();
+          return { op: "installed", installed: this.#installed() };
+        });
+      case "registryLeft":
+        return this.#serial(async () => {
+          if (stopUpdates(this.#store, operation.registry)) this.#emit();
+          return { op: "installed", installed: this.#installed() };
+        });
       case "prepareRollback": {
         const install = this.#installOf(operation);
         if ("op" in install) return install;
-        return this.#serial(() => this.#reviews.prepareRollback(install));
+        // The earlier version is checked as where it came from: a registry's needs membership
+        // now and its signature against the chain trusted now, as an install from it does.
+        const org = previousRegistry(install);
+        return this.#serial(async () => {
+          if (org !== undefined) {
+            const read = await this.#registryRead({ org }, ports);
+            if (install.previous)
+              await confirmRegistryInstall(
+                read.reads,
+                this.#store,
+                {
+                  org,
+                  type: install.type,
+                  name: install.name,
+                  version: install.previous.version,
+                  hash: install.previous.hash,
+                  signedManifest: install.previousSignedManifest,
+                },
+                { org, grant: read.grant },
+                read.membership,
+                read.recheck,
+              );
+          }
+          return this.#reviews.prepareRollback(install, org);
+        });
       }
       case "remove":
         return this.#serial(async () => {
@@ -390,6 +502,41 @@ export class MarketplaceService {
   }
 
   /**
+   * What reading an organization's registry needs for one request: proof, now, that this
+   * machine's account is a member, then the registry's key chain as this device trusts it.
+   */
+  async #registryRead(
+    request: { org: string; trustKey?: string | undefined },
+    ports: MarketRequestPorts,
+  ): Promise<NonNullable<PreparePorts["registry"]> & MemberRead> {
+    const read = await this.#memberReads(request.org, ports);
+    const chain = await trustedChain(
+      read.reads,
+      this.#store,
+      { org: request.org, grant: read.grant, trustKey: request.trustKey },
+      read.membership,
+    );
+    // Fetching the chain took time: the machine must still be the member's, now.
+    read.recheck();
+    return { ...read, org: request.org, chain };
+  }
+
+  /**
+   * A registry's reads as a member, once the grant proves membership on this machine as it is
+   * now: its account and enrollment are read live, here and again on every `recheck`.
+   */
+  async #memberReads(org: string, ports: MarketRequestPorts): Promise<MemberRead> {
+    const recheck = () =>
+      requireMember(ports.orgGrant, org, ports.membership?.(), this.#options.now());
+    recheck();
+    const http = this.#http();
+    const membership = ports.membership?.();
+    if (!http || !ports.orgGrant || !membership)
+      throw new Refused("market.acehq.dev is turned off", { code: "unavailable" });
+    return { reads: http.member(org, ports.orgGrant), grant: ports.orgGrant, membership, recheck };
+  }
+
+  /**
    * The install an operation names. A bot package can have made several bots here, one install
    * each: then the operation names its bot.
    */
@@ -453,11 +600,23 @@ export class MarketplaceService {
       });
       await turnOffWithdrawn(() => this.#installPorts(), this.#store, withdrawn);
       await markUpdates(this.#store);
+      await this.#passNotices();
       this.#emit();
     })().finally(() => {
       this.#refreshing = undefined;
     });
     return this.#refreshing;
+  }
+
+  /**
+   * Hands Spade the newest terms notices this device verified (ADR 0205 §4), on every refresh:
+   * the daily one included. Spade keeps only a list newer than the one it has, so sending the
+   * same one again changes nothing; while Spade isn't running the next refresh sends it.
+   */
+  async #passNotices(): Promise<void> {
+    const signed = this.#trust.signedNotices();
+    if (signed === undefined || !this.#options.spade.ready()) return;
+    await this.#options.spade.termsNotices(signed).catch(() => {});
   }
 
   /** A stale listing is read again in the background; the answer uses what the daemon has. */

@@ -31,6 +31,7 @@ const tokens: Record<ThreadStatus["state"], StatusToken> = {
   unresponsive: "unresponsive",
   new: "neutral",
   moved: "neutral",
+  unknown: "neutral",
 };
 
 /**

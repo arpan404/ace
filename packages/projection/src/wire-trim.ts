@@ -10,6 +10,9 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
 import type { SuitServerMessage } from "@ace/protocol/suits";
 import type { MarketServerMessage } from "@ace/protocol/marketplace";
 import { historyMessageIdentity, isRawHistoryItem } from "./history-visibility.ts";
+import { olderStatuses } from "./older-status.ts";
+
+export { olderStatus } from "./older-status.ts";
 import { providerNotice } from "./provider-notices.ts";
 import { structuredCopy } from "./structured-copy.ts";
 
@@ -37,6 +40,8 @@ export const wireTrims = {
   rawOnDemand: "raw-on-demand",
   /** Accepts the `storage` admission hold, a disk too full for new work (ADR 0176). */
   storageHold: "storage-hold",
+  /** Accepts the `moved` thread status (ADR 0191); without it a moved thread reads `waiting`. */
+  movedStatus: "moved-status",
 } as const;
 /** Every trim this build can undo; what a client lists in its hello. */
 export const supportedWireTrims: readonly string[] = Object.values(wireTrims);
@@ -124,6 +129,7 @@ export class WireTrimmer {
   readonly #capabilities: boolean;
   readonly #raw: boolean;
   readonly #storage: boolean;
+  readonly #moved: boolean;
   readonly #keys = new Map<string, string>();
   constructor(trims: readonly string[] | undefined) {
     this.#hidden = trims?.includes(wireTrims.spadeHidden) === true;
@@ -131,6 +137,7 @@ export class WireTrimmer {
     this.#capabilities = trims?.includes(wireTrims.providerCapabilities) === true;
     this.#raw = trims?.includes(wireTrims.rawOnDemand) === true;
     this.#storage = trims?.includes(wireTrims.storageHold) === true;
+    this.#moved = trims?.includes(wireTrims.movedStatus) === true;
   }
   /** An item as this connection receives it. */
   #item = (item: Item): Item => {
@@ -155,6 +162,7 @@ export class WireTrimmer {
       else if (message.type === "admission.result" && message.admission)
         message = { ...message, admission: olderAdmission(message.admission) };
     }
+    if (!this.#moved) message = olderStatuses(message);
     if (!this.#items && !this.#capabilities && !this.#raw) return [message];
     const before: Outgoing[] = [];
     const trimmed = this.trim(message, before);

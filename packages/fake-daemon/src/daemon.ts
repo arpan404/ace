@@ -62,7 +62,7 @@ import {
   type ServerMessage,
   FleetLink,
 } from "@ace/protocol";
-import { Connection, matches, type Host, type Wire } from "./connection.ts";
+import { Connection, matches, type FakeFault, type Host, type Wire } from "./connection.ts";
 import { CommandFlights } from "./command-status.ts";
 import { fakeHealth } from "./health.ts";
 import { FakeAccess } from "./access.ts";
@@ -75,7 +75,7 @@ import { fencedDelivery, listActionChanged, staleInterrupt } from "./command-fen
 import { permissionUpdate, switchUpdate } from "./thread-updates.ts";
 import { readTextSource } from "./text-source.ts";
 import { numberedRun } from "./run-turns.ts";
-import { historyPage, windowSnapshot } from "./window.ts";
+import { historyPage, tailSnapshot, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 import { entityPage } from "./entity-pages.ts";
@@ -165,7 +165,7 @@ export class FakeDaemon implements Host {
   private resolvedListeners = new Set<ResolvedListener>();
   private outputs = new FakeOutputStore();
   private longThreads: FakeLongThreadWire;
-  private faults = new Map<string, "fail" | "hold" | { code: string }>();
+  private faults = new Map<string, FakeFault>();
   private refusals = new Map<string, string>();
   private refusing = false;
   private remoteReachable = true;
@@ -877,6 +877,19 @@ export class FakeDaemon implements Host {
   holdRequests(...types: ClientMessage["type"][]): void {
     for (const type of types) this.faults.set(type, "hold");
   }
+  /**
+   * Answer these requests only once the returned release is called, in the order they came, as
+   * a slow machine would; later ones are served as usual.
+   */
+  deferRequests(...types: ClientMessage["type"][]): () => void {
+    const waiting: (() => void)[] = [];
+    const deferred: FakeFault = { defer: (answer) => waiting.push(answer) };
+    for (const type of types) this.faults.set(type, deferred);
+    return () => {
+      for (const type of types) if (this.faults.get(type) === deferred) this.faults.delete(type);
+      for (const answer of waiting.splice(0)) answer();
+    };
+  }
   /** Refuse every command of these types with `error`, as a daemon that won't run them would. */
   refuseCommands(error: string, ...types: Command["payload"]["type"][]): void {
     for (const type of types) this.refusals.set(type, error);
@@ -886,7 +899,7 @@ export class FakeDaemon implements Host {
     this.faults.clear();
     this.refusals.clear();
   }
-  fault(type: ClientMessage["type"]): "fail" | "hold" | { code: string } | undefined {
+  fault(type: ClientMessage["type"]): FakeFault | undefined {
     return this.faults.get(type);
   }
   /** While on, every connection is dropped as it opens, as a stopped daemon would. */
@@ -1017,12 +1030,17 @@ export class FakeDaemon implements Host {
     )
       this.append(host, [{ type: "thread.client.updated", changes }], at);
   }
-  snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined {
+  snapshot(
+    scope: SubscriptionScope,
+    tail?: { items: number; bytes: number },
+  ): ThreadView | ThreadListView | undefined {
     if (scope.kind === "threads") return { ...structuredClone(this.list), seq: this.seq };
     const host = this.threads.get(scope.threadId);
-    return host && host.view.thread.deletedAt === undefined
-      ? windowSnapshot(host.view, host.creation, this.options.snapshotItems ?? 200, this.seq)
-      : undefined;
+    if (!host || host.view.thread.deletedAt !== undefined) return undefined;
+    const limit = this.options.snapshotItems ?? 200;
+    return tail
+      ? tailSnapshot(host.view, host.creation, tail, limit, this.seq)
+      : windowSnapshot(host.view, host.creation, limit, this.seq);
   }
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[] {
     return this.log.filter((event) => event.seq > afterSeq && matches(scope, event));

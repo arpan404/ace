@@ -1,6 +1,7 @@
 import { eachCatalogue, type Databases } from "./databases.ts";
 import { stampValue, takeStamp } from "./entries.ts";
 import type { ListedCopy } from "./read.ts";
+import { isRegistryName } from "./registries.ts";
 
 /*
  * Download totals (ADR 0168 §3, §10; ADR 0174 §6, §16), in the counts database. A download only
@@ -129,8 +130,10 @@ export async function aggregateDownloads(dbs: Databases, now: number): Promise<v
       WHERE v.type = json_extract(t.value, '$.type') AND v.name = json_extract(t.value, '$.name')
         AND v.version = json_extract(t.value, '$.version')
         AND v.counted < json_extract(t.value, '$.downloads')`;
+    // Only the public market's totals move the index's stamp: a registry's never show there.
+    const shown = results.some((row) => !isRegistryName(row.name));
     await db.batch([
-      takeStamp(db, now),
+      ...(shown ? [takeStamp(db, now)] : []),
       db
         .prepare(
           `UPDATE entries SET updated = ${stampValue} WHERE listed = 1 AND EXISTS (

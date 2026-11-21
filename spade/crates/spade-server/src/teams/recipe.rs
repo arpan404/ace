@@ -76,6 +76,9 @@ pub struct RecipeInput {
     pub switches: BTreeMap<String, bool>,
     /// The package's panel pages (ADR 0200 §5.2), by path: kept with the bot as it is made.
     pub pages: BTreeMap<String, String>,
+    /// The package's components (ADR 0203 §5), by path, in base64: kept before the bot is made,
+    /// and pinned by its link.
+    pub code: BTreeMap<String, String>,
 }
 
 fn invalid(message: impl Into<String>) -> PortableError {
@@ -197,6 +200,18 @@ pub fn from_recipe(
     input: RecipeInput,
 ) -> Result<Imported, PortableError> {
     let (recipe, package) = checked(engine, &input)?;
+    let pins = crate::code::accept::accepted(
+        &recipe,
+        &input.code,
+        input.envelope.as_ref(),
+        engine.code().as_deref(),
+    )
+    .map_err(invalid)?;
+    let package = package.map(|package| envelope::with_code(package, &pins));
+    // An org host installs only what its organization's policy allows (ADR 0206 §3).
+    if let Some(why) = package.as_ref().and_then(|p| engine.org_package_refusal(p)) {
+        return Err(PortableError::Refused(why));
+    }
     let pages = packages::panels::pages(&recipe, &input.pages)
         .map_err(|error| invalid(error.to_string()))?;
     // A package from the market answers the bots' cards that suggested it (ADR 0200 §8).
@@ -212,6 +227,7 @@ pub fn from_recipe(
         transaction: input.from_recipe.transaction.clone(),
         routine_ids: BTreeMap::new(),
         notes: Vec::new(),
+        code: pins,
     });
     let plugin_names: BTreeSet<String> = input
         .grants
@@ -227,7 +243,10 @@ pub fn from_recipe(
     }
     let (granted, mut left_out) = connector_grants(connectors, &input.grants.connectors);
     let model = match recipe.model.as_str() {
-        "fast" => engine.fast_model().ok().flatten(),
+        // A fast model that can't call tools writes titles; the bot runs on the capable one.
+        "fast" => engine
+            .fast_endpoint_model()
+            .filter(|m| engine.model_usable(m)),
         _ => None,
     }
     .unwrap_or_else(|| engine.new_bot_default());
@@ -255,6 +274,7 @@ pub fn from_recipe(
         },
     )?;
     let id = made.agent.id.clone();
+    crate::code::warm(engine, &id);
     let furnished = furnish(
         engine,
         Furnishing {

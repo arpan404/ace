@@ -38,6 +38,40 @@ fn signed(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Option<Response
             "only ace itself asks for one of its threads",
         )
     };
+    let host = headers.get("x-ace-from-host").and_then(|v| v.to_str().ok());
+    if host.map(str::trim) != Some(FROM_ACE) {
+        return Some(refused());
+    }
+    match daemon_stamp(state, headers, body) {
+        Ok((host, _)) if host == FROM_ACE => None,
+        Ok(_) | Err(Stamp::Refused) => Some(refused()),
+        Err(Stamp::Unchecked) => Some(unchecked()),
+    }
+}
+
+/// Why a request's stamp isn't taken.
+pub(super) enum Stamp {
+    /// Missing, malformed, stale, or not signed with ace's token.
+    Refused,
+    /// Spade can't check it: it doesn't know this machine's ace ([`unchecked`]).
+    Unchecked,
+}
+
+/// The answer to a request whose stamp Spade can't check.
+pub(super) fn unchecked() -> Response {
+    problem(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Spade doesn't know this machine's ace, so it can't check the request",
+    )
+}
+
+/// The sender and its name as ace's daemon stamped and signed them on this request, with ace's
+/// own token over the time, both and `body`.
+pub(super) fn daemon_stamp(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Result<(String, String), Stamp> {
     let stamp = |name: &str| {
         headers
             .get(name)
@@ -52,19 +86,17 @@ fn signed(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Option<Response
         stamp("x-ace-inbox-time").and_then(|t| t.parse::<i64>().ok()),
         stamp("x-ace-inbox-proof"),
     ) else {
-        return Some(refused());
+        return Err(Stamp::Refused);
     };
-    if host != FROM_ACE {
-        return Some(refused());
-    }
     let Some(key) = state.ace.as_ref().and_then(|ace| ace.inbox_key()) else {
-        return Some(problem(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Spade doesn't know this machine's ace, so it can't check the request",
-        ));
+        return Err(Stamp::Unchecked);
     };
     let now = state.engine.now_ms();
-    (!teams::proof::verify(&key, &proof, time, now, &host, &name, body)).then(refused)
+    if teams::proof::verify(&key, &proof, time, now, &host, &name, body) {
+        Ok((host, name))
+    } else {
+        Err(Stamp::Refused)
+    }
 }
 
 fn reply((status, body): (u16, Value)) -> Response {

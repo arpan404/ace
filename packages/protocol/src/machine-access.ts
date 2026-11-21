@@ -78,7 +78,11 @@ export const MachineAccountStatus = z.object({
    * person's proof; absent from older daemons.
    */
   owner: z
-    .object({ account: z.string().min(1).max(256) })
+    .union([
+      z.object({ account: z.string().min(1).max(256) }),
+      /** An organization's host (ADR 0206 §2.1): its members' grants carry standing here. */
+      z.object({ org: z.string().regex(/^org_[A-Za-z0-9]{1,64}$/) }),
+    ])
     .nullable()
     .optional(),
   /** A sign-in started on this machine that has not finished yet. */

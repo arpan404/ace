@@ -38,24 +38,27 @@ export const nodeOnlySuites = [
   "apps/daemon/src/machine-credential.process.test.ts",
   // Its owner and its paired devices' keys (ADR 0190), on a backend of their own.
   "apps/daemon/src/machine-owner.process.test.ts",
+  // An organization's host and its members (ADR 0206), on a backend of their own.
+  "apps/daemon/src/org-host.process.test.ts",
+  // That host's own organization credential (ADR 0206 §2.1), on a backend of its own.
+  "apps/daemon/src/org-host-credential.process.test.ts",
+  // That host with a real Spade (ADR 0206): stamps, policy, audit forwarding, binding.
+  "apps/daemon/src/org-host-spade.process.test.ts",
   // `ace bot publish` and the maintainer's signer against the market Worker (ADR 0200 §8, §9):
   // the same harness, so the same reason.
   "apps/daemon/src/cli-bot-publish-market.process.test.ts",
   // Content-only market installs and turning a skill on for bots (ADR 0178 §12.8): the person's
   // standing is proven against ace's account backend, which runs under Miniflare on Node.
   "apps/daemon/src/marketplace-content-install.process.test.ts",
+  // An organization's private registry (ADR 0206 §5): its signer, and a device's membership and
+  // key-chain checks, against the market Worker under Miniflare on Node.
+  "apps/daemon/src/marketplace-registry.process.test.ts",
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
   "apps/relay/src/abuse.process.test.ts",
   // The NK vectors are checked against a derivation on OpenSSL's ChaCha20-Poly1305, which Bun's
   // node:crypto doesn't have. The channel's own NK runs on both in noise-nk.test.ts.
   "packages/secure-channel/src/noise-nk-vectors.test.ts",
-  // Their test preloads patch node:fs/promises inside the history worker. Bun's named imports of
-  // builtins don't see such patches, and Bun lets nothing replace a builtin module.
-  "packages/history-import/src/audit-scan.process.test.ts",
-  "packages/history-import/src/observed-reads.process.test.ts",
-  "packages/history-import/src/snapshot-bounds.process.test.ts",
-  "packages/history-import/src/snapshot-race.process.test.ts",
   // The bench's telemetry preload sees workers through Node's worker_threads diagnostics channel
   // and reaches them through inherited --import; Bun has neither.
   "apps/daemon/src/bench-telemetry.process.test.ts",

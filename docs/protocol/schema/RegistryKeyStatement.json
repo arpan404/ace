@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryKeyStatement.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "addedBy": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "format": {
+      "const": "ace-registry-key",
+      "type": "string"
+    },
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "org": {
+      "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+    },
+    "position": {
+      "maximum": 63,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "previous": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "publicKey": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublicKey.json"
+    }
+  },
+  "required": [
+    "format",
+    "org",
+    "position",
+    "key",
+    "publicKey",
+    "addedBy",
+    "at"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "latest": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "title": {
+      "maxLength": 120,
+      "type": "string"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    }
+  },
+  "required": [
+    "type",
+    "name",
+    "title"
+  ],
+  "type": "object"
+}

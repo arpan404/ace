@@ -190,6 +190,8 @@ import Testing
 @MainActor final class Gate {
     private var waiting: [CheckedContinuation<Void, Never>] = []
     private var opened = false
+    /// Something waits at the gate now.
+    var held: Bool { !waiting.isEmpty }
     func wait() async {
         if opened { return }
         await withCheckedContinuation { waiting.append($0) }

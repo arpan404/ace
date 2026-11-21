@@ -10,6 +10,7 @@ import type {
 } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
+  codeReviewRow,
   hashFiles,
   recipeEffects,
   recipeEntries,
@@ -54,6 +55,8 @@ export interface PreparedEntry {
   /** Its publisher deprecated this version, with this note. */
   deprecated?: string | undefined;
   unlisted?: boolean | undefined;
+  /** From this organization's registry, verified against its pinned key chain (ADR 0206 §5.3). */
+  registry?: string | undefined;
 }
 
 export interface PreparedReview extends PreparedEntry {
@@ -64,6 +67,8 @@ export interface PreparedReview extends PreparedEntry {
   spadeReady: boolean;
   /** An update or rollback of a linked bot: which bot, and what Spade's plan says it does. */
   updating?: MarketBotUpdate | undefined;
+  /** No model the bot would think with calls tools, which what it uses needs (ADR 0205 §3). */
+  modelWarning?: string | undefined;
 }
 
 const textLimit = 65_536;
@@ -202,6 +207,10 @@ function body(entry: PreparedReview): MarketReviewBody {
         description: inspection.description,
         files: entry.checked.files.length,
         flagged: inspection.flagged.length,
+        ...(inspection.license ? { license: inspection.license } : {}),
+        ...(inspection.compatibility ? { compatibility: inspection.compatibility } : {}),
+        ...(inspection.allowedTools.length ? { allowedTools: inspection.allowedTools } : {}),
+        ...(inspection.unused.length ? { unused: inspection.unused } : {}),
       };
     case "spade-plugin":
       return {
@@ -236,12 +245,23 @@ function body(entry: PreparedReview): MarketReviewBody {
           ? {
               linked: true,
               effects: recipeEffects(recipe),
+              ...(recipe.code?.length
+                ? {
+                    code: recipe.code.map((code) => ({
+                      name: code.name,
+                      imports: code.imports,
+                      why: code.why,
+                      sentence: codeReviewRow(code, recipe.effects),
+                    })),
+                  }
+                : {}),
               triggers: recipe.triggers,
               ...(recipe.limits ? { limits: recipe.limits } : {}),
               unused: Object.keys(recipe.extra ?? {}).slice(0, 64),
             }
           : {}),
         ...(entry.updating ? { update: entry.updating } : {}),
+        ...(entry.modelWarning ? { modelWarning: entry.modelWarning } : {}),
       };
     }
     case undefined:

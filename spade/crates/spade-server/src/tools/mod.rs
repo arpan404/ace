@@ -240,6 +240,11 @@ pub trait Tool: Send + Sync {
     fn sealed(&self) -> bool {
         false
     }
+    /// A tool of an app the person connected (a connector's), under the Apps switch of the bot's
+    /// Permissions (ADR 0171, amendment 7).
+    fn connected_app(&self) -> bool {
+        false
+    }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the
     /// server and its version, the tool's own name and its schema, so an answer kept for it never
     /// carries over to another tool offered under the same name (ADR 0171, amendment 1).
@@ -247,6 +252,16 @@ pub trait Tool: Send + Sync {
         let def = self.def();
         format!("{}#{}", def.spec.name, schema_hash(&def.spec.schema))
     }
+}
+
+/// `work`, a run of `tool`, with its result marked untrusted whenever the tool says its output is
+/// (`untrusted_output`), however it ended, an error included: what is stored with the result then
+/// keeps the taint even once the tool is no longer listed to vouch for it.
+pub fn marked(tool: &dyn Tool, work: ToolFuture) -> ToolFuture {
+    if !tool.def().untrusted_output {
+        return work;
+    }
+    Box::pin(async move { work.await.untrusted() })
 }
 
 /// A short hash of a tool's input schema, as the server sent it.

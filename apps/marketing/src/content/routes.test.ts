@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { features } from "./features.ts";
+import { legalDocuments } from "./legal.ts";
 import { route, routes, trail } from "./routes.ts";
 
 test("a feature page's breadcrumb runs Home, Features, then the feature", () => {
@@ -29,4 +30,11 @@ test("no two pages share a path, and every path ends in a slash like the built U
 
 test("a path that isn't a page is refused, so a missing route can't go unnoticed", () => {
   expect(() => trail("/nowhere/")).toThrow(/No route/);
+});
+
+test("every legal and support page is a route, so the footer and sitemap list it", () => {
+  for (const document of legalDocuments) {
+    expect(route(document.path).parent).toBe("/");
+  }
+  expect(legalDocuments.map((document) => document.path)).toContain("/support/");
 });

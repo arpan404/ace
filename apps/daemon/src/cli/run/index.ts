@@ -6,6 +6,7 @@ import { machineHandlers } from "./machine.ts";
 import { providerHandlers } from "./providers.ts";
 import { agentToolHandlers } from "./agent-tools.ts";
 import { marketHandlers } from "./market.ts";
+import { orgHandlers } from "./org.ts";
 import { spadeHandlers } from "./spade.ts";
 import { workHandlers } from "./work.ts";
 
@@ -22,5 +23,6 @@ export const handlers: Handlers = {
   ...botHandlers,
   ...botKitHandlers,
   ...marketHandlers,
+  ...orgHandlers,
   ...agentToolHandlers,
 };

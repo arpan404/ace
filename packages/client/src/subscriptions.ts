@@ -2,7 +2,7 @@ import { ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol"
 import { parseThreadRecord, threadRecord } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
 import { ThreadStore } from "./thread-store.ts";
-import { ClientError, type Limits, type OpenTail } from "./types.ts";
+import { ClientError, tailShownMs, type Limits, type OpenTail } from "./types.ts";
 
 /** Stores no view holds stay cached while together they weigh at most this (ADR 0056). */
 export const inactiveThreadBytes = 16 * 1024 * 1024;
@@ -208,6 +208,28 @@ export class Subscriptions {
     }
     entry.subscriptionId = undefined;
     this.#pump();
+  }
+  /**
+   * Complete a tail once the app says it has shown it (`OpenTail.shown`), or `tailShownMs` after
+   * it landed. Asked at once, the full snapshot reaches a fast app before the tail is drawn and
+   * replaces it, so the first screen waits for the whole window. Nothing happens if the
+   * subscription was replaced or the tail already completed meanwhile.
+   */
+  #completeWhenShown(entry: Cached, subscriptionId: string): void {
+    const shown = this.#tail?.shown;
+    if (!shown) {
+      this.#complete(entry);
+      return;
+    }
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      cancel();
+      if (entry.subscriptionId === subscriptionId && entry.store.filling) this.#complete(entry);
+    };
+    const cancel = this.#delay(tailShownMs, go);
+    shown(entry.threadId).then(go, go);
   }
   /** Slots an optional hold may still take: free ones beyond the reserve. */
   room(): number {
@@ -521,9 +543,10 @@ export class Subscriptions {
         this.reject(message.subscriptionId, error);
         return;
       }
-      // A small tail paints first; the full snapshot that replaces it is asked for at once.
+      // A small tail paints first; the full snapshot that replaces it is asked for once the app
+      // has shown it.
       if (entry.store.filling) {
-        this.#complete(entry);
+        this.#completeWhenShown(entry, message.subscriptionId);
         return;
       }
       entry.failures = 0;

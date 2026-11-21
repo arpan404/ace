@@ -25,7 +25,7 @@ export const Options = z.object({
       (instances) => new Set(instances.map((i) => i.id)).size === instances.length,
       "Instance IDs must be unique",
     ),
-  /** Bounds for private provider-database snapshots; defaults in snapshot-scratch.ts. */
+  /** Bounds for private provider-database snapshots; defaults in ace-history (snapshot/scratch.rs). */
   snapshot: z
     .object({
       maxCopyBytes: z.number().int().nonnegative().optional(),
@@ -33,10 +33,8 @@ export const Options = z.object({
       minFreeRatio: z.number().min(0).max(1).optional(),
     })
     .optional(),
-  /** Set by the daemon on a restart: how the reader before this one ended (crash-ledger.ts). */
+  /** Set by the daemon on a restart: how the reader before this one ended (ace-history catalog/ledger.rs). */
   lastExit: z.enum(["crash", "memory-limit"]).optional(),
-  /** The reader process's memory limit; past three quarters of it the reader collects garbage. */
-  memoryLimitBytes: z.number().int().positive().optional(),
 });
 export type HistoryOptions = z.input<typeof Options>;
 export const ImportInit = z.object({

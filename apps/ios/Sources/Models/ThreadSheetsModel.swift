@@ -6,6 +6,8 @@ import Observation
 @MainActor @Observable final class ThreadSheetsModel {
     var agents: AgentSheet?
     var summary: ThreadSummarySheet?
+    /// Now's running time while it counts, sent apart from the Summary.
+    var summaryClock: ThreadSummarySheet.Clock?
     var logs: LogsSheet?
     /// Logs Copy answers, by request.
     var copies: [String: String] = [:]

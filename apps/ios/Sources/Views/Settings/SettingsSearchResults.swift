@@ -39,14 +39,21 @@ struct SettingsSearchResults: View {
 
     private func rows(_ found: [SettingsResult]) -> some View {
         ForEach(found) { result in
-            GroupLink(route(result.target)) { InsetRow(result.title, systemImage: nil, subtitle: result.place) }
-                .accessibilityIdentifier("settings.search.\(result.id)")
+            Group {
+                if case .web(let url) = result.target {
+                    Link(destination: url) { InsetRow(result.title, systemImage: nil, subtitle: result.place) }
+                } else {
+                    GroupLink(route(result.target)) { InsetRow(result.title, systemImage: nil, subtitle: result.place) }
+                }
+            }
+            .accessibilityIdentifier("settings.search.\(result.id)")
         }
     }
 
     private func route(_ target: SettingsResult.Target) -> SettingsRoute {
         switch target {
         case .phone(let route): route
+        case .web: .licences
         case let .machine(machine, page, title, row): .machineSetting(machine: machine, page: page, title: title, row: row)
         }
     }

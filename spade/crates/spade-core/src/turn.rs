@@ -394,6 +394,7 @@ mod tests {
             call_id: "c1".into(),
             allowed: true,
             always: false,
+            by: None,
         }));
         assert_eq!(
             statuses(&next_step(&events)),
@@ -423,6 +424,7 @@ mod tests {
             call_id: "c2".into(),
             allowed: false,
             always: false,
+            by: None,
         }));
         events.push(Event::Known(Known::ToolStarted {
             reply: "r1".into(),

@@ -180,7 +180,45 @@ const HexColour = z.string().regex(/^#[0-9a-f]{6}$/i);
  * The window paints it behind the page before first paint and while resizing, so a theme other
  * than the default, or a mode other than the OS's, never flashes the wrong colour.
  */
-export const WindowBackground = z.object({ mode: ThemeSource, light: HexColour, dark: HexColour });
+const NativeTrayPalette = z.object({
+  surface: HexColour,
+  text: HexColour,
+  muted: HexColour,
+  accent: HexColour,
+  needs: HexColour,
+  opacity: z.number().min(0).max(1),
+});
+const NativeTrayAppearance = z.object({
+  dark: z.boolean(),
+  palette: NativeTrayPalette,
+  radius: z.number().min(0).max(2).optional(),
+  border: z.number().min(0.5).max(2).optional(),
+  compact: z.boolean().optional(),
+  font: z.string().min(1).max(200).optional(),
+});
+export type NativeTrayAppearance = z.infer<typeof NativeTrayAppearance>;
+
+export const WindowBackground = z.object({
+  mode: ThemeSource,
+  light: HexColour,
+  dark: HexColour,
+  tray: z
+    .object({
+      light: NativeTrayPalette,
+      dark: NativeTrayPalette,
+      radius: NativeTrayAppearance.shape.radius,
+      border: NativeTrayAppearance.shape.border,
+      compact: NativeTrayAppearance.shape.compact,
+      font: NativeTrayAppearance.shape.font,
+    })
+    .optional(),
+  trayUsage: z
+    .object({
+      measure: z.enum(["week", "session"]),
+      pins: z.array(z.string().min(1).max(512)).max(4),
+    })
+    .optional(),
+});
 export type WindowBackground = z.infer<typeof WindowBackground>;
 
 /**

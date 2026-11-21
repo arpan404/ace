@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpAppNotification.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "jsonrpc": {
+      "const": "2.0",
+      "type": "string"
+    },
+    "method": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string"
+    },
+    "params": {}
+  },
+  "required": [
+    "jsonrpc",
+    "method"
+  ],
+  "type": "object"
+}

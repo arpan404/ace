@@ -1,6 +1,7 @@
 import { transferRunning } from "@ace/client";
 import type { Transfer } from "@ace/protocol";
 import {
+  allowProjectsWords,
   refusalWords,
   type Placement,
   type Refusal,
@@ -25,6 +26,12 @@ export type Step =
   | { kind: "checking" }
   | { kind: "machines" }
   | { kind: "options"; machine: { hostId: string; name: string } }
+  /**
+   * A machine that doesn't take projects from this one (ADR 0101): why, and Allow projects
+   * there, which Swift sends through that machine's own runtime when the phone reaches it.
+   * `sender` is this machine's name as the phone calls it.
+   */
+  | { kind: "allow"; machine: TransferMachine; sender: string }
   | {
       kind: "status";
       machine: { hostId: string; name: string };
@@ -121,6 +128,27 @@ export function sheetView(
           machine: step.machine,
           action: action(step.machine.name),
           ignoredByDefault: context.ignoredByDefault,
+        },
+      };
+    case "allow":
+      return {
+        ...base,
+        step: {
+          kind: "allow",
+          machine: {
+            hostId: step.machine.hostId,
+            name: step.machine.name,
+            deviceId: step.machine.deviceId,
+          },
+          sender: step.sender,
+          heading: action(step.machine.name),
+          action: `Allow projects on ${step.machine.name}`,
+          /** Said while the phone doesn't reach that machine to ask it. */
+          unreached: allowProjectsWords({
+            offer: "settings",
+            machine: step.machine.name,
+            sender: step.sender,
+          }),
         },
       };
     case "status":

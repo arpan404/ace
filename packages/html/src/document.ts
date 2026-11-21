@@ -12,12 +12,25 @@ import {
   panelPageBridge,
   themeProperties,
 } from "./scripts.ts";
+import { mcpAppFrameBridge, mcpAppPageBridge } from "./mcp-app-scripts.ts";
 
 /**
- * What a sandboxed page's frame carries: a chat visualization's height and theme, or a package
- * panel's typed channel (ADR 0200 §5.2). Same documents, sandbox and CSP either way.
+ * What a sandboxed page's frame carries: a chat visualization's height and theme, a package
+ * panel's typed channel (ADR 0200 §5.2), or an MCP app page's JSON-RPC, held to the panel's
+ * bounds (ADR 0202 §4). Same documents, sandbox and CSP every way.
  */
-type Channel = "visualization" | "panel";
+type Channel = "visualization" | "panel" | "mcp-app";
+
+const pageBridges: Record<Channel, string> = {
+  visualization: "",
+  panel: `<script>${panelPageBridge}</script>`,
+  "mcp-app": `<script>${mcpAppPageBridge}</script>`,
+};
+const frameBridges: Record<Channel, string> = {
+  visualization: frameBridge,
+  panel: panelFrameBridge,
+  "mcp-app": mcpAppFrameBridge,
+};
 
 /**
  * Inline scripts and styles only; no endpoints, storage, workers, frames, forms, eval or
@@ -101,7 +114,7 @@ function themedDocument(
     .map(([key, value]) => `--${key}:${value}`)
     .join(";");
   const prefix = parseFragment(
-    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${kitStyles(kit)}</style><style>:root{${tokens}}html{background:transparent;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>${channel === "panel" ? `<script>${panelPageBridge}</script>` : ""}`,
+    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${kitStyles(kit)}</style><style>:root{${tokens}}html{background:transparent;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>${pageBridges[channel]}`,
   );
   head.childNodes.unshift(...prefix.childNodes);
   return serialize(document);
@@ -128,7 +141,7 @@ function outerDocument(
 ): string {
   if (!validateHtml(html).valid) throw new Error("Invalid visualization document");
   const page = themedDocument(html, theme, mode, kit, channel);
-  const bridge = channel === "panel" ? panelFrameBridge : frameBridge;
+  const bridge = frameBridges[channel];
   return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${root}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>${bridge}</script></body></html>`;
 }
 
@@ -176,6 +189,15 @@ export function inlineVisualizationUrl(
  */
 export function panelUrl(html: string, theme: HtmlTheme): string {
   return dataUrl(outerDocument(html, theme, "interactive", styleKitVersion, filling, "panel"));
+}
+
+/**
+ * An MCP app's page as a panel (ADR 0202 §4): exactly a package panel's sandbox and policy, so
+ * whatever the page declares it reaches no network, with MCP Apps' JSON-RPC in place of the
+ * panel's own messages.
+ */
+export function mcpAppPanelUrl(html: string, theme: HtmlTheme): string {
+  return dataUrl(outerDocument(html, theme, "interactive", styleKitVersion, filling, "mcp-app"));
 }
 
 /**
