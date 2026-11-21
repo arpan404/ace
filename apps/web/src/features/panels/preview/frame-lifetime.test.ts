@@ -1,3 +1,6 @@
+import { mediaSubscribeDeadlineMs } from "@ace/browser/live-view";
+import { decodeDeadlineMs } from "@/lib/video/stream.ts";
+import { fakePreviewMedia } from "./stream-test-support.ts";
 import { FakeDaemon, ScenarioPlayer, failingSubagent, fakeTransport } from "@ace/fake-daemon";
 import { BrowserState, DeviceId, ServerMessage } from "@ace/protocol";
 import { waitFor } from "@testing-library/react";
@@ -62,7 +65,12 @@ async function setup() {
   /** The view's next retry, fired by hand. */
   let retry: (() => void) | undefined;
   const source = daemonPreview(client, {
-    schedule: (callback) => {
+    // Acks go on the media connection now: they are recorded with the rest of what it sends.
+    media: (await fakePreviewMedia(daemon, { acks: sent })).media,
+    schedule: (callback, ms) => {
+      // A media subscribe's reply deadline isn't the view's retry: it never fires here.
+      if (process.env.X3DEBUG) console.log("SCHED", ms);
+      if (ms === mediaSubscribeDeadlineMs) return () => {};
       retry = callback;
       return () => {
         if (retry === callback) retry = undefined;

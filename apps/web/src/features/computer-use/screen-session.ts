@@ -264,7 +264,7 @@ const shared = new WeakMap<ChannelEndpoint, Shared>();
 function acquire(endpoint: ChannelEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    const web = endpoint.kind === "fake" ? undefined : mediaFor(client);
+    const web = mediaFor(client);
     web?.relayWith(mediaRelayFor(endpoint));
     const media = web?.route;
     entry = {

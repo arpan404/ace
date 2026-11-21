@@ -6,7 +6,8 @@ import { expect, test } from "vitest";
 import { App, AppFrame } from "@/app.tsx";
 import type { PageVisibility } from "@/lib/page-visibility.ts";
 import { fakeClient } from "@/test/fake-client.ts";
-import { daemonPreview } from "@/features/panels/preview/daemon-preview.ts";
+import { daemonPreview, type PreviewMedia } from "@/features/panels/preview/daemon-preview.ts";
+import { fakePreviewMedia } from "@/features/panels/preview/stream-test-support.ts";
 import { panelServices, type PanelServices } from "@/features/panels/services.ts";
 import { daemonTerminals } from "@/features/panels/terminal/daemon-terminals.ts";
 import { TerminalSessions } from "@/features/panels/terminal/sessions.ts";
@@ -19,7 +20,8 @@ import {
 /** Each preview's decoded pictures, so a test sees which are still held. */
 const decoded = new WeakMap<object, TrackedPicture[]>();
 
-function documentBoundary() {
+/** The page's boundary; its previews get pictures on `media` (X3: only ace-media delivers). */
+function documentBoundary(media: PreviewMedia) {
   const listeners = new Set<() => void>();
   const visibility: PageVisibility = {
     visible: () => true,
@@ -35,6 +37,7 @@ function documentBoundary() {
     sources(client: ClientApi) {
       const decoder = instantDecoder();
       const preview = daemonPreview(client, {
+        media,
         visibility,
         videoDecoder: decoder.factory,
         videoSupport: playsH264,
@@ -76,7 +79,7 @@ test("replacing the App client retires its warm preview while preserving the new
     expect(first.state).toBe("ready");
     expect(next.state).toBe("ready");
   });
-  const boundary = documentBoundary();
+  const boundary = documentBoundary((await fakePreviewMedia(daemon)).media);
   const retired = await panelServices(first, async () => boundary.sources(first));
   const oldFrame = await warm(retired);
   const current = await panelServices(next, async () => boundary.sources(next));
@@ -99,7 +102,7 @@ test("a pending panel load completing after App retirement releases its frames a
   const client = fakeClient(daemon);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
-  const boundary = documentBoundary();
+  const boundary = documentBoundary((await fakePreviewMedia(daemon)).media);
   const chunk = Promise.withResolvers<Pick<PanelServices, "terminals" | "preview">>();
   const loading = panelServices(client, () => chunk.promise);
   const sources = boundary.sources(client);

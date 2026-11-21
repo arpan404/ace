@@ -6,7 +6,7 @@ import { fakeClient } from "@/test/fake-client.ts";
 import type { AudioDecoderFactory, AudioOutputFactory, DecodedSound } from "./audio-codecs.ts";
 import { bufferMs } from "./av-sync.ts";
 import { daemonPreview } from "./daemon-preview.ts";
-import { streamingClient } from "./stream-test-support.ts";
+import { fakePreviewMedia, streamingClient } from "./stream-test-support.ts";
 import type { VideoDecoderFactory } from "@/lib/video/codecs.ts";
 
 const thread = "thread-settings";
@@ -69,9 +69,10 @@ async function watching(sound: ReturnType<typeof fakeSound> | null) {
   const client = fakeClient(daemon);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
-  const wire = streamingClient(client);
+  const wire = streamingClient(client, await fakePreviewMedia(daemon, { injectedOnly: true }));
   const clock = { now: 50_000 };
   const preview = daemonPreview(wire.api, {
+    ...(wire.media ? { media: wire.media } : {}),
     schedule: () => () => {},
     visibility: { visible: () => true, watch: () => () => {} },
     videoDecoder,
@@ -90,6 +91,8 @@ async function watching(sound: ReturnType<typeof fakeSound> | null) {
   await waitFor(() =>
     expect(wire.requests).toContainEqual(expect.objectContaining({ type: "browser.subscribe" })),
   );
+  // Its reply settles delivery on the media connection before any picture comes.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const threadId = ThreadId.parse(thread);
   return {
     preview,

@@ -1,3 +1,4 @@
+import { fakePreviewMedia } from "./stream-test-support.ts";
 import { FakeDaemon, ScenarioPlayer, failingSubagent } from "@ace/fake-daemon";
 import { waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
@@ -50,7 +51,11 @@ test("a hidden window stops polling for dev servers and reads them again once sh
   await waitFor(() => expect(client.state).toBe("ready"));
   const timers = manualTimers();
   const window = page();
-  const preview = daemonPreview(client, { schedule: timers.schedule, visibility: window });
+  const preview = daemonPreview(client, {
+    media: (await fakePreviewMedia(daemon)).media,
+    schedule: timers.schedule,
+    visibility: window,
+  });
   const before = preview.version;
   const stop = preview.watch("thread-settings");
   // The first read has answered before the window hides.
@@ -84,6 +89,7 @@ test("while a native view shows the page, video isn't decoded; once it steps awa
   await waitFor(() => expect(client.state).toBe("ready"));
   const decoder = instantDecoder();
   const preview = daemonPreview(client, {
+    media: (await fakePreviewMedia(daemon)).media,
     schedule: manualTimers().schedule,
     visibility: page(),
     videoDecoder: decoder.factory,
@@ -127,6 +133,7 @@ test("retired preview sources free their kept pictures and document listeners", 
     await waitFor(() => expect(client.state).toBe("ready"));
     const timers = manualTimers();
     const preview = daemonPreview(client, {
+      media: (await fakePreviewMedia(daemon)).media,
       visibility,
       schedule: timers.schedule,
       videoDecoder: decoder.factory,
@@ -161,6 +168,7 @@ test("a picture decoded after its preview owner retires is freed without being s
   await waitFor(() => expect(client.state).toBe("ready"));
   const decoder = heldDecoder();
   const preview = daemonPreview(client, {
+    media: (await fakePreviewMedia(daemon)).media,
     schedule: manualTimers().schedule,
     visibility: page(),
     videoDecoder: decoder.factory,
@@ -181,7 +189,11 @@ test("a watched thread lists its detected dev servers and follows the daemon's p
   const client = fakeClient(daemon);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
-  const preview = daemonPreview(client, { schedule: manualTimers().schedule, visibility: page() });
+  const preview = daemonPreview(client, {
+    media: (await fakePreviewMedia(daemon)).media,
+    schedule: manualTimers().schedule,
+    visibility: page(),
+  });
   let changes = 0;
   preview.subscribe(() => changes++, "thread-settings");
   const stop = preview.watch("thread-settings");
@@ -228,7 +240,11 @@ test("a browser an agent opens in a watched thread shows without waiting for the
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
   // The retry timer never fires in this test.
-  const preview = daemonPreview(client, { schedule: manualTimers().schedule, visibility: page() });
+  const preview = daemonPreview(client, {
+    media: (await fakePreviewMedia(daemon)).media,
+    schedule: manualTimers().schedule,
+    visibility: page(),
+  });
   const before = preview.version;
   const stop = preview.watch("thread-settings");
   // The first look found no browser.

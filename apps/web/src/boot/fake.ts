@@ -1,3 +1,4 @@
+import { useFakeMediaSockets } from "@/lib/video/media.ts";
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
 import { fakeMarket } from "./fake-market.ts";
@@ -13,6 +14,7 @@ import {
   devWorld,
   showcaseWorld,
   fakeTransport,
+  fakeMediaInstance,
   hostFolders,
   refusedDelegation,
   seedInterruptedTurn,
@@ -307,6 +309,14 @@ export function bootFake(): {
     },
   );
   if (!empty) seedLimitReadings(daemon, Date.now());
+  // Live views get pictures only from ace-media (X3): each fake machine's media connections open
+  // in this page.
+  const byInstance = new Map([daemon, server].map((one) => [one.media.instance, one]));
+  useFakeMediaSockets((url, events) => {
+    const owner = byInstance.get(fakeMediaInstance(url) ?? "");
+    if (!owner) throw new Error(`No fake machine for ${url}`);
+    return owner.media.socket(url, events);
+  });
   // This Mac is signed in to the fake ace account, so Fleet shows it reachable from anywhere,
   // and one pairing link waits for a device.
   (daemon.access.machineAccount ??= fakeMachineAccount()).signIn(fakeOrigin, fakePerson);
