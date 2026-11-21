@@ -96,8 +96,10 @@ struct ForgeHome: View {
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
                          hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
-            .task(id: "\(listKey)|\(listGeneration)|\(features?.issues == true)|\(features?.inbox == true)") { await load(fresh: false) }
-            .task(id: "\(session?.hostId ?? "")|\(chosen ?? "")|\(listGeneration)") {
+            .task(id: loadKey) { await load(fresh: false) }
+            // Keyed on the project and the forge's changes, never the filter: a new filter
+            // re-reading these would hide New pull request and read the list again twice.
+            .task(id: "\(session?.hostId ?? "")|\(chosen ?? "")|\(session?.client.familyGeneration("forge") ?? 0)") {
                 features = nil
                 guard let client = session?.client, let chosen else { return }
                 features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
@@ -134,12 +136,19 @@ struct ForgeHome: View {
     private static func listKey(_ machine: String, _ project: String, _ kind: ForgeKind, _ filter: String, _ query: String) -> String {
         [machine, project, kind.rawValue, filter, query].joined(separator: "|")
     }
-    /// Moves when the daemon says pull requests changed; the list on screen is read again.
-    private var listGeneration: Int {
-        guard let client = session?.client, let chosen else { return 0 }
-        return client.readGeneration(kind == .pulls
+    /// The read on screen: the daemon saying it changed, or an answer kept after the screen
+    /// stopped waiting for it, reads it again. Issues and Inbox wait on the features read too.
+    private var loadKey: String {
+        guard let client = session?.client, let chosen else { return listKey }
+        let read = kind == .pulls
             ? ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query)
-            : ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query))
+            : ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query)
+        let ready = switch kind {
+        case .pulls: true
+        case .issues: features?.issues == true
+        case .inbox: features?.inbox == true
+        }
+        return "\(listKey)|\(client.readGeneration(read))|\(client.hasKept(read))|\(ready)"
     }
 
     @ViewBuilder private var content: some View {
@@ -183,6 +192,10 @@ struct ForgeHome: View {
                 ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
             }
         }
+        projectPicker
+    }
+
+    private var projectPicker: some View {
         Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
             ForEach(projects) { Text($0.name).tag($0.id) }
         }
