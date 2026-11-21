@@ -78,4 +78,27 @@ import Testing
         #expect(sources.sources.first?.removable == true)
         #expect(sources.sources.first?.problem == "Not found.")
     }
+
+    @Test func aListingsButtonFollowsWhatTheMachineHasInstalled() throws {
+        let listing = try decode(Self.listing, as: MarketListing.self)
+        #expect(MarketRowButton(listing, installed: []) == .get)
+        var copy = Self.waiting
+        copy["type"] = "suit"; copy["name"] = "harbour-dusk"; copy["id"] = "suit/harbour-dusk"
+        let installed = try decode(copy, as: MarketInstall.self)
+        #expect(MarketRowButton(listing, installed: [installed]) == .installed(installed))
+        copy["update"] = "1.1.0"
+        let waiting = try decode(copy, as: MarketInstall.self)
+        #expect(MarketRowButton(listing, installed: [installed, waiting]) == .update(waiting))
+        copy["source"] = "git:abc"
+        let elsewhere = try decode(copy, as: MarketInstall.self)
+        #expect(MarketRowButton(listing, installed: [elsewhere]) == .get)
+    }
+
+    @Test func aListingThisBuildCantInstallSaysWhyInPlaceOfGet() throws {
+        var future = Self.listing
+        future["supported"] = false
+        future["block"] = "Needs a newer ace"
+        let listing = try decode(future, as: MarketListing.self)
+        #expect(MarketRowButton(listing, installed: []) == .blocked("Needs a newer ace"))
+    }
 }
