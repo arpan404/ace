@@ -36,7 +36,17 @@ export const AceAccountHandover = z.union([
 ]);
 
 /** `POST /v1/ace-account/login`: start ace sign-in from this machine (`ace login`). */
-export const AceAccountLoginStart = z.object({ origin: AceAccountOrigin.optional() });
+export const AceAccountLoginStart = z.object({
+  origin: AceAccountOrigin.optional(),
+  /**
+   * `ace login --org`: sign in through this organization's sign-in policy and select its space
+   * for this machine's CLI (ADR 0206 §1.4, §2.1). Refused unless the account is a member.
+   */
+  org: z
+    .string()
+    .regex(/^org_[A-Za-z0-9]{1,64}$/)
+    .optional(),
+});
 
 /** The daemon's ace account, its pending sign-in and its machine code, for status and the CLI. */
 export const MachineAccountStatus = z.object({
@@ -86,7 +96,32 @@ export const MachineAccountStatus = z.object({
     .nullable()
     .optional(),
   /** A sign-in started on this machine that has not finished yet. */
-  login: z.object({ url: z.url(), expiresAt: z.number().int().positive() }).optional(),
+  login: z
+    .object({
+      url: z.url(),
+      expiresAt: z.number().int().positive(),
+      /** The organization it was started for (`ace login --org`). */
+      org: z
+        .string()
+        .regex(/^org_[A-Za-z0-9]{1,64}$/)
+        .optional(),
+    })
+    .optional(),
+  /**
+   * The organization space `ace login --org` selected (ADR 0206 §1.4): the CLI's org commands
+   * act in it when they name none. It lasts as long as this sign-in.
+   */
+  space: z.object({ org: z.string().regex(/^org_[A-Za-z0-9]{1,64}$/) }).optional(),
+  /**
+   * The last `ace login --org` ended without signing in: the account isn't an active member of
+   * that organization. Cleared by the next sign-in.
+   */
+  loginRefused: z
+    .object({
+      org: z.string().regex(/^org_[A-Za-z0-9]{1,64}$/),
+      error: z.literal("not_member"),
+    })
+    .optional(),
   machineCode: z.object({
     set: z.boolean(),
     /** Code entry is paused until then after too many wrong codes. */

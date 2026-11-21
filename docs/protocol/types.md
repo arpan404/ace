@@ -872,6 +872,7 @@ Example:
 | account | yes | [AceAccount.json](schema/AceAccount.json) |  |
 | expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | token | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+| org | no | string | {"pattern":"^org_[A-Za-z0-9]{1,64}$"} |
 
 Example:
 
@@ -931,6 +932,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | origin | no | [AceAccountOrigin.json](schema/AceAccountOrigin.json) |  |
+| org | no | string | {"pattern":"^org_[A-Za-z0-9]{1,64}$"} |
 
 Example:
 
@@ -21428,7 +21430,9 @@ Example:
 | signInAgain | no | `true` |  |
 | relayHostId | no | string | {"pattern":"^[A-Z2-7]{52}$"} |
 | owner | no | union | {"anyOf":[{"anyOf":[{"type":"object","properties":{"account":{"type":"string","minLength":1,"maxLength":256}},"required":["account"]},{"type":"object","properties":{"org":{"type":"string","pattern":"^org_[A-Za-z0-9]{1,64}$"}},"required":["org"]}]},{"type":"null"}]} |
-| login | no | object | {"properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},"expiresAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["url","expiresAt"]} |
+| login | no | object | {"properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},"expiresAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"org":{"type":"string","pattern":"^org_[A-Za-z0-9]{1,64}$"}},"required":["url","expiresAt"]} |
+| space | no | object | {"properties":{"org":{"type":"string","pattern":"^org_[A-Za-z0-9]{1,64}$"}},"required":["org"]} |
+| loginRefused | no | object | {"properties":{"org":{"type":"string","pattern":"^org_[A-Za-z0-9]{1,64}$"},"error":{"type":"string","const":"not_member"}},"required":["org","error"]} |
 | machineCode | yes | object | {"properties":{"set":{"type":"boolean"},"lockedUntil":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["set"]} |
 
 Example:
@@ -21436,7 +21440,8 @@ Example:
 ```json
 {
   "machineCode": {
-    "set": false
+    "lockedUntil": 8,
+    "set": true
   },
   "origin": "example",
   "owner": {

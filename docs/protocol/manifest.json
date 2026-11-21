@@ -33,8 +33,8 @@
       "sha256": "4a34aa975bbbe8db127c3bdbbf8a6078cf10c4937f2f10b311ba76b0cec78a46"
     },
     "push.md": {
-      "bytes": 137144,
-      "sha256": "e65f98b9068f2b82f7f7d69680f2dd98315c48ffb01cd2a2cb7fe5d6c14536d9"
+      "bytes": 137505,
+      "sha256": "72fc2ced3fd4706a3f06752e5a5d79f3b91fab2a1ac13dcf4439e40d6b872ba0"
     },
     "requests.md": {
       "bytes": 128084,
@@ -133,16 +133,16 @@
       "sha256": "77e9f386176e8660d86e1954c745368d8ac09e1c315054fee5ac84b97bc7b1a2"
     },
     "schema/AceAccountGrant.json": {
-      "bytes": 519,
-      "sha256": "c1be0378a4a1dc4536b371ada3798e4078a1694d85d26da058c2c2db828b9ae7"
+      "bytes": 606,
+      "sha256": "337bd6442665d33688b310ee29fd113d1c0467a6dfce5381c7485bc37ea6c919"
     },
     "schema/AceAccountHandover.json": {
       "bytes": 815,
       "sha256": "43259c11d2d4832cd065afb78343b2312ec0c5e6a5eba7d17d8739b696992263"
     },
     "schema/AceAccountLoginStart.json": {
-      "bytes": 265,
-      "sha256": "0477de6c25b543c205a8a8bd3f806d4207fefe99065791fca490df79b7c1b483"
+      "bytes": 352,
+      "sha256": "f57921d901940a4dd660cfdbd596f0dfe21ae4c186a5661a2302f6c4cdc75ee1"
     },
     "schema/AceAccountOrigin.json": {
       "bytes": 464,
@@ -2801,8 +2801,8 @@
       "sha256": "3397465457fdd550a10031423fd1c7aa9b7d1222fed9548017c3e54ce8431c69"
     },
     "schema/MachineAccountStatus.json": {
-      "bytes": 2887,
-      "sha256": "427f2b42de5ff3a19f115542bd3cb57baa5703bfe480581a01254f4020b89394"
+      "bytes": 3546,
+      "sha256": "aba68ef28e2b927f4129c036f75f347b3791f1d8476851d5dcb088471de73782"
     },
     "schema/MachineAgentAccess.json": {
       "bytes": 204,
@@ -6969,10 +6969,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1408774,
-      "sha256": "1e93ff48317e30f77881fca65f459fad8bd24caf0d75c27689bb17262dab2da8"
+      "bytes": 1409285,
+      "sha256": "5fbd74b71987dd293c51fba1da43036822a75d4d587a8a614877a4d2c80b7596"
     }
   },
-  "input": "fa1b18dad3a88771a560d6276e788fc4ccceeba8a9e129b4bfe0cf3be49466d7",
+  "input": "852004dd44eda1c66bcca9f12e3f93b166e0cf1c8d994824c4d19985c38ac945",
   "version": 1
 }
