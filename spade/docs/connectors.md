@@ -245,14 +245,19 @@ the server's `engine/app_pages.rs`, `@ace/html`'s `mcp-app.ts` and the web's `us
 ADR 0202 §5, at A2A 1.0.1 over its JSON-RPC binding. Built in the server's `a2a` module (`card`,
 `client`, `task`, `tools`) and the web's `spade-outside-agents.tsx`.
 
-- **Adding one:** `POST /v1/a2a-agents {address}`. Spade reads the card at the address when it
-  names a `.json`, or at `/.well-known/agent-card.json` on its origin: https only (plain http to
-  this machine's loopback, for an agent the person runs locally), redirects refused, at most
-  256 KiB. It needs a `JSONRPC` interface at `1.0`, at least one skill, and no
+- **Adding one:** `POST /v1/a2a-agents {address, local?}`. Spade reads the card at the address
+  when it names a `.json`, or at `/.well-known/agent-card.json` on its origin. An agent is remote
+  unless the person adds it as local ("On my own machine or network", `local: true`): a remote
+  agent's card, key sets and endpoint (whatever its card names, checked when it is added and on
+  every call) are held to the sign-in rules above, https and only public addresses, each request
+  connecting to the addresses checked. Only a local agent may reach local or private addresses,
+  or plain http on loopback. Redirects are refused; answers stop at 256 KiB as they arrive. It
+  needs a `JSONRPC` interface at `1.0`, at least one skill, and no
   `securityRequirements` (an agent that requires a sign-in is refused with its schemes' names
   until sign-in to agents is built). An ES256 signature in `signatures` is checked over the card's
   RFC 8785 form without `signatures`, against the key its protected header's `kid` names in the
-  JWK set at its `jku`, which must be on the card's own origin: "Signed by its publisher's key",
+  JWK set at its own `jku` (each signature its own; at most four), which must be on the card's
+  own origin: "Signed by its publisher's key",
   or "Not signed" with why (none, another algorithm, a key set elsewhere, or a card changed after
   it was signed). An unsigned card is added, marked so.
 - **Its skills** are deferred tools `<agent id>__<skill id>` for the main bot. A skill whose input
@@ -265,17 +270,22 @@ ADR 0202 §5, at A2A 1.0.1 over its JSON-RPC binding. Built in the server's `a2a
   `<agent_result agent=… skill=… untrusted="true">` with its text, data parts as JSON (each at
   most 256 KiB) and file parts named, never fetched. Input required: the agent's words, quoted as
   untrusted, for the bot to ask the person. Auth required, failed, rejected, canceled: the call
-  fails with the agent's reason, quoted. **Stop** cuts the call off and sends `CancelTask` for its
-  task, up to five times until the agent answers.
+  fails with the agent's reason, quoted. Every result, errors included, is untrusted. **Stop**
+  cuts the call off; a message still being sent is left to finish so the task it opens is
+  cancelled too. A call holds its task until an answer shows it ended, and one that ends first
+  (given up, lost, interrupted) cancels it. A cancel counts only once `CancelTask` or `GetTask`
+  answers that the task ended (five rounds); one never confirmed is listed on the agent as
+  `unconfirmed_stops`.
 
-| Method and path              | Body        | Answer                                                                                |
-| ---------------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| `GET /v1/a2a-agents`         |             | `{agents: [agent]}`                                                                   |
-| `POST /v1/a2a-agents`        | `{address}` | `201 {agent}`; `400 {error}` with why its card can't be used (or it is added already) |
-| `DELETE /v1/a2a-agents/{id}` |             | `204`; `404`                                                                          |
+| Method and path              | Body                | Answer                                                                                |
+| ---------------------------- | ------------------- | ------------------------------------------------------------------------------------- |
+| `GET /v1/a2a-agents`         |                     | `{agents: [agent]}`                                                                   |
+| `POST /v1/a2a-agents`        | `{address, local?}` | `201 {agent}`; `400 {error}` with why its card can't be used (or it is added already) |
+| `DELETE /v1/a2a-agents/{id}` |                     | `204`; `404`                                                                          |
 
-An agent: `{id, name, description, address, endpoint, signed, signature, unsigned_because?,
-skills: [{id, name, description, tool, effect: "send_as_person", json}]}`.
+An agent: `{id, name, description, address, local, endpoint, signed, signature,
+unsigned_because?, skills: [{id, name, description, tool, effect: "send_as_person", json}],
+unconfirmed_stops?}`.
 
 ## A bot asks
 
