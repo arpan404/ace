@@ -123,7 +123,8 @@ export const privacyPolicy: LegalDocument = {
     {
       heading: "This website and the web app",
       body: [
-        "acehq.dev has no analytics, no advertising and no tracking cookies. It remembers your light or dark theme in your browser's storage. To show the newest download, your browser may ask GitHub for the latest release, and GitHub sees that request.",
+        "acehq.dev remembers your theme and analytics choice in your browser's storage. Your browser may also ask GitHub for the latest release so we can show the current download.",
+        "If you allow analytics, PostHog uses browser storage to link page visits into sessions. It processes page views, referral sources, campaign tags, browser and device information, clicks and page performance. It can record how the public website looked as you scrolled and clicked. We mask form inputs in recordings.",
         "The web app at app.acehq.dev runs in your browser and connects to your own machines. It keeps its settings, your ace session and a random device id in your browser's storage.",
         "Both sites are served by Cloudflare, which processes visitors' IP addresses to deliver pages and protect against abuse.",
       ],
@@ -137,7 +138,7 @@ export const privacyPolicy: LegalDocument = {
     {
       heading: "How we use this information",
       body: [
-        "Only to run the services above: to sign you in, list your machines, connect your devices to them, deliver your notifications, and protect the services, for example by limiting how many requests one address can make. We don't sell or rent personal information, use it for advertising, or use it to train AI models.",
+        "We use this information to sign you in, list your machines, connect your devices, deliver notifications, protect our services and understand how people find and use the marketing website. We don't sell or rent personal information, use it for advertising, or use it to train AI models.",
       ],
     },
     {
@@ -150,6 +151,7 @@ export const privacyPolicy: LegalDocument = {
             "Google and GitHub: only if you choose to sign in with them.",
             "Apple: delivering notifications to iPhone and iPad.",
             "GitHub: downloads, updates and source code.",
+            "PostHog: optional website analytics and session recordings on acehq.dev.",
           ],
         },
         "These providers may process data in the United States and other countries. We share personal information with nobody else, unless the law requires it.",
@@ -172,6 +174,7 @@ export const privacyPolicy: LegalDocument = {
     {
       heading: "Your choices",
       body: [
+        "Choose Analytics settings in the footer of acehq.dev to change your preference at any time.",
         "You can use ace without an account. You can change your name in Settings, and sign a machine out in its Settings or with `ace logout`. Signing out ends that session at once; a removed device loses access to your machines within five minutes.",
         "In ace for iPhone and iPad you can delete your account yourself: open Profile and choose Delete account. It deletes your account, its sessions and its machine list from our live database right away, and your user at WorkOS. Our database provider keeps point-in-time backups for up to 30 days, after which no copy remains.",
         `To see the data we hold about you, correct it, remove machines from your account, or delete your account by email, write to ${contact.email} from the address on your account. We delete your account, its machines and sessions from our database, and your user from WorkOS, within 30 days. Depending on where you live, you may have further rights under laws such as the GDPR or CCPA; write to us and we will honour them.`,
@@ -200,6 +203,16 @@ export const privacyPolicy: LegalDocument = {
       body: [`Questions about privacy, or a request about your data: ${contact.email}.`],
     },
   ],
+};
+
+export const analyticsConsent = {
+  title: "Website analytics",
+  description:
+    "Allow PostHog to measure visits and record how you use this website? Form inputs are masked.",
+  privacyLink: "Privacy policy",
+  accept: "Allow analytics",
+  decline: "Decline",
+  settings: "Analytics settings",
 };
 
 export const termsOfService: LegalDocument = {

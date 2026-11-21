@@ -29,10 +29,28 @@ router handles it.
 
 ## Build settings
 
-| Variable       | What it does                                                                                                           |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `SITE_URL`     | The public address. Turns on canonical links, absolute social-card URLs and the sitemap. Without it they are left out. |
-| `GITHUB_TOKEN` | Optional. Raises GitHub's API rate limit for the release lookup on CI.                                                 |
+| Variable                | What it does                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `SITE_URL`              | The public address. Turns on canonical links, absolute social-card URLs and the sitemap. Without it they are left out. |
+| `GITHUB_TOKEN`          | Optional. Raises GitHub's API rate limit for the release lookup on CI.                                                 |
+| `PUBLIC_POSTHOG_KEY`    | Optional. The public `phc_` project token for website analytics and session replay.                                    |
+| `PUBLIC_POSTHOG_REGION` | `us` (default) or `eu`, matching the PostHog Cloud project.                                                            |
+
+## Marketing analytics
+
+Set the two PostHog variables in the **Production** environment of the `ace-marketing` Pages
+project, then rebuild. Use a marketing-only PostHog project. Enable Session Replay in its project
+settings, where you can set recording sampling and retention. Leave the variables unset for
+previews, or use a separate test project when verifying changes.
+
+Open **Web Analytics** for visits, referrers, campaign UTMs, and Web Vitals. Add
+`marketing_download_clicked` as a conversion goal. Filter `destination` to `installer` to count
+direct installer clicks. `release_page` counts links to GitHub releases. Filter by `platform`
+to compare operating systems. The event measures clicks on the website.
+
+To verify a deployment, open the site in a fresh browser profile, allow analytics, and click a
+download link. Check Live Events for `$pageview` and `marketing_download_clicked`, and Session
+Replay for the visit. Reopen **Analytics settings** in the footer and decline to stop capture.
 
 ## Download links
 

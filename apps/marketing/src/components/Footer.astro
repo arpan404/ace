@@ -4,7 +4,7 @@
  * features in two columns so the list stays short on a phone. Under it, ace's name set very
  * large and faint, and a last row with the licence and where the code lives.
  */
-import { privacyPolicy, support, termsOfService } from "../content/legal.ts";
+import { analyticsConsent, privacyPolicy, support, termsOfService } from "../content/legal.ts";
 import { routes } from "../content/routes.ts";
 import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
@@ -81,6 +81,17 @@ const elsewhere = [
               </li>
             ))
           }
+          <li hidden>
+            <button
+              class="ph-no-capture"
+              type="button"
+              data-analytics-settings
+              aria-controls="analytics-consent"
+              aria-expanded="false"
+            >
+              {analyticsConsent.settings}
+            </button>
+          </li>
         </ul>
       </nav>
     </div>
@@ -203,12 +214,23 @@ const elsewhere = [
     font-size: 13px;
   }
 
-  .bottom a {
+  .bottom a,
+  .bottom button {
+    min-block-size: 24px;
     font-size: 13px;
     color: var(--muted);
   }
 
-  .bottom a:hover {
+  .bottom button {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .bottom a:hover,
+  .bottom button:hover {
     color: var(--foreground);
   }
 

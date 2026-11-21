@@ -1,0 +1,76 @@
+---
+import { analyticsConsent, privacyPolicy } from "../../content/legal.ts";
+
+const projectKey = import.meta.env.PUBLIC_POSTHOG_KEY?.trim();
+const region = import.meta.env.PUBLIC_POSTHOG_REGION?.trim().toLowerCase();
+const host = region === "eu" ? "https://eu.i.posthog.com" : "https://us.i.posthog.com";
+---
+
+{
+  projectKey?.startsWith("phc_") && (region === "eu" || !region || region === "us") && (
+    <section
+      id="analytics-consent"
+      class="ph-no-capture"
+      aria-labelledby="analytics-consent-title"
+      data-project-key={projectKey}
+      data-api-host={host}
+      hidden
+    >
+      <h2 id="analytics-consent-title" tabindex="-1">{analyticsConsent.title}</h2>
+      <p>
+        {analyticsConsent.description}{" "}
+        <a href={privacyPolicy.path}>{analyticsConsent.privacyLink}</a>
+      </p>
+      <div class="choices">
+        <button class="button button-secondary" type="button" data-analytics-choice="off">
+          {analyticsConsent.decline}
+        </button>
+        <button class="button button-secondary" type="button" data-analytics-choice="on">
+          {analyticsConsent.accept}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  section {
+    position: fixed;
+    z-index: 50;
+    inset-inline-start: var(--gutter);
+    inset-block-end: max(var(--gutter), env(safe-area-inset-bottom));
+    inline-size: min(400px, calc(100% - 2 * var(--gutter)));
+    padding: var(--gutter);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow: 0 8px 32px -16px var(--shadow-deep);
+  }
+
+  h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  p {
+    margin-block: 8px 16px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  a {
+    color: var(--foreground);
+  }
+
+  .choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+
+<script>
+  import { setupMarketingAnalytics } from "../../scripts/marketing-analytics.ts";
+
+  setupMarketingAnalytics();
+</script>
