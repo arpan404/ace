@@ -30,14 +30,15 @@ export function TabStrip(props: {
   const { group, actions } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const [drop, setDrop] = useState<number | undefined>(undefined);
-  const overflowing = useOverflow(scroller, group.tabs.length);
+  const edges = useOverflow(scroller, group.tabs.length);
+  const overflowing = edges.overflowing;
   const labels = tabLabels(group.tabs.map((tab) => tab.path));
   const activeIndex = Math.max(
     0,
     group.tabs.findIndex((tab) => tab.path === group.active),
   );
 
-  // The active tab always scrolls into view (spec 28).
+  // The active tab always scrolls into view (spec 28), again once the ⌄ takes its room.
   const active = group.active;
   useLayoutEffect(() => {
     if (active === undefined) return;
@@ -45,7 +46,7 @@ export function TabStrip(props: {
       `[data-path="${CSS.escape(active)}"]`,
     );
     shown?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [active]);
+  }, [active, overflowing, group.tabs.length]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>, index: number) => {
     const tabs = group.tabs;
@@ -78,12 +79,8 @@ export function TabStrip(props: {
         ref={scroller}
         role="tablist"
         aria-label="Open files"
-        // While tabs overflow, the strip's far end fades instead of cutting a name off.
-        style={
-          overflowing
-            ? { maskImage: "linear-gradient(to right, black calc(100% - 24px), transparent)" }
-            : undefined
-        }
+        // An edge hiding tabs fades instead of cutting a name off.
+        style={overflowing ? { maskImage: fadeMask(edges.left, edges.right) } : undefined}
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
         onDragOver={(event) => {
           if (!carriesGroupDrag(event.dataTransfer)) return;
@@ -206,19 +203,54 @@ function OverflowMenu(props: { group: GroupNode; actions: GroupActions }) {
   );
 }
 
-function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: number): boolean {
-  const [overflowing, setOverflowing] = useState(false);
+/** The strip's mask: each edge that hides tabs fades over 24px. */
+function fadeMask(left: boolean, right: boolean): string {
+  const start = left ? "transparent, black 24px" : "black, black";
+  const end = right ? "black calc(100% - 24px), transparent" : "black, black";
+  return `linear-gradient(to right, ${start}, ${end})`;
+}
+
+interface Edges {
+  /** The tabs are wider than the strip: the ⌄ list shows (spec 28). */
+  overflowing: boolean;
+  /** Tabs are hidden past the left edge. */
+  left: boolean;
+  /** Tabs are hidden past the right edge. */
+  right: boolean;
+}
+
+const fits: Edges = { overflowing: false, left: false, right: false };
+
+function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: number): Edges {
+  const [edges, setEdges] = useState(fits);
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
     // One tab never needs the list, even when it is wider than the strip.
-    const measure = () =>
-      setOverflowing(count > 1 && element.scrollWidth > element.clientWidth + 1);
+    const measure = () => {
+      const overflowing = count > 1 && element.scrollWidth > element.clientWidth + 1;
+      const next = overflowing
+        ? {
+            overflowing,
+            left: element.scrollLeft > 1,
+            right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+          }
+        : fits;
+      setEdges((was) =>
+        was.overflowing === next.overflowing && was.left === next.left && was.right === next.right
+          ? was
+          : next,
+      );
+    };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    element.addEventListener("scroll", measure, { passive: true });
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener("scroll", measure);
+    };
   }, [scroller, count]);
-  return overflowing;
+  return edges;
 }

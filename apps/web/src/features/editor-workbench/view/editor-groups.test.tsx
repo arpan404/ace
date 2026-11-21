@@ -134,3 +134,12 @@ test("the strip's split button splits right, and with ⌥ splits down", async ()
   expect(groupsOf(editor.seen.at(-1)!)).toHaveLength(3);
   expect(JSON.stringify(editor.seen.at(-1)?.root)).toContain('"direction":"column"');
 });
+
+test("the file path starts where the shown editor's text starts", async () => {
+  editorSize(1000);
+  await mountEditor(one([tab("src/a.ts")]), {
+    overrides: { renderEditor: () => <div data-text-start="68" /> },
+  });
+  const crumbs = within(region(1)).getByRole("navigation", { name: "File path" });
+  expect(crumbs.style.paddingLeft).toBe("68px");
+});
