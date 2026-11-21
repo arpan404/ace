@@ -45,10 +45,12 @@ export interface HistoryRuntime {
 }
 export { readerMemoryLimitBytes, readerMemoryError } from "./reader-process.ts";
 /**
- * ace-history's memory limit, in resident memory. Measured on the scale fixture (6,000 sessions,
- * gigabyte transcripts); see BENCHMARKS.md. Set with headroom over that peak.
+ * ace-history's memory limit, in resident memory (ADR 0206). Its measured peak is 11 MiB over the
+ * scale home (6,379 transcripts up to a sparse 1.9 GB rollout) and 33 MiB importing a 300 MB,
+ * 200,000-record transcript (BENCHMARKS.md); 128 MiB is four times that, room for a 1 MiB record
+ * decoded beside the import's 16 MiB page cache, while a runaway is still stopped early.
  */
-export const rustReaderMemoryLimitBytes = 192 * 1024 * 1024;
+export const rustReaderMemoryLimitBytes = 128 * 1024 * 1024;
 const ImportedAgents = z.array(Agent).max(512);
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 const Progress = z.object({

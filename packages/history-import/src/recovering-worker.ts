@@ -13,6 +13,8 @@ export class RecoveringWorker extends EventEmitter {
   private attempt = 0;
   private scanId: number | undefined;
   private initialized = false;
+  /** The close request in flight: the reader may end once it has it, which is no crash. */
+  private closeId: number | undefined;
   private available = false;
   private recovering = false;
   private queued: { message: unknown; transfer: readonly Transferable[] | undefined }[] = [];
@@ -62,10 +64,20 @@ export class RecoveringWorker extends EventEmitter {
         return;
       }
       if (reply?.id === this.scanId && !reply?.error) this.attempt = 0;
+      if (reply && reply.id === this.closeId) this.closeId = undefined;
       this.emit("message", input);
     });
     const failed = (error: Error) => {
       if (this.worker !== worker || this.closing) return;
+      if (this.closeId !== undefined) {
+        // Asked to close, the reader ended: the close is done, whether or not it answered.
+        const id = this.closeId;
+        this.closeId = undefined;
+        this.worker = undefined;
+        this.closing = true;
+        this.emit("message", { id, value: null });
+        return;
+      }
       if (incompatibleData(error)) {
         // Every restart would refuse the same index; report it once and stay stopped.
         this.worker = undefined;
@@ -114,6 +126,7 @@ export class RecoveringWorker extends EventEmitter {
     if (this.closing) throw new Error("History worker closed");
     const request = Envelope.safeParse(message).data;
     if (request?.request.op === "scan") this.scanId = request.id;
+    if (request?.request.op === "close") this.closeId = request.id;
     if (this.available && this.worker) this.worker.postMessage(message, transfer);
     else {
       if (this.queued.length >= 129) throw new Error("Too many saved conversation requests");

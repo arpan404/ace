@@ -110,7 +110,9 @@ export class RoutedWorker extends EventEmitter {
   }
   private fromRust(value: unknown): void {
     if (this.readied("rust", value)) return;
-    if (Progress.safeParse(value).success) return void this.emit("message", value);
+    const progress = Progress.safeParse(value).data;
+    // Progress over no files says nothing, as when ace-history owns none of the homes.
+    if (progress) return void (progress.result.files > 0 && this.emit("message", value));
     const answer = Answer.safeParse(value).data;
     if (!answer) return void this.emit("message", value);
     if (this.closed(answer.id, value)) return;

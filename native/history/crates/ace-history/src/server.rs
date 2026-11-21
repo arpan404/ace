@@ -26,10 +26,10 @@ use crate::{Op, ToMain};
 /// An import being pulled packet by packet (`import`, then `next` until done).
 struct Pull {
     packets: mpsc::Receiver<Produced>,
-    /// Lets the producer past a barrier once the daemon asks for more: the final checks run
-    /// only after everything before the barrier was taken.
-    resume: mpsc::SyncSender<()>,
-    held: bool,
+    /// How many packets the producer may make: exactly what the daemon pulled, as the worker's
+    /// generator ran, so nothing is read ahead of the sink and the final checks run only after
+    /// everything before the barrier was taken.
+    credits: mpsc::SyncSender<usize>,
     root: String,
 }
 
@@ -300,7 +300,6 @@ impl Server {
     }
 
     fn scan(&mut self) -> Result<Value> {
-        self.cancel.reset();
         let out = self.out.clone();
         let mut last: Option<Instant> = None;
         // Intermediate inventories are bounded to one every 250 ms; the final one always goes.
@@ -334,7 +333,6 @@ impl Server {
     }
 
     fn persist(&mut self, init: &ImportInit) -> Result<Value> {
-        self.cancel.reset();
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
         // A staged import is one long transaction: a 16 MiB page cache, for its length only,
         // keeps SQLite from spilling the same pages to the WAL again and again.
@@ -356,8 +354,8 @@ impl Server {
         let mut packets = 0u64;
         let cancel = self.cancel.clone();
         let outcome = import::import_history(
-            &home,
-            &members,
+            home,
+            members,
             init,
             &self.scratch,
             &self.cancel,
@@ -401,11 +399,10 @@ impl Server {
     }
 
     fn begin_pull(&mut self, init: &ImportInit) -> Result<()> {
-        self.cancel.reset();
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
-        // A slow sink holds the producer back: at most sixteen packets wait.
+        // The producer makes only what each pull grants, so at most sixteen packets wait.
         let (send, packets) = mpsc::sync_channel::<Produced>(16);
-        let (resume, resumed) = mpsc::sync_channel::<()>(1);
+        let (credits, granted) = mpsc::sync_channel::<usize>(1);
         let scratch = SnapshotScratch::new(
             self.scratch.root.clone(),
             Policy::from_limits(self.options.snapshot.as_ref()),
@@ -414,12 +411,11 @@ impl Server {
         let root = init.source_id.clone();
         let init = init.clone();
         std::thread::spawn(move || {
-            produce(&home, &members, &init, &scratch, &cancel, &send, &resumed)
+            produce(&home, &members, &init, &scratch, &cancel, &send, &granted)
         });
         self.pull = Some(Pull {
             packets,
-            resume,
-            held: false,
+            credits,
             root,
         });
         Ok(())
@@ -429,9 +425,8 @@ impl Server {
     fn pull_packets(&mut self, limit: usize) -> Result<Reply> {
         let mut values = Vec::new();
         let mut bodies = Vec::new();
-        if let Some(pull) = self.pull.as_mut().filter(|p| p.held) {
-            pull.held = false;
-            let _ = pull.resume.send(());
+        if let Some(pull) = &self.pull {
+            let _ = pull.credits.send(limit);
         }
         while values.len() < limit {
             let Some(pull) = &self.pull else { break };
@@ -441,9 +436,6 @@ impl Server {
                     let barrier = packet == Packet::Barrier;
                     values.push(packet.to_json(&mut bodies));
                     if barrier {
-                        if let Some(pull) = self.pull.as_mut() {
-                            pull.held = true;
-                        }
                         break;
                     }
                 }
@@ -488,14 +480,21 @@ fn produce(
     scratch: &SnapshotScratch,
     cancel: &Cancel,
     send: &mpsc::SyncSender<Produced>,
-    resumed: &mpsc::Receiver<()>,
+    granted: &mpsc::Receiver<usize>,
 ) {
+    let mut credit = 0usize;
     let outcome = import::import_history(home, members, init, scratch, cancel, &mut |packet| {
+        while credit == 0 {
+            credit = granted.recv().map_err(|_| Error::Aborted)?;
+        }
         let barrier = packet == Packet::Barrier;
         send.send(Produced::Packet(packet))
             .map_err(|_| Error::Aborted)?;
+        credit -= 1;
         if barrier {
-            resumed.recv().map_err(|_| Error::Aborted)?;
+            // A pull ends at a barrier: what it left unused is not the producer's to spend, and
+            // the checks after the barrier wait for the daemon's next pull.
+            credit = granted.recv().map_err(|_| Error::Aborted)?;
         }
         Ok(())
     });

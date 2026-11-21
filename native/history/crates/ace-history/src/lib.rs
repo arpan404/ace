@@ -138,6 +138,16 @@ fn read_stdin(
                     } else if busy.swap(true, Ordering::SeqCst) {
                         out.error(id, "History operation already in progress");
                     } else {
+                        // A scan or import starts afresh, as the worker made a new AbortController:
+                        // reset here, in arrival order, so a cancel sent after it still counts.
+                        if matches!(
+                            request,
+                            Ok(Request::Scan
+                                | Request::Import { .. }
+                                | Request::ImportPersist { .. })
+                        ) {
+                            cancel.reset();
+                        }
                         let _ = to_main.send(ToMain::Op(Op {
                             id,
                             request,
