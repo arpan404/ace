@@ -140,3 +140,45 @@ it("refuses to record, saying why, while ace-media can't record", async () => {
   });
   expect(t.service.state("thread").recording).toBeUndefined();
 });
+
+it("a quick move to a private tab and back never records the private tab's pictures as the public one's", async () => {
+  const t = await thread();
+  await t.service.execute("thread", { action: "tabs", operation: "open" });
+  // B (tab-2, public) is viewed and recorded; A (tab-1) is private.
+  await t.service.startRecording("thread");
+  t.frame(1, 3);
+  expect(t.recorded()).toEqual([3]);
+  t.clock.now += 1_000;
+  t.service.setPrivate("thread", "tab-1", true);
+  t.clock.now += 1_000;
+  // A's own screenshot, should anything take one, is marked 9.
+  const a = t.page(0);
+  a.command = (
+    (command) => (method: string, params?: Record<string, unknown>) =>
+      method === "Page.captureScreenshot"
+        ? { data: markedJpeg(9).toString("base64") }
+        : command(method, params)
+  )(a.command.bind(a));
+  // B's screencast stop hangs while the capture moves to A.
+  const b = t.page(1);
+  const stopping = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<unknown>();
+  b.command = ((command) => (method: string, params?: Record<string, unknown>) => {
+    if (method !== "Page.stopScreencast") return command(method, params);
+    stopping.resolve();
+    return held.promise;
+  })(b.command.bind(b));
+  void t.service.execute("thread", { action: "tabs", operation: "select", tabId: "tab-1" }, person);
+  await stopping.promise;
+  // Back to B before the move to A got its screencast stopped.
+  void t.service.execute("thread", { action: "tabs", operation: "select", tabId: "tab-2" }, person);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  held.resolve({});
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  // A's live picture, whatever its capture thinks it shows.
+  t.frame(0, 8);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  t.frame(1, 4);
+  expect(t.recorded()).not.toContain(9);
+  expect(t.recorded()).not.toContain(8);
+});
