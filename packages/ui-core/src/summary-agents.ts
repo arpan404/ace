@@ -177,9 +177,9 @@ const agentsOf = (nodes: readonly ForestNode[]) =>
 /**
  * The tree for a phone's Summary: every agent but the thread's own main agent (the page is
  * that agent), sorted into who waits on the person, what works, what failed, what finished and
- * what isn't known yet, each depth first with siblings newest first. A row indents under agents above it in its own group, up to
- * `summaryIndentLimit`; past that, or when its parent sits in another group, it names its parent.
- * Undefined when there is no agent besides the main one.
+ * what isn't known yet, each depth first with siblings newest first. A row indents under agents
+ * above it in its own group, up to `summaryIndentLimit`; past that, or when its parent sits in
+ * another group, it names its parent. Undefined when there is no agent besides the main one.
  */
 export function summaryAgents(
   threadId: string,

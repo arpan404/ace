@@ -94,19 +94,24 @@ const waits: Record<Extract<ThreadStatus, { state: "waiting" }>["on"], string> =
   queue: "Queued",
 };
 
-function workWords(tally: ForestTally, groups: SummaryGroupCounts | undefined): string {
+const commandWords = (tally: ForestTally) =>
+  tally.commands ? `${pluralCount(tally.commands, "command")} running` : "";
+
+/** The whole tree's work, as the web's Summary says it: "2 agents working · 3 done". */
+function treeWork(tally: ForestTally): string {
   const words: string[] = [];
-  if (groups) {
-    if (groups.working) words.push(`${pluralCount(groups.working, "agent")} working`);
-    if (groups.failed) words.push(`${groups.failed} failed`);
-    if (tally.commands) words.push(`${pluralCount(tally.commands, "command")} running`);
-    return words.join(" · ");
-  }
   if (tally.working) words.push(`${pluralCount(tally.working, "agent")} working`);
   if (tally.done) words.push(`${tally.done} done`);
   if (tally.syncing) words.push(`${tally.syncing} syncing`);
-  if (tally.commands) words.push(`${pluralCount(tally.commands, "command")} running`);
-  return words.join(" · ");
+  return [...words, commandWords(tally)].filter(Boolean).join(" · ");
+}
+
+/** The phone's groups' work: "1 agent working · 8 failed"; its progress line says the done. */
+function groupWork(groups: SummaryGroupCounts, tally: ForestTally): string {
+  const words: string[] = [];
+  if (groups.working) words.push(`${pluralCount(groups.working, "agent")} working`);
+  if (groups.failed) words.push(`${groups.failed} failed`);
+  return [...words, commandWords(tally)].filter(Boolean).join(" · ");
 }
 
 /** "#1544 is ready for review", "#1544 merged": the newest pull request, as an outcome. */
@@ -152,7 +157,7 @@ const lowerFirst = (sentence: string): string =>
  */
 export function nowLine(facts: NowFacts): NowLine {
   const { status, tally, turn, groups } = facts;
-  const work = (counted: ForestTally) => workWords(counted, groups);
+  const work = (counted: ForestTally) => (groups ? groupWork(groups, counted) : treeWork(counted));
   if (facts.asker) {
     const who = facts.asker.root ? "The main agent" : facts.asker.name;
     const ask = askWords(facts.asker.request);
