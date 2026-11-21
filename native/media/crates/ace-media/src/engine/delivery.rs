@@ -123,6 +123,10 @@ struct SourceFacts {
     ids: HashMap<String, u32>,
     wanted: Vec<EncodeSpec>,
     keyframes: HashMap<u32, u64>,
+    /// Keyframes asked for inside the spacing: sent once it ends, unless the encode's own
+    /// keyframe came first. A still source sends none of its own, and a view opened again soon
+    /// after its last request would otherwise never start.
+    owed: HashMap<u32, KeyReason>,
     /// The encodes the producer actually sends: coded size, codec and when last seen.
     seen: HashMap<u32, Seen>,
     /// Encodes whose keyframes outgrew the coupled cap: the share of the plan's bit rate they
@@ -675,6 +679,27 @@ impl Delivery {
             }
             self.deliver(&key, source, message, frame, now_ms, out);
         }
+        if frame.kind == 1 && frame.flags & 1 != 0 {
+            self.keyframe_came(source, frame.encode);
+        }
+    }
+
+    /// An encode's keyframe reached its views: what they asked for inside the spacing, under
+    /// the producer's id for it or the plan's, is no longer owed.
+    fn keyframe_came(&mut self, source: &str, encode: u32) {
+        let ids: Vec<u32> = self
+            .views
+            .values()
+            .filter(|v| v.source == source && v.taking == Some(encode))
+            .flat_map(|v| [Some(encode), v.encode])
+            .flatten()
+            .collect();
+        if let Some(facts) = self.sources.get_mut(source) {
+            facts.owed.remove(&encode);
+            for id in ids {
+                facts.owed.remove(&id);
+            }
+        }
     }
 
     /// One video unit to one view, through its window.
@@ -822,8 +847,10 @@ impl Delivery {
         let facts = self.sources.entry(source.to_owned()).or_default();
         let last = facts.keyframes.get(&encode).copied();
         if last.is_some_and(|at| now_ms.saturating_sub(at) < KEYFRAME_SPACING_MS) {
+            facts.owed.insert(encode, reason);
             return;
         }
+        facts.owed.remove(&encode);
         facts.keyframes.insert(encode, now_ms);
         normal(
             out,
@@ -1036,6 +1063,7 @@ impl Delivery {
 
     /// Every 100 ms: `viewer.stats` once a second, and plans that follow the links' rates.
     pub fn tick(&mut self, now_ms: u64, out: &mut Vec<Effect>) {
+        self.ask_owed(now_ms, out);
         // Chunks past their deadline are let go even when nothing else happens to a view.
         let keys: Vec<String> = self.views.keys().cloned().collect();
         for key in keys {
@@ -1071,6 +1099,24 @@ impl Delivery {
 }
 
 impl Delivery {
+    /// Keyframes owed since the spacing held them back, asked for now that it has passed.
+    fn ask_owed(&mut self, now_ms: u64, out: &mut Vec<Effect>) {
+        let due: Vec<(String, u32, KeyReason)> = self
+            .sources
+            .iter()
+            .flat_map(|(source, facts)| {
+                facts.owed.iter().filter_map(move |(&encode, reason)| {
+                    let last = facts.keyframes.get(&encode).copied().unwrap_or(0);
+                    (now_ms.saturating_sub(last) >= KEYFRAME_SPACING_MS)
+                        .then(|| (source.clone(), encode, reason.clone()))
+                })
+            })
+            .collect();
+        for (source, encode, reason) in due {
+            self.request_keyframe(&source, encode, reason, now_ms, out);
+        }
+    }
+
     /// Lets one view's fanout let go of chunks past their deadline, sending what that frees.
     fn expire(&mut self, key: &str, now_ms: u64, out: &mut Vec<Effect>) {
         let Some(view) = self.views.get_mut(key) else {
