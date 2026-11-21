@@ -26,6 +26,7 @@ import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
 import { useCardFocus } from "./use-card-focus.ts";
 import { TaskDiff } from "./spade-self-edit-lines.tsx";
+import { ApproversLine } from "./spade-shared-lines.tsx";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
@@ -150,6 +151,8 @@ export function SpadeRequestBubble(props: {
           {card.detail && <Detail detail={card.detail} />}
         </CardBody>
       )}
+      {/* A shared bot's request: who may answer it (ADR 0206 §2.3). */}
+      <ApproversLine botId={props.botId} />
       <CardFooter
         start={
           <>

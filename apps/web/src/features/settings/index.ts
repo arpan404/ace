@@ -63,3 +63,5 @@ export { SettingsBody } from "./settings-body.tsx";
 export { AppPreview } from "./app-preview.tsx";
 /** This computer's daemon's account controls, for a slice that signs it in again (the marketplace). */
 export { useMachineAccountAccess } from "./machine-account.tsx";
+/** Settings › Organization's page registry (ADR 0206 §2.7), for its own feature's screens. */
+export { organizationPageNeeds, type SettingsPath } from "./settings-pages.ts";
