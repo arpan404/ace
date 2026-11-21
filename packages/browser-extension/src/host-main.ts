@@ -1,3 +1,4 @@
+import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
 import { WebSocket } from "ws";
 import { extensionOrigin } from "./extension-id.ts";
 import { readDaemonEndpoint, readHostCredential } from "./host-files.ts";
@@ -6,8 +7,10 @@ import { relayNativeHost } from "./host-relay.ts";
 /**
  * The native messaging host Chrome starts for ace for Chrome (ADR 0084). Chrome passes the
  * calling extension's origin; the launcher adds `--data-dir`. Logs go to stderr, which Chrome
- * keeps out of the message stream.
+ * keeps out of the message stream. Stdout carries only length-prefixed frames, and Bun's console
+ * writes there directly, so console output goes to stderr too.
  */
+routeConsoleToStderr();
 const args = process.argv.slice(2);
 const dataDirIndex = args.indexOf("--data-dir");
 const dataDir = dataDirIndex === -1 ? undefined : args[dataDirIndex + 1];
