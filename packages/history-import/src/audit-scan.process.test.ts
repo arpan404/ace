@@ -1,10 +1,17 @@
 import { expect, test } from "vitest";
-import { Worker } from "node:worker_threads";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openHistory } from "./index.ts";
-import { environment, jsonl, claudeRecords, codexRecords, cwd, init } from "./test-support.ts";
+import {
+  environment,
+  jsonl,
+  claudeRecords,
+  codexRecords,
+  cwd,
+  init,
+  readerHooks,
+} from "./test-support.ts";
 
 for (const mode of ["stat", "read"] as const) {
   test(`a transcript appended during ${mode} sampling preserves its row until the next scan reads it`, async () => {
@@ -24,12 +31,16 @@ for (const mode of ["stat", "read"] as const) {
           { id: "codex", provider: "codex", homeDir: codex },
         ],
       },
-      (url, options) =>
-        new Worker(url, {
-          ...options,
-          execArgv: ["--import", new URL("./sampling-race-preload.ts", import.meta.url).href],
-          env: { ...process.env, ACE_TEST_SAMPLE_RACE: JSON.stringify({ path, marker, mode }) },
-        }),
+      // Once armed, ace-history's test hooks append to the transcript right after its stat or
+      // its sample read, as the provider writing then would.
+      readerHooks({
+        append: {
+          at: mode === "stat" ? "scan-stat" : "sample-read",
+          match: path,
+          marker,
+          line: JSON.stringify({ type: "ai-title", sessionId: "live", aiTitle: "after race" }),
+        },
+      }),
     );
     try {
       await service.scan();

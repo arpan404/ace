@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -9,7 +9,7 @@ import { bundleDaemon } from "@ace/release";
 // The package runs on Bun, as releases do: off Linux the reader's memory sampler is bun:ffi. The
 // reader is found with pgrep and ps, which Windows doesn't have.
 test.skipIf(!("bun" in process.versions) || process.platform === "win32")(
-  "the packaged daemon reads saved conversations through a reader process of its own",
+  "the packaged daemon reads saved conversations through the ace-history it carries",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "ace-history-reader-bundle-"));
     const repo = resolve(import.meta.dirname, "../../..");
@@ -52,6 +52,11 @@ try {
       );
       await bundleDaemon(repo, root, "", undefined, entry);
       await rm(entry);
+      // Releases stage the native reader in history/, beside files/ and media/.
+      const built = process.env.ACE_HISTORY_PATH;
+      if (!built) throw new Error("The process tests' setup builds ace-history; it is missing");
+      await mkdir(join(root, "history"));
+      await copyFile(built, join(root, "history", "ace-history"));
       const result = await promisify(execFile)(process.execPath, [join(root, "ace.mjs")], {
         cwd: root,
         timeout: 60_000,
@@ -59,8 +64,8 @@ try {
       });
       const report = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}");
       expect(report.titles).toEqual(["packaged prompt"]);
-      // The bundled reader entry, not a source file, runs as the daemon's child.
-      expect(report.reader).toContain(join(root, "history-import-worker.mjs"));
+      // The ace-history the package carries, not a development build, runs as its child.
+      expect(report.reader).toContain(join(root, "history", "ace-history"));
       // The watchdog's sampler works in the package, which carries no koffi: it is bun:ffi.
       expect(report.resident).toBeGreaterThan(1024 * 1024);
       const shipped = await readdir(root, { recursive: true });
