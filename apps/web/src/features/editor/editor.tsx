@@ -157,7 +157,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
 
-
   const name = pathParts(props.path).name;
   const lineCount = doc?.lenLines() ?? 0;
   const height = Math.max(120, viewport.height);
@@ -170,9 +169,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   // Beside the chat the editor is narrow: long lines wrap there even with the setting off.
   const narrow = !wrapSetting && columns < narrowColumns;
   const wrap = wrapSetting || (narrow && !narrowUnwrapped);
-  const toggleWrap = narrow
-    ? () => setNarrowUnwrapped((value) => !value)
-    : props.onToggleWrap;
+  const toggleWrap = narrow ? () => setNarrowUnwrapped((value) => !value) : props.onToggleWrap;
   const visible = useRef({ first: 0, last: 200 });
   const anchor = useMemo(() => new ScrollAnchor(scroller, setScroll), [scroller, setScroll]);
   useLayoutEffect(() => anchor.setLineHeight(lineHeight), [anchor, lineHeight]);

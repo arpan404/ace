@@ -1,11 +1,6 @@
 import type { EditorDocument, Range, Selection } from "@ace/editor";
 import { useMemo } from "react";
-import {
-  guideLevels,
-  selectionOccurrences,
-  wordAtCaret,
-  wordOccurrences,
-} from "./decorations.ts";
+import { guideLevels, selectionOccurrences, wordAtCaret, wordOccurrences } from "./decorations.ts";
 
 /*
  * The decorations for the lines on screen: the bracket pair at the caret (a bounded scan in the
@@ -48,7 +43,10 @@ export function useDecorations(options: {
   const sameLine = only !== undefined && !single && anchorLine === line;
   const occurrences = useMemo(() => {
     if (sameLine) {
-      const text = lineAt(line).slice(Math.min(anchorColumn, column), Math.max(anchorColumn, column));
+      const text = lineAt(line).slice(
+        Math.min(anchorColumn, column),
+        Math.max(anchorColumn, column),
+      );
       return selectionOccurrences(lineAt, first, last, text);
     }
     if (!single) return [];

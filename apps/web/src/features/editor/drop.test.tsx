@@ -36,9 +36,7 @@ async function openEditor(onGroupDrop: (event: { defaultPrevented: boolean }) =>
   await waitFor(() => expect(ref.current).toBeTruthy());
   act(() => {
     ref.current?.focus();
-    ref.current?.setSelections([
-      { anchor: { line: 0, column: 3 }, head: { line: 0, column: 3 } },
-    ]);
+    ref.current?.setSelections([{ anchor: { line: 0, column: 3 }, head: { line: 0, column: 3 } }]);
   });
   return { ref, box };
 }

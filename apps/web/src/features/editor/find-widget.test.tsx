@@ -16,7 +16,9 @@ beforeEach(() => {
 
 test("Cmd+F floats find over the code, leaves the text in place and folds replace away", async () => {
   const ref = createRef<EditorHandle>();
-  render(<CodeEditor ref={ref} path="a.ts" label="Editor" text="one two" highlightDelay={60_000} />);
+  render(
+    <CodeEditor ref={ref} path="a.ts" label="Editor" text="one two" highlightDelay={60_000} />,
+  );
   await screen.findByRole("textbox", { name: "a.ts" });
   await waitFor(() => expect(ref.current).toBeTruthy());
   act(() => ref.current?.focus());

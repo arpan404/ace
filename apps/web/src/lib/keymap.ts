@@ -359,7 +359,12 @@ export const keymap = {
     scope: "editor",
     fixed: true,
   },
-  "editor.wordWrap": { keys: "alt+z", label: "Turn word wrap on or off", scope: "editor", fixed: true },
+  "editor.wordWrap": {
+    keys: "alt+z",
+    label: "Turn word wrap on or off",
+    scope: "editor",
+    fixed: true,
+  },
   "editor.composer": {
     keys: "escape",
     label: "Back to the composer",
