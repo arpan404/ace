@@ -332,6 +332,7 @@ export { type SignerIo } from "./signer-io.ts";
 export { type BotTestOutcome, type BotTestRunner } from "./signer-tests.ts";
 export {
   signBlocklistChange,
+  signNoticeChange,
   signOfficialChange,
   signVerifiedChange,
   signWithdrawAll,

@@ -33,6 +33,7 @@ function publicPath(parts: readonly string[]): Methods | undefined {
     case "blocklist":
     case "verified":
     case "official":
+    case "notices":
     case "discover":
       return only(2) ? get({ kind: first }) : undefined;
     case "reports":

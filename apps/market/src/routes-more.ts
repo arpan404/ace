@@ -138,6 +138,8 @@ export function signerRoutes(rest: readonly string[]): Methods | undefined {
         return put({ kind: "signer-verified" });
       case "official":
         return put({ kind: "signer-official" });
+      case "notices":
+        return put({ kind: "signer-notices" });
       case "reports":
         return get({ kind: "signer-reports" });
       default:

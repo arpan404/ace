@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { verifyBlocklist, verifyOfficialList } from "@ace/marketplace";
+import { verifyBlocklist, verifyNotices, verifyOfficialList } from "@ace/marketplace";
+import { signNoticeChange } from "@ace/marketplace/signer";
 import { keySetOf, sampleSkill, testKey } from "@ace/marketplace/testing";
 import {
   MarketQueueBody,
@@ -23,6 +24,7 @@ import {
   everyRow,
   officialBy,
   publishLive,
+  signerIoOf,
   verifiedBy,
 } from "./testing/discover-harness.ts";
 import { listVersion, versionForSigning } from "./store/signer.ts";
@@ -63,6 +65,7 @@ describe("the signer's token", () => {
     ["PUT", "/v1/signer/blocklist"],
     ["PUT", "/v1/signer/verified"],
     ["PUT", "/v1/signer/official"],
+    ["PUT", "/v1/signer/notices"],
     ["GET", "/v1/signer/reports"],
     ["PUT", "/v1/signer/reports/rpt_0123456789abcdef"],
     ["PUT", "/v1/signer/appeals/apl_0123456789abcdef"],
@@ -304,6 +307,27 @@ it("takes anonymous reports, limits them per caller, keeps no address, and maint
 });
 
 describe("the signed lists", () => {
+  it("serves terms notices the signer signs, one per provider, refusing a stranger's", async () => {
+    const trusted = keySetOf(marketKey);
+    const io = signerIoOf(market);
+    let clock = 1_000;
+    const now = () => (clock += 1);
+    const tighten = { provider: "codex", status: "refused" as const, note: "Not for bots" };
+    expect((await signNoticeChange(io, marketKey, now, trusted, tighten)).status).toBe(200);
+    const other = { provider: "claude", status: "unclear" as const, note: "" };
+    expect((await signNoticeChange(io, marketKey, now, trusted, other)).status).toBe(200);
+    const again = { provider: "codex", status: "unclear" as const, note: "Put right" };
+    expect((await signNoticeChange(io, marketKey, now, trusted, again)).status).toBe(200);
+    const served = verifyNotices(await (await market.fetch("/v1/notices")).json(), trusted);
+    expect(served.notices.map(({ provider, status }) => ({ provider, status }))).toEqual([
+      { provider: "claude", status: "unclear" },
+      { provider: "codex", status: "unclear" },
+    ]);
+    const stranger = testKey("other", 4);
+    const answer = await signNoticeChange(io, stranger, now, keySetOf(marketKey, stranger), tighten);
+    expect(answer.status).toBe(422);
+  });
+
   it("stores and serves the blocklist, refusing an unknown key and an older list", async () => {
     const list = blocklistBy({
       issued: 100,

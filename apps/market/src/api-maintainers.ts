@@ -1,4 +1,9 @@
-import { verifyBlocklist, verifyOfficialList, verifyVerifiedList } from "@ace/marketplace";
+import {
+  verifyBlocklist,
+  verifyNotices,
+  verifyOfficialList,
+  verifyVerifiedList,
+} from "@ace/marketplace";
 import {
   AppealAnswer,
   BlockDecision,
@@ -8,6 +13,7 @@ import {
   PublisherDecision,
   ReportResolution,
   SignedBlocklistUpload,
+  SignedNoticesUpload,
   SignedOfficialUpload,
   SignedVerifiedUpload,
 } from "@ace/protocol/marketplace";
@@ -34,7 +40,13 @@ import {
   setPublisherState,
   type Decided,
 } from "./store/maintainers.ts";
-import { setBlocklist, setOfficial, setVerified, signedText } from "./store/lists.ts";
+import {
+  setBlocklist,
+  setNotices,
+  setOfficial,
+  setVerified,
+  signedText,
+} from "./store/lists.ts";
 import { markUsageDirty } from "./store/me-limits.ts";
 import { listReports, resolveReport } from "./store/reports.ts";
 
@@ -132,6 +144,8 @@ export async function maintainerRoute(
       return verified(request, context);
     case "signer-official":
       return official(request, context);
+    case "signer-notices":
+      return notices(request, context);
     case "signer-reports":
       return json({ reports: await listReports(dbs.moderation) });
     case "signer-report": {
@@ -241,5 +255,24 @@ async function official(request: Request, context: Context) {
   );
   if (stored === "publisher-taken")
     return failure(409, "conflict", "Another publisher id holds the ace handle.");
+  return listAnswer(stored, list.issued);
+}
+
+async function notices(request: Request, context: Context) {
+  const upload = SignedNoticesUpload.safeParse(await readJson(request));
+  if (!upload.success) return malformed();
+  const keys = marketKeys(context);
+  if (!keys) return noKeys();
+  let list;
+  try {
+    list = verifyNotices(upload.data.notices, keys);
+  } catch (error) {
+    return signatureRefused(error);
+  }
+  const stored = await setNotices(context.dbs.lists, {
+    issued: list.issued,
+    signed: signedText(upload.data.notices),
+    basedOn: upload.data.basedOn,
+  });
   return listAnswer(stored, list.issued);
 }

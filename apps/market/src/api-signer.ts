@@ -78,13 +78,15 @@ export async function signerRoute(
   switch (route.kind) {
     case "signer-pending": {
       // Only versions waiting for the signer: held and blocked ones wait for a maintainer.
-      const [versions, withdrawals, list, blocklist, verified, official] = await Promise.all([
+      const [versions, withdrawals, list, blocklist, verified, official, notices] =
+        await Promise.all([
         pendingVersions(dbs),
         pendingWithdrawals(dbs),
         withdrawnList(dbs.lists),
         signedList(listDb(dbs, "blocklist"), "blocklist"),
         signedList(listDb(dbs, "verified"), "verified"),
         signedList(listDb(dbs, "official"), "official"),
+        signedList(listDb(dbs, "notices"), "notices"),
       ]);
       return json({
         versions,
@@ -93,6 +95,7 @@ export async function signerRoute(
         ...(blocklist ? { blocklist: blocklist.signed } : {}),
         ...(verified ? { verified: verified.signed } : {}),
         ...(official ? { official: official.signed } : {}),
+        ...(notices ? { notices: notices.signed } : {}),
       });
     }
     case "signer-object": {
