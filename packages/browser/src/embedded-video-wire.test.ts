@@ -2,16 +2,12 @@ import { describe, expect, it } from "vitest";
 import { decodeEmbeddedVideo, encodeEmbeddedVideo } from "./embedded-video-wire.ts";
 
 describe("the desktop's video encoder events on its backend socket", () => {
-  it("carries an event and its chunk's bytes unchanged", () => {
-    const event = { t: "chunk", capture: "c-1", encode: "e", key: true };
-    const decoded = decodeEmbeddedVideo(encodeEmbeddedVideo(event, new Uint8Array([0, 1, 255])));
-    expect(decoded?.header).toEqual(event);
-    expect([...(decoded?.bytes ?? [])]).toEqual([0, 1, 255]);
-  });
-
-  it("carries an event without bytes, as a capture's end", () => {
-    const decoded = decodeEmbeddedVideo(encodeEmbeddedVideo({ t: "ended", capture: "c-1" }));
-    expect(decoded).toEqual({ header: { t: "ended", capture: "c-1" }, bytes: undefined });
+  it("carries a capture's end and an encode's failure unchanged", () => {
+    for (const event of [
+      { t: "ended", capture: "c-1", reason: "tab closed" },
+      { t: "failed", capture: "c-1", encode: "e" },
+    ])
+      expect(decodeEmbeddedVideo(encodeEmbeddedVideo(event))).toEqual({ header: event });
   });
 
   it("leaves another channel's binary messages to their owner", () => {

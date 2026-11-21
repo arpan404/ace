@@ -1,6 +1,6 @@
 import type { MediaClock } from "./supervisor-host.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
-import type { FromMedia, ToMedia } from "./wire.ts";
+import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
  * Agent stills made by ace-media (docs/media/plan.md, F2): `still.take` for the current picture
@@ -21,6 +21,12 @@ export type StillRequest = {
   quality: number;
   /** How long ace-media may take before the source's own capture answers instead. */
   deadlineMs: number;
+  /**
+   * For a request that isn't private: the newest public epoch the daemon announced for the
+   * source (M8). ace-media answers only from a picture of that epoch or later, so private
+   * content still in flight when the source went public is never this still.
+   */
+  minEpoch?: number;
 };
 
 /** A still ace-media made: the JPEG, its size, and the path it took. */
@@ -33,6 +39,8 @@ export type MediaStillsOptions = {
   clock: MediaClock;
   /** A request id unique for this daemon's lifetime. */
   nextId: () => string;
+  /** Whether the running ace-media agreed to an optional feature (`ready.features`). */
+  speaks?: (feature: MediaFeature) => boolean;
 };
 
 type Pending = { done: (still: MediaStill) => void; fallBack: () => void };
@@ -62,6 +70,10 @@ export class MediaStills {
   ): Promise<T> {
     const { health, send, clock, nextId } = this.#options;
     if (health() !== "healthy") return capture();
+    // A fenced request goes only to a build that honours the fence; otherwise the source's own
+    // capture answers rather than risk a still from before the epoch.
+    if (request.minEpoch !== undefined && !(this.#options.speaks?.("privacy-open") ?? false))
+      return capture();
     const id = nextId();
     return new Promise<T>((resolve, reject) => {
       let settled = false;

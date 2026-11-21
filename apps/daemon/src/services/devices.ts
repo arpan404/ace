@@ -75,7 +75,7 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
     },
     env: process.env,
     ...(services.screen ? { screen: services.screen } : {}),
-    // ace-media (ADR 0147, phase 2): device video streams into it while `media.encode` is auto.
+    // ace-media (ADR 0147, phase 2): device video streams into it, and nowhere else.
     ...(media ? { media: { attach: (producer) => media.attach(producer) } } : {}),
     log: (level, message, fields) =>
       context.log.log(

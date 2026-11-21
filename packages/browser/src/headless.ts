@@ -4,7 +4,6 @@ import type {
   BackendOpen,
   BrowserBackendPage,
   BrowserBackendSession,
-  VideoHost,
 } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
@@ -15,9 +14,9 @@ import { ChromeTabs, type TabHost } from "./chrome-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
 import { clearHeadlessData } from "./browsing-data.ts";
 import { ChromeVideo } from "./chrome-video.ts";
+import { pictureSource } from "./media-video.ts";
 import type { ChromeInstance } from "./chrome-instance.ts";
 import { plantCookies } from "./cookie-carry.ts";
-import { EncoderChrome } from "./encoder-chrome.ts";
 
 export interface ChromeBackendOptions {
   executable(signal: AbortSignal): Promise<string>;
@@ -26,11 +25,6 @@ export interface ChromeBackendOptions {
   platform: NodeJS.Platform;
   launch: ChromeLaunch;
   cleanup: ChromeCleanup;
-  /**
-   * An encoder-only Chrome for pages of a backend without one ("Use my Chrome"): its profile
-   * directory, and how long it runs after its last capture. Absent: no such encoder.
-   */
-  encoder?: { profileDir: string; idleMs: number };
   /**
    * Windows: the device scale for this machine, from the managed browser's own GPU report
    * (`SystemInfo.getInfo`, `gpu-scale.ts`). Asked once per backend, before the first tab is sized.
@@ -52,33 +46,12 @@ export class ChromeBackend implements BrowserBackend {
   /** Each running Chrome's video encoder, made when a viewer first asks for video. */
   private videos = new WeakMap<ChromeInstance, ChromeVideo>();
   private options: ChromeBackendOptions;
-  private encoderChrome: EncoderChrome | undefined;
   constructor(options: ChromeBackendOptions) {
     this.options = options;
   }
   /** Stops every browser this backend started. Sessions must be closed first. */
   async close(): Promise<void> {
-    await Promise.allSettled([
-      ...[...this.hosts.values()].map((host) => host.close()),
-      this.encoderChrome?.close(),
-    ]);
-  }
-  /**
-   * Video for another backend's pages (ADR 0088, amended): a Chrome of ace's that only encodes
-   * the pictures it is given, started by the first capture and stopped once idle.
-   */
-  encoder(): VideoHost | undefined {
-    const encoder = this.options.encoder;
-    if (!encoder) return undefined;
-    this.encoderChrome ??= new EncoderChrome({
-      executable: (signal) => this.options.executable(signal),
-      profileDir: encoder.profileDir,
-      stagingDir: this.options.stagingDir(encoder.profileDir),
-      platform: this.options.platform,
-      launch: { ...this.options.launch, idleMs: encoder.idleMs },
-      cleanup: this.options.cleanup,
-    });
-    return this.encoderChrome.video;
+    await Promise.allSettled([...this.hosts.values()].map((host) => host.close()));
   }
   /** A profile about to be deleted: its Chrome stops now rather than after the idle wait. */
   async retireProfile(profileDir: string): Promise<void> {
@@ -295,11 +268,12 @@ export class ChromeBackend implements BrowserBackend {
           tabs.resize(width, height, tabId(), devicePixelRatio),
         captureScale: () => tabs.captureScale(tabId()),
         // A private context is another browser context the extension's tab capture can't see:
-        // its tabs' video comes from their screencast, encoded by the same extension.
+        // its tabs' video comes from their screencast, which ace-media encodes.
         video: () => {
           if (!current) return undefined;
-          const video = this.video(current.instance, request.profileDir);
-          return isolated ? video.pictures() : video;
+          return isolated
+            ? pictureSource("tab-pictures")
+            : this.video(current.instance, request.profileDir);
         },
         emulate: (device) => tabs.emulate(device, tabId()),
         zoom: (factor) => tabs.zoom(factor, tabId()),

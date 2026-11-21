@@ -7,7 +7,6 @@ import {
   sourceKinds,
   undeliveredReason,
   type RouteCapabilities,
-  type SourceRoute,
 } from "./routes.ts";
 import {
   defaultMediaSettings,
@@ -15,13 +14,10 @@ import {
   type MediaSettings,
 } from "./supervision-policy.ts";
 
-const values = ["legacy", "auto"] as const;
-const settingsOf = (encode: "auto" | "legacy"): MediaSettings => ({
-  ...defaultMediaSettings,
-  encode,
-});
-// Recordings and stills have no legacy value since X1, nor delivery since X3: only encode chooses.
-const settingsTable: MediaSettings[] = values.map((encode) => settingsOf(encode));
+// No media setting has a value the routes read (X1 recordings and stills, X2 encode, X3
+// delivery): the defaults are the only settings there are.
+const settingsTable: MediaSettings[] = [defaultMediaSettings];
+const auto = defaultMediaSettings;
 const healths: MediaHealth[] = ["healthy", "restarting", "unavailable"];
 const everything: RouteCapabilities = { ingest: sourceKinds, delivery: true };
 const capabilityTable: [string, RouteCapabilities][] = [
@@ -33,7 +29,7 @@ const capabilityTable: [string, RouteCapabilities][] = [
   ["no delivery", { ...everything, delivery: false }],
 ];
 
-describe("every setting combination × capabilities is a complete route", () => {
+describe("every setting combination × capabilities routes every producer into ace-media or nowhere", () => {
   for (const health of healths)
     it(`while ace-media is ${health}`, () => {
       for (const settings of settingsTable)
@@ -42,17 +38,13 @@ describe("every setting combination × capabilities is a complete route", () => 
           for (const kind of sourceKinds) {
             const route = routes[kind];
             const where = `${JSON.stringify(settings)}, ${capabilityName}, ${kind}: ${JSON.stringify(route)}`;
-            const inDaemon = route.producer === "daemon" || route.egress;
-            const inMedia = route.producer === "ace-media" || route.tee;
             // ace-media delivers only what its producer streams into it (X3).
-            if (route.deliverer === "ace-media") expect(inMedia, where).toBe(true);
             if (route.deliverer === "ace-media") expect(route.producer, where).toBe("ace-media");
-            // A recording tees what the daemon has, so the daemon always has the frames.
-            expect(inDaemon, where).toBe(true);
-            expect(route.tee && route.egress, where).toBe(false);
-            // Nothing runs in ace-media unless it is healthy and asked for.
+            // Every streaming source comes back on egress: the recording feed takes it there.
+            expect(route.egress, where).toBe(route.producer === "ace-media");
+            // Nothing streams or is delivered unless ace-media is healthy (X2: no daemon path).
             if (health !== "healthy") {
-              expect(route.producer, where).toBe("daemon");
+              expect(route.producer, where).toBe("none");
               expect(route.deliverer, where).toBe("none");
             }
             if (route.deliverer === "ace-media") expect(capabilities.delivery, where).toBe(true);
@@ -65,67 +57,49 @@ describe("every setting combination × capabilities is a complete route", () => 
     });
 });
 
-it("tee and egress follow the plan's table (healthy, every capability)", () => {
-  // encode → [producer, tee, egress]. No tee feeds viewers (X3); recordings tee on their own.
-  const rows: [MediaSettings, [SourceRoute["producer"], boolean, boolean]][] = [
-    // No setting keeps a producer off ace-media: `encode` is read by nothing.
-    [settingsOf("legacy"), ["ace-media", false, true]],
-    // Egress stays on: a recording takes the frames in the daemon until X2.
-    [settingsOf("auto"), ["ace-media", false, true]],
-  ];
-  for (const [settings, expected] of rows) {
-    const route = mediaRoutes(settings, "healthy", everything).tab;
-    expect([route.producer, route.tee, route.egress], JSON.stringify(settings)).toEqual(expected);
-  }
-});
-
 describe("named routes", () => {
   it("with no media setting at all, a producer streams into ace-media, which delivers it", () => {
     expect(mediaRoutes(defaultMediaSettings, "healthy", everything).screen).toEqual({
       producer: "ace-media",
-      tee: false,
       egress: true,
       deliverer: "ace-media",
     });
   });
 
-  it("a kind whose producer can't stream into ace-media stays on the daemon, and nobody delivers it", () => {
-    const routes = mediaRoutes(settingsOf("auto"), "healthy", {
+  it("a kind whose producer can't stream into ace-media streams nowhere, and nobody delivers it", () => {
+    const routes = mediaRoutes(defaultMediaSettings, "healthy", {
       ...everything,
       ingest: ["tab"],
     });
     expect(routes.tab).toMatchObject({ producer: "ace-media", egress: true });
     expect(routes.simulator).toMatchObject({
-      producer: "daemon",
-      tee: false,
+      producer: "none",
       egress: false,
       deliverer: "none",
     });
   });
 
   it("this build streams browser producers into ace-media, which delivers them", () => {
-    const settings = settingsOf("auto");
+    const settings = defaultMediaSettings;
     const routes = mediaRoutes(settings, "healthy", builtRouteCapabilities);
     for (const kind of ["tab", "tab-pictures", "user-tab", "embedded"] as const)
       expect(routes[kind]).toEqual({
         producer: "ace-media",
-        tee: false,
         egress: true,
         deliverer: "ace-media",
       });
     for (const kind of ["screen", "simulator", "scrcpy", "emulator-frames"] as const)
-      expect(routes[kind]).toMatchObject({ producer: "daemon", egress: false });
+      expect(routes[kind]).toMatchObject({ producer: "none", egress: false });
     for (const health of ["restarting", "unavailable"] as const)
-      expect(mediaRoutes(settings, health, builtRouteCapabilities).tab.producer).toBe("daemon");
+      expect(mediaRoutes(settings, health, builtRouteCapabilities).tab.producer).toBe("none");
   });
 
-  it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, Android devices everywhere; elsewhere they stay on the daemon", () => {
-    const settings = settingsOf("auto");
+  it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, Android devices everywhere; elsewhere they stream nowhere", () => {
+    const settings = defaultMediaSettings;
     const mac = mediaRoutes(settings, "healthy", platformRouteCapabilities("darwin"));
     for (const kind of ["screen", "emulator-frames", "simulator"] as const)
       expect(mac[kind]).toEqual({
         producer: "ace-media",
-        tee: false,
         egress: true,
         deliverer: "ace-media",
       });
@@ -144,36 +118,65 @@ describe("named routes", () => {
       for (const kind of kinds)
         expect(
           mediaRoutes(settings, "healthy", platformRouteCapabilities(platform))[kind],
-        ).toMatchObject({ producer: "daemon", egress: false });
+        ).toMatchObject({ producer: "none", egress: false });
   });
 
   it("on Windows the screen helper's Media Foundation video streams into ace-media, which delivers it, egress feeding recordings", () => {
-    const settings = settingsOf("auto");
+    const settings = defaultMediaSettings;
     expect(mediaRoutes(settings, "healthy", platformRouteCapabilities("win32")).screen).toEqual({
       producer: "ace-media",
-      tee: false,
       egress: true,
       deliverer: "ace-media",
     });
-    for (const health of ["restarting", "unavailable"] as const)
-      expect(
-        mediaRoutes(settings, health, platformRouteCapabilities("win32")).screen.producer,
-      ).toBe("daemon");
+  });
+
+  it("delivery on auto is ace-media's, with egress still feeding recordings", () => {
+    expect(mediaRoutes(auto, "healthy", everything).tab).toEqual({
+      producer: "ace-media",
+      egress: true,
+      deliverer: "ace-media",
+    });
+  });
+
+  it("a kind ace-media can't take streams nowhere, never to the daemon", () => {
+    const routes = mediaRoutes(auto, "healthy", { ...everything, ingest: ["tab"] });
+    expect(routes.tab.producer).toBe("ace-media");
+    expect(routes.simulator).toMatchObject({ producer: "none", egress: false });
+  });
+
+  it("every platform streams its browsers, screens (JPEG-only ones as pictures) and Android devices into ace-media; a Mac its Simulators and host-encoded emulators too", () => {
+    for (const platform of ["darwin", "linux", "win32"]) {
+      const routes = mediaRoutes(auto, "healthy", platformRouteCapabilities(platform));
+      for (const kind of [
+        "tab",
+        "tab-pictures",
+        "user-tab",
+        "embedded",
+        "screen",
+        "screen-pictures",
+        "scrcpy",
+      ] as const)
+        expect(routes[kind].producer, `${platform} ${kind}`).toBe("ace-media");
+      for (const kind of ["simulator", "emulator-frames"] as const)
+        expect(routes[kind].producer, `${platform} ${kind}`).toBe(
+          platform === "darwin" ? "ace-media" : "none",
+        );
+    }
   });
 });
 
 it("ace-media going away changes exactly the kinds that were routed through it", () => {
-  const settings = settingsOf("auto");
   const capabilities = { ...builtRouteCapabilities, ingest: ["tab", "screen"] as const };
-  const up = mediaRoutes(settings, "healthy", capabilities);
-  const down = mediaRoutes(settings, "restarting", capabilities);
+  const up = mediaRoutes(defaultMediaSettings, "healthy", capabilities);
+  const down = mediaRoutes(defaultMediaSettings, "restarting", capabilities);
   expect(changedRoutes(up, down)).toEqual(["tab", "screen"]);
-  expect(down.tab.producer).toBe("daemon");
-  expect(changedRoutes(down, mediaRoutes(settings, "unavailable", capabilities))).toEqual([]);
+  expect(down.tab.producer).toBe("none");
+  expect(
+    changedRoutes(down, mediaRoutes(defaultMediaSettings, "unavailable", capabilities)),
+  ).toEqual([]);
 });
 
 describe("why a live view gets no pictures", () => {
-  const auto = settingsOf("auto");
   it("says nothing while ace-media delivers the source", () => {
     expect(undeliveredReason("tab", auto, "healthy", everything)).toBeUndefined();
   });

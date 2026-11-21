@@ -5,6 +5,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { nodeBinary } from "@ace/provider-kit/testing";
+import { loopbackMedia } from "./testing/loopback-media.ts";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Frame } from "@ace/screen";
 import { DevicePlatform } from "./index.ts";
@@ -158,27 +159,62 @@ function varint(value: number): number[] {
 }
 
 /**
- * The screen helper's `--encode-frames` mode, played by a script: each frame command becomes a
- * packet (a keyframe first and when asked), and every command is logged for the test.
+ * The screen helper's `--encode-frames` mode, played by a script: once given ace-media's ingest
+ * (`ingest` with a socket and token) each frame command becomes a MediaFrame there (a keyframe
+ * first and when asked), answered on stderr as the helper does; nothing goes to stdout. Every
+ * command is logged for the test.
  */
 const fakeEncoder = (log: string) => `
 const fs = require("fs");
+const net = require("net");
 const readline = require("readline");
 let key = true;
+let ingest;
+const frame = (kind, flags, codec, codecString, extension, payload) => {
+  const codecBytes = Buffer.from(codecString);
+  const header = Buffer.alloc(44);
+  const size = 44 + codecBytes.length + extension.length;
+  header.writeUInt32BE(0x4143454d, 0);
+  header.writeUInt8(1, 4);
+  header.writeUInt8(kind, 5);
+  header.writeUInt16BE(size, 6);
+  header.writeUInt32BE(payload.length, 8);
+  header.writeUInt32BE(flags, 12);
+  header.writeUInt16BE(1000, 28);
+  header.writeUInt8(codec, 31);
+  header.writeUInt16BE(codecBytes.length, 40);
+  return Buffer.concat([header, codecBytes, extension, payload]);
+};
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   fs.appendFileSync(${JSON.stringify(log)}, line + "\\n");
   const command = JSON.parse(line);
   if (command.op === "keyframe") key = true;
-  if (command.op !== "frame") return;
+  if (command.op === "ingest") {
+    ingest?.end();
+    ingest = undefined;
+    if (command.socket) {
+      ingest = net.createConnection(command.socket);
+      ingest.on("error", () => {});
+      ingest.write(frame(5, 0, 0, "", Buffer.alloc(0), Buffer.from(command.token, "base64")));
+      key = true;
+    }
+    process.stderr.write(JSON.stringify({ event: "ingest", state: ingest ? "on" : "off", boundary: null }) + "\\n");
+    return;
+  }
+  if (command.op !== "frame" || !ingest) return;
   const payload = Buffer.from(key ? [0, 0, 0, 1, 0x67, 0x64, 0, 0x33, 0, 0, 0, 1, 0x65, 1] : [0, 0, 0, 1, 0x41, 2]);
-  const header = Buffer.from(JSON.stringify({
-    version: 2, sessionId: "emulator", seq: command.seq, ts: command.ts,
-    width: command.width, height: command.height, scale: 1, codec: "h264",
-    keyframe: key, ...(key ? { videoCodec: "avc1.640033" } : {}), bytes: payload.length,
-  }));
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(header.length);
-  process.stdout.write(Buffer.concat([length, header, payload]));
+  const stamp = Buffer.alloc(28);
+  stamp.writeUInt16BE(1, 0);
+  stamp.writeUInt16BE(24, 2);
+  stamp.writeBigUInt64BE(BigInt(command.seq), 4);
+  stamp.writeDoubleBE(command.ts, 12);
+  stamp.writeDoubleBE(1, 20);
+  const unit = frame(1, key ? 1 : 0, 1, key ? "avc1.640033" : "", stamp, payload);
+  unit.writeUInt16BE(command.width, 20);
+  unit.writeUInt16BE(command.height, 22);
+  unit.writeUInt16BE(command.width, 24);
+  unit.writeUInt16BE(command.height, 26);
+  ingest.write(unit);
   key = false;
 });
 `;
@@ -250,6 +286,8 @@ async function fixture(token = "secret") {
     publish: (frame) => frames.push(frame),
     failure: (error) => failures.push(error),
     host: { grpc: { port: emulator.port, token }, encoder, directory: root },
+    // Video comes only through ace-media: a loopback stands in for it.
+    media: await loopbackMedia(cleanup),
   });
   cleanup.push(() => capture.stop());
   const encoded = async () =>

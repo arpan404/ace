@@ -8,7 +8,7 @@ import {
   undeliveredReason,
   type RouteCapabilities,
 } from "./routes.ts";
-import { IngestSources } from "./ingest-sources.ts";
+import { IngestSources, restartingReason } from "./ingest-sources.ts";
 import { MediaConnections, MediaIssue } from "./media-connections.ts";
 import { MediaViewers, type MediaDeliveryPort } from "./media-viewers.ts";
 import { SessionLinks, pumpSessionLinks } from "./session-link.ts";
@@ -20,6 +20,7 @@ import {
   secureRandomBytes,
   systemWallClock,
   type MediaExit,
+  type MediaSnapshot,
   type MediaSupervisorOptions,
 } from "./supervisor.ts";
 import type { FromMedia } from "./wire.ts";
@@ -97,7 +98,7 @@ export class MediaRuntime {
       },
       onEgress: (frame) => this.egress.push(frame),
       onExit: (exit) => {
-        // Producers go back to the daemon first, with nothing left to drain.
+        // Producers stop first, with nothing left to drain.
         this.sources.exited();
         this.connections.exited();
         this.viewers.exited();
@@ -125,6 +126,7 @@ export class MediaRuntime {
           return ingest && { ...ingest, ...(pid ? { pid } : {}) };
         },
         need: () => this.supervisor.need(),
+        speaks: (feature) => this.supervisor.speaks(feature),
       },
       router: this.egress,
       routes: () => this.routes.routes(),
@@ -134,6 +136,7 @@ export class MediaRuntime {
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
       onLive: (producer, path) => this.viewers.live(producer, path),
+      why: () => mediaDownReason(this.supervisor.snapshot()),
       acceleration: (subject, acceleration) => this.acceleration.report(subject, acceleration),
     });
     const randomBytes = options.randomBytes ?? secureRandomBytes;
@@ -155,6 +158,7 @@ export class MediaRuntime {
       send: (message) => this.supervisor.send(message),
       clock: options.clock,
       nextId: options.id,
+      speaks: (feature) => this.supervisor.speaks(feature),
     });
     this.connections = new MediaConnections({
       port: {
@@ -217,4 +221,18 @@ export class MediaRuntime {
     this.#stopLinks();
     this.supervisor.dispose();
   }
+}
+
+/**
+ * Why sources can't stream, as their live views say it: ace-media is unavailable (with its
+ * reason) or restarting after a failure. Undefined while it is up or only starting.
+ */
+export function mediaDownReason(snapshot: MediaSnapshot): string | undefined {
+  if (snapshot.phase === "unavailable")
+    return snapshot.unavailableReason
+      ? `ace-media is unavailable: ${snapshot.unavailableReason}`
+      : "ace-media is unavailable";
+  if (snapshot.phase === "running") return undefined;
+  const failed = snapshot.lastExit !== undefined && snapshot.lastExit.cause !== "idle";
+  return snapshot.phase === "backoff" || failed ? restartingReason : undefined;
 }

@@ -14,8 +14,8 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 export interface BrowserServiceOptions {
   dataDir: string;
   /**
-   * The daemon's ace-media (E4): live video streams through it while `media.encode` routes it
-   * there. Omitted, every capture uses the browser's own path.
+   * The daemon's ace-media (E4, X2), the only encoder live video has (`noMedia` where it is
+   * missing, so a capture says why). Omitted, backends' hosts run as they are: test doubles only.
    */
   media?: import("./media-video.ts").BrowserMedia;
   /** ace-media's image work (ADR 0201): the measurement filmstrip. */
@@ -106,8 +106,6 @@ export interface BrowserServiceOptions {
   chrome?: Partial<ChromeLaunch>;
   /** Browser shutdown deadline and its force-kill. */
   cleanup?: Partial<ChromeCleanup>;
-  /** How long the encoder-only Chrome (`BrowserService.videoEncoder`) outlives its last capture. Default 30 s. */
-  videoEncoderIdleMs?: number;
   /** The recording encoder's process edge. */
   spawn?: ProcessSpawner;
   headlessBackend?: BrowserBackend;

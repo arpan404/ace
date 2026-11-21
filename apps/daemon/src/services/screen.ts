@@ -71,9 +71,8 @@ export async function startScreen(
           }
         : {}),
   });
-  // ace-media (ADR 0147, phase 2): Mac screens stream into it while `media.encode` is `auto`.
-  const media =
-    process.platform === "darwin" && helper && !options.screen ? startMedia(context) : undefined;
+  // ace-media (ADR 0147, phase 2): every screen helper streams its video into it, and nowhere else.
+  const media = helper && !options.screen ? startMedia(context) : undefined;
   const manager =
     options.screen ??
     (helper

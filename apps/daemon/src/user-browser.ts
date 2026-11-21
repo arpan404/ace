@@ -1,12 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DeviceCredential, type UserBrowserStatus } from "@ace/protocol";
-import {
-  UserChromeBackend,
-  UserChromeHub,
-  type NavigationClock,
-  type VideoHost,
-} from "@ace/browser";
+import { UserChromeBackend, UserChromeHub, type NavigationClock } from "@ace/browser";
 import {
   extensionDir,
   extensionId,
@@ -32,8 +27,6 @@ export interface UserBrowserOptions {
   clock: NavigationClock;
   /** More NativeMessagingHosts directories (tests point a browser's user-data-dir here). */
   extraHostDirs?: readonly string[];
-  /** ace's encoder-only Chrome, for remote viewers' video of the person's tabs (ADR 0088). */
-  videoEncoder?: () => VideoHost | undefined;
 }
 
 /**
@@ -47,11 +40,7 @@ export class UserBrowserService {
   constructor(options: UserBrowserOptions) {
     this.options = options;
     this.hub = new UserChromeHub({ now: options.now, clock: options.clock });
-    this.backend = new UserChromeBackend(
-      this.hub,
-      options.platform,
-      options.videoEncoder ? { videoEncoder: options.videoEncoder } : {},
-    );
+    this.backend = new UserChromeBackend(this.hub, options.platform);
   }
   private hostOptions() {
     return {

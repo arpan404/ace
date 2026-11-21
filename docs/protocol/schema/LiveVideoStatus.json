@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/LiveVideoStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reason": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "retrying",
+        "unavailable"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "reason"
+  ],
+  "type": "object"
+}

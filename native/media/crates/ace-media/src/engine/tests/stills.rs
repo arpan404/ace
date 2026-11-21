@@ -284,28 +284,6 @@ fn feed(engine: &mut Engine, frames: impl IntoIterator<Item = MediaFrame>) -> Ve
         .collect()
 }
 
-/// Standard base64, as Chrome sends a screencast frame.
-fn base64(bytes: &[u8]) -> Vec<u8> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = Vec::new();
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
-        for i in 0..4 {
-            out.push(if i <= chunk.len() {
-                ALPHABET[(n >> (18 - 6 * i) & 63) as usize]
-            } else {
-                b'='
-            });
-        }
-    }
-    out
-}
-
 fn jpeg(width: u32, height: u32) -> Vec<u8> {
     use media_codec::{CpuJpegCodec, CpuPicture, PixelFormat, Plane, StillCodec};
     let picture = CpuPicture::new(
@@ -324,19 +302,23 @@ fn jpeg(width: u32, height: u32) -> Vec<u8> {
 }
 
 #[test]
-fn a_screencast_frames_base64_jpeg_is_the_still_fitted_to_the_box() {
+fn a_screencast_picture_off_its_ingest_is_the_still_fitted_to_the_box() {
     let (mut engine, maker) = with_maker();
-    open_tab(&mut engine, "s1", 1, 9);
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": 1,
+                "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    assert!(engine.ingest_hello(1, &[9; 32]));
     let picture = jpeg(1200, 600);
-    let screencast = |engine: &mut Engine, text: &[u8]| {
-        send(
-            engine,
-            json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
-            text,
-            NOW,
-        )
+    let screencast = |engine: &mut Engine, bytes: Vec<u8>| {
+        let mut frame = frame(3, 1, 1, bytes);
+        frame.codec = 7;
+        ingest(engine, 1, frame, NOW)
     };
-    screencast(&mut engine, &base64(&picture));
+    screencast(&mut engine, picture.clone());
     assert_eq!(
         shot(&mut engine, &maker, "q1", 400),
         [Answer::Still {
@@ -345,8 +327,178 @@ fn a_screencast_frames_base64_jpeg_is_the_still_fitted_to_the_box() {
             size: (400, 200)
         }]
     );
-    // Raw bytes aren't what Chrome sends: no picture rather than a guess.
-    screencast(&mut engine, &picture);
+    // Bytes that aren't a JPEG, with no size of their own: no picture rather than a guess.
+    let mut junk = frame(3, 1, 1, b"not a jpeg".to_vec());
+    junk.codec = 7;
+    junk.width = 0;
+    junk.height = 0;
+    ingest(&mut engine, 1, junk, NOW);
+    assert_eq!(
+        shot(&mut engine, &maker, "q2", 400),
+        [failed("q2", "no-picture")]
+    );
+}
+
+#[test]
+fn a_picture_captured_before_a_privacy_change_and_delivered_after_is_never_the_still() {
+    let (mut engine, maker) = with_maker();
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": 1,
+                "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    assert!(engine.ingest_hello(1, &[9; 32]));
+    let screencast = |engine: &mut Engine, bytes: Vec<u8>, epoch: u32| {
+        let mut frame = frame(3, 1, epoch, bytes);
+        frame.codec = 7;
+        ingest(engine, 1, frame, NOW)
+    };
+    let now = jpeg(1200, 600);
+    screencast(&mut engine, now.clone(), 2);
+    // Captured in epoch 1 (before the change to epoch 2), delivered late.
+    screencast(&mut engine, jpeg(800, 800), 1);
+    assert_eq!(
+        shot(&mut engine, &maker, "q1", 400),
+        [Answer::Still {
+            request: "q1".into(),
+            picture: now,
+            size: (400, 200)
+        }]
+    );
+}
+
+#[test]
+fn a_picture_from_a_private_epoch_is_never_the_still_once_the_source_left_it_even_in_the_read_gap()
+{
+    for kind in ["tab-pictures", "user-tab"] {
+        let (mut engine, maker) = with_maker();
+        send(
+            &mut engine,
+            json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": 1,
+                    "origin": { "kind": kind } }),
+            &[9; 32],
+            NOW,
+        );
+        assert!(engine.ingest_hello(1, &[9; 32]));
+        let screencast = |engine: &mut Engine, bytes: Vec<u8>, epoch: u32, now: Now| {
+            let mut frame = frame(3, 1, epoch, bytes);
+            frame.codec = 7;
+            ingest(engine, 1, frame, now)
+        };
+        // Epoch 1 is private: its picture is the still while the tab stays private (the
+        // person's own requests are the daemon's grant).
+        screencast(&mut engine, jpeg(1200, 600), 1, at(1_000));
+        assert!(matches!(
+            shot(&mut engine, &maker, "q1", 400).as_slice(),
+            [Answer::Still { .. }]
+        ));
+        // The tab stops being private: epoch 2 follows a private one.
+        send(
+            &mut engine,
+            json!({ "type": "source.epoch", "source": "s1", "seq": 1, "epoch": 2, "followsPrivate": true }),
+            &[],
+            at(2_000),
+        );
+        assert_eq!(
+            shot(&mut engine, &maker, "q2", 400),
+            [failed("q2", "no-picture")]
+        );
+        // Read 50 ms later, inside the read gap: it takes the private epoch, so it isn't kept.
+        screencast(&mut engine, jpeg(800, 800), 2, at(2_050));
+        assert_eq!(
+            shot(&mut engine, &maker, "q3", 400),
+            [failed("q3", "no-picture")]
+        );
+        // After the gap, the public picture is the still.
+        let public = jpeg(1200, 600);
+        screencast(&mut engine, public.clone(), 2, at(2_200));
+        assert_eq!(
+            shot(&mut engine, &maker, "q4", 400),
+            [Answer::Still {
+                request: "q4".into(),
+                picture: public,
+                size: (400, 200)
+            }],
+            "{kind}"
+        );
+    }
+}
+
+/// A JPEG source on ingest, opened in `epoch` (`private`: that epoch is private).
+fn jpeg_source(engine: &mut Engine, epoch: u32, private: bool) {
+    send(
+        engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": epoch,
+                "private": private, "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    assert!(engine.ingest_hello(1, &[9; 32]));
+}
+
+fn picture_in(engine: &mut Engine, picture: Vec<u8>, epoch: u32, now: Now) {
+    let mut frame = frame(3, 1, epoch, picture);
+    frame.codec = 7;
+    ingest(engine, 1, frame, now);
+}
+
+fn fenced(engine: &mut Engine, maker: &Maker, request: &str, min_epoch: u32) -> Vec<Answer> {
+    let mut effects = send(
+        engine,
+        json!({ "type": "still.take", "request": request, "source": "s1", "maxWidth": 400,
+                "maxHeight": 400, "maxPixels": 10_000_000, "quality": 80, "deadlineMs": 500,
+                "minEpoch": min_epoch }),
+        &[],
+        NOW,
+    );
+    effects.extend(arrive(engine, maker));
+    answers(&effects)
+}
+
+#[test]
+fn a_private_picture_in_flight_across_a_public_transition_is_never_a_fenced_still() {
+    let (mut engine, maker) = with_maker();
+    jpeg_source(&mut engine, 1, true);
+    // Written while the tab was private (epoch 1), it reaches ace-media after the daemon made
+    // the tab public (epoch 2) but before ace-media applied that.
+    picture_in(&mut engine, jpeg(1200, 600), 1, at(1_000));
+    assert_eq!(
+        fenced(&mut engine, &maker, "q1", 2),
+        [failed("q1", "private")]
+    );
+    // The public picture is the still.
+    let public = jpeg(1200, 600);
+    picture_in(&mut engine, public.clone(), 2, at(1_500));
+    assert_eq!(
+        fenced(&mut engine, &maker, "q2", 2),
+        [Answer::Still {
+            request: "q2".into(),
+            picture: public,
+            size: (400, 200)
+        }]
+    );
+}
+
+#[test]
+fn a_source_opened_private_takes_its_next_epoch_as_following_a_private_one() {
+    let (mut engine, maker) = with_maker();
+    jpeg_source(&mut engine, 1, true);
+    picture_in(&mut engine, jpeg(1200, 600), 1, at(1_000));
+    // The next epoch arrives without saying it follows a private one: the open said so.
+    send(
+        &mut engine,
+        json!({ "type": "source.epoch", "source": "s1", "seq": 1, "epoch": 2, "followsPrivate": false }),
+        &[],
+        at(2_000),
+    );
+    assert_eq!(
+        shot(&mut engine, &maker, "q1", 400),
+        [failed("q1", "no-picture")]
+    );
+    // Inside the read gap the private epoch is kept, so that picture isn't the still either.
+    picture_in(&mut engine, jpeg(800, 800), 2, at(2_050));
     assert_eq!(
         shot(&mut engine, &maker, "q2", 400),
         [failed("q2", "no-picture")]

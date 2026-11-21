@@ -51,27 +51,6 @@ fn fake(hardware: bool) -> Worker<Fake> {
     })
 }
 
-fn base64(bytes: &[u8]) -> Vec<u8> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = Vec::new();
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize]);
-            } else {
-                out.push(b'=');
-            }
-        }
-    }
-    out
-}
-
 fn jpeg(width: u32, height: u32) -> Vec<u8> {
     let size = Size { width, height };
     let picture = CpuPicture::new(
@@ -87,7 +66,7 @@ fn jpeg(width: u32, height: u32) -> Vec<u8> {
         panic!("picture");
     };
     match StillCodec::encode(&mut CpuJpegCodec::default(), &picture, 80) {
-        Ok(jpeg) => base64(&jpeg),
+        Ok(jpeg) => jpeg,
         Err(error) => panic!("jpeg: {error}"),
     }
 }
@@ -115,7 +94,7 @@ fn units(out: &[Output]) -> Vec<&MediaFrame> {
 
 fn picture(epoch: u32) -> Command {
     Command::Picture {
-        text: jpeg(64, 48),
+        jpeg: jpeg(64, 48),
         epoch,
         age_us: 2_000,
     }
@@ -195,14 +174,14 @@ fn the_last_resort_encoder_is_reported_degraded_with_its_sentence() {
 }
 
 #[test]
-fn pictures_that_are_not_base64_jpeg_are_skipped_without_ending_the_source() {
+fn pictures_that_are_not_jpeg_are_skipped_without_ending_the_source() {
     let mut worker = fake(true);
     let mut out = Vec::new();
     worker.command(Command::Configure(vec![spec(1, 1_000_000)]), 0, &mut out);
-    for text in [b"not base64!".to_vec(), base64(b"not a jpeg")] {
+    for jpeg in [Vec::new(), b"not a jpeg".to_vec()] {
         worker.command(
             Command::Picture {
-                text,
+                jpeg,
                 epoch: 1,
                 age_us: 0,
             },

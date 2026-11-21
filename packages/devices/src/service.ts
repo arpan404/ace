@@ -202,6 +202,7 @@ export class DevicesService {
       error: session.error,
       activity: session.activity,
       posture: session.posture,
+      video: session.video,
     });
   }
   /** Reads a foldable device's posture again; viewers hear when it changed. */
@@ -812,6 +813,12 @@ export class DevicesService {
       // ace-media asks for the stream its views need: one more owner of the device's common
       // stream budget, as each viewer is.
       // Set and removed through the stream control, which applies them in order.
+      videoStatus: (session, video) => {
+        if (JSON.stringify(session.video) === JSON.stringify(video)) return;
+        if (video) session.video = video;
+        else delete session.video;
+        this.emit(session);
+      },
       mediaWant: (session, settings) => {
         const update: Promise<unknown> = settings
           ? this.watchWith(session, "ace-media", settings)
@@ -853,8 +860,9 @@ export class DevicesService {
       this.authorize(session, actor);
       return oneOffFrame(shot, this.options.runtime);
     }
-    if (session.latest.header.codec === "h264") {
-      // Someone is watching: the live view stays video, and the still comes from the device.
+    if (session.latest.header.codec === "h264" || session.liveVideo) {
+      // Someone is watching: the live view stays video, and the still comes from the device. Its
+      // own stills stopped when video took the capture, so the last one may be stale.
       const shot = await this.options.platform.screenshot(session.device, () =>
         this.authorize(session, actor),
       );
@@ -889,7 +897,17 @@ export class DevicesService {
       async (settings) => {
         this.authorize(session, { kind: "human", owner: "capture" });
         if (session.lifecycle !== "live") throw new Error("Device stream stopped");
-        return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
+        // Live video comes only from ace-media: without it a view that asks is told why.
+        if (settings.codec === "h264" && !this.options.media && !session.video) {
+          session.video = {
+            status: "unavailable",
+            reason: "ace-media isn't available on this computer",
+          };
+          this.emit(session);
+        }
+        const result = (await session.capture?.configure?.(settings)) ?? { codec: "jpeg" as const };
+        session.liveVideo = result.codec === "h264";
+        return result;
       },
       () => (session.capture?.still ? deviceStillStream : deviceImageStream),
     );

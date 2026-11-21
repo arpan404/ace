@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MediaAcceleration } from "./media-acceleration.ts";
+import { LiveVideoStatus, MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
 import {
   MediaBinding,
@@ -74,6 +74,8 @@ export const ScreenState = z.object({
   personActive: z.boolean().optional(),
   /** What the live video runs on while ace-media carries it (ADR 0148). */
   acceleration: MediaAcceleration.optional(),
+  /** Set while the live video can't play, with why; absent while it plays. */
+  video: LiveVideoStatus.optional(),
 });
 export type ScreenState = z.infer<typeof ScreenState>;
 const ScreenBounds = z.object({

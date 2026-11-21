@@ -24,10 +24,10 @@ const PENDING_MAX: usize = 16;
 pub enum Command {
     /// The encodes to run, replacing the previous list.
     Configure(Vec<EncodeSpec>),
-    /// One picture: the base64 JPEG text as received, the epoch it was stamped with, and how
+    /// One picture: the JPEG off the source's ingest, the epoch it was stamped with, and how
     /// long ago it was captured.
     Picture {
-        text: Vec<u8>,
+        jpeg: Vec<u8>,
         epoch: u32,
         age_us: u32,
     },
@@ -287,10 +287,13 @@ impl<B: Backends> Worker<B> {
         match command {
             Command::Configure(specs) => self.configure(specs, out),
             Command::Picture {
-                text,
+                jpeg,
                 epoch,
                 age_us,
-            } => self.picture(&text, epoch, now_us.saturating_sub(u64::from(age_us)), out),
+            } => {
+                let captured = now_us.saturating_sub(u64::from(age_us));
+                self.picture(jpeg, epoch, captured, out);
+            }
             Command::Key(id) => {
                 if let Some(running) = self.encodes.get_mut(&id) {
                     running.key_owed = true;
@@ -417,13 +420,10 @@ impl<B: Backends> Worker<B> {
         }
     }
 
-    fn picture(&mut self, text: &[u8], epoch: u32, captured_us: u64, out: &mut Vec<Output>) {
+    fn picture(&mut self, jpeg: Vec<u8>, epoch: u32, captured_us: u64, out: &mut Vec<Output>) {
         if self.encodes.is_empty() {
             return;
         }
-        let Some(jpeg) = crate::engine::base64::decode(text) else {
-            return;
-        };
         let Ok(source_size) = jpeg_size(&jpeg) else {
             return;
         };

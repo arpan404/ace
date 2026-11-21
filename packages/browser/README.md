@@ -113,11 +113,11 @@ link gets a smaller picture rather than fewer frames. A viewer may have one seco
 unacknowledged. Slow viewers cannot hold back others. A chunk's width/height describe the CSS
 viewport for mapping pointer and touch coordinates. A viewer without video gets state only.
 
-A tab in the person's own Chrome (Use my Chrome) has no encoder ace may use. Its video comes
-from an encoder-only Chrome of ace's (`BrowserService.videoEncoder`, profile
-`<dataDir>/browser/encoder`): the tab's screencast, relayed by the extension, is decoded and
-encoded there. That Chrome starts when a viewer first watches such a tab and stops 30 s
-(`videoEncoderIdleMs`) after the last capture ends.
+A tab in the person's own Chrome (Use my Chrome) has no encoder ace may use, nor does a tab in
+a private context. Their video comes from ace-media: the tab's screencast, relayed by the
+extension, goes to ace-media as pictures and is encoded on this computer's hardware encoder.
+Every other tab's encoder streams its chunks straight into ace-media's ingest; nothing is
+encoded in the daemon. Without ace-media, a live view says why it has no video.
 
 People and agents share every tab (ADR 0067, Collaboration). The person's input
 never queues behind agent commands and is never refused for agent activity. An

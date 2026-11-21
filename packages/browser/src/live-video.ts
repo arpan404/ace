@@ -1,6 +1,12 @@
 import type { BrowserVideoStatus, MediaAcceleration } from "@ace/protocol";
 import { listens } from "./audio-fanout.ts";
-import type { BrowserCdp, VideoCaptureHandle, VideoEncode, VideoHost } from "./backend.ts";
+import type {
+  BrowserCdp,
+  CapturePrivacy,
+  VideoCaptureHandle,
+  VideoEncode,
+  VideoHost,
+} from "./backend.ts";
 import { longestFrameSide, type CaptureViewer } from "./capture-policy.ts";
 import { mediaKey } from "./encode-ids.ts";
 
@@ -98,6 +104,8 @@ interface Capture {
   handle: VideoCaptureHandle;
   width: number;
   height: number;
+  /** The privacy epoch this handle has heard (M8): the one it opened in, then each told. */
+  announced: number;
 }
 
 export class LiveVideo {
@@ -123,6 +131,8 @@ export class LiveVideo {
   /** Captures in a row that failed before their first chunk, and why the last one did. */
   private failures = 0;
   private failure = "";
+  /** Why the open capture's video stopped (ace-media can't take it now); undefined otherwise. */
+  private stalled: string | undefined;
   private statusChanged: () => void;
   constructor(options: {
     now: () => number;
@@ -165,9 +175,30 @@ export class LiveVideo {
     const pictures = this.capture?.handle.pictures;
     return pictures ? { width: pictures.width, height: pictures.height } : undefined;
   }
-  /** One screencast frame for a capture fed by pictures. */
-  picture(base64: string): void {
-    this.capture?.handle.pictures?.push(base64);
+  /**
+   * The tab's privacy now (M8). It is kept, so a capture that opens later (the first, or one
+   * replacing another) opens in it; the open capture hears it once.
+   */
+  privacy(privacy: CapturePrivacy): void {
+    this.privacyNow = { ...privacy };
+    this.announce();
+  }
+  private privacyNow: CapturePrivacy = { epoch: 0, private: false };
+  /** Tells the open capture the tab's privacy, if it hasn't heard this epoch. */
+  private announce(): void {
+    const capture = this.capture;
+    const privacy = this.privacyNow;
+    if (!capture || capture.announced === privacy.epoch) return;
+    // Epochs move on every change and start public (0), so a jump of two or more passed
+    // through a private one.
+    const followsPrivate =
+      privacy.epoch > 0 && (!privacy.private || privacy.epoch - capture.announced >= 2);
+    capture.announced = privacy.epoch;
+    capture.handle.pictures?.epoch?.({ ...privacy }, followsPrivate);
+  }
+  /** One screencast frame for a capture fed by pictures, and the privacy epoch it was captured in. */
+  picture(base64: string, epoch: number): void {
+    this.capture?.handle.pictures?.push(base64, epoch);
   }
   /** The capture shows this tab now (or nothing, without a source). */
   attach(
@@ -183,8 +214,13 @@ export class LiveVideo {
     // Another tab starts afresh.
     this.recovered();
   }
-  /** Set while the video can't start and is being retried; undefined while it plays. */
+  /**
+   * Set while the video can't start, or ace-media can't carry it now, and it is being retried;
+   * undefined while it plays. A view never goes blank without saying why.
+   */
   status(): BrowserVideoStatus | undefined {
+    if (this.stalled !== undefined)
+      return { status: "retrying", reason: this.stalled, attempts: Math.max(1, this.failures) };
     if (!this.failures) return undefined;
     return { status: "retrying", reason: this.failure, attempts: this.failures };
   }
@@ -310,37 +346,49 @@ export class LiveVideo {
       played = true;
       this.recovered();
     };
+    // The capture opens in the tab's privacy now; a change while it opens is told after.
+    const privacy = { ...this.privacyNow };
     void source.host
-      .open(source.page, size.width, size.height, {
-        // Units on the daemon's path go nowhere: ace-media delivers every view.
-        chunk: () => playing(),
-        failed: (encode) => {
-          const codec = encodeCodec(encode);
-          if (codec && generation === this.generation) this.failedCodecs.add(codec);
+      .open(
+        source.page,
+        size.width,
+        size.height,
+        {
+          // Units on the daemon's path go nowhere: ace-media delivers every view.
+          chunk: () => playing(),
+          failed: (encode) => {
+            const codec = encodeCodec(encode);
+            if (codec && generation === this.generation) this.failedCodecs.add(codec);
+          },
+          want: (encodes) => {
+            if (generation !== this.generation) return;
+            this.mediaWanted = encodes && [...encodes];
+            // ace-media plans once it has the source's pictures: the capture plays.
+            if (encodes?.length) playing();
+          },
+          accelerated: () => {
+            if (generation === this.generation) this.statusChanged();
+          },
+          stalled: (reason) => {
+            if (generation === this.generation) this.stall(reason?.slice(0, 2048));
+          },
+          ended: (reason) => {
+            if (generation !== this.generation) return;
+            this.capture = undefined;
+            this.encodes = "";
+            this.mediaWanted = undefined;
+            this.soundOn = false;
+            // Reopening at once would loop on a tab that never gives a picture.
+            if (!played) this.failed(reason ?? "The tab's capture ended before its first picture");
+          },
         },
-        want: (encodes) => {
-          if (generation !== this.generation) return;
-          this.mediaWanted = encodes && [...encodes];
-          // ace-media plans once it has the source's pictures: the capture plays.
-          if (encodes?.length) playing();
-        },
-        accelerated: () => {
-          if (generation === this.generation) this.statusChanged();
-        },
-        ended: (reason) => {
-          if (generation !== this.generation) return;
-          this.capture = undefined;
-          this.encodes = "";
-          this.mediaWanted = undefined;
-          this.soundOn = false;
-          // Reopening at once would loop on a tab that never gives a picture.
-          if (!played) this.failed(reason ?? "The tab's capture ended before its first picture");
-        },
-      })
+        privacy,
+      )
       .then(
         (handle) => {
           if (generation !== this.generation) return handle.close();
-          this.capture = { handle, ...size };
+          this.capture = { handle, ...size, announced: privacy.epoch };
+          this.announce();
           this.encodes = "";
           this.told = "";
           this.soundOn = false;
@@ -361,6 +409,11 @@ export class LiveVideo {
     this.retryAt = this.now() + Math.min(retryMs * 2 ** (this.failures - 1), maxRetryMs);
     this.statusChanged();
   }
+  private stall(reason: string | undefined): void {
+    if (this.stalled === reason) return;
+    this.stalled = reason;
+    this.statusChanged();
+  }
   /** Video plays (or another tab starts): failures so far no longer count. */
   private recovered(): void {
     if (!this.failures) return;
@@ -370,6 +423,7 @@ export class LiveVideo {
   }
   private close(): void {
     this.generation++;
+    this.stall(undefined);
     this.capture?.handle.close();
     this.capture = undefined;
     this.encodes = "";

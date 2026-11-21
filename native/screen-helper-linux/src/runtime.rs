@@ -264,10 +264,7 @@ impl Runtime {
                 }
             }
             let publisher = self.writer.publisher(session.clone());
-            let ingest = Ingest::spawn(
-                clock,
-                outlets(&session, &publisher, &capture_control, &stream, &wake)?,
-            );
+            let ingest = Ingest::spawn(clock, outlets(&session, &stream, &wake)?);
             let outputs = crate::pipewire::Outputs {
                 publisher,
                 shown: p_shown(&self.portal),
@@ -633,16 +630,9 @@ fn ingest_address(raw: Option<&Value>) -> Result<Option<media_ingest::Address>> 
     }))
 }
 
-/// Where the capture's route sends what it doesn't write to ace-media: units to the daemon's
-/// socket, keyframes owed to the capture, and the `stream.ingest` event when ace-media's
-/// connection is cut (video is back on the daemon's socket by then).
-fn outlets(
-    session: &str,
-    publisher: &crate::writer::Publisher,
-    control: &Arc<crate::pipewire::Control>,
-    stream: &Arc<StreamControl>,
-    wake: &UnixStream,
-) -> Result<Outlets> {
+/// Where the capture's route reports what isn't video: keyframes owed to the capture, and the
+/// `stream.ingest` event when ace-media's connection is cut (video has stopped by then).
+fn outlets(session: &str, stream: &Arc<StreamControl>, wake: &UnixStream) -> Result<Outlets> {
     let owe: Arc<dyn Fn() + Send + Sync> = {
         let stream = stream.clone();
         let wake = wake.try_clone().map_err(internal)?;
@@ -651,23 +641,9 @@ fn outlets(
             let _ = (&wake).write_all(&[1]);
         })
     };
-    let (legacy_publisher, legacy_control, legacy_owe) =
-        (publisher.clone(), control.clone(), owe.clone());
     let closed_owe = owe.clone();
     let session = session.to_owned();
     Ok(Outlets {
-        legacy: Box::new(move |unit| {
-            // A unit the daemon's socket can't take is the writer's to recover: it asks for a
-            // keyframe through `legacy_owe` until one is queued.
-            let generation =
-                Some(legacy_control.generation.load(Ordering::Acquire)).filter(|g| *g > 0);
-            match crate::media::unit::legacy_packet(&unit, legacy_publisher.session(), generation) {
-                Ok(packet) => {
-                    let _ = legacy_publisher.video(packet, unit.key, &legacy_owe);
-                }
-                Err(_) => legacy_owe(),
-            }
-        }),
         keyframe: owe,
         closed: Box::new(move |boundary| {
             closed_owe();

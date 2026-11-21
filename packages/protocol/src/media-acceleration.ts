@@ -45,3 +45,15 @@ export const MediaAcceleration = z.object({
   reason: z.string().max(256).optional(),
 });
 export type MediaAcceleration = z.infer<typeof MediaAcceleration>;
+
+/**
+ * Why a screen's or device's live video isn't playing (ADR 0147, X2): ace-media is restarting
+ * or its source is being reopened (`retrying`), or it can't carry this video at all now
+ * (`unavailable`: not installed, crashing, or no encoder works). Set while it lasts; absent
+ * once a picture arrives again. Clients show `reason` as the view's one sentence.
+ */
+export const LiveVideoStatus = z.object({
+  status: z.enum(["retrying", "unavailable"]),
+  reason: z.string().max(2048),
+});
+export type LiveVideoStatus = z.infer<typeof LiveVideoStatus>;

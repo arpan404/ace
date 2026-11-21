@@ -1,6 +1,6 @@
 use crate::{
     errors::{Code, Error, Result},
-    mailbox::{Mailbox, Queued},
+    mailbox::Mailbox,
 };
 use std::{
     fs::File,
@@ -74,18 +74,6 @@ impl Writer {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retire();
-    }
-    /// One H.264 unit, in order behind earlier ones. `WantKeyframe` when the queue overflowed.
-    pub fn publish_video(&self, generation: u64, packet: Vec<u8>, key: bool) -> Queued {
-        let (lock, wake) = &*self.slot;
-        let queued = lock
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .publish_video(generation, packet, key);
-        if queued == Queued::Queued {
-            wake.notify_one();
-        }
-        queued
     }
     pub fn publish(&self, generation: u64, packet: Vec<u8>) {
         let (lock, wake) = &*self.slot;

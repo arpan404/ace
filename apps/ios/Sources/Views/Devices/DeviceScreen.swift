@@ -246,7 +246,14 @@ struct DeviceScreen: View {
                     .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
                     .accessibilityIdentifier("devices.problem")
             }
-            if let degraded = info?.degraded, !degraded.isEmpty, info?.live == true {
+            if let stopped = info?.stopped, !stopped.isEmpty {
+                Text(stopped)
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+                    .accessibilityIdentifier("devices.videoStopped")
+            } else if let degraded = info?.degraded, !degraded.isEmpty, info?.live == true {
                 Text(degraded)
                     .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted)

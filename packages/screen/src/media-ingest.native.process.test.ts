@@ -52,10 +52,9 @@ async function until(
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 it.runIf(runs)(
-  "a Mac screen streams through ace-media and egress to its legacy viewer, survives route flips without losing or repeating a frame, and falls back to the helper socket within 2 s of ace-media being killed",
+  "a Mac screen streams only through ace-media and egress to its legacy viewer, and after ace-media is killed its picture is back on the new one within 2 s",
   { timeout: 120_000 },
   async (context) => {
     for (const script of ["build.sh", "build-test-window.sh"])
@@ -130,7 +129,7 @@ it.runIf(runs)(
       fps: 30,
       bitrate: 2_000_000,
     });
-    await throughAceMedia({ frames, watched, producers, settings, manager, id });
+    await throughAceMedia({ frames, watched, producers, manager, id });
   },
 );
 
@@ -188,18 +187,17 @@ function observe(producers: MediaRuntime) {
 
 /**
  * A live screen through ace-media: today's frame header back from egress, epochs stamped at
- * capture, four route flips with no hole or repeat and clean ends, and a killed ace-media put
- * back on the helper socket within 2 s, then onto the restarted process.
+ * capture, no video ever on the helper's own socket, and after ace-media is killed the helper
+ * reconnected to the restarted process's ingest with the picture back within 2 s.
  */
 async function throughAceMedia(run: {
   frames: { frame: Frame; at: number }[];
   watched: ReturnType<typeof observe>;
   producers: MediaRuntime;
-  settings: MediaSettings;
   manager: ScreenManager;
   id: string;
 }) {
-  const { frames, producers, settings, manager, id } = run;
+  const { frames, producers, manager, id } = run;
   const { viaEgress, ended, epochs } = run.watched;
   const h264 = () => frames.filter((entry) => entry.frame.header.codec === "h264");
   const egressed = () => h264().filter((entry) => viaEgress.has(entry.frame.header.sequence));
@@ -225,72 +223,21 @@ async function throughAceMedia(run: {
   expect(epochs.has(screenOpeningEpoch)).toBe(true);
   expect([...epochs].every((epoch) => epoch === 0 || epoch === screenOpeningEpoch)).toBe(true);
 
-  // Route flips: legacy, auto, legacy, auto. Every frame is handed on once, in order, and the
-  // helper's sequence has no hole at any flip.
-  for (const encode of ["legacy", "auto", "legacy", "auto"] as const) {
-    const flipped = performance.now();
-    settings.encode = encode;
-    producers.settingsChanged();
-    const onPath = () =>
-      h264().filter(
-        (entry) =>
-          entry.at > flipped && viaEgress.has(entry.frame.header.sequence) === (encode === "auto"),
-      );
-    await until(
-      () => onPath().length >= 10,
-      15_000,
-      () =>
-        JSON.stringify({
-          encode,
-          after: frames.filter((entry) => entry.at > flipped).length,
-          h264After: h264().filter((entry) => entry.at > flipped).length,
-          egressAfter: h264().filter(
-            (entry) => entry.at > flipped && viaEgress.has(entry.frame.header.sequence),
-          ).length,
-          ended,
-          health: producers.supervisor.health(),
-          lifecycle: manager.state(id).lifecycle,
-        }),
-    );
-    // How long the handover took: a clean one is a frame interval, a held one 1 s or more.
-    console.log(
-      `flip to ${encode}: first frame on the new path after ${Math.round((onPath()[0]?.at ?? 0) - flipped)} ms`,
-    );
-  }
-  await pause(500);
-  // From the last helper-socket frame before the first switch on: before it the socket's own
-  // writer may coalesce a frame under load, which is today's path, not a handoff.
-  const all = h264();
-  const firstSwitch = Math.max(
-    0,
-    all.findIndex((entry) => viaEgress.has(entry.frame.header.sequence)) - 1,
-  );
-  const sequences = all.slice(firstSwitch).map((entry) => entry.frame.header.sequence);
-  expect(
-    sequences.every((value, index) => index === 0 || value > (sequences[index - 1] ?? 0)),
-  ).toBe(true);
-  const holes = sequences.filter(
-    (value, index) => index > 0 && value !== (sequences[index - 1] ?? 0) + 1,
-  );
-  expect(holes).toEqual([]);
-  expect(manager.state(id).lifecycle).toBe("live");
-  // Each planned move off ace-media wrote its queue and an end frame: a clean end, no cut.
-  expect(ended.length).toBeGreaterThanOrEqual(2);
-  expect(ended.every((end) => !end.interrupted)).toBe(true);
+  // Video comes only through ace-media: none ever reached the daemon from the helper's socket.
+  expect(direct(0)).toEqual([]);
 
-  // ace-media killed: the screen is back on the helper socket within 2 s, then on the new
-  // ace-media once it is up again.
+  // ace-media killed: the helper reconnects to the new ace-media's ingest, and the picture is
+  // back on egress within 2 s. Nothing comes on the helper's own socket meanwhile.
   await until(() => egressed().length > 40);
   const pid = producers.supervisor.snapshot().pid ?? 0;
   expect(pid).toBeGreaterThan(0);
   const killed = performance.now();
   process.kill(pid, "SIGKILL");
-  await until(() => direct(killed).length > 0, 5_000);
-  const fallback = (direct(killed)[0]?.at ?? Infinity) - killed;
-  expect(fallback).toBeLessThan(2_000);
-  const restarted = egressed().length;
-  await until(() => egressed().length > restarted + 10, 20_000);
+  await until(() => egressed().some((entry) => entry.at > killed), 10_000);
+  const back = egressed().find((entry) => entry.at > killed);
+  expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
   expect(producers.supervisor.snapshot().pid).not.toBe(pid);
+  expect(direct(killed)).toEqual([]);
   expect(manager.state(id).lifecycle).toBe("live");
   // The killed process's path ended in failure: interrupted.
   expect(ended.filter((end) => end.at > killed).some((end) => end.interrupted)).toBe(true);
@@ -348,7 +295,7 @@ const chromium = () =>
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
 it.runIf(windowsRuns)(
-  "a Windows screen's Media Foundation video streams through ace-media and egress to its legacy viewer, decodes in WebCodecs, survives route flips without losing or repeating a frame, and falls back to the helper pipe within 2 s of ace-media being killed",
+  "a Windows screen's Media Foundation video streams only through ace-media and egress to its legacy viewer, decodes in WebCodecs, and after ace-media is killed its picture is back on the new one within 2 s",
   { timeout: 180_000 },
   async () => {
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-e1-"));
@@ -404,12 +351,12 @@ it.runIf(windowsRuns)(
     expect(decoded.decoded).toBe(run.length);
     expect([decoded.width, decoded.height]).toEqual([run[0]?.header.width, run[0]?.header.height]);
 
-    await throughAceMedia({ frames, watched, producers, settings, manager, id });
+    await throughAceMedia({ frames, watched, producers, manager, id });
   },
 );
 
 it.runIf(windowsRuns)(
-  "a Windows helper with no Media Foundation encoder offers JPEG only and says so, so live view uses the last-resort encoder",
+  "a Windows helper with no Media Foundation encoder offers JPEG only and says so, and its session keeps its stills",
   { timeout: 60_000 },
   async () => {
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-e1-nomft-"));
@@ -429,7 +376,7 @@ it.runIf(windowsRuns)(
     expect(capabilities?.encoders).toContainEqual(
       expect.objectContaining({ step: "encode", backend: "mf", state: "failed", maxWidth: 0 }),
     );
-    // The daemon is told JPEG, which sends live view through the last-resort encoder.
+    // The daemon is told JPEG: no live video from this helper; agents still get its stills.
     expect((await manager.configureStream(id, video)).codec).toBe("jpeg");
     await until(() => frames.length >= 3, 15_000);
     expect(frames.every((entry) => entry.frame.header.codec === "jpeg")).toBe(true);

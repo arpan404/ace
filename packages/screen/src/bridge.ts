@@ -23,10 +23,14 @@ import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
 
-/** The ace-media sources that show a screen session. */
+/**
+ * The ace-media sources that show a screen session: its helper's encode, or for a JPEG-only
+ * helper ace-media's encode of its pictures (X2).
+ */
 const showsSession =
   (sessionId: string) => (producer: { kind: string; sessionId?: string | undefined }) =>
-    producer.kind === "screen" && producer.sessionId === sessionId;
+    (producer.kind === "screen" || producer.kind === "screen-pictures") &&
+    producer.sessionId === sessionId;
 
 export type ScreenPeer = {
   send: (message: ScreenServerMessage) => void;
@@ -106,7 +110,10 @@ export function screenConnection(
     const delivery = peer.delivery;
     const port = delivery?.port();
     const requester = delivery?.owner();
-    if (!requester || !port || !port.serves("screen")) return undefined;
+    // A session's video comes from its helper's encoder or, for a JPEG-only helper, from
+    // ace-media's encode of its pictures: a view shows whichever this session has.
+    if (!requester || !port || !(port.serves("screen") || port.serves("screen-pictures")))
+      return undefined;
     const link = viewLink(operation.link);
     const viewer = port.bind({
       requester,

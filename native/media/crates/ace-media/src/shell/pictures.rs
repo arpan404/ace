@@ -137,7 +137,7 @@ impl Pictures {
         }
     }
 
-    pub fn picture(&mut self, token: u64, text: Vec<u8>, epoch: u32, age_us: u32) {
+    pub fn picture(&mut self, token: u64, jpeg: Vec<u8>, epoch: u32, age_us: u32) {
         let Some(handle) = self.threads.get(&token) else {
             return;
         };
@@ -146,7 +146,7 @@ impl Pictures {
         }
         handle.waiting.fetch_add(1, Ordering::AcqRel);
         let _ = handle.commands.send(Command::Picture {
-            text,
+            jpeg,
             epoch,
             age_us,
         });

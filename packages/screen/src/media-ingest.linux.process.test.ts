@@ -4,9 +4,9 @@
  * PipeWire, its encoder (the last-resort Chrome encoder on a machine without VA-API or NVIDIA,
  * else the one opted in), the built ace-media binary, its ingest socket and egress lane, and
  * the screen manager's legacy viewer. What only this can show: the helper's MediaFrames are
- * accepted by ace-media and come back on egress as the frames the helper socket would carry;
- * route flips between the daemon's JPEG path and ace-media lose and repeat no frame; and a
- * killed ace-media puts the screen back on the helper socket within 2 s.
+ * accepted by ace-media and come back on egress as the frames the helper socket used to carry;
+ * its video never goes to the daemon's socket; and after ace-media is killed the helper
+ * reconnects to the new one's ingest with the picture back within 2 s.
  * Runs on Linux with ACE_SCREEN_INTEGRATION=1, ACE_MEDIA_TEST_BINARY naming a built ace-media
  * and ACE_LINUX_HELPER a built helper, inside a GNOME Wayland session (wayland-session.sh)
  * where the person's approval is recorded by seed_portal.py.
@@ -48,7 +48,7 @@ async function until(condition: () => boolean, ms = 20_000): Promise<void> {
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 it.runIf(runs)(
-  "a Linux screen streams through ace-media and egress to its legacy viewer, survives route flips without losing or repeating a frame, and falls back to the helper socket within 2 s of ace-media being killed",
+  "a Linux screen streams only through ace-media and egress to its legacy viewer, and after ace-media is killed its picture is back on the new one within 2 s",
   { timeout: 240_000 },
   async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "ace-e2-"));
@@ -146,8 +146,6 @@ it.runIf(runs)(
       bitrate: 2_000_000,
     });
     const h264 = () => frames.filter((entry) => entry.frame.header.codec === "h264");
-    const stills = (after: number) =>
-      frames.filter((entry) => entry.at > after && entry.frame.header.codec === "jpeg");
     // Calculator changes only when touched: keyframes asked for keep units coming, at most two a
     // second (the helper forces one every 500 ms at most), so each wait asks for a few.
     const keyframes = setInterval(() => void manager.requestKeyframe(id).catch(() => {}), 100);
@@ -171,20 +169,19 @@ it.runIf(runs)(
     expect(epochs.has(screenOpeningEpoch)).toBe(true);
     expect([...epochs].every((epoch) => epoch === 0 || epoch === screenOpeningEpoch)).toBe(true);
 
-    // Route flips: legacy (JPEG pictures on the helper socket: Calculator holds still, so the
-    // picture on screen once), auto (H.264 through ace-media).
-    for (const encode of ["legacy", "auto", "legacy", "auto"] as const) {
-      const flipped = performance.now();
-      settings.encode = encode;
-      producers.settingsChanged();
-      await until(() =>
-        encode === "auto"
-          ? h264().filter((entry) => entry.at > flipped).length >= 4
-          : stills(flipped).length >= 1,
-      );
-    }
-    await pause(500);
-    // Each codec in its own order, none twice; within each ace-media run, no hole.
+    // ace-media killed: the helper's video stops (nothing goes to its socket but stills), and
+    // it reconnects to the new ace-media's ingest with H.264 back on egress within 2 s.
+    const pid = producers.supervisor.snapshot().pid ?? 0;
+    expect(pid).toBeGreaterThan(0);
+    const killed = performance.now();
+    process.kill(pid, "SIGKILL");
+    await until(() => h264().some((entry) => entry.at > killed), 10_000);
+    const back = h264().find((entry) => entry.at > killed);
+    expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
+    expect(producers.supervisor.snapshot().pid).not.toBe(pid);
+    expect(h264().every((entry) => viaEgress.has(entry.frame.header.sequence))).toBe(true);
+    expect(ended.filter((end) => end.at > killed).some((end) => end.interrupted)).toBe(true);
+    // Each kind in its own order, none twice.
     for (const codec of ["h264", "jpeg"] as const) {
       const sequences = frames
         .filter((entry) => entry.frame.header.codec === codec)
@@ -192,27 +189,5 @@ it.runIf(runs)(
       expect(sequences.every((value, i) => i === 0 || value > (sequences[i - 1] ?? -1))).toBe(true);
     }
     expect(manager.state(id).lifecycle).toBe("live");
-    // Each planned move off ace-media wrote its queue and an end frame: a clean end.
-    expect(ended.length).toBeGreaterThanOrEqual(2);
-    expect(ended.every((end) => !end.interrupted)).toBe(true);
-
-    // ace-media killed: the helper socket carries the screen again within 2 s (the helper's
-    // own fallback sends its video there at once; the daemon then asks for pictures).
-    const direct = (after: number) =>
-      frames.filter(
-        (entry) =>
-          entry.at > after &&
-          !(entry.frame.header.codec === "h264" && viaEgress.has(entry.frame.header.sequence)),
-      );
-    const pid = producers.supervisor.snapshot().pid ?? 0;
-    expect(pid).toBeGreaterThan(0);
-    const killed = performance.now();
-    process.kill(pid, "SIGKILL");
-    await until(() => direct(killed).length > 0, 5_000);
-    expect((direct(killed)[0]?.at ?? Infinity) - killed).toBeLessThan(2_000);
-    const before = h264().length;
-    await until(() => h264().length > before + 4, 30_000);
-    expect(producers.supervisor.snapshot().pid).not.toBe(pid);
-    expect(ended.filter((end) => end.at > killed).some((end) => end.interrupted)).toBe(true);
   },
 );

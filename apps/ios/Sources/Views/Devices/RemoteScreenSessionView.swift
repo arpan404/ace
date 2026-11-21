@@ -105,7 +105,12 @@ struct RemoteScreenSessionView: View {
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceDesign.Space.margin)
                         .accessibilityIdentifier("screen.watchOnly")
                 }
-                if let degraded = session.degraded, !degraded.isEmpty {
+                if let stopped = session.stopped, !stopped.isEmpty {
+                    Text(stopped).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceDesign.Space.margin)
+                        .accessibilityIdentifier("screen.videoStopped")
+                } else if let degraded = session.degraded, !degraded.isEmpty {
                     Text(degraded).font(AceDesign.Typeface.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceDesign.Space.margin)

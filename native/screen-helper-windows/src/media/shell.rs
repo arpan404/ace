@@ -28,11 +28,9 @@ pub trait Cancel: Send + Sync + 'static {
 pub type Dial =
     Box<dyn Fn(&str, Option<u32>) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> + Send + Sync>;
 
-/// Where the route's other actions go.
+/// Where the route's other actions go. Video goes only to ace-media's ingest.
 pub struct Sinks {
-    /// A unit for the daemon's pipe.
-    pub legacy: Box<dyn Fn(&VideoUnit) + Send + Sync>,
-    /// The current ingest connection was cut: video is on the daemon's pipe again.
+    /// The current ingest connection was cut: video goes nowhere until a new address.
     pub closed: Box<dyn Fn(Option<u64>) + Send + Sync>,
     pub keyframe: Box<dyn Fn() + Send + Sync>,
 }
@@ -144,19 +142,18 @@ impl IngestShell {
         self.0.lock_route().ingesting()
     }
 
-    /// Routes one unit and writes it on its path.
+    /// Writes one unit to the current ingest connection; with none it is dropped.
     pub fn publish(&self, unit: &VideoUnit) {
         let now_us = (self.0.clock)();
         self.0
             .with_route(|route, out| route.publish(unit, now_us / 1000, now_us, out));
     }
 
-    /// Writes a still on the daemon's pipe under the route's lock, as sequence `sequence`, so
-    /// a switch's boundary counts it.
-    pub fn legacy_still(&self, sequence: u64, write: impl FnOnce()) {
-        let mut route = self.0.lock_route();
+    /// Writes a still on the daemon's pipe under the route's lock, so it is ordered with the
+    /// switches around it. A still never moves a switch's boundary.
+    pub fn still(&self, write: impl FnOnce()) {
+        let _route = self.0.lock_route();
         write();
-        route.legacy_still(sequence);
     }
 
     /// Closes every connection at once.
@@ -206,7 +203,6 @@ impl Inner {
                         }
                     }
                     RouteAction::Destroy { generation } => self.destroy(generation),
-                    RouteAction::Legacy(unit) => (self.sinks.legacy)(&unit),
                     RouteAction::IngestClosed { boundary, .. } => closed.push(boundary),
                     RouteAction::Keyframe => (self.sinks.keyframe)(),
                 }

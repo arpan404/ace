@@ -319,6 +319,14 @@ export class FakeScreen {
     session.state = acceleration ? { ...rest, acceleration } : rest;
     return this.publish(session);
   }
+  /** Why a session's live video can't play now, as the daemon reports it; `undefined` clears it. */
+  setVideo(sessionId: string, video: ScreenState["video"]): ScreenState | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    const { video: _, ...rest } = session.state;
+    session.state = video ? { ...rest, video } : rest;
+    return this.publish(session);
+  }
   /** The person at the machine answers its sharing dialog: what they picked, or declined. */
   answerSharingDialog(answer: ScreenChooserPick | "declined"): void {
     for (const session of this.sessions.values()) session.answer?.(answer);

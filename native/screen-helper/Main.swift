@@ -11,7 +11,6 @@ import LockedUseService
         Responsibility.disclaimIfNeeded()
         if CommandLine.arguments.contains("--computer") { ComputerService.run() }
         if CommandLine.arguments.contains("--locked-use") { runLockedUse() }
-        if CommandLine.arguments.contains("--transcode") { Transcoder.run() }
         if CommandLine.arguments.contains("--sim-posture") { SimPosture.run(arguments: CommandLine.arguments) }
         if CommandLine.arguments.contains("--sim-touch") { SimTouch.run(arguments: CommandLine.arguments) }
         if let index = CommandLine.arguments.firstIndex(of: "--encode-frames"), index + 1 < CommandLine.arguments.count {

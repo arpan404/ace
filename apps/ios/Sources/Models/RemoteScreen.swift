@@ -46,6 +46,8 @@ struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
     let personOnly: Bool?
     /// One sentence while this app's video runs degraded on the processor; empty otherwise.
     var degraded: String? = nil
+    /// Why this app's live video can't play now; empty while it plays. Shown in `degraded`'s place.
+    var stopped: String? = nil
     var id: String { sessionId }
     var waiting: Bool { awaitingChoice == true }
     var controllable: Bool { awaitingChoice != true && viewOnly != true }
