@@ -33,9 +33,10 @@ export type OwnershipChange =
   | { to: "moved"; transferId: string; peerThread: string; at: number }
   /**
    * Source: the thread runs here again. From `handing` only with the target's own answer that
-   * it never took the thread (`confirmed`); a lost link never returns it.
+   * it never took the thread (`confirmed`), or the person's own choice, warned that both may
+   * run (`byPerson`), once the target can't be asked; a lost link never returns it.
    */
-  | { to: "local"; transferId: string; confirmed: boolean; at: number }
+  | { to: "local"; transferId: string; confirmed: boolean; byPerson?: true; at: number }
   /** Target: the thread was made here past the cutoff; this machine owns it. */
   | { to: "owned"; transferId: string; peer: Peer; epoch: number; at: number };
 
@@ -82,7 +83,7 @@ export function nextOwnership(
     case "local": {
       if (!current || !same) return refuse("This handover doesn't hold the thread");
       if (current.state === "moved") return refuse("The other machine owns this thread");
-      if (current.state === "handing" && !change.confirmed)
+      if (current.state === "handing" && !change.confirmed && !change.byPerson)
         return refuse("Only the other machine's answer returns a handed-over thread");
       if (current.state !== "stopping" && current.state !== "handing")
         return refuse("Nothing to return");
