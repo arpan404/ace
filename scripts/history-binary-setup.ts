@@ -10,6 +10,9 @@ declare module "vitest" {
   }
 }
 
+/** What the setup provides to every test file of its projects. */
+export type HistoryBinaryContext = { historyBinary: string };
+
 const workspace = fileURLToPath(new URL("../native/history/", import.meta.url));
 // Its own target directory: the hooks build never replaces a debug or release build.
 const target = `${workspace}target/test-hooks`;
