@@ -57,6 +57,15 @@ fake = bytearray(jpeg[sof : sof + 2 + length])
 fake[5:9] = struct.pack(">HH", 8000, 8000)
 open("two-frame-headers.jpg", "wb").write(jpeg[:sof] + bytes(fake) + jpeg[sof:])
 PY
+# The red JPEG as a 24-bit BMP and an LZW TIFF (strips before the directory, so the cut TIFF
+# loses its directory), each cut short.
+magick red-64x48.jpg BMP3:red-64x48.bmp
+magick red-64x48.jpg -compress LZW red-64x48.tiff
+head -c 9170 red-64x48.bmp > truncated.bmp
+head -c 200 red-64x48.tiff > truncated.tiff
+# colours-320x240.heic is packages/context/fixtures/colours.heic (made with macOS `sips`): it is
+# no case here, since a HEIC decodes only where the OS has a decoder; media-image's HEIF tests
+# read it.
 printf 'not an image\n' > text.txt
 # A 2 x 2 RGBA picture: red, green, blue, transparent.
 printf '\377\000\000\377\000\377\000\377\000\000\377\377\000\000\000\000' > square-2x2.rgba

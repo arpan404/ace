@@ -735,6 +735,153 @@
         "maxPixels": 50000000
       },
       "failed": "decode-failed"
+    },
+    {
+      "name": "a BMP's header gives its size",
+      "inputs": ["red-64x48.bmp"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 50000000
+      },
+      "done": {
+        "width": 64,
+        "height": 48,
+        "format": "none",
+        "source": {
+          "format": "bmp",
+          "width": 64,
+          "height": 48,
+          "orientation": 1
+        }
+      }
+    },
+    {
+      "name": "a BMP is fitted like any raster",
+      "inputs": ["red-64x48.bmp"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 50000000,
+        "width": 32,
+        "height": 32,
+        "autoOrient": true,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 32,
+        "height": 24,
+        "format": "rgba",
+        "source": {
+          "format": "bmp",
+          "width": 64,
+          "height": 48,
+          "orientation": 1
+        }
+      },
+      "pixels": [[16, 12, [208, 32, 32, 255], 24]]
+    },
+    {
+      "name": "a BMP cut short is refused, never filled",
+      "inputs": ["truncated.bmp"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 50000000,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a BMP cut short is refused by probe too",
+      "inputs": ["truncated.bmp"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 50000000
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a TIFF's first directory gives its size",
+      "inputs": ["red-64x48.tiff"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 50000000
+      },
+      "done": {
+        "width": 64,
+        "height": 48,
+        "format": "none",
+        "source": {
+          "format": "tiff",
+          "width": 64,
+          "height": 48,
+          "orientation": 1
+        }
+      }
+    },
+    {
+      "name": "a TIFF is fitted like any raster",
+      "inputs": ["red-64x48.tiff"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 50000000,
+        "width": 32,
+        "height": 32,
+        "autoOrient": true,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 32,
+        "height": 24,
+        "format": "rgba",
+        "source": {
+          "format": "tiff",
+          "width": 64,
+          "height": 48,
+          "orientation": 1
+        }
+      },
+      "pixels": [[16, 12, [208, 32, 32, 255], 24]]
+    },
+    {
+      "name": "a TIFF cut short is refused",
+      "inputs": ["truncated.tiff"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 50000000,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a TIFF cut short is refused by probe too",
+      "inputs": ["truncated.tiff"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 50000000
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a TIFF past the job's pixels is refused from its header",
+      "inputs": ["red-64x48.tiff"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 1000
+      },
+      "failed": "too-large"
     }
   ]
 }

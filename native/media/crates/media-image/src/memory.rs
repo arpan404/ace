@@ -57,13 +57,23 @@ fn decoded(input: &Input, max_pixels: u32, target: Target) -> Result<Decoded> {
             (u64::from(source.width), u64::from(source.height))
         }
     };
-    let copies = if format == Some(SourceFormat::Gif) {
-        2
-    } else {
-        1
+    let copies = match format {
+        Some(SourceFormat::Gif) => 2,
+        // A palette or run-length bitmap is expanded through a buffer of its own.
+        Some(SourceFormat::Bmp) => 2,
+        // The decoder's samples (up to 16 bits each, five a pixel) beside the RGBA they become.
+        Some(SourceFormat::Tiff) => 4,
+        // The system decoder's own picture and its HEVC frames beside the RGBA drawn from them.
+        Some(SourceFormat::Heic) => 3,
+        _ => 1,
+    };
+    // The system decoder is handed its own copy of the file.
+    let copied = match (input, format) {
+        (Input::Encoded(bytes), Some(SourceFormat::Heic)) => bytes.len() as u64,
+        _ => 0,
     };
     Ok(Decoded {
-        bytes: rgba(w * h) * copies,
+        bytes: rgba(w * h) * copies + copied,
         width: w,
         height: h,
         side: w.max(h),

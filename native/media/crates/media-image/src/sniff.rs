@@ -20,6 +20,18 @@ pub fn sniff(bytes: &[u8]) -> Option<SourceFormat> {
     if bytes.len() >= 6 && bytes[..4] == [0, 0, 1, 0] && (bytes[4] != 0 || bytes[5] != 0) {
         return Some(SourceFormat::Ico);
     }
+    if bytes.len() >= 26 && bytes.starts_with(b"BM") {
+        let info = u32::from_le_bytes([bytes[14], bytes[15], bytes[16], bytes[17]]);
+        if matches!(info, 12 | 40 | 52 | 56 | 64 | 108 | 124) {
+            return Some(SourceFormat::Bmp);
+        }
+    }
+    if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+        return Some(SourceFormat::Tiff);
+    }
+    if crate::heif::sniff(bytes) {
+        return Some(SourceFormat::Heic);
+    }
     svg(bytes).then_some(SourceFormat::Svg)
 }
 
@@ -76,6 +88,18 @@ mod tests {
         assert_eq!(sniff(b"<svgx>"), None);
         assert_eq!(sniff(b"<html><svg></svg></html>"), None);
         assert_eq!(sniff(&[0, 0, 1, 0, 0, 0]), None);
+        let mut bmp = b"BM".to_vec();
+        bmp.extend([0; 12]);
+        bmp.extend(40u32.to_le_bytes());
+        bmp.extend([0; 8]);
+        assert_eq!(sniff(&bmp), Some(SourceFormat::Bmp));
+        assert_eq!(sniff(b"BM not a bitmap header at all"), None);
+        assert_eq!(sniff(b"II*\0\x08\0\0\0"), Some(SourceFormat::Tiff));
+        assert_eq!(sniff(b"MM\0*\0\0\0\x08"), Some(SourceFormat::Tiff));
+        assert_eq!(
+            sniff(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic"),
+            Some(SourceFormat::Heic)
+        );
         assert_eq!(sniff(b""), None);
     }
 }

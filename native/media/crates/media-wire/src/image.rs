@@ -182,6 +182,12 @@ pub enum SourceFormat {
     Ico,
     #[serde(rename = "svg")]
     Svg,
+    #[serde(rename = "bmp")]
+    Bmp,
+    #[serde(rename = "tiff")]
+    Tiff,
+    #[serde(rename = "heic")]
+    Heic,
     #[serde(rename = "rgba")]
     Rgba,
 }

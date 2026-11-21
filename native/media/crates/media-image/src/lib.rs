@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! One-shot still images for ace-media (ADR 0208): probe, fit, alpha and compose over JPEG,
-//! PNG, WebP, GIF, ICO, SVG and raw RGBA inputs, with bounds checked before pixels are
+//! PNG, WebP, GIF, ICO, SVG, BMP, TIFF, HEIC (through the OS) and raw RGBA inputs, with bounds checked before pixels are
 //! decoded and every refusal given a reason. Pure: no files, threads or clocks; the caller
 //! reads file inputs and says when the deadline has passed.
+mod bmp;
 mod compose;
 mod decode;
 mod encode;
@@ -11,6 +12,7 @@ mod exif;
 mod fit;
 mod font;
 mod gif;
+mod heif;
 mod ico;
 mod jpeg;
 mod limits;
@@ -19,6 +21,7 @@ mod png;
 mod raster;
 mod sniff;
 mod svg;
+mod tif;
 mod webp;
 
 pub use error::{Failed, ImageFailure, Result};

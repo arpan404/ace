@@ -45,7 +45,7 @@ fn source(format: SourceFormat, width: u32, height: u32, orientation: u8) -> Sou
 fn unsupported() -> Failed {
     Failed::new(
         ImageFailure::Unsupported,
-        "The bytes are not a JPEG, PNG, WebP, GIF, ICO or SVG image.",
+        "The bytes are not a JPEG, PNG, WebP, GIF, ICO, SVG, BMP, TIFF or HEIC image.",
     )
 }
 
@@ -96,6 +96,12 @@ pub fn header(input: &Input, max_pixels: u32) -> Result<SourceImage> {
             let (w, h) = Svg::parse(bytes)?.pixels(1.0);
             (w, h, 1)
         }
+        SourceFormat::Bmp => {
+            let (w, h) = crate::bmp::header(bytes)?;
+            (w, h, 1)
+        }
+        SourceFormat::Tiff => crate::tif::header(bytes)?,
+        SourceFormat::Heic => crate::heif::header(bytes)?,
         SourceFormat::Rgba => return Err(unsupported()),
     };
     check_input(width, height, max_pixels)?;
@@ -128,6 +134,9 @@ pub fn decode(input: &Input, target: Target, max_pixels: u32) -> Result<Decoded>
         SourceFormat::Webp => (crate::webp::decode(bytes, max_pixels)?, 1),
         SourceFormat::Gif => (crate::gif::decode(bytes, max_pixels)?, 1),
         SourceFormat::Ico => (icon(bytes, target, max_pixels)?, 1),
+        SourceFormat::Bmp => (crate::bmp::decode(bytes, max_pixels)?, 1),
+        SourceFormat::Tiff => crate::tif::decode(bytes, max_pixels)?,
+        SourceFormat::Heic => crate::heif::decode(bytes, max_pixels)?,
         SourceFormat::Svg => {
             let svg = Svg::parse(bytes)?;
             let (width, height) = svg_size(&svg, target)?;

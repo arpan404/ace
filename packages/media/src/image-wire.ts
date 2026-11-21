@@ -87,7 +87,7 @@ export const ImageOp = z.discriminatedUnion("op", [
 export type ImageOp = z.infer<typeof ImageOp>;
 
 export const SourceImage = z.strictObject({
-  format: z.enum(["jpeg", "png", "webp", "gif", "ico", "svg", "rgba"]),
+  format: z.enum(["jpeg", "png", "webp", "gif", "ico", "svg", "bmp", "tiff", "heic", "rgba"]),
   width: u32,
   height: u32,
   orientation: z.number().int().min(1).max(8),

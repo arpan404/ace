@@ -116,6 +116,11 @@ pub fn decode(bytes: &[u8], max_pixels: u32) -> Result<Raster> {
     Raster::new(width, height, buffer)
 }
 
+/// Gray, gray and alpha, or RGB pixels widened in place to RGBA.
+pub(crate) fn widen_channels(buffer: &mut [u8], pixels: usize, channels: usize) {
+    widen(buffer, pixels, channels);
+}
+
 /// RGB when every pixel is opaque, RGBA otherwise.
 pub(crate) fn widen_rgb(buffer: &mut [u8], pixels: usize) {
     widen(buffer, pixels, 3);
