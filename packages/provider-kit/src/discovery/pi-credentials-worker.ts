@@ -1,9 +1,10 @@
 // Lists which providers the installed Pi SDK holds a credential for: ids only. The SDK reads its
 // own store; no credential, token or key leaves this process.
-import { routeConsoleToStderr } from "../console-guard.ts";
+import { silenceConsole } from "../console-guard.ts";
 
-// Stdout carries only the listing; the parent parses it whole. The SDK's own logs go to stderr.
-routeConsoleToStderr();
+// Stdout carries only the listing, which the parent parses whole. SDK logs may name secrets, so
+// the console is silenced before the SDK is imported.
+silenceConsole();
 const [entry] = process.argv.slice(2);
 try {
   if (!entry?.startsWith("file:")) throw new Error("SDK entry required");
