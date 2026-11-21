@@ -16,6 +16,7 @@ pub mod packages;
 pub mod plugins;
 pub mod presets;
 pub mod proof;
+pub mod replay;
 pub mod research;
 pub mod routines;
 pub mod security;

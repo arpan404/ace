@@ -20,6 +20,7 @@ pub mod scenario;
 pub mod signed;
 pub mod surfaces;
 pub mod update;
+pub mod written;
 
 pub use manifest::{Declared, Limits, Manifest, PackageTrigger, read};
 
