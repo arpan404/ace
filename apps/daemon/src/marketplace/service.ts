@@ -274,7 +274,8 @@ export class MarketplaceService {
       case "install": {
         // Membership is checked again at the moment of installing, not only at the review.
         const org = this.#reviews.registryOf(operation.id);
-        if (org !== undefined) requireMember(ports.orgGrant, org, ports.membership, this.#options.now());
+        if (org !== undefined)
+          requireMember(ports.orgGrant, org, ports.membership, this.#options.now());
         return this.#serial(() =>
           this.#reviews.install(
             operation.id,

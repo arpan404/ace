@@ -58,7 +58,9 @@ export function membershipOf(
   return {
     keys: account.grantKeys(),
     machine:
-      org === undefined ? { kind: "personal", account: account.account()?.id } : { kind: "org-host", org },
+      org === undefined
+        ? { kind: "personal", account: account.account()?.id }
+        : { kind: "org-host", org },
   };
 }
 

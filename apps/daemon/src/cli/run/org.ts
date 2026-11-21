@@ -58,4 +58,12 @@ async function verify(context: CommandContext): Promise<void> {
 export const orgHandlers: Handlers = {
   "org.audit.export": exportLog,
   "org.audit.verify": verify,
+  "org.registry.key": async (context) => {
+    const { registryKeyCommand } = await import("../org-registry.ts");
+    await registryKeyCommand(context.args);
+  },
+  "org.registry.sign": async (context) => {
+    const { registrySignCommand } = await import("../org-registry.ts");
+    await registrySignCommand(context.args);
+  },
 };

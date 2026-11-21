@@ -54,7 +54,11 @@ function unpack(text: string): RegistryKeys {
 }
 
 /** Runs a keychain tool with `input` on standard input; its output, or why it failed. */
-type Tool = (command: string, args: string[], input: string) => Promise<{ ok: boolean; out: string }>;
+type Tool = (
+  command: string,
+  args: string[],
+  input: string,
+) => Promise<{ ok: boolean; out: string }>;
 
 const runTool: Tool = (command, args, input) =>
   new Promise((resolve) => {
@@ -66,7 +70,10 @@ const runTool: Tool = (command, args, input) =>
   });
 
 /** This machine's keychain, or a refusal saying the platform has none ace can use yet. */
-export function osKeychain(platform: NodeJS.Platform = process.platform, tool: Tool = runTool): RegistryKeychain {
+export function osKeychain(
+  platform: NodeJS.Platform = process.platform,
+  tool: Tool = runTool,
+): RegistryKeychain {
   const unavailable = () =>
     new KeychainError(
       "This machine has no keychain ace can keep a registry key in yet (macOS and Linux with a Secret Service only).",
@@ -87,7 +94,11 @@ export function osKeychain(platform: NodeJS.Platform = process.platform, tool: T
       const stored =
         platform === "darwin"
           ? // `security -i` reads its command from standard input, so the secret is no argument.
-            await tool("security", ["-i"], `add-generic-password -U -s ${service} -a ${org} -w ${secret}\n`)
+            await tool(
+              "security",
+              ["-i"],
+              `add-generic-password -U -s ${service} -a ${org} -w ${secret}\n`,
+            )
           : platform === "linux"
             ? await tool(
                 "secret-tool",

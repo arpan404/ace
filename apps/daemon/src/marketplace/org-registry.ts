@@ -65,9 +65,15 @@ export function membershipProblem(
     return `Installing from ${org}'s registry needs a fresh check that you're a member: open it from an ace app signed in to the organization.`;
   let claims;
   try {
-    claims = verifyMarketGrant(grant, membership.keys, now, membership.issuer ?? MARKET_GRANT_ISSUER);
+    claims = verifyMarketGrant(
+      grant,
+      membership.keys,
+      now,
+      membership.issuer ?? MARKET_GRANT_ISSUER,
+    );
   } catch (error) {
-    if (error instanceof GrantError) return "That membership check expired or isn't ace's. Try again.";
+    if (error instanceof GrantError)
+      return "That membership check expired or isn't ace's. Try again.";
     throw error;
   }
   if (claims.org !== org) return "That membership check is for another organization.";
@@ -123,7 +129,9 @@ export async function trustedChain(
     });
   } catch (error) {
     if (error instanceof RegistryChainError)
-      throw new Refused(`${request.org}'s registry key chain is broken: ${error.message}. Nothing was installed.`);
+      throw new Refused(
+        `${request.org}'s registry key chain is broken: ${error.message}. Nothing was installed.`,
+      );
     throw error;
   }
   const standing = chainStanding(chain, pin);

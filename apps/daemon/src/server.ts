@@ -65,6 +65,7 @@ import {
 } from "./account-access/grant-lease.ts";
 import { admitCommand } from "./socket-commands.ts";
 import { startOrgHost } from "./org-host/wire.ts";
+import { startRegistrySigner } from "./org-registry/wire.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
@@ -330,6 +331,8 @@ export async function startServer(options: ServerOptions): Promise<{
   });
   // An org host keeps its Spade bound, on its policy and its audit log forwarded (ADR 0206).
   const orgHost = startOrgHost(options);
+  // An org host whose keychain holds its registry's key signs what waits there (ADR 0206 §5.2).
+  const registrySigner = startRegistrySigner(options);
   const createServiceSessions = createSocketRegistry();
   const serviceTasks = new Set<Promise<void>>();
   const serviceSessions = new Map<MainSocket, ReturnType<typeof createServiceSessions>>();
@@ -1155,6 +1158,7 @@ export async function startServer(options: ServerOptions): Promise<{
     stopReplaced();
     stopAccountChange?.();
     void orgHost?.close();
+    registrySigner?.stop();
     await closeListener(local);
     if (remote) await closeListener(remote);
     await closeServers();
@@ -1207,6 +1211,7 @@ export async function startServer(options: ServerOptions): Promise<{
         stopReplaced();
         stopAccountChange?.();
         void orgHost?.close();
+    registrySigner?.stop();
         tunnel.close();
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();
