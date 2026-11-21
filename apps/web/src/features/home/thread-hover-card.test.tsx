@@ -4,13 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("the hover card names the model without the provider's name", async () => {
+test("the hover card falls back to the configured model after a saved Claude error", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "hover-model-own-line",
     title: "Model beside the account",
     workspaceId: "ace",
     provider: "claude",
+    live: { model: "<synthetic>" },
     execution: { provider: "claude", model: "claude-opus-4-1", options: {} },
   });
   app.daemon.apply("hover-model-own-line", [
@@ -38,6 +39,7 @@ test("the hover card shows no model line when the model is unknown", async () =>
     title: "Thread without a model",
     workspaceId: "ace",
     provider: "claude",
+    live: { model: "<synthetic>" },
   });
   app.daemon.apply("hover-no-model", [
     facts.rootAgent("claude"),
