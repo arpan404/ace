@@ -684,6 +684,13 @@ impl Spade {
         } else {
             None
         };
+        // As in Spade: the person's outside A2A agents (ADR 0202 §5).
+        let outside_agents =
+            spade_server::a2a::OutsideAgents::open(Store::open(&dir.path().join("spade.sqlite"))?);
+        tools = tools.with_source(Arc::new(spade_server::a2a::tools::OutsideAgentSource::new(
+            outside_agents.clone(),
+            Store::open(&dir.path().join("spade.sqlite"))?,
+        )));
         let plugins = match &options.plugins {
             Some(daemon) => {
                 let workspaces = options.workspaces.clone().unwrap_or_else(|| {
@@ -782,6 +789,7 @@ impl Spade {
         if let Some(hub) = &connectors {
             engine.set_connector_grants(hub.clone());
         }
+        engine.set_outside_agents(outside_agents);
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);

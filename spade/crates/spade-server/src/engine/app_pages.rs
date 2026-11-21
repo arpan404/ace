@@ -66,6 +66,16 @@ fn bounded(result: &McpToolResult) -> Value {
 }
 
 impl Engine {
+    /// Sets the person's outside A2A agents (ADR 0202 §5), once.
+    pub fn set_outside_agents(&self, agents: Arc<crate::a2a::OutsideAgents>) {
+        let _ = self.outside_agents.set(agents);
+    }
+
+    /// The person's outside A2A agents, when the server set them.
+    pub fn outside_agents(&self) -> Option<Arc<crate::a2a::OutsideAgents>> {
+        self.outside_agents.get().cloned()
+    }
+
     /// After app `connector` (`app` by name) ran `tool` with `arguments` for the call with `key`
     /// (`<conversation>.<call>`): its page as that app's panel, if the tool links one. What the
     /// bot reads besides the tool's answer: that the page shows, or why it doesn't.

@@ -1,6 +1,7 @@
 //! Spade's local HTTP API (docs/chat-core.md, docs/agents.md). Every `/v1` request carries the
 //! bearer token from Spade's data folder; keys go in and never come back out.
 
+mod a2a_agents;
 mod agents;
 mod body;
 mod brains;
@@ -201,6 +202,7 @@ pub fn router(state: AppState) -> Router {
                 .delete(end_maintenance),
         )
         .merge(connectors::routes())
+        .merge(a2a_agents::routes())
         .merge(plugins::routes())
         .merge(brains::routes())
         .merge(memory::routes())

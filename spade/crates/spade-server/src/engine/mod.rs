@@ -265,6 +265,8 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// The person's outside A2A agents (ADR 0202 §5), once the server has set them.
+    outside_agents: std::sync::OnceLock<Arc<crate::a2a::OutsideAgents>>,
     /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
     market: std::sync::OnceLock<Arc<dyn suggest::MarketBots>>,
     /// Held while the open package suggestions are read and written.
@@ -436,6 +438,7 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            outside_agents: std::sync::OnceLock::new(),
             market: std::sync::OnceLock::new(),
             suggest_lock: Mutex::default(),
             plugins: std::sync::OnceLock::new(),
