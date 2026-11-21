@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { personOnlyRoute, personOnlyWrite, personStamp } from "./person-stamp.ts";
 
 const json = (value: unknown) => Buffer.from(JSON.stringify(value));
+const sha = (body: Buffer) => createHash("sha256").update(body).digest("hex");
 
 test("only a change that could turn Full access on needs the person", () => {
   const bot = "/v1/agents/a_1/security/autonomy";
@@ -165,7 +166,6 @@ test("turning a Permissions switch on, or changing the never-use list, is stampe
 });
 
 test("a change that may loosen what a bot may do is stamped over the bytes Spade receives", () => {
-  const sha = (body: Buffer) => createHash("sha256").update(body).digest("hex");
   const outside = json({ commands: "outside" });
   const open = json({ mode: "open", allow: [], dropped: [] });
   const grant = json({ kind: "folder", path: "/Users/me/app", write: true });
