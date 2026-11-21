@@ -4,7 +4,6 @@ import {
   fuzzyPositions,
   parseQuickOpen,
   pathParts,
-  quickOpenRows,
   type QuickOpenRow,
 } from "@ace/ui-core";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
@@ -14,9 +13,9 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { fileIcon } from "@/components/file-icon.ts";
-import { useEditor } from "./file-tree-editor.ts";
+import { useEditorOpen } from "./editor-open.ts";
 import { useRecentFiles } from "./files-state.ts";
-import { emptyQuickOpenRows } from "./quick-open-rows.ts";
+import { emptyQuickOpenRows, typedQuickOpenRows } from "./quick-open-rows.ts";
 import { useCheckoutSearch, useEditedPaths } from "./use-checkout.ts";
 
 type Row = QuickOpenRow;
@@ -49,7 +48,9 @@ function Name(props: { path: string; query: string }) {
 
 /**
  * ⌘P: find a file in the thread's checkout by a few letters of its path, or go back to one open,
- * changed or opened recently. Arrows move, Enter opens it in a tab that stays and puts the
+ * changed or opened recently. The files it already knows (open, changed, recent) that match show
+ * at once; the checkout's index adds the rest as it answers, so a cold index never leaves the
+ * list empty. Arrows move, Enter opens it in a tab that stays and puts the
  * keyboard in it, Escape returns focus where it was.
  * `path:line` opens at that line.
  */
@@ -61,13 +62,13 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   const search = useCheckoutSearch(props.threadId, query);
   const recent = useRecentFiles(props.threadId);
   const edited = useEditedPaths(props.threadId);
-  const editor = useEditor(props.threadId);
+  const editor = useEditorOpen(props.threadId);
   const openEditors = editor.openEditors;
   const listId = useId();
   const rows = useMemo<Row[]>(
     () =>
       query
-        ? quickOpenRows(query, search.data ?? [], recent, edited)
+        ? typedQuickOpenRows(query, search.data ?? [], { open: openEditors, changed: edited, recent })
         : emptyQuickOpenRows({ open: openEditors, changed: edited, recent }),
     [query, search.data, recent, edited, openEditors],
   );

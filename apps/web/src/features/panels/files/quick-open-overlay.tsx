@@ -1,11 +1,14 @@
 import { lazy, Suspense, useCallback, useEffect } from "react";
+import { whenIdle } from "@/lib/idle.ts";
 import { useLocal } from "../store.ts";
 import { quickOpen } from "./quick-open-store.ts";
 
-// The palette's code loads the first time it opens; the overlay itself is a few lines that ride
-// with the tab kinds.
+// The palette's code is its own small chunk (it never reaches the code editor), fetched once the
+// thread screen is idle, so the first ⌘P draws at once; the overlay itself is a few lines that
+// ride with the tab kinds.
+const loadDialog = () => import("./quick-open.tsx");
 const QuickOpenDialog = lazy(() =>
-  import("./quick-open.tsx").then((module) => ({ default: module.QuickOpenDialog })),
+  loadDialog().then((module) => ({ default: module.QuickOpenDialog })),
 );
 
 /** Overlays mounted per thread, so a remount doesn't count as leaving. */
@@ -17,6 +20,7 @@ export function QuickOpenOverlay(props: { scope: string }) {
     quickOpen,
     useCallback((scope: string | undefined) => scope === props.scope, [props.scope]),
   );
+  useEffect(() => whenIdle(() => void loadDialog()), []);
   // Leaving the thread's screen puts its palette away; it doesn't wait there for a return. A
   // remount (Strict Mode, a kinds reload) mounts it again before the check runs.
   useEffect(() => {
