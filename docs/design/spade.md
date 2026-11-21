@@ -171,7 +171,7 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
   22/28 at 600 (one quiet line under it: "Development" for a development bot, "Full access"
   while the bot is in it, joined by · when both), then Details · Library ·
-  Computer as a segmented control in the body.
+  Computer · Permissions as a segmented control in the body.
 - **Details:** task (with its Earlier versions folded under it), model (one picker, grouped by
   endpoint), machine, voice (Speak replies and the bot's voice, kept on this device), routines,
   making bots (May create bots), apps, security
@@ -201,6 +201,15 @@ Spade is one of ace's places. It adds no navigation of its own.
   none left one sentence says so. A package's colour shows chosen (as "Its package's colour" when
   it isn't a curated one) until the person picks; their pick is kept through updates. A bot with
   an accent rings its 96px head face in it, 2px with a 4px gap.
+- **Permissions:** one line saying the bot uses the default in Settings › Spade unless it sets
+  its own, then one row per switch: its title, one plain line, a switch (Computer use, Browser,
+  Simulators and devices, Apps, Commands outside the sandbox, Network beyond listed sites, Send as
+  you, Payments). A switch the bot sets itself offers Use default. With Computer use on, one quiet
+  line under it says the bot never uses the apps listed in Settings. Turning a switch on without
+  the person's standing shows Confirm it's you in its row; a refusal says why there. Settings ›
+  Spade › Security has the same rows as the default, with "Never let bots use" under Computer use:
+  each app with Remove, and a name to Add. Steps run under a switch show nothing extra in the
+  steps line.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
   words (only exceptions stand out), and Take over only while it drives (it is at work and the
   surface is live, never live alone: Spade keeps a surface live a while after its last use);
