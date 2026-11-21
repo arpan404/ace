@@ -1,0 +1,203 @@
+{
+  "$id": "https://ace.local/protocol/v1/KnownThreadStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "interactions": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "state": {
+          "const": "needs_you",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "interactions"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agents": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "state": {
+          "const": "working",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "agents"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "on": {
+          "enum": [
+            "background_task",
+            "rate_limit",
+            "network",
+            "upstream",
+            "queue"
+          ],
+          "type": "string"
+        },
+        "queuePosition": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "slotLimit": {
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "slotsInUse": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "const": "waiting",
+          "type": "string"
+        },
+        "waitingFor": {
+          "enum": [
+            "storage"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "on"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "limited",
+          "type": "string"
+        },
+        "until": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "failed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "unresponsive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "moved",
+          "type": "string"
+        },
+        "to": {
+          "properties": {
+            "hostId": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            },
+            "name": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "hostId",
+            "name",
+            "threadId"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "state",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "done",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "new",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "raw": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "state": {
+          "const": "unknown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "raw"
+      ],
+      "type": "object"
+    }
+  ]
+}
