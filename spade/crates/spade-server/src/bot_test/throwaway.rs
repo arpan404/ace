@@ -114,6 +114,8 @@ pub(crate) struct Throwaway {
     http: reqwest::Client,
     _folder: tempfile::TempDir,
     stop: Option<oneshot::Sender<()>>,
+    /// The package's components, by path in base64, sent with its install.
+    code: Value,
 }
 
 impl Drop for Throwaway {
@@ -182,7 +184,35 @@ impl Throwaway {
             http: reqwest::Client::builder().no_proxy().build()?,
             _folder: folder,
             stop: Some(stop),
+            code: Value::Object(serde_json::Map::new()),
         })
+    }
+
+    /// Runs the package's own code (ADR 0203 §6): `code` (by path, in base64) installs with it,
+    /// on workers of this binary in the sandbox, offline, every `http` request answered by
+    /// `http`.
+    pub(crate) fn run_code(
+        &mut self,
+        code: Value,
+        http: Arc<dyn crate::code::http::Http>,
+    ) -> Result<(), Failure> {
+        let dir = self._folder.path().to_path_buf();
+        let program = std::env::current_exe()?;
+        let runner = spade_sandbox::Runner::probe(Some(program.clone()));
+        let workers = crate::code::Workers {
+            program,
+            args: vec![spade_wasm::launch::WORKER_ARG.into()],
+            home: dir.join("home"),
+            spade_data: dir.clone(),
+            ace_data: None,
+        };
+        self.engine.set_code(crate::code::Code::new(
+            &dir.join("code"),
+            crate::code::sandboxed(runner, workers),
+            http,
+        ));
+        self.code = code;
+        Ok(())
     }
 
     pub(crate) async fn call(
@@ -234,11 +264,11 @@ async fn secure(
     .await)
 }
 
-/// The install body: every declared effect switched on. With no market signature the package
+/// The install body: every declared effect and every component switched on. With no market signature the package
 /// installs as a local package, linked to `local/<name>` (ADR 0200 §3.2).
-pub(crate) fn install(recipe: &Value, manifest: &Manifest, pages: &Value) -> Value {
+pub(crate) fn install(recipe: &Value, manifest: &Manifest, pages: &Value, code: &Value) -> Value {
     let switches: serde_json::Map<String, Value> = manifest
-        .effect_keys()
+        .switch_keys()
         .into_iter()
         .map(|key| (key, Value::Bool(true)))
         .collect();
@@ -249,6 +279,7 @@ pub(crate) fn install(recipe: &Value, manifest: &Manifest, pages: &Value) -> Val
         "switches": switches,
         "start_routines": false,
         "pages": pages,
+        "code": code,
     })
 }
 
@@ -266,7 +297,7 @@ pub(crate) async fn run_on(
 ) -> Result<(String, Vec<Value>), Failure> {
     let (recipe, manifest, pages) = package;
     let (status, made) = spade
-        .post("/v1/agents", install(recipe, manifest, pages))
+        .post("/v1/agents", install(recipe, manifest, pages, &spade.code))
         .await?;
     if status != 201 {
         return Err(format!("the package didn't install: {}", error_of(&made)).into());
@@ -293,6 +324,10 @@ pub(crate) async fn run_on(
             .and_then(|workspace| workspace.path())
             .map_err(|error| format!("its workspace couldn't be made: {error}"))?;
         seed(&folder)?;
+    }
+    // Its components list their tools before the scenario starts.
+    if let Some(code) = spade.engine.code() {
+        code.list(&agent).await;
     }
     start(spade, scenario, &agent, &conversation).await?;
     Ok((agent, settle(spade, &conversation).await?))

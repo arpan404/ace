@@ -86,7 +86,8 @@
           "schedule",
           "devices",
           "outward",
-          "notify"
+          "notify",
+          "code"
         ]
       }
     },

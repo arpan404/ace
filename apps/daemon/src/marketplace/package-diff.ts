@@ -58,6 +58,23 @@ export function bytesJson(files: readonly ArchiveFile[]): unknown {
   return inlineContractFiles(JSON.parse(bytesText(files)), contractFileReader(files)).bot;
 }
 
+/**
+ * Each component `bot.json` names (ADR 0203 §5), by path, in base64, as Spade takes them beside
+ * the manifest (`code` on install and update). One that isn't in the archive is left out, and
+ * Spade refuses the step for it.
+ */
+export function codeBytes(
+  code: readonly { file: string }[] | undefined,
+  files: readonly ArchiveFile[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const { file } of code ?? []) {
+    const found = files.find((entry) => entry.path === file);
+    if (found) out[file] = Buffer.from(found.content).toString("base64");
+  }
+  return out;
+}
+
 /** The text of each schema file `bot.json`'s contracts name, by path, as Spade takes them. */
 export function contractTexts(files: readonly ArchiveFile[]): Record<string, string> {
   return contractFileTexts(JSON.parse(bytesText(files)), files);

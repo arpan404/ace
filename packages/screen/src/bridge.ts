@@ -11,8 +11,8 @@ import {
   LinkFollow,
   PictureChannel,
   pictureLinkLimits,
+  SetupPictures,
   type PictureTransport,
-  type PictureView,
 } from "@ace/browser/picture-channel";
 import {
   mediaSubscribed,
@@ -279,15 +279,18 @@ export function screenConnection(
               viewer !== undefined && connection !== undefined ? { viewer, connection } : undefined;
             const swap = viewSwap(peer.delivery?.port(), previous?.media, media);
             const now = peer.now ?? (() => performance.now());
-            /** This view's pictures, opened once it is set up (opening replaces the old one's). */
-            let view: PictureView | undefined;
+            /**
+             * This view's pictures, opened once it is set up (opening replaces the old one's).
+             * Joining hands over the session's current picture before then: a still screen's only one.
+             */
+            const early = new SetupPictures();
             // Video for a helper that makes only JPEG; the Mac's helper encodes its own.
             const converter = manager.openPictureVideo({
               host: () => peer.pictureEncoder?.(),
               sessionId,
               now,
               frame: (frame: Frame) => {
-                if (!closed) view?.push(framePicture(frame));
+                if (!closed) early.push(framePicture(frame));
               },
             });
             let stop: (() => void) | undefined;
@@ -300,7 +303,7 @@ export function screenConnection(
                 // ace-media delivers this view on the client's media connection: none of its
                 // pictures go on this socket.
                 if (closed || viewer) return;
-                if (frame.header.codec === "h264") view?.push(framePicture(frame));
+                if (frame.header.codec === "h264") early.push(framePicture(frame));
                 else converter.push(frame);
               });
               state = accelerated(ScreenState.parse(manager.state(sessionId)));
@@ -314,17 +317,18 @@ export function screenConnection(
             swap.commit();
             subscriptions.delete(sessionId);
             previous?.release();
+            const keyframe = () => {
+              if (!converter.keyframe()) void manager.requestKeyframe(sessionId).catch(() => {});
+            };
             const opened = pictures.open(sessionId, {
-              keyframe: () => {
-                if (!converter.keyframe()) void manager.requestKeyframe(sessionId).catch(() => {});
-              },
+              keyframe,
               guard: () => {
                 if (closed) throw new Error("Screen connection closed");
               },
               link: pictureLinkLimits,
               ...(operation.link ? { hint: operation.link } : {}),
             });
-            view = opened;
+            early.open(opened, keyframe);
             const follow = new LinkFollow({
               link: () => opened.link(),
               now,

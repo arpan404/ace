@@ -63,13 +63,15 @@ describe("refreshing an account socket's grant", () => {
   });
 });
 
+/** A member of `org_team` admitted with `role`. */
+const member = (role: string) => ({
+  admitted: true as const,
+  account: "user_m",
+  expiresAt: 50_000,
+  member: { org: "org_team", role, account: "user_m", generation: 1 },
+});
+
 describe("refreshing a member's socket on an organization's host", () => {
-  const member = (role: string) => ({
-    admitted: true as const,
-    account: "user_m",
-    expiresAt: 50_000,
-    member: { org: "org_team", role, account: "user_m", generation: 1 },
-  });
   it.each([
     { case: "the same role moves the expiry on", role: "member", kind: "extended" },
     {

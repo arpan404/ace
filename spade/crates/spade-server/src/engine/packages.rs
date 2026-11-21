@@ -90,6 +90,9 @@ impl Engine {
         if let Some(security) = self.security() {
             security.forget(agent);
         }
+        if let Some(code) = self.code() {
+            code.retire(agent);
+        }
         Ok(())
     }
 

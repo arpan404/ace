@@ -54,29 +54,31 @@ const AppPage = z
   })
   .transform((app): SpadeAppPage => ({ ...app, refused: app.refused ?? undefined }));
 
+/** One panel as Spade lists it. */
+const ListedPanel = z.object({
+  // An app page's id (`app.<connector>.<hash>`) is longer than a package panel's.
+  id: z.string().min(1).max(160),
+  title: z.string().catch(""),
+  page: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullish()
+    .catch(undefined),
+  actions: z.array(z.string()).catch([]),
+  // Unread, none: Spade then refuses such an action from the page, so it never goes
+  // without the person.
+  confirm: z.array(z.object({ name: z.string(), label: z.string() })).catch([]),
+  state: z.unknown().optional(),
+  app: AppPage.optional().catch(undefined),
+});
+
 const Listed = z.object({
   panels: z
     .array(z.unknown())
     .catch([])
     .transform((items) =>
       items.flatMap((item) => {
-        const read = z
-          .object({
-            id: z.string().min(1).max(160),
-            title: z.string().catch(""),
-            page: z
-              .string()
-              .regex(/^[0-9a-f]{64}$/)
-              .nullish()
-              .catch(undefined),
-            actions: z.array(z.string()).catch([]),
-            // Unread, none: Spade then refuses such an action from the page, so it never goes
-            // without the person.
-            confirm: z.array(z.object({ name: z.string(), label: z.string() })).catch([]),
-            state: z.unknown().optional(),
-            app: AppPage.optional().catch(undefined),
-          })
-          .safeParse(item);
+        const read = ListedPanel.safeParse(item);
         if (!read.success) return [];
         const { id, title, page, actions, confirm, state, app } = read.data;
         return [{ id, title: title || id, page: page ?? undefined, actions, confirm, state, app }];

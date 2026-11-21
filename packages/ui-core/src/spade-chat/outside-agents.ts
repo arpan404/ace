@@ -43,9 +43,12 @@ const Agent = z
     };
   });
 
+const Listed = z.object({ agents: z.array(z.unknown()).catch([]) });
+const Added = z.object({ agent: z.unknown() });
+
 /** The agents from Spade's list; none when it can't be read. */
 export function readSpadeOutsideAgents(raw: unknown): SpadeOutsideAgent[] {
-  const read = z.object({ agents: z.array(z.unknown()).catch([]) }).safeParse(raw);
+  const read = Listed.safeParse(raw);
   if (!read.success) return [];
   return read.data.agents.flatMap((item) => {
     const agent = Agent.safeParse(item);
@@ -55,7 +58,7 @@ export function readSpadeOutsideAgents(raw: unknown): SpadeOutsideAgent[] {
 
 /** One agent from Spade's answer to adding it, or undefined. */
 export function readSpadeOutsideAgent(raw: unknown): SpadeOutsideAgent | undefined {
-  const read = z.object({ agent: z.unknown() }).safeParse(raw);
+  const read = Added.safeParse(raw);
   if (!read.success) return undefined;
   const agent = Agent.safeParse(read.data.agent);
   return agent.success ? agent.data : undefined;

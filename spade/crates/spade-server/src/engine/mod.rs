@@ -45,6 +45,7 @@ mod outside_admit;
 mod replays;
 pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
+mod code;
 mod made;
 mod maintenance;
 mod media;
@@ -71,6 +72,7 @@ mod routing;
 mod running;
 mod search;
 mod security;
+pub use code::CodeCall;
 mod self_edit;
 mod services;
 mod speech;
@@ -311,6 +313,8 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// The package code this Spade runs (ADR 0203), once set up.
+    code: std::sync::OnceLock<Arc<crate::code::Code>>,
     /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
     local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
     /// Local models whose checks run now (ADR 0205 §3, `local_probes`).
@@ -466,6 +470,7 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            code: std::sync::OnceLock::new(),
             local_servers: Mutex::new(None),
             probing: local_probes::Probing::default(),
             workers: workers::Shared::default(),
@@ -656,6 +661,7 @@ impl Engine {
                 .filter(|called| called.machine.is_some())
                 .map(|called| called.call.clone())
                 .collect(),
+            code: spade_core::running::code_in(events.iter()),
         };
         self.activity
             .lock()

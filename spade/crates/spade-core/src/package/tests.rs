@@ -317,6 +317,7 @@ fn link_of(manifest: Manifest, on: &[&str]) -> Link {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
+        code: Default::default(),
     }
 }
 
