@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "vitest";
-import { Worker } from "node:worker_threads";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
@@ -12,12 +11,13 @@ import {
   nativeId,
   init,
   roomySnapshots,
+  readerHooks,
 } from "./test-support.ts";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
-test("warm cached scans perform no actual FileHandle transcript reads even across restarts", async () => {
+test("warm cached scans open no transcript for content, even across restarts", async () => {
   const env = await environment();
   cleanup.push(env.close);
   const home = join(env.root, "claude"),
@@ -29,13 +29,9 @@ test("warm cached scans perform no actual FileHandle transcript reads even acros
     instances: [{ id: "account", provider: "claude" as const, homeDir: home }],
     snapshot: roomySnapshots,
   };
-  const spawn = (url: URL, workerOptions: import("node:worker_threads").WorkerOptions) =>
-    new Worker(url, {
-      ...workerOptions,
-      execArgv: ["--import", new URL("./read-trace.ts", import.meta.url).href],
-      env: { ...process.env, ACE_TEST_READ_LOG: log },
-    });
-  const service = await openHistory(options, spawn);
+  // ace-history's test hooks log every file it opens for content.
+  const runtime = readerHooks({ readLog: log });
+  const service = await openHistory(options, runtime);
   cleanup.unshift(() => service.close());
   await service.scan();
   const cold = await readFile(log, "utf8");
@@ -43,7 +39,7 @@ test("warm cached scans perform no actual FileHandle transcript reads even acros
   await service.scan();
   expect(await readFile(log, "utf8")).toBe(cold);
   await service.close();
-  const restarted = await openHistory(options, spawn);
+  const restarted = await openHistory(options, runtime);
   cleanup.unshift(() => restarted.close());
   await restarted.scan();
   expect(await readFile(log, "utf8")).toBe(cold);

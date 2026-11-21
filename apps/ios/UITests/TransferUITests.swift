@@ -1,7 +1,8 @@
 import XCTest
 
-/// Continue on… with two fixture machines (ADR 0101): the thread menu, the machine sheet, the
-/// options, the sending line above the composer, then the new thread on the other machine.
+/// Continue on… with two fixture machines (ADR 0101): a moved thread's row, the thread menu, the
+/// machine sheet and its Allow projects step, the options, the sending line above the composer,
+/// then the new thread on the other machine.
 /// Start the first fixture linked to the second, then launch this:
 /// `ACE_IOS_SPIKE_PORT=9961 ACE_IOS_SPIKE_MACHINE=1 ACE_IOS_SPIKE_PEER=9962 bun run spike:daemon`.
 /// `TEST_RUNNER_ACE_IOS_SPIKE_MACHINES` picks other ports and `TEST_RUNNER_ACE_IOS_SHOTS` a
@@ -16,8 +17,33 @@ import XCTest
         app.launchWithArguments()
         let source = "ios-spike-host-\(ports[0])", target = "ios-spike-host-\(ports[1])", name = "studio-\(ports[1])"
         let row = "thread.\(source).ios-done"
-        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
-        for _ in 0..<10 where !app.buttons[row].isHittable { app.swipeUp() }
+        // The Threads list's Inbox control is its readiness: waitForInbox flings a list that
+        // opened scrolled back to its top, and revealRow scrolls to the row from there.
+        let ready = app.waitForInbox(timeout: 30)
+        screenshot("00-launch")
+        XCTAssertTrue(ready, "the Threads list never showed:\n\(app.debugDescription.prefix(6000))")
+
+        // A thread whose work moved there (ADR 0191) says so on its row, never its age, and its
+        // long-press menu opens it on that machine.
+        let moved = app.revealRow("thread.\(source).ios-moved")
+        XCTAssertTrue(moved.label.contains("Moved to \(name)"), "the moved row names where its work went: \(moved.label)")
+        screenshot("0-moved-row")
+        // A context menu's items reach XCTest by their words, not their identifiers. A press the
+        // list takes as the start of a scroll opens no menu: press again.
+        let openThere = app.buttons["Open on \(name)"].firstMatch
+        for _ in 0..<3 where !openThere.exists {
+            moved.press(forDuration: 1.2)
+            _ = openThere.waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(openThere.exists, "the moved row's menu offers Open on \(name)")
+        screenshot("0b-moved-menu")
+        // Outside the menu and its preview, beside them: the menu closes and nothing opens.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: openThere)
+        wait(for: [gone], timeout: 10)
+        // Back to the list's top, as a person would: tapping its tab again scrolls it up.
+        app.homeTab("threads").tap()
+
         app.revealRow(row).tap()
 
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
@@ -39,6 +65,16 @@ import XCTest
         XCTAssertTrue(offline.exists, "an offline machine stays listed")
         XCTAssertFalse(offline.isEnabled, "and can't be chosen")
         screenshot("2-machines")
+        // One that doesn't take this machine's projects says why, with Allow projects where it can.
+        let desk = app.buttons["transfer.machine.ios-spike-desk"]
+        XCTAssertTrue(desk.isEnabled, "a machine that doesn't take projects can be chosen")
+        desk.tap()
+        let why = app.staticTexts["transfer.allow.words"].firstMatch
+        XCTAssertTrue(why.waitForExistence(timeout: 10))
+        XCTAssertTrue(why.label.hasPrefix("Desk doesn't take projects from"), why.label)
+        screenshot("2b-allow")
+        app.buttons["transfer.back"].tap()
+        XCTAssertTrue(machine.waitForExistence(timeout: 10))
         machine.tap()
 
         let send = app.buttons["transfer.send"]

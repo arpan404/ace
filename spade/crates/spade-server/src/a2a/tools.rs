@@ -2,8 +2,14 @@
 //! found with `tool_search`, each call read as `send_as_person`, so it goes to the person every
 //! call. A call sends one message whose id is the call's key (so a call run again after a restart
 //! reaches the same task, never a second new one), then reads the task with backoff until it
-//! ends; a long one goes on as the bot's background job. Stop cuts the call off, and its task is
-//! cancelled (`CancelTask`), sent until the agent answers.
+//! ends; a long one goes on as the bot's background job. Every result, an error included, is
+//! marked untrusted: it carries the other party's words.
+//!
+//! Stop cuts the call off, and whatever task it opened is cancelled: a message still being sent
+//! is left to finish (it is bounded by the client's timeout) so a task it opens is cancelled too,
+//! and a task is held until an answer shows it ended (a call that ends otherwise, given up or
+//! interrupted, cancels it as well). A cancel counts only once the agent answers that the task
+//! ended; one it never confirms is listed on the agent as possibly still running.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,7 +23,7 @@ use spade_store::Store;
 use super::card::Skill;
 use super::client::{A2aClient, Unreached};
 use super::task::{self, Step};
-use super::{Added, OutsideAgents};
+use super::{Added, OutsideAgents, Unconfirmed};
 use crate::tools::{Tool, ToolFuture, ToolOutput, ToolSource};
 
 /// Spade's A2A extension: a message names the skill it is for under it, which Spade's own A2A
@@ -57,11 +63,13 @@ impl ToolSource for OutsideAgentSource {
             .into_iter()
             .flat_map(|added| {
                 let client = self.agents.client().clone();
+                let unconfirmed = self.agents.unconfirmed();
                 added.card.skills.clone().into_iter().map(move |skill| {
                     Arc::new(SkillCall {
                         agent: added.clone(),
                         skill,
                         client: client.clone(),
+                        unconfirmed: unconfirmed.clone(),
                     }) as Arc<dyn Tool>
                 })
             })
@@ -73,6 +81,7 @@ struct SkillCall {
     agent: Added,
     skill: Skill,
     client: A2aClient,
+    unconfirmed: Arc<Unconfirmed>,
 }
 
 impl SkillCall {
@@ -146,8 +155,13 @@ impl Tool for SkillCall {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        let client = self.client.clone();
-        let endpoint = self.agent.agent.endpoint.clone();
+        let stopper = Stopper {
+            client: self.client.clone(),
+            endpoint: self.agent.agent.endpoint.clone(),
+            local: self.agent.agent.local,
+            agent: self.agent.agent.id.clone(),
+            unconfirmed: self.unconfirmed.clone(),
+        };
         let agent = self.agent.agent.name.clone();
         let skill = self.skill.id.clone();
         let message = json!({
@@ -156,123 +170,193 @@ impl Tool for SkillCall {
             "parts": self.parts(&arguments),
             "metadata": { EXTENSION: { "skill": skill } },
         });
-        Box::pin(async move {
-            let mut cancel = Cancel {
-                client: client.clone(),
-                endpoint: endpoint.clone(),
-                task: Arc::new(Mutex::new(None)),
-            };
-            let sent = client
-                .call(
-                    &endpoint,
-                    "SendMessage",
-                    json!({ "message": message, "configuration": { "returnImmediately": true } }),
-                )
-                .await;
-            let answer = match sent {
-                Ok(answer) => answer,
-                Err(Unreached::NotSent(why)) => {
-                    return ToolOutput::error(format!("Not sent: {why}. It is safe to try again."));
-                }
-                Err(Unreached::Unknown(why)) => {
-                    return ToolOutput::maybe_ran(format!(
-                        "{} ({why})",
-                        spade_core::context::MAYBE_RAN
-                    ));
-                }
-                Err(Unreached::Refused { message, .. }) => {
-                    return ToolOutput::error(format!(
-                        "{agent} refused it: \"{message}\" (its words, untrusted)"
-                    ));
-                }
-            };
-            let (mut id, mut step) = task::read(&answer, &agent, &skill);
-            cancel.hold(id.clone());
-            let mut wait = FIRST_POLL;
-            let mut failed = 0;
-            while step == Step::Working {
-                let Some(task) = id.clone() else { break };
-                tokio::time::sleep(wait).await;
-                wait = (wait * 3 / 2).min(LONGEST_POLL);
-                match client
-                    .call(&endpoint, "GetTask", json!({ "id": task }))
-                    .await
-                {
-                    Ok(answer) => {
-                        failed = 0;
-                        let (read_id, read) = task::read(&answer, &agent, &skill);
-                        id = read_id.or(id);
-                        step = read;
-                    }
-                    Err(Unreached::Refused { message, .. }) => {
-                        step = Step::Ended(format!("{agent} lost the task: \"{message}\""));
-                    }
-                    Err(_) if failed + 1 < MOST_FAILED_READS => failed += 1,
-                    Err(error) => {
-                        step = Step::Ended(format!("{agent} couldn't be read: {error}"));
-                    }
-                }
-            }
-            // It ended on its own: nothing to cancel.
-            cancel.hold(None);
-            let output = match step {
-                Step::Done(text) => ToolOutput::ok(text),
-                Step::Waiting(text) => ToolOutput::ok(format!(
-                    "{agent} asks for more before it goes on. Ask the person; their answer is \
-                     theirs to give, not the agent's:\n{text}"
-                )),
-                Step::NeedsSignIn => ToolOutput::error(format!(
-                    "{agent} needs a sign-in Spade doesn't hold for it."
-                )),
-                Step::Ended(why) => ToolOutput::error(why),
-                Step::Working => ToolOutput::error(format!("{agent} gave no task to follow.")),
-            };
-            ToolOutput {
-                untrusted: true,
-                ..output
-            }
-        })
+        // Every way out carries the agent's (or its server's) words.
+        Box::pin(async move { call(stopper, agent, skill, message).await.untrusted() })
     }
 }
 
-/// Cancels the call's task when the call is cut off (Stop) before the task ended.
-struct Cancel {
+async fn call(stopper: Stopper, agent: String, skill: String, message: Value) -> ToolOutput {
+    let track = Track {
+        shared: Arc::default(),
+        stopper: stopper.clone(),
+    };
+    // Sent on its own, so a Stop while it is in flight doesn't lose the task it opens.
+    let submission = {
+        let (shared, stopper) = (track.shared.clone(), stopper.clone());
+        tokio::spawn(async move {
+            let params =
+                json!({ "message": message, "configuration": { "returnImmediately": true } });
+            let sent = stopper
+                .client
+                .call(&stopper.endpoint, stopper.local, "SendMessage", params)
+                .await;
+            if let Ok(answer) = &sent
+                && !task::settled(answer)
+                && let Some(task) = task::id_of(answer)
+            {
+                Track::hold(&shared, &stopper, task);
+            }
+            sent
+        })
+    };
+    let sent = submission
+        .await
+        .unwrap_or_else(|_| Err(Unreached::Unknown("its answer was lost".to_owned())));
+    let answer = match sent {
+        Ok(answer) => answer,
+        Err(Unreached::NotSent(why)) => {
+            return ToolOutput::error(format!("Not sent: {why}. It is safe to try again."));
+        }
+        Err(Unreached::Unknown(why)) => {
+            return ToolOutput::maybe_ran(format!("{} ({why})", spade_core::context::MAYBE_RAN));
+        }
+        Err(Unreached::Refused { message, .. }) => {
+            return ToolOutput::error(format!(
+                "{agent} refused it: \"{message}\" (its words, untrusted)"
+            ));
+        }
+    };
+    let (mut id, mut step) = task::read(&answer, &agent, &skill);
+    let mut wait = FIRST_POLL;
+    let mut failed = 0;
+    while step == Step::Working {
+        let Some(task) = id.clone() else { break };
+        tokio::time::sleep(wait).await;
+        wait = (wait * 3 / 2).min(LONGEST_POLL);
+        match stopper
+            .client
+            .call(
+                &stopper.endpoint,
+                stopper.local,
+                "GetTask",
+                json!({ "id": task }),
+            )
+            .await
+        {
+            Ok(answer) => {
+                failed = 0;
+                if task::settled(&answer) {
+                    track.settle();
+                }
+                let (read_id, read) = task::read(&answer, &agent, &skill);
+                id = read_id.or(id);
+                step = read;
+            }
+            // Not known to have ended: its task stays held, and is cancelled as the call ends.
+            Err(Unreached::Refused { message, .. }) => {
+                step = Step::Ended(format!("{agent} lost the task: \"{message}\""));
+            }
+            Err(_) if failed + 1 < MOST_FAILED_READS => failed += 1,
+            Err(error) => {
+                step = Step::Ended(format!("{agent} couldn't be read: {error}"));
+            }
+        }
+    }
+    match step {
+        Step::Done(text) => ToolOutput::ok(text),
+        Step::Waiting(text) => ToolOutput::ok(format!(
+            "{agent} asks for more before it goes on. Ask the person; their answer is \
+             theirs to give, not the agent's:\n{text}"
+        )),
+        Step::NeedsSignIn => ToolOutput::error(format!(
+            "{agent} needs a sign-in Spade doesn't hold for it."
+        )),
+        Step::Ended(why) => ToolOutput::error(why),
+        Step::Working => ToolOutput::error(format!("{agent} gave no task to follow.")),
+    }
+}
+
+/// How to cancel one agent's tasks, and where a cancel it never confirms is noted.
+#[derive(Clone)]
+struct Stopper {
     client: A2aClient,
     endpoint: String,
-    task: Arc<Mutex<Option<String>>>,
+    local: bool,
+    agent: String,
+    unconfirmed: Arc<Unconfirmed>,
 }
 
-impl Cancel {
-    fn hold(&mut self, task: Option<String>) {
-        *self.task.lock().unwrap_or_else(|p| p.into_inner()) = task;
+impl Stopper {
+    /// Cancels `task` on its own: the call it came from is over.
+    fn cancel(&self, task: String) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            self.unconfirmed.note(&self.agent, &task);
+            return;
+        };
+        let stopper = self.clone();
+        runtime.spawn(async move {
+            if !stopper.cancelled(&task).await {
+                tracing::warn!(%task, "an outside agent never confirmed its task was cancelled");
+                stopper.unconfirmed.note(&stopper.agent, &task);
+            }
+        });
+    }
+
+    /// Whether the agent answered that `task` ended: `CancelTask`, then the task read, until an
+    /// answer says so. An answer that the cancel was taken (the task still working), a refusal or
+    /// no answer establishes nothing.
+    async fn cancelled(&self, task: &str) -> bool {
+        let id = json!({ "id": task });
+        let mut wait = FIRST_POLL;
+        for _ in 0..CANCEL_TRIES {
+            for method in ["CancelTask", "GetTask"] {
+                if let Ok(answer) = self
+                    .client
+                    .call(&self.endpoint, self.local, method, id.clone())
+                    .await
+                    && task::settled(&answer)
+                {
+                    return true;
+                }
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(LONGEST_POLL);
+        }
+        false
     }
 }
 
-impl Drop for Cancel {
+/// The task a call opened and not yet seen end, shared with its submission.
+#[derive(Default)]
+struct Tracked {
+    task: Option<String>,
+    /// The call is over: cut off by Stop, or returned.
+    over: bool,
+}
+
+/// Holds the call's task until it is seen to end; when the call is over first, cancels it.
+struct Track {
+    shared: Arc<Mutex<Tracked>>,
+    stopper: Stopper,
+}
+
+impl Track {
+    /// The submission opened `task`: held, or cancelled at once if the call is over already.
+    fn hold(shared: &Mutex<Tracked>, stopper: &Stopper, task: String) {
+        let mut tracked = shared.lock().unwrap_or_else(|p| p.into_inner());
+        if tracked.over {
+            drop(tracked);
+            stopper.cancel(task);
+        } else {
+            tracked.task = Some(task);
+        }
+    }
+
+    /// The task was seen to end: nothing to cancel.
+    fn settle(&self) {
+        self.shared.lock().unwrap_or_else(|p| p.into_inner()).task = None;
+    }
+}
+
+impl Drop for Track {
     fn drop(&mut self) {
-        let Some(task) = self.task.lock().unwrap_or_else(|p| p.into_inner()).take() else {
-            return;
+        let task = {
+            let mut tracked = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+            tracked.over = true;
+            tracked.task.take()
         };
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            return;
-        };
-        let (client, endpoint) = (self.client.clone(), self.endpoint.clone());
-        runtime.spawn(async move {
-            let mut wait = FIRST_POLL;
-            for _ in 0..CANCEL_TRIES {
-                match client
-                    .call(&endpoint, "CancelTask", json!({ "id": task }))
-                    .await
-                {
-                    // Any answer is an answer: cancelled, or it ended already.
-                    Ok(_) | Err(Unreached::Refused { .. }) => return,
-                    Err(_) => {
-                        tokio::time::sleep(wait).await;
-                        wait = (wait * 2).min(LONGEST_POLL);
-                    }
-                }
-            }
-            tracing::warn!(%task, "an outside agent's task could not be cancelled");
-        });
+        if let Some(task) = task {
+            self.stopper.cancel(task);
+        }
     }
 }

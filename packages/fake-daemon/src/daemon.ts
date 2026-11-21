@@ -74,7 +74,7 @@ import { fencedDelivery, listActionChanged, staleInterrupt } from "./command-fen
 import { permissionUpdate, switchUpdate } from "./thread-updates.ts";
 import { readTextSource } from "./text-source.ts";
 import { numberedRun } from "./run-turns.ts";
-import { historyPage, windowSnapshot } from "./window.ts";
+import { historyPage, tailSnapshot, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 import { entityPage } from "./entity-pages.ts";
@@ -1024,12 +1024,17 @@ export class FakeDaemon implements Host {
     )
       this.append(host, [{ type: "thread.client.updated", changes }], at);
   }
-  snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined {
+  snapshot(
+    scope: SubscriptionScope,
+    tail?: { items: number; bytes: number },
+  ): ThreadView | ThreadListView | undefined {
     if (scope.kind === "threads") return { ...structuredClone(this.list), seq: this.seq };
     const host = this.threads.get(scope.threadId);
-    return host && host.view.thread.deletedAt === undefined
-      ? windowSnapshot(host.view, host.creation, this.options.snapshotItems ?? 200, this.seq)
-      : undefined;
+    if (!host || host.view.thread.deletedAt !== undefined) return undefined;
+    const limit = this.options.snapshotItems ?? 200;
+    return tail
+      ? tailSnapshot(host.view, host.creation, tail, limit, this.seq)
+      : windowSnapshot(host.view, host.creation, limit, this.seq);
   }
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[] {
     return this.log.filter((event) => event.seq > afterSeq && matches(scope, event));

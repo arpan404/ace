@@ -41,7 +41,6 @@ import QuartzCore
             .environment(account)
             .task { await account.restore() }
             .modifier(PhoneAppearance())
-            .overlay(alignment: .topLeading) { PerfProbeView() }
             .overlay(alignment: .topLeading) { LaunchProbeView() }
         }
         .commands {

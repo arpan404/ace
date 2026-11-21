@@ -315,6 +315,10 @@ async fn world_built(
         root: root.clone(),
         home: home.clone(),
     });
+    let options = super::Options {
+        person_key: Some(person_key.clone()),
+        ..options
+    };
     let spade = Spade::start_with(scripts, tools, options).await?;
     bots.set(&spade.engine);
     let runner = if sandboxed {

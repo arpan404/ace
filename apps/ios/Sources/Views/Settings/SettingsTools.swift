@@ -3,7 +3,7 @@ import SwiftUI
 /// The tools each paired machine offers, reached from Settings › Tools on that machine's own
 /// connection.
 enum SettingsTool: String, Hashable, CaseIterable {
-    case agents, projects, automations, usage, skills, providers, sourceControl, prompts, computer, devices
+    case agents, projects, automations, usage, skills, providers, spade, sourceControl, prompts, computer, devices
 
     var title: String {
         switch self {
@@ -13,24 +13,11 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .usage: "Usage"
         case .skills: "Skills and plugins"
         case .providers: "Providers"
+        case .spade: "Spade"
         case .sourceControl: "Source control"
         case .prompts: "Prompts"
         case .computer: "Computer use"
         case .devices: "Simulators and devices"
-        }
-    }
-    var symbol: String {
-        switch self {
-        case .agents: "person.2"
-        case .projects: "folder"
-        case .automations: "clock.arrow.circlepath"
-        case .usage: "chart.bar"
-        case .skills: "book"
-        case .providers: "person.crop.circle"
-        case .sourceControl: "arrow.triangle.branch"
-        case .prompts: "text.alignleft"
-        case .computer: "macwindow"
-        case .devices: "iphone"
         }
     }
     /// The tool's glyph in More, as the approved mockup draws them.
@@ -42,6 +29,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .usage: .chartBar
         case .skills: .sparkle
         case .providers: .plugsConnected
+        case .spade: .smiley
         case .sourceControl: .gitBranch
         case .prompts: .textAlignLeft
         case .computer: .aceComputerUse
@@ -74,6 +62,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .usage: UsageView(inbox: inbox, machine: machine)
         case .skills: SkillsLibraryView(model: model)
         case .providers: ProviderSettingsView(model: model)
+        case .spade: SpadeSettingsView(client: model)
         case .sourceControl: SourceControlView(model: model)
         case .prompts: PromptsView(model: model)
         case .computer: RemoteScreenView(model: model)
@@ -92,6 +81,11 @@ struct SettingsTools: View {
         inbox.sessions.contains { $0.hostId == machine } ? machine : inbox.sessions.first?.hostId ?? ""
     }
 
+    /// Spade's settings show only for a machine that shows Spade (Settings › Beta, ADR 0139).
+    private func shows(_ tool: SettingsTool) -> Bool {
+        tool != .spade || inbox.client(hostId)?.spade.shown == true
+    }
+
     var body: some View {
         if !inbox.sessions.isEmpty {
             Section {
@@ -104,7 +98,7 @@ struct SettingsTools: View {
                     }
                     .accessibilityIdentifier("settings.tools.machine")
                 }
-                ForEach(SettingsTool.allCases.filter { !leaving.contains($0) }, id: \.self) { tool in
+                ForEach(SettingsTool.allCases.filter { !leaving.contains($0) && shows($0) }, id: \.self) { tool in
                     GroupLink(.tool(tool, machine: hostId)) { InsetRow(tool.shortTitle, icon: tool.icon) }
                         .accessibilityIdentifier(tool.identifier)
                 }

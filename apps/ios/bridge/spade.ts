@@ -440,6 +440,27 @@ export class NativeSpade {
     this.put();
   }
 
+  /** Spade's state and whether the machine's setting runs it, as last read. */
+  get setting(): { status: SpadeStatus | undefined; enabled: boolean | undefined } {
+    return { status: this.status, enabled: this.enabled };
+  }
+
+  /** Why Spade can't answer now, in a sentence ("Spade is starting."). */
+  get placeSentence(): string {
+    return spadePlaceLine(this.status, this.enabled).sentence;
+  }
+
+  /** The setting as a change from this phone just left it, before the daemon says so. */
+  enabledNow(on: boolean): void {
+    this.enabled = on;
+    this.put();
+  }
+
+  /** Each bot's name by its id, as the list last read them. */
+  get names(): ReadonlyMap<string, string> {
+    return new Map((this.agents ?? []).map((agent) => [agent.id, agent.name]));
+  }
+
   /** The machine's name, for a profile's Runs on. */
   get machineName(): string {
     return this.machine ?? "This machine";

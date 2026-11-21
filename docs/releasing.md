@@ -2,6 +2,8 @@
 
 Every installed app checks GitHub releases and updates itself from them
 ([ADR 0091](adr/0091-desktop-auto-update.md)).
+The iPhone and iPad app goes through App Review instead: see
+[releasing-ios-app-store.md](releasing-ios-app-store.md).
 
 **A release normally starts from a tag.** Pushing `vX.Y.Z` or `ace-X.Y.Z-beta-N` runs
 `.github/workflows/release.yml` on ace's own runners: it builds every platform, writes the

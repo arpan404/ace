@@ -15,7 +15,10 @@ const problem = (status: number, error: string) => reply({ error }, status);
 
 export class FakeSpadeSearch {
   searxngUrl: string | null = null;
+  /** A Brave key kept in the keychain. */
   braveKeySet = false;
+  /** BRAVE_API_KEY is set in Spade's environment; the keychain's key wins over it. */
+  braveEnv = false;
 
   /** `GET`/`PUT /v1/search` and `PUT`/`DELETE /v1/search/brave-key`. */
   route(method: string, sub: string | undefined, body: Json, keychain: boolean): FakeSpadeAnswer {
@@ -42,6 +45,11 @@ export class FakeSpadeSearch {
         return problem(400, "the SearXNG address must start with http:// or https://");
       this.searxngUrl = url ? (url.endsWith("/") ? url : `${url}/`) : null;
     } else if (method !== "GET") return problem(405, "Not allowed.");
-    return reply({ searxng_url: this.searxngUrl, brave_key_set: this.braveKeySet, keychain });
+    return reply({
+      searxng_url: this.searxngUrl,
+      brave_key_set: this.braveKeySet || this.braveEnv,
+      brave_key_source: this.braveKeySet ? "keychain" : this.braveEnv ? "environment" : null,
+      keychain,
+    });
   }
 }

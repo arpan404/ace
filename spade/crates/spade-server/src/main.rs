@@ -537,8 +537,10 @@ async fn run() -> Result<(), Failure> {
         .with_forms(bots.clone()),
     ));
     // The person's outside A2A agents (ADR 0202 §5): each skill a tool, every call theirs.
-    let outside_agents =
-        spade_server::a2a::OutsideAgents::open(Store::open(&home.database()).map_err(other)?);
+    let outside_agents = spade_server::a2a::OutsideAgents::open(
+        Store::open(&home.database()).map_err(other)?,
+        spade_connect::Addresses::system(),
+    );
     tools = tools.with_source(Arc::new(spade_server::a2a::tools::OutsideAgentSource::new(
         outside_agents.clone(),
         Store::open(&home.database()).map_err(other)?,

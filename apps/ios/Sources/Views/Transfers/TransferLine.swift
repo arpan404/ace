@@ -4,6 +4,8 @@ import SwiftUI
 /// folder there) and a way to open one of their threads in the inbox.
 struct OtherMachines {
     var client: @MainActor (String) -> ClientModel? = { _ in nil }
+    /// A machine's name as this phone calls it.
+    var name: @MainActor (String) -> String? = { _ in nil }
     /// Opens that machine's thread on the Threads tab; false when this phone can't show it.
     /// Nil where nothing can be opened from (inside Settings).
     var open: (@MainActor (InboxKey) -> Bool)? = nil

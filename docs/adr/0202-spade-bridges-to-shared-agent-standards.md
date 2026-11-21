@@ -441,3 +441,47 @@ the person and sends nothing before, its result is untrusted, Stop sends `Cancel
 `spade-server`; the card check against a card signed by the daemon's own signer; `@ace/html`'s
 `mcp-app.test.ts`, the web's `use-mcp-app-host.test.tsx` and `spade-outside-agents.test.tsx`; and
 the real-Electron `mcp-app-isolation.process.test.ts`.
+
+## Amendment 4: inbound, after its security review
+
+Accepted 2026-11-21, after a security review of amendment 3 as built. Each point replaces what
+amendment 3 says where they differ.
+
+1. **A remote agent reaches only the public internet.** An outside agent is remote unless the
+   person adds it as local (`local: true`, "On my own machine or network"). A remote agent's card,
+   key sets and endpoint, whatever its card names, are held to the connectors' sign-in rules
+   (`spade_connect::oauth::Net`): https, every address the name resolves to public and not this
+   machine's own or on its links, and the request connects only to the addresses checked, with no
+   proxy and no redirect, so a second DNS answer can't swap them. The endpoint is checked when the
+   agent is added and again on every call. Only a local agent may reach local or private
+   addresses, or plain http on loopback. Agents kept before this have no `local` and read remote.
+2. **Answers are bounded as they arrive.** A card, key set or task answer is counted while it
+   streams and dropped at 256 KiB, before it is parsed.
+3. **Stop leaves nothing it knows of running, and says so only when it is so.** A message still
+   being sent at Stop is left to finish (the client's 20 s timeout bounds it), so a task it opens
+   is cancelled too. A call holds its task until an answer shows it ended (completed, failed,
+   rejected or canceled); a call that ends otherwise (given up, the task lost, or waiting on input
+   or a sign-in Spade won't give) cancels it as well. A cancel counts only when `CancelTask` or a
+   later `GetTask` answers that the task ended; one the agent never confirms is listed on the
+   agent (`unconfirmed_stops`) as possibly still running, never as stopped.
+4. **An MCP app's page sends text only.** The page bridge gives the page a stand-in `parent` (a
+   message port: a window would be a fresh realm with unguarded constructors) whose `postMessage`
+   writes each message as JSON text and holds it to the panel bound before it leaves; a request
+   over it is answered in the page. The outer document takes strings only, refuses one over the
+   bound on its length before reading it, and parses only then, before the activation check, as a
+   package panel's does. An object posted to it is dropped without being stringified.
+5. **Every A2A result is untrusted.** Errors and refusals carry the agent's words too, so every
+   way out of a skill call is marked untrusted, and the engine keeps a tool's `untrusted_output`
+   on each stored result (foreground or job), so the mark survives the tool leaving the bot's
+   list.
+6. **Each signature has its own keys.** Every signature (at most four) is checked only against
+   the key set at its own `jku`, which must be on the card's origin; one signature's keys never
+   vouch for another.
+
+Tests: `a2a::client`'s (a remote agent's requests never reach local or private addresses, a
+request connects to the checked address, an endless answer is cut off at 256 KiB),
+`a2a::card`'s and `a2a::task`'s tables, and `a2a_agents.rs` (an agent on this machine is reached
+only once added as local; a signature is checked only against its own key set; Stop during the
+send cancels the task it opens; an unconfirmed cancel is listed; a call that ends before its task
+cancels it; a refusal is kept untrusted); the real-Electron `mcp-app-isolation.process.test.ts`
+(an object posted past the page bridge never crosses); and `spade-outside-agents.test.tsx`.

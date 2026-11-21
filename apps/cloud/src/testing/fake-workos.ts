@@ -59,6 +59,8 @@ export async function fakeWorkos() {
     await hold.released;
   }
   let failure: "invalid_grant" | "unavailable" | undefined;
+  let deleteFailure = false;
+  const deleted: string[] = [];
   let barrier: Promise<void> | undefined;
   let entered: (() => void) | undefined;
   let issued = 0;
@@ -100,6 +102,19 @@ export async function fakeWorkos() {
         }
         if (request.url === "/pictures/not-an-image")
           return reply(response, 200, { message: "not an image" });
+        // Deleting a user ends their refresh tokens; one already gone answers 404.
+        const deleting = request.url?.match(/^\/user_management\/users\/([^/]+)$/)?.[1];
+        if (deleting && request.method === "DELETE") {
+          if (request.headers.authorization !== "Bearer sk_test_backend")
+            return reply(response, 401, { message: "Unauthorized" });
+          if (deleteFailure) return send(500, { message: "Internal error" });
+          const id = decodeURIComponent(deleting);
+          if (deleted.includes(id)) return send(404, { message: "Not found" });
+          for (const [token, held] of refreshTokens)
+            if (held.id === id) refreshTokens.delete(token);
+          deleted.push(id);
+          return send(202, {});
+        }
         if (request.url !== "/user_management/authenticate" || request.method !== "POST") {
           // The JWKS is public; every other WorkOS API needs the API key.
           const publicPath = request.url === "/sso/jwks/client_test";
@@ -223,6 +238,12 @@ export async function fakeWorkos() {
       holds.push({ matches, when, entered: started.resolve, released: released.promise });
       return { started: started.promise, release: () => released.resolve() };
     },
+    /** While on, deleting a user answers 500. */
+    failDeletes(on: boolean) {
+      deleteFailure = on;
+    },
+    /** The users WorkOS was asked to delete, in order. */
+    deletedUsers: () => [...deleted],
     /** Answers the next `times` requests `matches` picks with `status`, doing nothing. */
     failNext(matches: (request: FakeRequest) => boolean, status = 500, times = 1) {
       failures.push({ matches, status, left: times });

@@ -12,10 +12,12 @@
   },
   "dependencies": {
     "@ace/adapter-pi": "workspace:*",
+    "@ace/files-native": "workspace:*",
     "@ace/native-session": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/service": "workspace:*",
     "zod": "^4.6.5"
   }
 }

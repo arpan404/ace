@@ -10,7 +10,8 @@ const reply = (body: unknown, status = 200): FakeSpadeAnswer => ({
 /**
  * The person's outside A2A agents (ADR 0202 §5) as Spade serves them at `/v1/a2a-agents`: an
  * address added is answered from `cards` (address to the agent Spade would read there), or
- * refused with `refusals`' words, as Spade refuses a card it can't call.
+ * refused with `refusals`' words, as Spade refuses a card it can't call. An agent is local only
+ * when the person added it so (`local: true`).
  */
 export class FakeSpadeA2aAgents {
   readonly agents: Json[] = [];
@@ -24,8 +25,9 @@ export class FakeSpadeA2aAgents {
       const address = typeof body.address === "string" ? body.address : "";
       const refused = this.refusals.get(address);
       if (refused) return reply({ error: refused }, 400);
-      const agent = this.cards.get(address);
-      if (!agent) return reply({ error: "Its card couldn't be read." }, 400);
+      const card = this.cards.get(address);
+      if (!card) return reply({ error: "Its card couldn't be read." }, 400);
+      const agent = { ...card, local: body.local === true };
       this.agents.push(agent);
       return reply({ agent }, 201);
     }

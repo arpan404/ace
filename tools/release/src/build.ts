@@ -14,6 +14,7 @@ import { assertLinuxRuntimeFloor } from "./glibc.ts";
 import { linuxScreenHelperPath, stageLinuxScreenHelper } from "./screen-helper-assets.ts";
 import { stageAceMedia } from "./ace-media.ts";
 import { stageAceFiles } from "./ace-files.ts";
+import { stageAceHistory } from "./ace-history.ts";
 import { stageSpade } from "./spade.ts";
 async function main() {
   const version = ReleaseVersion.parse(process.argv[2]);
@@ -62,6 +63,7 @@ async function main() {
     },
     () => stageAceMedia({ repo, root, target, version, env: process.env }),
     () => stageAceFiles({ repo, root, target, env: process.env }),
+    () => stageAceHistory({ repo, root, target, env: process.env }),
     () => cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE")),
     async () => {
       if (target !== "linux-x64" && target !== "linux-arm64") return;

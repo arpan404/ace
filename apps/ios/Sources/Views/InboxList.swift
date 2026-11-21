@@ -323,6 +323,7 @@ private struct InboxThreadCell: View {
     var selecting = false
     /// The thread open beside the list.
     @Environment(\.openThreadRow) private var open
+    @Environment(\.otherMachines) private var others
     /// Row swipes taken, for their haptic.
     @State private var swipes = 0
     private func swiped() { swipes += 1 }
@@ -405,6 +406,7 @@ private struct InboxThreadCell: View {
         .sensoryFeedback(AceDesign.Haptic.rowAction, trigger: swipes)
         .sensoryFeedback(AceDesign.Haptic.approve, trigger: decided)
         .accessibilityActions {
+            if let moved = row.look?.moved { openMoved(moved) }
             ForEach(answers) { answer in Button(answer.label, action: answer.run) }
             if canOperate {
                 if canMoveUp { Button("Move up") { step(-1) } }
@@ -414,6 +416,8 @@ private struct InboxThreadCell: View {
         // A long press previews the thread above its actions, as the web's hover card and menu
         // do. Every action here is also in the open thread's ⋯ and in Select mode's bar.
         .contextMenu {
+            // Its work goes on on another machine (ADR 0191): Open leads there first.
+            if let moved = row.look?.moved { Section { openMoved(moved) } }
             if !answers.isEmpty {
                 Section {
                     if let allow { Button(allow.label, ace: .checkCircle, action: allow.run) }
@@ -429,6 +433,14 @@ private struct InboxThreadCell: View {
             ThreadPreview(row: row, machine: inbox.mark(key.machineId)
                               ?? MachineMark(name: inbox.name(key.machineId), glyph: inbox.client(key.machineId)?.machineGlyph ?? .laptop),
                           project: inbox.projectLook(key, workspace: row.workspaceId))
+        }
+    }
+
+    /// Opens the thread its work moved to, while this phone shows that machine's threads.
+    @ViewBuilder private func openMoved(_ moved: RowLook.Moved) -> some View {
+        if let go = others.open {
+            Button("Open on \(moved.name)", ace: .arrowSquareOut) { _ = go(InboxKey(machineId: moved.hostId, id: moved.threadId)) }
+                .accessibilityIdentifier("row.openMoved")
         }
     }
 

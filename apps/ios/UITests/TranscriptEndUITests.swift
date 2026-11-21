@@ -167,7 +167,7 @@ import XCTest
         let report = "opening \(opening), closing \(closing)"
         // The frames go in the log either way, for the before and after of a change here, with how
         // each frame of the ride read the keyboard (`KeyboardRide`).
-        let sources = (app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+        let sources = app.probeText
             .split(separator: ";").filter { $0.hasPrefix("keyboard.source.") }.joined(separator: " ")
         print("keyboard drift: \(report); read by \(sources)")
         XCTAssertTrue(opening.gaps.count > 5 && closing.gaps.count > 5, "frames were sampled each way: \(report)")
@@ -341,12 +341,15 @@ import XCTest
     /// What `KeyboardDriftProbe` read over the keyboard's last `motion`: the line-to-composer gap
     /// on each frame, and the farthest the composer's foot strayed from the keyboard's edge.
     private func keyboardMotion(_ app: XCUIApplication, _ motion: String) -> KeyboardMotion {
-        let probe = app.descendants(matching: .any)["perf.probe"]
         // The probe records once the motion has settled.
         sleep(1)
-        let recorded = NSPredicate(format: "value CONTAINS %@", "keyboard.\(motion).gaps=")
-        wait(for: [expectation(for: recorded, evaluatedWith: probe)], timeout: 5)
-        let entries = (probe.value as? String ?? "").split(separator: ";").reduce(into: [String: String]()) { found, pair in
+        var text = app.probeText
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !text.contains("keyboard.\(motion).gaps="), Date() < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+            text = app.probeText
+        }
+        let entries = text.split(separator: ";").reduce(into: [String: String]()) { found, pair in
             let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
             if parts.count == 2 { found[parts[0]] = parts[1] }
         }

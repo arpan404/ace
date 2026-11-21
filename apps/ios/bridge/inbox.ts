@@ -25,6 +25,7 @@ import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
+import { refusalWords } from "@ace/ui-core/transfers";
 import { followAccounts } from "./inbox-accounts.ts";
 import { chatsLayout, inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
 import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
@@ -385,6 +386,9 @@ export function followInbox(
   });
 }
 
+/** The daemon refuses new turns on a thread whose work moved (ADR 0191): continue it there. */
+const movedRefusal = refusalWords({ code: "thread_moved" }, "");
+
 function pendingRow(send: PendingSend, connection: string) {
   const status = unsentStatus(send, connection === "ready");
   return {
@@ -395,6 +399,8 @@ function pendingRow(send: PendingSend, connection: string) {
     text: preview(unsentText(send), 8192),
     /** Why it wasn't sent, behind Details; empty when the SDK kept no reason. */
     detail: send.state === "failed" && send.error ? preview(send.error, 2048) : "",
+    /** Said beside "Not sent" when the person acts on it elsewhere: a moved thread goes on there. */
+    reason: send.state === "failed" && send.error === "thread_moved" ? movedRefusal : "",
     /** Files and images on it: an edit changes its words and keeps them. */
     files:
       send.payload.input.filter((part) => part.type !== "text" && part.type !== "mention").length +

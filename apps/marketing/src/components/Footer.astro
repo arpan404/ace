@@ -4,7 +4,7 @@
  * features in two columns so the list stays short on a phone. Under it, ace's name set very
  * large and faint, and a last row with the licence and where the code lives.
  */
-import { privacyPolicy, termsOfService } from "../content/legal.ts";
+import { privacyPolicy, support, termsOfService } from "../content/legal.ts";
 import { routes } from "../content/routes.ts";
 import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
@@ -26,6 +26,7 @@ const columns = [
       "/faq/",
       privacyPolicy.path,
       termsOfService.path,
+      support.path,
     ]),
     wide: false,
   },

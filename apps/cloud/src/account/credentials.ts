@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { notDeleted } from "./tombstone.ts";
 
 const Row = z.object({
   session: z.string(),
@@ -55,7 +56,7 @@ export function machineCredentialStore(db: D1Database) {
     /**
      * The statement that issues a credential, for the batch with the session's change (ADR 0190),
      * only while `from` can still issue it: a session whose token isn't retired, or an unspent
-     * ticket. Two exchanges racing for one session or ticket issue at most one credential, and a
+     * ticket, and never for an account with a deletion recorded. Two exchanges racing for one session or ticket issue at most one credential, and a
      * retry of one that worked changes nothing. On an org host, a credential for the account the
      * machine is signed in to is bound to its current enrollment (ADR 0206 §2.1); one for any
      * other account is bound to none.
@@ -76,7 +77,7 @@ export function machineCredentialStore(db: D1Database) {
            SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, h.org_id, h.enrollment
            FROM (SELECT 1) LEFT JOIN org_hosts h ON h.host_id = ?3
              AND ?4 = (SELECT account_id FROM machines WHERE host_id = ?3)
-           WHERE EXISTS (${guard})`,
+           WHERE EXISTS (${guard}) AND ${notDeleted("?4")}`,
         )
         .bind(
           hash,

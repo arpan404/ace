@@ -1,17 +1,25 @@
 //! Reaching an outside A2A agent (A2A 1.0.1, JSON-RPC binding): its card and its publisher's
-//! keys, and `SendMessage`, `GetTask` and `CancelTask`. Over https only (or plain http to this
-//! machine's loopback, for an agent the person runs locally), redirects refused, answers bounded.
+//! keys, and `SendMessage`, `GetTask` and `CancelTask`. Every request is held to the connectors'
+//! address rules (`spade_connect::oauth::Net`): https, every address its name resolves to public
+//! and not this machine's, and the request connects only to the addresses checked (no proxy, no
+//! second lookup), so a card, a key set or a task call can't be pointed into the local network by
+//! DNS. Only an agent the person added as local (on their own machine or network) may reach local
+//! or private addresses, or plain http on loopback; nothing a card says decides it. Redirects are
+//! refused, and answers are counted as they arrive and cut off at 256 KiB.
 
 use std::time::Duration;
 
-use reqwest::{Client, StatusCode, Url};
+use reqwest::{StatusCode, Url};
 use serde_json::{Value, json};
+use spade_connect::Addresses;
+use spade_connect::oauth::{Net, wellknown};
 
 use super::card::VERSION;
 
 /// The most an answer (a card, a key set, a task) may be.
-const MOST_BYTES: usize = 256 * 1024;
+pub const MOST_BYTES: usize = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(20);
+const TOO_LARGE: &str = "Its answer is larger than 256 KiB.";
 
 /// Why an agent couldn't be reached or answered badly.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -27,27 +35,10 @@ pub enum Unreached {
     Refused { code: i64, message: String },
 }
 
-/// Whether `url` may be called: https anywhere, http only on loopback.
-pub fn allowed(url: &str) -> Result<Url, String> {
-    let url = Url::parse(url).map_err(|_| format!("{url} isn't an address"))?;
-    let host = url.host_str().unwrap_or_default();
-    let loopback = host == "localhost"
-        || host
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback());
-    match url.scheme() {
-        "https" => Ok(url),
-        "http" if loopback => Ok(url),
-        _ => Err("Spade reaches agents over https only.".to_owned()),
-    }
-}
-
 /// Where an agent's card is: the address itself when it names the card, or the spec's
-/// well-known path on its origin.
+/// well-known path on its origin. Whether it may be reached is checked when it is fetched.
 pub fn card_address(address: &str) -> Result<Url, String> {
-    let url = allowed(address.trim())?;
+    let url = wellknown::checked(address)?;
     if url.path().ends_with(".json") {
         return Ok(url);
     }
@@ -58,32 +49,42 @@ pub fn card_address(address: &str) -> Result<Url, String> {
 /// Whether `jku` is on the same origin as the card it came with: only a key the card's own
 /// publisher serves vouches for it.
 pub fn same_origin(card: &Url, jku: &str) -> Option<Url> {
-    let jku = allowed(jku).ok()?;
+    let jku = wellknown::checked(jku).ok()?;
     (jku.origin() == card.origin()).then_some(jku)
 }
 
 #[derive(Clone)]
 pub struct A2aClient {
-    http: Client,
-}
-
-impl Default for A2aClient {
-    fn default() -> Self {
-        Self::new()
-    }
+    addresses: Addresses,
+    timeout: Duration,
 }
 
 impl A2aClient {
-    pub fn new() -> Self {
-        let http = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(TIMEOUT)
-            .build()
-            .unwrap_or_default();
-        Self { http }
+    /// A client resolving names with `addresses` (the system's in Spade, a test's own in tests).
+    pub fn new(addresses: Addresses) -> Self {
+        Self {
+            addresses,
+            timeout: TIMEOUT,
+        }
     }
 
-    async fn body(response: reqwest::Response) -> Result<Value, String> {
+    fn net(&self, local: bool) -> Net {
+        self.addresses.for_connector(local, self.timeout)
+    }
+
+    /// Whether `url` may be reached for an agent added as `local` or not: its scheme, and every
+    /// address its name resolves to.
+    pub async fn check(&self, url: &str, local: bool) -> Result<Url, String> {
+        self.net(local)
+            .check(url)
+            .await
+            .map(|(url, _)| url)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The answer's JSON, read only while it stays within [`MOST_BYTES`]: a larger one is cut off
+    /// as it arrives, never held whole.
+    async fn body(mut response: reqwest::Response) -> Result<Value, String> {
         if response.status().is_redirection() {
             return Err("It answered with a redirect, which Spade doesn't follow.".to_owned());
         }
@@ -94,20 +95,27 @@ impl A2aClient {
             .content_length()
             .is_some_and(|n| n > MOST_BYTES as u64)
         {
-            return Err("Its answer is larger than 256 KiB.".to_owned());
+            return Err(TOO_LARGE.to_owned());
         }
-        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-        if bytes.len() > MOST_BYTES {
-            return Err("Its answer is larger than 256 KiB.".to_owned());
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+            if bytes.len() + chunk.len() > MOST_BYTES {
+                return Err(TOO_LARGE.to_owned());
+            }
+            bytes.extend_from_slice(&chunk);
         }
         serde_json::from_slice(&bytes).map_err(|_| "Its answer isn't JSON.".to_owned())
     }
 
-    /// A JSON document at `url` (a card or a key set).
-    pub async fn document(&self, url: &Url) -> Result<Value, String> {
-        let response = self
-            .http
-            .get(url.clone())
+    /// A JSON document at `url` (a card or a key set), for an agent added as `local` or not.
+    pub async fn document(&self, url: &Url, local: bool) -> Result<Value, String> {
+        let (http, url) = self
+            .net(local)
+            .client(url.as_str())
+            .await
+            .map_err(|e| e.to_string())?;
+        let response = http
+            .get(url)
             .header("accept", "application/json")
             .send()
             .await
@@ -115,17 +123,21 @@ impl A2aClient {
         Self::body(response).await
     }
 
-    /// One JSON-RPC request to `endpoint`: its `result`.
+    /// One JSON-RPC request to `endpoint` of an agent added as `local` or not: its `result`.
     pub async fn call(
         &self,
         endpoint: &str,
+        local: bool,
         method: &str,
         params: Value,
     ) -> Result<Value, Unreached> {
-        let url = allowed(endpoint).map_err(Unreached::NotSent)?;
+        let (http, url) = self
+            .net(local)
+            .client(endpoint)
+            .await
+            .map_err(|e| Unreached::NotSent(e.to_string()))?;
         let request = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
-        let sent = self
-            .http
+        let sent = http
             .post(url)
             .header("A2A-Version", VERSION)
             .json(&request)
@@ -158,3 +170,6 @@ impl A2aClient {
             .ok_or_else(|| Unreached::Unknown("Its answer has no result.".to_owned()))
     }
 }
+
+#[cfg(test)]
+mod tests;

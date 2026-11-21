@@ -38,14 +38,18 @@ async fn list(State(state): State<AppState>) -> Response {
 #[serde(deny_unknown_fields)]
 pub(super) struct AddBody {
     address: String,
+    /// The person says it is on their own machine or network: only then may it be reached at
+    /// local or private addresses, or plain http on loopback.
+    #[serde(default)]
+    local: bool,
 }
 
-/// `{address}`: `201 {agent}`, or `400` with why the card can't be used.
+/// `{address, local?}`: `201 {agent}`, or `400` with why the card can't be used.
 async fn add(State(state): State<AppState>, Body(body): Body<AddBody>) -> Response {
     let Some(agents) = state.engine.outside_agents() else {
         return unavailable();
     };
-    match agents.add(&body.address).await {
+    match agents.add(&body.address, body.local).await {
         Ok(agent) => (StatusCode::CREATED, Json(json!({ "agent": agent }))).into_response(),
         Err(why) => problem(StatusCode::BAD_REQUEST, &why),
     }

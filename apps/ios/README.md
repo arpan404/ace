@@ -125,7 +125,10 @@ Budgets fail tests when the app gets slower. Two suites hold them:
   reports Xcode metrics through `measure(metrics:)` (launch, CPU, memory, scroll
   deceleration, the `thread.open` signpost) and fails when the app's own numbers pass a
   budget in `PerfBudget`. The app publishes those numbers with `--perf-probe`
-  (`Sources/Spike/PerfProbe.swift`, fixture builds only) as one hidden accessibility value.
+  (`Sources/Spike/PerfProbe.swift`, fixture builds only) by posting them to the fixture's
+  `/perf-probe` under the run id the test launched it with, and the tests read them back over
+  HTTP. They used to sit in a hidden accessibility value, and each read made XCUITest snapshot
+  the app's whole element tree on its main thread, inside the timings being measured.
   Before measuring, the tests check their workload: the fixture's `/health` must report the
   seed below (`streamed`, `busy`), the app must hold every busy row, and streaming must reach
   the app's rows while it is measured. Time budgets stretch by `ACE_PERF_SLACK` (pass it as

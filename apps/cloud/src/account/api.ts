@@ -2,6 +2,7 @@ import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
 import { opaqueToken, sealer } from "./crypto.ts";
+import { accountDeletions, deleteAccountRoute, sweepDeletions } from "./deletion.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
@@ -157,6 +158,15 @@ export function accountApi(
   // deployments select only configured origins, never a caller-supplied Host or Origin.
   const canonicalLogin = loginFor(config.publicUrl);
   const hostLogins = new Map(config.publicOrigins?.map((origin) => [origin, loginFor(origin)]));
+  const deletions = accountDeletions(deps.db);
+  const deleteAccount = deleteAccountRoute({
+    sessions: reader,
+    standing: sessions,
+    provider,
+    deletions,
+    now,
+    ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
+  });
   const directory = directoryRoutes({
     principals,
     sessionStore: sessions,
@@ -216,6 +226,7 @@ export function accountApi(
     }
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);
+    if (pathname === "/v1/account" && method === "DELETE") return deleteAccount(request);
     if (pathname === "/v1/account/login" && method === "POST") return login.start(request);
     if (pathname === "/v1/account/login" && method === "GET") return login.open(url);
     if (pathname === "/v1/account/callback" && method === "GET")
@@ -240,8 +251,12 @@ export function accountApi(
   }
 
   return {
-    /** Drops expired sign-ins, sessions and machine credentials. */
+    /**
+     * Drops expired sign-ins, sessions and machine credentials, finishes account deletions
+     * nobody retried and forgets old finished ones.
+     */
     sweep: async () => {
+      await sweepDeletions({ deletions, provider }, now());
       await logins.sweep(now());
       await credentials.sweep(now());
       await enrollments.sweep(now());
