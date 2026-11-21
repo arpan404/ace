@@ -304,6 +304,22 @@ describe("a package from an organization's registry", () => {
     await request({ op: "cancel", id: review.review.id });
   });
 
+  it("is checked once more after the install's own refreshes, right before it lands", async () => {
+    const review = await asMember(prepare);
+    if (review.op !== "review") throw new Error(JSON.stringify(review));
+    // Past the chain's check, while the withdrawn list is read, the host becomes another's.
+    harness.hooks.respond = (url) => {
+      if (url.endsWith("/v1/withdrawn"))
+        machineNow = { ...asOrgHost, machine: { ...asOrgHost.machine, org: "org_01OTHER" } };
+      return undefined;
+    };
+    const refused = errorOf(await asMember(installOf(review.review.id, review.review.hash)));
+    harness.hooks.respond = undefined;
+    machineNow = asOrgHost;
+    expect(refused?.code).toBe("not_member");
+    await request({ op: "cancel", id: review.review.id });
+  });
+
   it("asks again for a reset first key that reuses the trusted key's id, showing its fingerprint", async () => {
     const served = (await (
       await market.fetch(chainPath, {
@@ -466,5 +482,18 @@ describe("a package from an organization's registry", () => {
     expect(resumed?.updatesStopped).toBeUndefined();
     expect(resumed?.update).toBe("1.1.0");
     expect((await asMember(update)).op).toBe("review");
+  });
+
+  it("is refused when the member's grant runs out during the install's own refreshes", async () => {
+    const review = await asMember(prepare);
+    if (review.op !== "review") throw new Error(JSON.stringify(review));
+    // The blocklist and lists take long enough that the grant sent with the install expires.
+    harness.hooks.respond = (url) => {
+      if (url.endsWith("/v1/withdrawn")) harness.advance(GRANT_LIFETIME_MS);
+      return undefined;
+    };
+    const refused = errorOf(await asMember(installOf(review.review.id, review.review.hash)));
+    harness.hooks.respond = undefined;
+    expect(refused?.code).toBe("not_member");
   });
 });

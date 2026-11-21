@@ -8,7 +8,7 @@ import {
 import { writeArchive } from "@ace/marketplace";
 import { registrySignerIo, type RegistryFetch } from "@ace/marketplace/registry-io";
 import { signPending } from "@ace/marketplace/signer";
-import { keySetOf, registryLink, sampleSkill, testKey } from "@ace/marketplace/testing";
+import { keySetOf, registryLink, sampleSkill, sampleSuit, testKey } from "@ace/marketplace/testing";
 import { MarketScanContextBody, VersionBody } from "@ace/protocol/marketplace";
 import {
   asSigner,
@@ -237,6 +237,36 @@ describe("publishing to the registry", () => {
   it("moves nothing on the public index's cursor", async () => {
     const before = await stamp();
     await publishToRegistry("quiet-skill");
+    expect(await stamp()).toBe(before);
+  });
+
+  it("moves nothing on the public index's cursor in a catalogue it first publishes to, nor when its publisher syncs", async () => {
+    // No Suit catalogue holds a copy of the registry's publisher yet: this publish makes it.
+    const suits = catalogueOf(market, "suit");
+    const copies = async () =>
+      (await suits.prepare("SELECT COUNT(*) AS n FROM publisher_copies").first<{ n: number }>())
+        ?.n ?? 0;
+    expect(await copies()).toBe(0);
+    const before = await stamp();
+    const published = await publish(market, {
+      type: "suit",
+      name: "acme-dusk",
+      files: sampleSuit("acme-dusk"),
+      grant: grantFor("user_admin", { org: acme, orgRole: "admin" }),
+    });
+    expect(published.status).toBe(201);
+    expect(await copies()).toBe(1);
+    await put(market, `/v1/signer/holds/suit/acme-dusk/1.0.0?registry=${acme}`, {
+      decision: "approve",
+    });
+    expect((await orgSign()).signed).toContain("suit/acme-dusk@1.0.0");
+    expect(await stamp()).toBe(before);
+    // The publishers' sync carries a change of the registry's publisher to every catalogue.
+    await market.dbs.publishers
+      .prepare("UPDATE publishers SET revision = revision + 1 WHERE account = ?1")
+      .bind(acme)
+      .run();
+    await market.scheduled();
     expect(await stamp()).toBe(before);
   });
 

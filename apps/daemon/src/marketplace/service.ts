@@ -312,6 +312,7 @@ export class MarketplaceService {
           // account is a member on this machine, the chain still extends what this device
           // trusts, and it signs exactly what was reviewed.
           const reviewed = this.#reviews.registryReview(operation.id);
+          let stillAllowed: (() => void) | undefined;
           if (reviewed) {
             if (reviewed.hash !== operation.hash)
               return error("conflict", "The review names other bytes than the install");
@@ -324,12 +325,14 @@ export class MarketplaceService {
               read.membership,
               read.recheck,
             );
+            stillAllowed = read.recheck;
           }
           return this.#reviews.install(
             operation.id,
             operation.hash,
             operation.choices,
             ports.withoutPerson === true ? "without-person" : "person",
+            stillAllowed,
           );
         });
       case "cancel":

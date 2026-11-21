@@ -347,6 +347,11 @@ export class OpenReviews {
     hash: string,
     choices: Parameters<typeof installReview>[2],
     by: Installer,
+    /**
+     * Throws when what authorized this install no longer holds (a registry's membership, its
+     * grant's lifetime): run last, after every await before the install lands.
+     */
+    stillAllowed?: () => void,
   ): Promise<MarketResult> {
     const { store, trust } = this.#ports;
     const pending = this.#pending.get(id);
@@ -387,6 +392,9 @@ export class OpenReviews {
       await this.cancel(id);
       return error("blocked", `Blocked by ace's market: ${blocked}`);
     }
+    // Recovery and the lists' refreshes above took time: authorization is judged as it is now,
+    // with nothing awaited between it and the install.
+    stillAllowed?.();
     let installed;
     try {
       installed = await installReview(
