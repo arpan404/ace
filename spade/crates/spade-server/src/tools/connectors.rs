@@ -7,23 +7,40 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_connect::{CallError, ConnectorTool, Connectors};
 use spade_core::context::MAYBE_RAN;
+use spade_core::question::elicit;
 use spade_core::tools::{Risk, ToolDef};
 use spade_mcp::Risk as McpRisk;
+use spade_mcp::{AskFuture, Asker, Form, Reply};
 use spade_models::ToolSpec;
 use spade_store::Store;
 
-use super::{Tool, ToolFuture, ToolOutput, ToolSource};
+use super::{EngineHandle, Tool, ToolFuture, ToolOutput, ToolSource};
+use crate::engine::Given;
 
 /// Connector tools, limited per conversation to what its bot may use.
 pub struct ConnectorSource {
     hub: Arc<Connectors>,
     /// Its own connection to Spade's database, to find a conversation's bot.
     store: Store,
+    /// The engine, which shows an app's forms to the person mid-call (ADR 0202 §2). Without it
+    /// every form is declined.
+    forms: Option<EngineHandle>,
 }
 
 impl ConnectorSource {
     pub fn new(hub: Arc<Connectors>, store: Store) -> Self {
-        Self { hub, store }
+        Self {
+            hub,
+            store,
+            forms: None,
+        }
+    }
+
+    /// Shows a form an app sends during a call on a card from the bot, through `engine`.
+    #[must_use]
+    pub fn with_forms(mut self, engine: EngineHandle) -> Self {
+        self.forms = Some(engine);
+        self
     }
 }
 
@@ -60,6 +77,7 @@ impl ToolSource for ConnectorSource {
                         def: def(&tool),
                         tool,
                         hub: self.hub.clone(),
+                        forms: self.forms.clone(),
                     }) as Arc<dyn Tool>
                 }),
         );
@@ -96,6 +114,7 @@ struct ConnectorCall {
     def: ToolDef,
     tool: ConnectorTool,
     hub: Arc<Connectors>,
+    forms: Option<EngineHandle>,
 }
 
 impl ConnectorCall {
@@ -118,8 +137,11 @@ impl ConnectorCall {
         .max();
         Mcp {
             read_only: self.def.risk == Risk::Read,
+            destructive: self.def.risk == Risk::Destructive,
             annotated: self.tool.tool.annotated,
             declared,
+            // Only an entry ace reviewed vouches for its server's annotations (ADR 0202 §2).
+            trusted: entry.is_some_and(|entry| entry.trusted_annotations),
         }
     }
 }
@@ -150,17 +172,75 @@ impl Tool for ConnectorCall {
         )
     }
 
-    fn run(&self, _key: &str, arguments: Value) -> ToolFuture {
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let hub = self.hub.clone();
         let (connector, name) = (self.tool.connector.clone(), self.tool.tool.name.clone());
+        let app = self.tool.connector_name.clone();
+        let forms = self.forms.clone();
+        let asker = forms.clone().map(|engine| {
+            Arc::new(AppForm {
+                engine,
+                key: key.to_owned(),
+                app: app.clone(),
+            }) as Arc<dyn Asker>
+        });
+        let key = key.to_owned();
         Box::pin(async move {
-            match hub.call(&connector, &name, arguments).await {
+            let answer = hub.call_asking(&connector, &name, arguments, asker).await;
+            let secret = forms
+                .and_then(|engine| engine.get())
+                .is_some_and(|engine| engine.asked_for_secret(&key));
+            match answer {
+                // Its app asked for a secret: the form was never shown, and the call fails.
+                Ok(result) if secret => {
+                    let said = super::ace::output(Ok(result)).content;
+                    ToolOutput {
+                        untrusted: true,
+                        ..ToolOutput::error(format!(
+                            "{}, so Spade declined the form and the person never saw it. \
+                             {app} answered after:\n{said}",
+                            elicit::SECRET
+                        ))
+                    }
+                }
                 Ok(result) => super::ace::output(Ok(result)),
                 Err(error @ CallError::NeedsReconnect(_)) => ToolOutput {
                     reconnect: Some(connector),
                     ..output(error)
                 },
                 Err(error) => output(error),
+            }
+        })
+    }
+}
+
+/// Shows the forms an app sends during one call to the person, on a card from the bot labelled
+/// with the app's name, and gives back only their answer on it (ADR 0202 §2).
+struct AppForm {
+    engine: EngineHandle,
+    key: String,
+    app: String,
+}
+
+impl Asker for AppForm {
+    fn ask(&self, form: Form) -> AskFuture {
+        let Some(engine) = self.engine.get() else {
+            return Box::pin(std::future::ready(Reply::Cancel));
+        };
+        let Some(shown) = engine.show_form(&self.key, &self.app, &form.message, &form.schema)
+        else {
+            return Box::pin(std::future::ready(Reply::Decline));
+        };
+        Box::pin(async move {
+            match shown.answer.await {
+                Ok(Given::Answers(answers)) => {
+                    match elicit::answer(&form.schema, &shown.questions, &answers) {
+                        elicit::Answer::Accept(content) => Reply::Accept(content),
+                        elicit::Answer::Decline => Reply::Decline,
+                    }
+                }
+                Ok(Given::Declined) => Reply::Decline,
+                Ok(Given::Cancelled) | Err(_) => Reply::Cancel,
             }
         })
     }
@@ -241,6 +321,7 @@ mod tests {
                     read_only,
                     annotated: true,
                     declared,
+                    ..Mcp::default()
                 });
                 assert_eq!(effect, Some(want), "{id} read_only={read_only}");
             }

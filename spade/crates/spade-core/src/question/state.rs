@@ -44,7 +44,11 @@ pub fn views<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<View> {
     let mut cards: Vec<View> = Vec::new();
     for event in events {
         if typed_by_person(event) {
-            for card in cards.iter_mut().filter(|c| c.standing == Standing::Waiting) {
+            // An app's form is answered only on its card (ADR 0202 §2).
+            for card in cards
+                .iter_mut()
+                .filter(|c| c.standing == Standing::Waiting && !is_form(&c.call_id))
+            {
                 card.standing = Standing::Answered;
                 card.typed = true;
             }
@@ -102,6 +106,13 @@ pub fn views<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<View> {
                 if let Some(card) = card(&mut cards, call_id, &[Standing::Waiting]) {
                     card.standing = Standing::Closed;
                 }
+                // The forms its app showed during the call close with it.
+                for card in cards.iter_mut().filter(|c| {
+                    c.standing == Standing::Waiting
+                        && super::elicit::call_of(&c.call_id) == Some(call_id.as_str())
+                }) {
+                    card.standing = Standing::Closed;
+                }
             }
             Known::StopRequested {
                 reply: Some(reply), ..
@@ -121,6 +132,11 @@ pub fn views<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<View> {
         }
     }
     cards
+}
+
+/// Whether the card is an app's form, which only an answer on it answers.
+fn is_form(card_id: &str) -> bool {
+    super::elicit::call_of(card_id).is_some()
 }
 
 fn card<'a>(cards: &'a mut [View], call_id: &str, from: &[Standing]) -> Option<&'a mut View> {

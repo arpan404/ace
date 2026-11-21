@@ -437,6 +437,12 @@ pub(super) async fn handle_calls(
                                 allows: *allows,
                             }),
                         command: ceiling::outside_class(&classed),
+                        // A server's destructive hint asks each call (ADR 0202 §2).
+                        destructive: engine
+                            .tools
+                            .get_for(id, &name)
+                            .and_then(|tool| tool.hints())
+                            .is_some_and(effect::asks_each_call),
                     };
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package
