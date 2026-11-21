@@ -42,6 +42,8 @@ import { useEditorLayer } from "./use-layer.ts";
 import { useWrap, type WrapEdits } from "./use-wrap.ts";
 import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
+import { rememberColours, rememberedColours } from "./view-handoff.ts";
+import { useViewHandoff } from "./use-view-handoff.ts";
 
 const paddingRight = 24;
 /** The gutter's right edge, where a line's fold control sits. */
@@ -133,7 +135,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   // or briefly after, so a slow or large file is never kept blank. Later changes keep the
   // colours they had.
   const [shown, setShown] = useState(false);
-  const held = !shown && language !== undefined;
+  // Another view of this text (a split, or this view before a layout change mounted it again)
+  // already drew its colours: they are drawn at once, never held or shown plain.
+  const seeded = paint === 0 ? rememberedColours(state.doc) : undefined;
+  const held = !shown && language !== undefined && seeded === undefined;
   useEffect(() => {
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- the highlighter's first colours arrive outside React.
     if (paint > 0) setShown(true);
@@ -145,6 +150,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   }, [held]);
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
+
 
   const name = pathParts(props.path).name;
   const lineCount = doc?.lenLines() ?? 0;
@@ -166,6 +172,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     visible,
     anchor,
   });
+  useViewHandoff({ doc, field, scroller, layout, lineHeight, onScroll: setScroll });
 
   const indentSize = doc?.indent().size ?? 2;
   const folding = useFolding({
@@ -230,7 +237,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     if (!highlighter || !doc) return;
     const stop = highlighter.subscribe(() => setPaint((value) => value + 1));
     // After subscribing, so the first pass cannot finish before anyone listens.
-    highlighter.setText(doc.text());
+    // Following the document, so a highlighter the engine lost is rebuilt from its text.
+    highlighter.follow(() => doc.text());
     return stop;
   }, [state.highlighter, doc]);
 
@@ -369,7 +377,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const tokenKey = `${paint}:${first}:${last}`;
   useEffect(() => {
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- colours live in the highlighter's own store, not in React.
-    setTokens(state.highlighter?.tokens(first, last) ?? []);
+    const drawn = state.highlighter?.tokens(first, last) ?? [];
+    setTokens(drawn);
+    if (doc) rememberColours(doc, first, drawn);
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
   }, [tokenKey, state.highlighter]);
 
@@ -551,7 +561,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
                 const startRow = layout?.startOf(line) ?? line;
                 const long = text.length > longLine;
-                const lineTokens = tokens[offset];
+                const lineTokens = tokens[offset]?.length ? tokens[offset] : seeded?.get(line);
                 const lineMatches = activeQuery ? byLine.get(line) : undefined;
                 // A line can be a megabyte long: only the rows inside the window are built, and a
                 // row outside it is never sliced, coloured or given a find match.
