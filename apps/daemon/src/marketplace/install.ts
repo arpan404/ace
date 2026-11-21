@@ -114,6 +114,11 @@ export interface SpadePort {
    */
   bots(): Promise<SpadeBots>;
   deleteBot(id: string): Promise<void>;
+  /**
+   * Hands Spade the market's signed terms notices (ADR 0205 §4). Spade verifies them itself and
+   * lets them only tighten what its build ships.
+   */
+  termsNotices(signed: unknown): Promise<void>;
 }
 
 /** A bot Spade says is linked to a package, and the version it has. */
