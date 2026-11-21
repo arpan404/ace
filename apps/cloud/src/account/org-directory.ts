@@ -2,6 +2,7 @@ import type { WorkosEvent } from "./workos-orgs.ts";
 
 /** A membership as the mirror holds it: `status` is WorkOS's, or `removed` once deleted. */
 export type KnownMember = {
+  membership: string;
   role: string;
   status: string;
   directoryManaged: boolean;
@@ -28,20 +29,47 @@ export type DirectoryEntry = {
   occurredAt: string;
 };
 
+/** What WorkOS deleted that a membership event could otherwise bring back. */
+export type Deleted = {
+  /** When WorkOS deleted the user, if it did. */
+  user: string | undefined;
+  /** Whether WorkOS deleted this very membership. */
+  membership: boolean;
+};
+
 /**
- * Which audit entry, if any, one membership event makes (ADR 0206 §4.1, §6). Only an event
- * newer than the row's state counts, so a repeat or an older event arriving late writes nothing.
- * ace's own Remove and role change write their entries themselves, naming the member who acted;
- * here are the changes only the directory or WorkOS makes: a directory-managed membership
- * joining, changing role or being deleted, and any deactivation or reactivation (ace never
- * deactivates).
+ * Whether one event moves the mirror's row (ADR 0206 §6, amendment 1): only a strictly newer
+ * one, so a repeat changes nothing; at the same WorkOS time, a removal wins over anything else.
+ * Nothing but a removal lands for a membership WorkOS deleted, or at or before the time WorkOS
+ * deleted its user.
+ */
+export function accepts(
+  before: KnownMember | undefined,
+  after: KnownMember,
+  deleted: Deleted,
+): boolean {
+  if (after.status !== "removed") {
+    if (deleted.membership) return false;
+    if (deleted.user !== undefined && deleted.user >= after.version) return false;
+  }
+  if (!before) return true;
+  if (after.version > before.version) return true;
+  return (
+    after.version === before.version && after.status === "removed" && before.status !== "removed"
+  );
+}
+
+/**
+ * Which audit entry, if any, an accepted membership change makes (ADR 0206 §4.1, §6). ace's own
+ * Remove and role change write their entries themselves, naming the member who acted; here are
+ * the changes only the directory or WorkOS makes: a directory-managed membership joining,
+ * changing role or being deleted, and any deactivation or reactivation (ace never deactivates).
  */
 export function directoryEntry(
   before: KnownMember | undefined,
   after: KnownMember,
   event: Pick<WorkosEvent, "id" | "created_at">,
 ): Omit<DirectoryEntry, "org" | "account"> | undefined {
-  if (before && after.version <= before.version) return undefined;
   if (before?.status === "removed" && after.status === "removed") return undefined;
   const managed = after.directoryManaged || before?.directoryManaged === true;
   const actor = managed ? "idp" : "workos";

@@ -1,6 +1,5 @@
 import type { AceOrgAuditEntry } from "@ace/protocol/ace-org";
 import { digest } from "./crypto.ts";
-import type { DirectoryEntry } from "./org-directory.ts";
 import type { WorkosOrgs } from "./workos-orgs.ts";
 
 type Ref = { type: string; id: string; name?: string | undefined };
@@ -58,30 +57,6 @@ export function orgAudit(deps: {
         );
       } catch {
         console.warn(JSON.stringify({ event: "org_audit_unwritten", action: event.action }));
-      }
-    },
-    /**
-     * A change WorkOS reported for a membership (ADR 0206 §6): the directory's or WorkOS's,
-     * never a member's. Keyed by the WorkOS event, so applying it again writes nothing more;
-     * dated when WorkOS made it. Logged, not passed on, as the backend's own events are.
-     */
-    async recordFeed(entry: DirectoryEntry): Promise<void> {
-      try {
-        await deps.workos.createAuditEvent(
-          entry.org,
-          {
-            action: entry.action,
-            occurred_at: entry.occurredAt,
-            actor: { type: entry.actor, id: entry.actor === "idp" ? "directory" : "workos" },
-            targets: [{ type: "member", id: entry.account }],
-            // Delivered by WorkOS, not asked by a caller: there is no address to record.
-            context: { location: "0.0.0.0", user_agent: "workos-events" },
-            metadata: { ...entry.metadata, workos_event: entry.event },
-          },
-          await digest(`workos-event:${entry.event}:${entry.org}:${entry.account}`),
-        );
-      } catch {
-        console.warn(JSON.stringify({ event: "org_audit_unwritten", action: entry.action }));
       }
     },
     /** One org host's log entry, keyed by its chain hash. Failures reach the host, which retries. */

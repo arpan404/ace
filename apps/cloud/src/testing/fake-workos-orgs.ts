@@ -347,6 +347,16 @@ export function fakeWorkosOrgs(clientId: string) {
       const membership = membershipOf(user, org);
       if (membership) changeMembership(membership, { status: "inactive" });
     },
+    /** WorkOS deletes the user: a `user.deleted` event, the memberships left as they were. */
+    deleteUser(user: string) {
+      const known = users.get(user);
+      emit("user.deleted", {
+        object: "user",
+        id: user,
+        email: known?.email ?? "",
+        updated_at: timestamp(),
+      });
+    },
     /** The directory restores a deactivated member, with the role WorkOS kept. */
     reactivate(user: string, org: string) {
       const membership = membershipOf(user, org);

@@ -103,7 +103,7 @@ export async function verifiedWebhook(
   let raw: unknown;
   try {
     // The decoder drops a leading byte-order mark: it was signed, but it isn't JSON.
-    raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
+    raw = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body));
   } catch {
     return undefined;
   }

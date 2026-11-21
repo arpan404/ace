@@ -35,6 +35,7 @@ const MemberState = z.object({
   status: z.string(),
   directory_managed: z.number(),
   version: z.string(),
+  seq: z.number(),
 });
 export type MemberState = {
   org: string;
@@ -43,6 +44,8 @@ export type MemberState = {
   status: string;
   directoryManaged: boolean;
   version: string;
+  /** Changes applied to the row: a batch decided on this state commits only while it holds. */
+  seq: number;
 };
 const memberState = (raw: unknown): MemberState => {
   const row = MemberState.parse(raw);
@@ -53,6 +56,7 @@ const memberState = (raw: unknown): MemberState => {
     status: row.status,
     directoryManaged: row.directory_managed === 1,
     version: row.version,
+    seq: row.seq,
   };
 };
 const memberStatus = (status: string): AceOrgMember["status"] =>
@@ -99,11 +103,18 @@ export type MirroredMember = {
 };
 
 export function orgStore(db: D1Database) {
+  /**
+   * The membership as WorkOS described it at `version`. Only a strictly newer description moves
+   * a row (a repeat changes nothing, `seq` included), and none lands for a user or a membership
+   * WorkOS deleted (`org_deleted_users`, `org_deleted_memberships`).
+   */
   const upsertingMember = (member: MirroredMember, now: number) =>
     db
       .prepare(
         `INSERT INTO org_members (org_id, account_id, membership_id, role, status, directory_managed, email, name, version, joined_at, profile_version)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CASE WHEN ?7 IS NULL AND ?8 IS NULL THEN '' ELSE ?9 END)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CASE WHEN ?7 IS NULL AND ?8 IS NULL THEN '' ELSE ?9 END
+         WHERE NOT EXISTS (SELECT 1 FROM org_deleted_users WHERE account_id = ?2 AND version >= ?9)
+           AND NOT EXISTS (SELECT 1 FROM org_deleted_memberships WHERE membership_id = ?3)
          ON CONFLICT (org_id, account_id) DO UPDATE SET
            membership_id = excluded.membership_id, role = excluded.role, status = excluded.status,
            directory_managed = excluded.directory_managed,
@@ -116,7 +127,7 @@ export function orgStore(db: D1Database) {
              THEN excluded.version ELSE org_members.profile_version END,
            version = excluded.version,
            seq = org_members.seq + 1
-         WHERE excluded.version >= org_members.version`,
+         WHERE excluded.version > org_members.version`,
       )
       .bind(
         member.org,
@@ -130,6 +141,13 @@ export function orgStore(db: D1Database) {
         member.version,
         now,
       );
+  /** Fails the batch it is in unless `sql` (one value) is `expected`: see `workos_event_guard`. */
+  const guarding = (sql: string, values: unknown[], expected: unknown) =>
+    db
+      .prepare(
+        `INSERT INTO workos_event_guard (ok) SELECT CASE WHEN (${sql}) IS ?${values.length + 1} THEN 1 ELSE 0 END`,
+      )
+      .bind(...values, expected);
   return {
     upsertingOrg: (
       org: { id: string; name: string; createdBy?: string; version: string },
@@ -147,13 +165,82 @@ export function orgStore(db: D1Database) {
         .prepare("UPDATE orgs SET deleted = 1, version = ?2 WHERE org_id = ?1 AND version <= ?2")
         .bind(org, version),
     upsertingMember,
-    /** Marks one membership deleted, kept as `removed` for history (ADR 0206 §6). */
-    removingMember: (org: string, account: string, membership: string, version: string) =>
+    /**
+     * Marks one membership deleted at WorkOS time `version`, kept as `removed` for history (ADR
+     * 0206 §6). With no row yet (a deletion that came before its creation) it leaves a `removed`
+     * one, so the late creation finds it. A removal wins a tie with any other change at the same
+     * time; one already removed at that time changes nothing.
+     */
+    removingMember: (
+      org: string,
+      account: string,
+      membership: string,
+      version: string,
+      now: number,
+      role = "member",
+    ) =>
       db
         .prepare(
-          "UPDATE org_members SET status = 'removed', version = ?4, seq = seq + 1 WHERE org_id = ?1 AND account_id = ?2 AND membership_id = ?3 AND version <= ?4",
+          `INSERT INTO org_members (org_id, account_id, membership_id, role, status, directory_managed, version, joined_at, profile_version)
+           VALUES (?1, ?2, ?3, ?5, 'removed', 0, ?4, ?6, '')
+           ON CONFLICT (org_id, account_id) DO UPDATE SET status = 'removed', version = ?4, seq = org_members.seq + 1
+           WHERE (org_members.membership_id = ?3 OR org_members.version < ?4)
+             AND (org_members.version < ?4 OR (org_members.version = ?4 AND org_members.status != 'removed'))`,
         )
-        .bind(org, account, membership, version),
+        .bind(org, account, membership, version, role, now),
+    /** No event of this membership is applied from now on (ADR 0206 §6, amendment 1). */
+    tombstoningMembership: (membership: string, version: string) =>
+      db
+        .prepare(
+          "INSERT INTO org_deleted_memberships (membership_id, version) VALUES (?1, ?2) ON CONFLICT (membership_id) DO NOTHING",
+        )
+        .bind(membership, version),
+    /** WorkOS deleted the user at `version`: no membership event at or before it lands again. */
+    deletingUser: (account: string, version: string) =>
+      db
+        .prepare(
+          `INSERT INTO org_deleted_users (account_id, version) VALUES (?1, ?2)
+           ON CONFLICT (account_id) DO UPDATE SET version = excluded.version
+           WHERE excluded.version > org_deleted_users.version`,
+        )
+        .bind(account, version),
+    /** When WorkOS deleted the user, if it did. */
+    async deletedUser(account: string): Promise<string | undefined> {
+      const raw = await db
+        .prepare("SELECT version FROM org_deleted_users WHERE account_id = ?")
+        .bind(account)
+        .first<{ version: string }>();
+      return raw?.version;
+    },
+    /** Whether WorkOS deleted this membership. */
+    async deletedMembership(membership: string): Promise<boolean> {
+      const raw = await db
+        .prepare("SELECT 1 AS found FROM org_deleted_memberships WHERE membership_id = ?")
+        .bind(membership)
+        .first();
+      return raw !== null;
+    },
+    /** Guards for a batch decided on what was read: each fails it if that changed since. */
+    guards: {
+      member: (org: string, account: string, seq: number | null) =>
+        guarding(
+          "SELECT seq FROM org_members WHERE org_id = ?1 AND account_id = ?2",
+          [org, account],
+          seq,
+        ),
+      accountRows: (account: string, count: number) =>
+        guarding("SELECT COUNT(*) FROM org_members WHERE account_id = ?1", [account], count),
+      deletedUser: (account: string, version: string | null) =>
+        guarding("SELECT version FROM org_deleted_users WHERE account_id = ?1", [account], version),
+      deletedMembership: (membership: string, deleted: boolean) =>
+        guarding(
+          "SELECT COUNT(*) FROM org_deleted_memberships WHERE membership_id = ?1",
+          [membership],
+          deleted ? 1 : 0,
+        ),
+      /** Clears the guard rows a committed batch left. */
+      done: () => db.prepare("DELETE FROM workos_event_guard"),
+    },
     /** A user's new profile, at WorkOS time `version`: never over one WorkOS gave later. */
     renamingAccount: (account: string, email: string, name: string, version: string) =>
       db
@@ -185,17 +272,17 @@ export function orgStore(db: D1Database) {
     async memberState(org: string, account: string): Promise<MemberState | undefined> {
       const raw = await db
         .prepare(
-          "SELECT org_id, membership_id, role, status, directory_managed, version FROM org_members WHERE org_id = ? AND account_id = ?",
+          "SELECT org_id, membership_id, role, status, directory_managed, version, seq FROM org_members WHERE org_id = ? AND account_id = ?",
         )
         .bind(org, account)
         .first();
       return raw ? memberState(raw) : undefined;
     },
-    /** Every membership of the account the mirror still holds, in any organization. */
+    /** Every row the mirror holds for the account, in any organization and status. */
     async accountMemberships(account: string): Promise<MemberState[]> {
       const { results } = await db
         .prepare(
-          "SELECT org_id, membership_id, role, status, directory_managed, version FROM org_members WHERE account_id = ? AND status != 'removed' LIMIT 1000",
+          "SELECT org_id, membership_id, role, status, directory_managed, version, seq FROM org_members WHERE account_id = ? LIMIT 1000",
         )
         .bind(account)
         .all();

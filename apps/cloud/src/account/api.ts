@@ -23,6 +23,7 @@ import { workosTokenVerifier } from "./workos-jwt.ts";
 import { workosWebhookRoute } from "./workos-webhook-route.ts";
 import { orgAccess } from "./org-access.ts";
 import { orgAudit } from "./org-audit.ts";
+import { auditOutbox } from "./org-audit-outbox.ts";
 import { orgChecker } from "./org-check.ts";
 import { orgEvents } from "./org-events.ts";
 import { orgHostRoutes } from "./org-host-routes.ts";
@@ -142,7 +143,8 @@ export function accountApi(
     now,
     newEnrollment: newId,
   });
-  const events = orgEvents({ orgs, workos: workosOrg, portal, audit, now });
+  const outbox = auditOutbox({ db: deps.db, workos: workosOrg, now });
+  const events = orgEvents({ orgs, workos: workosOrg, portal, outbox, now });
   const webhook = workosWebhookRoute({ secret: config.webhookSecret, events, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
