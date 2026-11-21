@@ -61,7 +61,7 @@ fn every_case_names_a_rule_of_the_table() {
     assert_eq!(ids.len(), before, "each rule id once");
     let suites = conformance::MANIFESTS
         .iter()
-        .chain(std::iter::once(&conformance::SCHEMAS));
+        .chain([&conformance::SCHEMAS, &conformance::RULES]);
     for suite in suites {
         for case in suite.cases() {
             if let Some(rule) = case["rule"].as_str() {

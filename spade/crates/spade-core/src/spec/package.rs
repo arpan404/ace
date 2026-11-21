@@ -9,7 +9,7 @@ use crate::routine;
 /// What each field of a version 3 `bot.json` is. Every field the reader knows has a line here,
 /// and only those: the writer refuses otherwise, so a field can't be added to the reader and
 /// left out of the spec.
-const FIELDS: [(&str, &str); 25] = [
+const FIELDS: [(&str, &str); 26] = [
     (
         "$schema",
         "The address of the format's JSON Schema, for editors; it changes nothing a runtime does.",
@@ -83,6 +83,10 @@ const FIELDS: [(&str, &str); 25] = [
         "code",
         "WebAssembly components it ships under `code/`, each built for Spade's world ([code](code.md)).",
     ),
+    (
+        "checks",
+        "What a result is held to before it counts as done: `schema` rules on contract outputs and cards, `criterion` lines on the goal (below).",
+    ),
 ];
 
 pub fn regions() -> Result<Vec<(&'static str, String)>, Vec<String>> {
@@ -95,6 +99,9 @@ pub fn regions() -> Result<Vec<(&'static str, String)>, Vec<String>> {
         ("modules", modules()),
         ("triggers", triggers()),
         ("cases", cases(&conformance::MANIFESTS[0])),
+        ("checks", checks()),
+        ("check-cases", cases(&conformance::MANIFESTS[5])),
+        ("rule-cases", cases(&conformance::RULES)),
     ])
 }
 
@@ -200,6 +207,61 @@ fn modules() -> String {
         Module::ALL
             .into_iter()
             .map(|module| vec![format!("`{}`", module.name()), module.about().to_owned()]),
+    )
+}
+
+/// A check's fields, kinds and bounds, and the rule subset's keywords.
+fn checks() -> String {
+    use crate::package::checks as c;
+    use crate::quality::rule as r;
+    let rows = [
+        ("checks in a package", format!("at most {}", c::MOST_CHECKS)),
+        (
+            "a check's `name`",
+            format!(
+                "1 to {} lower-case letters, digits and dashes, each once",
+                c::NAME_CHARS
+            ),
+        ),
+        ("a check's `on`", format!("1 to {} places", c::MOST_ON)),
+        (
+            "`criterion` checks",
+            format!(
+                "at most {}, each `text` at most {} characters",
+                c::MOST_CRITERIA,
+                c::TEXT_CHARS
+            ),
+        ),
+        (
+            "a rule's `pattern`",
+            format!(
+                "1 to {} characters, counts at most {}",
+                r::PATTERN_CHARS,
+                number(u64::from(r::MOST_REPEAT))
+            ),
+        ),
+    ];
+    let keywords = [
+        ("object", &r::OBJECT_KEYWORDS[..]),
+        ("string", &r::STRING_KEYWORDS[..]),
+        ("number, integer", &r::NUMBER_KEYWORDS[..]),
+        ("array", &r::ARRAY_KEYWORDS[..]),
+    ];
+    format!(
+        "A check has {}.\n\n{}\nA rule's keywords, by the kind of value they narrow (every rule also takes {}):\n\n{}",
+        code_list(c::FIELDS),
+        table(
+            &["What", "Bound"],
+            rows.into_iter()
+                .map(|(what, bound)| vec![what.to_owned(), bound]),
+        ),
+        code_list(r::COMMON),
+        table(
+            &["Kind", "Keywords"],
+            keywords
+                .into_iter()
+                .map(|(kind, words)| vec![format!("`{kind}`"), code_list(words.iter().copied())]),
+        )
     )
 }
 

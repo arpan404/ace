@@ -263,7 +263,12 @@ export function BubbleFrame(props: {
             <Menu open={menu} onOpenChange={setMenu}>
               <MenuTrigger
                 render={
-                  <IconButton icon={DotsThreeIcon} label="More" size="sm" className="rounded-full" />
+                  <IconButton
+                    icon={DotsThreeIcon}
+                    label="More"
+                    size="sm"
+                    className="rounded-full"
+                  />
                 }
               />
               <MenuContent align="end">

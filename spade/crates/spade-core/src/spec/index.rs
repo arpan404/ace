@@ -27,7 +27,7 @@ fn parts() -> String {
 fn suite() -> String {
     let all = conformance::MANIFESTS
         .iter()
-        .chain(std::iter::once(&conformance::SCHEMAS))
+        .chain([&conformance::SCHEMAS, &conformance::RULES])
         .chain(&conformance::LEVELS);
     table(
         &["File", "Part", "Cases"],

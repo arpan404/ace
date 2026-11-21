@@ -97,6 +97,13 @@ impl Engine {
             .unwrap_or_default()
     }
 
+    /// The checks bot `agent`'s package holds its results to (ADR 0204 §3).
+    pub(crate) fn checks_of(&self, agent: &str) -> Vec<spade_core::package::checks::Check> {
+        self.bot_package(agent)
+            .map(|link| link.manifest.checks)
+            .unwrap_or_default()
+    }
+
     /// Whether bot `agent` takes calls: the person can turn them off per bot.
     pub fn takes_calls(&self, agent: &str) -> bool {
         !matches!(self.store.setting(&incoming_off_key(agent)), Ok(Some(_)))
@@ -450,6 +457,18 @@ impl Engine {
                 request.contract
             )]),
         };
+        // Output that fits the schema is held to the package's checks too, with the same tries
+        // (ADR 0204 §3): checks only add conditions.
+        let checked = problems.is_none();
+        let problems = problems.or_else(|| {
+            let target = spade_core::package::checks::Target::Contract(request.contract.clone());
+            let checks = agent
+                .as_deref()
+                .map(|bot| self.checks_of(bot))
+                .unwrap_or_default();
+            let misses = spade_core::package::checks::misses(&checks, &target, &output, "output");
+            (!misses.is_empty()).then_some(misses)
+        });
         let record = |event: Event| self.append(conversation, &event).map(|_| ());
         if let Some(problems) = problems {
             let tries = contract::misfits(&events, call) + 1;
@@ -474,9 +493,13 @@ impl Engine {
                 ));
             }
             let left = contract::MOST_MISFITS - tries;
+            let what = if checked {
+                "doesn't pass the package's checks"
+            } else {
+                "doesn't fit the contract's output schema"
+            };
             return ToolOutput::error(format!(
-                "The output doesn't fit the contract's output schema; fix it and return again \
-                 ({left} more {}):\n- {lines}",
+                "The output {what}; fix it and return again ({left} more {}):\n- {lines}",
                 if left == 1 { "try" } else { "tries" }
             ));
         }

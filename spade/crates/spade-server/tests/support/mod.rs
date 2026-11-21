@@ -544,6 +544,18 @@ impl Spade {
         Self::serve(fake, dir, tools, options).await
     }
 
+    /// Like `start`, with each streamed request (a turn's model step) taking the next of `turns`
+    /// and every plain one (a title, the check of done) answered by `plain`.
+    pub async fn start_turns(
+        turns: Vec<Script>,
+        plain: Script,
+        tools: Vec<Arc<dyn Tool>>,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_turns(turns, plain).await?;
+        let dir = Arc::new(tempfile::tempdir()?);
+        Self::serve(fake, dir, tools, Options::default()).await
+    }
+
     /// Like `start`, with tools that also come from a live `source`.
     pub async fn start_with_source(
         scripts: Vec<Script>,
