@@ -16,6 +16,7 @@ import {
   SettingsLayerKind,
   SettingsKey,
   SettingsValues,
+  isRetiredSettingsKey,
 } from "@ace/protocol";
 import { setOnItsOwn } from "@ace/settings/batch";
 import type { Store } from "./store.ts";
@@ -142,6 +143,24 @@ export function settingsSession(options: {
             throw new SettingsError("validation", "Device authority changed");
           const service = options.service;
           if (!service) throw new SettingsError("io", "Settings service is unavailable");
+          // Settings this build retired, which older clients still name (ADR 0201): a read or a
+          // write of only those answers nothing and changes nothing; with others, the others
+          // are handled as if they came alone.
+          const answerNothing = () =>
+            options.send({
+              type: "settings.result",
+              requestId: request.requestId,
+              ok: true,
+              entries: [],
+              diagnostics: [],
+            });
+          if (
+            (request.type === "settings.get" || request.type === "settings.set") &&
+            isRetiredSettingsKey(request.key)
+          ) {
+            answerNothing();
+            return;
+          }
           if (request.type === "settings.reset") {
             // A reset leaves out what this socket may not write, rather than failing.
             const keys: SettingsKey[] = [];
@@ -159,10 +178,13 @@ export function settingsSession(options: {
           }
           if (request.type === "settings.setMany") {
             const scope = settingsScope(options.store, layerScope(request.layer));
+            const current = request.entries.filter((entry) => !isRetiredSettingsKey(entry.key));
+            if (!current.length) {
+              answerNothing();
+              return;
+            }
             // Every entry is checked before anything is written: all or none.
-            const assignments = request.entries.map((entry) =>
-              validateAssignment(entry.key, entry.value),
-            );
+            const assignments = current.map((entry) => validateAssignment(entry.key, entry.value));
             const own = assignments.find((assignment) => setOnItsOwn(assignment.key));
             if (own)
               throw new SettingsError("validation", `Set ${own.key} on its own, not with others`);
@@ -230,10 +252,15 @@ export function settingsSession(options: {
           const selector = {
             keys:
               request.type === "settings.subscribe"
-                ? request.keys
+                ? request.keys.filter((key): key is SettingsKey => !isRetiredSettingsKey(key))
                 : [SettingsKey.parse(request.key)],
             scope,
           };
+          // A subscription to retired keys alone stays open and never hears anything.
+          if (!selector.keys.length) {
+            answerNothing();
+            return;
+          }
           let initial = true;
           const buffered = new Map<string, SettingsEntry>();
           const diagnostics = new Map<string, SettingsDiagnostic>();

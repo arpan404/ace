@@ -356,6 +356,24 @@ export const SettingsValues = z.object({
 export type SettingsValues = z.infer<typeof SettingsValues>;
 export const SettingsKey = SettingsValues.keyof();
 export type SettingsKey = z.infer<typeof SettingsKey>;
+/**
+ * Settings this build no longer has (ADR 0201: the media pipeline settings). Older clients still
+ * name them, so requests accept them: a read or subscription answers nothing for them, and a
+ * write of one changes nothing; a stored value is dropped from the settings file.
+ */
+export const retiredSettingsKeys = [
+  "media.encode",
+  "media.delivery",
+  "media.recordings",
+  "media.stills",
+] as const;
+export const RetiredSettingsKey = z.enum(retiredSettingsKeys);
+export type RetiredSettingsKey = z.infer<typeof RetiredSettingsKey>;
+/** Whether `key` is one this build retired (`retiredSettingsKeys`). */
+export const isRetiredSettingsKey = (key: string): key is RetiredSettingsKey =>
+  (retiredSettingsKeys as readonly string[]).includes(key);
+/** A key a request may name: a current one, or a retired one an older client still sends. */
+const RequestedSettingsKey = z.union([SettingsKey, RetiredSettingsKey]);
 export const SettingsDocument = z
   .object({
     version: z.literal(2),
@@ -398,7 +416,7 @@ const requestId = z.string().min(1).max(128);
 export const SettingsGet = z.object({
   type: z.literal("settings.get"),
   requestId,
-  key: SettingsKey,
+  key: RequestedSettingsKey,
   scope: SettingsScope,
 });
 export const SettingsSet = z.object({
@@ -429,7 +447,7 @@ export const SettingsSubscribe = z.object({
   type: z.literal("settings.subscribe"),
   requestId,
   subscriptionId: z.string().min(1).max(128),
-  keys: z.array(SettingsKey).min(1).max(32),
+  keys: z.array(RequestedSettingsKey).min(1).max(32),
   scope: SettingsScope,
 });
 export const SettingsUnsubscribe = z.object({

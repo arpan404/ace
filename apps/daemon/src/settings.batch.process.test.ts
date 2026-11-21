@@ -178,3 +178,74 @@ test("a reset from the host token alone leaves Ask me before agents publish on",
   expect(await f.client.next()).toMatchObject({ type: "settings.result", requestId: "reset" });
   expect(await f.settings.get("market.askBeforeAgentPublish")).toMatchObject({ value: true });
 });
+
+// Older clients (origin/main before ADR 0201) still name the media pipeline settings.
+test("an older client's subscription that includes a retired media key still subscribes the rest", async () => {
+  const f = await setup();
+  await f.settings.set("threads.settleOnClose", true, { kind: "global" });
+  f.client.send({
+    type: "settings.subscribe",
+    requestId: "old-web",
+    subscriptionId: "web-settings",
+    keys: ["threads.settleOnClose", "media.encode", "beta.spade"],
+    scope: {},
+  });
+  const reply = await f.client.next();
+  expect(reply).toMatchObject({ type: "settings.result", requestId: "old-web", ok: true });
+  const keys = (reply as { entries: { key: string }[] }).entries.map((entry) => entry.key);
+  expect(keys.toSorted()).toEqual(["beta.spade", "threads.settleOnClose"]);
+  // The subscription is live for the keys that remain.
+  await f.settings.set("threads.settleOnClose", false, { kind: "global" });
+  expect(await f.client.next()).toMatchObject({
+    type: "settings.changed",
+    subscriptionId: "web-settings",
+    entries: [expect.objectContaining({ key: "threads.settleOnClose", value: false })],
+  });
+});
+
+test("an older phone reading a retired media key gets a successful answer with nothing in it", async () => {
+  const f = await setup();
+  for (const key of ["media.encode", "media.delivery"] as const) {
+    f.client.send({ type: "settings.get", requestId: `get-${key}`, key, scope: {} });
+    expect(await f.client.next()).toEqual({
+      type: "settings.result",
+      requestId: `get-${key}`,
+      ok: true,
+      entries: [],
+      diagnostics: [],
+    });
+  }
+});
+
+test("an older client's batch with a retired media key saves the rest and ignores that key", async () => {
+  const f = await setup();
+  f.client.send({
+    type: "settings.setMany",
+    requestId: "old-beta",
+    entries: [
+      { key: "media.delivery", value: "auto" },
+      { key: "beta.spade", value: true },
+    ],
+    layer: { kind: "global" },
+  });
+  const reply = await f.client.next();
+  expect(reply).toMatchObject({ type: "settings.result", requestId: "old-beta", ok: true });
+  expect((reply as { entries: { key: string }[] }).entries.map((entry) => entry.key)).toEqual([
+    "beta.spade",
+  ]);
+  expect(await f.settings.get("beta.spade")).toMatchObject({ value: true, provenance: "global" });
+  // Alone, a retired key is a write that changes nothing and succeeds.
+  f.client.send({
+    type: "settings.set",
+    requestId: "old-switch",
+    key: "media.encode",
+    value: "legacy",
+    layer: { kind: "global" },
+  });
+  expect(await f.client.next()).toMatchObject({
+    type: "settings.result",
+    requestId: "old-switch",
+    ok: true,
+    entries: [],
+  });
+});

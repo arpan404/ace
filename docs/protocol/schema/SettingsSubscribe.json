@@ -4,7 +4,14 @@
   "properties": {
     "keys": {
       "items": {
-        "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
+        "anyOf": [
+          {
+            "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
+          },
+          {
+            "$ref": "https://ace.local/protocol/v1/RetiredSettingsKey.json"
+          }
+        ]
       },
       "maxItems": 32,
       "minItems": 1,

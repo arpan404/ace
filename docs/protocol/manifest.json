@@ -37,8 +37,8 @@
       "sha256": "7a80d4b74262a4e7a01ad76bcd35c479c413de2aad334e0c00fbd8ddffaf6098"
     },
     "requests.md": {
-      "bytes": 126790,
-      "sha256": "94bb7715cb89284f738a79516179c6f3950930cc4edaa26ef230bf216b110e32"
+      "bytes": 126963,
+      "sha256": "c875b3561ae81aabc88d212d4e743c0709c455c7d29b4e7587eb7ed5f26879f2"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -4720,6 +4720,10 @@
       "bytes": 181,
       "sha256": "8cd7666715db11b24ab1750e3f4ba43934c0cd59b8c9d93d20c7c831923da82b"
     },
+    "schema/RetiredSettingsKey.json": {
+      "bytes": 252,
+      "sha256": "4bfebce5e59ba3d3b1ac5c49e394a79ed5506cd96016862619233082d8ef22f6"
+    },
     "schema/ReviewAnchor.json": {
       "bytes": 1105,
       "sha256": "5196876db200d5db90ba435ea21950b2ee909f22f537bb8e444e349f0b59beb5"
@@ -5141,8 +5145,8 @@
       "sha256": "aa19bc32620a926ff86a2f8d6cac97de13d1ae20af42f33e2d02a94b2ef8012e"
     },
     "schema/SettingsGet.json": {
-      "bytes": 578,
-      "sha256": "cefc009dcc6bf5d6de5da839f6df69ccb9cc25cf418a256ad8f46d1fb6272648"
+      "bytes": 722,
+      "sha256": "923aa67a0798cd49582a63129d188a19b165e7e261dd41d0af8a155b6069e3a9"
     },
     "schema/SettingsKey.json": {
       "bytes": 2564,
@@ -5185,8 +5189,8 @@
       "sha256": "4c6df5996eb026bb3e324ce7930e8479598771900c0c552a1c986254ea0cdce0"
     },
     "schema/SettingsSubscribe.json": {
-      "bytes": 807,
-      "sha256": "9a1ab408f36e316c758740b261bfe92d4211e4bda83d51ea08fe18fec631a630"
+      "bytes": 965,
+      "sha256": "ea02ebd3aaaa2be06a39b71bc449dae902bf9d44133dee0738f30709dcc34afb"
     },
     "schema/SettingsUnsubscribe.json": {
       "bytes": 522,
@@ -6737,10 +6741,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1371353,
-      "sha256": "f4b152eb43f798cf2cda1aa6c2a499a8c6feb7f29648a660e2ff02032949dd80"
+      "bytes": 1371893,
+      "sha256": "32e87c25b605989d55d21e7e8a144ea217c7a83acf065cc9427be0a3a98ddb8a"
     }
   },
-  "input": "1816c00d0551472d55b64766e57f46ebde155d15925a12fdeeb21076f9ed8fab",
+  "input": "4a5f3b9eda5820168c26c1f642f279b5f67b6210a9c7ce3b4406c1976598b6b8",
   "version": 1
 }

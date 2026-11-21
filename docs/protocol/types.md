@@ -36212,6 +36212,18 @@ Example:
 2
 ```
 
+## RetiredSettingsKey
+
+[JSON Schema](schema/RetiredSettingsKey.json), input validation.
+
+Type: ["media.encode","media.delivery","media.recordings","media.stills"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"media.delivery"
+```
+
 ## ReviewAnchor
 
 [JSON Schema](schema/ReviewAnchor.json), input validation.
@@ -41287,16 +41299,18 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"settings.get"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| key | yes | [SettingsKey.json](schema/SettingsKey.json) |  |
+| key | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
 
 ```json
 {
-  "key": "remote.relayMcp",
+  "key": "media.recordings",
   "requestId": "example",
-  "scope": {},
+  "scope": {
+    "threadId": "example"
+  },
   "type": "settings.get"
 }
 ```
@@ -41397,14 +41411,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"settings.get"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| key | yes | [SettingsKey.json](schema/SettingsKey.json) |  |
+| key | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
 
 ```json
 {
-  "key": "threads.sortBy",
+  "key": "media.stills",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -41486,7 +41500,7 @@ Example:
 | type | yes | `"settings.subscribe"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
-| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"}} |
+| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]}} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
@@ -41494,12 +41508,10 @@ Example:
 ```json
 {
   "keys": [
-    "remote.tailscaleWebhooks"
+    "media.encode"
   ],
   "requestId": "example",
-  "scope": {
-    "workspaceId": "example"
-  },
+  "scope": {},
   "subscriptionId": "example",
   "type": "settings.subscribe"
 }
@@ -41646,7 +41658,7 @@ Example:
 | type | yes | `"settings.subscribe"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
-| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"}} |
+| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]}} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
@@ -41654,12 +41666,10 @@ Example:
 ```json
 {
   "keys": [
-    "threads.limitPolicy"
+    "storage.backupWorktrees"
   ],
   "requestId": "example",
-  "scope": {
-    "workspaceId": "example"
-  },
+  "scope": {},
   "subscriptionId": "example",
   "type": "settings.subscribe"
 }
