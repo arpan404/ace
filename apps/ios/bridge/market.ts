@@ -208,6 +208,21 @@ export class NativeMarket {
     this.#now = now;
   }
 
+  /** Whether the machine no longer holds review `id`: reading it answers expired or not found. */
+  async #swept(id: string, signal: AbortSignal): Promise<boolean> {
+    const probe: MarketOperation = { op: "readReview", id, offset: 0 };
+    try {
+      const { result } = await this.#owner.request(
+        { type: "marketplace.request", operation: probe },
+        { ...wait, signal },
+      );
+      this.#held.heard(probe, result);
+      return result.op === "error" && (result.code === "expired" || result.code === "not_found");
+    } catch {
+      return false;
+    }
+  }
+
   async answer(request: NativeMarketRequest, signal: AbortSignal): Promise<object> {
     let { operation } = request;
     if (!isV1(operation.op)) return refusalAnswer("invalid", "read");
@@ -233,6 +248,15 @@ export class NativeMarket {
       return last ? { ...last, offline: true } : offlineRead;
     }
     this.#held.heard(operation, result);
+    if (
+      result.op === "error" &&
+      operation.op === "install" &&
+      wayOf(result.code) === "confirm" &&
+      (await this.#swept(operation.id, signal))
+    )
+      // The standing gate answered before the review was looked up, and the review is gone:
+      // the way out is to review it again, not to confirm who installs a review nobody holds.
+      return refusalAnswer("expired", "install");
     if (result.op === "error") return refusalAnswer(result.code, stepOf(op));
     const answer = shaped(operation, result, { now: this.#now() });
     if (!answer) return refusalAnswer("failed", stepOf(op));

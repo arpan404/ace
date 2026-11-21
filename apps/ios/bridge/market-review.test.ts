@@ -177,7 +177,7 @@ test("a skill's review shows its scan findings with their levels, its SKILL.md a
       { level: "warn", levelWord: "Warning", sentence: "Downloads and runs code." },
       { level: "note", levelWord: "Note", sentence: "Has a large picture." },
     ],
-    personOnly: false,
+    standingSentence: "Install this from your computer.",
   });
   expect(review.facts).toEqual(
     expect.arrayContaining([
@@ -211,7 +211,6 @@ test("a plugin's review lists what it runs and where it reaches, asks for bots, 
     reviewMark: "Not reviewed by ace",
     reviewNote: "Read what it does before you install it.",
     plugin: { asksBots: true },
-    personOnly: true,
     standingSentence: "Install this from your computer.",
     choices: { bots: [], needs: {}, startRoutines: false },
   });
@@ -230,7 +229,6 @@ test("a bot's review shows its face, task, model, routines, what it brings and e
   const review = await prepare("spade-bot", "inbox");
   expect(review).toMatchObject({
     heading: "Get Inbox",
-    personOnly: true,
     bot: {
       face: { main: false, initial: "I", away: false, character: expect.any(Object) },
       task: "You look after the person's inbox.",
@@ -413,5 +411,34 @@ test("a bot package's remove keeps the bot, and a withdrawn install offers Turn 
     removeLine: "The bot stays yours.",
     turnOnWord: "Turn back on",
     installedNote: null,
+  });
+});
+
+test("an install refused for standing after its review was swept reads as expired, to review again", async () => {
+  const { ask, prepare, read, daemon } = await market();
+  const review = await prepare("spade-skill", "triage-mail");
+  await read(review);
+  daemon.marketplace.sweep(review.id);
+  daemon.marketplace.refuseInstall = { op: "error", code: "reauth", message: "Sign in again" };
+  expect(await ask({ op: "install", id: review.id, hash: review.hash })).toMatchObject({
+    ok: false,
+    code: "expired",
+    way: "reread",
+  });
+});
+
+test("an install refused for standing while its review is held keeps the way to confirm", async () => {
+  const { ask, prepare, read, daemon } = await market();
+  const review = await prepare("spade-skill", "triage-mail");
+  await read(review);
+  daemon.marketplace.refuseInstall = {
+    op: "error",
+    code: "person_grant",
+    message: "Ask the person",
+  };
+  expect(await ask({ op: "install", id: review.id, hash: review.hash })).toMatchObject({
+    ok: false,
+    code: "person_grant",
+    way: "confirm",
   });
 });

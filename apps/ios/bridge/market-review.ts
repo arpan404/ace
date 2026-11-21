@@ -40,9 +40,6 @@ type Bot = Extract<MarketReview["body"], { type: "spade-bot" }>;
 
 const actionWords = { install: "Get", update: "Update", installed: "Installed", none: null };
 
-/** Installing these needs the person's standing (ADR 0190), which the phone can't prove yet. */
-const personOnly = (type: string) => type === "spade-bot" || type === "spade-plugin";
-
 const hostOf = (from: string | undefined) =>
   from ? from.replace(/^https:\/\//, "") : "market.acehq.dev";
 
@@ -188,8 +185,9 @@ function reviewView(review: MarketReview) {
     blocked: review.blocked ?? null,
     needs: recipe ? needDefaults(recipe.needs) : {},
     items: review.items,
-    personOnly: personOnly(review.type),
-    standingSentence: personOnly(review.type) ? "Install this from your computer." : null,
+    // Shown when an install is refused for the person's standing, which any type can need (a
+    // skill with scripts too) and the phone can't prove yet (#2499).
+    standingSentence: "Install this from your computer.",
     suit:
       body.type === "suit"
         ? {
