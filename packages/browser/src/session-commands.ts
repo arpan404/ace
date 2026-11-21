@@ -136,6 +136,7 @@ export async function executeBrowserCommand(
           clock: context.options.navigationClock,
           id,
           read: context.read,
+          ...(context.options.images ? { images: context.options.images } : {}),
           // Every repetition's input is held to the place the caller checked, as well as timed:
           // a first Enter that navigates never lets a later one act on the new page.
           input: (interaction, measurementSignal, beforeInput) =>

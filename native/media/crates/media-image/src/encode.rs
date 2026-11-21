@@ -3,7 +3,7 @@
 use crate::error::{Failed, Result};
 use crate::limits::{MAX_OUTPUT_BYTES, check_output};
 use crate::raster::Raster;
-use media_codec::{CpuJpegCodec, CpuPicture, PixelFormat, Plane, Size};
+use media_codec::{CpuPicture, PixelFormat, Plane, Size};
 use media_wire::image::{DoneFormat, ImageOutput};
 
 /// Baseline JPEG quality bounds.
@@ -40,15 +40,14 @@ pub fn encode(raster: &Raster, output: &ImageOutput) -> Result<(DoneFormat, Vec<
             )
             .map_err(|e| Failed::invalid(format!("The JPEG could not be written: {e}")))?;
             let mut out = Vec::new();
-            CpuJpegCodec::default()
-                .encode_into(&picture, q, &mut out)
+            crate::with_jpeg(|codec| codec.encode_into(&picture, q, &mut out))
                 .map_err(|e| Failed::invalid(format!("The JPEG could not be written: {e}")))?;
             (DoneFormat::Jpeg, out)
         }
         ImageOutput::Rgba => (DoneFormat::Rgba, raster.data.clone()),
         ImageOutput::Png => (
             DoneFormat::Png,
-            crate::png::encode(raster, png::Compression::High)?,
+            crate::png::encode(raster, png::Compression::Fast)?,
         ),
     };
     sized(format, bytes)

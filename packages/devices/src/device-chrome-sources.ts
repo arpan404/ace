@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
-import sharp from "sharp";
 import { join } from "node:path";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { nativeId } from "./commands.ts";
 import type { DeviceChromeSources } from "./device-chrome-reader.ts";
 import { androidSdkRoots } from "./sdk-roots.ts";
+import { lookDeadlineMs, type ImageWork } from "./device-images.ts";
 import { pngBody } from "./simulator-body-png.ts";
 
 /*
@@ -27,15 +27,26 @@ export async function readSmallFile(path: string): Promise<Uint8Array | undefine
 /** The longest side a PNG look image is drawn at, in pixels. */
 const pngLongest = 2400;
 
-/** An SVG drawn as PNG at three pixels per unit (a phone's points at 3×), at most 2400 wide. */
-export async function svgPng(svg: Buffer): Promise<Buffer | undefined> {
+/**
+ * An SVG drawn as PNG by ace-media at three pixels per unit (a phone's points at 3×), at most
+ * 2400 px a side; undefined when it can't be drawn now.
+ */
+export async function svgPng(svg: Buffer, images: ImageWork): Promise<Buffer | undefined> {
   try {
-    const { width, height } = await sharp(svg).metadata();
-    if (!width || !height) return undefined;
-    const factor = Math.min(3, pngLongest / Math.max(width, height));
-    return await sharp(svg, { density: 72 * factor })
-      .png({ compressionLevel: 9 })
-      .toBuffer();
+    const png = await images.run({
+      inputs: [{ kind: "bytes", bytes: svg }],
+      op: {
+        op: "fit",
+        maxPixels: pngLongest * pngLongest,
+        width: pngLongest,
+        height: pngLongest,
+        autoOrient: false,
+        vectorScale: 3,
+        output: { format: "png" },
+      },
+      deadlineMs: lookDeadlineMs,
+    });
+    return Buffer.from(png.bytes);
   } catch {
     return undefined;
   }
@@ -51,6 +62,8 @@ export function deviceChromeSources(options: {
   /** The Simulator's device type identifier, from the inventory. */
   simulatorType(udid: string): Promise<string | undefined>;
   readFile?: (path: string) => Promise<Uint8Array | undefined>;
+  /** ace-media, which draws looks as PNG and reads skins' alpha (ADR 0201). */
+  images: ImageWork;
 }): DeviceChromeSources {
   const read = options.readFile ?? readSmallFile;
   const { env, home } = options;
@@ -64,7 +77,7 @@ export function deviceChromeSources(options: {
         "/Library/Developer/DeviceKit/Chrome",
         join(home, "Library/Developer/DeviceKit/Chrome"),
       ],
-      paintBody: pngBody,
+      paintBody: pngBody(options.images),
     },
     android: {
       avdRoots: [
@@ -78,10 +91,11 @@ export function deviceChromeSources(options: {
       ],
       sdkRoots: androidSdkRoots(env, home),
       readFile: read,
+      images: options.images,
     },
     simulatorType: async (device: Device) =>
       device.model ?? options.simulatorType(nativeId(device)),
     avdName: (device: Device) => nativeId(device),
-    svgToPng: svgPng,
+    svgToPng: (svg) => svgPng(svg, options.images),
   };
 }

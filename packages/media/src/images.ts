@@ -193,7 +193,7 @@ export class MediaImages implements ImageWork {
    */
   exited(): void {
     const state = this.#options.phase();
-    for (const job of [...this.#jobs.values()]) {
+    for (const job of this.#jobs.values()) {
       if (job.sent)
         this.#end(job.id, new ImageError("exited", "ace-media exited during the image job."));
       else if (state.phase === "unavailable")

@@ -1,9 +1,12 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import sharp from "sharp";
 import { expect, it, onTestFinished } from "vitest";
 import { DevicePlatform } from "./index.ts";
+import { busyJpeg, flatPng, imageHeader, mediaBinary, testImages } from "./testing/media-images.ts";
+
+/* Screenshots are fitted by ace-media (ADR 0201); without a built binary these don't run. */
+const drawn = it.skipIf(!mediaBinary);
 
 async function androidPlatform(screen: Buffer) {
   const root = await mkdtemp(join(tmpdir(), "ace-one-off-shot-"));
@@ -18,6 +21,7 @@ async function androidPlatform(screen: Buffer) {
     platform: "linux",
     home: root,
     env: { ANDROID_HOME: root },
+    images: testImages,
     async probe(_command, args) {
       const command = args.join(" ");
       let stdout = "";
@@ -36,61 +40,50 @@ async function androidPlatform(screen: Buffer) {
   return { platform, commands };
 }
 
-it("an emulator screenshot is captured on the device, pulled, removed, and fitted to a frame", async () => {
-  const png = await sharp({
-    create: { width: 1080, height: 2400, channels: 3, background: { r: 200, g: 0, b: 0 } },
-  })
-    .png()
-    .toBuffer();
-  const { platform, commands } = await androidPlatform(png);
-  const [device] = await platform.list();
-  if (!device) throw new Error("No emulator");
-  const shot = await platform.screenshot(device);
-  // A portrait phone is fitted inside the frame packet's 2160-pixel height.
-  expect(shot).toMatchObject({ width: 972, height: 2160, scale: 0.9 });
-  expect(await sharp(shot.payload).metadata()).toMatchObject({
-    format: "jpeg",
-    width: 972,
-    height: 2160,
-  });
-  const guest = /'screencap' '-p' '(\/data\/local\/tmp\/ace-shot-[^']+\.png)'/.exec(
-    commands.join("\n"),
-  )?.[1];
-  expect(guest).toBeDefined();
-  expect(commands).toEqual([
-    `-s emulator-5554 shell 'screencap' '-p' '${guest}'`,
-    expect.stringMatching(new RegExp(`^-s emulator-5554 pull ${guest} `)),
-    `-s emulator-5554 shell 'rm' '-f' '${guest}'`,
-  ]);
-});
+drawn(
+  "an emulator screenshot is captured on the device, pulled, removed, and fitted to a frame",
+  async () => {
+    const png = await flatPng(1080, 2400, [200, 0, 0]);
+    const { platform, commands } = await androidPlatform(png);
+    const [device] = await platform.list();
+    if (!device) throw new Error("No emulator");
+    const shot = await platform.screenshot(device);
+    // A portrait phone is fitted inside the frame packet's 2160-pixel height.
+    expect(shot).toMatchObject({ width: 972, height: 2160, scale: 0.9 });
+    expect(await imageHeader(shot.payload)).toEqual({ format: "jpeg", width: 972, height: 2160 });
+    const guest = /'screencap' '-p' '(\/data\/local\/tmp\/ace-shot-[^']+\.png)'/.exec(
+      commands.join("\n"),
+    )?.[1];
+    expect(guest).toBeDefined();
+    expect(commands).toEqual([
+      `-s emulator-5554 shell 'screencap' '-p' '${guest}'`,
+      expect.stringMatching(new RegExp(`^-s emulator-5554 pull ${guest} `)),
+      `-s emulator-5554 shell 'rm' '-f' '${guest}'`,
+    ]);
+  },
+);
 
-it("a screenshot that is not an image fails as invalid data", async () => {
+drawn("a screenshot that is not an image fails as invalid data", async () => {
   const { platform } = await androidPlatform(Buffer.from("not an image"));
   const [device] = await platform.list();
   if (!device) throw new Error("No emulator");
   await expect(platform.screenshot(device)).rejects.toMatchObject({ code: "invalid_data" });
 });
 
-it("a screenshot cut short, PNG or JPEG, fails as invalid data rather than showing a partial screen", async () => {
-  const screen = sharp({
-    create: {
-      width: 1080,
-      height: 2400,
-      channels: 3,
-      background: "grey",
-      noise: { type: "gaussian", mean: 128, sigma: 40 },
-    },
-  });
-  for (const whole of [
-    await screen.clone().png().toBuffer(),
-    await screen.clone().jpeg().toBuffer(),
-  ]) {
-    const { platform } = await androidPlatform(whole.subarray(0, Math.floor(whole.length * 0.6)));
-    const [device] = await platform.list();
-    if (!device) throw new Error("No emulator");
-    await expect(platform.screenshot(device)).rejects.toMatchObject({ code: "invalid_data" });
-  }
-});
+drawn(
+  "a screenshot cut short, PNG or JPEG, fails as invalid data rather than showing a partial screen",
+  async () => {
+    for (const whole of [
+      await flatPng(1080, 2400, [128, 128, 128]),
+      await busyJpeg(1080, 2400, 90),
+    ]) {
+      const { platform } = await androidPlatform(whole.subarray(0, Math.floor(whole.length * 0.6)));
+      const [device] = await platform.list();
+      if (!device) throw new Error("No emulator");
+      await expect(platform.screenshot(device)).rejects.toMatchObject({ code: "invalid_data" });
+    }
+  },
+);
 
 // Read-only against whatever is already booted: set ACE_DEVICE_LIVE=1 to run.
 const live = process.env["ACE_DEVICE_LIVE"] === "1";

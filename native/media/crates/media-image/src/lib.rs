@@ -26,6 +26,17 @@ pub use raster::Raster;
 
 use decode::Target;
 use media_codec::{CpuJpegCodec, Size};
+use std::cell::RefCell;
+
+thread_local! {
+    /// Each image thread keeps one JPEG codec, so a repeated geometry reuses its buffers.
+    static JPEG: RefCell<CpuJpegCodec> = RefCell::new(CpuJpegCodec::default());
+}
+
+/// `f` with this thread's JPEG codec.
+pub(crate) fn with_jpeg<T>(f: impl FnOnce(&mut CpuJpegCodec) -> T) -> T {
+    JPEG.with(|codec| f(&mut codec.borrow_mut()))
+}
 use media_wire::image::{DoneFormat, ImageOp, ImageOutput, SourceFormat, SourceImage};
 
 /// One input's bytes, as the caller has them.
@@ -220,10 +231,7 @@ fn planar_jpeg(input: &Input, fitting: &Fitting, output: &ImageOutput) -> Result
         width: w,
         height: h,
     };
-    if CpuJpegCodec::default()
-        .transcode_into(bytes, target, quality, &mut out)
-        .is_err()
-    {
+    if with_jpeg(|codec| codec.transcode_into(bytes, target, quality, &mut out)).is_err() {
         return Ok(None);
     }
     let (format, bytes) = encode::sized(DoneFormat::Jpeg, out)?;

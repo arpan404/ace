@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import sharp from "sharp";
+import { readFileSync } from "node:fs";
 import {
   ScreenUIActOptions,
   ScreenUITreeOptions,
@@ -15,7 +15,7 @@ import { DevicePlatform } from "../platform.ts";
 import { DevicesService } from "../service.ts";
 import { DeviceError } from "../sdk.ts";
 import { androidFind } from "../android-ui.ts";
-import { shotJpeg, type DeviceShot } from "../one-off-screenshot.ts";
+import type { DeviceShot } from "../one-off-screenshot.ts";
 import { boundedClipboard } from "../clipboard.ts";
 
 /** A UI node for a fake screen: actionable when it lists actions. */
@@ -115,15 +115,14 @@ export class FakeSimPlatform extends DevicePlatform {
   }
   override async screenshot(device: Device): Promise<DeviceShot> {
     this.shots.push(device.id);
-    const png = await sharp({
-      create: { width: 300, height: 600, channels: 3, background: { r: 10, g: 20, b: 30 } },
-    })
-      .png()
-      .toBuffer();
-    return shotJpeg(png);
+    // The screen as a one-off still is: a JPEG at its own size (the fixture is 300 × 600).
+    return { payload: Buffer.from(fakeScreen), width: 300, height: 600, scale: 1 };
   }
   override async close(): Promise<void> {}
 }
+
+/** A 300 × 600 screen of rgb(10, 20, 30). */
+const fakeScreen = readFileSync(new URL("fixtures/screen-300x600.jpg", import.meta.url));
 
 function liveFrame(streamId: string, sequence: number): Frame {
   const payload = Buffer.from(`live-${sequence}`);

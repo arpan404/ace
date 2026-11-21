@@ -6,6 +6,7 @@ import type { ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { WorkspaceRuntime } from "../workspace-runtime.ts";
 import { probePage } from "./page-probe.ts";
+import type { IconImages } from "../icons/icon-image.ts";
 import { SuggestionTracker, type SuggestionIo, type SuggestionTrackerOptions } from "./tracker.ts";
 
 /*
@@ -21,6 +22,8 @@ export interface SuggestionHost {
   now(): number;
   daemonPorts(): ReadonlySet<number>;
   onError?(error: unknown): void;
+  /** Draws a page's favicon (ADR 0201); without it a page has none. */
+  icons?: IconImages;
 }
 
 const realRoot = async (path: string) => realpath(path).catch(() => path);
@@ -76,7 +79,7 @@ export function suggestionIo(host: SuggestionHost): SuggestionIo {
     listeners: () => discoverListeners(),
     parents: () => processParents(),
     cwds: (pids) => processCwds(pids),
-    probe: (port) => probePage(port),
+    probe: (port) => probePage(port, undefined, host.icons),
     async scope(threadId) {
       const thread = host.store.getThread(threadId);
       if (!thread || thread.deletedAt !== undefined) return undefined;

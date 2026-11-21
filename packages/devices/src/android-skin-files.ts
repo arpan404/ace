@@ -1,7 +1,7 @@
 import { isAbsolute, join } from "node:path";
-import sharp from "sharp";
 import type { DeviceChrome } from "@ace/protocol/devices";
 import { androidSkinChrome, type SkinImage } from "./android-skin.ts";
+import { lookDeadlineMs, type ImageWork } from "./device-images.ts";
 
 /*
  * Finding an emulator's skin: the AVD's config names it (`skin.path`, `skin.name`, or the
@@ -16,6 +16,8 @@ export interface AndroidSkinSource {
   sdkRoots: readonly string[];
   /** A file's bytes, or undefined when it can't be read. */
   readFile(path: string): Promise<Uint8Array | undefined>;
+  /** ace-media, which reads each skin image's alpha (ADR 0201). */
+  images: ImageWork;
 }
 
 /** An `.ini` file's `key=value` lines. */
@@ -31,28 +33,24 @@ export function iniValues(text: string): Map<string, string> {
 /** Image bytes larger than this aren't read (the chrome travels in one message). */
 const imageLimit = 700 * 1024;
 
-/** A skin image as a data URL, with its alpha decoded so its shapes can be measured. */
-async function skinImage(bytes: Uint8Array, file: string): Promise<SkinImage> {
+/** A skin image as a data URL, with its alpha decoded by ace-media so its shapes can be measured. */
+async function skinImage(bytes: Uint8Array, file: string, images: ImageWork): Promise<SkinImage> {
   const type = file.toLowerCase().endsWith(".png") ? "png" : "webp";
   const url = `data:image/${type};base64,${Buffer.from(bytes).toString("base64")}`;
-  const decoded = await sharp(bytes)
-    .ensureAlpha()
-    .extractChannel(3)
-    .raw()
-    .toBuffer({ resolveWithObject: true })
+  const decoded = await images
+    .run({
+      inputs: [{ kind: "bytes", bytes }],
+      op: { op: "alpha", maxPixels: 16 * 1024 * 1024 },
+      deadlineMs: lookDeadlineMs,
+    })
     .catch(() => undefined);
   if (!decoded) return { url, alpha: () => undefined };
-  const { data, info } = decoded;
+  const { bytes: data, width, height } = decoded;
   return {
     url,
     alpha: (x, y) =>
-      Number.isInteger(x) &&
-      Number.isInteger(y) &&
-      x >= 0 &&
-      y >= 0 &&
-      x < info.width &&
-      y < info.height
-        ? data[y * info.width + x]
+      Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < width && y < height
+        ? data[y * width + x]
         : undefined,
   };
 }
@@ -112,7 +110,7 @@ export async function readAndroidSkin(
     return androidSkinChrome(layout, async (file) => {
       const bytes = await source.readFile(join(directory, file));
       if (!bytes || bytes.byteLength > imageLimit) return undefined;
-      return skinImage(bytes, file);
+      return skinImage(bytes, file, source.images);
     });
   }
   return undefined;

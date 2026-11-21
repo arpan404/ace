@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { RepositoryPublications } from "./repository-publications.ts";
 import type { SourceControl } from "./source-control.ts";
 import { discoverProjectFavicon } from "./project-favicon.ts";
+import { noIconImages, type IconImages } from "./icons/icon-image.ts";
 import { assertProjectImage } from "./project-image.ts";
 import { parseCloneUrl } from "@ace/project-picker";
 import type { PickerFilesystem } from "./project-picker-filesystem.ts";
@@ -66,6 +67,8 @@ export interface ProjectsOptions {
   hasOwnedWork?: (id: ThreadId) => boolean;
   /** The deletion policy every thread the project's removal deletes goes through (ADR 0183). */
   deletionPolicy?: DeletionPolicy;
+  /** Draws project favicons (ADR 0201); without it a project's default icon comes later. */
+  icons?: IconImages;
   /** Where chats started with no project keep their folders (ADR 0099); unset disables chats. */
   chatsRoot?: string;
   /** Folder names for new chats. */
@@ -169,7 +172,10 @@ export class Projects {
         let directory: ProjectDirectory | undefined;
         try {
           directory = await ProjectDirectory.open(this.paths, String(row.path));
-          const defaultIcon = await discoverProjectFavicon(directory.handle);
+          const defaultIcon = await discoverProjectFavicon(
+            directory.handle,
+            this.options.icons ?? noIconImages,
+          );
           if (this.closed) return;
           directory.verify();
           const project = this.catalog.get(id);
@@ -201,7 +207,10 @@ export class Projects {
     let directory: ProjectDirectory | undefined;
     try {
       directory = await ProjectDirectory.open(this.paths, path);
-      const icon = await discoverProjectFavicon(directory.handle);
+      const icon = await discoverProjectFavicon(
+        directory.handle,
+        this.options.icons ?? noIconImages,
+      );
       directory.verify();
       return icon;
     } catch {
@@ -278,7 +287,10 @@ export class Projects {
       )
         throw error;
     }
-    const defaultIcon = await discoverProjectFavicon(directory.handle);
+    const defaultIcon = await discoverProjectFavicon(
+      directory.handle,
+      this.options.icons ?? noIconImages,
+    );
     // A hint the person confirms (ADR 0181); anything odd about it reads as none.
     const marker = await readMarker(directory.handle);
     directory.verify();

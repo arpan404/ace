@@ -12,12 +12,16 @@ import { githubAvatarUrl } from "../icons/avatar-url.ts";
 import { faviconPng } from "../icons/favicon-image.ts";
 import { fetchFavicon } from "../icons/favicon-fetch.ts";
 import { IconCache } from "../icons/icon-cache.ts";
-import { installedIconPng, rasterPng } from "../icons/icon-image.ts";
+import { iconImages } from "../icons/icon-image.ts";
 import { IconService } from "../icons/icon-service.ts";
 import type { ServiceContext } from "./types.ts";
+import { daemonImages } from "./media.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-export function startIcons({ config, services, now }: ServiceContext): void {
+export function startIcons(context: ServiceContext): void {
+  const { config, services, now } = context;
+  // Every icon is drawn by ace-media (ADR 0201).
+  const icons = iconImages(daemonImages(context));
   services.icons = new IconService({
     cache: new IconCache(join(config.dataDir, "icons")),
     // The public-web fetch: never the local network, never credentials (ADR 0002).
@@ -27,10 +31,10 @@ export function startIcons({ config, services, now }: ServiceContext): void {
     // An app's icon is installed on this machine; a Linux one may be its theme's SVG.
     normalize: (bytes, icon) =>
       icon.kind === "site"
-        ? faviconPng(bytes)
+        ? faviconPng(bytes, icons)
         : icon.kind === "app"
-          ? installedIconPng(bytes)
-          : rasterPng(bytes),
+          ? icons.installedIconPng(bytes)
+          : icons.rasterPng(bytes),
     now,
   });
 }

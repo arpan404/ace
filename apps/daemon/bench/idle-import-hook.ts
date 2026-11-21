@@ -13,7 +13,6 @@ import { isMainThread, threadId, Worker } from "node:worker_threads";
  * the guard can name any worker that ran unwatched (worker-coverage.ts).
  */
 const forbidden = [
-  "sharp",
   "@cursor/sdk",
   "playwright",
   "playwright-core",

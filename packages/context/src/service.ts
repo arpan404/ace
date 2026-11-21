@@ -1,3 +1,5 @@
+import type { ImageWork } from "@ace/media/images";
+import { thumbnailRenderer } from "./attachment-images.ts";
 import { AttachmentBytes } from "./attachment-bytes.ts";
 import { attachmentDownload } from "./attachment-download.ts";
 import { prepareFiles } from "./prepare-files.ts";
@@ -25,7 +27,12 @@ import {
 } from "./projection.ts";
 
 export interface ContextServiceOptions extends UploadOptions {
-  /** Decoder I/O boundary; production defaults to the bounded Sharp renderer. */
+  /**
+   * ace-media's image work (ADR 0201): attachment previews, and copies of images over an inline
+   * provider's budget. Without it attachments have no previews and such images go as paths.
+   */
+  images?: ImageWork;
+  /** A preview renderer of the caller's, in place of ace-media's (tests). */
   renderThumbnail?(path: string): Promise<Buffer>;
   /** Logical project root used to authorize draft adoption into isolated worktrees. */
   threadWorkspaceRoot?(id: string): string | undefined | Promise<string | undefined>;
@@ -67,7 +74,9 @@ export class ContextService {
   private options: ContextServiceOptions;
   private constructor(options: ContextServiceOptions, uploads: UploadStore) {
     this.options = options;
-    this.attachmentBytes = new AttachmentBytes(options.renderThumbnail);
+    this.attachmentBytes = new AttachmentBytes(
+      options.renderThumbnail ?? (options.images && thumbnailRenderer(options.images)),
+    );
     this.uploads = uploads;
   }
   static async open(options: ContextServiceOptions): Promise<ContextService> {
@@ -337,7 +346,7 @@ export class ContextService {
             text,
           });
       }
-      prepared.push(...(await prepareFiles(lease.blobs, capabilities)));
+      prepared.push(...(await prepareFiles(lease.blobs, capabilities, this.options.images)));
       // Binary mentions take the attached-file route: images and PDFs reach providers natively.
       const budget = {
         remaining:

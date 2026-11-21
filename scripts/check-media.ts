@@ -60,6 +60,8 @@ if (process.platform === "win32") {
     "src/recordings.process.test.ts",
     // D1: a tab, a screen and a device on one media connection, revocation and restart.
     "src/media-delivery.process.test.ts",
+    // X4 (ADR 0201): every image vector through the binary and the lanes, lazy start, a kill.
+    "src/images.process.test.ts",
   ];
   execFileSync("bun", ["--bun", "x", "vitest", "run", ...tests], {
     cwd: new URL("../packages/media/", import.meta.url),
@@ -81,6 +83,23 @@ if (process.platform === "win32") {
     ],
     {
       cwd: new URL("../apps/daemon/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
+  // X4 (ADR 0201): attachment previews and an oversized model image through the binary.
+  execFileSync(
+    "bun",
+    [
+      "--bun",
+      "x",
+      "vitest",
+      "run",
+      "src/attachment-thumbnail.test.ts",
+      "src/model-image.process.test.ts",
+    ],
+    {
+      cwd: new URL("../packages/context/", import.meta.url),
       env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
       stdio: "inherit",
     },

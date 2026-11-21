@@ -88,10 +88,12 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
        plain screen, and a filmstrip is left out of the measurement.
      - An oversized model attachment goes as a file path with the reason, as it did when it
        couldn't be inlined.
-7. **Model attachments arrive within bounds.** An image attachment over the provider's inline
-   budget, or over the model's 1,568 px side, is fitted by ace-media (JPEG, at most 1,568 px a
-   side, within the remaining inline bytes) and inlined as that copy. The stored original is
-   untouched, and the provider still gets its path.
+7. **Model attachments arrive within bounds.** An image attachment over an inline provider's
+   remaining budget, or past the 8,000 px a side providers refuse, is fitted by ace-media (JPEG,
+   at most 1,568 px a side, then smaller and coarser until it fits the remaining inline bytes)
+   and inlined as that copy. The stored original is untouched. When no copy fits, or
+   ace-media can't make one, the image goes as its path, as before. Path-reading providers
+   (Codex, OpenCode) read the original.
 8. **Tests and tools** decode through the same code: `ace-media --image` runs one job from
    stdin to stdout (the `image.job` frame in, the `image.done` or `image.failed` frame out). Tests
    that need real pixels run against the built binary (`ACE_MEDIA_TEST_BINARY`) from

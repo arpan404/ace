@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { BrowserMedia } from "@ace/browser";
 import { MediaAccelerationStore } from "@ace/media/acceleration";
+import { ImageError, unavailableImages, type ImageWork } from "@ace/media/images";
 import type { IngestProducer, IngestSource } from "@ace/media/ingest-sources";
 import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections";
 import type { MediaDeliveryPort } from "@ace/media/media-viewers";
@@ -80,7 +81,24 @@ export type DaemonMedia = BrowserMedia & {
   acceleration: MediaAccelerationStore;
   /** ace-media's process while it runs. */
   pid(): number | undefined;
+  /**
+   * One-shot image jobs (ADR 0201): the first starts ace-media, whatever the media settings;
+   * each settles within its deadline, with `unavailable` when ace-media can't start.
+   */
+  images: ImageWork;
 };
+
+/** Why this daemon has no ace-media, for the image jobs that then fail. */
+function noMediaReason(): string {
+  return process.platform === "win32"
+    ? "the daemon doesn't run ace-media on Windows yet"
+    : "no ace-media binary was found";
+}
+
+/** The daemon's image work: ace-media's, or work that says why there is none. */
+export function daemonImages(context: ServiceContext): ImageWork {
+  return startMedia(context)?.images ?? unavailableImages(noMediaReason());
+}
 
 /** One per daemon: the browser and the screen share it. */
 const started = new WeakMap<object, DaemonMedia | undefined>();
@@ -105,6 +123,8 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let starting: Promise<void> | undefined;
   let closed = false;
   let runtimeDir: string | undefined;
+  /** Why the last start failed, for image jobs that can't run. */
+  let startFailure: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
   const waiting = new Map<
     IngestProducer,
@@ -147,6 +167,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
       runtime.settingsChanged();
     })().catch((error: unknown) => {
       starting = undefined;
+      startFailure = String(error);
       context.log.log("warn", `ace-media is not available: ${String(error)}`);
     }));
 
@@ -179,6 +200,17 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
       runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
     acceleration,
     pid: () => runtime?.supervisor.snapshot().pid,
+    images: {
+      run: async (job) => {
+        await start();
+        if (!runtime)
+          throw new ImageError(
+            "unavailable",
+            `ace-media could not start: ${closed ? "the daemon is stopping" : (startFailure ?? "unknown")}`,
+          );
+        return runtime.images.run(job);
+      },
+    },
     add: (producer) => runtime?.sources.add(producer),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,

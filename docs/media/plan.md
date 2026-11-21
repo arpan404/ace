@@ -1277,7 +1277,8 @@ The owner lifted this wave's release gate on 2026-11-20 ([ADR 0201](../adr/0201-
 
 ## Benchmarks
 
-- **`native/media/bench/`** has `envelope`, `fanout`, `seal`, `mux`, `still --path {gpu,cpu}`,
+- **`native/media/bench/`** has `envelope`, `fanout`, `seal`, `mux`, `image` (X4, in
+  `media-image`), `still --path {gpu,cpu}`,
   `jpeg --path {gpu,cpu}`, `encode --backend {vt,mf,vaapi,nv,chrome}`, `alloc`, `ingest` and
   `size`.
   - Each prints one JSON line in the format `video-link.ts` uses, and fails below its acceptance
@@ -2498,6 +2499,20 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   each job once (done, failed, deadline, cancel, exit), and fails at once while ace-media is
   unavailable. `apps/daemon/src/services/media.ts` gives it to attachments, devices, icons and
   the browser.
+- **Encoders.** JPEG through M5's encoder, kept per image thread so a repeated geometry reuses
+  its buffers; a JPEG to JPEG fit with no turn stays in YCbCr (M5's planar transcode). PNG at
+  `png`'s fast (fdeflate) level: an attachment preview of the 1206 × 2622 test screen is 168 KB
+  against 104 KB at the high level, at a fifth of the time.
+- **Bench** (`cargo run --release -p media-image --example image`, one JSON line a job, bounds
+  enforced below twice the core count). On this machine (12 x86 cores, AVX2, load 11 to 20
+  from other work), the 1206 × 2622 screen:
+  - fit to 1568 as JPEG q80 (screenshots, model images): median 9.6 ms, p95 10.3 ms in one
+    run and 12.8 / 15.4 ms in another, against `Bun.Image`'s ≈ 10 ms on the M4 Max (M5);
+  - attachment preview, 512 px PNG: median 22–30 ms, p95 24–33 ms;
+  - device chrome, a 430 × 932 pt body as a 1116 × 2400 PNG: median 69–92 ms (once per device
+    type, then cached);
+  - the filmstrip, eight full screens and captions: median 187–252 ms (once per measurement).
+  The Mac numbers remain to be measured.
 - **Tests and tools.** `ace-media --image` runs one job, frame in on stdin and frame out on
   stdout. `vectors/image/cases.json` lists each op's inputs and outcome; `media-image`'s tests
   replay it, and `packages/media/src/images.process.test.ts` replays it against the binary.

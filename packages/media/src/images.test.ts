@@ -42,7 +42,7 @@ function harness(start: { up: boolean; phase?: MediaPhase; reason?: string } = {
   });
   const advance = (ms: number) => {
     now += ms;
-    for (const timer of [...timers])
+    for (const timer of Array.from(timers))
       if (timer.at <= now) {
         timers.delete(timer);
         timer.run();

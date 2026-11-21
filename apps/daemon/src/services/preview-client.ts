@@ -9,15 +9,11 @@ import { PreviewClient } from "../preview-client.ts";
 import { hostPreviewIdentity, pairedPreviewIdentity } from "../preview.ts";
 import { createPreviewSuggestions } from "../preview-suggestions/service.ts";
 import type { ServiceContext } from "./types.ts";
+import { iconImages } from "../icons/icon-image.ts";
+import { daemonImages } from "./media.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function startPreviewClient({
-  services,
-  resources,
-  onListen,
-  store,
-  now,
-  log,
-}: ServiceContext): void {
+export function startPreviewClient(context: ServiceContext): void {
+  const { services, resources, onListen, store, now, log } = context;
   const preview = new PreviewClient((id) => {
     const thread = store.getThread(id);
     return !!thread && thread.deletedAt === undefined;
@@ -40,6 +36,8 @@ export function startPreviewClient({
     now,
     daemonPorts: () => daemonPorts,
     onError: (error) => log.log("debug", "Dev server detection failed", logError(error)),
+    // A page's favicon is drawn by ace-media (ADR 0201).
+    icons: iconImages(daemonImages(context)),
   });
   services.previewSuggestions = suggestions;
   resources.own(() => suggestions.close());
