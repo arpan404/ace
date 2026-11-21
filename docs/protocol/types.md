@@ -6199,6 +6199,28 @@ Example:
 }
 ```
 
+### browser.engine.move
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.engine.move"` |  |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| engine | yes | ["embedded","headless"] |  |
+
+Example:
+
+```json
+{
+  "engine": "headless",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.engine.move",
+  "workspaceId": "example"
+}
+```
+
 ### browser.tabs.list
 
 | Field | Required | Type | Constraints |
@@ -6232,8 +6254,7 @@ Example:
 {
   "requestId": "example",
   "threadId": "example",
-  "type": "browser.tabs.open",
-  "url": "example"
+  "type": "browser.tabs.open"
 }
 ```
 
@@ -6331,9 +6352,8 @@ Example:
 
 ```json
 {
-  "accept": false,
+  "accept": true,
   "dialogId": "example",
-  "promptText": "example",
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -6357,10 +6377,6 @@ Example:
 ```json
 {
   "authId": "example",
-  "credentials": {
-    "password": "example",
-    "username": "example"
-  },
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -6404,13 +6420,10 @@ Example:
 ```json
 {
   "command": {
-    "action": "type",
-    "expect": {
-      "tabId": "example",
-      "url": "example"
-    },
-    "ref": "example",
-    "text": "example"
+    "action": "context_target",
+    "tabId": "example",
+    "x": 6,
+    "y": 1
   },
   "requestId": "example",
   "threadId": "example",
@@ -6435,14 +6448,26 @@ Example:
 
 ```json
 {
-  "binaryFrames": false,
+  "binaryFrames": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",
   "video": {
     "codecs": [
-      "DezEPzmMUB"
+      "rwmpas3BrO"
     ]
+  },
+  "viewport": {
+    "audio": true,
+    "devicePixelRatio": 3,
+    "height": 102,
+    "link": {
+      "downlinkKbps": 4,
+      "saveData": false
+    },
+    "nativeShown": false,
+    "paused": true,
+    "width": 107
   }
 }
 ```
@@ -6464,16 +6489,13 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "cursor": {
-      "fill": "#24CF32",
-      "outline": "#33FA6E"
-    },
-    "devicePixelRatio": 3,
-    "height": 107,
+    "devicePixelRatio": 1,
+    "height": 108,
     "link": {
-      "expensive": true
+      "expensive": true,
+      "saveData": true
     },
-    "width": 106
+    "width": 103
   }
 }
 ```
@@ -6492,6 +6514,7 @@ Example:
 ```json
 {
   "requestId": "example",
+  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.unsubscribe"
 }
@@ -6512,9 +6535,8 @@ Example:
 
 ```json
 {
-  "keyframe": true,
   "requestId": "example",
-  "sequence": 3,
+  "sequence": 1,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -6564,16 +6586,15 @@ Example:
   "files": [
     {
       "name": "example",
-      "sha256": "4260091eac3f5220203ede3eef3f29e0ea45a13a73e1bbbd9ef1b007062f189e"
+      "sha256": "30b75172e1484e9fd03672a4000773fef336eb69b4c4b5426a38f629a453f125"
     }
   ],
-  "modifiers": 1,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
   "type": "browser.files.drop",
-  "x": 9,
-  "y": 2
+  "x": 0,
+  "y": 4
 }
 ```
 
@@ -6594,7 +6615,8 @@ Example:
 ```json
 {
   "downloadId": "example",
-  "offset": 0,
+  "length": 3,
+  "offset": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.download.read"
@@ -6615,7 +6637,7 @@ Example:
 
 ```json
 {
-  "muted": false,
+  "muted": true,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -6660,10 +6682,10 @@ Example:
 ```json
 {
   "input": {
-    "event": "keyUp",
-    "key": "example",
-    "kind": "key",
-    "modifiers": 2
+    "kind": "ime",
+    "selectionEnd": 3,
+    "selectionStart": 0,
+    "text": "example"
   },
   "requestId": "example",
   "threadId": "example",
@@ -7739,6 +7761,23 @@ Example:
   "requestId": "example",
   "threadId": "example",
   "type": "browser.download.read"
+}
+```
+
+## BrowserEngineMoved
+
+[JSON Schema](schema/BrowserEngineMoved.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | no | [BrowserState.json](schema/BrowserState.json) |  |
+| failed | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"url":{"type":"string","maxLength":8192},"reason":{"type":"string","maxLength":2048}},"required":["url","reason"]}} |
+
+Example:
+
+```json
+{
+  "failed": []
 }
 ```
 
@@ -10764,6 +10803,54 @@ Example:
     "host": "example",
     "name": "example"
   }
+}
+```
+
+## CliSpadeSkillExport
+
+[JSON Schema](schema/CliSpadeSkillExport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| path | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| source | yes | string |  |
+
+Example:
+
+```json
+{
+  "files": 8,
+  "name": "example",
+  "path": "example",
+  "source": "example"
+}
+```
+
+## CliSpadeSkillImport
+
+[JSON Schema](schema/CliSpadeSkillImport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| name | yes | string |  |
+| source | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| skipped | yes | array | {"items":{"type":"string"}} |
+| warnings | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliProblem.json"}} |
+
+Example:
+
+```json
+{
+  "files": 3,
+  "id": "example",
+  "name": "example",
+  "skipped": [],
+  "source": "example",
+  "warnings": []
 }
 ```
 
@@ -26095,6 +26182,10 @@ Example:
 | description | yes | string | {"maxLength":1024} |
 | files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | flagged | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| license | no | string | {"maxLength":200} |
+| compatibility | no | string | {"maxLength":500} |
+| allowedTools | no | array | {"maxItems":64,"items":{"type":"string","maxLength":120}} |
+| unused | no | array | {"maxItems":64,"items":{"type":"string","maxLength":120}} |
 
 Example:
 
@@ -26103,6 +26194,7 @@ Example:
   "description": "example",
   "files": 3,
   "flagged": 7,
+  "license": "example",
   "skillName": "example",
   "type": "spade-skill"
 }
