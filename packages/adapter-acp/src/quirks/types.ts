@@ -14,7 +14,8 @@ export interface AcpQuirks {
 export const baseCapabilities: Capabilities = {
   permissionModes: [],
   permissions: { modes: [], permissionModes: [], nativeAutoReview: false, toolGate: true },
-  steer: false,
+  steer: true,
+  steeringMode: "interrupt-restart",
   interruptCascades: false,
   resume: false,
   fork: false,

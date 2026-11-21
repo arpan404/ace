@@ -103,6 +103,7 @@ export function ActivityLine(props: {
     <p
       role="status"
       aria-label={label}
+      aria-description={activity.tone === "working" ? activity.current : undefined}
       data-part="working-line"
       data-state={activity.tone === "working" ? "working" : "waiting"}
       className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
@@ -151,7 +152,7 @@ function useWorkingSubagents(threadId: string, fallback: number | undefined): nu
 }
 
 /**
- * What else the whole tree is doing, quietly after the time: the plan's step, the subagents
+ * What else the whole tree is doing, quietly after the time: the current action or plan step, the subagents
  * still working ("2 subagents working", in the block's words) unless the label already counts
  * them, background commands.
  */
@@ -163,7 +164,7 @@ function Context(props: {
   const { activity } = props;
   const commands = activity.backgroundCommands;
   const parts = [
-    props.progress,
+    activity.current ?? props.progress,
     props.subagents ? workingSubagentsText(props.subagents) : undefined,
   ].filter(Boolean);
   if (!parts.length && !commands) return null;
