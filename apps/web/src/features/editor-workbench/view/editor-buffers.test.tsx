@@ -148,7 +148,7 @@ test("unsaved lines keep their gutter mark when the editor shows the file again"
   fireEvent.click(within(strip(1)).getByRole("tab", { name: /a\.ts/ }));
   await waitFor(() =>
     expect(
-      editorArea(1).querySelector('[data-line="2"] [data-mark]')?.getAttribute("data-mark"),
+      editorArea(1).querySelector('[data-change-line="3"]')?.getAttribute("data-change-bar"),
     ).toBe("added"),
   );
 });

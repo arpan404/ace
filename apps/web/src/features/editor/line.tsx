@@ -1,7 +1,6 @@
 // oxlint-disable react/no-array-index-key -- token and match runs have no identity; position is it.
 import { tokensFit } from "@/components/markdown/code-lines.ts";
 import { CodeTokens } from "@/components/markdown/code-tokens.tsx";
-import type { LineMark } from "@ace/ui-core";
 import { memo } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { MatchSegment } from "./find-matches.ts";
@@ -9,17 +8,6 @@ import { tabSize } from "./geometry.ts";
 import type { Token } from "./highlighter.ts";
 
 const clipped = 20_000;
-
-const markBar: Record<LineMark, string> = {
-  added: "shadow-[inset_-3px_0_0_var(--status-done)]",
-  modified: "shadow-[inset_-3px_0_0_var(--status-done)]",
-  removed: "shadow-[inset_0_2px_0_var(--status-failed)]",
-};
-const markWords: Record<LineMark, string> = {
-  added: "Added since the last commit",
-  modified: "Changed since the last commit",
-  removed: "Lines removed above",
-};
 
 function marked(text: string, matches: readonly MatchSegment[]) {
   const parts = [];
@@ -66,7 +54,7 @@ export function sliceTokens(
 
 /**
  * One visual row of the editor: the sticky gutter with its number (the line's first row only)
- * and diff mark, then the row's text coloured by the highlighter, with find matches drawn from
+ * (its change marks are drawn over it by `ChangeBars`), then the row's text coloured by the highlighter, with find matches drawn from
  * the row's own segments. A line too long to colour stays plain; unwrapped, it is clipped so a
  * generated file cannot hand the DOM a megabyte-wide span.
  */
@@ -85,9 +73,6 @@ export const EditorLine = memo(function EditorLine(props: {
   top: number;
   /** The row's height; the font and its size come from the editor's frame. */
   lineHeight: number;
-  mark: LineMark | undefined;
-  /** A press on the mark shows the change: the bar says so to the pointer. */
-  markAction?: boolean;
   current: boolean;
   matches: readonly MatchSegment[] | undefined;
   query: string;
@@ -114,15 +99,11 @@ export const EditorLine = memo(function EditorLine(props: {
     >
       <span
         aria-hidden
-        title={props.mark && markWords[props.mark]}
-        data-mark={props.mark}
         data-line-number={props.number}
         style={{ width: props.gutter }}
         className={cn(
           "sticky left-0 z-[1] shrink-0 bg-background pr-4 text-right text-subtle-foreground tabular-nums select-none",
           props.current && "text-foreground",
-          props.mark && markBar[props.mark],
-          props.mark && props.markAction && "cursor-pointer",
         )}
       >
         {props.number}

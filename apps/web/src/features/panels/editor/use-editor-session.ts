@@ -20,6 +20,7 @@ import {
   type TreeMark,
 } from "./agent-changes.ts";
 import { openPaths } from "./editor-layout.ts";
+import { liveGutterFor } from "./gutter-store.ts";
 import { authorOf, setEditCalls } from "./editor-registry.ts";
 
 /*
@@ -158,6 +159,8 @@ export function useEditorSession(
     const offs = (pathKey ? pathKey.split("\n") : []).map((path) => {
       const buffer = buffers.buffer(path);
       if (!buffer) return () => {};
+      // Its gutter hears an agent's change even while the tab is hidden.
+      liveGutterFor(buffer);
       let clashed = buffer.snapshot().clash;
       return buffer.subscribe((event) => {
         if (event.type === "replaced" && event.reason === "reload")

@@ -47,11 +47,19 @@ test("a file's lines changed since the last commit are marked beside their numbe
     expect(
       within(view)
         .getAllByTitle("Changed since the last commit")
-        .map((gutter) => gutter.textContent),
+        .filter((bar) => bar.hasAttribute("data-change-bar"))
+        .map((bar) => bar.getAttribute("data-change-line")),
     ).toEqual(["2", "4"]),
   );
-  // Unchanged lines carry no mark.
-  expect(within(view).queryAllByTitle(/since the last commit/)).toHaveLength(2);
+  // Unchanged lines carry no mark; the overview ruler shows the same two changes.
+  expect(view.querySelectorAll("[data-change-bar]")).toHaveLength(2);
+  expect(
+    [...view.querySelectorAll("[data-overview-tick]")].map((tick) => tick.getAttribute("title")),
+  ).toEqual([
+    "Changed since the last commit, line 2",
+    "Changed since the last commit, line 4",
+    "Cursor at line 1",
+  ]);
 });
 
 test("a changed file opens its uncommitted diff in Changes from its tab's menu", async () => {
@@ -86,7 +94,7 @@ test("typed text marks the tab unsaved and stays out of the stored layout", asyn
 
 /** Presses a changed line's bar at the gutter's right edge. */
 function pressMark(view: HTMLElement, line: number) {
-  const gutter = view.querySelector<HTMLElement>(`[data-line="${line - 1}"] [data-mark]`);
+  const gutter = view.querySelector<HTMLElement>(`[data-line="${line - 1}"] [data-line-number]`);
   const scroller = view.querySelector<HTMLElement>("[data-editor-scroller]");
   if (!gutter || !scroller) throw new Error(`line ${line} has no mark`);
   const width = Number.parseFloat(gutter.style.width);

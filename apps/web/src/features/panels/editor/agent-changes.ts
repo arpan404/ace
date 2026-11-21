@@ -1,4 +1,5 @@
-import { fileChanges, type Turn } from "@ace/ui-core";
+import { ProviderKind } from "@ace/protocol";
+import { fileChanges, providerDisplayName, type Turn } from "@ace/ui-core";
 import type { Author, EditCall } from "@/features/editor-workbench/index.ts";
 
 /*
@@ -7,6 +8,10 @@ import type { Author, EditCall } from "@/features/editor-workbench/index.ts";
  * editors row and the status line's "Claude Code changed 2 open files" with Next change. Pure:
  * the panel feeds it disk changes, what is on screen, and the turn's edit calls.
  */
+
+/** The provider behind an agent's display name ("Claude Code" is claude), for its mark. */
+export const providerOf = (agent: string): ProviderKind | undefined =>
+  ProviderKind.options.find((kind) => providerDisplayName(kind) === agent);
 
 /** A change someone can be named for. */
 export type NamedAuthor = Exclude<Author, { kind: "unknown" }>;

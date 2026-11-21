@@ -2,6 +2,7 @@ import type { Applied, EditorDocument, LineEdit, Selection, TextReplacement } fr
 import type { LineMark } from "@ace/ui-core";
 import type { ReactNode, Ref } from "react";
 import type { EditorStatus, EditorStatusActions } from "./editor-status.ts";
+import type { AgentMark } from "./change-bars.tsx";
 import type { EditorLayer } from "./layer.ts";
 
 /** What the editor exposes to code that needs to place a caret or read the text. */
@@ -65,6 +66,8 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   /** Gutter marks from the checkout's diff; unset, the editor diffs against its own opening. */
   marks?: ReadonlyMap<number, LineMark> | undefined;
+  /** Lines agents wrote, drawn in the gutter beside `marks` and on the overview ruler. */
+  agentMarks?: readonly AgentMark[] | undefined;
   /** A press on a `marks` line's change bar, with its 1-based line: show what changed there. */
   onMarkClick?: ((line: number) => void) | undefined;
   /** Drawn across the text under 0-based line `after` (a change's inline diff), over the lines below. */
