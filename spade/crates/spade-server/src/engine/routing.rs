@@ -383,6 +383,14 @@ impl Engine {
             let mut checked: Vec<String> = Vec::new();
             for model in models {
                 let model = self.route_model(&model)?;
+                // Only `title` and `compact` run on a model that can't call tools (ADR 0205 §3).
+                if role.needs_tools() && !Person(self.models.endpoints()).calls_tools(&model) {
+                    return Err(invalid(format!(
+                        "{model} can't call tools, so it can only write titles and summaries; \
+                         give the {} role a model that can",
+                        role.name()
+                    )));
+                }
                 if !checked.contains(&model) {
                     checked.push(model);
                 }
