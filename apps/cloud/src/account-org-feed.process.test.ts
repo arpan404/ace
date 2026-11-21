@@ -180,3 +180,61 @@ it("an organization's update at the same WorkOS time as its deletion leaves it d
   ).toBe(200);
   expect(await spaces()).not.toContain(org);
 });
+
+it("a membership's deletion keeps its later events out even when it arrives older than the row", async () => {
+  const gil = workosUser("user_gil", "Gil");
+  const { ownerToken, org } = await team("Deleted late", gil);
+  const membership = world.workos.orgs.membership(gil.id, org);
+  const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+  const event = (
+    id: string,
+    name: string,
+    created: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    id,
+    event: name,
+    data: { ...membership, ...extra, updated_at: created },
+    created_at: created,
+  });
+  const [early, middle, late] = [at(1_000), at(2_000), at(3_000)];
+  // The row is already at `middle` when the deletion, from `early`, arrives.
+  expect(await deliver(event("event_01GILUP", "organization_membership.updated", middle))).toBe(
+    200,
+  );
+  expect(await deliver(event("event_01GILDEL", "organization_membership.deleted", early))).toBe(
+    200,
+  );
+  // That membership is deleted: no event of it lands afterwards.
+  expect(
+    await deliver(
+      event("event_01GILLATE", "organization_membership.updated", late, {
+        role: { slug: "admin" },
+      }),
+    ),
+  ).toBe(200);
+  expect(await memberRow(ownerToken, org, gil.id)).toMatchObject({ role: "member" });
+});
+
+it("deleting another membership at the same WorkOS time as the row changes nothing and logs nothing", async () => {
+  const hal = workosUser("user_hal", "Hal");
+  const { ownerToken, org, box, token } = await team("Other id", hal);
+  const created = world.workos.orgs
+    .events()
+    .find(
+      (each) => each.event === "organization_membership.created" && each.data.user_id === hal.id,
+    );
+  if (!created) throw new Error("No membership event");
+  expect(
+    await deliver({
+      id: "event_01HALOTHER",
+      event: "organization_membership.deleted",
+      data: { ...created.data, id: "om_01SOMEOTHER" },
+      created_at: created.created_at,
+    }),
+  ).toBe(200);
+  await cron();
+  expect(await memberRow(ownerToken, org, hal.id)).toMatchObject({ status: "active" });
+  expect(auditsFor(org, "org.member.removed")).toEqual([]);
+  expect((await world.api.memberGrant(token, org, box.hostId)).status).toBe(200);
+});

@@ -91,12 +91,16 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
   }
 
   async function remove(event: WorkosEvent, org: string, account: string, after: KnownMember) {
-    if (!(await transition(event, org, account, after))) return;
+    // The deletion is a fact of its own, kept whatever the row does: no later event of this
+    // membership lands, even when the deletion arrives older than the row.
     const tombstone = await deletedMembership(after.membership);
-    tombstone.known = true;
+    if (!tombstone.known) {
+      tombstone.known = true;
+      writes.push(orgs.tombstoningMembership(after.membership, after.version));
+    }
+    if (!(await transition(event, org, account, after))) return;
     writes.push(
       orgs.removingMember(org, account, after.membership, after.version, now(), after.role),
-      orgs.tombstoningMembership(after.membership, after.version),
       portal.queueing(org, account),
     );
   }

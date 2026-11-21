@@ -39,7 +39,8 @@ export type Deleted = {
 
 /**
  * Whether one event moves the mirror's row (ADR 0206 §6, amendment 1): only a strictly newer
- * one, so a repeat changes nothing; at the same WorkOS time, a removal wins over anything else.
+ * one, so a repeat changes nothing; at the same WorkOS time, a removal of the row's own
+ * membership wins over anything else.
  * Nothing but a removal lands for a membership WorkOS deleted, or at or before the time WorkOS
  * deleted its user.
  */
@@ -54,8 +55,13 @@ export function accepts(
   }
   if (!before) return true;
   if (after.version > before.version) return true;
+  // A removal at the same time wins, but only over its own membership: another membership's
+  // deletion moves the row only when strictly newer. `removingMember`'s SQL is the same rule.
   return (
-    after.version === before.version && after.status === "removed" && before.status !== "removed"
+    after.version === before.version &&
+    after.status === "removed" &&
+    before.status !== "removed" &&
+    after.membership === before.membership
   );
 }
 
