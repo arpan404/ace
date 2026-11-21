@@ -657,3 +657,56 @@ Behaviour tests through public surfaces, at the right tier:
 ## Verification
 
 None yet: this is a design. Each phase's done line (§9) is its verification.
+
+## Amendment 1 (2026-11-21): directory sync deliveries and `ace login --org`
+
+Details the ADR left open, decided while building them. Each is the simplest safe choice.
+
+**Webhook alongside the Events API.** The minute's Events API run stays the mirror's source of
+record (§1.1). WorkOS's webhook deliveries are added so a directory's deprovisioning lands in
+seconds: `POST /v1/workos/webhook` on the account backend.
+
+- A delivery counts only with a `WorkOS-Signature` of `t=<ms>, v1=<hex>`, the HMAC-SHA256 of
+  `<t>.<body>` under the endpoint's secret (`WORKOS_WEBHOOK_SECRET`), and `t` within five
+  minutes of the backend's clock either way. Anything else is 401 and changes nothing. Without
+  the secret the route answers 404.
+- A membership, user or organization event is applied at once by the same code as the Events
+  API feed, without moving its cursor. Mirror rows keep the WorkOS time of the state they hold,
+  so a repeat, a late delivery, or the feed bringing the same event again changes nothing twice.
+- A `dsync.*` delivery has the feed caught up now. With Directory Provisioning, WorkOS itself
+  turns a directory's user deactivation, deletion and group changes into membership events
+  (`organization_membership.updated` with `inactive`, a new role from a group mapping), so
+  those are what ace applies; the `dsync` event is only the signal to look.
+- `user.deleted` marks every membership of that account `removed` (the row is kept for history)
+  and drops its org checks. It deletes nothing else: sessions, machines and personal data are
+  untouched, as §6 has it.
+
+**Audit entries for the directory's changes.** The feed writes `org.member.joined`,
+`role_changed` and `removed` for a directory-managed membership, and `deprovisioned` and
+`reactivated` for any membership (ace never deactivates). The actor is `{type: "idp", id:
+"directory"}` for a directory-managed membership, `{type: "workos", id: "workos"}` otherwise;
+the target is the member's account; the metadata is role slugs, statuses and the WorkOS event
+id, never an email or name. The idempotency key is derived from the WorkOS event, and only an
+event newer than the row writes an entry, so a replay writes none. ace's own Remove and role
+change keep writing their entries with the member who acted.
+
+**A live member grant stops at the relay at once.** Relay admission of a member grant now also
+needs the mirror to show the member `active`, so a grant minted before a deprovisioning can't
+open a new connection to the host for the rest of its five minutes. Sockets already open still
+close when their grant runs out (§6's table, unchanged): the relay can't tell which encrypted
+stream a member's is, and the daemon's own bound stands.
+
+**`ace login --org <org>`.** A daemon's sign-in may name an organization. The backend passes it
+to WorkOS as `organization_id`, so the organization's sign-in policy applies, and the claimed
+session says it entered the organization (`org`) only when WorkOS put the session in it and the
+mirror, refreshed from WorkOS, shows the membership active. The daemon keeps that sign-in with
+the organization as its **space**, stored with the sign-in and shown in its account status; `ace
+org registry key|sign` act in it when given no `--org`. When the session didn't enter the
+organization, the daemon ends the new session at once and keeps whatever sign-in it had, and
+`ace login --org` exits 4 (`forbidden`) saying the account isn't a member. A plain `ace login`
+selects no space. Selecting a space never enrolls the machine: giving it to the organization is
+still §2.1's step, with the owner's consent and `hosts:manage`.
+
+**Not built here.** A host learning that a bot's approver left, to flag "<bot> has no approver"
+to admins (§6), needs a membership read for org hosts and Spade's side of it; until then such
+requests keep waiting, since a former member can't get the member standing to answer them.
