@@ -22,6 +22,11 @@ pub const KEY_FILE: &str = "spade-person.key";
 /// How far a stamp's time may be from Spade's clock.
 pub const WINDOW_MS: i64 = 60_000;
 
+/// What a change that loosens a bot's Permissions, refused for want of the person's say, tells
+/// the caller: the words ace's daemon uses, so a window offers Confirm it's you (ADR 0171,
+/// amendment 7).
+pub const CONFIRM: &str = "Confirm your identity to continue.";
+
 /// What a change refused for want of the person's say tells the caller.
 pub const PERSON_ONLY: &str =
     "Only the person can turn on Full access: do it in ace, on this computer or a paired device.";

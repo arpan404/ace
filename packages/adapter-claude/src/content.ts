@@ -63,9 +63,10 @@ export function message(
   const agent = state.agentFor(data);
   const m = object(data["message"]);
   const role = data["type"] === "assistant" ? "assistant" : "user";
-  if (role === "assistant" && typeof m["model"] === "string" && m["model"]) {
-    state.emit({ type: "agent.linked", agent, model: m["model"] });
-    if (agent === state.root) state.model = m["model"];
+  const model = string(m["model"]);
+  if (role === "assistant" && model && model !== "<synthetic>") {
+    state.emit({ type: "agent.linked", agent, model });
+    if (agent === state.root) state.model = model;
   }
   if (role === "assistant")
     state.start(agent, agent === state.root ? (state.wake ?? "unknown") : "spawn");

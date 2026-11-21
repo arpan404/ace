@@ -8,7 +8,7 @@ import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
 
 /**
  * The profile's tabs: what the bot is, what it works toward (only while it has a goal, workers
- * or decisions), what it keeps, what it drives.
+ * or decisions), what it keeps, what it drives, what it may reach.
  */
 export type ProfileTab = "details" | "permissions" | "work" | "library" | "computer";
 

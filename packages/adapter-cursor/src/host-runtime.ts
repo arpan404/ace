@@ -24,9 +24,29 @@ import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
 import { HostRefusal } from "./host-refusal.ts";
 import { noWindowsSandboxMessage } from "./sandbox-helper.ts";
+import { AckBudgets, ackExpired, type AckBudget } from "./ack-budgets.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
+/** The fence notices the daemon knows: a frame or a checkpoint ace could not store. */
+type FenceCode = "boundary_overflow" | "checkpoint_budget";
+/** True once `run` has stopped; false if its cancel fails or outlasts `ms`. */
+async function stopsWithin(run: SdkRunBoundary, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      run.cancel().then(
+        () => true,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 export class HostRuntime {
   private toolGuidance: Awaited<ReturnType<typeof cursorToolGuidance>> | undefined;
   private sandboxRelease: (() => Promise<void>) | undefined;
@@ -52,15 +72,32 @@ export class HostRuntime {
   private scrub = createRedactor({});
   private sdk: RuntimeSdkBoundary;
   private env: NodeJS.ProcessEnv;
-  private emit: (frame: CursorEnvelope) => Promise<void>;
+  private emit: (frame: CursorEnvelope, expired: AbortSignal) => Promise<void>;
   private home: () => string;
+  private budgets: AckBudgets;
+  private endHost: (reason: string) => void;
+  /** Why the turn was fenced, until its run has stopped and the notice is out. */
+  private fenceCause:
+    | { scope: SendOptions | undefined; error: unknown; code: FenceCode }
+    | undefined;
+  /**
+   * `emit` stores one frame; `expired` aborts when ace has taken too long to store it, and the
+   * host then fences the turn. `endHost` ends this host process when a fenced run will not stop:
+   * the process ending is the only end the daemon can be sure of.
+   */
   constructor(
     sdk: RuntimeSdkBoundary,
-    emit: (frame: CursorEnvelope) => Promise<void>,
+    emit: (frame: CursorEnvelope, expired: AbortSignal) => Promise<void>,
     home = homedir,
     env: NodeJS.ProcessEnv = process.env,
+    now: () => number = () => performance.now(),
+    endHost: (reason: string) => void = (reason) => {
+      throw new Error(reason);
+    },
   ) {
     this.home = home;
+    this.budgets = new AckBudgets(now);
+    this.endHost = endHost;
     this.env = env;
     this.sdk = sdk;
     this.emit = emit;
@@ -71,6 +108,26 @@ export class HostRuntime {
       CURSOR_API_KEY: this.env.CURSOR_API_KEY,
       ACE_MCP_BEARER: this.options?.mcp?.bearer,
     });
+  }
+  /** A request's deadline, counted from when it arrived; the returned call ends it. */
+  private within(ms: number): () => void {
+    return this.budgets.within(ms);
+  }
+  /** Stores one frame within its budget: ackTimeoutMs, never past a request deadline. */
+  private persist(frame: CursorEnvelope): Promise<void> {
+    return this.persistWithin(
+      frame,
+      this.budgets.start(this.options?.limits.ackTimeoutMs ?? 300_000),
+    );
+  }
+  private async persistWithin(frame: CursorEnvelope, budget: AckBudget): Promise<void> {
+    try {
+      await this.emit(frame, budget.signal);
+      // A reply after the budget ran out does not count: ace had stopped waiting for it.
+      if (budget.spent()) throw new Error(ackExpired);
+    } finally {
+      budget.release();
+    }
   }
   private async frame(
     kind: CursorEnvelope["kind"],
@@ -127,7 +184,7 @@ export class HostRuntime {
         body: safe,
         ...(prepared.raw ? { raw: prepared.raw } : {}),
       };
-      await this.emit(this.journal ? await this.journal.append(envelope) : envelope);
+      await this.persist(this.journal ? await this.journal.append(envelope) : envelope);
     } catch (error) {
       await this.overflow(scope, error);
       throw error;
@@ -136,31 +193,67 @@ export class HostRuntime {
       this.callbackBytes -= admittedBytes;
     }
   }
-  private async overflow(scope: SendOptions | undefined, error: unknown): Promise<void> {
+  /**
+   * Fences the turn: no frame is stored after this, and the run is stopped before the fence
+   * notice goes out, because ace treats the notice as the turn's end. Inside the SDK's send the
+   * run is not known yet, so send() ends the fence once it is.
+   */
+  private async overflow(
+    scope: SendOptions | undefined,
+    error: unknown,
+    code: FenceCode = "boundary_overflow",
+  ): Promise<void> {
     if (this.transportFenced || !this.options) return;
     this.transportFenced = true;
-    // A failed journal/oversized callback cannot carry its own failure. This small
-    // emergency frame fences the parent, which owns cancellation and process exit.
-    await this.emit({
-      schemaVersion: 1,
-      generation: this.options.generation,
-      operationId: scope?.operationId ?? "open",
-      segment: scope?.segment ?? 0,
-      kind: "error",
-      body: {
-        code: "boundary_overflow",
-        message: `SDK boundary failed: ${this.errorMessage(error).slice(0, 512)}. Execution is fenced; checkpoint retained. Inspect delivery before sending again.`,
-      },
-    });
+    this.fenceCause = { scope, error, code };
+    // Not awaited: the frame that failed must return, so a run whose cancel waits on it can stop.
+    if (!this.sending || this.run) void this.endFence(this.run);
+  }
+  /** Stops the fenced run, then publishes the notice; if either fails, the host ends instead. */
+  private async endFence(run: SdkRunBoundary | undefined): Promise<void> {
+    const cause = this.fenceCause;
+    const options = this.options;
+    if (!cause || !options) return;
+    this.fenceCause = undefined;
+    const detail = this.errorMessage(cause.error).slice(0, 512);
+    const message =
+      cause.code === "checkpoint_budget"
+        ? `ace could not write Cursor's checkpoint: ${detail}. Execution is fenced; preserve this thread and use explicit bounded context handoff.`
+        : `SDK boundary failed: ${detail}. Execution is fenced; checkpoint retained. Inspect delivery before sending again.`;
+    if (run && !(await stopsWithin(run, options.limits.timeoutMs))) {
+      this.endHost(`${message} The Cursor run did not stop when cancelled, so ace ended its host.`);
+      return;
+    }
+    try {
+      // A failed journal/oversized callback cannot carry its own failure. This small
+      // emergency frame fences the parent, which owns process exit.
+      // No request waits on the notice, so no request deadline bounds it.
+      await this.persistWithin(
+        {
+          schemaVersion: 1,
+          generation: options.generation,
+          operationId: cause.scope?.operationId ?? "open",
+          segment: cause.scope?.segment ?? 0,
+          kind: "error",
+          body: { code: cause.code, message },
+        },
+        this.budgets.startDetached(options.limits.ackTimeoutMs),
+      );
+    } catch {
+      // Without the notice ace would show the stopped turn as running; ending the host says so.
+      this.endHost(`${message} ace could not record the fence, so it ended its host.`);
+    }
   }
   async open(value: unknown): Promise<{ agentId: string }> {
     if (this.opening || this.agent || this.closing) throw new Error("Host already open or closing");
     this.opening = true;
     const opened = Promise.withResolvers<void>();
     this.openingDone = opened.promise;
+    let leave: (() => void) | undefined;
     try {
       const options = Open.parse(value);
       this.options = options;
+      leave = this.within(options.limits.timeoutMs);
       this.shellStreams = new ShellStreams(options.limits.maxIdentities);
 
       if (this.env.CURSOR_API_KEY === "")
@@ -185,12 +278,8 @@ export class HostRuntime {
         this.storeOwner.store,
         this.root,
         options.limits.maxCheckpointBytes,
-        () =>
-          this.frame("error", {
-            code: "checkpoint_budget",
-            message:
-              "SDK checkpoint write failed or exceeded budget. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
-          }),
+        // A checkpoint ace cannot write fences the turn like any frame it cannot store.
+        (error) => this.overflow(this.sendOptions, error, "checkpoint_budget"),
         quota,
       );
       const journal = new CursorJournal(
@@ -204,7 +293,7 @@ export class HostRuntime {
           quota,
         },
       );
-      await journal.recover(options.afterFrameOffset, (frame) => this.emit(frame));
+      await journal.recover(options.afterFrameOffset, (frame) => this.persist(frame));
       this.journal = journal;
       let recoveryBytes = 0;
       this.scrub = createRedactor(
@@ -295,7 +384,7 @@ export class HostRuntime {
       });
       for (const recovery of recovered) {
         const body = JSON.parse(this.scrub(boundedJson(recovery.body, 262144)));
-        await this.emit(
+        await this.persist(
           await journal.append({
             schemaVersion: 1,
             generation: options.generation,
@@ -324,6 +413,7 @@ export class HostRuntime {
       }
       throw new Error("SDK setup failed", { cause: error });
     } finally {
+      leave?.();
       this.opening = false;
       this.openingDone = undefined;
       opened.resolve();
@@ -364,6 +454,7 @@ export class HostRuntime {
     }
     this.sending = true;
     this.sendOptions = input;
+    const leave = this.within(this.options.limits.sendTimeoutMs);
     try {
       await checkCheckpointBudget(this.root, this.options.limits.maxCheckpointBytes);
       await this.frame("send", { input: input.input });
@@ -379,6 +470,8 @@ export class HostRuntime {
         },
       });
       this.run = segmentRun;
+      // A frame inside the SDK's send may have fenced the turn before the run was known.
+      if (this.fenceCause) void this.endFence(segmentRun);
       await this.frame("segment", { nativeRunId: segmentRun.id }, input, segmentRun);
       const run = segmentRun;
       this.completion = this.consume(run, input).finally(() => {
@@ -389,6 +482,8 @@ export class HostRuntime {
       void this.completion.catch(() => {});
       return { runId: run.id };
     } catch (error) {
+      // The SDK's send failed after a fence inside it: no run to stop, so publish the fence.
+      if (this.fenceCause && !this.run) void this.endFence(undefined);
       const failure = sdkFailure(this.sdk, error);
       await this.frame("error", {
         ...failure,
@@ -398,6 +493,7 @@ export class HostRuntime {
       });
       throw new Error("SDK send uncertain", { cause: error });
     } finally {
+      leave();
       this.sending = false;
     }
   }
@@ -446,10 +542,15 @@ export class HostRuntime {
   }
   async cancel(): Promise<void> {
     if (this.sending) throw new Error("Cannot prove cancellation during SDK admission");
-    if (!this.run) return;
-    await this.run.cancel();
-    await this.completion;
-    await this.frame("cancel", { settled: true });
+    if (!this.run || !this.options) return;
+    const leave = this.within(this.options.limits.timeoutMs);
+    try {
+      await this.run.cancel();
+      await this.completion;
+      await this.frame("cancel", { settled: true });
+    } finally {
+      leave();
+    }
   }
   close(): Promise<void> {
     this.closing ??= this.dispose();
@@ -468,6 +569,8 @@ export class HostRuntime {
   }
   private async dispose(): Promise<void> {
     await this.openingDone;
+    // ace waits graceMs for a close before it stops the host.
+    const leave = this.options ? this.within(this.options.limits.graceMs) : () => {};
     try {
       try {
         if (this.run) await this.cancel();
@@ -485,13 +588,18 @@ export class HostRuntime {
           try {
             await this.storeOwner?.close();
           } finally {
-            await this.toolGuidance?.close();
-            this.toolGuidance = undefined;
+            try {
+              await this.toolGuidance?.close();
+            } finally {
+              this.toolGuidance = undefined;
+              this.storeOwner = undefined;
+              this.agent = undefined;
+              // Even when cleanup throws, frames must stop counting on close's deadline.
+              leave();
+            }
           }
         }
       }
-      this.storeOwner = undefined;
-      this.agent = undefined;
     }
   }
 }

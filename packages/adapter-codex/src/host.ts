@@ -4,6 +4,7 @@ import {
   type Notification,
   type ServerRequest,
 } from "@ace/provider-kit/jsonrpc";
+import { droppedLineNotes } from "@ace/provider-kit/dropped-line-notes";
 import type { OutputFlow } from "@ace/provider-kit/flow-control";
 import {
   OutputLineDroppedError,
@@ -71,7 +72,12 @@ export interface CodexChannel {
 }
 
 export type HostConfig = {
-  spawn(flow: OutputFlow, dropped: (line: DroppedOutputLine) => void): SupervisedProcess;
+  /** `stderrDropped` hears oversized stderr lines; stderr is diagnostics, so they never kill. */
+  spawn(
+    flow: OutputFlow,
+    dropped: (line: DroppedOutputLine) => void,
+    stderrDropped: (line: DroppedOutputLine) => void,
+  ): SupervisedProcess;
   /** A dedicated host serves one channel and stops with it; every frame goes to that channel. */
   dedicated: boolean;
   initialize: unknown;
@@ -208,6 +214,13 @@ export class CodexHost {
     this.#config = config;
     this.dedicated = config.dedicated;
     const tenants = this.#tenants;
+    // A stderr flood adds at most one note per second to each tenant's diagnostics.
+    const stderrDrops = droppedLineNotes({
+      note: (text) => {
+        for (const tenant of tenants) tenant.handlers.stderr(text);
+      },
+      schedule: config.schedule,
+    });
     this.#proc = config.spawn(
       {
         // Shared stdout pauses while any channel is out of room; no channel loses a frame.
@@ -221,6 +234,7 @@ export class CodexHost {
         },
       },
       (line) => this.#dropped(line),
+      (line) => stderrDrops.dropped(line),
     );
     const proc = this.#proc;
     const drain = () => {
@@ -253,6 +267,7 @@ export class CodexHost {
     peer.onRequest = (message) => this.#request(message);
     void proc.exited
       .then((exit) => {
+        stderrDrops.flush();
         this.#cancelDrain?.();
         proc.signal.removeEventListener("abort", drain);
         this.#exited({

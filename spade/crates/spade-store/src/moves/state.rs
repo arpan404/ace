@@ -220,6 +220,20 @@ impl Store {
         detail: &str,
         now_ms: i64,
     ) -> Result<bool> {
+        self.advance_move_audited(id, from, state, detail, now_ms, &[])
+    }
+
+    /// [`Store::advance_move`] with `entries` appended to the audit chain in the same
+    /// transaction (a shared bot's `bot.moved`, ADR 0206 §4.1): written only if it moves on.
+    pub fn advance_move_audited(
+        &self,
+        id: &str,
+        from: Option<&[&str]>,
+        state: &str,
+        detail: &str,
+        now_ms: i64,
+        entries: &[spade_core::org::audit::Entry],
+    ) -> Result<bool> {
         let mut connection = self.lock_durable()?;
         let tx = connection.transaction()?;
         if gated_move(&tx, id)? {
@@ -239,6 +253,9 @@ impl Store {
         )?;
         if !open_state(state) {
             tx.execute("DELETE FROM move_claims WHERE move_id = ?1", params![id])?;
+        }
+        if !entries.is_empty() {
+            crate::org_audit::audit_in(&tx, entries, now_ms)?;
         }
         tx.commit()?;
         Ok(true)

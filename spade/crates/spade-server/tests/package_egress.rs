@@ -284,7 +284,7 @@ async fn a_ticket_issued_while_a_host_switch_goes_off_never_keeps_the_host() -> 
         format!("network:hosts:{host}"),
     );
     let off = tokio::task::spawn_blocking(move || {
-        let done = spade_server::packages::set_switch(&engine, &bot, &key, false);
+        let done = spade_server::packages::set_switch(&engine, &bot, &key, false, &|| false);
         let _ = switched.send(());
         done
     });

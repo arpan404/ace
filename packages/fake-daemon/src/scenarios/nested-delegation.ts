@@ -222,12 +222,12 @@ export function nestedDelegation(): Scenario[] {
 }
 
 /** The review's subagent stops to ask the person, four threads down from where they look. */
-export function nestedQuestion(): Fact {
+export function nestedQuestion(blocking = true): Fact {
   return {
     type: "interaction.opened",
     agent: "limits",
     interaction: "keep-days",
-    blocking: true,
+    blocking,
     request: {
       kind: "question",
       questions: [

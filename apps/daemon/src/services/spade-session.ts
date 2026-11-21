@@ -4,7 +4,7 @@ import { personOnlyChangeRefusal } from "../answer-gate.ts";
 import { spadeLive } from "../spade/forward.ts";
 import type { SpadeLink } from "../spade/link.ts";
 import { personStamp } from "../spade/person-stamp.ts";
-import { memberStamp } from "../spade/member-stamp.ts";
+import { memberRequestStamp, memberStamp } from "../spade/member-stamp.ts";
 import { checkLivePath } from "../spade/rules.ts";
 import { createSpadeHttp } from "./spade-http.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -98,6 +98,14 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
       const now = (context.now ?? Date.now)();
       const stamp = memberStamp(key, write, member.account, now, randomBytes(16).toString("hex"));
       return stamp ? { stamp } : { refused: "This account can't answer here." };
+    },
+    requestStamp: (write) => {
+      if (context.orgHost?.() !== true) return undefined;
+      const member = context.memberStanding?.();
+      const key = host()?.personKey?.();
+      if (!member || !key) return undefined;
+      const now = (context.now ?? Date.now)();
+      return memberRequestStamp(key, write, member, now, randomBytes(16).toString("hex"));
     },
   });
   const stopStream = (requestId: string, reason: SpadeLiveEndReason) => {

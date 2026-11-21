@@ -80,7 +80,9 @@ struct InboxView: View {
                     Button(choice.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: choice.id) } }
                 }
             }
-            .newThreadEntry(inbox: inbox, composing: $composing, project: composeProject ?? projectFilter) { key in openThread(key) }
+            .newThreadEntry(inbox: inbox, composing: $composing, project: { machine in
+                composeProject ?? ProjectFilterGroups.checkout(of: projectFilter, on: machine, in: inbox.projectRows(machine: ""))
+            }) { key in openThread(key) }
             .onChange(of: composing) { _, now in if !now { composeProject = nil } }
             .organizeSheets(organize, inbox: inbox)
             // `ace://` links from other apps, Shortcuts and Copy link. One that arrives before the
@@ -324,7 +326,7 @@ struct InboxView: View {
 
     /// Open from a transfer's line goes to that machine's thread.
     private var otherMachines: OtherMachines {
-        OtherMachines(client: { inbox.client($0) }, open: { key in
+        OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key in
             guard inbox.client(key.machineId)?.inbox[key.id] != nil else { return false }
             openThread(key)
             return true

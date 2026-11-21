@@ -395,6 +395,8 @@ describe("inbox attention", () => {
       strong: true,
       // The design-language state the lock screen counts it under.
       state: "needs-you",
+      // Its work is here: nothing to open elsewhere.
+      moved: null,
     });
     await until(() => look(sink, "busy")?.level === "active", "the working row");
     expect(look(sink, "busy")).toMatchObject({

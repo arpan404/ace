@@ -60,6 +60,23 @@ async function capped(response: Response, maximum: number): Promise<Uint8Array> 
   return out;
 }
 
+const entryPath = (type: string, name: string) =>
+  `/v1/entries/${encodeURIComponent(type)}/${encodeURIComponent(name)}`;
+
+/** What reading one version needs: the public market's reads, or a member's of a registry. */
+export interface EntryReads {
+  origin: string;
+  entry(type: string, name: string): Promise<unknown>;
+  version(type: string, name: string, version: string): Promise<unknown>;
+  object(hash: string): Promise<Uint8Array>;
+}
+
+/** One registry's reads with a member's grant. */
+export interface MemberReads extends EntryReads {
+  chain(): Promise<unknown>;
+  entries(): Promise<unknown>;
+}
+
 export class MarketHttp {
   readonly origin: string;
   readonly #fetch: MarketFetch;
@@ -94,8 +111,8 @@ export class MarketHttp {
     return response;
   }
 
-  async #json(path: string): Promise<unknown> {
-    const response = await this.#get(path);
+  async #json(path: string, headers: Record<string, string> = {}): Promise<unknown> {
+    const response = await this.#get(path, headers);
     if (!response.ok)
       throw new MarketHttpError(`The market answered ${response.status}`, response.status);
     return JSON.parse(new TextDecoder().decode(await capped(response, jsonBytes)));
@@ -122,12 +139,9 @@ export class MarketHttp {
 
   categories = () => this.#json("/v1/categories");
   featured = () => this.#json("/v1/featured");
-  entry = (type: string, name: string) =>
-    this.#json(`/v1/entries/${encodeURIComponent(type)}/${encodeURIComponent(name)}`);
+  entry = (type: string, name: string) => this.#json(entryPath(type, name));
   version = (type: string, name: string, version: string) =>
-    this.#json(
-      `/v1/entries/${encodeURIComponent(type)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
-    );
+    this.#json(`${entryPath(type, name)}/${encodeURIComponent(version)}`);
 
   discover = () => this.#json("/v1/discover");
   publisher = (handle: string) => this.#json(`/v1/publishers/${encodeURIComponent(handle)}`);
@@ -188,9 +202,36 @@ export class MarketHttp {
     return capped(response, previewBytes);
   }
 
-  async object(hash: string): Promise<Uint8Array> {
+  object = (hash: string) => this.#object(hash, {});
+
+  /**
+   * An organization's registry, read with a member's market grant (ADR 0206 §5.3): the grant goes
+   * to this origin only, and the market answers 404 to anyone it doesn't admit.
+   */
+  member(org: string, grant: string): MemberReads {
+    const headers = { authorization: `Bearer ${grant}` };
+    // Under the organization's own paths: the public ones never reach a registry's entries.
+    const base = `/v1/orgs/${encodeURIComponent(org)}`;
+    return {
+      origin: this.origin,
+      entry: (type, name) => this.#json(`${base}${entryPath(type, name).slice(3)}`, headers),
+      version: (type, name, version) =>
+        this.#json(
+          `${base}${entryPath(type, name).slice(3)}/${encodeURIComponent(version)}`,
+          headers,
+        ),
+      object: (hash) => this.#object(hash, headers, base),
+      chain: () => this.#json(`${base}/keys`, headers),
+      entries: () => this.#json(`${base}/entries`, headers),
+    };
+  }
+
+  async #object(hash: string, headers: Record<string, string>, base = "/v1"): Promise<Uint8Array> {
     if (!/^[a-f0-9]{64}$/.test(hash)) throw new MarketHttpError("Not a content hash");
-    const response = await this.#get(`/v1/objects/${hash}`, { accept: "application/x-tar" });
+    const response = await this.#get(`${base}/objects/${hash}`, {
+      accept: "application/x-tar",
+      ...headers,
+    });
     if (!response.ok)
       throw new MarketHttpError(`The market answered ${response.status}`, response.status);
     return capped(response, maxArchiveBytes);

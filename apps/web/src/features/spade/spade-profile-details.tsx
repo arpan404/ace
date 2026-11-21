@@ -18,7 +18,6 @@ import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import { ProfileCases } from "./spade-profile-cases.tsx";
-import { PermissionSwitches } from "./spade-permissions.tsx";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
 import { ProfilePersonality } from "./spade-profile-personality.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
@@ -101,25 +100,6 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
 }
 
 /**
- * Permissions: everything about what the bot may do, in one place. The switches first (each
- * following the default for every bot until set here), the apps it may never open, then its
- * apps, plugins, the bots it may make, where its commands run and its spending.
- */
-export function ProfilePermissions(props: { bot: RosterBot }) {
-  const { bot } = props;
-  return (
-    <>
-      <PermissionSwitches bot={bot} />
-      <ProfileApps bot={bot} />
-      <ProfilePlugins bot={bot} />
-      <ProfileMakesBots bot={bot} />
-      <ProfileSecurity bot={bot} />
-      <ProfileSpending bot={bot} />
-    </>
-  );
-}
-
-/**
  * Spade's own profile opens Running (ADR 0200 §6.3): Spade is what runs the bots, so what runs
  * is its to show. One row and a text button; no new place in the rail or the list's toolbar.
  */
@@ -146,7 +126,7 @@ const mayWords = { yes: "Yes", ask: "Ask me first", no: "No" } as const;
  * bots to its clubs, by itself, after asking, or never. With anything untrusted in view it asks
  * whatever this says.
  */
-function ProfileMakesBots(props: { bot: RosterBot }) {
+export function ProfileMakesBots(props: { bot: RosterBot }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [problem, setProblem] = useState<string>();

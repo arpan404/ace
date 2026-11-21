@@ -285,7 +285,7 @@ async fn run_one(
     };
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
-    let mut work = tool.run_in(&key, arguments, facts);
+    let mut work = crate::tools::marked(tool.as_ref(), tool.run_in(&key, arguments, facts));
     // Its start, the first poll, still under the hold.
     let first = std::future::poll_fn(|cx| std::task::Poll::Ready(work.as_mut().poll(cx))).await;
     drop(held);

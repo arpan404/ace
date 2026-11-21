@@ -176,6 +176,8 @@ export function machineAccount(options: {
     },
   });
   const active = () => (session && session.expiresAt > options.now() ? session : undefined);
+  /** Whether `load` read the owner file: before then no owner means "not read yet". */
+  let ownerRead = false;
   const notify = () => {
     for (const listener of listeners) {
       try {
@@ -654,6 +656,7 @@ export function machineAccount(options: {
     async load(): Promise<void> {
       session = await readSession(options.dataDir);
       await owner.load();
+      ownerRead = true;
       // A local file, read once: the host id an app's enrollment ticket names (ADR 0190).
       await ownHostId().catch(() => undefined);
       sessionId = session ? newId() : null;
@@ -962,7 +965,7 @@ export function machineAccount(options: {
       nonce: string;
       binding: string | undefined;
       deviceId: string;
-    }): Promise<{ until: number; generation: number; member: Member } | undefined> {
+    }): Promise<{ until: number; generation: number; member: Member; policy: number } | undefined> {
       const seen = owner.generation();
       const org = owner.org();
       if (!owner.holds(seen) || org === undefined) return undefined;
@@ -974,7 +977,12 @@ export function machineAccount(options: {
         host: await ownHostId(),
       });
       if (!proven || !owner.holds(seen) || owner.org() !== org) return undefined;
-      return { until: proven.until, generation: seen, member: proven.member };
+      return {
+        until: proven.until,
+        generation: seen,
+        member: proven.member,
+        policy: proven.policy,
+      };
     },
     /** The clock grants are checked against: a standing's `until` is on it. */
     grantClock(): number {
@@ -983,6 +991,29 @@ export function machineAccount(options: {
     /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
     ownerOrg(): string | undefined {
       return owner.org();
+    },
+    /** Whether the owner was read from disk yet (`load`). */
+    ownerKnown(): boolean {
+      return ownerRead;
+    },
+    /**
+     * The sign-in an org host speaks for itself with (ADR 0206 §3, §4.3): its machine
+     * credential while the machine is an organization's host, and the organization's name as
+     * its own credential has it (undefined until it holds that credential).
+     */
+    orgHostSession(): { origin: string; token: string; name: string | undefined } | undefined {
+      const org = owner.org();
+      const current = active();
+      if (org === undefined || current?.kind !== "machine") return undefined;
+      return {
+        origin: current.origin,
+        token: current.token,
+        name: current.source === "org" && current.org === org ? current.account.name : undefined,
+      };
+    },
+    /** The account backend's grant keys this build pins: what Spade checks a policy with. */
+    grantKeys(): GrantKeySet {
+      return personKeys;
     },
     /**
      * The machine's consent to become `org`'s host (ADR 0206 §2.1), for the owner `account` a

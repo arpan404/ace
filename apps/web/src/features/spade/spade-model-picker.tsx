@@ -2,8 +2,13 @@ import {
   mergeSpadeModels,
   spadeChecking,
   spadeLocalChoices,
+  spadeModelGroups,
+  spadeModelLabel,
   spadeSubscriptionSources,
+  spadeWaitForChecks,
   type SpadeEndpoint,
+  type SpadeModelOption,
+  type SpadeModelSources,
 } from "@ace/ui-core/spade-chat";
 import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
@@ -18,13 +23,6 @@ import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { cn } from "@/lib/cn.ts";
 import { acknowledgeTerms, pickLocalModel, readLiveModels, readModels } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import {
-  spadeModelGroups,
-  spadeModelLabel,
-  spadeWaitForChecks,
-  type SpadeModelOption,
-  type SpadeModelSources,
-} from "./spade-model-options.ts";
 import {
   modelsKey,
   useEndpointModels,

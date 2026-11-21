@@ -6,14 +6,14 @@
 use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_core::package::link::{Link, PackageId};
 
-use super::body::Body;
+use super::body::{Body, Digested};
 use super::{AppState, off_thread, problem};
 use crate::packages::envelope::{self, Envelope};
 use crate::packages::{self, PackageError, apply::Step, held::Asked};
@@ -40,7 +40,9 @@ fn refused(error: &PackageError) -> Response {
         PackageError::NotFound | PackageError::NotLinked => StatusCode::NOT_FOUND,
         PackageError::Busy(_) => StatusCode::CONFLICT,
         PackageError::Invalid(_) | PackageError::Unproven(_) => StatusCode::BAD_REQUEST,
+        PackageError::Refused(_) => StatusCode::FORBIDDEN,
         PackageError::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        PackageError::PersonOnly(_) => StatusCode::FORBIDDEN,
     };
     let message = error.to_string();
     (status, Json(json!({ "error": message, "detail": message }))).into_response()
@@ -207,47 +209,55 @@ fn transaction_ok(transaction: &str) -> bool {
 async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
     Body(body): Body<UpdateBody>,
 ) -> Response {
     if !transaction_ok(&body.transaction) {
         return problem(StatusCode::BAD_REQUEST, "a transaction is a short id");
     }
+    let by = member.map(|axum::Extension(super::org_guard::Stamped(member))| member);
     off_thread(move || {
-        let asked = proven(&state.engine, &id, &body).and_then(|(manifest, package)| {
-            let pages = packages::panels::pages(&manifest, &body.pages)?;
-            let pins = crate::code::accept::accepted(
-                &manifest,
-                &body.code,
-                body.envelope.as_ref(),
-                state.engine.code().as_deref(),
-            )
-            .map_err(PackageError::Invalid)?;
-            let package = envelope::with_code(package, &pins);
-            let asked = packages::held::ask(
-                &state.engine,
-                &id,
-                Step {
-                    manifest,
-                    package,
-                    proof: body.envelope.as_ref().and_then(packages::proof::kept),
-                    transaction: body.transaction,
-                    time_zone: body.time_zone,
-                    code: pins,
-                },
-            )?;
-            // Its pages are the accepted version's from now on, also while the step is held for
-            // the bot's next still moment.
-            packages::panels::keep(&state.engine, &id, &pages)?;
-            Ok(asked)
-        });
-        // While the bot works the step is held for its next still moment: 202, saying so.
-        let (status, link) = match asked {
-            Ok(Asked::Applied(link)) => (StatusCode::OK, link),
-            Ok(Asked::Held(link)) => (StatusCode::ACCEPTED, link),
-            Err(error) => return refused(&error),
-        };
-        let shown = packages::shown(&state.engine, &id, &link);
-        (status, Json(json!({ "package": shown }))).into_response()
+        crate::org::acting::as_member(by.as_ref(), || {
+            let asked = proven(&state.engine, &id, &body).and_then(|(manifest, package)| {
+                let pages = packages::panels::pages(&manifest, &body.pages)?;
+                let pins = crate::code::accept::accepted(
+                    &manifest,
+                    &body.code,
+                    body.envelope.as_ref(),
+                    state.engine.code().as_deref(),
+                )
+                .map_err(PackageError::Invalid)?;
+                let package = envelope::with_code(package, &pins);
+                // An org host moves only to a version its organization's policy allows (§3).
+                if let Some(why) = state.engine.org_package_refusal(&package) {
+                    return Err(PackageError::Refused(why));
+                }
+                let asked = packages::held::ask(
+                    &state.engine,
+                    &id,
+                    Step {
+                        manifest,
+                        package,
+                        proof: body.envelope.as_ref().and_then(packages::proof::kept),
+                        transaction: body.transaction,
+                        time_zone: body.time_zone,
+                        code: pins,
+                    },
+                )?;
+                // Its pages are the accepted version's from now on, also while the step is held for
+                // the bot's next still moment.
+                packages::panels::keep(&state.engine, &id, &pages)?;
+                Ok(asked)
+            });
+            // While the bot works the step is held for its next still moment: 202, saying so.
+            let (status, link) = match asked {
+                Ok(Asked::Applied(link)) => (StatusCode::OK, link),
+                Ok(Asked::Held(link)) => (StatusCode::ACCEPTED, link),
+                Err(error) => return refused(&error),
+            };
+            let shown = packages::shown(&state.engine, &id, &link);
+            (status, Json(json!({ "package": shown }))).into_response()
+        })
     })
     .await
 }
@@ -263,9 +273,44 @@ struct SwitchBody {
 async fn switch(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<SwitchBody>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<SwitchBody>,
 ) -> Response {
-    off_thread(move || answer(packages::set_switch(&state.engine, &id, &body.key, body.on))).await
+    let by = member.map(|axum::Extension(super::org_guard::Stamped(member))| member);
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    off_thread(move || {
+        // A shared bot's switch goes on only as far as its organization's policy lets this
+        // member turn it on (ADR 0206 §3); turning one off always narrows.
+        if body.on
+            && let Some(why) = state.engine.org_switch_refusal(&id, &body.key, by.as_ref())
+        {
+            return refused(&PackageError::Refused(why.to_owned()));
+        }
+        // Turning one on takes the person's stamp over this change, or on a shared bot the
+        // member whose `configure` stamp let it through (ADR 0171 amendment 7, ADR 0206 §2.3).
+        let says = || {
+            by.is_some()
+                || state.engine.person_says(
+                    stamp.as_deref(),
+                    &id,
+                    &format!("package_effect:{digest}"),
+                )
+        };
+        crate::org::acting::as_member(by.as_ref(), || {
+            answer(packages::set_switch(
+                &state.engine,
+                &id,
+                &body.key,
+                body.on,
+                &says,
+            ))
+        })
+    })
+    .await
 }
 
 #[derive(Deserialize)]

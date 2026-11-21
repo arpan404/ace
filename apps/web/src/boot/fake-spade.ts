@@ -15,6 +15,7 @@ import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
 import { seedFakeReach } from "./fake-spade-reach.ts";
 import { seedFakeRunning } from "./fake-spade-running.ts";
 import { seedFakeWork } from "./fake-spade-work.ts";
+import { seedFakeDelegation } from "./fake-spade-delegation.ts";
 import { seedFakeModelAccess } from "./fake-spade-models.ts";
 
 /*
@@ -535,6 +536,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
   seedFakeApps(here);
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
+  seedFakeDelegation(daemon, here, minutes);
   seedFakeGroup(here, now);
   seedFakeCreate(here, minutes);
   seedFakePackages(here, now);

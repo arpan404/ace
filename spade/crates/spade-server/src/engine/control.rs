@@ -231,7 +231,10 @@ impl Engine {
         let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
             return;
         };
-        if let Err(error) = security.set_commands(&agent, Some(crate::security::Commands::Outside))
+        // The person's own answer to the bot's request is their say on this change.
+        let theirs = || true;
+        if let Err(error) =
+            security.set_commands(&agent, Some(crate::security::Commands::Outside), &theirs)
         {
             tracing::warn!(%error, %agent, "the bot's commands setting could not be changed");
         }

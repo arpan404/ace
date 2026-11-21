@@ -1,12 +1,13 @@
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
-import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { HostRefusal } from "./host-refusal.ts";
-import { Console } from "node:console";
+import { ackExpired } from "./ack-budgets.ts";
+import { createTextRedactor } from "@ace/redaction";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
 import { z } from "zod";
 import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
+import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
 
 const Request = z.object({
   id: z.union([z.string().max(128), z.number().int()]),
@@ -18,36 +19,13 @@ const Reply = z.object({
   result: z.unknown().optional(),
   error: z.unknown().optional(),
 });
-const consoleMethods = [
-  "log",
-  "error",
-  "warn",
-  "info",
-  "debug",
-  "dir",
-  "dirxml",
-  "table",
-  "trace",
-  "group",
-  "groupCollapsed",
-  "groupEnd",
-  "count",
-  "countReset",
-  "time",
-  "timeEnd",
-  "timeLog",
-  "assert",
-] as const;
-/**
- * Stdout is the JSON-RPC channel, and stderr is patched to redact and bound each line. Bun's
- * console writes to fds 1 and 2 directly, past both patches, so every console method is sent
- * through the patched stderr instead.
- */
-function routeConsoleToStderr() {
-  const sink = new Console({ stdout: process.stderr, stderr: process.stderr });
-  for (const method of consoleMethods)
-    Object.assign(console, { [method]: sink[method].bind(sink) });
+const ReplyError = z.object({ message: z.string() });
+/** ace's own words for why it did not store a frame, bounded; this is the turn's fence notice. */
+function refusal(error: unknown): string {
+  const reply = ReplyError.safeParse(error);
+  return reply.success ? reply.data.message.slice(0, 512) : "ace refused a Cursor SDK frame";
 }
+const expiredError = () => new Error(ackExpired);
 /** All writes await the shared bounded pipe writer, including onDelta callbacks. */
 export function hostWire(
   dispatch: (method: string, params: unknown) => Promise<unknown>,
@@ -61,18 +39,22 @@ export function hostWire(
   const decoder = new StringDecoder("utf8");
   let pendingStderr = "",
     oversizedStderr = false;
+  // Redacted whole, never cut: the daemon redacts each line again with the session's secrets
+  // (the MCP bearer, which this wire never learns) before it bounds the line, and a cut here
+  // would leave a fragment of such a secret that no exact match finds.
+  const redactStderr = createTextRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } });
   const flushStderr = () => {
     if (pendingStderr || oversizedStderr)
       stderr(
         oversizedStderr
           ? "SDK stderr exceeded its safe line budget\n"
-          : safeCursorErrorMessage(pendingStderr, { CURSOR_API_KEY: process.env.CURSOR_API_KEY }) +
-              "\n",
+          : redactStderr(pendingStderr.replace(/(?![\t])\p{Cc}/gu, " ")) + "\n",
       );
     pendingStderr = "";
     oversizedStderr = false;
   };
   process.on("exit", flushStderr);
+  // Stdout is the JSON-RPC channel; console goes through the redacting, bounded stderr below.
   routeConsoleToStderr();
   process.stderr.write = (
     chunk: string | Uint8Array,
@@ -104,34 +86,43 @@ export function hostWire(
     },
   });
   const writer = new RpcWriter(output, 2_097_152);
-  const send = async (message: unknown) => {
+  const send = async (message: unknown, signal?: AbortSignal) => {
     const line = boundedJson(message, maxFrameBytes - 1) + "\n";
-    await writer.send(line, Buffer.byteLength(line));
+    await writer.send(line, Buffer.byteLength(line), signal);
   };
   let outbound = 0;
-  const acknowledgements = new Map<
-    string,
-    { resolve(): void; reject(): void; timer: ReturnType<typeof setTimeout> }
-  >();
-  const confirmed = async (method: string, params: unknown) => {
+  const acknowledgements = new Map<string, { resolve(): void; reject(reason: string): void }>();
+  /**
+   * Waits for ace to store one frame until `expired` aborts. The write itself is abandoned then
+   * too: a daemon that stops reading fills the pipe, and the caller must still learn it waited
+   * too long, so it can fence the turn.
+   */
+  const confirmed = async (method: string, params: unknown, expired: AbortSignal) => {
     if (acknowledgements.size >= 32) throw new Error("SDK storage acknowledgements exceed budget");
+    if (expired.aborted) throw expiredError();
     const id = `host:${++outbound}`;
     const completion = Promise.withResolvers<void>();
     void completion.promise.catch(() => {});
-    const timer = setTimeout(() => {
+    const expire = () => {
+      // A reply after this finds nothing and is ignored.
       acknowledgements.delete(id);
-      completion.reject(new Error("SDK storage acknowledgement expired"));
-    }, 30000);
+      completion.reject(expiredError());
+    };
     acknowledgements.set(id, {
       resolve: () => completion.resolve(),
-      reject: () => completion.reject(new Error("SDK storage refused frame")),
-      timer,
+      reject: (refused) => completion.reject(new Error(refused)),
     });
+    expired.addEventListener("abort", expire, { once: true });
     try {
-      await send({ jsonrpc: "2.0", id, method, params });
+      await Promise.race([
+        send({ jsonrpc: "2.0", id, method, params }, expired),
+        completion.promise,
+      ]);
       await completion.promise;
+    } catch (error) {
+      throw expired.aborted ? expiredError() : error;
     } finally {
-      clearTimeout(timer);
+      expired.removeEventListener("abort", expire);
       acknowledgements.delete(id);
     }
   };
@@ -152,12 +143,11 @@ export function hostWire(
     const decoded: unknown = JSON.parse(line);
     const reply = Reply.safeParse(decoded);
     if (reply.success && reply.data.id.startsWith("host:")) {
+      // A reply after the host stopped waiting finds nothing: that frame already fenced its
+      // turn, and a late answer from a busy daemon is no reason to stop the host.
       const acknowledgement = acknowledgements.get(reply.data.id);
-      if (!acknowledgement) {
-        disconnected();
-        return;
-      }
-      if (reply.data.error !== undefined) acknowledgement.reject();
+      if (!acknowledgement) return;
+      if (reply.data.error !== undefined) acknowledgement.reject(refusal(reply.data.error));
       else acknowledgement.resolve();
       return;
     }

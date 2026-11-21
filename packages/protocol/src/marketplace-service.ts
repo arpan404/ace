@@ -19,7 +19,7 @@ import {
   MarketReportState,
 } from "./marketplace-publisher.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
-import { MarketVerificationProof, Signed } from "./marketplace-signed.ts";
+import { MarketOrgId, MarketVerificationProof, Signed } from "./marketplace-signed.ts";
 
 /*
  * The market Worker's publishing and signer routes (ADR 0168 §6, §7; ADR 0174 §9, §10), shared
@@ -163,6 +163,8 @@ export const MarketQueueBody = z.object({
         newPublisher: z.boolean(),
         published: z.number().int().nonnegative(),
         scan: MarketScanReport.optional(),
+        /** An organization's registry holds it (ADR 0206 §5.1): released with `?registry=`. */
+        registry: MarketOrgId.optional(),
       }),
     )
     .max(500),

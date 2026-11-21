@@ -29,6 +29,8 @@ fn outside(effect: Option<Effect>) -> Call<'static> {
         command: None,
         destructive: false,
         org: None,
+        permits: crate::permission::Held::default(),
+        connected: false,
     }
 }
 

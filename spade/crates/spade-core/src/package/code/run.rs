@@ -258,6 +258,8 @@ pub struct CodeCall<'a> {
     pub target: Option<&'a str>,
     /// For a shared bot on an org host, its organization's policy (ADR 0206 §3).
     pub org: Option<crate::org::Gate<'a>>,
+    /// The bot's Permissions: a send or a payment its switch leaves off is refused from code too.
+    pub permits: crate::permission::Held,
 }
 
 /// Where a `tools` call from code goes (ADR 0203 §2): the gate's own route for one of Spade's
@@ -290,6 +292,8 @@ pub fn route(call: CodeCall<'_>) -> crate::effect::Route {
         command: None,
         destructive: false,
         org: call.org,
+        permits: call.permits,
+        connected: false,
     };
     match effect::route(gate) {
         Route::Review(concern) => Route::Ask {
@@ -348,6 +352,9 @@ pub fn http_route(call: HttpCall<'_>) -> crate::effect::Route {
         command: None,
         destructive: false,
         org: call.org,
+        // A request from code is a network step: no switch of the bot's covers it.
+        permits: crate::permission::Held::default(),
+        connected: false,
     };
     match effect::route(gate) {
         Route::Review(concern) => Route::Ask {

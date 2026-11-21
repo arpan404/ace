@@ -74,6 +74,14 @@ export const MarketGrantClaims = GrantClaims.extend({
     .string()
     .regex(/^org_[A-Za-z0-9]{1,64}$/)
     .optional(),
+  /**
+   * The account's role in `org`, as that same WorkOS answer gave it (a role slug; authorize with
+   * `@ace/account-grant/org-roles`). The market reads it for who may publish to the
+   * organization's registry or change its key (ADR 0206 §5.1). Only with `org`.
+   */
+  orgRole: z.string().min(1).max(64).optional(),
+}).refine((claims) => claims.orgRole === undefined || claims.org !== undefined, {
+  message: "An organization role comes with its organization",
 });
 export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
 /** The market grant's issuer, `cloud.acehq.dev`, unless a deployment configures its own. */
@@ -277,6 +285,50 @@ export function verifyOrgPolicy(
   return statement;
 }
 
+/**
+ * The account backend's word that an owner of `org` added a registry key (ADR 0206 §5.3): the
+ * SHA-256 of the key's exact upload, who asked and their role, from the same fresh WorkOS answer
+ * a grant needs. It authorizes nothing: no grant parser takes it, and it names no audience, so a
+ * market serving it in a key chain hands out no credential. Devices check a chain's first key
+ * with it.
+ */
+export const RegistryKeyAttestation = z.strictObject({
+  v: z.literal(1),
+  kid: KeyId,
+  kind: z.literal("registry-key"),
+  org: OrgId,
+  upload_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  account: GrantClaims.shape.account,
+  role: z.string().min(1).max(64),
+  at: z.number().int().nonnegative(),
+});
+export type RegistryKeyAttestation = z.infer<typeof RegistryKeyAttestation>;
+
+export function signRegistryKeyAttestation(
+  claims: Omit<RegistryKeyAttestation, "v" | "kid" | "kind">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    RegistryKeyAttestation.parse({ ...claims, v: 1, kid: key.id, kind: "registry-key" }),
+    key,
+  );
+}
+
+/**
+ * Verify an attestation's signature and that `upload` is the text it was made over. Throws
+ * `GrantError`; every grant is refused here, as every grant parser refuses an attestation.
+ */
+export function verifyRegistryKeyAttestation(
+  token: string,
+  keys: GrantKeySet,
+  upload: string,
+): RegistryKeyAttestation {
+  const statement = verifySignature(token, keys, RegistryKeyAttestation);
+  if (statement.upload_sha256 !== policyBodySha256(upload))
+    throw new GrantError("The attestation is for another key");
+  return statement;
+}
+
 const AnyGrantClaims = z.union([
   GrantClaims,
   CloudGrantClaims,
@@ -292,7 +344,7 @@ function signClaims(claims: object, key: GrantSigningKey): string {
 
 export function signMarketGrant(
   claims: Omit<GrantClaims, "v" | "kid"> &
-    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action" | "org">,
+    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action" | "org" | "orgRole">,
   key: GrantSigningKey,
 ): string {
   const full = MarketGrantClaims.parse({
@@ -408,6 +460,15 @@ export function verifyMarketGrant(
   const claims = verifySigned(token, keys, now, undefined, MarketGrantClaims);
   if (claims.iss !== issuer) throw new GrantError("Wrong grant issuer");
   return claims;
+}
+
+/**
+ * A market grant's claims as the backend signed them, whatever its lifetime: for a device
+ * reading, long after, an owner's grant kept as the countersignature of the request it named
+ * (ADR 0206 §5.3). It proves the backend minted those claims, never that they still hold.
+ */
+export function verifyMarketGrantSignature(token: string, keys: GrantKeySet): MarketGrantClaims {
+  return verifySignature(token, keys, MarketGrantClaims);
 }
 
 /** A signed statement's claims, once its signature verified against a published key. */

@@ -2,7 +2,7 @@ import AuthenticationServices
 import SwiftUI
 
 /// Profile, as an iOS account page: the person, then their account's machines, a year of their
-/// agents' work, Sign out, and the legal pages. The words follow web's Profile.
+/// agents' work, Sign out, Delete account, and the legal pages. The words follow web's Profile.
 struct AceAccountView: View {
     /// Nil for the debug fixture, which has no account machines.
     var machines: MachinesModel?
@@ -16,6 +16,8 @@ struct AceAccountView: View {
     private var model: AceAccountModel { shared ?? own }
     @State private var forgetting: AceMachine?
     @State private var signingOut = false
+    /// Delete account went through: the page says so once, then offers Sign in.
+    @State private var accountDeleted = false
     @State private var notice: ProblemNotice?
     @State private var browserProblem: String?
     /// The year of work over every machine (`ProfileReads`), and why it couldn't be read.
@@ -26,6 +28,11 @@ struct AceAccountView: View {
 
     var body: some View {
         accountList
+        .alert("Account deleted", isPresented: $accountDeleted) {
+            Button("OK") {}
+        } message: {
+            Text("You're signed out on every device. Your machines keep their threads and code.")
+        }
         .insetGroupedList()
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
@@ -60,7 +67,10 @@ struct AceAccountView: View {
                     activityRead += 1
                 }
             }
-            if model.account != nil { signOut }
+            if model.account != nil {
+                signOut
+                AccountDeleteSection(model: model) { accountDeleted = true }
+            }
             legal
         }
     }
@@ -110,6 +120,11 @@ struct AceAccountView: View {
                     .disabled(!model.configured || model.busy)
                     .accessibilityIdentifier("account.signIn")
             }
+        } footer: {
+            Text(Self.agreement)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
+                .accessibilityIdentifier("account.signIn.terms")
         }
         .insetRowBackground()
     }
@@ -133,18 +148,25 @@ struct AceAccountView: View {
     private var legal: some View {
         Section {
             ForEach(Self.legalPages, id: \.id) { page in
-                if let url = URL(string: page.url) {
-                    Link(page.title, destination: url).accessibilityIdentifier("account.legal.\(page.id)")
-                }
+                Link(page.title, destination: page.url).accessibilityIdentifier("account.legal.\(page.id)")
             }
         }
         .insetRowBackground()
     }
 
-    private static let legalPages = [
-        (id: "terms", title: "Terms of service", url: "https://acehq.dev/terms-of-service"),
-        (id: "privacy", title: "Privacy policy", url: "https://acehq.dev/privacy-policy"),
-    ]
+    private static let legalPages = AceLegal.policies
+
+    /// The sign-in footnote, its two pages linked from `AceLegal`.
+    private static let agreement: AttributedString = {
+        var text = AttributedString("By signing in you agree to the ")
+        for (index, page) in [AceLegal.terms, AceLegal.privacy].enumerated() {
+            var link = AttributedString(page.title)
+            link.link = page.url
+            text += link
+            text += AttributedString(index == 0 ? " and " : ".")
+        }
+        return text
+    }()
 
     @ViewBuilder private var browserFailure: some View {
         if let problem = browserProblem {

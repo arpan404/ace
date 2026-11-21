@@ -481,9 +481,11 @@ export async function marketplaceHarness(options: {
   spade: ReturnType<typeof fakeSpade> extends Promise<infer T> ? T : never;
   /** What the publish picker reads; a test sets the person's own skills and plugins. */
   pick?: PickPorts;
+  /** Where the service's clock starts: the real time, for grants a real market checks. */
+  clock?: number;
 }) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-market-")));
-  let clock = 1_700_000_000_000;
+  let clock = options.clock ?? 1_700_000_000_000;
   let ids = 0;
   const id = () => `id-${++ids}`;
   const suits = new SuitLibrary({
@@ -504,6 +506,8 @@ export async function marketplaceHarness(options: {
     on: boolean;
     beforeSuitInstall?: (() => Promise<void>) | undefined;
     onFetch?: ((url: string) => void) | undefined;
+    /** Answers in the market's place, as a compromised Worker or a network in between would. */
+    respond?: ((url: string) => Promise<Response> | undefined) | undefined;
   } = { on: true };
   const open = () =>
     MarketplaceService.open({
@@ -512,7 +516,7 @@ export async function marketplaceHarness(options: {
       id,
       fetch: (url, init) => {
         hooks.onFetch?.(String(url));
-        return fetch(url, init);
+        return hooks.respond?.(String(url)) ?? fetch(url, init);
       },
       enabled: async () => hooks.on,
       origin: options.origin,

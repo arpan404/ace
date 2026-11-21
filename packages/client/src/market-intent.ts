@@ -66,8 +66,9 @@ export const marketCallBody = (call: { json?: unknown }): string | undefined =>
   call.json === undefined ? undefined : JSON.stringify(call.json);
 
 /**
- * What a person's market grant names (`action`, ADR 0190): the method, the path and the SHA-256
- * of the exact body, so a grant for one recipient, handle or reason does nothing for another.
+ * What a person's market grant names (`action`, ADR 0190): the method, the path with its query
+ * exactly as sent, and the SHA-256 of the exact body, so a grant for one recipient, handle,
+ * reason or version does nothing for another.
  */
 export async function marketIntent(input: {
   method: string;

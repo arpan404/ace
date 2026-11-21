@@ -19,6 +19,11 @@ export interface Env {
   MARKET_MODERATION: D1Database;
   /** The withdrawn list, categories, featured and collections. */
   MARKET_LISTS: D1Database;
+  /**
+   * Organizations' private registries: their publishers, named publishers and key chains (ADR
+   * 0206 §5.1). Absent where it isn't created yet: then there are no registries.
+   */
+  MARKET_ORGS?: D1Database;
   /** Archives, drafts, pictures and scan reports, by prefix (ADR 0174 §1). */
   OBJECTS: R2Bucket;
   /** Reads per caller address, API and pages. Absent where no limit is configured. */

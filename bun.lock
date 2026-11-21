@@ -554,6 +554,7 @@
       "name": "@ace/browser-extension",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "ws": "8.22.0",
         "zod": "^4.6.5",
       },
@@ -792,10 +793,12 @@
       "name": "@ace/history-import",
       "dependencies": {
         "@ace/adapter-pi": "workspace:*",
+        "@ace/files-native": "workspace:*",
         "@ace/native-session": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/service": "workspace:*",
         "zod": "^4.6.5",
       },
     },

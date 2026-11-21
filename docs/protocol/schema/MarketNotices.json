@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketNotices.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "ace-market-notices",
+      "type": "string"
+    },
+    "issued": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "notices": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketTermsNotice.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "issued",
+    "notices",
+    "key"
+  ],
+  "type": "object"
+}

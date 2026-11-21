@@ -72,7 +72,7 @@ export interface AgentForestNode extends NodeBase {
    * delegated to is syncing or still loading. It says neither finished nor working as current.
    */
   stale: boolean;
-  /** A delegate whose thread couldn't be loaded (no room, or its subscription failed). */
+  /** A delegate whose thread wasn't loaded: no room, the tree's depth or thread budget, or a failed subscription. */
   notLoaded: boolean;
   /**
    * The running task that stands for this agent's work (a subagent task naming it, such as the
@@ -310,13 +310,21 @@ export function agentForest(
               for (const entry of top.children) children.push(entry);
             } else children.push(top);
         }
-      }
+      } else if (child && !allowed.has(child) && !placed.has(child))
+        // The depth or thread budget left its thread out: it may be working, so unsure.
+        notLoaded = true;
       const tally = noTally();
       // Work still running for it keeps it live, whatever its own status last said.
       let live = running.has(agent.id) || hold !== undefined || childRoot?.live === true;
       let asks = needsYou.has(agent.id) || childRoot?.needsYou === true;
       // A thread that couldn't load may be working: its branch is as uncertain as a syncing one.
-      let unconfirmed = stale || notLoaded || childRoot?.unconfirmed === true;
+      // So is a child on another machine whose contact is in doubt (lost, or a stop it never
+      // confirmed): this machine can't vouch that it ended (ADR 0052).
+      let unconfirmed =
+        stale ||
+        notLoaded ||
+        agent.machine?.contact !== undefined ||
+        childRoot?.unconfirmed === true;
       for (const entry of children) {
         count(tally, entry);
         live ||= entry.live;

@@ -62,6 +62,12 @@ pub enum PackageError {
     Unproven(String),
     #[error("{0}")]
     Failed(String),
+    /// The organization's policy doesn't allow it on this host, in its own words.
+    #[error("{0}")]
+    Refused(String),
+    /// Only the person may make this change, and the request doesn't carry their say.
+    #[error("{0}")]
+    PersonOnly(&'static str),
 }
 
 fn failed(error: impl std::fmt::Display) -> PackageError {
@@ -272,7 +278,15 @@ pub fn recover_installs(engine: &std::sync::Arc<Engine>) {
 
 /// The person turns one of the package's effects on or off in the bot's Security page. Only
 /// what the package declared can be turned on.
-pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Link, PackageError> {
+/// Turning one on lets the bot do more, so it runs only if `may_loosen` (the person's stamp, ADR
+/// 0171 amendment 7); turning one off never needs it.
+pub fn set_switch(
+    engine: &Engine,
+    bot: &str,
+    key: &str,
+    on: bool,
+    may_loosen: &dyn Fn() -> bool,
+) -> Result<Link, PackageError> {
     let _busy = engine.package_busy.hold(bot);
     let mut link = link_of(engine, bot)?;
     if !link.manifest.switch_keys().iter().any(|k| k == key) {
@@ -281,6 +295,9 @@ pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Lin
         ));
     }
     let before = link.on.clone();
+    if on && !before.contains(key) && !may_loosen() {
+        return Err(PackageError::PersonOnly(crate::security::attest::CONFIRM));
+    }
     let mut after = before.clone();
     if on {
         after.insert(key.to_owned());
@@ -326,7 +343,10 @@ pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, P
 /// The person resumes a bot its package's withdrawal paused: the same Resume as the Running
 /// page's, so each wake that came due fires once and what waited is answered.
 pub fn resume(engine: &Arc<Engine>, bot: &str) -> Result<Link, PackageError> {
-    link_of(engine, bot)?;
+    // Not while its organization still blocks the version it runs.
+    if let Some(why) = engine.org_blocked(&link_of(engine, bot)?.package) {
+        return Err(PackageError::Refused(why));
+    }
     engine.resume_agent(bot).map_err(failed)?;
     // Resume forgets the withdrawal itself; one cut short is forgotten here.
     forget_withdrawal(engine, bot)?;

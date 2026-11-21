@@ -252,7 +252,7 @@ export function loginRoutes(deps: {
       const token = opaqueToken(random);
       const hash = await digest(token);
       const expiresAt = now() + SESSION_LIFETIME_MS;
-      await sessions.put(
+      const created = await sessions.put(
         hash,
         identity.account,
         identity.refreshToken,
@@ -263,10 +263,19 @@ export function loginRoutes(deps: {
           : "exposed",
         identity.pictureUrl,
       );
+      // The account was deleted while this sign-in was at WorkOS: it gets no session.
+      if (!created) {
+        await logins.fail(row.id);
+        return withCookie(
+          end("failed", page(403, "This ace account was deleted. Start again in ace.")),
+        );
+      }
       const grant = AceAccountGrant.parse({ token, expiresAt, account: identity.account });
       // A cancellation or expiry while WorkOS answered wins: the new session is discarded.
+      // So does a deletion that removed the session first; the app then hears it failed.
       if (!(await logins.complete(row.id, hash, grant, now()))) {
         await sessions.remove(hash);
+        await logins.fail(row.id);
         return withCookie(end("expired", expired()));
       }
       return withCookie(

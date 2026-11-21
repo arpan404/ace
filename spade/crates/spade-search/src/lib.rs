@@ -123,6 +123,14 @@ impl Search {
             .is_some()
     }
 
+    /// The environment variable backend `id` reads its key from, when the file names one.
+    pub fn key_env(&self, id: &str) -> Option<String> {
+        self.backends
+            .iter()
+            .find(|b| b.id == id)
+            .and_then(|b| b.key_env.clone())
+    }
+
     /// The person's own SearXNG address, when they set one.
     pub fn searxng(&self) -> Option<String> {
         self.searxng

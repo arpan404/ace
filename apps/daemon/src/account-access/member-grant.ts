@@ -21,6 +21,8 @@ export type MemberGrantVerdict =
       member: Member;
       exp: number;
       /** The device key proofs are signed with. */ key: string;
+      /** The organization's policy version when the grant was minted (ADR 0206 §3). */
+      policy: number;
     }
   | {
       accepted: false;
@@ -68,6 +70,7 @@ export function memberGrantVerdict(
     member: { org: claims.org, role: claims.role, account: claims.account },
     exp: claims.exp,
     key: claims.key,
+    policy: claims.policy,
   };
 }
 
@@ -87,7 +90,7 @@ export async function provenMemberStanding(input: {
   org: string | undefined;
   deviceId: string;
   host: string;
-}): Promise<{ until: number; member: Member } | undefined> {
+}): Promise<{ until: number; member: Member; policy: number } | undefined> {
   const verdict = memberGrantVerdict(input.grant, input);
   if (!verdict.accepted) return undefined;
   const signed = await signedByDeviceKey(
@@ -100,5 +103,7 @@ export async function provenMemberStanding(input: {
       grant: input.grant,
     }),
   );
-  return signed ? { until: verdict.exp, member: verdict.member } : undefined;
+  return signed
+    ? { until: verdict.exp, member: verdict.member, policy: verdict.policy }
+    : undefined;
 }

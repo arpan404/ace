@@ -934,6 +934,10 @@ const server = createServer(async (req, res) => {
 });
 server.listen(0, "127.0.0.1", () => {
   console.error(`password=${process.env.OPENCODE_PASSWORD}`);
+  // ACE_TEST_STDERR_LINE_BYTES: one stderr line this long before readiness, as a chatty MCP
+  // server's passed-through log would be.
+  const stderrLine = Number(process.env.ACE_TEST_STDERR_LINE_BYTES ?? 0);
+  if (stderrLine) process.stderr.write(`${"x".repeat(stderrLine)}\n`);
   console.log(JSON.stringify({ url: `http://127.0.0.1:${server.address().port}` }));
 });
 process.stdin.resume();

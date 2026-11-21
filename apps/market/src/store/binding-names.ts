@@ -19,4 +19,5 @@ export const domainBindingNames = {
   counts: "MARKET_COUNTS",
   moderation: "MARKET_MODERATION",
   lists: "MARKET_LISTS",
+  orgs: "MARKET_ORGS",
 } as const;

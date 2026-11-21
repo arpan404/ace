@@ -1,5 +1,5 @@
 import type { ClientCore } from "@ace/client";
-import { DeviceId, HostId } from "@ace/protocol";
+import { CommandId, DeviceId, HostId } from "@ace/protocol";
 import type { FleetOperation, FleetOutcome } from "@ace/protocol";
 import {
   advancedPairingScopes,
@@ -15,6 +15,12 @@ import {
   pairedDevices,
   pairingOperation,
 } from "@ace/ui-core";
+import {
+  allowProjectsOffer,
+  allowProjectsWords,
+  linkedWithoutProjects,
+  scopeChangeRefusal,
+} from "@ace/ui-core/transfers";
 import { z } from "zod";
 
 /*
@@ -58,6 +64,22 @@ export const NativeFleetRequest = z.object({
       name: z.string().min(1).max(256),
     }),
     z.object({ op: z.literal("unlink"), hostId: HostId }),
+    /**
+     * Run on the machine work would go to: what Allow projects can offer for the sending
+     * machine's link device here (`allowProjectsOffer`), and the sentence for it.
+     */
+    z.object({
+      op: z.literal("allowOffer"),
+      deviceId: DeviceId,
+      sender: z.string().min(1).max(256),
+    }),
+    /** Allow or stop allowing projects for a link's device here; its credential stays. */
+    z.object({
+      op: z.literal("scope"),
+      commandId: CommandId,
+      deviceId: DeviceId,
+      allowed: z.boolean(),
+    }),
   ]),
 });
 export type NativeFleetRequest = z.infer<typeof NativeFleetRequest>;
@@ -129,11 +151,13 @@ export async function answerFleet(owner: FleetOwner, input: NativeFleetRequest):
       }
       case "issueLink": {
         const wanted = linkScopes(request.access);
+        let without = false;
         const result = await ask({ op: "pairing", scopes: wanted })
           // A device grants only what it holds there: without Projects, link without them; they
           // can be allowed later on that machine in Settings › Fleet.
           .catch((error: unknown) => {
             if (!wanted.includes("projects") || refusalCode(error) !== "forbidden") throw error;
+            without = true;
             return ask({
               op: "pairing",
               scopes: wanted.filter((scope) => scope !== "projects"),
@@ -144,7 +168,12 @@ export async function answerFleet(owner: FleetOwner, input: NativeFleetRequest):
           });
         if (result.kind !== "pairing")
           return refused("unavailable", linkPairingProblem("", machine));
-        return { ok: true, url: result.url };
+        // Linked without Projects: the person is told how to allow them later.
+        return {
+          ok: true,
+          url: result.url,
+          withoutProjects: without ? linkedWithoutProjects(machine) : null,
+        };
       }
       case "redeemLink": {
         const result = await ask({
@@ -163,6 +192,23 @@ export async function answerFleet(owner: FleetOwner, input: NativeFleetRequest):
       case "unlink":
         await ask({ op: "unlink", hostId: request.hostId });
         return { ok: true };
+      case "allowOffer":
+        return await allowOffer(ask, machine, request);
+      case "scope":
+        try {
+          await ask({
+            op: "scope",
+            commandId: request.commandId,
+            deviceId: request.deviceId,
+            scope: "projects",
+            allowed: request.allowed,
+          });
+        } catch (error) {
+          const code = refusalCode(error);
+          // An ace from before `scope`: Allow projects can't work there until it's updated.
+          throw new Refusal(code, scopeChangeRefusal(code, machine) ?? fleetRefusal(code, machine));
+        }
+        return { ok: true };
     }
   } catch (error) {
     if (error instanceof Refusal) return refused(error.code, error.message);
@@ -177,6 +223,31 @@ class Refusal extends Error {
     super(message);
     this.code = code;
   }
+}
+
+/**
+ * What Allow projects offers on this machine for the sending machine's link device, read from
+ * this machine's devices. Not an administrator here: the devices can't be read, so it points to
+ * Settings › Fleet.
+ */
+async function allowOffer(
+  ask: (operation: FleetOperation) => Promise<FleetOutcome>,
+  machine: string,
+  request: { deviceId: string; sender: string },
+) {
+  const devices = await ask({ op: "devices" }).then(
+    (outcome) =>
+      outcome.kind === "devices"
+        ? outcome.devices.map((device) => ({ ...device, self: device.id === outcome.selfId }))
+        : ("refused" as const),
+    () => "refused" as const,
+  );
+  const offer = allowProjectsOffer({ reached: true, deviceId: request.deviceId, devices });
+  return {
+    ok: true,
+    offer,
+    words: allowProjectsWords({ offer, machine, sender: request.sender }),
+  };
 }
 
 const lifetime = (ms: number | undefined) =>
@@ -214,6 +285,14 @@ async function overview(
           profile: link.profile,
           status: link.status,
           deviceId: link.deviceId,
+          /** Whether work can move there from this machine; null when that machine didn't say. */
+          projects: link.projects ?? null,
+          projectsLine:
+            link.projects === undefined
+              ? null
+              : link.projects
+                ? `${machine} can continue threads and open projects there.`
+                : `${link.name} doesn't take projects from ${machine}.`,
           line: [
             link.status === "online"
               ? "Online"

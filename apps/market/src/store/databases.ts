@@ -42,6 +42,8 @@ export interface Databases {
   counts: D1Database;
   moderation: D1Database;
   lists: D1Database;
+  /** Organizations' registries (ADR 0206 §5.1); absent where the database isn't created. */
+  orgs: D1Database | undefined;
 }
 
 export type DatabaseBindings = Pick<
@@ -59,6 +61,7 @@ export function databases(env: DatabaseBindings): Databases {
     counts: env.MARKET_COUNTS,
     moderation: env.MARKET_MODERATION,
     lists: env.MARKET_LISTS,
+    orgs: env.MARKET_ORGS,
   };
 }
 

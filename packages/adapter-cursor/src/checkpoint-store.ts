@@ -7,7 +7,8 @@ export function boundedCheckpointStore(
   store: LocalAgentStore,
   root: string,
   maxBytes: number,
-  overflow: () => Promise<void>,
+  /** Fences the turn; `error` is why ace could not admit or write the checkpoint. */
+  overflow: (error: unknown) => Promise<void>,
   quota = new CheckpointQuota(root, maxBytes),
 ): LocalAgentStore {
   let fenced = false;
@@ -22,7 +23,7 @@ export function boundedCheckpointStore(
     } catch (error) {
       if (!fenced) {
         fenced = true;
-        await overflow();
+        await overflow(error);
       }
       throw error;
     }

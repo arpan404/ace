@@ -27,7 +27,8 @@ private struct AccountPoll: Decodable {
     let status: String
     let session: AccountGrant?
 }
-private enum AccountFailure: Error { case request, expired, invalid }
+/// `refused`: a 403, such as Delete account from a session the backend won't let delete it.
+private enum AccountFailure: Error { case request, expired, invalid, refused }
 
 private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -131,6 +132,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
                     do { result = try await call("login/\(flow.id)", token: flow.secret) }
                     catch AccountFailure.expired { throw AccountFailure.expired }
                     catch AccountFailure.invalid { throw AccountFailure.invalid }
+                    catch AccountFailure.refused { throw AccountFailure.refused }
                     catch {
                         try Task.checkCancellation()
                         self.error = "Connection interrupted. Retrying sign-in…"
@@ -175,6 +177,34 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         } catch { self.error = "Couldn't sign out. Reconnect and try again." }
     }
 
+    /// Deletes the ace account everywhere (`DELETE /v1/account`), then forgets it here as
+    /// signing out does. A failure keeps the account, so the person can try again. True once
+    /// the backend has deleted it.
+    @discardableResult func deleteAccount() async -> Bool {
+        guard let token, !busy else { return false }
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            let _: [String: Bool] = try await call("", method: "DELETE", token: token)
+            if !forget() { error = "Account deleted. Couldn't clear the saved account session." }
+            return true
+        } catch AccountFailure.expired {
+            forget()
+            error = "Your session ended. Sign in again to delete your account."
+        } catch AccountFailure.refused {
+            // Only a session this phone signed in to itself may delete the account; one from
+            // before ace kept that apart can't, until the person signs in again.
+            error = "Sign out and sign in again on this phone, then delete your account."
+        } catch { self.error = "Couldn't delete your account. Reconnect and try again." }
+        return false
+    }
+
+    /// Drops the session on this phone and its saved copy; false when the copy stayed.
+    @discardableResult private func forget() -> Bool {
+        token = nil; account = nil; picture = nil
+        return (try? secrets.delete(key)) != nil
+    }
+
     /// Reads the picture once per session. Only PNG, JPEG, WebP or GIF up to 1 MiB, as the web.
     private func loadPicture() async {
         guard let origin, let token, account?.picture == true else { picture = nil; return }
@@ -215,7 +245,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     private func call<T: Decodable>(_ path: String, method: String = "GET", token: String? = nil, body: [String: String]? = nil) async throws -> T {
         guard let origin else { throw AccountFailure.request }
         var request = AceCloudRequest.make(
-            url: origin.appending(path: "v1/account/\(path)"),
+            url: origin.appending(path: path.isEmpty ? "v1/account" : "v1/account/\(path)"),
             timeoutInterval: 15,
             client: aceClient,
             allowLoopback: allowLoopback
@@ -229,6 +259,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         let (bytes, response) = try await http.bytes(for: request)
         guard let response = response as? HTTPURLResponse else { throw AccountFailure.request }
         if response.statusCode == 401 || response.statusCode == 410 { throw AccountFailure.expired }
+        if response.statusCode == 403 { throw AccountFailure.refused }
         if (400..<500).contains(response.statusCode) && response.statusCode != 429 { throw AccountFailure.invalid }
         guard (200..<300).contains(response.statusCode) else { throw AccountFailure.request }
         var data = Data()

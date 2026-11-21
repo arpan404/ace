@@ -20,8 +20,12 @@ export const marketError = (
 
 /** The error answer for what a request threw. */
 export function thrownError(thrown: unknown): MarketResult {
-  if (thrown instanceof Refused)
-    return marketError(thrown.code, thrown.message, thrown.problems, thrown.scan);
+  if (thrown instanceof Refused) {
+    const answer = marketError(thrown.code, thrown.message, thrown.problems, thrown.scan);
+    return thrown.registryKey && answer.op === "error"
+      ? { ...answer, registryKey: thrown.registryKey }
+      : answer;
+  }
   if (thrown instanceof TurnedOff) return marketError(thrown.code, thrown.message);
   if (thrown instanceof PictureRefused) return marketError("refused", thrown.message);
   if (thrown instanceof MarketHttpError && thrown.status === 404)

@@ -25,7 +25,13 @@ import {
   type PersonOnlyWrite,
 } from "../spade/person-stamp.ts";
 import { checkSpadePath, scopeFor } from "../spade/rules.ts";
-import { answerRoute, answerWrite, memberHeader, type AnswerWrite } from "../spade/member-stamp.ts";
+import {
+  answerRoute,
+  answerWrite,
+  memberHeader,
+  type AnswerWrite,
+  type MemberRequest,
+} from "../spade/member-stamp.ts";
 
 /** How long Spade has to answer once the whole body is sent. */
 const requestTimeoutMs = 60_000;
@@ -74,6 +80,12 @@ export function createSpadeHttp(context: {
    * machine).
    */
   answerStamp?(write: AnswerWrite): Promise<{ stamp: string } | { refused: string } | undefined>;
+  /**
+   * On an organization's host, a member's stamp on any other write (ADR 0206 §2.3), as headers;
+   * undefined where this socket has no member standing (Spade then refuses a write to a shared
+   * bot).
+   */
+  requestStamp?(write: MemberRequest): Record<string, string> | undefined;
 }) {
   const uploads = new Map<string, Upload>();
   /** Long answers' pieces, read one at a time so no reply outgrows the socket's frame cap. */
@@ -186,11 +198,20 @@ export function createSpadeHttp(context: {
     }
     if (body && body.length > requestBodyLimit(message.method, admitted.path))
       return fail(message.requestId, "too_large", "The body is too large for this route.");
-    // Turning Full access on is the person's alone: stamped as theirs, or not forwarded.
+    // A member's write on an organization's host carries their stamp over this very request.
+    const member =
+      message.method === "GET"
+        ? undefined
+        : context.requestStamp?.({ method: message.method, path: admitted.path, body });
+    // Turning Full access on is the person's alone: stamped as theirs, or not forwarded. On an
+    // organization's host a member asks instead, and Spade decides by its policy and their role.
+    // A change only Spade can tell loosens anything goes unstamped from a caller without their
+    // standing, and Spade makes it only if it tightens (ADR 0171, amendment 7).
     const guarded = personOnlyWrite(message.method, admitted.path, body);
-    const stamped = guarded ? await context.stamp(guarded) : undefined;
-    if (stamped && "refused" in stamped)
-      return fail(message.requestId, "forbidden", stamped.refused);
+    const personal = guarded ? await context.stamp(guarded) : undefined;
+    if (personal && "refused" in personal && !member && !guarded?.optional)
+      return fail(message.requestId, "forbidden", personal.refused);
+    const stamped = personal && "stamp" in personal ? personal : undefined;
     // An answer to a shared bot's request: the member's, stamped, or not forwarded.
     const reply = answerWrite(message.method, admitted.path, body);
     const answered = reply ? await context.answerStamp?.(reply) : undefined;
@@ -199,6 +220,7 @@ export function createSpadeHttp(context: {
     const headers = {
       ...(stamped ? { [personHeader]: stamped.stamp } : {}),
       ...(answered ? { [memberHeader]: answered.stamp } : {}),
+      ...member,
     };
     const answer = await spadeRequest(
       admitted.connection,

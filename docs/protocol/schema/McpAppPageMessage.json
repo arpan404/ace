@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpAppPageMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/McpAppRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/McpAppNotification.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/McpAppResponse.json"
+    }
+  ]
+}

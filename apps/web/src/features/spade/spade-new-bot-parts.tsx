@@ -1,5 +1,9 @@
 import type { ClientApi } from "@ace/client";
-import { spadeTemplateRoutinesLine, type SpadeTemplate } from "@ace/ui-core/spade-chat";
+import {
+  spadeFirstUsableWords,
+  spadeTemplateRoutinesLine,
+  type SpadeTemplate,
+} from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { useOpenMarket } from "@/lib/open-market.ts";
 import { PlusIcon, StorefrontIcon } from "@ace/icons";
@@ -15,7 +19,6 @@ import {
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
-import { firstUsableWords } from "./spade-model-options.ts";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { readTemplates } from "./spade-teams-api.ts";
 import type { SpadeHost } from "./use-spade-roster.ts";
@@ -49,7 +52,7 @@ export function RunsWithRows(props: {
           label="Model"
           subscriptions
           value={props.model || props.newBotModel || ""}
-          none={props.newBotModel ? undefined : firstUsableWords(props.firstUsable)}
+          none={props.newBotModel ? undefined : spadeFirstUsableWords(props.firstUsable)}
           follows={props.newBotModel ? undefined : props.firstUsable}
           onChange={(next) => props.onModel(next === props.newBotModel ? "" : next)}
         />

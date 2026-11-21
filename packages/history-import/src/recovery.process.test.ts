@@ -1,8 +1,24 @@
 import { afterEach, expect, test } from "vitest";
-import { Worker } from "node:worker_threads";
 import { join } from "node:path";
 import { openHistory } from "./index.ts";
-import { environment, jsonl, claudeRecords, cwd, memorySink, init, text } from "./test-support.ts";
+import {
+  environment,
+  jsonl,
+  claudeRecords,
+  cwd,
+  memorySink,
+  init,
+  readerHooks,
+  readerStarts,
+  text,
+} from "./test-support.ts";
+
+/** Kill the reader process that started last, as a crash would. */
+async function killReader(log: string): Promise<void> {
+  const pid = (await readerStarts(log)).at(-1);
+  if (pid === undefined) throw new Error("No reader has started");
+  process.kill(pid, "SIGKILL");
+}
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -18,7 +34,7 @@ test("a crashed scan restarts with backoff and cached sessions can still be list
       join(home, "projects/p", i + ".jsonl"),
       claudeRecords("Recover conversation " + i, "session-" + i),
     );
-  let isolate: Worker | undefined;
+  const starts = join(env.root, "starts.log");
   const retry = Promise.withResolvers<() => void>();
   const delays: number[] = [];
   const service = await openHistory(
@@ -26,11 +42,8 @@ test("a crashed scan restarts with backoff and cached sessions can still be list
       indexPath: join(env.root, "ace/index.sqlite"),
       instances: [{ id: "claude", provider: "claude", homeDir: home }],
     },
-    (url, options) => {
-      isolate = new Worker(url, options);
-      return isolate;
-    },
     {
+      ...readerHooks({ startLog: starts }),
       delay: (run, milliseconds) => {
         if (milliseconds >= 1000 && milliseconds !== 5000) {
           delays.push(milliseconds);
@@ -46,7 +59,7 @@ test("a crashed scan restarts with backoff and cached sessions can still be list
   const scanning = service.scan(undefined, async () => {
     if (!killed) {
       killed = true;
-      await isolate?.terminate();
+      await killReader(starts);
     }
   });
   await expect(scanning).rejects.toThrow();
@@ -69,17 +82,15 @@ test("startup failures back off repeatedly before the durable catalog becomes av
   cleanup.push(env.close);
   const scheduled: { run: () => void; milliseconds: number }[] = [];
   let notify = Promise.withResolvers<void>();
-  let launches = 0;
+  // The first two readers die as they start; the third comes up.
+  const counter = join(env.root, "crashes.log");
   const opening = openHistory(
     { indexPath: join(env.root, "ace/index.sqlite"), instances: [] },
-    (url, options) => {
-      launches++;
-      return launches <= 2
-        ? new Worker('throw new Error("Synthetic startup failure")', { eval: true })
-        : new Worker(url, options);
-    },
     {
+      ...readerHooks({ crash: { at: "startup", times: 2, counter } }),
       delay(run, milliseconds) {
+        // Retries only: the reader's other timers (its idle retirement) are not under test.
+        if (milliseconds < 1000 || milliseconds === 5000) return () => {};
         scheduled.push({ run, milliseconds });
         notify.resolve();
         return () => {};
@@ -102,13 +113,13 @@ test("startup failures back off repeatedly before the durable catalog becomes av
 test("closing during backoff rejects waiting reads and cancels recovery", async () => {
   const env = await environment();
   cleanup.push(env.close);
-  let isolate: Worker | undefined;
+  const starts = join(env.root, "starts.log");
   let retryCancelled = false;
   const failed = Promise.withResolvers<void>();
   const service = await openHistory(
     { indexPath: join(env.root, "ace/index.sqlite"), instances: [] },
-    (url, options) => (isolate = new Worker(url, options)),
     {
+      ...readerHooks({ startLog: starts }),
       delay(_run, milliseconds) {
         if (milliseconds >= 1000 && milliseconds !== 5000) failed.resolve();
         return () => {
@@ -118,7 +129,7 @@ test("closing during backoff rejects waiting reads and cancels recovery", async 
     },
   );
   cleanup.push(() => service.close());
-  await isolate?.terminate();
+  await killReader(starts);
   await failed.promise;
   const listing = service.list({ type: "history.list", cwd });
   const rejected = expect(listing).rejects.toThrow("closed");

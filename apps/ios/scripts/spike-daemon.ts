@@ -16,7 +16,7 @@ import { seedAutomations } from "./automations-scenario.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedWork, WorkScenario } from "./work-scenario.ts";
-import { seedSubagents } from "./subagent-scenario.ts";
+import { seedSubagents, seedSummaryTree } from "./subagent-scenario.ts";
 import { seedElsewhere, seedWorktreeStops } from "./elsewhere-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
@@ -34,6 +34,7 @@ import { spikePoster } from "./spike-poster.ts";
 import { spikeMedia, type PhoneMain, type SpikeSocketData } from "./spike-media.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { SpikeAccount } from "./spike-account.ts";
+import { SpikePerfProbe } from "./spike-perf-probe.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
@@ -245,6 +246,36 @@ daemon.createThread({
   details: details("perf/shards"),
 });
 seedSubagents(daemon);
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-summary-tree",
+  workspaceId: "ace",
+  title: "Ship the billing export",
+  provider: "claude",
+  details: {
+    ...details("feat/billing-export"),
+    linkedPrs: [
+      {
+        number: 2401,
+        state: "open",
+        title: "Billing export: CSV and schema",
+        url: "https://github.com/arpan404/ace/pull/2401",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
+        checks: "failed",
+        updatedAt: 2,
+      },
+      {
+        number: 2388,
+        state: "merged",
+        title: "Billing: currency rounding",
+        url: "https://github.com/arpan404/ace/pull/2388",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
+        updatedAt: 1,
+      },
+    ],
+  },
+});
+seedSummaryTree(daemon);
 seedElsewhere(daemon, { hostId, name: machineName });
 seedWorktreeStops(daemon);
 daemon.createThread({
@@ -370,6 +401,8 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
 const lostReceipt = new LostReceipt();
 // The account backend `--spike-account` signs in to, on this same port.
 const spikeAccount = new SpikeAccount(() => Date.now());
+// The app's `--perf-probe` numbers, for the performance UI tests.
+const perfProbe = new SpikePerfProbe();
 const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,
@@ -510,6 +543,8 @@ const server = Bun.serve<SpikeSocketData>({
     if (devicesReply) return devicesReply;
     const readMarkReply = await readMarks.control(request);
     if (readMarkReply) return readMarkReply;
+    const perfProbeReply = await perfProbe.handle(request);
+    if (perfProbeReply) return perfProbeReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,

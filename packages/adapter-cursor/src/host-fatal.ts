@@ -12,17 +12,22 @@ const maxDetail = 2048;
  * no longer matches.
  */
 export function fatalLine(
-  kind: "uncaughtException" | "unhandledRejection",
+  kind: "uncaughtException" | "unhandledRejection" | "fenced",
   error: unknown,
   redact: (text: string) => string,
 ): string {
   const name = error instanceof Error ? error.name : undefined;
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
-  const text = `${kind}: ${name && name !== "Error" ? `${name}: ` : ""}${redact(message)}`
+  const whole = `${kind}: ${name && name !== "Error" ? `${name}: ` : ""}${redact(message)}`
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxDetail);
+    .trim();
+  // A cut inside a word drops that word: before open the host has not been given the session's
+  // bearer, and a fragment of one is something the daemon's exact-value redaction cannot find.
+  const text =
+    whole.length > maxDetail
+      ? whole.slice(0, maxDetail).replace(/\s*\S*$/, "") || `${kind}: detail omitted (too long)`
+      : whole;
   return `${tag}${text}\n`;
 }
 

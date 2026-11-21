@@ -2,6 +2,7 @@ import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
 import { opaqueToken, sealer } from "./crypto.ts";
+import { accountDeletions, deleteAccountRoute, sweepDeletions } from "./deletion.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
@@ -26,6 +27,7 @@ import { orgEvents } from "./org-events.ts";
 import { orgHostRoutes } from "./org-host-routes.ts";
 import { orgLocks } from "./org-locks.ts";
 import { portalRevocations } from "./org-portal.ts";
+import { orgRegistryRoutes } from "./org-registry-routes.ts";
 import { orgRoutes } from "./org-routes.ts";
 import { orgStore } from "./org-store.ts";
 
@@ -39,7 +41,7 @@ const continuePath = "/v1/account/login/continue";
 /** The join page's form posts here, from the backend's own origin too. */
 const joinPath = "/v1/orgs/join";
 const orgPath =
-  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/(members|invitations|portal|policy|hosts|audit)(?:\/([A-Za-z0-9_-]{1,128}))?$/;
+  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/(members|invitations|portal|policy|hosts|audit|registry)(?:\/([A-Za-z0-9_-]{1,128}))?$/;
 const loginClaim = /^\/v1\/account\/login\/([A-Za-z0-9_-]{43})$/;
 const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
 const orgHostCredentialPath =
@@ -127,6 +129,7 @@ export function accountApi(
     portal,
     now,
   });
+  const registryApi = orgRegistryRoutes({ access, signingKey: config.grantKey, now });
   const hostApi = orgHostRoutes({
     principals,
     access,
@@ -157,6 +160,15 @@ export function accountApi(
   // deployments select only configured origins, never a caller-supplied Host or Origin.
   const canonicalLogin = loginFor(config.publicUrl);
   const hostLogins = new Map(config.publicOrigins?.map((origin) => [origin, loginFor(origin)]));
+  const deletions = accountDeletions(deps.db);
+  const deleteAccount = deleteAccountRoute({
+    sessions: reader,
+    standing: sessions,
+    provider,
+    deletions,
+    now,
+    ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
+  });
   const directory = directoryRoutes({
     principals,
     sessionStore: sessions,
@@ -213,9 +225,12 @@ export function accountApi(
       if (area === "hosts" && item && method === "DELETE")
         return hostApi.release(request, org, item);
       if (area === "audit" && !item && method === "POST") return hostApi.forward(request, org);
+      if (area === "registry" && item === "attestations" && method === "POST")
+        return registryApi.attest(request, org);
     }
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);
+    if (pathname === "/v1/account" && method === "DELETE") return deleteAccount(request);
     if (pathname === "/v1/account/login" && method === "POST") return login.start(request);
     if (pathname === "/v1/account/login" && method === "GET") return login.open(url);
     if (pathname === "/v1/account/callback" && method === "GET")
@@ -240,8 +255,12 @@ export function accountApi(
   }
 
   return {
-    /** Drops expired sign-ins, sessions and machine credentials. */
+    /**
+     * Drops expired sign-ins, sessions and machine credentials, finishes account deletions
+     * nobody retried and forgets old finished ones.
+     */
     sweep: async () => {
+      await sweepDeletions({ deletions, provider }, now());
       await logins.sweep(now());
       await credentials.sweep(now());
       await enrollments.sweep(now());

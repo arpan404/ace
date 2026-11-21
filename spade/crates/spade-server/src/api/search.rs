@@ -6,26 +6,55 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
+use spade_keys::KeyStore;
 
 use super::{AppState, off_thread, problem};
 
 /// The Brave backend's id in `config/search.json`, whose key the settings hold.
 const BRAVE: &str = "brave";
 
-/// What web search is set up with: the person's SearXNG address and whether a Brave key is
-/// found (keychain or environment). Never the key.
+/// What web search is set up with: the person's SearXNG address, whether a Brave key is found,
+/// and where from (`keychain` or `environment`), as an endpoint's key says it. Never the key.
 pub(super) async fn read(State(state): State<AppState>) -> Response {
     let Some(search) = state.search else {
         return problem(StatusCode::NOT_FOUND, "web search is not available here");
     };
-    let brave_key_set = search.has_key(BRAVE).await;
+    let source = brave_key_source(state.keys.clone(), search.key_env(BRAVE)).await;
+    // Set when either place has one, so the two fields never disagree.
+    let brave_key_set = !source.is_null() || search.has_key(BRAVE).await;
     Json(json!({
         "searxng_url": search.searxng(),
         "brave_key_set": brave_key_set,
+        "brave_key_source": source,
         "keychain": state.keys.is_some(),
     }))
     .into_response()
+}
+
+/// Where Brave's key comes from: the keychain wins, as it does when searching, then its
+/// environment variable. Only a keychain key can be removed from the settings.
+async fn brave_key_source(keys: Option<KeyStore>, env: Option<String>) -> Value {
+    let in_keychain = match keys {
+        Some(keys) => tokio::task::spawn_blocking(move || {
+            keys.search_key(BRAVE)
+                .ok()
+                .flatten()
+                .is_some_and(|key| !key.trim().is_empty())
+        })
+        .await
+        .unwrap_or(false),
+        None => false,
+    };
+    if in_keychain {
+        return json!("keychain");
+    }
+    let in_env = env.is_some_and(|var| std::env::var(var).is_ok_and(|v| !v.trim().is_empty()));
+    if in_env {
+        json!("environment")
+    } else {
+        Value::Null
+    }
 }
 
 #[derive(Deserialize)]

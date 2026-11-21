@@ -111,12 +111,20 @@ async fn accept(
 async fn start(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
     Body(body): Body<To>,
 ) -> Response {
     let connectors = state.connectors.clone();
+    let by = member.map(|axum::Extension(super::org_guard::Stamped(member))| member);
     match state
         .engine
-        .start_move(&id, body.to.trim(), body.id.trim(), connectors.as_deref())
+        .start_move_by(
+            &id,
+            body.to.trim(),
+            body.id.trim(),
+            connectors.as_deref(),
+            by.as_ref(),
+        )
         .await
     {
         Ok(started) => (StatusCode::ACCEPTED, Json(json!({ "move": started }))).into_response(),

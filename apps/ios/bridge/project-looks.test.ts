@@ -169,3 +169,17 @@ test("the machine's own name travels with its identity, and a rename shows on th
   daemon.disconnectAll();
   await until(() => sink.read("machine:identity")?.name === "Studio Mac", "renamed identity");
 });
+
+test("projects that are clones of one repository carry the same logical ids, and a lone one none", async () => {
+  const remoteKey = { remotes: ["github.com/acme/weather"], subpath: "" };
+  const { sink } = await following((daemon) => {
+    thread(daemon, "t-weather", "weather", { remoteKey });
+    thread(daemon, "t-weather-2", "weather-copy", { remoteKey });
+    thread(daemon, "t-notes", "notes");
+  });
+  await until(() => sink.read("projects:logical") !== undefined, "logical ids");
+  const ids = sink.read("projects:logical")?.ids as Record<string, string[]>;
+  expect(ids.weather?.length).toBeGreaterThan(0);
+  expect(ids["weather-copy"]).toEqual(ids.weather);
+  expect(ids.notes).toBeUndefined();
+});

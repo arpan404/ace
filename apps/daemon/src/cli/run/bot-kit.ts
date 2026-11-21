@@ -51,7 +51,8 @@ async function check(context: CommandContext): Promise<void> {
   await emit(context.args, checked, { human: checkLines, quiet: (value) => [value.hash] });
 }
 
-async function program(context: CommandContext): Promise<string> {
+/** Spade's program for running a package or checking a log, or why there is none here. */
+export async function spadeProgramOrRefuse(context: CommandContext): Promise<string> {
   const { spadeProgram } = await import("../bot-kit/test.ts");
   const found = await spadeProgram(context.env, process.argv[1]);
   if (!found)
@@ -71,7 +72,7 @@ async function test(context: CommandContext): Promise<void> {
     });
   const { testPackage, testLines } = await import("../bot-kit/test.ts");
   const { emit } = await import("../io.ts");
-  const report = await testPackage(folderOf(context), await program(context));
+  const report = await testPackage(folderOf(context), await spadeProgramOrRefuse(context));
   await emit(context.args, report, { human: testLines, quiet: () => [] });
 }
 
@@ -175,7 +176,7 @@ async function publish(context: CommandContext): Promise<void> {
     marketReads(marketOf(context.env)),
   );
   // The market runs a package's tests on its signer; one whose tests fail isn't listed.
-  await testPackage(root, await program(context));
+  await testPackage(root, await spadeProgramOrRefuse(context));
   const { publish: marketPublish } = await import("./market-flows.ts");
   const flags = { ...context.args.flags };
   if (!flags.name) flags.name = checked.name;

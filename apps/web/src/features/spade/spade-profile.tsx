@@ -6,13 +6,10 @@ import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { ProfileComputer, type ProfileComputerPlace } from "./computer/profile-computer.tsx";
 import { profileTabNames, profileTabs, type ProfileTab } from "./computer/panel-place.ts";
-import {
-  ProfileDetails,
-  ProfilePermissions,
-  type ProfilePanels,
-} from "./spade-profile-details.tsx";
+import { ProfileDetails, type ProfilePanels } from "./spade-profile-details.tsx";
 import { ProfileHead } from "./spade-profile-head.tsx";
 import { ProfileLibrary } from "./spade-profile-library.tsx";
+import { ProfilePermissions } from "./spade-profile-permissions.tsx";
 import { ProfileWork, type ProfileWorkPlace } from "./spade-profile-work.tsx";
 import { useSpadeWork } from "./use-spade-work.ts";
 import type { SpadeDecision } from "@ace/ui-core/spade-chat";
@@ -51,7 +48,8 @@ export function ProfileStripActions(props: { bot: RosterBot; onClose(): void; ro
 
 /**
  * A bot's profile (docs/design/spade.md §4), ace's side panel beside its conversation: its face
- * and name, edited in place, then Details · Work · Library · Computer as a segmented control; Work
+ * and name, edited in place, then Details · Work · Library · Computer · Permissions as a segmented
+ * control; Work
  * only while the bot has a goal, workers or decisions. The person
  * keeps talking while they change the bot and watches its computer beside the chat. Where the
  * window is too narrow for both (`covering`) it takes the window, its strip led by ‹ Chat.

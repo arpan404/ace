@@ -4,11 +4,14 @@ import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
  * Spade on the fixture's machine (ADR 0121, 0139): turned on in Settings › Beta and running,
  * with Spade itself, a bot waiting on an approval, one on a card of questions (with another left
  * for later), one working, one that finished (with a profile filled in: its task, a routine,
- * notes, a page, a file, a skill and its computer), and a group Spade leads (ADR 0132). `POST
+ * notes, a page, a file, a skill and its computer), and a group Spade leads (ADR 0132). For New
+ * bot and Settings › Spade: two endpoints (one with its key in the keychain, one without), a
+ * preset to add, a template and two connected apps. `POST
  * /review/spade` stages the rest: `off` turns Beta's switch off (the tab goes), `on` back on,
  * `stream` has the finished bot start a reply and stream its first words, `hold` has Spade take a
  * card's answer but send the update only on `release`. `on` also puts back
- * what earlier tests changed, so each starts from the seed whatever ran before it.
+ * what earlier tests changed (answers, keys, bots made), so each starts from the seed whatever
+ * ran before it.
  */
 
 export type SpadeScenario = "off" | "on" | "stream" | "hold" | "release";
@@ -72,6 +75,76 @@ export function seedSpade(daemon: FakeDaemon, now: number): void {
   spade.reply(notes, "Three merged: the Work card fix, the market Worker and the Beta page.");
   seedProfile(spade);
   seedGroup(spade, now - 50 * minute);
+  seedSetup(spade);
+}
+
+/** The seed's bots: any other was made by a test, and goes when the next one starts. */
+const seeded = new Set(["spade", "builder", "planner", "research", "notes"]);
+
+/** Endpoints, a preset, a template and apps, for New bot and Settings › Spade. */
+function seedSetup(spade: FakeSpadeApi): void {
+  spade.endpoints = [
+    {
+      id: "anthropic",
+      name: "Anthropic",
+      format: "anthropic",
+      base_url: "https://api.anthropic.com",
+      needs_key: true,
+      key_set: true,
+      key_source: "keychain",
+      models: [
+        { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
+        { id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
+      ],
+    },
+    {
+      id: "openrouter",
+      name: "OpenRouter",
+      format: "openai-chat",
+      base_url: "https://openrouter.ai/api/v1",
+      needs_key: true,
+      key_set: false,
+      key_source: null,
+      models: [{ id: "moonshotai/kimi-k2", name: "Kimi K2" }],
+    },
+  ];
+  spade.presets = [
+    {
+      id: "moonshot",
+      name: "Moonshot (OpenAI format)",
+      format: "openai-chat",
+      base_url: "https://api.moonshot.ai/v1",
+      models: [{ id: "kimi-k2", name: "Kimi K2" }],
+    },
+  ];
+  spade.fastModel = "anthropic/claude-haiku-4-5";
+  spade.teams.templates = [
+    {
+      id: "reviewer",
+      name: "Reviewer",
+      blurb: "Reads pull requests and says what needs another look",
+      task: "Review pull requests",
+      routines: [{ name: "Morning reviews", words: "Weekdays at 9:00" }],
+    },
+  ];
+  spade.connectors.connectors = [
+    {
+      id: "github",
+      name: "GitHub",
+      url: "https://api.github.com/mcp",
+      state: "connected",
+      account: "ace-dev",
+      tools: 12,
+    },
+    {
+      id: "linear",
+      name: "Linear",
+      url: "https://mcp.linear.app/mcp",
+      state: "needs_reconnect",
+      tools: 0,
+    },
+  ];
+  spade.connectors.access.set("notes", { all: false, connectors: ["github"] });
 }
 
 /** What Notes keeps and has used, for its profile; and what Spade knows about the person. */
@@ -157,8 +230,17 @@ export function spadeScenario(daemon: FakeDaemon, scenario: SpadeScenario): void
   });
 }
 
-/** Builder and Planner ask again once answered, and Notes' streamed reply finishes. */
+/**
+ * Builder and Planner ask again once answered, Notes' streamed reply finishes, and a key or bot
+ * a test added goes.
+ */
 function reseed(): void {
+  if (api) {
+    // In place: parts of the fixture hold this very list, so a new one would leave them behind.
+    for (let at = api.agents.length - 1; at >= 0; at--)
+      if (!seeded.has(api.agents[at]?.id ?? "")) api.agents.splice(at, 1);
+    seedSetup(api);
+  }
   const builder = api?.agents.find((agent) => agent.id === "builder");
   const notes = api?.agents.find((agent) => agent.id === "notes");
   if (!api) return;
