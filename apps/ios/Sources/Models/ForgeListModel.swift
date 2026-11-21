@@ -10,7 +10,7 @@ import Observation
     /// newly chosen project whose rows haven't arrived yet.
     private(set) var scope: ForgeListScope?
     private(set) var loading = false
-    /// The last read failed, in the web's words; the previous rows stay.
+    /// The last read failed, in the web's words; rows of the same filter stay under it.
     private(set) var failure: String?
     /// The rows on screen answer an older filter than the one being read.
     private(set) var stale = false
@@ -58,8 +58,12 @@ import Observation
         } catch is CancellationError {
             return
         } catch {
-            guard mine == generation else { return }
+            // A read given up because its screen read again (a changed filter) says nothing.
+            guard mine == generation, !Task.isCancelled else { return }
             failure = error.localizedDescription
+            // Rows from another filter or project don't answer this one: the failure shows on
+            // its own, never over rows that look like this filter's answer.
+            if stale { list = nil; scope = nil }
             stale = false
         }
     }

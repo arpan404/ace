@@ -158,6 +158,19 @@ import Foundation
         await reading.value
         #expect(!model.stale && model.scope == second)
     }
+    @Test func aChangedFilterWhoseReadFailsShowsTheFailureNotTheLastFiltersRows() async throws {
+        let model = ForgeListModel<ForgePullList>()
+        let scope = ForgeListScope(machineId: "mac", project: "a")
+        let rows = try pullList()
+        await model.load("open", scope: scope) { _, _ in rows }
+        struct Dropped: LocalizedError { var errorDescription: String? { "Machine disconnected" } }
+        await model.load("merged", scope: scope) { _, _ in throw Dropped() }
+        #expect(model.list == nil && model.failure == "Machine disconnected")
+        // The same filter failing again keeps its own rows, with the failure said over them.
+        await model.load("open", scope: scope) { _, _ in rows }
+        await model.load("open", scope: scope) { _, _ in throw Dropped() }
+        #expect(model.list == rows && model.failure == "Machine disconnected")
+    }
     private func pullList() throws -> ForgePullList {
         let json: [String: Any] = ["repository": "acme/ace", "groups": [], "more": false, "authors": [], "labels": []]
         return try JSONDecoder().decode(ForgePullList.self, from: JSONSerialization.data(withJSONObject: json))
