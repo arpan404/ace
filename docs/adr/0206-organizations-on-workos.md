@@ -710,3 +710,50 @@ still §2.1's step, with the owner's consent and `hosts:manage`.
 **Not built here.** A host learning that a bot's approver left, to flag "<bot> has no approver"
 to admins (§6), needs a membership read for org hosts and Spade's side of it; until then such
 requests keep waiting, since a former member can't get the member standing to answer them.
+
+## Amendment 2 (2026-11-21): the feed decides on committed state; grants are rechecked
+
+From a security review of amendment 1.
+
+**The feed decides on what it read, and commits only if that held.** Each Events API page and
+webhook delivery reads the rows, deleted users and deleted memberships it decides on, follows
+them event by event through the run, and opens its batch with guards on every one of them (the
+`workos_event_guard` pattern of migration 0007). A batch whose reads changed fails whole and is
+decided again from fresh reads, up to four times. Only an accepted change drops org checks,
+queues an Admin Portal revocation or queues an audit entry.
+
+- **Version order.** Only a strictly newer WorkOS time moves a row; a repeat changes nothing,
+  `seq` included. At the same time a removal wins over anything else.
+- **Tombstones** (migration 0010). `org_deleted_users` keeps when WorkOS deleted a user;
+  `org_deleted_memberships` keeps each deleted membership id. The membership upsert refuses any
+  event at or before a user's deletion and any event of a deleted membership. A deletion that
+  arrives before its creation leaves a `removed` row, so the late creation finds it. A
+  `user.deleted` removes the rows made earlier in the same run as well as those in D1.
+- **Audit outbox.** The feed's audit entries are queued in `org_audit_outbox` in the same batch
+  as the change they record and sent after it, with the event-derived idempotency key, until
+  WorkOS takes them: at each drain for the first five tries, then backing off to an hour, dropped
+  with a warning after forty. An entry exists exactly for a change that committed.
+
+**Webhook signatures.** The header must hold exactly one canonical `t` and well-formed `v1`
+fields, each `name=value` with a single `=`. The body is read up to 256 KiB and no further,
+and the HMAC is verified with `crypto.subtle.verify` over `<t>.` and the bytes as sent, before
+decoding.
+
+**`ace login --org`.** The org claim needs WorkOS's own lookup of the exact membership, active,
+to succeed now, and the committed mirror row to still be that membership, active.
+
+**Grants are rechecked where they act.** `POST /v1/grants/standing` takes a member grant or an
+org market grant as its own proof and answers `current` only when the mirror has the member
+active with the grant's role and WorkOS, asked now, names that membership active with that role;
+503 when WorkOS can't answer. It is limited per member account (`STANDING_REQUESTS`), not per
+caller address.
+
+- An org host stamps a member's answer on a standing proven more than 60 seconds earlier only
+  after the backend confirms it (§8.1); a no, or no answer, ends the standing and refuses the
+  answer.
+- The market asks before every org grant read or write of a private registry: a member who
+  left reads nothing (404, as any non-member), a grant whose role changed can't publish (403
+  `org_grant_stale`), and a backend that can't be asked refuses (404 reads, 503 writes).
+
+**Still not built.** Telling admins that a bot lost its only approver (§6) needs Spade to learn
+membership changes for accounts that hold no live grant; it is tracked separately.

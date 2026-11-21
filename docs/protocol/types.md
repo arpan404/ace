@@ -1734,6 +1734,39 @@ Example:
 }
 ```
 
+## AceOrgStanding
+
+[JSON Schema](schema/AceOrgStanding.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| current | yes | boolean |  |
+| role | no | string | {"maxLength":64} |
+
+Example:
+
+```json
+{
+  "current": true
+}
+```
+
+## AceOrgStandingRequest
+
+[JSON Schema](schema/AceOrgStandingRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| grant | yes | string | {"minLength":1,"maxLength":8192} |
+
+Example:
+
+```json
+{
+  "grant": "example"
+}
+```
+
 ## AceSignInReturnStatus
 
 [JSON Schema](schema/AceSignInReturnStatus.json), input validation.

@@ -10,6 +10,8 @@ import type { WorkosEvent, WorkosOrgs } from "./workos-orgs.ts";
 const fullName = (first: string | null | undefined, last: string | null | undefined) =>
   [first, last].filter(Boolean).join(" ") || undefined;
 
+const keyOf = (org: string, account: string) => `${org}\u0000${account}`;
+
 export type FeedRunDeps = {
   orgs: OrgStore;
   workos: Pick<WorkosOrgs, "getUser">;
@@ -36,7 +38,6 @@ export function feedRun(deps: FeedRunDeps, lookups: { left: number }) {
   const accounts = new Map<string, number>();
   const touched = new Set<string>();
   const writes: D1PreparedStatement[] = [];
-  const keyOf = (org: string, account: string) => `${org}\u0000${account}`;
 
   async function row(org: string, account: string): Promise<Row> {
     const key = keyOf(org, account);

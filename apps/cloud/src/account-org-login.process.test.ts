@@ -52,6 +52,10 @@ it("a machine's sign-in for an organization names it for a member and never for 
   ).toBeUndefined();
 });
 
+/** WorkOS's membership lookup, as the fake receives it. */
+const lookup = (request: { method: string; path: string }) =>
+  request.method === "GET" && request.path.startsWith("/user_management/organization_memberships");
+
 it("a sign-in for an organization names it only once WorkOS confirms the active membership itself", async () => {
   const api = orgCalls(worker.http);
   const xia = workosUser("user_xia", "Xia");
@@ -63,9 +67,6 @@ it("a sign-in for an organization names it only once WorkOS confirms the active 
   workos.orgs.addMember(yan.id, org, "member");
   // The mirror has her as active.
   await worker.cron("* * * * *");
-  const lookup = (request: { method: string; path: string }) =>
-    request.method === "GET" &&
-    request.path.startsWith("/user_management/organization_memberships");
 
   // WorkOS can't be asked about the membership: no organization, whatever the mirror says.
   workos.failNext(lookup, 503, 5);

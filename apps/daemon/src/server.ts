@@ -479,10 +479,10 @@ export async function startServer(options: ServerOptions): Promise<{
       // The grant's own clock: its expiry was read against it.
       now: () => options.machineAccount?.grantClock() ?? auth.now(),
       holds: (generation) => options.machineAccount?.standingHolds(generation) === true,
-      recheck: async (grant) => {
+      recheck: async (token) => {
         const account = options.machineAccount;
         if (!account) throw new Error("No ace account on this machine");
-        return account.memberStandingNow(grant);
+        return account.memberStandingNow(token);
       },
     });
     /** Whether this socket is the organization's host shell (ADR 0206 §2.2): its owners only. */
