@@ -40,6 +40,7 @@ mod ledger;
 mod local;
 pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
+mod code;
 mod made;
 mod maintenance;
 mod media;
@@ -65,6 +66,7 @@ mod routing;
 mod running;
 mod search;
 mod security;
+pub use code::CodeCall;
 mod self_edit;
 mod services;
 mod speech;
@@ -288,6 +290,8 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
+    /// The package code this Spade runs (ADR 0203), once set up.
+    code: std::sync::OnceLock<Arc<crate::code::Code>>,
     /// The local model servers Spade looks for; Ollama's and LM Studio's defaults when unset.
     local_servers: Mutex<Option<Vec<crate::local_models::LocalServer>>>,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
@@ -437,6 +441,7 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
+            code: std::sync::OnceLock::new(),
             local_servers: Mutex::new(None),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),

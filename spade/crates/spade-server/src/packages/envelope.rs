@@ -95,6 +95,21 @@ fn listed(files: &[File], path: &str, text: &str) -> bool {
     })
 }
 
+/// Whether the market's signed manifest in `envelope` lists `bytes` at `path`, by size and
+/// sha256: how a component sent beside it is pinned to what the market signed (ADR 0203 §5).
+/// The signature itself is [`verify`]'s; call this only on an envelope it accepted.
+pub fn lists_bytes(envelope: &Envelope, path: &str, bytes: &[u8]) -> bool {
+    let body = serde_json::from_value::<Signed>(envelope.signed.clone())
+        .ok()
+        .and_then(|signed| serde_json::from_value::<Body>(signed.body).ok());
+    let sha = hex(&Sha256::digest(bytes));
+    body.is_some_and(|body| {
+        body.files
+            .iter()
+            .any(|file| file.path == path && file.bytes == bytes.len() as u64 && file.sha256 == sha)
+    })
+}
+
 /// The identity `envelope` proves, and the `bot.json` it covers, read as JSON with its
 /// contracts' schema files written in (each one the manifest lists, by its bytes); else why not.
 pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Value), String> {
