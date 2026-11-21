@@ -1,0 +1,357 @@
+{
+  "license": "Apache-2.0",
+  "part": "contracts",
+  "about": "The bounded schema subset a contract's input and output, a panel's state and an action's value are written in. Spade's reader (spade_core::schema) and the marketplace's (readSchema in @ace/marketplace) both run every case. A case with `refused` expects the schema itself refused, with a problem containing those words. Otherwise each value in `fits` fits, and each entry of `misfits` doesn't, at the place `at` names. `id` names the case in reports and never changes.",
+  "cases": [
+    {
+      "id": "contracts/schema-fare-question",
+      "name": "a fare question",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "to": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "month": {
+            "type": "string",
+            "maxLength": 7,
+            "description": "YYYY-MM"
+          },
+          "direct": {
+            "type": "boolean"
+          }
+        },
+        "required": ["from", "to", "month"]
+      },
+      "fits": [
+        {
+          "from": "KTM",
+          "to": "DEL",
+          "month": "2027-01"
+        },
+        {
+          "from": "KTM",
+          "to": "DEL",
+          "month": "2027-01",
+          "direct": true
+        }
+      ],
+      "misfits": [
+        {
+          "value": {
+            "from": "KTM",
+            "to": "DEL"
+          },
+          "at": "input.month"
+        },
+        {
+          "value": {
+            "from": "KTMX",
+            "to": "DEL",
+            "month": "2027-01"
+          },
+          "at": "input.from"
+        },
+        {
+          "value": {
+            "from": "KT",
+            "to": "DEL",
+            "month": "2027-01"
+          },
+          "at": "input.from"
+        },
+        {
+          "value": {
+            "from": "KTM",
+            "to": "DEL",
+            "month": "2027-01",
+            "seat": "aisle"
+          },
+          "at": "input.seat"
+        },
+        {
+          "value": {
+            "from": "KTM",
+            "to": "DEL",
+            "month": "2027-01",
+            "direct": "yes"
+          },
+          "at": "input.direct"
+        },
+        {
+          "value": ["KTM"],
+          "at": "input"
+        }
+      ]
+    },
+    {
+      "id": "contracts/schema-numbers-whole-numbers-enums-and-lists",
+      "name": "numbers, whole numbers, enums and lists",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "fare": {
+            "type": "number",
+            "minimum": 0
+          },
+          "stops": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "currency": {
+            "enum": ["USD", "NPR", "INR"]
+          },
+          "carriers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "maxItems": 2
+          }
+        },
+        "required": ["fare"]
+      },
+      "fits": [
+        {
+          "fare": 182.5
+        },
+        {
+          "fare": 0,
+          "stops": 1,
+          "currency": "NPR",
+          "carriers": ["Buddha Air"]
+        },
+        {
+          "fare": 10,
+          "stops": 2.0
+        }
+      ],
+      "misfits": [
+        {
+          "value": {
+            "fare": -1
+          },
+          "at": "input.fare"
+        },
+        {
+          "value": {
+            "fare": 1,
+            "stops": 1.5
+          },
+          "at": "input.stops"
+        },
+        {
+          "value": {
+            "fare": 1,
+            "stops": 4
+          },
+          "at": "input.stops"
+        },
+        {
+          "value": {
+            "fare": 1,
+            "currency": "EUR"
+          },
+          "at": "input.currency"
+        },
+        {
+          "value": {
+            "fare": 1,
+            "carriers": ["a", "b", "c"]
+          },
+          "at": "input.carriers"
+        },
+        {
+          "value": {
+            "fare": 1,
+            "carriers": [7]
+          },
+          "at": "input.carriers[0]"
+        },
+        {
+          "value": {
+            "fare": "182"
+          },
+          "at": "input.fare"
+        }
+      ]
+    },
+    {
+      "id": "contracts/schema-six-levels-deep",
+      "name": "six levels deep",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "object",
+                "properties": {
+                  "c": {
+                    "type": "object",
+                    "properties": {
+                      "d": {
+                        "type": "array",
+                        "maxItems": 2,
+                        "items": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "fits": [
+        {
+          "a": {
+            "b": {
+              "c": {
+                "d": [true]
+              }
+            }
+          }
+        },
+        {}
+      ],
+      "misfits": [
+        {
+          "value": {
+            "a": {
+              "b": {
+                "c": {
+                  "d": [1]
+                }
+              }
+            }
+          },
+          "at": "input.a.b.c.d[0]"
+        }
+      ]
+    },
+    {
+      "id": "contracts/schema-seven-levels-deep",
+      "name": "seven levels deep",
+      "refused": "6 levels",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "object",
+                "properties": {
+                  "c": {
+                    "type": "object",
+                    "properties": {
+                      "d": {
+                        "type": "object",
+                        "properties": {
+                          "e": {
+                            "type": "array",
+                            "maxItems": 2,
+                            "items": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "contracts/schema-string-with-no-length",
+      "name": "a string with no length",
+      "refused": "maxLength",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "contracts/schema-list-with-no-size",
+      "name": "a list with no size",
+      "refused": "maxItems",
+      "schema": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "id": "contracts/schema-keyword-outside-the-subset",
+      "name": "a keyword outside the subset",
+      "refused": "pattern",
+      "schema": {
+        "type": "string",
+        "maxLength": 10,
+        "pattern": "^[A-Z]+$"
+      }
+    },
+    {
+      "id": "contracts/schema-object-open-to-any-field",
+      "name": "an object open to any field",
+      "refused": "additionalProperties",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true
+      }
+    },
+    {
+      "id": "contracts/schema-reference-to-another-schema",
+      "name": "a reference to another schema",
+      "refused": "$ref",
+      "schema": {
+        "$ref": "#/definitions/fare"
+      }
+    },
+    {
+      "id": "contracts/schema-required-naming-a-field-it-doesnt-have",
+      "name": "required naming a field it doesn't have",
+      "refused": "required",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "boolean"
+          }
+        },
+        "required": ["b"]
+      }
+    },
+    {
+      "id": "contracts/schema-null-type",
+      "name": "a null type",
+      "refused": "type",
+      "schema": {
+        "type": "null"
+      }
+    }
+  ]
+}

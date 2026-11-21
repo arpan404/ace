@@ -5,10 +5,11 @@ import {
 } from "@ace/ui-core/spade-chat";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import { formatElapsed } from "@ace/ui-core/time";
-import { CheckIcon, CopyIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
+import { CheckIcon, CopyIcon, DotsThreeIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { bubbleWidth } from "./spade-bubble-style.ts";
@@ -168,6 +169,8 @@ export function BubbleFrame(props: {
   speak: string | undefined;
   /** "Today 9:00 AM"; undefined when unknown. */
   when: string | undefined;
+  /** The More menu's Keep as a test, on a finished reply's last words (ADR 0204). */
+  onKeep?: (() => void) | undefined;
   side: "bot" | "mine";
   children: ReactNode;
 }) {
@@ -190,7 +193,10 @@ export function BubbleFrame(props: {
   const voice = useBotVoiceContext() ?? systemVoice;
   const speak = props.speak !== undefined && canSpeakWith(voice) ? props.speak : undefined;
   const copy = props.copy;
-  const any = copy !== undefined || speak !== undefined || props.when !== undefined;
+  const onKeep = props.onKeep;
+  const [menu, setMenu] = useState(false);
+  const any =
+    copy !== undefined || speak !== undefined || props.when !== undefined || onKeep !== undefined;
   const release = () => clearTimeout(timer.current);
   return (
     <div
@@ -218,7 +224,7 @@ export function BubbleFrame(props: {
       {props.children}
       {any && (
         <div
-          data-held={held || reading || undefined}
+          data-held={held || reading || menu || undefined}
           className={cn(
             "absolute -bottom-4.5 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
             props.side === "bot" ? "right-2.5" : "left-2.5",
@@ -252,6 +258,18 @@ export function BubbleFrame(props: {
               className="rounded-full"
               onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}
             />
+          )}
+          {onKeep && (
+            <Menu open={menu} onOpenChange={setMenu}>
+              <MenuTrigger
+                render={
+                  <IconButton icon={DotsThreeIcon} label="More" size="sm" className="rounded-full" />
+                }
+              />
+              <MenuContent align="end">
+                <MenuItem onClick={onKeep}>Keep as a test</MenuItem>
+              </MenuContent>
+            </Menu>
           )}
         </div>
       )}

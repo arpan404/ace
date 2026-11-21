@@ -9,6 +9,11 @@ export const spadeNouns: readonly NounSpec[] = [
     summary: "What Spade's bots run, Stop, Pause and Resume, and the kit to make one",
     group: "spade-market",
   },
+  {
+    name: "skill",
+    summary: "Spade's skills to and from SKILL.md folders other agents read",
+    group: "spade-market",
+  },
   { name: "feature", summary: "Beta features", group: "spade-market" },
   { name: "automation", summary: "Automations", group: "spade-market" },
   {
@@ -27,6 +32,58 @@ const botArg = { name: "BOT", summary: "A bot's id or name", required: true, ref
 const automationArg = { name: "AUTOMATION", summary: "The automation id", required: true } as const;
 
 export const spadeCommands: readonly CommandSpec[] = [
+  {
+    id: "spade.skill.import",
+    personOnly: "install",
+    words: ["spade", "skill", "import"],
+    summary: "Keep a SKILL.md folder, or one in a git repository, as a Spade skill",
+    description:
+      "The folder must meet the Agent Skills specification: SKILL.md with name (the folder's name: lower-case letters, digits and single hyphens, at most 64) and description (at most 1,024 characters), and license, compatibility, metadata and allowed-tools as the specification has them. It passes the market's skill checks too: no secrets, within a skill's limits. Every file is kept as it came; hidden files are left out. Fields Spade doesn't use are kept and listed. allowed-tools grants nothing: Spade's gate still decides each call the skill's instructions lead to.",
+    group: "spade-market",
+    mutates: true,
+    args: [
+      {
+        name: "FROM",
+        summary: "The skill's folder, or a git address (https, ssh or user@host:path)",
+        required: true,
+      },
+    ],
+    flags: [
+      {
+        name: "path",
+        value: "FOLDER",
+        summary: "With a git address, the skill's folder in the repository; its root otherwise",
+      },
+      { name: "git", summary: "Read FROM as a git repository, a local one's path included" },
+      { name: "replace", summary: "Replace a skill written in Spade with the same name" },
+    ],
+    output: "spade.skill.import",
+    examples: [
+      { command: "ace spade skill import ./triage-mail", summary: "A folder on this machine" },
+      {
+        command: "ace spade skill import https://github.com/example/skills --path triage-mail",
+        summary: "One skill from a repository's folder",
+      },
+    ],
+    exits: [{ code: 1, when: "the folder breaks the specification or the market's checks" }],
+    seeAlso: ["spade skill export", "market check"],
+  },
+  {
+    id: "spade.skill.export",
+    words: ["spade", "skill", "export"],
+    summary: "Write a Spade skill as a SKILL.md folder that meets the Agent Skills specification",
+    description:
+      "The folder is DIR/<name>, which must not exist yet. SKILL.md keeps the specification's fields and its body as they were; fields the specification doesn't define move under metadata as spade.field.<name>, and metadata.spade.version and metadata.spade.source say how it was written and where the skill came from. Importing the folder again gives back the same skill. A plugin's skills export with their plugin.",
+    group: "spade-market",
+    mutates: true,
+    args: [
+      { name: "SKILL", summary: "The skill's name or id", required: true },
+      { name: "DIR", summary: "Where to write its folder; this folder when omitted" },
+    ],
+    output: "spade.skill.export",
+    exits: [{ code: 4, when: "DIR/<name> already exists" }],
+    seeAlso: ["spade skill import"],
+  },
   {
     id: "spade.status",
     words: ["spade", "status"],

@@ -188,6 +188,20 @@ export class IncomingRows {
       .all(after)
       .map((raw) => decode(Row.parse(raw)));
   }
+  /**
+   * Rows an earlier build marked cancelled though they had passed their cutoff (a result: the
+   * thread made here, this machine its owner), to put right. Read from the settled rows
+   * retention still keeps, whether or not their rollback left anything to undo.
+   */
+  landedCancelled(after = ""): IncomingRecord[] {
+    return this.store
+      .statement(
+        `SELECT t.* FROM transfer_incoming_expiry e CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE e.transfer_id>? AND t.state='cancelled' AND t.result IS NOT NULL ORDER BY e.transfer_id LIMIT 64`,
+      )
+      .all(after)
+      .map((raw) => decode(Row.parse(raw)));
+  }
   /** Settled rows still naming a project or folder to undo, after a crash mid-rollback. */
   leftovers(after = ""): IncomingRecord[] {
     return this.store

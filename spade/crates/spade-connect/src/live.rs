@@ -6,7 +6,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use spade_mcp::{McpClient, McpConfig, McpTool, McpToolResult, Secret, ToolsError};
+use serde_json::Map;
+use spade_mcp::{Asker, McpClient, McpConfig, McpTool, McpToolResult, Secret, ToolsError};
 use tokio::sync::Notify;
 
 use crate::oauth::{self, OauthError};
@@ -63,7 +64,9 @@ pub(crate) struct Credentials {
 
 impl Credentials {
     pub(crate) fn config(self, url: String, timeout: Duration) -> McpConfig {
-        let mut config = McpConfig::new(url, timeout);
+        // A connector's server may ask the person mid-call; its calls carry the asker that shows
+        // them (ADR 0202 §2). Sampling is never offered.
+        let mut config = McpConfig::new(url, timeout).eliciting();
         if let Some(access) = self.access {
             config = config.bearer(Secret::new(access));
         }
@@ -121,6 +124,19 @@ impl Connectors {
         tool: &str,
         arguments: serde_json::Value,
     ) -> Result<McpToolResult, CallError> {
+        self.call_asking(connector, tool, arguments, None).await
+    }
+
+    /// [`Connectors::call`], where a form the app's server sends during the call goes to `asker`
+    /// for the person (MCP elicitation), and the call's timeout waits while they decide. Without
+    /// an asker, a form is declined.
+    pub async fn call_asking(
+        self: &Arc<Self>,
+        connector: &str,
+        tool: &str,
+        arguments: serde_json::Value,
+        asker: Option<Arc<dyn Asker>>,
+    ) -> Result<McpToolResult, CallError> {
         let record = self
             .record(connector)
             .ok_or_else(|| CallError::NotRun(format!("{connector} is not connected")))?;
@@ -137,13 +153,19 @@ impl Connectors {
                 return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
             }
         };
-        let mut answer = client.call(tool, arguments.clone()).await;
+        let mut answer = client
+            .call_asking(tool, arguments.clone(), Map::new(), asker.clone())
+            .await;
         // Refused before it ran: the sign-in expired. Renewed, the call is sent once more on the
         // new sign-in, which is safe since the first never ran; the bot never hears of it.
         if matches!(answer, Err(ToolsError::Refused)) {
             match self.renew(&record, generation).await {
                 Ok(()) => match self.client(&record).await {
-                    Ok((renewed, _)) => answer = renewed.call(tool, arguments).await,
+                    Ok((renewed, _)) => {
+                        answer = renewed
+                            .call_asking(tool, arguments, Map::new(), asker)
+                            .await;
+                    }
                     Err(_) => {
                         return Err(CallError::NotRun(format!(
                             "the sign-in to {} had expired and is now renewed",

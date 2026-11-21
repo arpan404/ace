@@ -3,7 +3,7 @@
 //! sets with `panel_update`, and the actions it may send back, each with its value's schema. Its
 //! page's bytes come beside the manifest and are kept by hash; the hash is Spade's, never the
 //! file's. The marketplace reads `surfaces` the same way (`packages/marketplace/src/surfaces.ts`,
-//! held to it by `rules.json`). Pure.
+//! held to it by the conformance suite, `spade/spec/conformance/`). Pure.
 
 use std::collections::BTreeSet;
 

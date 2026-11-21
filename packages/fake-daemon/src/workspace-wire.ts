@@ -1,3 +1,4 @@
+import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import { fakeEmojiImages, resolveFakeMedia } from "./catalog/forge-media.ts";
 import { fakeGitDiff } from "./git-diff-wire.ts";
 import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
@@ -433,7 +434,13 @@ export class FakeWorkspaceWire {
         type: "workspace.result",
         requestId: request.requestId,
         result: source
-          ? { kind: "origin", url: (source.git && source.origin) || null }
+          ? {
+              kind: "origin",
+              url: (source.git && source.origin) || null,
+              ...(source.git && source.origin && !this.projects.olderRemoteKeys
+                ? { key: normalizeRemoteUrl(source.origin) }
+                : {}),
+            }
           : { kind: "error", code: "workspace_not_found" },
       });
     }
@@ -469,7 +476,11 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: { kind: "match", workspaceId: this.projects.withOrigin(op.url)?.id ?? null },
+        result: {
+          kind: "match",
+          workspaceId: this.projects.withOrigin(op.url)?.id ?? null,
+          ...(this.projects.olderRemoteKeys ? {} : { keyVersion: 2 }),
+        },
       });
     if (op.op === "runs.list") {
       const all = Object.values(this.context.thread(op.threadId)?.runs ?? {}).filter(

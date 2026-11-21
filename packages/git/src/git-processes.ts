@@ -1,4 +1,5 @@
 import { probeOutput } from "@ace/provider-kit/process";
+import { systemListing, type ProcessListing } from "@ace/provider-kit/process-listing";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pinnedGitMarker } from "./pinned-process.ts";
@@ -62,15 +63,26 @@ async function checkoutOf(cwd: string): Promise<string | undefined> {
   }
 }
 
-/** Whether any process of the POSIX process group led by `pid` is still alive. */
-export function processGroupAlive(pid: number): boolean {
+/**
+ * Whether any process of the POSIX process group led by `pid` can still run. A zombie has
+ * exited and holds nothing, yet keeps its group in existence until its parent reaps it; on Linux
+ * the daemon is a child subreaper, so a killed Git's orphaned helpers (`git-remote-http`) are
+ * its zombies and may stay until it exits. A group of nothing but zombies is gone.
+ */
+export function processGroupAlive(
+  pid: number,
+  listing: Pick<ProcessListing, "groupMembers" | "info"> = systemListing,
+): boolean {
   try {
     process.kill(-pid, 0);
-    return true;
   } catch (error) {
-    // EPERM: a process exists there, even if it isn't ours to signal.
-    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+    // EPERM: a process exists there, even if it isn't ours to signal (macOS: or only zombies).
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
   }
+  const members = listing.groupMembers(pid);
+  // Nothing listed (no listing here, or the group just ended): only the signal can tell.
+  if (!members.length) return true;
+  return members.some((member) => listing.info(member)?.zombie !== true);
 }
 
 // `git fsmonitor--daemon` lives as long as the checkout does; it never holds a mutation open.

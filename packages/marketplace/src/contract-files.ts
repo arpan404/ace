@@ -7,7 +7,7 @@ import { text } from "./listing.ts";
  * They are written into the contract before `bot.json` is read, so every reader sees one form;
  * Spade does the same (`spade_core::package::contract_files`), and for a market package takes
  * each file only as the signed manifest lists it, so the signature covers the schemas as it
- * covers `bot.json`. `rules.json` holds both to the same refusals. Pure.
+ * covers `bot.json`. the conformance suite (`spade/spec/conformance/`) holds both to the same refusals. Pure.
  */
 
 /** The largest schema file: two schemas of at most 16 KiB each, with room around them. */

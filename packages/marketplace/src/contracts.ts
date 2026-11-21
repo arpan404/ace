@@ -5,7 +5,7 @@ import { readSchema, schemaMisfits, type Schema } from "./schema.ts";
  * A package's contracts (ADR 0200 §7), read the way Spade reads them
  * (`spade_core::package::contract`): a name callers use, a one-line summary, input and output
  * schemas in the bounded subset, the effects a call may use (within the package's), and examples
- * that fit. `rules.json` holds both readers to the same refusals.
+ * that fit. the conformance suite (`spade/spec/conformance/`) holds both readers to the same refusals.
  *
  * A contract's name and schemas move with the package's versions, so a new version may not
  * break callers: `breakingChanges` compares it with the previous one. A breaking change takes a

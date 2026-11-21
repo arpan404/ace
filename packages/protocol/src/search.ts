@@ -63,7 +63,20 @@ export const SearchHit = z.object({
   agentId: AgentId.optional(),
   workspaceId: WorkspaceId,
   provider: ProviderKind,
-  status: SearchState,
+  /** A state newer than this build reads as `unknown`, never failing the results around it. */
+  // A union, not `.catch()`: the protocol docs generator and browser workers leave `.catch()` out.
+  status: z.union([
+    SearchState,
+    z
+      .string()
+      .min(1)
+      .max(64)
+      .transform((): "unknown" => "unknown")
+      .meta({
+        "x-ace-json-input": SearchState,
+        "x-ace-constraint": "A state this client doesn't know is read as `unknown`.",
+      }),
+  ]),
   /** Compare against canonical subscription sequence before displaying this snapshot status. */
   statusSeq: z.number().int().nonnegative(),
   kind: SearchKind,

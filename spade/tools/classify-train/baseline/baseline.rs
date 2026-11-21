@@ -340,6 +340,7 @@ fn connector_measure(model: &Model) -> M {
             read_only: label == Effect::Read,
             annotated: true,
             declared: Some(if label == Effect::Read { Effect::Read } else { Effect::Network }),
+            ..Mcp::default()
         };
         let p = model.predict(&Subject::Tool { name, arguments: &arguments, hints });
         let person = spade_classify::PERSON_ONLY.contains(&label);

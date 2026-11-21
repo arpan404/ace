@@ -21,7 +21,7 @@ use spade_core::package::contract_files;
 use spade_core::package::link::PackageId;
 
 /// What signed manifests are signed behind, so a signature on another kind never verifies.
-const LABEL: &str = "ace-market-manifest-v1";
+const LABEL: &str = spade_core::package::signed::MANIFEST_LABEL;
 /// The market's keys this build ships (`packages/marketplace/src/keys.ts`, the same keys).
 const SHIPPED: &str = include_str!("../../../../config/market-keys.json");
 /// Where the market is, as a linked bot's package names its source.
