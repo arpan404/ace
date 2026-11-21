@@ -837,7 +837,9 @@ struct ConversationFeed: View {
             viewport.clearSessionAnchor()
             return
         }
-        if let fraction = viewport.sessionRestoreFraction(
+        if shiftRow(session.rowID, toTop: session.top) {
+            // Put back by its drift; the next layout checks where it landed.
+        } else if let fraction = viewport.sessionRestoreFraction(
             viewport: Double(metrics.viewport),
             topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
             rowHeight: Double(frame.height)) {
@@ -939,12 +941,22 @@ struct ConversationFeed: View {
     /// ones, like the capture/restore fraction.
     @discardableResult
     private func placeRowAtTop(_ rowID: String, top: Double, proxy: ScrollViewProxy) -> Bool {
+        if shiftRow(rowID, toTop: top) { return true }
         guard let frame = anchor.keeper.frames.frame(rowID) else { return false }
         let metrics = intent.metrics
         guard let fraction = TranscriptAnchorPlacement.fraction(top: top,
             viewport: Double(metrics.viewport), topInset: Double(metrics.topInset),
             bottomInset: Double(metrics.bottomInset), rowHeight: Double(frame.height)) else { return false }
         proxy.scrollTo(rowID, anchor: UnitPoint(x: 0, y: fraction))
+        return true
+    }
+    /// Puts a measured `rowID` back `top` points below the header by moving the scroll its drift,
+    /// in one frame, as an older page's hold does. Exact for a row of any height: an anchor
+    /// fraction for a row about the screen's height throws it (`TranscriptAnchorPlacement`).
+    /// False until the row has measured and the scroll view is found.
+    private func shiftRow(_ rowID: String, toTop top: Double) -> Bool {
+        guard surface.attached, let now = anchor.keeper.frames.top(rowID, inset: intent.metrics.topInset) else { return false }
+        if let drift = TranscriptRowPlacement.drift(top: now, target: top) { surface.shift(by: drift) }
         return true
     }
     /// Item-level successor for a gone held row: the row holding the smallest

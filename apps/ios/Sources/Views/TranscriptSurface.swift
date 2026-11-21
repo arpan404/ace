@@ -32,6 +32,8 @@ import UIKit
     var offset: Double { Double(scroller?.contentOffset.y ?? 0) }
     /// A frozen frame is laid over the feed (`freeze`).
     var isFrozen: Bool { frozen != nil }
+    /// The scroll view under the rows has been found: `shift` moves it.
+    var attached: Bool { scroller != nil }
 
     fileprivate func attach(_ view: UIView) {
         var next = view.superview

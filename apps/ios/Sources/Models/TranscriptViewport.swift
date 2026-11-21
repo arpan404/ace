@@ -265,12 +265,18 @@ struct TranscriptViewportController: Equatable, Sendable {
 /// Align the same fraction of a row and its viewport to retain a pixel offset.
 /// Fractions outside 0...1 represent partially clipped rows. A row taller than
 /// the viewport has a negative denominator and still has a valid alignment.
+/// The unit-point anchor that puts a row `top` points below the header: the scroll aligns the
+/// same fraction of the row and of what shows, so the row lands at `fraction × (shown − height)`.
+/// A row nearly as tall as what shows divides by almost nothing, and any point of difference
+/// between this measure and the scroll's is multiplied by the fraction: past the placement
+/// tolerance there is none, and the row is put back by its drift instead (`ConversationFeed`).
 enum TranscriptAnchorPlacement {
     static func fraction(top: Double, viewport: Double, topInset: Double,
                          bottomInset: Double, rowHeight: Double) -> Double? {
         let available = viewport - topInset - bottomInset - rowHeight
         guard top.isFinite, available.isFinite, abs(available) > 1 else { return nil }
-        return top / available
+        let fraction = top / available
+        return abs(fraction) <= TranscriptRowPlacement.tolerance ? fraction : nil
     }
 }
 
