@@ -33,6 +33,7 @@ pub mod package;
 pub mod panel;
 pub mod personality;
 pub mod provenance;
+pub mod quality;
 pub mod question;
 pub mod reach;
 pub mod redact;

@@ -64,6 +64,11 @@ type SpadeBubbleOf =
       /** What the reply's tools showed the person, after its words (ADR 0134). */
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
+      /**
+       * The reply this is the last bubble of, when that reply finished: the bubble's More menu
+       * offers Keep as a test (ADR 0204).
+       */
+      keep?: string;
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -508,6 +513,11 @@ function replyBubbles(
   if (images.length || documents.length) {
     if (tail()) attach();
     else say("", false);
+  }
+  // A finished reply can be kept as a test, from its last words.
+  if (entry.end?.kind === "finished") {
+    const bubble = bubbles[latest];
+    if (bubble?.kind === "bot" && bubble.text) bubbles[latest] = { ...bubble, keep: entry.reply };
   }
   // What it did, under what it said.
   const steps = spadeReplySteps(entry);
