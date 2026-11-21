@@ -80,11 +80,12 @@ pub(super) async fn guard(State(state): State<AppState>, request: Request, next:
         .cloned()
         .unwrap_or_else(|| OriginalUri(parts.uri.clone()));
     let checked = {
-        let (state, method, headers, bytes) = (
+        let (state, method, headers, bytes, agent) = (
             state.clone(),
             parts.method.clone(),
             parts.headers.clone(),
             bytes.clone(),
+            agent.clone(),
         );
         tokio::task::spawn_blocking(move || {
             let member = super::org::stamped(&state, &method, &uri, &headers, &bytes)?;
@@ -100,7 +101,48 @@ pub(super) async fn guard(State(state): State<AppState>, request: Request, next:
     let Some(member) = checked else {
         return problem(StatusCode::FORBIDDEN, crate::engine::MEMBER_ONLY);
     };
+    let configured = (right == Right::Configure)
+        .then(|| configured_part(&parts.method, &path))
+        .flatten();
     let mut request = Request::from_parts(parts, Body::from(bytes));
-    request.extensions_mut().insert(Stamped(member));
-    next.run(request).await
+    request.extensions_mut().insert(Stamped(member.clone()));
+    let response = next.run(request).await;
+    // What it changed is on the host's log once it took (ADR 0206 §4.1). Steps that record
+    // themselves with the change (package steps, a move, deleting it) aren't recorded again.
+    if let Some(changed) = configured
+        && response.status().is_success()
+    {
+        let engine = state.engine.clone();
+        let recorded =
+            tokio::task::spawn_blocking(move || engine.org_configured(&agent, &member, changed))
+                .await;
+        if !matches!(recorded, Ok(Ok(()))) {
+            tracing::warn!("a shared bot's change couldn't be recorded on the audit log");
+        }
+    }
+    response
+}
+
+/// The part of a shared bot a configure write changes, by its route: `grants`, `security`,
+/// `routines`, `club`…; `None` for a write that records itself.
+fn configured_part(method: &Method, path: &str) -> Option<&'static str> {
+    let mut parts = path.trim_start_matches('/').split('/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("agents"), Some(_), None) if *method == Method::DELETE => None,
+        (Some("agents"), Some(_), None) => Some("profile"),
+        (Some("agents"), Some(_), Some("package" | "move" | "access")) => None,
+        (Some("agents"), Some(_), Some(part)) => Some(match part {
+            "grants" => "grants",
+            "security" => "security",
+            "routines" => "routines",
+            "model" | "models" => "model",
+            "task" => "task",
+            "files" => "files",
+            "notes" => "notes",
+            "pin" => "pin",
+            _ => "settings",
+        }),
+        (Some("groups"), Some(_), _) => Some("club"),
+        _ => None,
+    }
 }

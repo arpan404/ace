@@ -62,6 +62,9 @@ pub enum PackageError {
     Unproven(String),
     #[error("{0}")]
     Failed(String),
+    /// The organization's policy doesn't allow it on this host, in its own words.
+    #[error("{0}")]
+    Refused(String),
 }
 
 fn failed(error: impl std::fmt::Display) -> PackageError {
@@ -301,6 +304,28 @@ pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, P
     if !link.withdrawn_hashes.contains(&link.package.hash) {
         link.withdrawn_hashes.push(link.package.hash.clone());
     }
+    paused(engine, bot, link, reason)
+}
+
+/// A version the organization's policy blocks pauses its bot the same way (ADR 0206 §3): the one
+/// pause, the reason shown, nothing deleted. Unlike a withdrawal the version isn't marked never
+/// to be moved to again: a later policy may allow it. Saying it again changes nothing.
+pub fn block(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, PackageError> {
+    let _busy = engine.package_busy.hold(bot);
+    let link = link_of(engine, bot)?;
+    if link.withdrawn.is_some() {
+        return Ok(link);
+    }
+    paused(engine, bot, link, reason)
+}
+
+/// Pauses `bot`, then keeps why on its link.
+fn paused(
+    engine: &Arc<Engine>,
+    bot: &str,
+    mut link: Link,
+    reason: &str,
+) -> Result<Link, PackageError> {
     // Paused first: the reason is only words, the pause is what keeps the bot from acting.
     engine.pause_agent(bot).map_err(failed)?;
     let reason: String = reason.trim().chars().take(500).collect();
@@ -315,7 +340,10 @@ pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, P
 /// The person resumes a bot its package's withdrawal paused: the same Resume as the Running
 /// page's, so each wake that came due fires once and what waited is answered.
 pub fn resume(engine: &Arc<Engine>, bot: &str) -> Result<Link, PackageError> {
-    link_of(engine, bot)?;
+    // Not while its organization still blocks the version it runs.
+    if let Some(why) = engine.org_blocked(&link_of(engine, bot)?.package) {
+        return Err(PackageError::Refused(why));
+    }
     engine.resume_agent(bot).map_err(failed)?;
     // Resume forgets the withdrawal itself; one cut short is forgotten here.
     forget_withdrawal(engine, bot)?;

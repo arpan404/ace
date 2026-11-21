@@ -121,7 +121,11 @@ pub(super) async fn policy(
     Json(offered): Json<Offered>,
 ) -> Response {
     off_thread(move || match state.engine.offer_policy(&offered) {
-        Ok(version) => Json(json!({ "version": version })).into_response(),
+        Ok(version) => {
+            // A shared bot running a version the new policy blocks is paused, saying why.
+            state.engine.pause_blocked();
+            Json(json!({ "version": version })).into_response()
+        }
         Err(error) => org_problem(&error),
     })
     .await

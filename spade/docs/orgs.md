@@ -38,8 +38,9 @@ value:        allowed=<bool>;always=<bool>
 It carries no role, so Spade reads its member as `member`: an approver answers, but where the
 policy keeps letting commands run outside the sandbox for admins, an answer stamp can't.
 
-**Any other write** to a shared bot. The daemon doesn't send these yet, so until it does Spade
-refuses these writes on a shared bot (fail closed):
+**Any other write** to a shared bot, as the daemon makes it for every write of a socket whose
+member standing is current (`memberRequestStamp` in `apps/daemon/src/spade/member-stamp.ts`;
+the vector's `requests` are its output). An unstamped write to a shared bot is refused:
 
 ```
 x-ace-member-request: v1.<ms>.<nonce>.<account>.<hex HMAC-SHA256>
@@ -48,7 +49,9 @@ message: ace-spade-member-request/1\n<METHOD> <path>\n<hex SHA-256 of the body>\
 ```
 
 `<path>` is the full path sent (`/v1/agents/a_1/grants`), without the query. `x-ace-member-name`
-is recorded only. Every stamp is good for 60 s either side of Spade's clock, and once.
+is recorded only. Every stamp is good for 60 s either side of Spade's clock, and once. A body
+sent to Spade in parts (`spade.http.part`) isn't stamped: the stamp is made before the body is
+read, so such a write to a shared bot is refused.
 
 Which right a write needs (`api::org_guard`):
 
@@ -98,10 +101,18 @@ The policy (`spade_core::org::Policy`) is read leniently and authorizes strictly
 build doesn't know reads as the narrowest rule of its kind. Members never turn on `pay`,
 `send_as_person` or `publish`. Full access needs the policy's leave (`full_access: admins` or
 `approvers`) and an owner or admin who configures the bot, stamped; even then no outward step
-runs without a member's say (above). A
-shared bot's step fails, saying why, when its model is a coding subscription or an endpoint the
-policy doesn't list. Package rules (`package_refusal`, `blocked`) are pure and tested; installs
-don't call them yet (below).
+runs without a member's say (above). A shared bot's step fails, saying why, when its model is a
+coding subscription or an endpoint the policy doesn't list.
+
+Packages on an org host (any bot, shared or not): an install (`POST /v1/agents` with a package)
+and an update or rollback (`POST /v1/agents/{id}/package`) are refused (`403`, the policy's
+words) when `Policy::package_refusal` refuses the version; a template this Spade ships reads as a
+market package, a local one (signed by nobody) as a git catalog's. Applying a policy that blocks
+a version a bot runs pauses that bot with the one pause a withdrawal uses, saying why, as the
+policy's step (`package.paused`); its version isn't marked never to move to again, and neither
+Resume (`DELETE …/package/withdrawn`, `POST …/resume`) takes while the block stands. Turning a
+shared bot's switch on (`PUT …/package/effects`) is held to `Policy::switch_refusal` for the
+stamped member's role; turning one off always narrows.
 
 `PUT /v1/org/policy` takes a version as the backend serves it (`AceOrgPolicyVersion`). It is
 applied only when its statement verifies with the pinned grant keys (Ed25519,
@@ -114,12 +125,16 @@ exact body, names this organization, and is newer than the one held: `409` other
 each entry chained to the one before (`spade_core::org::audit::hash`). Entries are written in
 the same transaction as what they record:
 
-| Entry                               | Written with                                                                              |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- |
-| `bot.effect`                        | the call's `tool_started`, before it runs: a step whose entry can't be written never runs |
-| `bot.approval.answered`             | the `approval_answered` event                                                             |
-| `bot.created`, `bot.access_changed` | the bot's `org_bot:` setting                                                              |
-| `audit.checkpoint`                  | the checkpoint row                                                                        |
+| Entry                                                                                               | Written with                                                                                                      |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `bot.effect`                                                                                        | the call's `tool_started`, before it runs: a step whose entry can't be written never runs                         |
+| `bot.approval.answered`                                                                             | the `approval_answered` event                                                                                     |
+| `bot.created`, `bot.access_changed`                                                                 | the bot's `org_bot:` setting                                                                                      |
+| `package.installed`, `.updated`, `.rolled_back`, `.paused`, `.removed`, a switch's `bot.configured` | the bot's package link, whichever path writes it (`spade_store::Store::watch_settings`, `spade_core::org::steps`) |
+| `bot.deleted`                                                                                       | the bot's deletion, for a shared bot                                                                              |
+| `bot.moved`                                                                                         | the source's move going on to `finishing`: the other host holds it committed                                      |
+| `bot.configured`                                                                                    | after a stamped configure write to a shared bot succeeded (see below)                                             |
+| `audit.checkpoint`                                                                                  | the checkpoint row                                                                                                |
 
 `bot.effect` names `effect`, `allowed_by` (`answer:<call>`, `always:<call>`, `grant:<id>`),
 `allowed_by_account`, `tool`, `args_sha256` (unless the policy keeps targets only), and
@@ -148,17 +163,30 @@ call from another machine; a shared bot moves only to its organization's hosts, 
 leaves (the machine list's `org`) and where it arrives (the manifest's `bot.org` against the
 host's own), and a personal bot never moves onto an org host.
 
+Each entry names who took the step: the member whose stamp asked (`org::acting`), the policy,
+or the host itself for a step it took on its own (an update held for the bot's still moment).
+
+## The daemon's side
+
+ace's daemon (`apps/daemon/src/org-host/`) gives this Spade to the machine's organization as the
+machine takes in its enrollment (`PUT /v1/org`, stamped as the machine's own say, with the grant
+keys its build pins) and lets it go on release; fetches the organization's signed policy with the
+host's credential on a schedule, on a sign-in change and when a member grant names a newer
+version, and offers it here; and drains the outbox to `POST /v1/orgs/{org}/audit` in order,
+moving on past an entry the backend refuses for good (`422`) and stopping to retry later on
+anything else. `ace org audit export` and `ace org audit verify` call the export route and
+`--verify-org-audit`.
+
 ## Not built yet
 
-- The daemon's request stamp (above), so members can message, configure and move shared bots
-  and raise one to Full access; forwarding the outbox, fetching the policy, binding this Spade
-  at enrollment, and `ace org audit export|verify` calling the routes and flag above.
-- Package policy on installs and updates onto an org host, and pausing a running bot whose
-  version the policy blocks: the rules are in `Policy`, not called from the install path.
-- Switch changes on a packaged shared bot checked against `Policy::switch_refusal` (today any
-  configurer's stamp changes them).
-- `bot.configured`, `bot.moved`, `bot.deleted` and `package.*` entries; a shared bot deleted
-  by a configurer is not audited.
+- `bot.configured` for a configure write other than a switch is written right after the write
+  succeeds, not in its transaction: a bot's configuration spans many tables. A crash between the
+  two loses that entry.
+- A bot installed on an org host isn't made a shared bot by installing it; only
+  `POST /v1/org/bots` makes one.
+- A blocked version pauses its bots right after the policy that blocks it is applied, not in
+  that write: a crash in between leaves them running until the next policy. A bot that moves in
+  on a blocked version isn't paused on arrival.
 - Creating a club of shared bots needs no stamp (posting to it does).
 - Telling admins a shared bot has no active approver; rights of deprovisioned members are the
   daemon's to withhold (no stamp), not marked inactive here.

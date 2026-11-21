@@ -9,6 +9,7 @@ pub mod access;
 pub mod audit;
 pub mod gate;
 pub mod policy;
+pub mod steps;
 
 pub use access::{Access, Right};
 pub use gate::Gate;

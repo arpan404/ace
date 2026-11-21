@@ -18,6 +18,9 @@ use crate::workspace::shell::Launch;
 impl Engine {
     /// Sets the security service, once.
     pub fn set_security(&self, security: Arc<Security>) {
+        // Its writes of a bot's package link (switches, an install's grants) record their steps
+        // as the engine's own do.
+        self.watch_package_links(security.store());
         let _ = self.security.set(security);
     }
 

@@ -4,6 +4,7 @@
 //! its list, never a person's.
 
 mod audit;
+mod steps;
 
 pub use audit::MEMBER_BY;
 

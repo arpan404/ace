@@ -138,6 +138,7 @@ impl Store {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         for (key, value) in changes {
+            crate::watch::changing_in(&tx, &self.watching, key, *value)?;
             match value {
                 Some(value) => tx.execute(
                     "INSERT INTO settings (key, value) VALUES (?1, ?2)
