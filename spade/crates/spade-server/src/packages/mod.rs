@@ -8,6 +8,9 @@
 pub mod apply;
 mod busy;
 pub mod envelope;
+pub mod folder;
+#[cfg(test)]
+mod folder_tests;
 pub mod held;
 pub mod panels;
 pub mod proof;
@@ -39,7 +42,8 @@ pub fn build() -> Build<'static> {
 
 /// Reads a posted manifest, its problems in one line.
 pub fn manifest(value: &Value) -> Result<Manifest, PackageError> {
-    read(value, build()).map_err(|problems| PackageError::Invalid(problems.join("; ")))
+    read(value, build())
+        .map_err(|problems| PackageError::Invalid(spade_core::rule::joined(&problems, "; ")))
 }
 
 #[derive(Debug, thiserror::Error)]

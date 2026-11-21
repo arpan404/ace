@@ -127,6 +127,14 @@ const known = z.discriminatedUnion("type", [
       .optional()
       .default([]),
   }),
+  /** Which model of the bot's route served the next step, and why (ADR 0205 §2). */
+  z.object({
+    type: z.literal("step_served"),
+    reply,
+    model: z.string().catch(""),
+    /** "Ran on Model B: the local server was off."; absent when it ran on the route's first. */
+    line: z.string().nullish().catch(undefined),
+  }),
   z.object({ type: z.literal("reply_finished"), reply, text: text.default("") }),
   z.object({ type: z.literal("reply_stopped"), reply, text: text.default("") }),
   z.object({
@@ -310,6 +318,7 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string(),
     name: z.string().catch(""),
     verdict: z.string(),
+    model: z.string().catch("").default(""),
     reason: z.string().catch("").default(""),
   }),
   z.object({

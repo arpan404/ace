@@ -67,7 +67,12 @@ impl Engine {
             let words = spade_core::review::person_words(&events)
                 .pop()
                 .or_else(|| spade_core::context::task_for_turn(&events).map(str::to_owned));
-            change::goal(&events, arguments, words.as_deref())
+            // The package's `criterion` checks join the bot's criteria (ADR 0204 §3).
+            let required = self
+                .agent_of(id)
+                .map(|agent| spade_core::package::checks::criteria(&self.checks_of(&agent)))
+                .unwrap_or_default();
+            change::goal(&events, arguments, words.as_deref(), &required)
         } else {
             change::plan(&events, arguments)
         };
@@ -242,6 +247,7 @@ impl Engine {
                 criteria,
                 by: Author::Person,
                 verifier: input.verifier.filter(|v| !v.trim().is_empty()),
+                run: open.and_then(|t| t.goal.run.clone()),
             });
             self.append(&id, &set)?;
         }

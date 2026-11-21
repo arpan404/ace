@@ -51,7 +51,9 @@ const said = (entries: readonly SpadeEntry[]) =>
                           ? `[asked ${part.answer ?? "open"}]`
                           : part.kind === "question"
                             ? `[question ${part.standing}]`
-                            : part.text,
+                            : part.kind === "served"
+                              ? `[served ${part.line}]`
+                              : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`
@@ -668,6 +670,32 @@ describe("the conversation as a chat", () => {
     expect(asked()).toEqual(["Drafted it.", "Sent.", "Sent an email: You allowed it"]);
     c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
     expect(asked()).toEqual(["Drafted it.", "Sent.", "Sent an email: You allowed it"]);
+  });
+
+  test("standing permission leaves no per-step approval label", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [
+        { id: "first", name: "screen_act" },
+        { id: "later", name: "screen_act" },
+      ],
+    });
+    c.stored({ type: "approval_requested", reply: "r1", call_id: "first", name: "screen_act" });
+    c.stored({
+      type: "approval_answered",
+      reply: "r1",
+      call_id: "first",
+      allowed: true,
+      always: true,
+    });
+    c.stored({ type: "tool_finished", reply: "r1", call_id: "first", name: "screen_act" });
+    c.stored({ type: "tool_finished", reply: "r1", call_id: "later", name: "screen_act" });
+    const steps = spadeBubbles(c.view()).find((bubble) => bubble.kind === "steps");
+    expect(steps?.kind === "steps" && steps.steps.map((step) => step.meta)).toEqual([[], []]);
   });
 
   test("a request its reply ended before the person answered leaves nothing", () => {

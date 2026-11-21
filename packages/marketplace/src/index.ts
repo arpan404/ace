@@ -60,9 +60,20 @@ export {
   type MarketReads,
   type Published,
 } from "./published.ts";
+export {
+  codeProblems,
+  codeReviewRow,
+  componentProblem,
+  mostComponentBytes,
+  mostComponents,
+  outsideWorld,
+  wasmKind,
+} from "./code.ts";
 export { readSchema, schemaLimits, schemaMisfits, type Misfit, type Schema } from "./schema.ts";
 export {
+  botSchemaAddress,
   effectKey,
+  formatSpec,
   grantedEffects,
   packageRuntime,
   readPackage,
@@ -94,6 +105,7 @@ export {
   SignatureError,
   signBlocklist,
   signManifest,
+  signNotices,
   signOfficialList,
   signReviewMark,
   signVerifiedList,
@@ -101,6 +113,7 @@ export {
   verifyBlocklist,
   verifyVerifiedList,
   verifyManifest,
+  verifyNotices,
   verifyOfficialList,
   verifyReviewMark,
   verifyWithdrawn,
@@ -110,3 +123,17 @@ export {
   type WithdrawalTarget,
 } from "./signing.ts";
 export { marketOrigin, shippedMarketKeys } from "./keys.ts";
+export {
+  exportProblems,
+  exportSkillMd,
+  importSkillMd,
+  readSkillMd,
+  skillExportVersion,
+  skillMdLimits,
+  skillMdProblems,
+  specFields,
+  unusedFields,
+  type ExportFacts,
+  type Imported,
+  type SkillMd,
+} from "./skill-md.ts";

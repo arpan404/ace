@@ -33,6 +33,8 @@ fn call(
         classifier: true,
         ceiling,
         command: None,
+        destructive: false,
+        org: None,
     }
 }
 
@@ -177,14 +179,23 @@ fn a_tool_spade_cant_name_is_refused_unless_the_sandbox_holds_it() {
             ..call("crm__sync", effect, none)
         };
         assert_eq!(route(full), refused(cant_tell), "{effect:?}");
-        // A server in the sandbox that still reaches the network isn't held by it.
-        let remote = Call {
-            place: Place::Sandbox,
-            remote: true,
-            ..call("crm__sync", effect, none)
-        };
-        assert_eq!(route(remote), refused(cant_tell), "{effect:?}");
     }
+    // A server in the sandbox that still reaches the network isn't held by it: a tool of its
+    // that declares nothing reaches outside the bot, which this package declares, so the person
+    // decides each call (ADR 0202 §2). One declaring a word Spade doesn't know stays refused.
+    let remote = |effect| Call {
+        place: Place::Sandbox,
+        remote: true,
+        ..call("crm__sync", effect, none)
+    };
+    assert_eq!(
+        route(remote(None)),
+        Route::Ask {
+            line: UNDECLARED_EACH_TIME.to_owned(),
+            ask: None
+        }
+    );
+    assert_eq!(route(remote(Some(Effect::Unknown))), refused(cant_tell));
     // Sealed in the sandbox with no network of its own: the sandbox decides.
     let sealed = Call {
         place: Place::Sandbox,

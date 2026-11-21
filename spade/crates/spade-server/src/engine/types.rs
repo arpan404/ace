@@ -175,6 +175,9 @@ pub enum AgentError {
     /// The bot has workers (ADR 0161): the person says whether they stop or keep working.
     #[error("this bot has {0} workers; say whether to stop them or keep them as their own bots")]
     HasWorkers(usize),
+    /// A subscription chosen before the person acknowledged what it means (ADR 0205 §1).
+    #[error("{text}")]
+    Terms { provider: String, text: String },
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]
@@ -271,6 +274,9 @@ pub enum AnswerError {
     NotFound,
     #[error("that call is not waiting for an answer")]
     NotAwaiting,
+    /// A shared bot's request is answered only by one of its approvers (ADR 0206 §2.3).
+    #[error("{0}")]
+    ApproverOnly(&'static str),
     #[error(transparent)]
     Store(#[from] StoreError),
 }

@@ -101,7 +101,12 @@ impl Transcript {
                 // A message the person types answers what the bot asked; another bot's, a
                 // routine's or a group's does not.
                 if crate::question::typed_by_person(event_ref) {
-                    for question in &mut self.questions {
+                    // An app's form waits for its card's answer (ADR 0202 §2).
+                    for question in self
+                        .questions
+                        .iter_mut()
+                        .filter(|q| crate::question::elicit::call_of(&q.call_id).is_none())
+                    {
                         question.answered = true;
                     }
                 }
@@ -185,7 +190,11 @@ impl Transcript {
             Known::ToolFinished { call_id, .. } => {
                 self.paused = false;
                 self.running.retain(|id| id != call_id);
-                self.questions.retain(|q| &q.call_id != call_id);
+                // Its own card, and the forms its app showed during it, close with the call.
+                self.questions.retain(|q| {
+                    &q.call_id != call_id
+                        && crate::question::elicit::call_of(&q.call_id) != Some(call_id.as_str())
+                });
             }
             // A turn waiting for its endpoint (ADR 0158) runs nothing either: a restart resumes it.
             Known::TurnPaused { reply } | Known::TurnParked { reply, .. } => {
@@ -316,6 +325,7 @@ impl Transcript {
             | Known::WorkerReported(_)
             | Known::WorkerDetached { .. }
             | Known::DecisionMade(_)
+            | Known::StepServed(_)
             | Known::Arrived { .. }
             | Known::CardShown(_)
             | Known::CardAction { .. }
@@ -629,6 +639,7 @@ mod tests {
                 call_id: "c1".into(),
                 allowed: true,
                 always: true,
+                by: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -969,6 +980,7 @@ mod tests {
             call_id: "j1.call_0".into(),
             allowed: true,
             always: true,
+            by: None,
         }));
         let transcript = Transcript::fold(&events);
         assert!(!transcript.waiting_on_you());

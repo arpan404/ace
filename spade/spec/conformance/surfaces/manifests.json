@@ -1,0 +1,746 @@
+{
+  "license": "Apache-2.0",
+  "part": "surfaces",
+  "about": "The surfaces part's cases: cards and panels declared in the manifest, a panel's state and its actions. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    }
+  },
+  "cases": [
+    {
+      "id": "surfaces/panel-with-its-state-and-actions",
+      "name": "a panel with its state and actions",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              },
+              {
+                "name": "book_fare",
+                "label": "Book this fare",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "confirm": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "surfaces/card-and-a-panel-with-no-state-as-the-adrs-example-has-them",
+      "name": "a card and a panel with no state, as the ADR's example has them",
+      "with": {
+        "surfaces": [
+          {
+            "id": "fare-drop",
+            "kind": "card",
+            "file": "cards/fare-drop.json"
+          },
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips"
+          }
+        ]
+      }
+    },
+    {
+      "id": "surfaces/surfaces-as-an-object",
+      "name": "surfaces as an object",
+      "with": {
+        "surfaces": {}
+      },
+      "rule": "surfaces.list"
+    },
+    {
+      "id": "surfaces/panels-page-outside-its-folder",
+      "name": "a panel's page outside its folder",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/other/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "surfaces.panel-file"
+    },
+    {
+      "id": "surfaces/panel-with-no-title",
+      "name": "a panel with no title",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "  ",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "surfaces.title"
+    },
+    {
+      "id": "surfaces/surface-id-in-capitals",
+      "name": "a surface id in capitals",
+      "with": {
+        "surfaces": [
+          {
+            "id": "Watchlist",
+            "kind": "panel",
+            "file": "panels/Watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "surfaces.id"
+    },
+    {
+      "id": "surfaces/two-surfaces-with-one-id",
+      "name": "two surfaces with one id",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          },
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "surfaces.id-unique"
+    },
+    {
+      "id": "surfaces/surface-kind-this-build-doesnt-have",
+      "name": "a surface kind this build doesn't have",
+      "with": {
+        "surfaces": [
+          {
+            "id": "x",
+            "kind": "widget",
+            "file": "x"
+          }
+        ]
+      },
+      "rule": "surfaces.kind"
+    },
+    {
+      "id": "surfaces/cards-file-outside-cards",
+      "name": "a card's file outside cards/",
+      "with": {
+        "surfaces": [
+          {
+            "id": "fare-drop",
+            "kind": "card",
+            "file": "fare-drop.json"
+          }
+        ]
+      },
+      "rule": "surfaces.card-file"
+    },
+    {
+      "id": "surfaces/state-with-a-keyword-this-build-doesnt-enforce",
+      "name": "state with a keyword this build doesn't enforce",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "string",
+              "maxLength": 9,
+              "pattern": "^[A-Z]+$"
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "schema.keyword"
+    },
+    {
+      "id": "surfaces/state-requiring-a-field-it-doesnt-have",
+      "name": "state requiring a field it doesn't have",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["b"]
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "schema.required"
+    },
+    {
+      "id": "surfaces/state-nested-more-than-six-levels",
+      "name": "state nested more than six levels",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "object",
+                  "properties": {
+                    "b": {
+                      "type": "object",
+                      "properties": {
+                        "c": {
+                          "type": "object",
+                          "properties": {
+                            "d": {
+                              "type": "object",
+                              "properties": {
+                                "e": {
+                                  "type": "object",
+                                  "properties": {
+                                    "f": {
+                                      "type": "boolean"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "schema.depth"
+    },
+    {
+      "id": "surfaces/enum-of-no-words",
+      "name": "an enum of no words",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "enum": []
+            },
+            "actions": [
+              {
+                "name": "stop_watching",
+                "label": "Stop watching",
+                "value": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "schema.enum"
+    },
+    {
+      "id": "surfaces/two-actions-with-one-name",
+      "name": "two actions with one name",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "check_now"
+              },
+              {
+                "name": "check_now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "surfaces.action-name-unique"
+    },
+    {
+      "id": "surfaces/action-named-with-a-dash",
+      "name": "an action named with a dash",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "check-now"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "surfaces.action-name"
+    },
+    {
+      "id": "surfaces/confirm-that-is-not-true-or-false",
+      "name": "a confirm that is not true or false",
+      "with": {
+        "surfaces": [
+          {
+            "id": "watchlist",
+            "kind": "panel",
+            "file": "panels/watchlist/index.html",
+            "title": "Watched trips",
+            "state": {
+              "type": "object",
+              "properties": {
+                "trips": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "fare": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "cabin": {
+                        "enum": ["economy", "business"]
+                      },
+                      "booked": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["route"]
+                  }
+                }
+              },
+              "required": ["trips"]
+            },
+            "actions": [
+              {
+                "name": "book_fare",
+                "confirm": "yes"
+              }
+            ]
+          }
+        ]
+      },
+      "rule": "surfaces.confirm"
+    }
+  ]
+}

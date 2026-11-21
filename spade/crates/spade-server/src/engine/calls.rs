@@ -401,6 +401,8 @@ pub(super) async fn handle_calls(
                     // A packaged bot's declared effects, as the person left them on, for it and
                     // everything under it (ADR 0200 §3.4).
                     let ceiling = engine.ceiling(id);
+                    // A shared bot's organization, as its policy stands (ADR 0206 §3).
+                    let org = engine.org_gate(id);
                     let gate = effect::Call {
                         tool: &name,
                         rule,
@@ -437,6 +439,15 @@ pub(super) async fn handle_calls(
                                 allows: *allows,
                             }),
                         command: ceiling::outside_class(&classed),
+                        // A server's destructive hint asks each call (ADR 0202 §2).
+                        destructive: engine
+                            .tools
+                            .get_for(id, &name)
+                            .and_then(|tool| tool.hints())
+                            .is_some_and(effect::asks_each_call),
+                        org: org
+                            .as_ref()
+                            .map(|(name, policy)| spade_core::org::Gate { org: name, policy }),
                     };
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package

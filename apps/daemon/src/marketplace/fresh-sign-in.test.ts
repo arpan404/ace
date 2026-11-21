@@ -51,10 +51,9 @@ const standing = (operation: MarketOperation, unproven: boolean, contentOnly = f
 describe("a person-only market action without a thread", () => {
   it("is refused from a socket that hasn't proved the person's standing", () => {
     const decided = standing(install, true);
-    expect(decided).toMatchObject({ refusal: { op: "error", code: "reauth" } });
-    expect(
-      "refusal" in decided && decided.refusal.op === "error" && decided.refusal.message,
-    ).toMatch(/app/);
+    expect(decided).toMatchObject({
+      refusal: { op: "error", code: "reauth", message: "Confirm your identity to continue." },
+    });
   });
 
   it("runs as the person from a socket that proved it", () => {

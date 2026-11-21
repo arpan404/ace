@@ -171,6 +171,9 @@ pub struct Goal {
     pub by: Author,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verifier: Option<String>,
+    /// The routine run that opened it (ADR 0204 §3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub closed: Option<Closed>,
 }
@@ -204,6 +207,8 @@ pub struct Task {
     pub claim: Option<String>,
     /// The plan changed since the latest verdict.
     pub changed_since_verdict: bool,
+    /// How many times the check said "not yet" to this goal.
+    pub not_yet: usize,
     /// How many goals the conversation has had, for the next goal's id.
     pub goals: usize,
 }
@@ -228,6 +233,7 @@ impl Task {
                     criteria,
                     by,
                     verifier,
+                    run,
                 } => {
                     let open = task.as_ref().filter(|t| t.goal.closed.is_none());
                     match open {
@@ -252,6 +258,7 @@ impl Task {
                                     criteria: criteria.clone(),
                                     by: *by,
                                     verifier: verifier.clone(),
+                                    run: run.clone(),
                                     closed: None,
                                 },
                                 items: Vec::new(),
@@ -259,6 +266,7 @@ impl Task {
                                 checkpoint: None,
                                 claim: None,
                                 changed_since_verdict: false,
+                                not_yet: 0,
                                 goals,
                             });
                         }
@@ -308,6 +316,9 @@ impl Task {
                             missing: missing.clone(),
                         });
                         t.changed_since_verdict = false;
+                        if *verdict == Finding::NotYet {
+                            t.not_yet += 1;
+                        }
                     }
                 }
                 Known::StepFinished { calls, .. } => {

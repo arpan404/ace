@@ -48,6 +48,10 @@ impl Engine {
         if !self.reachable(id)? {
             return Err(QuestionError::NotFound);
         }
+        // An app's form goes back to the call waiting on it (ADR 0202 §2).
+        if question::elicit::call_of(call_id).is_some() {
+            return self.answer_form(id, call_id, reply);
+        }
         let waiting = {
             // Checked and stored under one lock, so two answers to one card cannot both land.
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());

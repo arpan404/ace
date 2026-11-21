@@ -28,8 +28,14 @@ struct GoalArgs {
 }
 
 /// The bot drafts the goal. Refused while a goal is open: only the person changes that one.
-/// `words` is what the person asked (their latest message, or the bot's task).
-pub fn goal(events: &[Event], arguments: &Value, words: Option<&str>) -> Result<Accepted, String> {
+/// `words` is what the person asked (their latest message, or the bot's task). `required` are
+/// the package's `criterion` checks (ADR 0204 §3), which join the bot's criteria after them.
+pub fn goal(
+    events: &[Event],
+    arguments: &Value,
+    words: Option<&str>,
+    required: &[String],
+) -> Result<Accepted, String> {
     let args: GoalArgs = serde_json::from_value(arguments.clone())
         .map_err(|e| format!("task_goal needs a title and criteria: {e}"))?;
     let task = Task::fold(events);
@@ -41,7 +47,7 @@ pub fn goal(events: &[Event], arguments: &Value, words: Option<&str>) -> Result<
         ));
     }
     let title = text(&args.title, "the title")?;
-    let criteria = criteria(&args.criteria)?;
+    let criteria = criteria(&joined(&args.criteria, required))?;
     let id = format!("g{}", task.map_or(0, |t| t.goals) + 1);
     let text = words
         .map(str::trim)
@@ -66,8 +72,67 @@ pub fn goal(events: &[Event], arguments: &Value, words: Option<&str>) -> Result<
             criteria,
             by: Author::Bot,
             verifier: None,
+            run: None,
         }],
     })
+}
+
+/// What a run of a routine whose trigger says `"verify": true` opens (ADR 0204 §3): a goal from
+/// the routine's instruction with the package's `criterion` checks as its criteria (or, with
+/// none, that the instruction was carried out), tied to run `run`, and the note the routine's
+/// message carries so the bot knows. `None` while a goal is open: only the person replaces one.
+pub fn routine_goal(
+    events: &[Event],
+    name: &str,
+    instruction: &str,
+    required: &[String],
+    run: &str,
+) -> Option<(Known, String)> {
+    let task = Task::fold(events);
+    if task.as_ref().is_some_and(|t| t.goal.closed.is_none()) {
+        return None;
+    }
+    let lines: Vec<String> = if required.is_empty() {
+        let asked: String = instruction.trim().chars().take(TEXT_CHARS - 40).collect();
+        vec![format!("It did what the routine asks: {asked}")]
+    } else {
+        required.to_vec()
+    };
+    let criteria = criteria(&lines).ok()?;
+    let listed: Vec<String> = criteria
+        .iter()
+        .map(|c| format!("{}. {}", c.id, c.text))
+        .collect();
+    let note = format!(
+        "<goal>This run counts as done only once a separate check agrees. Done when:\n{}\nPlan \
+         the work with task_plan, close each item with evidence, then set task_status done.</goal>",
+        listed.join("\n")
+    );
+    let title: String = name.trim().chars().take(TEXT_CHARS).collect();
+    let text: String = instruction.trim().chars().take(TEXT_CHARS).collect();
+    Some((
+        Known::GoalSet {
+            goal: format!("g{}", task.map_or(0, |t| t.goals) + 1),
+            title,
+            text,
+            criteria,
+            by: Author::Bot,
+            verifier: None,
+            run: Some(run.to_owned()),
+        },
+        note,
+    ))
+}
+
+/// The bot's criteria, then each of the package's it didn't already write.
+pub fn joined(criteria: &[String], required: &[String]) -> Vec<String> {
+    let mut all: Vec<String> = criteria.to_vec();
+    for line in required {
+        if !all.iter().any(|c| c.trim() == line.trim()) {
+            all.push(line.clone());
+        }
+    }
+    all
 }
 
 /// Criteria as the person or the bot wrote them, numbered.

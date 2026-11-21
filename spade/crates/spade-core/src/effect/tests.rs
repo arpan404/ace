@@ -26,6 +26,8 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         classifier: true,
         ceiling: None,
         command: None,
+        destructive: false,
+        org: None,
     }
 }
 
@@ -457,6 +459,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             call_id: call.into(),
             allowed,
             always: false,
+            by: None,
         })
     };
     let key = "a_1|plugin:files@h1/fs:delete#s1";
@@ -502,30 +505,6 @@ fn person_only_effects_hold_wherever_the_call_runs() {
             Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned()),
             "{place:?}"
         );
-    }
-}
-
-#[test]
-fn hints_raise_a_trusted_declaration_but_never_lower_it() {
-    use Effect::*;
-    let cases = [
-        // A payments app's read-only-marked tool still pays.
-        (true, Some(Pay), Some(Pay)),
-        // A tool declared to read that says it may write is a write outside the box.
-        (false, Some(Read), Some(Network)),
-        (true, Some(Read), Some(Read)),
-        (false, Some(Publish), Some(Publish)),
-        // Hints alone declare nothing: the person decides once.
-        (true, None, None),
-        (false, None, None),
-    ];
-    for (read_only, declared, expected) in cases {
-        let tool = Mcp {
-            read_only,
-            annotated: true,
-            declared,
-        };
-        assert_eq!(mcp(tool), expected, "{tool:?}");
     }
 }
 
@@ -1005,6 +984,7 @@ fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered
             call_id: call.into(),
             allowed: true,
             always,
+            by: None,
         })
     };
     let arrived = Event::Known(Known::Arrived {

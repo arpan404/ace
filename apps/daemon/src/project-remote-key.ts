@@ -8,6 +8,11 @@ import { ProjectRemoteKey, WorkspaceId } from "@ace/protocol";
  * Opening the daemon only makes the table, empty the first time (ADR 0170); rows are filled in
  * idle batches (`RemoteKeyReader`). `apart` records an unlink: that registration's key is never
  * reported again, so clients never group it by remote. It outlives every later read.
+ *
+ * `remotes` is `{"v":2,"keys":[...]}`. Version 2 keeps an SSH path from a home apart from one
+ * from the root (`normalizeRemoteUrl`); a row an older build wrote (a bare array, whose keys
+ * might group two different repositories) reports no key and is due a read, whenever it was
+ * read, so the idle sweep rewrites it.
  */
 
 export function migrateRemoteKeys(db: DatabaseSync): void {
@@ -22,16 +27,31 @@ export const remoteKeyColumns =
   "rk.remotes AS remoteKeyRemotes,rk.subpath AS remoteKeySubpath,rk.apart AS remoteKeyApart";
 export const remoteKeyJoin = "LEFT JOIN workspace_remote_key rk ON rk.workspace_id=w.id";
 
-/** A registration's reported key; undefined when unread, without a remote, or kept apart. */
+/** The version of the keys this build stores; any other row is read again. */
+const keyFormat = 2;
+const keyFormatPrefix = `{"v":${keyFormat},`;
+
+/** Stored `remotes` text for `keys`, in this build's format. */
+const storedRemotes = (keys: readonly string[]) => JSON.stringify({ v: keyFormat, keys });
+
+/** Whether a stored `remotes` value holds keys in this build's format. */
+const currentFormat = (remotes: unknown): remotes is string =>
+  typeof remotes === "string" && remotes.startsWith(keyFormatPrefix);
+
+/**
+ * A registration's reported key; undefined when unread, without a remote, kept apart, or
+ * stored by an older build in a format whose keys this one doesn't trust.
+ */
 export function decodeRemoteKey(row: {
   remoteKeyRemotes?: unknown;
   remoteKeySubpath?: unknown;
   remoteKeyApart?: unknown;
 }): ProjectRemoteKey | undefined {
-  if (row.remoteKeyApart === 1 || typeof row.remoteKeyRemotes !== "string") return undefined;
+  if (row.remoteKeyApart === 1 || !currentFormat(row.remoteKeyRemotes)) return undefined;
   try {
+    const stored: unknown = JSON.parse(row.remoteKeyRemotes);
     const parsed = ProjectRemoteKey.safeParse({
-      remotes: JSON.parse(row.remoteKeyRemotes),
+      remotes: typeof stored === "object" && stored !== null && "keys" in stored && stored.keys,
       subpath: row.remoteKeySubpath,
     });
     return parsed.success ? parsed.data : undefined;
@@ -61,7 +81,7 @@ export interface DueRead {
  * One page of the sweep's walk: the next `limit` registrations by id after `after`, a range read
  * on the primary key with one key lookup per joined table, so a page costs the same however many
  * projects there are (ADR 0170). `due` is those of them that are registered, ordinary projects
- * whose key was never read or was read before `staleBefore`; `next` is the cursor past the page,
+ * whose key was never read, was read before `staleBefore`, or is stored in an older format; `next` is the cursor past the page,
  * undefined once the walk is done.
  */
 export const pageQuery = `SELECT w.id,w.path,rk.remotes,rk.subpath,rk.apart,rk.read_at,m.kind,
@@ -77,7 +97,10 @@ export function duePage(
 ): { due: DueRead[]; next: string | undefined } {
   const rows = db.prepare(pageQuery).all(after, limit);
   const due = rows.flatMap((row): DueRead[] => {
-    const fresh = typeof row.read_at === "number" && row.read_at >= staleBefore;
+    const fresh =
+      typeof row.read_at === "number" &&
+      row.read_at >= staleBefore &&
+      (row.remotes === null || currentFormat(row.remotes));
     if (row.gone === 1 || row.kind !== null || fresh) return [];
     return [
       {
@@ -107,7 +130,7 @@ export function saveRead(
   at: number,
 ): boolean {
   const shared = [...new Set(found.remotes.filter((key) => !isLocalRemoteKey(key)))].toSorted();
-  const remotes = shared.length ? JSON.stringify(shared) : null;
+  const remotes = shared.length ? storedRemotes(shared) : null;
   const subpath = remotes === null ? null : found.subpath;
   db.prepare(
     `INSERT INTO workspace_remote_key(workspace_id,remotes,subpath,read_at) VALUES (?,?,?,?)

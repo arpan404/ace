@@ -6,7 +6,8 @@ Date: 2026-11-15, amended 2026-11-16 and 2026-11-17 (Linux, Windows). As built f
 `spade-sandbox` (the sandbox, the credential deny-list and the egress proxy), `spade_core::grant`
 (grants) and `spade-server` (`security/`, `api/security.rs`, the shell, services and plugin
 servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
-[autonomy.md](autonomy.md).
+[autonomy.md](autonomy.md). A package's WebAssembly components run in `spade-wasm`, a worker
+started offline inside the bot's sandbox, which asks Spade for every effect ([code.md](code.md)).
 
 ## What is built where
 
@@ -636,6 +637,11 @@ consented folders, toolchains, grants, network activity and checkpoints as befor
 **Requests**: `ask: outside_sandbox` shows "Run this outside the sandbox?" with the command and
 Allow once, Always for this bot, Deny; `ask: undeclared` shows Allow and Deny, since the answer
 is kept for the bot and tool.
+
+## Org hosts
+
+On a Spade given to an organization, shared bots answer to their access lists and the
+organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.md) (ADR 0206).
 
 ## Not built yet
 

@@ -57,7 +57,7 @@ fn with(mut base: Value, field: &str, value: Value) -> Value {
 fn refused(value: &Value) -> Vec<String> {
     match read(value, BUILD) {
         Ok(_) => panic!("read a package it should refuse"),
-        Err(problems) => problems,
+        Err(problems) => crate::rule::texts(problems),
     }
 }
 
@@ -358,33 +358,37 @@ fn a_worker_is_held_to_every_packaged_bot_above_it() {
     assert_eq!(narrowed([None, Some(top)]), Some(top));
 }
 
-/// One accept or refuse rule of `rules.json`, which the marketplace's reader runs too.
+/// Every manifest case of the conformance suite (`spade/spec/conformance/<part>/manifests.json`),
+/// which the marketplace's reader runs too: accepted, or refused with a problem naming the case's
+/// rule, whatever its words.
 #[test]
-fn the_shared_rules_accept_and_refuse_as_the_marketplaces_reader_does() {
-    let rules: Value = serde_json::from_str(include_str!("rules.json")).unwrap_or_default();
-    let cases = rules["cases"].as_array().cloned().unwrap_or_default();
-    assert!(cases.len() > 10, "{rules}");
-    for case in cases {
-        let mut manifest = rules["base"].clone();
-        for (key, value) in case["with"].as_object().cloned().unwrap_or_default() {
-            manifest[key] = value;
-        }
-        let name = case["name"].as_str().unwrap_or_default();
-        // A case's `files` are the package's other files, a contract's schema file among them.
-        let files = case["files"].clone();
-        let read_file = |path: &str| files[path].as_str().map(str::to_owned);
-        let manifest = super::contract_files::inline(&manifest, read_file);
-        match (
-            manifest.and_then(|m| read(&m, BUILD)),
-            case["refused"].as_str(),
-        ) {
-            (Ok(_), None) => {}
-            (Err(problems), Some(word)) => assert!(
-                problems.iter().any(|p| p.contains(word)),
-                "{name}: {problems:?} says nothing of {word:?}"
-            ),
-            (Ok(_), Some(word)) => panic!("{name}: accepted, but refused for {word:?}"),
-            (Err(problems), None) => panic!("{name}: refused: {problems:?}"),
+fn the_conformance_suites_manifests_are_accepted_and_refused_as_the_marketplaces_reader_does() {
+    let mut read_cases = 0;
+    let mut wrong = Vec::new();
+    for suite in crate::spec::conformance::MANIFESTS {
+        let all = suite.json();
+        for case in suite.cases() {
+            read_cases += 1;
+            let id = case["id"].as_str().unwrap_or_default();
+            let manifest = crate::spec::conformance::manifest(&all, &case);
+            // A case's `files` are the package's other files, a contract's schema file among them.
+            let files = case["files"].clone();
+            let read_file = |path: &str| files[path].as_str().map(str::to_owned);
+            let manifest = super::contract_files::inline(&manifest, read_file);
+            match (
+                manifest.and_then(|m| read(&m, BUILD)),
+                case["rule"].as_str(),
+            ) {
+                (Ok(_), None) => {}
+                (Err(problems), Some(rule)) if problems.iter().any(|p| p.rule == rule) => {}
+                (Err(problems), Some(rule)) => {
+                    wrong.push(format!("{id}: {problems:?} names no {rule}"));
+                }
+                (Ok(_), Some(rule)) => wrong.push(format!("{id}: accepted, but refused by {rule}")),
+                (Err(problems), None) => wrong.push(format!("{id}: refused: {problems:?}")),
+            }
         }
     }
+    assert!(read_cases > 40, "the suite is read: {read_cases} cases");
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

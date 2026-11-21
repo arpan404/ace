@@ -54,6 +54,18 @@
     {
       "additionalProperties": false,
       "properties": {
+        "allowedTools": {
+          "items": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "compatibility": {
+          "maxLength": 500,
+          "type": "string"
+        },
         "description": {
           "maxLength": 1024,
           "type": "string"
@@ -68,6 +80,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "license": {
+          "maxLength": 200,
+          "type": "string"
+        },
         "skillName": {
           "maxLength": 64,
           "type": "string"
@@ -75,6 +91,14 @@
         "type": {
           "const": "spade-skill",
           "type": "string"
+        },
+        "unused": {
+          "items": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
         }
       },
       "required": [
@@ -145,6 +169,13 @@
             "type": "object"
           },
           "maxItems": 32,
+          "type": "array"
+        },
+        "code": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketCodeRow.json"
+          },
+          "maxItems": 4,
           "type": "array"
         },
         "effects": {

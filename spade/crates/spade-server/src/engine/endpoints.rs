@@ -2,6 +2,7 @@
 //! `spade_models::Models` whenever they change. Shipped presets are templates and model facts;
 //! on first start, presets that already have a key become the person's endpoints.
 
+use spade_core::brain::CliModel;
 use std::collections::HashSet;
 
 use spade_models::base_url::{self, same_origin};
@@ -253,26 +254,18 @@ impl Engine {
         }
     }
 
-    /// A default chosen without reading any key: the first model of the person's endpoints, or
-    /// "" when they have none. Never a preset's model: a model the person hasn't set up can't
-    /// answer, so with none the bot waits for them to choose one.
+    /// A default chosen without reading any key: the first model of the person's endpoints,
+    /// local ones first (ADR 0205 §1), or "" when they have none. Never a preset's model: a model
+    /// the person hasn't set up can't answer, so with none the bot waits for them to choose one.
     pub(super) fn keyless_default_model(&self) -> String {
-        self.models
-            .endpoints()
-            .iter()
-            .find_map(|e| e.models.first().map(|m| format!("{}/{}", e.id, m.id)))
-            .unwrap_or_default()
+        first_model(&self.models.endpoints(), |_| true)
     }
 
-    /// The model a new agent gets when none is chosen: the person's first usable model (an
-    /// endpoint with its key), or "" when they have none yet.
+    /// The model a new agent gets when none is chosen: the person's first usable model, a local
+    /// one first, then an endpoint with its key (ADR 0205 §1); "" when they have none yet. Never
+    /// a subscription: one is only ever the person's own choice for a bot.
     pub fn default_model(&self) -> String {
-        let endpoints = self.models.endpoints();
-        endpoints
-            .iter()
-            .filter(|e| self.models.has_key(e))
-            .find_map(|e| e.models.first().map(|m| format!("{}/{}", e.id, m.id)))
-            .unwrap_or_default()
+        first_model(&self.models.endpoints(), |e| self.models.has_key(e))
     }
 
     pub fn endpoint_views(&self) -> Result<Vec<EndpointView>, StoreError> {
@@ -720,30 +713,72 @@ impl Engine {
     }
 
     /// The model a new bot starts on when its request names none: the person's choice for new
-    /// bots, else [`Self::default_model`].
+    /// bots, else [`Self::default_model`]. A subscription stored there by an older build is
+    /// passed over: a bot only runs on one the person chose for it (ADR 0205 §1).
     pub fn new_bot_default(&self) -> String {
         match self.new_bot_model() {
-            Ok(Some(model)) if !model.is_empty() => model,
+            Ok(Some(model))
+                if !model.is_empty()
+                    && !CliModel::is(&model)
+                    && self.check_runs_bots(&model).is_ok() =>
+            {
+                model
+            }
             _ => self.default_model(),
         }
     }
 
-    /// Keeps the model for new bots (`None` goes back to the first usable model).
+    /// The person's fast model, unless it is a subscription (which no default may pick).
+    pub fn fast_endpoint_model(&self) -> Option<String> {
+        self.fast_model()
+            .ok()
+            .flatten()
+            .filter(|model| !model.is_empty() && !CliModel::is(model))
+    }
+
+    /// Keeps the model for new bots (`None` goes back to the first usable model). An endpoint's
+    /// model only: a subscription is chosen per bot, with its terms read.
     pub fn set_new_bot_model(&self, model: Option<&str>) -> Result<(), EndpointError> {
-        let model = model
-            .map(|m| self.check_model(m))
-            .transpose()
-            .map_err(|e| invalid(e.to_string()))?;
+        let model = model.map(|m| self.endpoint_choice(m)).transpose()?;
+        if let Some(model) = &model {
+            self.check_runs_bots(model)
+                .map_err(|e| invalid(e.to_string()))?;
+        }
         Ok(self.store.set_setting(NEW_BOT_MODEL, model.as_deref())?)
     }
 
+    /// `model` checked as a default: on the person's endpoints, never a subscription.
+    fn endpoint_choice(&self, model: &str) -> Result<String, EndpointError> {
+        if CliModel::is(model.trim()) {
+            return Err(invalid(
+                "a subscription is chosen per bot; pick a model from an endpoint here".to_owned(),
+            ));
+        }
+        self.check_model(model).map_err(|e| invalid(e.to_string()))
+    }
+
     pub fn set_fast_model(&self, model: Option<&str>) -> Result<(), EndpointError> {
-        let model = model
-            .map(|m| self.check_model(m))
-            .transpose()
-            .map_err(|e| invalid(e.to_string()))?;
+        let model = model.map(|m| self.endpoint_choice(m)).transpose()?;
         Ok(self.store.set_setting(FAST_MODEL, model.as_deref())?)
     }
+}
+
+/// The first model of `endpoints` that `usable` allows, local endpoints first and otherwise in
+/// the person's order; "" for none.
+fn first_model(endpoints: &[Endpoint], usable: impl Fn(&Endpoint) -> bool) -> String {
+    let local = |e: &&Endpoint| spade_models::base_url::is_loopback(&e.base_url);
+    let (near, far): (Vec<&Endpoint>, Vec<&Endpoint>) = endpoints.iter().partition(local);
+    near.into_iter()
+        .chain(far)
+        .filter(|e| usable(e))
+        .find_map(|e| {
+            // Only a model that can run a bot: one that calls tools (ADR 0205 §3).
+            e.models
+                .iter()
+                .find(|m| m.can(spade_models::Capability::Tools))
+                .map(|m| format!("{}/{}", e.id, m.id))
+        })
+        .unwrap_or_default()
 }
 
 /// Applies `input` to `stored`, checking every field.
@@ -836,7 +871,51 @@ impl Drop for Retiring<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_credential_header, slug};
+    use super::{first_model, is_credential_header, slug};
+    use spade_models::{Endpoint, Format, Model};
+
+    fn endpoint(id: &str, base_url: &str, model: Option<&str>, keyed: bool) -> Endpoint {
+        Endpoint {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            format: Format::OpenAiChat,
+            base_url: base_url.to_owned(),
+            needs_key: keyed,
+            key_env: None,
+            headers: Vec::new(),
+            session_header: None,
+            models: model.into_iter().map(Model::unknown).collect(),
+        }
+    }
+
+    #[test]
+    fn the_first_usable_model_is_a_local_one_then_the_persons_endpoints_in_order() {
+        let remote = endpoint("work", "https://api.example.com/v1/", Some("big"), true);
+        let other = endpoint("other", "https://other.example.com/v1/", Some("mid"), true);
+        let local = endpoint(
+            "ollama",
+            "http://127.0.0.1:11434/v1/",
+            Some("qwen3:8b"),
+            false,
+        );
+        let all = |_: &Endpoint| true;
+        assert_eq!(
+            first_model(&[remote.clone(), local.clone(), other.clone()], all),
+            "ollama/qwen3:8b"
+        );
+        // A local server with no model saved yet can't answer: the endpoints follow, in order.
+        let empty = endpoint("lmstudio", "http://localhost:1234/v1/", None, false);
+        assert_eq!(
+            first_model(&[remote.clone(), empty, other.clone()], all),
+            "work/big"
+        );
+        // Only an endpoint `usable` allows (with its key) counts.
+        assert_eq!(
+            first_model(&[remote, other], |e: &Endpoint| e.id == "other"),
+            "other/mid"
+        );
+        assert_eq!(first_model(&[], all), "");
+    }
 
     #[test]
     fn credential_headers_are_known_whatever_their_case() {

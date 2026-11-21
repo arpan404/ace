@@ -1,7 +1,7 @@
 import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
-import { sealer } from "./crypto.ts";
+import { opaqueToken, sealer } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
@@ -17,6 +17,17 @@ import { bearer, fail, json, secure } from "./respond.ts";
 import { sessionReader } from "./session.ts";
 import { sessionStore } from "./sessions.ts";
 import { workos } from "./workos.ts";
+import { workosOrgs } from "./workos-orgs.ts";
+import { workosTokenVerifier } from "./workos-jwt.ts";
+import { orgAccess } from "./org-access.ts";
+import { orgAudit } from "./org-audit.ts";
+import { orgChecker } from "./org-check.ts";
+import { orgEvents } from "./org-events.ts";
+import { orgHostRoutes } from "./org-host-routes.ts";
+import { orgLocks } from "./org-locks.ts";
+import { portalRevocations } from "./org-portal.ts";
+import { orgRoutes } from "./org-routes.ts";
+import { orgStore } from "./org-store.ts";
 
 /** Paths the account API owns; everything else on the Worker is the relay. */
 export function isAccountPath(pathname: string): boolean {
@@ -25,8 +36,14 @@ export function isAccountPath(pathname: string): boolean {
 
 /** The sign-in page's form posts here, from the backend's own origin. */
 const continuePath = "/v1/account/login/continue";
+/** The join page's form posts here, from the backend's own origin too. */
+const joinPath = "/v1/orgs/join";
+const orgPath =
+  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/(members|invitations|portal|policy|hosts|audit)(?:\/([A-Za-z0-9_-]{1,128}))?$/;
 const loginClaim = /^\/v1\/account\/login\/([A-Za-z0-9_-]{43})$/;
 const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
+const orgHostCredentialPath =
+  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/hosts\/([A-Z2-7]{52})\/credential$/;
 
 /**
  * The account HTTP API. One instance per isolate: it holds the in-flight session refreshes
@@ -39,6 +56,8 @@ export function accountApi(
     fetch: typeof fetch;
     now: () => number;
     random: RandomBytes;
+    /** Waits between tries for a session's refresh lease. */
+    sleep?: (ms: number) => Promise<void>;
     /** A machine left the account's list: one still registered on the relay lists itself again. */
     forgotten?: (hostId: string, accountId: string) => Promise<void>;
   },
@@ -47,6 +66,7 @@ export function accountApi(
     return {
       handle: async () => secure(fail(503, "account_not_configured"), undefined),
       sweep: async () => {},
+      events: async () => {},
     };
   const { config } = setup;
   const { now, random } = deps;
@@ -56,7 +76,7 @@ export function accountApi(
   );
   const keys = { ...setup.keys, exchangeKey: exchangeKey.publicKey };
   const seal = sealer(config.encryptionKey, random);
-  const sessions = sessionStore(deps.db, seal);
+  const sessions = sessionStore(deps.db, seal, () => opaqueToken(random));
   const provider = workos(config, deps.fetch);
   const reader = sessionReader({ store: sessions, provider, now });
   const credentials = machineCredentialStore(deps.db);
@@ -75,6 +95,50 @@ export function accountApi(
   });
   const picture = pictureRoute({ sessions, fetch: deps.fetch, now });
   const logins = loginStore(deps.db, seal);
+  // Organizations (ADR 0206).
+  const orgs = orgStore(deps.db);
+  const workosOrg = workosOrgs(config, deps.fetch);
+  const sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const newId = () => opaqueToken(random);
+  const locks = orgLocks(deps.db, { now, newHolder: newId, sleep });
+  const portal = portalRevocations({ db: deps.db, locks, workos: workosOrg, now });
+  const checker = orgChecker({
+    store: sessions,
+    provider,
+    verifier: workosTokenVerifier({
+      jwksUrl: `${config.workosUrl}/sso/jwks/${encodeURIComponent(config.clientId)}`,
+      fetch: deps.fetch,
+      now,
+    }),
+    orgs,
+    workos: workosOrg,
+    now,
+    sleep,
+  });
+  const access = orgAccess({ principals, sessionStore: sessions, checker, now });
+  const audit = orgAudit({ workos: workosOrg, now });
+  const orgApi = orgRoutes({
+    principals,
+    access,
+    orgs,
+    workos: workosOrg,
+    audit,
+    locks,
+    portal,
+    now,
+  });
+  const hostApi = orgHostRoutes({
+    principals,
+    access,
+    orgs,
+    credentials,
+    audit,
+    signingKey: config.grantKey,
+    exchangeKey,
+    now,
+    newEnrollment: newId,
+  });
+  const events = orgEvents({ orgs, workos: workosOrg, portal, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
     return loginRoutes({
@@ -84,6 +148,9 @@ export function accountApi(
       provider: workos(selected, deps.fetch),
       now,
       random,
+      joined: async (account, org) => {
+        if (org) await checker.mirror(account, org);
+      },
     });
   };
   // The canonical URL still serves deployments with a single public address. Multi-host
@@ -99,6 +166,7 @@ export function accountApi(
     signingKey: config.grantKey,
     now,
     issuer: new URL(config.publicUrl).host,
+    orgs: { checker, store: orgs },
   });
 
   async function route(
@@ -114,7 +182,38 @@ export function accountApi(
       return machineSignIn.exchange(request);
     if (pathname === "/v1/machine-enrollments" && method === "POST")
       return machineSignIn.enroll(request);
-    if (pathname === "/v1/machines" && method === "GET") return directory.list(request);
+    if (pathname === "/v1/machines" && method === "GET") {
+      const space = url.searchParams.get("space");
+      return space === null ? directory.list(request) : hostApi.machines(request, space);
+    }
+    if (pathname === "/v1/orgs" && method === "GET") return orgApi.list(request);
+    if (pathname === "/v1/orgs" && method === "POST") return orgApi.create(request);
+    if (pathname === joinPath && method === "GET") return orgApi.joinPage(url);
+    const hostCredential = pathname.match(orgHostCredentialPath);
+    if (hostCredential && method === "POST")
+      return hostApi.credential(request, hostCredential[1] ?? "", hostCredential[2] ?? "");
+    const scoped = pathname.match(orgPath);
+    if (scoped) {
+      const [, org = "", area, item] = scoped;
+      if (area === "members" && !item && method === "GET") return orgApi.members(request, org);
+      if (area === "members" && item && method === "PATCH")
+        return orgApi.changeRole(request, org, item);
+      if (area === "members" && item && method === "DELETE")
+        return orgApi.remove(request, org, item);
+      if (area === "invitations" && !item && method === "GET")
+        return orgApi.invitations(request, org);
+      if (area === "invitations" && !item && method === "POST") return orgApi.invite(request, org);
+      if (area === "invitations" && item && method === "DELETE")
+        return orgApi.revokeInvitation(request, org, item);
+      if (area === "portal" && !item && method === "POST") return orgApi.portal(request, org);
+      if (area === "policy" && !item && method === "GET") return hostApi.policy(request, org);
+      if (area === "policy" && !item && method === "PUT") return hostApi.setPolicy(request, org);
+      if (area === "hosts" && !item && method === "GET") return hostApi.hosts(request, org);
+      if (area === "hosts" && !item && method === "POST") return hostApi.enroll(request, org);
+      if (area === "hosts" && item && method === "DELETE")
+        return hostApi.release(request, org, item);
+      if (area === "audit" && !item && method === "POST") return hostApi.forward(request, org);
+    }
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);
     if (pathname === "/v1/account/login" && method === "POST") return login.start(request);
@@ -146,6 +245,18 @@ export function accountApi(
       await logins.sweep(now());
       await credentials.sweep(now());
       await enrollments.sweep(now());
+      await orgs.sweep(now());
+    },
+    /**
+     * Brings the organization members mirror up to WorkOS's Events API (ADR 0206 §1.1), then
+     * retries the Admin Portal revocations that are due (§6), whatever the feed did.
+     */
+    events: async () => {
+      try {
+        await events.catchUp();
+      } finally {
+        await portal.drain();
+      }
     },
     /**
      * `limited` is the caller's rate-limit verdict for this client address; `_gate` says which
@@ -159,11 +270,17 @@ export function accountApi(
       const origin = request.headers.get("Origin") ?? undefined;
       // The continue form comes only from the backend's own sign-in page: another site cannot
       // post a login id it holds into the person's browser and on to WorkOS.
-      if (request.method === "POST" && url.pathname === continuePath) {
+      if (
+        request.method === "POST" &&
+        (url.pathname === continuePath || url.pathname === joinPath)
+      ) {
         if (origin !== publicUrl) return secure(fail(403, "origin_denied"), undefined);
         if (limited) return secure(fail(429, "rate_limited"), undefined);
         try {
-          return secure(await login.continue(request), undefined);
+          return secure(
+            await (url.pathname === joinPath ? login.join(request) : login.continue(request)),
+            undefined,
+          );
         } catch {
           return secure(fail(503, "account_unavailable"), undefined);
         }
@@ -173,7 +290,10 @@ export function accountApi(
       if (limited) return secure(fail(429, "rate_limited"), origin);
       if (request.method === "OPTIONS") {
         const response = new Response(null, { status: 204 });
-        response.headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+        response.headers.set(
+          "Access-Control-Allow-Methods",
+          "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        );
         response.headers.set(
           "Access-Control-Allow-Headers",
           `Authorization, Content-Type, ${ACE_CLIENT_HEADER}`,
@@ -183,7 +303,14 @@ export function accountApi(
       if (request.url.length > 4096) return secure(fail(414, "invalid_request"), origin);
       try {
         return secure(await route(request, url, login), origin);
-      } catch {
+      } catch (error) {
+        // The error's kind only: never a token, body or account.
+        console.warn(
+          JSON.stringify({
+            event: "account_route_failed",
+            error: error instanceof Error ? error.name : typeof error,
+          }),
+        );
         return secure(fail(503, "account_unavailable"), origin);
       }
     },

@@ -12,6 +12,7 @@ import {
   DeviceId,
   HostId,
   PairingResponse,
+  type ClientMessage,
   type CommandPayload,
   type CommandResult,
   type DeviceScope,
@@ -89,16 +90,22 @@ export async function repositoryWithOrigin(root: string, name: string) {
   return { path, origin };
 }
 
-/** The machine's own app window: its socket, signed in with the host token. */
-async function window(daemon: { url: string; tokenPath: string }) {
+/**
+ * The machine's own app window: its socket, signed in with the host token. `trims` is what its
+ * hello says it can read; none, as a client from before every trim.
+ */
+async function window(daemon: { url: string; tokenPath: string }, trims?: string[]) {
   const client = new Client(daemon.url);
   cleanup.push(() => client.close());
+  const texts: string[] = [];
+  client.socket.on("message", (data) => texts.push(String(data)));
   await once(client.socket, "open");
   client.send({
     type: "hello",
     protocolVersion: 1,
     deviceId: DeviceId.parse("window"),
     token: readFileSync(daemon.tokenPath, "utf8").trim(),
+    ...(trims ? { trims } : {}),
   });
   const messages: ServerMessage[] = [];
   const welcome = await client.next();
@@ -173,6 +180,11 @@ async function window(daemon: { url: string; tokenPath: string }) {
     links,
     progress,
     messages,
+    /** Every message's text as the daemon sent it, frames unpacked. */
+    texts,
+    send: (message: ClientMessage) => client.send(message),
+    /** The socket is still open: the daemon sent nothing that dropped it. */
+    open: () => client.socket.readyState === client.socket.OPEN,
     lastCommand: () => `command-${sequence}`,
   };
 }
@@ -374,6 +386,8 @@ export async function transferMachines(
     },
     /** The target's own app window. */
     targetWindow: () => window(target.daemon),
+    /** Another app window on the source, whose hello lists `trims`. */
+    sourceWindow: (trims?: string[]) => window(source.daemon, trims),
     addProject,
     settled,
     restartSource,

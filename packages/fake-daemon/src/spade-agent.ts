@@ -24,6 +24,8 @@ export interface FakeSpadeAgent {
   status: string | null;
   /** Why its latest reply on a subscription failed (ADR 0133). */
   problem?: string | null;
+  /** Its subscription's terms no longer allow it: `{provider, name, text, choices}` (ADR 0205). */
+  terms_hold?: Json | null;
   last_message: {
     from: "person" | "agent";
     text: string;

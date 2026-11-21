@@ -11,7 +11,8 @@ sign-in, sessions, calls), `spade-mcp` (the MCP client shared with ace's tools) 
 maker's own documentation and the server's live sign-in metadata on its `checked` day (`source`
 names the page). An entry has `id`, `name`, `category`, `url`, `sign_in`, `notes`, `source`,
 `checked`, `words` (what a task needing it may say: "issues", "inbox"; see A bot asks below),
-and maybe `key_url` (where to make a token), `via`, `waits_for`, `effects` and `every_tool`. `sign_in` lists what works, best first:
+and maybe `key_url` (where to make a token), `via`, `waits_for`, `effects`, `every_tool` and
+`trusted_annotations` (see What a tool does below). `sign_in` lists what works, best first:
 
 | Value          | Meaning                                                                        |
 | -------------- | ------------------------------------------------------------------------------ |
@@ -153,10 +154,58 @@ minutes, and shows as `unreachable` with the reason.
 
 A connector's tools are named `<connector id>__<tool>` and described as `<Name>: <description>`.
 They are all deferred (found with `tool_search`, run through `call_tool`), so the tool list sent
-to the model never changes. Risk comes from the server's annotations: `destructiveHint: true` is
-destructive, else `readOnlyHint: true` is a read, else a write; the gate asks before writes and
-always before destructive calls. All connector output is untrusted, so any write later in that
-turn asks.
+to the model never changes. All connector output is untrusted, so any write later in that turn
+asks.
+
+## What a tool does
+
+[ADR 0202 §2](../../docs/adr/0202-spade-bridges-to-shared-agent-standards.md), built in
+`spade_core::effect::mcp`. The MCP spec says annotations are untrusted unless they come from
+trusted servers, so a server's hints can make Spade ask, never make it skip asking. A tool's
+effect is read in this order; the first row that applies wins:
+
+| Source                                                                                | Effect                                                                                                                       |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| The catalogue entry's `effects` for the tool, or its `every_tool`                     | That effect at least; the hints raise it (a tool not marked read-only is at least `network`), never lower it                 |
+| An entry marked `trusted_annotations`, and the tool says `readOnlyHint: true`         | `read`: it runs without asking                                                                                               |
+| An entry marked `trusted_annotations`, any other annotation                           | `network`: reviewed, unless a grant or the person's Always allow covers it                                                   |
+| Any other server (added by URL, or an entry without the flag), whatever its hints say | Undeclared: the person decides (once for a bot, kept for that tool; each call under a package, which must declare `network`) |
+
+`destructiveHint: true` on a tool with no catalogue declaration asks the person every call, from
+any server and in every mode: no Always allow, kept answer or grant skips it ("Its app says it may
+delete or overwrite something, so you decide each time."). `readOnlyHint` together with
+`destructiveHint` is never a read. `idempotentHint` and `openWorldHint` change no effect: all
+connector output is already untrusted. A tool's `_meta` never declares an effect by itself.
+
+`trusted_annotations` is set only in the shipped catalogue, after ace has checked that the
+server's annotations match what its tools do; no shipped entry carries it yet. A server added by
+URL never has it, and neither do plugins' servers.
+
+## Forms and sampling
+
+ADR 0202 §2, built in `spade-mcp` (`ask`), `spade_core::question::elicit` and the server's
+`engine/app_forms.rs`.
+
+- **Forms (MCP elicitation).** Connector sessions declare form elicitation (never URL mode). A
+  form a server sends during a call (on that call's own answer stream, or while it is the only
+  call that may ask) becomes a question card from the bot in that call's turn, labelled with the
+  app's name ("Linear asks: …"), one question per field: text, a choice for `enum` or
+  `oneOf`, several choices for an array of them, a number, a yes or no, a date. Its id is the
+  call's id with `~form<n>` after it, so the call keeps running while it waits. Only an answer
+  on that card goes back to the app (`POST /v1/conversations/{id}/questions/{card}` as for any
+  card), typed as the form asks, once; a typed message never answers it. Never mind sends
+  `decline`, Later sends `cancel`. The call's 60-second timeout stops while the person decides
+  and starts again after they reply; a form left 15 minutes reads `cancel`. The card closes when
+  its call ends, and answering one whose call no longer waits (Spade restarted meanwhile) only
+  closes it. A form a card can't hold (nested objects, a single option, more than five fields)
+  and any form a helper's call gets are declined.
+- **A form asking for a secret** (a field marked `format: password` or `writeOnly`, or a word for
+  a password, token, key, card number or code in its message or a field's name, title or
+  description) is never shown: the app reads `decline`, and the call fails with "It asked for a
+  secret in chat, so Spade declined the form…", followed by what the app answered after.
+- **Sampling** (`sampling/createMessage`) is refused with "Spade doesn't lend the person's model
+  to apps: sampling is refused." Spade never declares it: a server never borrows the person's
+  model.
 
 A call is sent once, with a 60-second timeout. Refused before it ran (the session was gone, the
 token was refused): "Not run … It is safe to try again", and a refused token is renewed for the
@@ -236,4 +285,7 @@ keychain.
 
 - Step-up sign-in on a `403 insufficient_scope`: today the call fails and the person reconnects.
 - The old HTTP+SSE transport, MCP Apps (interactive UI), and connector triggers.
+- MCP 2026-07-28's `input_required` results (forms sent as a result, answered by calling again):
+  Spade speaks 2025-11-25 sessions, where a form is a request during the call. URL-mode forms
+  are declined.
 - Token revocation at the server on disconnect (RFC 7009); Spade only forgets its tokens.

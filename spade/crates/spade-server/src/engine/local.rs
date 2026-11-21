@@ -88,10 +88,19 @@ impl Engine {
                 .id
             }
         };
+        // Measured, not guessed (ADR 0205 §3): a model first saved here can do nothing until
+        // its checks say what; one saved before keeps what it has.
+        let saved = self
+            .store
+            .endpoints()?
+            .into_iter()
+            .find(|e| e.id == endpoint)
+            .is_some_and(|e| e.models.iter().any(|m| m.id == model.trim()));
         let view = self.save_model(
             &endpoint,
             ModelInput {
                 id: model.to_owned(),
+                capabilities: (!saved).then(Vec::new),
                 ..ModelInput::default()
             },
         )?;

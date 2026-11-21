@@ -90,6 +90,8 @@ struct State {
     /// A client registered by hand: its ID and the loopback redirect it allows on any port.
     public_client: Mutex<Option<(String, String)>>,
     device: Mutex<Device>,
+    /// Every answer a form got from the client, as sent.
+    elicit_answers: Mutex<Vec<Value>>,
 }
 
 /// The device grant: whether it is offered, the code handed out, how each poll is answered.
@@ -143,6 +145,7 @@ impl FakeConnector {
             secrets_sent: AtomicUsize::new(0),
             public_client: Mutex::default(),
             device: Mutex::default(),
+            elicit_answers: Mutex::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -309,6 +312,11 @@ impl FakeConnector {
 
     pub fn token_requests(&self) -> usize {
         self.state.token_requests.load(Ordering::SeqCst)
+    }
+
+    /// Every answer its forms got from the client (`ask_name`, `ask_password`), as sent.
+    pub fn elicit_answers(&self) -> Vec<Value> {
+        lock(&self.state.elicit_answers).clone()
     }
 
     pub fn tool_runs(&self) -> usize {
@@ -732,11 +740,22 @@ impl ServerHandler for Fake {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         self.0.tool_runs.fetch_add(1, Ordering::SeqCst);
         let args = request.arguments.unwrap_or_default();
         let text = match request.name.as_ref() {
+            // Asks the person mid-call (MCP elicitation, form mode) and says what came back.
+            "ask_name" => {
+                self.elicit(&context, "name", "Which name goes on the card?")
+                    .await
+            }
+            "ask_password" => {
+                self.elicit(&context, "password", "Your Fake password, to go on.")
+                    .await
+            }
+            // Asks to borrow the client's model (MCP sampling).
+            "summarize" => sample(&context).await,
             "echo" => args
                 .get("say")
                 .and_then(Value::as_str)
@@ -760,6 +779,68 @@ impl ServerHandler for Fake {
             other => format!("ran {other}"),
         };
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]).into())
+    }
+}
+
+impl Fake {
+    /// Sends a one-field form on the call's own stream and says what the client answered.
+    async fn elicit(
+        &self,
+        context: &RequestContext<RoleServer>,
+        field: &str,
+        message: &str,
+    ) -> String {
+        use rmcp::model::{ClientResult, ElicitRequest, ElicitRequestParams, ServerRequest};
+        let params = serde_json::from_value::<ElicitRequestParams>(json!({
+            "mode": "form",
+            "message": message,
+            "requestedSchema": {
+                "type": "object",
+                "properties": { field: { "type": "string", "title": field } },
+                "required": [field],
+            },
+        }));
+        let params = match params {
+            Ok(params) => params,
+            Err(error) => return format!("bad form: {error}"),
+        };
+        let request = ServerRequest::ElicitRequest(ElicitRequest::new(params));
+        match context.peer.send_request(request).await {
+            Ok(ClientResult::ElicitResult(result)) => {
+                let answer = serde_json::to_value(&result).unwrap_or_default();
+                lock(&self.0.elicit_answers).push(answer.clone());
+                match answer["action"].as_str() {
+                    Some("accept") => format!(
+                        "got {}",
+                        answer["content"][field].as_str().unwrap_or("nothing")
+                    ),
+                    Some(other) => format!("the person chose {other}"),
+                    None => "no action".to_owned(),
+                }
+            }
+            Ok(other) => format!("unexpected answer: {other:?}"),
+            Err(error) => format!("could not ask: {error}"),
+        }
+    }
+}
+
+/// Asks the client to sample its model and says what came back. Sampling is deprecated in the
+/// spec, so naming its types is too.
+#[expect(deprecated)]
+async fn sample(context: &RequestContext<RoleServer>) -> String {
+    use rmcp::model::{CreateMessageRequest, CreateMessageRequestParams, ServerRequest};
+    let params = serde_json::from_value::<CreateMessageRequestParams>(json!({
+        "messages": [{ "role": "user", "content": { "type": "text", "text": "Summarize." } }],
+        "maxTokens": 50,
+    }));
+    let params = match params {
+        Ok(params) => params,
+        Err(error) => return format!("bad request: {error}"),
+    };
+    let request = ServerRequest::CreateMessageRequest(CreateMessageRequest::new(params));
+    match context.peer.send_request(request).await {
+        Ok(answer) => format!("sampled: {answer:?}"),
+        Err(error) => format!("sampling failed: {error}"),
     }
 }
 

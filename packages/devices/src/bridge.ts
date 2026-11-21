@@ -12,8 +12,8 @@ import {
   LinkFollow,
   PictureChannel,
   pictureLinkLimits,
+  SetupPictures,
   type PictureTransport,
-  type PictureView,
 } from "@ace/browser/picture-channel";
 import { framePicture } from "@ace/screen";
 import {
@@ -272,7 +272,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                     ? { viewer, connection }
                     : undefined;
                 /** This view's pictures, opened once it is set up (opening replaces the old one's). */
-                let view: PictureView | undefined;
+                const early = new SetupPictures();
                 // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
                 stop = await service.subscribeEvery(deviceId, actor, (frame) => {
                   live();
@@ -280,7 +280,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                   // watches (until this view's H.264 starts) never reaches one. ace-media
                   // delivers this view on the client's media connection.
                   if (frame.header.codec !== "h264" || viewer) return;
-                  view?.push(framePicture(frame));
+                  early.push(framePicture(frame));
                 });
                 setup();
                 const state = stateForPeer(
@@ -294,16 +294,16 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                 committed = true;
                 if (granted) delivered.set(deviceId, granted);
                 else delivered.delete(deviceId);
+                const keyframe = () =>
+                  void service.request({ op: "stream.keyframe", deviceId }, actor).catch(() => {});
                 const opened = pictures.open(deviceId, {
-                  keyframe: () =>
-                    void service
-                      .request({ op: "stream.keyframe", deviceId }, actor)
-                      .catch(() => {}),
+                  keyframe,
                   guard: live,
                   link: pictureLinkLimits,
                   ...(operation.link ? { hint: operation.link } : {}),
                 });
-                view = opened;
+                // The keyframe the capture made for this view during setup comes first.
+                early.open(opened, keyframe);
                 const follow = new LinkFollow({
                   link: () => opened.link(),
                   now: peer.now ?? (() => performance.now()),

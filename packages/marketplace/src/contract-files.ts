@@ -1,5 +1,6 @@
 import type { ArchiveFile } from "./archive.ts";
 import { text } from "./listing.ts";
+import { refusal, type Refusal } from "./rules.ts";
 
 /*
  * A contract's schemas in a file of the package (ADR 0200 §3.1, §7): `"file":
@@ -7,7 +8,7 @@ import { text } from "./listing.ts";
  * They are written into the contract before `bot.json` is read, so every reader sees one form;
  * Spade does the same (`spade_core::package::contract_files`), and for a market package takes
  * each file only as the signed manifest lists it, so the signature covers the schemas as it
- * covers `bot.json`. `rules.json` holds both to the same refusals. Pure.
+ * covers `bot.json`. the conformance suite (`spade/spec/conformance/`) holds both to the same refusals. Pure.
  */
 
 /** The largest schema file: two schemas of at most 16 KiB each, with room around them. */
@@ -34,7 +35,7 @@ export function contractFiles(bot: unknown): string[] {
 export interface InlinedContracts {
   /** `bot` with each schema file written in; a contract whose file failed is left out. */
   bot: unknown;
-  problems: string[];
+  problems: Refusal[];
 }
 
 /**
@@ -49,7 +50,7 @@ export function inlineContractFiles(
   const contracts = isFields(bot) ? bot["contracts"] : undefined;
   if (!isFields(bot) || !Array.isArray(contracts) || contractFiles(bot).length === 0)
     return { bot, problems: [] };
-  const problems: string[] = [];
+  const problems: Refusal[] = [];
   const written: unknown[] = [];
   contracts.forEach((item, i) => {
     if (!isFields(item) || !("file" in item)) {
@@ -58,35 +59,52 @@ export function inlineContractFiles(
     }
     const at = `contracts[${i}]`;
     const one = fromFile(item, at, read);
-    if (typeof one === "string") problems.push(one);
-    else written.push(one);
+    if ("contract" in one) written.push(one.contract);
+    else problems.push(one);
   });
   return { bot: { ...bot, contracts: written }, problems };
 }
 
 /** One contract's fields with its file's schemas written in, or why not. */
-function fromFile(item: Fields, at: string, read: (path: string) => string | undefined) {
+function fromFile(
+  item: Fields,
+  at: string,
+  read: (path: string) => string | undefined,
+): Refusal | { contract: Fields } {
   const path = typeof item["file"] === "string" ? item["file"] : "";
   if (!contractSchemaPath(path))
-    return `${at}.file is contracts/<name>.json, like contracts/cheapest-fare.json`;
+    return refusal(
+      "contracts.file",
+      `${at}.file is contracts/<name>.json, like contracts/cheapest-fare.json`,
+    );
   if ("input" in item || "output" in item)
-    return `${at}: write its schemas either in bot.json or in ${path}, not both`;
+    return refusal(
+      "contracts.file-and-inline",
+      `${at}: write its schemas either in bot.json or in ${path}, not both`,
+    );
   const source = read(path);
-  if (source === undefined) return `${at}.file: ${path} isn't in the package`;
+  if (source === undefined)
+    return refusal("contracts.file-missing", `${at}.file: ${path} isn't in the package`);
   if (new TextEncoder().encode(source).byteLength > mostContractFileBytes)
-    return `${path} is larger than 40 KiB`;
+    return refusal("contracts.file-content", `${path} is larger than 40 KiB`);
   let schemas: unknown;
   try {
     schemas = JSON.parse(source);
   } catch {
     schemas = undefined;
   }
-  if (!isFields(schemas)) return `${path} isn't a JSON object of input and output`;
+  if (!isFields(schemas))
+    return refusal("contracts.file-content", `${path} isn't a JSON object of input and output`);
   const other = Object.keys(schemas).find((key) => key !== "input" && key !== "output");
   if (other !== undefined)
-    return `${path}: ${other} isn't a field of a schema file; it holds only input and output`;
+    return refusal(
+      "contracts.file-content",
+      `${path}: ${other} isn't a field of a schema file; it holds only input and output`,
+    );
   const { file: _file, ...rest } = item;
-  return { ...rest, input: schemas["input"] ?? null, output: schemas["output"] ?? null };
+  return {
+    contract: { ...rest, input: schemas["input"] ?? null, output: schemas["output"] ?? null },
+  };
 }
 
 /** A package's files as `inlineContractFiles` reads them: a schema file's text, if it has one. */

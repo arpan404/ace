@@ -26,7 +26,12 @@ export function ProfileHead(props: {
   const picture = useMarketPicture("avatar", profile.avatar);
   return (
     <div className="mk-profile-head">
-      <Avatar name={profile.displayName} size={96} ace={props.official} picture={picture} />
+      <Avatar
+        name={profile.displayName}
+        size={96}
+        ace={props.official ?? profile.official}
+        picture={picture}
+      />
       <div className="mk-profile-words">
         <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
           {profile.displayName}

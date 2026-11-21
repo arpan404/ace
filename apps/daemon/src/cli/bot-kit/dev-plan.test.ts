@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { asksMore, devBotOf, devFolderKey } from "./dev-plan.ts";
 
+/** A contract named `name`, with nothing else to compare. */
+const contract = (name: string) => ({ name, summary: "A fare.", input: {}, output: {} });
+
 describe("the development bot of a folder", () => {
   const key = devFolderKey("/work/fare-watcher");
   const agents = {
@@ -68,7 +71,6 @@ describe("what a save asks for", () => {
   });
 
   it("is each new contract, since other bots may now call it", () => {
-    const contract = (name: string) => ({ name, summary: "A fare.", input: {}, output: {} });
     const offering = { ...before, contracts: [contract("cheapest_fare")] };
     const more = { ...before, contracts: [contract("cheapest_fare"), contract("fare_history")] };
     expect(asksMore({ plan: { asks_more: [] } }, offering, more).more).toEqual([

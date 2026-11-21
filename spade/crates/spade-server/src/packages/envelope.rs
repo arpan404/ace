@@ -21,7 +21,7 @@ use spade_core::package::contract_files;
 use spade_core::package::link::PackageId;
 
 /// What signed manifests are signed behind, so a signature on another kind never verifies.
-const LABEL: &str = "ace-market-manifest-v1";
+const LABEL: &str = spade_core::package::signed::MANIFEST_LABEL;
 /// The market's keys this build ships (`packages/marketplace/src/keys.ts`, the same keys).
 const SHIPPED: &str = include_str!("../../../../config/market-keys.json");
 /// Where the market is, as a linked bot's package names its source.
@@ -75,7 +75,6 @@ struct Body {
     version: String,
     hash: String,
     files: Vec<File>,
-    key: String,
 }
 
 #[derive(Deserialize)]
@@ -95,30 +94,49 @@ fn listed(files: &[File], path: &str, text: &str) -> bool {
     })
 }
 
-/// The identity `envelope` proves, and the `bot.json` it covers, read as JSON with its
-/// contracts' schema files written in (each one the manifest lists, by its bytes); else why not.
-pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Value), String> {
-    let signed: Signed = serde_json::from_value(envelope.signed.clone())
-        .map_err(|_| "the signed manifest is malformed".to_owned())?;
-    let body: Body = serde_json::from_value(signed.body.clone())
-        .map_err(|_| "the signed manifest is malformed".to_owned())?;
-    if body.format != "ace-market-manifest" || body.kind != "spade-bot" {
-        return Err("the signed manifest isn't a bot package's".to_owned());
-    }
+/// The body of `signed` (`{body, signature}`), when a key of `keys` signed it behind `label`:
+/// Ed25519 over `label`, a line break and the body's canonical JSON; the key is the one the body
+/// names. Else why not.
+pub fn verify_signed(signed: &Value, keys: &[MarketKey], label: &str) -> Result<Value, String> {
+    let signed: Signed = serde_json::from_value(signed.clone())
+        .map_err(|_| "the signed statement is malformed".to_owned())?;
+    let named = signed
+        .body
+        .get("key")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "the signed statement names no key".to_owned())?;
     let key = keys
         .iter()
-        .find(|key| key.id == body.key)
-        .ok_or_else(|| format!("signed by a key this Spade doesn't trust ({})", body.key))?;
+        .find(|key| key.id == named)
+        .ok_or_else(|| format!("signed by a key this Spade doesn't trust ({named})"))?;
     let public = URL_SAFE_NO_PAD
         .decode(&key.public_key)
         .map_err(|_| "a trusted key doesn't read".to_owned())?;
     let signature = URL_SAFE_NO_PAD
         .decode(&signed.signature)
         .map_err(|_| "the signature doesn't match".to_owned())?;
-    let message = format!("{LABEL}\n{}", canonical(&signed.body));
+    let message = format!("{label}\n{}", canonical(&signed.body));
     ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &public)
         .verify(message.as_bytes(), &signature)
         .map_err(|_| "the signature doesn't match".to_owned())?;
+    Ok(signed.body)
+}
+
+/// The identity `envelope` proves, and the `bot.json` it covers, read as JSON with its
+/// contracts' schema files written in (each one the manifest lists, by its bytes); else why not.
+pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Value), String> {
+    let body = verify_signed(&envelope.signed, keys, LABEL).map_err(|error| {
+        if error == "the signed statement is malformed" || error.ends_with("names no key") {
+            "the signed manifest is malformed".to_owned()
+        } else {
+            error
+        }
+    })?;
+    let body: Body =
+        serde_json::from_value(body).map_err(|_| "the signed manifest is malformed".to_owned())?;
+    if body.format != "ace-market-manifest" || body.kind != "spade-bot" {
+        return Err("the signed manifest isn't a bot package's".to_owned());
+    }
     if content_hash(&body.files) != body.hash {
         return Err("the signed manifest's files don't make its hash".to_owned());
     }
@@ -137,7 +155,7 @@ pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Val
     let written: Value = serde_json::from_str(&envelope.bot_json)
         .map_err(|_| "the signed bot.json isn't JSON".to_owned())?;
     let recipe = contract_files::inline(&written, |path| envelope.files.get(path).cloned())
-        .map_err(|problems| problems.join("; "))?;
+        .map_err(|problems| spade_core::rule::joined(&problems, "; "))?;
     Ok((
         PackageId {
             source: MARKET.to_owned(),

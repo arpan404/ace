@@ -171,6 +171,60 @@ test("an update says what changes, what stays because you changed it, and what s
   expect(within(market).getByRole("button", { name: "Update" })).toBeTruthy();
 });
 
+test("an update says how the bot's kept runs replay on the new version, and why one differs", async () => {
+  await openApp("/chats?market=bot/flight-watcher/update", {
+    entries: [
+      watcher({
+        version: "2.0.0",
+        updates: "1.0.0",
+        body: {
+          ...body,
+          update: {
+            bot: "bot_1",
+            rollback: false,
+            plan: {
+              name: "same",
+              task: "same",
+              face: "same",
+              personality: "same",
+              routines: [],
+              notes_kept: 0,
+              asks_more: [],
+              off: [],
+            },
+            asksMore: [],
+            replay: {
+              summary: "1 of 2 kept runs replay the same. 1 doesn't: see why.",
+              passed: 1,
+              failed: 1,
+              cases: [
+                { id: "case_1", given: "Check fares", passed: true, lines: [] },
+                {
+                  id: "case_2",
+                  given: "Mail my agent the fare",
+                  passed: false,
+                  lines: ["send_message was refused: Flight watcher doesn't declare sending."],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ],
+    installed: [{ ...installed("1.0.0"), update: "2.0.0" }],
+  });
+  const market = await findMarket();
+  expect(
+    await within(market).findByText("1 of 2 kept runs replay the same. 1 doesn't: see why."),
+  ).toBeTruthy();
+  await userEvent.click(within(market).getByRole("button", { name: "See why" }));
+  const differ = within(within(market).getByRole("list", { name: "Kept runs that differ" }));
+  expect(differ.getByText("Mail my agent the fare")).toBeTruthy();
+  expect(
+    differ.getByText("send_message was refused: Flight watcher doesn't declare sending."),
+  ).toBeTruthy();
+});
+
 test("a rollback says where it goes back to, from the copy on this machine", async () => {
   await openApp("/chats?market=bot/flight-watcher/rollback", {
     entries: [

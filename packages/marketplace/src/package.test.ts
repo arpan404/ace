@@ -218,30 +218,42 @@ describe("agent packages", () => {
   });
 });
 
-/** The accept and refuse rules Spade's reader runs too (`spade_core::package::read`). */
-const rules = JSON.parse(
-  readFileSync(
-    new URL("../../../spade/crates/spade-core/src/package/rules.json", import.meta.url),
-    "utf8",
-  ),
-) as {
+interface ManifestCases {
   base: Record<string, unknown>;
   cases: {
-    name: string;
+    id: string;
     with: Record<string, unknown>;
     /** The package's other files: a contract's schema file, written in first. */
     files?: Record<string, string>;
-    refused?: string;
+    /** The rule a reader refuses it by (`spade/spec/conformance/rules.json`). */
+    rule?: string;
   }[];
-};
+}
 
-describe("the rules both readers share", () => {
-  it.each(rules.cases.map((rule) => [rule.name, rule] as const))("%s", (_name, rule) => {
-    const problems = readRecipe(JSON.stringify({ ...rules.base, ...rule.with }), new Set(), {
+/**
+ * The conformance suite's manifest cases (`spade/spec/conformance/<part>/manifests.json`), which
+ * Spade's reader runs too (`spade_core::package::read`): accepted, or refused with a problem
+ * naming the case's rule, whatever its words.
+ */
+const suites = [
+  "package/manifests",
+  "effects/manifests",
+  "contracts/manifests",
+  "surfaces/manifests",
+  "code/manifests",
+  "package/checks",
+].map((file) => {
+  const url = new URL(`../../../spade/spec/conformance/${file}.json`, import.meta.url);
+  return [file, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
+});
+
+describe.each(suites)("the conformance suite's %s manifests", (_part, suite) => {
+  it.each(suite.cases.map((rule) => [rule.id, rule] as const))("%s", (_id, rule) => {
+    const problems = readRecipe(JSON.stringify({ ...suite.base, ...rule.with }), new Set(), {
       spade: "0.0.25",
       files: (path) => rule.files?.[path],
-    }).problems.map((problem) => problem.message);
-    if (rule.refused === undefined) expect(problems).toEqual([]);
-    else expect(problems.some((problem) => problem.includes(rule.refused!))).toBe(true);
+    }).problems;
+    if (rule.rule === undefined) expect(problems).toEqual([]);
+    else expect(problems.map((problem) => problem.rule)).toContain(rule.rule);
   });
 });

@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliSpadeSkillExport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "files": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "path",
+    "files",
+    "source"
+  ],
+  "type": "object"
+}

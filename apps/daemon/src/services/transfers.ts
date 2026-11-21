@@ -109,6 +109,24 @@ export function createTransfersSession(context: SocketContext): SocketService {
         reply({ kind: "list", transfers: transfers.outgoing.list() });
         return true;
       }
+      if (operation.op === "carryOnHere") {
+        track(
+          transfers.outgoing
+            .carryOnHere(operation.transferId)
+            .then((transfer) => reply({ kind: "carriedOnHere", transfer }))
+            .catch((error: unknown) =>
+              reply({
+                kind: "error",
+                code: error instanceof TransferError ? error.code : "transfer_failed",
+                message:
+                  error instanceof TransferError
+                    ? error.message
+                    : "The thread couldn't be carried on here.",
+              }),
+            ),
+        );
+        return true;
+      }
       track(
         transfers.outgoing
           .cancel(operation.transferId)
