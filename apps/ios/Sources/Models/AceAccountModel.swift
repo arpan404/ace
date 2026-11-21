@@ -98,7 +98,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
             // A deletion that failed before the app restarted: the backend's hourly sweep
             // finishes it, and the saved session opens nothing else.
             try? secrets.delete(key); token = nil; account = nil; picture = nil
-            error = "Your account is being deleted. ace finishes deleting it on its own within the hour."
+            error = "Your account is being deleted. ace finishes deleting it on its own shortly."
         } catch { self.error = "Couldn't verify your account. Try again." }
     }
 

@@ -421,7 +421,7 @@ private final class CloudStubServer: @unchecked Sendable {
         let model = AceAccountModel(secrets: secrets, origin: origin, allowLoopback: true)
         await model.restore()
         #expect(model.account == nil)
-        #expect(model.error == "Your account is being deleted. ace finishes deleting it on its own within the hour.")
+        #expect(model.error == "Your account is being deleted. ace finishes deleting it on its own shortly.")
         #expect(try secrets.get(origin.absoluteString) == nil)
     }
 
