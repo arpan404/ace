@@ -126,10 +126,12 @@ fn a_still_of_a_jpeg_source_comes_back_as_the_payload_at_the_requested_box() {
     }
 }
 
+#[cfg(target_os = "macos")]
 const FIXTURE: &[u8] = include_bytes!("../../media-mp4/tests/vectors/h264.bin");
 
 /// The fixture's avcC and its IDR pictures as length-prefixed samples (64 × 64, from
 /// VideoToolbox).
+#[cfg(target_os = "macos")]
 fn fixture() -> (Vec<u8>, Vec<Vec<u8>>) {
     let length = |at: usize| {
         u32::from_be_bytes([
