@@ -33,8 +33,21 @@ extension ThreadModel {
         refresh = incoming
         refreshRevision = revision
         refreshBefore = before
+        tailHeld = false
         requiresSnapshot = true
         metadataCurrent = false
+    }
+
+    /// The staging is a complete tail under `revision`: keep it staged behind what is on screen
+    /// (`tailHeld`) instead of committing it. False, holding nothing, when the fence doesn't
+    /// describe the staging; the caller then treats it as any failed fence.
+    func holdTail(revision: Int?, count: Int) -> Bool {
+        guard let incoming = refresh else { return false }
+        if let revision, let staged = refreshRevision, revision != staged { return false }
+        incoming.reorder()
+        guard incoming.order.count == count else { return false }
+        tailHeld = true
+        return true
     }
 
     /// Legacy cold begin without an explicit revision (older bridges, recorded tests).
@@ -48,6 +61,7 @@ extension ThreadModel {
         refresh = nil
         refreshRevision = nil
         refreshBefore = nil
+        tailHeld = false
         requiresSnapshot = true
         metadataCurrent = false
     }
@@ -87,6 +101,7 @@ extension ThreadModel {
         refresh = nil
         refreshRevision = nil
         refreshBefore = nil
+        tailHeld = false
         return true
     }
 
@@ -111,6 +126,7 @@ extension ThreadModel {
         refresh = nil
         refreshRevision = nil
         refreshBefore = nil
+        tailHeld = false
     }
 
     /// Record that `id` left the visible order, with the bridge's evidence when known.

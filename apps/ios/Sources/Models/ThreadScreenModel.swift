@@ -244,7 +244,7 @@ extension BridgePatch {
         case .threadReset(let id, let epoch, _, _), .snapshotBegin(let id, let epoch, _, _),
              .position(let id, let epoch, _, _), .item(let id, let epoch, _, _, _),
              .itemText(let id, let epoch, _, _, _), .metadata(let id, let epoch, _), .interaction(let id, let epoch, _, _),
-             .cursor(let id, let epoch, _), .ready(let id, let epoch, _, _), .readingSettled(let id, let epoch): (id, epoch)
+             .cursor(let id, let epoch, _), .ready(let id, let epoch, _, _, _), .readingSettled(let id, let epoch): (id, epoch)
         default: screenScope
         }
     }

@@ -36,6 +36,10 @@ import QuartzCore
     @ObservationIgnored var recentRemovals: [ThreadItemRemoval] = []
     /// A partial replacement cannot be advertised as a warm copy to the bridge ledger.
     @ObservationIgnored var requiresSnapshot = false
+    /// The staging holds a complete tail (the newest screenful) behind rows already on screen:
+    /// those rows stay until the whole window commits, and that window's pass carries on from
+    /// the staging, which is what the bridge's ledger holds (`ThreadRefresh.holdTail`).
+    @ObservationIgnored var tailHeld = false
     /// Which folds are open; shared with the history pages of the same thread.
     @ObservationIgnored var disclosures = Disclosures()
     @ObservationIgnored var positions: [String: Int] = [:]
@@ -640,8 +644,9 @@ import QuartzCore
                 target.loaded = target === reading
                 target.screen.reset()
             case .snapshotBegin(let id, let epoch, let revision, let before):
-                // Warm whole-thread pass: stage like a reset, keep showing the old copy.
-                if let thread, thread.id == id, thread.epoch == epoch, thread.loaded {
+                // Warm whole-thread pass: stage like a reset, keep showing the old copy. Behind a
+                // held tail it carries on from the tail instead (below).
+                if let thread, thread.id == id, thread.epoch == epoch, thread.loaded, !thread.tailHeld {
                     thread.beginSnapshot(revision: revision, warm: true, before: before)
                     reorder = false
                     added = []
@@ -702,12 +707,22 @@ import QuartzCore
                 target.interactions[interactionId] = row
                 if target !== reading, row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
             case .cursor(let id, let epoch, let cursor): scoped(id, epoch)?.cursor = cursor
-            case .ready(let id, let epoch, let count, let revision):
+            case .ready(let id, let epoch, let count, let revision, let tail):
                 if let thread, thread.id == id, thread.epoch == epoch {
                     if thread.refresh != nil {
                         // A late fence belongs to the superseded pass. Leave the newer
                         // staging intact; its own matching fence can still complete it.
                         if let revision, let staged = thread.refreshRevision, revision < staged { continue }
+                        // A screenful staged behind rows already on screen (a reconnect, a kept
+                        // copy read again) never replaces them: it stays staged, and the bridge
+                        // is told at once that nothing waits to be drawn, so the whole window,
+                        // which commits over them, comes now (`OpenTail.shown`).
+                        if tail, thread.loaded, !thread.order.isEmpty, thread.holdTail(revision: revision, count: count) {
+                            reorder = false
+                            added = []
+                            threadShown(thread, epoch: epoch)
+                            continue
+                        }
                         if thread.loaded, let incoming = thread.refresh, incoming.items.count > thread.items.count {
                             liveWindowWillGrow?()
                         }
@@ -844,6 +859,7 @@ import QuartzCore
         opened.refresh = nil
         opened.refreshRevision = nil
         opened.refreshBefore = nil
+        opened.tailHeld = false
         opened.epoch = generation
         opened.visit = visits
         opened.metadataCurrent = false
@@ -898,6 +914,7 @@ import QuartzCore
         current.refresh = nil
         current.refreshRevision = nil
         current.refreshBefore = nil
+        current.tailHeld = false
         current.requiresSnapshot = true
         current.epoch = generation
         current.metadataCurrent = false
