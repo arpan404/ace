@@ -143,6 +143,7 @@ export default defineConfig({
           globalSetup: [
             "./scripts/test-home-global-setup.ts",
             "./scripts/process-test-setup.ts",
+            "./scripts/history-binary-setup.ts",
             "./tools/web-perf/src/browser-test-setup.ts",
           ],
           setupFiles: ["./scripts/test-home-setup.ts"],

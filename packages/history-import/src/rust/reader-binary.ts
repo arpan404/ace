@@ -2,16 +2,6 @@ import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleRootOfEntry } from "@ace/service/spade-layout";
-import type { HistoryProvider } from "@ace/protocol/history";
-
-/** The providers ace-history reads (ADR 0206); the TypeScript reader keeps the rest for now. */
-export const rustProviders: readonly HistoryProvider[] = [
-  "claude",
-  "codex",
-  "cursor",
-  "opencode",
-  "pi",
-];
 
 /** The `ace-history` executable's name on this platform. */
 export function historyBinaryName(platform: NodeJS.Platform): string {
