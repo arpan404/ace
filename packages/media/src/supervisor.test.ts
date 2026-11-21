@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeEgress, encodeEgress } from "./frame.ts";
-import {
-  defaultMediaSettings,
-  mediaBinaryPath,
-  MediaSupervisor,
-  restartDelay,
-} from "./supervisor.ts";
+import { mediaBinaryPath, MediaSupervisor, restartDelay } from "./supervisor.ts";
 import { harness } from "./supervisor-test-support.ts";
 import type { ToMedia } from "./wire.ts";
 

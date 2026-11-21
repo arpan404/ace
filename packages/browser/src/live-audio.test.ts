@@ -13,6 +13,7 @@ function fakeHost() {
   let events: CaptureEvents | undefined;
   let encode = "";
   const host: VideoHost = {
+    mediaKind: "tab",
     supported: async () => ["avc1.42E033"],
     open: async (_page, _width, _height, capture) => {
       events = capture;

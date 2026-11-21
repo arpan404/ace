@@ -47,6 +47,7 @@ export class RestingTabs extends FakeHeadless {
     closed: boolean;
   }[] = [];
   private videoHost: VideoHost = {
+    mediaKind: "tab",
     supported: async (codecs) => codecs.filter((codec) => codec === "vp8"),
     open: async (page, _width, _height, events) => {
       const opened = { page, events, encodes: [] as VideoEncode[], keyframes: 0, closed: false };

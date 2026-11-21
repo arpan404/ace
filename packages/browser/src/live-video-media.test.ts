@@ -12,6 +12,7 @@ function host(supported = ["avc1.42E033"]) {
   const opened: CaptureEvents[] = [];
   const codecs: string[][] = [];
   const video: VideoHost = {
+    mediaKind: "tab",
     supported: async () => supported,
     open: async (_page, _width, _height, events) => {
       opened.push(events);

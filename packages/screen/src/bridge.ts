@@ -24,8 +24,6 @@ import {
 } from "@ace/media/media-viewers";
 import type { MediaOwner } from "@ace/media/media-connections";
 import { framePicture } from "./frame-picture.ts";
-import type { Frame } from "./frames.ts";
-import type { VideoHost } from "@ace/browser";
 import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
@@ -39,11 +37,6 @@ export type ScreenPeer = {
   /** Clock for keyframe pacing; defaults to the wall clock and timers. */
   now?(): number;
   after?(ms: number, run: () => void): () => void;
-  /**
-   * The browser service's encoder-only Chrome: video from a helper that only makes JPEG (Linux,
-   * Windows), so every platform's live view is video. Absent, such a view says it can't stream.
-   */
-  pictureEncoder?(): VideoHost | undefined;
   /**
    * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
    * connection is: its session, device and admission (a main session, or a channel of its own).
@@ -281,32 +274,20 @@ export function screenConnection(
             const now = peer.now ?? (() => performance.now());
             /** This view's pictures, opened once it is set up (opening replaces the old one's). */
             let view: PictureView | undefined;
-            // Video for a helper that makes only JPEG; the Mac's helper encodes its own.
-            const converter = manager.openPictureVideo({
-              host: () => peer.pictureEncoder?.(),
-              sessionId,
-              now,
-              frame: (frame: Frame) => {
-                if (!closed) view?.push(framePicture(frame));
-              },
-            });
             let stop: (() => void) | undefined;
             let state: ScreenState;
             try {
               // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
               stop = manager.subscribeEvery(sessionId, (frame) => {
-                // Live views are video only: the stills agents read never reach a viewer, except
-                // encoded as video for one whose helper makes no video of its own.
-                // ace-media delivers this view on the client's media connection: none of its
-                // pictures go on this socket.
+                // Live views are video only, encoded by ace-media and back through egress: the
+                // stills agents read never reach a viewer. ace-media delivers this view on the
+                // client's media connection: none of its pictures go on this socket.
                 if (closed || viewer) return;
                 if (frame.header.codec === "h264") view?.push(framePicture(frame));
-                else converter.push(frame);
               });
               state = accelerated(ScreenState.parse(manager.state(sessionId)));
             } catch (error) {
               stop?.();
-              converter.close();
               swap.abort();
               throw error;
             }
@@ -315,9 +296,7 @@ export function screenConnection(
             subscriptions.delete(sessionId);
             previous?.release();
             const opened = pictures.open(sessionId, {
-              keyframe: () => {
-                if (!converter.keyframe()) void manager.requestKeyframe(sessionId).catch(() => {});
-              },
+              keyframe: () => void manager.requestKeyframe(sessionId).catch(() => {}),
               guard: () => {
                 if (closed) throw new Error("Screen connection closed");
               },
@@ -328,14 +307,7 @@ export function screenConnection(
             const follow = new LinkFollow({
               link: () => opened.link(),
               now,
-              apply: async (settings) => {
-                const result = await manager.configureStream(sessionId, settings);
-                if (result.codec === "h264" || settings.codec !== "h264") {
-                  converter.stop();
-                  return result;
-                }
-                return converter.want(settings) ? { codec: "h264" as const } : result;
-              },
+              apply: (settings) => manager.configureStream(sessionId, settings),
             });
             follows.set(sessionId, follow);
             cancelTick ??= later(1000, tick);
@@ -343,7 +315,6 @@ export function screenConnection(
               stop?.();
               opened.close();
               follow.close();
-              converter.close();
               if (follows.get(sessionId) === follow) follows.delete(sessionId);
             };
             subscriptions.set(sessionId, { media, release });

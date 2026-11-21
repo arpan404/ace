@@ -83,11 +83,11 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   };
   // ace's Chrome, the desktop's views and the person's own Chrome share one daemon-wide budget.
   const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
-  // Live video is encoded only by ace-media (E4, X2).
-  const media = options.browser?.media ?? startMedia(context);
+  // Live video is encoded only by ace-media (E4, X2); without its binary, views say so.
+  const media = options.browser?.media ?? startMedia(context) ?? noMedia;
   const browser = new BrowserService({
     ...options.browser,
-    ...(media ? { media } : {}),
+    media,
     ...(config.chromiumPath && !options.browser?.executablePath
       ? { executablePath: config.chromiumPath }
       : {}),
@@ -251,7 +251,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
 }
 
 import { sendBrowserMessage, sendBrowserStream } from "./browser-transport.ts";
-import { connectBrowser } from "@ace/browser";
+import { connectBrowser, noMedia } from "@ace/browser";
 import { SettingsError } from "@ace/settings";
 import { engineSetting } from "../browser-engine-setting.ts";
 import { settingWriteRefusal } from "../answer-gate.ts";

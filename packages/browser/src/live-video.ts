@@ -112,6 +112,8 @@ export class LiveVideo {
   /** Captures in a row that failed before their first chunk, and why the last one did. */
   private failures = 0;
   private failure = "";
+  /** Why the open capture's video stopped (ace-media can't take it now); undefined otherwise. */
+  private stalled: string | undefined;
   private statusChanged: () => void;
   constructor(options: {
     now: () => number;
@@ -242,8 +244,13 @@ export class LiveVideo {
     // Another tab starts afresh.
     this.recovered();
   }
-  /** Set while the video can't start and is being retried; undefined while it plays. */
+  /**
+   * Set while the video can't start, or ace-media can't carry it now, and it is being retried;
+   * undefined while it plays. A view never goes blank without saying why.
+   */
   status(): BrowserVideoStatus | undefined {
+    if (this.stalled !== undefined)
+      return { status: "retrying", reason: this.stalled, attempts: Math.max(1, this.failures) };
     if (!this.failures) return undefined;
     return { status: "retrying", reason: this.failure, attempts: this.failures };
   }
@@ -254,6 +261,7 @@ export class LiveVideo {
   /** Stops the tab's capture; viewers keep their last picture until the next `attach`. */
   detach(): void {
     this.generation++;
+    this.stall(undefined);
     this.capture?.handle.close();
     this.capture = undefined;
     this.source = undefined;
@@ -429,6 +437,7 @@ export class LiveVideo {
             played = true;
             this.recovered();
           }
+          this.stall(undefined);
           this.publish(chunk, tabId);
         },
         audio: (chunk) => {
@@ -443,6 +452,9 @@ export class LiveVideo {
         },
         accelerated: () => {
           if (generation === this.generation) this.statusChanged();
+        },
+        stalled: (reason) => {
+          if (generation === this.generation) this.stall(reason?.slice(0, 2048));
         },
         ended: (reason) => {
           if (generation !== this.generation) return;
@@ -478,6 +490,11 @@ export class LiveVideo {
     this.retryAt = this.now() + Math.min(retryMs * 2 ** (this.failures - 1), maxRetryMs);
     this.statusChanged();
   }
+  private stall(reason: string | undefined): void {
+    if (this.stalled === reason) return;
+    this.stalled = reason;
+    this.statusChanged();
+  }
   /** Video plays (or another tab starts): failures so far no longer count. */
   private recovered(): void {
     if (!this.failures) return;
@@ -487,6 +504,7 @@ export class LiveVideo {
   }
   private close(): void {
     this.generation++;
+    this.stall(undefined);
     this.capture?.handle.close();
     this.capture = undefined;
     this.encodes = "";

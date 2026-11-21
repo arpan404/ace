@@ -6,17 +6,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { EgressUnit } from "@ace/media/egress";
 import { MediaRuntime } from "@ace/media/runtime";
 import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import type { BrowserState } from "@ace/protocol";
 import { connectBrowser } from "./index.ts";
-import type { BrowserMedia } from "./media-video.ts";
+import { mediaMissing, noMedia, type BrowserMedia } from "./media-video.ts";
 import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
 import { executablePath, fixture } from "./test-support.ts";
 
-// Live video through the real ace-media (E4): a tab of ace's Chrome streams its WebCodecs chunks
-// through the video extension's WebSocket into the binary, and its units come back on egress to
-// the viewer; a private-context tab's screencast is encoded by ace-media itself. Real edges a
-// unit test can't cover: Chrome's WebSocket from the extension origin, the binary's ingest and
-// egress lane, and the route moving producers while they stream. Runs when
+// Live video through the real ace-media (E4, X2): a tab of ace's Chrome streams its WebCodecs
+// chunks through the video extension's WebSocket into the binary, and its units come back on
+// egress to the viewer; a private-context tab's screencast is encoded by ace-media itself. Real
+// edges a unit test can't cover: Chrome's WebSocket from the extension origin, the binary's
+// ingest and egress lane, and a producer reconnecting to a new ace-media after a kill. Runs when
 // ACE_MEDIA_TEST_BINARY names a built ace-media (`bun run check:media` builds it).
 const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
 
@@ -84,18 +85,23 @@ function media(settings: MediaSettings) {
 
 /** A viewer on this machine that asks for H.264 and acknowledges every chunk at once. */
 function viewer(f: Awaited<ReturnType<typeof fixture>>) {
-  const chunks: BrowserVideoChunk[] = [];
+  const chunks: { chunk: BrowserVideoChunk; at: number }[] = [];
+  const states: { state: BrowserState; at: number }[] = [];
   const assembler = new StreamAssembler();
   const bridge = connectBrowser(f.service, {
     connectionId: "viewer",
     authorize: () => true,
-    send: () => true,
+    send: (message) => {
+      if (message.type === "browser.state")
+        states.push({ state: message.state, at: performance.now() });
+      return true;
+    },
     sendStream: (pieces) => {
       for (const piece of pieces) {
         const envelope = assembler.push(piece);
         const message = envelope && decodeStreamMessage(envelope);
         if (message?.kind !== "browser.video") continue;
-        chunks.push(message.chunk);
+        chunks.push({ chunk: message.chunk, at: performance.now() });
         void bridge.handle({
           type: "browser.ack",
           threadId: "thread",
@@ -108,7 +114,11 @@ function viewer(f: Awaited<ReturnType<typeof fixture>>) {
     },
   });
   return {
-    chunks,
+    get chunks() {
+      return chunks.map((entry) => entry.chunk);
+    },
+    timed: chunks,
+    states,
     subscribe: () =>
       bridge.handle({
         type: "browser.subscribe",
@@ -187,7 +197,7 @@ function noRepeats(chunks: readonly BrowserVideoChunk[]): boolean {
 }
 
 describe.runIf(binary && executablePath)("live video through ace-media", () => {
-  it("a tab streams through the video extension into ace-media and back out on egress, survives route flips, and falls back to the daemon when ace-media is killed", async () => {
+  it("a tab streams only through ace-media; killed, the view says it is retrying and the picture is back on the new ace-media within 2 s", async () => {
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
@@ -202,28 +212,13 @@ describe.runIf(binary && executablePath)("live video through ace-media", () => {
     await v.subscribe();
     await f.evaluate(animate);
 
-    // Chunks come back from ace-media's egress, binary end to end.
+    // Chunks come back from ace-media's egress, binary end to end: every one the viewer got.
     await until(() => m.units.length >= 30, "units on egress");
     expect(m.runtime.routes.routes().tab.producer).toBe("ace-media");
     const unit = m.units.find((u) => (u.frame.flags & 1) !== 0);
     expect(unit?.frame).toMatchObject({ kind: 1, codec: 2 });
     expect(unit?.frame.codecString.startsWith("avc1.")).toBe(true);
     await until(() => v.chunks.length >= 30, "the viewer's video");
-
-    // Back to the daemon's path, and to ace-media again, while the tab streams.
-    settings.encode = "legacy";
-    m.runtime.settingsChanged();
-    expect(m.runtime.routes.routes().tab.producer).toBe("daemon");
-    const viaMedia = m.units.length;
-    const atLegacy = v.chunks.length;
-    await until(() => v.chunks.length >= atLegacy + 60, "video on the daemon's path");
-    const lateUnits = m.units.length - viaMedia;
-    settings.encode = "auto";
-    m.runtime.settingsChanged();
-    const atAuto = m.units.length;
-    await until(() => m.units.length >= atAuto + 60, "units on egress again");
-    // Units in flight at the flip still arrived (a handful at most), and nothing was dropped.
-    expect(lateUnits).toBeLessThan(30);
     expect(m.runtime.egress.drops()).toEqual({
       invalid: 0,
       unknown: 0,
@@ -236,17 +231,30 @@ describe.runIf(binary && executablePath)("live video through ace-media", () => {
     expect(decoded.errors).toEqual([]);
     expect(decoded.pictures).toBe(decoded.chunks);
 
-    // ace-media killed: the tab streams to the daemon again within 2 s.
+    // ace-media killed: nothing streams anywhere until the new one is up, the view says why,
+    // and the producer reconnects to the new ingest with a picture back within 2 s.
     const pid = m.runtime.supervisor.snapshot().pid ?? 0;
     expect(pid).toBeGreaterThan(0);
-    const atKill = v.chunks.length;
     const killed = performance.now();
     process.kill(pid, "SIGKILL");
-    await until(() => m.runtime.routes.routes().tab.producer === "daemon", "the route back");
-    await until(() => v.chunks.length >= atKill + 30, "video after the kill", 5_000);
-    expect(performance.now() - killed).toBeLessThan(5_000);
-    const after = v.chunks.slice(atKill);
-    expect(after.some((chunk) => chunk.key)).toBe(true);
+    await until(() => m.runtime.routes.routes().tab.producer === "none", "the stopped route");
+    await until(
+      () => v.states.some((entry) => entry.at > killed && entry.state.video?.status === "retrying"),
+      "the view's retrying status",
+      5_000,
+    );
+    const said = v.states.find((entry) => entry.at > killed && entry.state.video)?.state.video;
+    expect(said?.reason).toMatch(/ace-media/);
+    await until(
+      () => v.timed.some((entry) => entry.at > killed && entry.chunk.key),
+      "a keyframe from the new ace-media",
+      5_000,
+    );
+    const back = v.timed.find((entry) => entry.at > killed && entry.chunk.key);
+    expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
+    expect(m.runtime.supervisor.snapshot().pid).not.toBe(pid);
+    // Playing again, the view no longer says it is retrying.
+    await until(() => v.states.at(-1)?.state.video === undefined, "the status cleared", 5_000);
   }, 90_000);
 
   it.runIf(process.platform === "darwin")(
@@ -266,8 +274,8 @@ describe.runIf(binary && executablePath)("live video through ace-media", () => {
       await v.subscribe();
       await f.evaluate(animate);
       await until(() => m.units.length >= 20, "units from ace-media's encoder", 30_000);
-      // The capture the browser's encoder started with hands over: the viewer now plays the
-      // units ace-media wrote (its own profile and level, from VideoToolbox's avcC).
+      // The viewer plays the units ace-media wrote (its own profile and level, from
+      // VideoToolbox's avcC); no encoder of the browser's ever ran for this tab.
       const written = m.units[0]?.frame.codecString ?? "";
       expect(written.startsWith("avc1.")).toBe(true);
       await until(
@@ -303,4 +311,24 @@ describe.runIf(binary && executablePath)("live video through ace-media", () => {
     },
     90_000,
   );
+});
+
+describe.runIf(executablePath)("live video without ace-media", () => {
+  it("without ace-media a tab's view says why it has no video, and agent tools still work", async () => {
+    const f = await fixture({ media: noMedia });
+    await f.navigate();
+    const v = viewer(f);
+    await v.subscribe();
+    await until(
+      () => v.states.some((entry) => entry.state.video?.status === "retrying"),
+      "the view's retrying status",
+    );
+    const said = v.states.find((entry) => entry.state.video)?.state.video;
+    expect(said?.reason).toBe(mediaMissing);
+    expect(v.chunks).toEqual([]);
+    // The agent's own tools never wait on video.
+    const shot = await f.service.execute("thread", { action: "screenshot" });
+    expect(shot).toBeTruthy();
+    await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
+  }, 60_000);
 });

@@ -1,5 +1,3 @@
-import { SharedPictureVideos } from "./shared-picture-video.ts";
-import type { PicturesToVideoOptions } from "./picture-video.ts";
 import {
   hostPermissions,
   unavailablePermissions,
@@ -50,11 +48,6 @@ import { type RecordingArtifact } from "./recording.ts";
 export type { ScreenOptions } from "./options.ts";
 import type { ScreenOptions } from "./options.ts";
 export class ScreenManager {
-  private readonly pictureVideos = new SharedPictureVideos();
-
-  openPictureVideo(options: PicturesToVideoOptions) {
-    return this.pictureVideos.open(options);
-  }
   private readonly policy = new ScreenPolicy();
   private readonly sessions = new Map<string, Session>();
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();

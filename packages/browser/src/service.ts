@@ -20,7 +20,7 @@ import { daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 import type { LifecycleSchedule } from "./session-lifecycle.ts";
 import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
-import type { BrowserBackend, BackendOpen, BrowserBackendSession, VideoHost } from "./backend.ts";
+import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import type {
   BrowserAnnotationMessage,
   BrowserBackendLost,
@@ -121,14 +121,6 @@ export class BrowserService {
   }
   downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
     return this.acquisition.subscribe(listener);
-  }
-  /**
-   * An encoder for another service's pages that have none ("Use my Chrome", ADR 0088): a Chrome
-   * of ace's that encodes their screencast, started by a viewer and stopped once idle. Absent
-   * when this service runs no Chrome of its own.
-   */
-  videoEncoder(): VideoHost | undefined {
-    return this.acquisition.videoEncoder();
   }
   /**
    * Lays a self-contained page out at each width in a hidden Chrome of ace's and captures it
@@ -548,6 +540,8 @@ export class BrowserService {
           threadId: options.threadId,
           backend: opened,
           backendKind: kind,
+          // ace-media is the only encoder (`noMedia` where it is missing: a capture says so). A
+          // service given none runs its backends' hosts as they are: test doubles only.
           ...(media
             ? { mediaVideo: mediaVideoHosts(media, () => ({ threadId: options.threadId })) }
             : {}),

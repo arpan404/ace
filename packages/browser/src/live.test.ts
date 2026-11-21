@@ -23,6 +23,7 @@ function fakePage() {
 
 /** An encoder that can't capture the tab itself, so the page's screencast feeds it. */
 const picturesHost: VideoHost = {
+  mediaKind: "tab-pictures",
   supported: async () => ["avc1.42E033"],
   open: async (_page, width, height) => ({
     encodes: () => {},

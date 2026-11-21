@@ -12,6 +12,7 @@ const page: BrowserCdp = { send: async () => ({}), on: () => {}, off: () => {} }
 function fakeHost() {
   const encodes: VideoEncode[][] = [];
   const host: VideoHost = {
+    mediaKind: "tab",
     supported: async () => ["avc1.42E033"],
     open: async () => ({
       encodes: (specs) => encodes.push([...specs]),
@@ -72,6 +73,7 @@ describe("the first picture a viewer gets", () => {
 function endingHost() {
   const opened: CaptureEvents[] = [];
   const host: VideoHost = {
+    mediaKind: "tab",
     supported: async () => ["avc1.42E033"],
     open: async (_page, _width, _height, events) => {
       opened.push(events);
@@ -267,6 +269,7 @@ async function twoViewers() {
   const keyframes: string[] = [];
   let closed = 0;
   const host: VideoHost = {
+    mediaKind: "tab",
     supported: async () => ["avc1.42E033"],
     open: async (_page, _width, _height, events) => {
       opened.push(events);
@@ -343,6 +346,7 @@ describe("a paused viewer", () => {
     let clock = 1_000;
     const sound: boolean[] = [];
     const host: VideoHost = {
+      mediaKind: "tab",
       supported: async () => ["avc1.42E033"],
       open: async () => ({
         encodes: () => {},
