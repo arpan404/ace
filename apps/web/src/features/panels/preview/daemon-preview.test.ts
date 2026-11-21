@@ -327,3 +327,38 @@ test("a view whose subscribe ace-media can't serve says why instead of staying b
   preview.dispose();
   link.connection.stop();
 });
+
+test("a view ace-media couldn't serve asks again on its own, on the same connection, and shows once its source is available", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, failingSubagent()).step();
+  daemon.browser.drive("thread-settings", { url: "http://localhost:5173" });
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const link = await fakePreviewMedia(daemon);
+  const timers = manualTimers();
+  // ace-media can't serve the view when it subscribes; the connection stays open.
+  daemon.media.serving = false;
+  const preview = daemonPreview(client, {
+    media: link.media,
+    schedule: timers.schedule,
+    visibility: page(),
+    videoDecoder: instantDecoder().factory,
+    videoSupport: playsH264,
+  });
+  const stop = preview.watch("thread-settings");
+  await preview.open("thread-settings", failingSubagent().thread.workspaceId);
+  await waitFor(() =>
+    expect(preview.undelivered?.("thread-settings")).toBe("Live video isn't available now."),
+  );
+  const connection = link.media.binding()?.connection;
+  // It becomes available: the view's own retry asks again, naming the same connection.
+  daemon.media.serving = true;
+  timers.fire();
+  await waitFor(() => expect(preview.frame("thread-settings")).toBeDefined());
+  expect(link.media.binding()?.connection).toBe(connection);
+  expect(preview.undelivered?.("thread-settings")).toBeUndefined();
+  stop();
+  preview.dispose();
+  link.connection.stop();
+});

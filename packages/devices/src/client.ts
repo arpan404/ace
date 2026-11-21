@@ -394,8 +394,7 @@ export class DeviceClient {
    * A subscribe of `deviceId` failed: try again after the bounded backoff, unless the channel
    * closed, nothing holds the stream any more or another subscribe went out meanwhile.
    */
-  private retryLater(deviceId: string): void {
-    const delay = this.media.retryDelay(deviceId);
+  private retryLater(deviceId: string, delay = this.media.retryDelay(deviceId)): void {
     if (delay === undefined) return;
     const epoch = this.epoch;
     const generation = this.media.generation(deviceId);
@@ -440,6 +439,10 @@ export class DeviceClient {
    * way, shown now; past the buffer's bounds, the delivery is asked for a fresh keyframe.
    */
   private release(sourceId: string, settled: Settled): void {
+    // Answered without delivery: ask again on the unserved ladder, which never gives up and
+    // keeps naming the connection, since the source may become available at any time.
+    if (this.media.unserved(sourceId))
+      this.retryLater(sourceId, this.media.unservedDelay(sourceId));
     for (const { frame, generation } of settled.pictures)
       this.pictures.publish({ ...frame, sourceId, generation });
     const ask = settled.ask;

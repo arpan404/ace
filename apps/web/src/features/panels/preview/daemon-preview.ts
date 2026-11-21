@@ -43,7 +43,7 @@ import {
   type VideoDecoderFactory,
   type VideoSupport,
 } from "@/lib/video/codecs.ts";
-import type { MediaConnection } from "@ace/client/media";
+import { unavailableReason, type MediaConnection } from "@ace/client/media";
 import { imagePoster, type PosterDecoder } from "@/lib/video/poster.ts";
 import {
   mediaSubscribeDeadlineMs,
@@ -61,7 +61,7 @@ const lateReplyMs = 120_000;
 /** What the browser's view uses of the daemon connection's media connection (ADR 0147 §4). */
 export type PreviewMedia = Pick<
   MediaConnection,
-  "binding" | "settled" | "watch" | "onStream" | "ack"
+  "binding" | "settled" | "watch" | "onStream" | "ack" | "state"
 >;
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
@@ -185,6 +185,11 @@ interface Watch {
   cancel: (() => void) | undefined;
   /** A failed subscribe's retry on the shared ladder and cooldown (`SubscribeRetry`). */
   retry: SubscribeRetry;
+  /**
+   * A subscribe answered without delivery asks again on its own ladder, which never gives up
+   * and keeps naming the connection: its source may become available at any time.
+   */
+  unserved: SubscribeRetry;
 }
 
 export interface PreviewOptions {
@@ -275,6 +280,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     watch: (listener) => media.watch(listener),
     onStream: (listener) => media.onStream(listener),
     ack: (message) => media.ack(message),
+    unavailable: () => unavailableReason(media.state),
   };
   const deliveries = new MediaSubscriptions<BrowserVideoChunk>();
   deliveries.use(route);
@@ -547,7 +553,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     });
   };
   /** The waiting retry (and its step) ends: an invalidation, an unmount, a dispose. */
-  const stopRetry = (watch: Watch) => watch.retry.stop();
+  const stopRetry = (watch: Watch) => {
+    watch.retry.stop();
+    watch.unserved.stop();
+  };
   /**
    * Something changed that a subscribe may now succeed on (an agent opened the browser, the page
    * opened or switched engine, the page shows again): a retry waiting on the ladder may go at
@@ -555,6 +564,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    */
   const pollNow = (threadId: string, watch: Watch) => {
     watch.retry.event();
+    // Its source may have become available: an unserved view asks again now.
+    if (deliveries.unserved(threadId) && watch.unserved.event()) watch.subscribed = false;
     watch.cancel?.();
     poll(threadId);
   };
@@ -584,6 +595,13 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
             const current = watches.get(threadId);
             if (current === watch && current.generation === generation) {
               current.subscribed = true;
+              // Answered without delivery: ask again on the unserved ladder, never giving up.
+              if (deliveries.unserved(threadId))
+                current.unserved.failed(() => {
+                  if (watches.get(threadId) !== current) return;
+                  current.subscribed = false;
+                  poll(threadId);
+                });
               // The subscribe carried the pane as it was; tell a change made since.
               if (captures.get(threadId) !== reported) sendCapture(threadId, current);
               releasePane(threadId);
@@ -859,6 +877,11 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           subscribed: false,
           subscribing: undefined,
           retry: new SubscribeRetry(deliveries, threadId, later),
+          unserved: new SubscribeRetry(
+            { retryDelay: (source) => deliveries.unservedDelay(source), giveUp: () => {} },
+            threadId,
+            later,
+          ),
           cancel: undefined,
         };
         watches.set(threadId, watch);

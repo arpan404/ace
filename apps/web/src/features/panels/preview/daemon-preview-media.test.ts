@@ -1,7 +1,12 @@
 import { FakeDaemon, ScenarioPlayer, failingSubagent } from "@ace/fake-daemon";
 import { waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
-import { ThreadId, type MediaStreamClientMessage, type MediaPoster } from "@ace/protocol";
+import {
+  MediaConnectionId,
+  ThreadId,
+  type MediaStreamClientMessage,
+  type MediaPoster,
+} from "@ace/protocol";
 import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
@@ -21,6 +26,11 @@ function fakeMedia(initial: string | undefined) {
   const acks: MediaStreamClientMessage[] = [];
   const media: PreviewMedia = {
     binding: () => (connection ? { connection } : undefined),
+    get state() {
+      return connection
+        ? { state: "open" as const, connection: MediaConnectionId.parse(connection) }
+        : { state: "unavailable" as const, reason: "unavailable" };
+    },
     settled: () => Promise.resolve(),
     watch: (listener) => {
       watchers.add(listener);

@@ -316,7 +316,8 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         cursor={pageCursor}
         onDropFiles={(files, at) => void browser.dropFiles(shown.tabId, files, at)}
         menu={chrome.menu}
-        dimmed={!online || live.status === "paused"}
+        dimmed={!online || live.status === "paused" || page.undelivered !== undefined}
+        notice={native.shown ? undefined : page.undelivered}
       />
     );
   else if (!online) content = <Offline />;

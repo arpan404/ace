@@ -151,6 +151,8 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   #previous = new Map<string, Delivery>();
   /** Failed subscribes in a row, per source, for the retry delay. */
   #attempts = new Map<string, number>();
+  /** Subscribes in a row answered without delivery, per source, for `unservedDelay`. */
+  #unserved = new Map<string, number>();
   /** Refused for this source: not named again while it is the binding. */
   #refused = new Map<string, string>();
   #posters = new Map<string, MediaPoster>();
@@ -240,7 +242,10 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     const bound = delivery.asked !== undefined && media?.connection === delivery.asked;
     const via = bound && delivery.asked ? delivery.asked : nonePath;
     delivery.via = via;
-    if (bound) delete delivery.undelivered;
+    if (bound) {
+      delete delivery.undelivered;
+      this.#unserved.delete(source);
+    }
     // Without a binding, this client knows better than the daemon why: it named none.
     else delivery.undelivered = delivery.asked ? (undelivered ?? failedSubscribe) : this.#why();
     this.#previous.delete(source);
@@ -306,6 +311,17 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     const connection = this.#route?.binding()?.connection;
     if (connection) this.#refused.set(source, connection);
   }
+  /**
+   * How long until a source whose subscribe was answered without delivery (ace-media couldn't
+   * serve it, or there was no connection to name) asks again: the ladder's steps, then the
+   * cooldown, for as long as it isn't delivered. Its source may become available at any time,
+   * so it never gives up, and it names the connection each time.
+   */
+  unservedDelay(source: string): number {
+    const attempt = this.#unserved.get(source) ?? 0;
+    this.#unserved.set(source, attempt + 1);
+    return mediaRetryDelaysMs[attempt] ?? mediaRetryCooldownMs;
+  }
   /** How long until a failed source is tried again; undefined once the retries are spent. */
   retryDelay(source: string): number | undefined {
     const attempt = this.#attempts.get(source) ?? 0;
@@ -358,6 +374,14 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   poster(source: string): MediaPoster | undefined {
     return this.#posters.get(source);
   }
+  /**
+   * Whether `source`'s subscribe named a connection and ace-media couldn't serve it: it asks
+   * again on `unservedDelay`. One that named none waits for a binding instead (`watch`).
+   */
+  unserved(source: string): boolean {
+    const delivery = this.#deliveries.get(source);
+    return delivery?.via === nonePath && delivery.asked !== undefined;
+  }
   /** Why `source`'s current delivery gets no pictures; undefined while one does or may. */
   undelivered(source: string): MediaUndelivered | undefined {
     const delivery = this.#deliveries.get(source);
@@ -377,11 +401,13 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.end(source);
     this.#refused.delete(source);
     this.#attempts.delete(source);
+    this.#unserved.delete(source);
   }
   reset(): void {
     this.#deliveries.clear();
     this.#previous.clear();
     this.#attempts.clear();
+    this.#unserved.clear();
     this.#candidates.clear();
     this.#refused.clear();
     this.#posters.clear();

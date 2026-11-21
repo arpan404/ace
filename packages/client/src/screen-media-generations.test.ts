@@ -357,3 +357,28 @@ describe("screen pictures across a media rebind", () => {
     expect(view.subscribes).toHaveLength(2);
   });
 });
+
+describe("a subscribe answered without delivery", () => {
+  it("asks again on its own, still naming the connection, until ace-media serves it", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    // ace-media couldn't serve the session: no `media` in the reply.
+    view.reply(view.subscribes[0]!, "channel");
+    await flush();
+    expect(view.subscribes).toHaveLength(1);
+    // Its retry comes round: it subscribes again, naming the same connection.
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+    expect(view.subscribes[1]?.media).toEqual({ connection: "mc_aaaaaaaaaa" });
+    // Served this time: pictures come, and no retry is left waiting for it.
+    view.reply(view.subscribes[1]!, "binds");
+    await flush();
+    view.deliver(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+  });
+});

@@ -37,6 +37,9 @@ export async function fakePreviewMedia(
   const injected = new Set<(message: StreamMessage) => void>();
   const media: PreviewMedia = {
     binding: () => connection.binding(),
+    get state() {
+      return connection.state;
+    },
     settled: () => connection.settled(),
     watch: (listener) => connection.watch(listener),
     onStream: (listener) => {

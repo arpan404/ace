@@ -129,6 +129,7 @@ describe("device pictures by the media connection", () => {
         deviceId,
         media: { connection: "mc_aaaaaaaaaa" },
         codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
+        mediaClient: true,
       },
     ]);
     deliver(hevc(1));
@@ -156,7 +157,7 @@ describe("device pictures by the media connection", () => {
     client.watchDeliveries((state) => states.push(state));
     client.retainStream(deviceId);
     await flush();
-    expect(subscribes()).toEqual([{ op: "subscribe", deviceId }]);
+    expect(subscribes()).toEqual([{ op: "subscribe", deviceId, mediaClient: true }]);
     expect(states.at(-1)).toMatchObject({
       path: "none",
       undelivered: { code: "connecting", reason: "Connecting to live video…" },
@@ -207,6 +208,7 @@ describe("device pictures by the media connection", () => {
         deviceId,
         media: { connection: "mc_aaaaaaaaaa" },
         codecs: ["avc1.42E033"],
+        mediaClient: true,
       },
     ]);
   });

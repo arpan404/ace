@@ -87,9 +87,12 @@ export class FakeMediaConnections {
     };
   };
 
-  /** Whether `connection` is open: a subscribe naming it is delivered there. */
+  /** While false, ace-media can't serve any view: connections stay open, nothing is bound. */
+  serving = true;
+
+  /** Whether `connection` is open and served: a subscribe naming it is delivered there. */
   live(connection: string | undefined): boolean {
-    return connection !== undefined && this.#live.has(connection);
+    return this.serving && connection !== undefined && this.#live.has(connection);
   }
 
   /** One picture's pieces on `connection`; false when it is gone. */
