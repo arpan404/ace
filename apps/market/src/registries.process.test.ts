@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { marketPublicKey } from "@ace/marketplace";
 import { registryProofHeader, signRegistryRequest } from "@ace/marketplace/registry";
-import { registrySignerIo } from "@ace/marketplace/registry-io";
+import { registrySignerIo, type RegistryFetch } from "@ace/marketplace/registry-io";
 import { signPending } from "@ace/marketplace/signer";
 import { keySetOf, registryLink, sampleSkill, testKey } from "@ace/marketplace/testing";
 import { VersionBody } from "@ace/protocol/marketplace";
@@ -57,10 +57,16 @@ async function addKey(link: { upload: string; grant: string }) {
 const firstLink = (key = acmeKey) =>
   registryLink({ org, position: 0, key, owner, at: Date.now(), grantKey });
 
+/** The Worker reached as the org signer reaches the market: a standard fetch's answer. */
+const viaWorker: RegistryFetch = async (path, init) => {
+  const answer = await market.fetch(path, init);
+  return new Response(await answer.arrayBuffer(), { status: answer.status });
+};
+
 /** The org signer's run, as `ace org registry sign` makes it on the organization's machine. */
 const orgSign = (key = acmeKey) =>
   signPending(
-    registrySignerIo({ org, key, now: Date.now, fetch: (path, init) => market.fetch(path, init) }),
+    registrySignerIo({ org, key, now: Date.now, fetch: viaWorker }),
     key,
     Date.now,
     keySetOf(marketKey),
@@ -181,7 +187,7 @@ describe("publishing to the registry", () => {
     expect(((await published.json()) as { held: boolean }).held).toBe(true);
     const report = await orgSign();
     expect(report.signed).not.toContain("spade-skill/held-skill@1.0.0");
-    const io = registrySignerIo({ org, key: acmeKey, now: Date.now, fetch: market.fetch });
+    const io = registrySignerIo({ org, key: acmeKey, now: Date.now, fetch: viaWorker });
     expect(
       (await io.put("/v1/signer/holds/spade-skill/held-skill/1.0.0", { decision: "approve" }))
         .status,
