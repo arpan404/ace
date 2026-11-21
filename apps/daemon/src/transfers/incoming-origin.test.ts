@@ -2,7 +2,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { PinnedDirectory } from "@ace/workspace";
+import type { PinnedDirectory } from "@ace/workspace";
 import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import { Device, HostId, WorkspaceId, type TransferBegin } from "@ace/protocol";
 import { Store } from "../store.ts";
@@ -28,6 +28,12 @@ const device = Device.parse({
 });
 const project = WorkspaceId.parse("workspace-here");
 const unreached = () => Promise.reject(new Error("Not reached in this test"));
+/** A held folder no step of these landings may use. */
+const untouchable = new Proxy({} as PinnedDirectory, {
+  get: (_target, name) => {
+    throw new Error(`The parent's descriptor was used: ${String(name)}`);
+  },
+});
 
 /** A target with one project, a checkout whose origin is `origin`. */
 async function target(origin: string) {
@@ -50,11 +56,14 @@ async function target(origin: string) {
     archive: {} as TransferArchive,
     projects: {
       list: () => [{ workspaceId: project, path }],
-      // Origin can't be cloned here (no SSH key for it), so a transfer by origin falls back.
-      parent: async (requested) => {
-        const handle = PinnedDirectory.open(requested ?? root);
-        return { path: requested ?? root, handle, close: async () => handle.close() };
-      },
+      // A folder for the new project is only reserved, by name: origin can't be cloned here
+      // (`clone` fails at once, as with no SSH key for it), so nothing is ever made through the
+      // parent's descriptor, and this needs no native build. Any use of it fails the test.
+      parent: async (requested) => ({
+        path: requested ?? root,
+        handle: untouchable,
+        close: async () => {},
+      }),
       clone: unreached,
     } as Partial<TargetProjects> as TargetProjects,
     threads: {} as never,
