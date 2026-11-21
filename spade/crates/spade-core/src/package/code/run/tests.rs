@@ -194,3 +194,98 @@ mod routes {
         assert!(matches!(route(secrets), Route::Refuse(_)));
     }
 }
+
+mod http {
+    use crate::autonomy::Mode;
+    use crate::effect::ceiling::{Ceiling, Effects};
+    use crate::effect::{Effect, Route};
+    use crate::org::{Gate, Policy};
+    use crate::package::code::run::{HttpCall, http_route};
+
+    fn ceiling(allows: &[Effect]) -> Option<Ceiling<'static>> {
+        Some(Ceiling {
+            bot: "Fares",
+            allows: allows.iter().copied().collect::<Effects>(),
+        })
+    }
+
+    fn acme(body: &str) -> Option<Gate<'static>> {
+        let policy = Box::leak(Box::new(
+            Policy::parse(body).unwrap_or_else(|| panic!("a policy")),
+        ));
+        Some(Gate {
+            org: "Acme",
+            policy,
+        })
+    }
+
+    fn request(mode: Mode) -> HttpCall<'static> {
+        HttpCall {
+            tainted: false,
+            mode,
+            ceiling: ceiling(&[Effect::Network]),
+            org: None,
+        }
+    }
+
+    #[test]
+    fn each_request_runs_only_while_the_ceiling_and_the_organization_allow_it_in_every_mode() {
+        for mode in [Mode::AutoReview, Mode::FullAccess] {
+            assert_eq!(http_route(request(mode)), Route::Run, "{mode:?}");
+            // The person turned network off since the call was decided.
+            let off = HttpCall {
+                ceiling: ceiling(&[]),
+                ..request(mode)
+            };
+            assert!(matches!(http_route(off), Route::Refuse(_)), "{mode:?}");
+            // The organization's policy turned network off since.
+            let forbidden = HttpCall {
+                org: acme(r#"{"effects": {"network_without_hosts": "off"}}"#),
+                ..request(mode)
+            };
+            assert!(
+                matches!(http_route(forbidden), Route::Refuse(ref why) if why.contains("Acme")),
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_request_after_untrusted_content_or_on_a_shared_bot_goes_to_a_person() {
+        let tainted = HttpCall {
+            tainted: true,
+            ..request(Mode::AutoReview)
+        };
+        assert!(matches!(http_route(tainted), Route::Ask { .. }));
+        // A shared bot's outward step needs a member's say, each request.
+        let shared = HttpCall {
+            org: acme("{}"),
+            ..request(Mode::FullAccess)
+        };
+        assert!(matches!(http_route(shared), Route::Ask { .. }));
+    }
+}
+
+#[test]
+fn a_calls_log_of_tools_is_bounded_whatever_the_component_sends() {
+    let mut log = CallLog::default();
+    let huge = "x".repeat(1024 * 1024);
+    for _ in 0..10_000 {
+        log.push(&huge, "refused");
+    }
+    let kept: usize = log.lines().iter().map(String::len).sum();
+    assert!(kept <= MOST_CALL_BYTES + 32, "{kept}");
+    assert!(log.lines().len() <= MOST_CALL_LINES + 1);
+    assert_eq!(log.len(), 10_000);
+    assert!(log.lines().last().is_some_and(|l| l.starts_with("and ")));
+    // A long name is cut to the limit in the log.
+    let mut one = CallLog::default();
+    one.push(&"y".repeat(100), "refused");
+    assert_eq!(
+        one.lines(),
+        vec![format!("{}: refused", "y".repeat(MOST_CALL_NAME))]
+    );
+    // A name past the limit is refused, without echoing it.
+    let refused = call_refusal(&huge).unwrap_or_default();
+    assert!(refused.len() < 200, "{}", refused.len());
+}

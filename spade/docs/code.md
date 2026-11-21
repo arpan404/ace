@@ -118,7 +118,9 @@ sha256 (`Link::code`, kept with a pending or held step too). A local package's i
 its code, so a version whose code alone changed is another version.
 
 Each bot with code gets its own worker, started at its first call, whose only folder
-(`<data>/code/bots/<bot>`) holds copies of exactly its pinned bytes. A step that commits, Pause
+(`<data>/code/bots/<bot>`) holds copies of exactly its switched-on pinned bytes: a component that
+is off is never copied, loaded, listed or run, and its switch is read again right before its tools
+are listed. Turning a component's switch on or off ends the bot's worker. A step that commits, Pause
 and removing the bot end the worker and its folder; the next call starts from the link's pins.
 As Spade opens, kept bytes no link, pending step or held step names go, with folders of bots
 that are gone. After an install, a step and Spade's start each component is asked for its tools
@@ -140,11 +142,11 @@ model's call is gated as any tool's, its package's ceiling first.
 
 Then it runs (`engine::code`), and Spade decides each request it makes:
 
-| Request | What Spade does                                                                                                                                                                                                                                                                                                                                                           |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tools` | Only Spade's own `spade.v1` tools, not those the turn answers itself, a bot's own task or face, `bot_create`, `club_add`, `shell` or `service_start` (`code::run::call_refusal`). Routed by `code::run::route`: the gate's own route, ceiling first, in every mode; nothing the person answered before carries to code, and what a reviewer would read goes to the person |
-| `http`  | Only https, only to a host the package declares under `network` with its switch on, and only while the ceiling allows `network`; sent by Spade through the bot's egress proxy on a ticket of its own, so the bot's network settings and egress log hold it                                                                                                                |
-| `kv`    | Not in this build: answered with why                                                                                                                                                                                                                                                                                                                                      |
+| Request | What Spade does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tools` | Only from a component whose pinned entry imports `spade:package/tools`, whatever the worker sends; a name over 64 characters is refused, and the call's log of what it called is bounded (64 lines, 4 KiB). Only Spade's own `spade.v1` tools, not those the turn answers itself, a bot's own task or face, `bot_create`, `club_add`, `shell` or `service_start` (`code::run::call_refusal`). Routed by `code::run::route`: the gate's own route, ceiling first, in every mode; nothing the person answered before carries to code, and what a reviewer would read goes to the person |
+| `http`  | Only https, only to a host the package declares under `network` with its switch on. Each request is decided afresh before its egress ticket (`code::run::http_route`): the organization's policy and the package's ceiling as they are now, in every mode; once anything untrusted is in view (an earlier answer included) the request goes to the person, and on a shared bot to its approvers. Sent by Spade through the bot's egress proxy on a ticket of its own, so the bot's network settings and egress log hold it                                                            |
+| `kv`    | Not in this build: answered with why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 What code puts to the person is asked in the bot's conversation as an ordinary approval, named
 `<call id>-code-ask-<n>`, with "fares's own code asks for this." The call waits for the answer
@@ -163,7 +165,11 @@ spend, and marks a component whose last three calls each trapped or ran past a b
 reason; nothing turns it off on its own.
 
 The worker is Spade's own binary started with `--code-worker` (the same worker as `spade-wasm`,
-linked in, so a release ships one binary).
+linked in, so a release ships one binary). It compiles nothing unless it runs inside Spade's
+offline sandbox: a connection to this machine must be refused by the sandbox, not by the port,
+so a worker started by hand loads no component. The memory bound holds all of a call's linear
+memories together. A call's answer or request too large for the 16 MiB pipe reads as a failure,
+never a hang, and a pipe that breaks ends the worker (its open calls read stopped or lost).
 
 ## Scenarios
 

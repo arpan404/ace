@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use spade_core::autonomy;
-use spade_core::effect::{self, Effect, Place, Route};
+use spade_core::effect::{self, Route};
 use spade_core::event::{Authorized, Known};
 use spade_core::package::code::Code as Entry;
 use spade_core::package::code::run::{self as code_run, Stop};
@@ -52,9 +52,13 @@ pub struct CodeCall {
 struct Tally {
     tainted: bool,
     reached: Vec<String>,
-    calls: Vec<String>,
+    /// Bounded, whatever the component asks for.
+    calls: code_run::CallLog,
     asked: u32,
 }
+
+/// The most hosts a call's `code_ran` names.
+const MOST_REACHED: usize = 32;
 
 /// Where the call runs.
 struct At<'a> {
@@ -71,7 +75,8 @@ const ANSWER_POLL: Duration = Duration::from_millis(250);
 const DECLINED: &str = "The person declined it.";
 
 impl Engine {
-    pub fn set_code(&self, code: Arc<crate::code::Code>) {
+    pub fn set_code(self: &Arc<Self>, code: Arc<crate::code::Code>) {
+        code.bind(Arc::downgrade(self));
         let _ = self.code.set(code);
     }
 
@@ -107,7 +112,7 @@ impl Engine {
                     .and_then(|m| m.reply.clone())
             })
             .unwrap_or_default();
-        let worker = match code.bot(&bot, &link.code).await {
+        let worker = match code.bot(&bot).await {
             Ok(worker) => worker,
             Err(why) => {
                 return ToolOutput::error(format!("{} couldn't start: {why}", call.entry.name));
@@ -186,13 +191,23 @@ impl Engine {
     ) -> Answer {
         match request {
             HostRequest::Tools { name, input } => {
-                let answer = self.code_tool(at, &name, &input, tally).await;
+                // Only a component whose pinned entry imports Spade's tools may call them: the
+                // worker's word for it is never enough.
+                let answer = if at
+                    .entry
+                    .imports
+                    .contains(&spade_core::package::code::Import::Tools)
+                {
+                    self.code_tool(at, &name, &input, tally).await
+                } else {
+                    Err("this component doesn't import spade:package/tools".to_owned())
+                };
                 let outcome = match &answer {
                     Ok(_) => "ran",
                     Err(why) if why == DECLINED => "declined",
                     Err(_) => "refused",
                 };
-                tally.calls.push(format!("{name}: {outcome}"));
+                tally.calls.push(&name, outcome);
                 answer
             }
             HostRequest::Http {
@@ -208,25 +223,43 @@ impl Engine {
                 {
                     return Err("this component doesn't import spade:package/http".to_owned());
                 }
-                // The ceiling holds code's requests as it holds any network call, in every mode.
-                let ceiling = self.ceiling(at.conversation);
-                let held = ceiling
-                    .as_ref()
-                    .map(|(bot, allows)| effect::ceiling::Ceiling {
-                        bot,
-                        allows: *allows,
-                    });
-                if let Some(why) =
-                    effect::ceiling_holds(held, Some(Effect::Network), None, Place::Host, false)
-                {
-                    return Err(autonomy::refused(&why));
-                }
                 let hosts =
                     code_run::reachable_hosts(&link.manifest.effects, &|key| link.on.contains(key));
                 let host = code_run::http_host(&url, &hosts)?;
+                // Each request is decided before its egress ticket, on the organization's policy
+                // and the package's ceiling as they are now, in every mode.
+                let ceiling = self.ceiling(at.conversation);
+                let org = self.org_gate(at.conversation);
+                let routed = code_run::http_route(code_run::HttpCall {
+                    tainted: tally.tainted || !at.facts.in_view.is_empty(),
+                    mode: self.autonomy(at.conversation),
+                    ceiling: ceiling
+                        .as_ref()
+                        .map(|(bot, allows)| effect::ceiling::Ceiling {
+                            bot,
+                            allows: *allows,
+                        }),
+                    org: org
+                        .as_ref()
+                        .map(|(name, policy)| spade_core::org::Gate { org: name, policy }),
+                });
+                match routed {
+                    Route::Run => {}
+                    Route::Refuse(why) => return Err(autonomy::refused(&why)),
+                    Route::Ask { line, .. } | Route::Review(Some(line)) => {
+                        let shown = serde_json::json!({ "method": method, "url": url });
+                        self.ask_for_code(at, code_run::HTTP, &shown, &line, tally)
+                            .await?;
+                    }
+                    Route::Review(None) => {
+                        let shown = serde_json::json!({ "method": method, "url": url });
+                        self.ask_for_code(at, code_run::HTTP, &shown, code_run::NO_REVIEWER, tally)
+                            .await?;
+                    }
+                }
                 // What came back is a stranger's text, whatever it says.
                 tally.tainted = true;
-                if !tally.reached.contains(&host) {
+                if !tally.reached.contains(&host) && tally.reached.len() < MOST_REACHED {
                     tally.reached.push(host.clone());
                 }
                 let code = self.code().ok_or_else(|| "Spade is closing".to_owned())?;
@@ -465,7 +498,7 @@ fn code_ran(
         peak_memory: stats.peak_memory,
         cut,
         reached: tally.reached.clone(),
-        calls: tally.calls.clone(),
+        calls: tally.calls.lines(),
     })
 }
 

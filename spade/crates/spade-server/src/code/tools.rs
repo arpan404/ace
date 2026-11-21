@@ -71,8 +71,7 @@ impl ToolSource for CodeTools {
         }
         // A component not listed yet is asked for its tools now; they're offered once it answers.
         if unlisted && let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let pins = link.code.clone();
-            handle.spawn(async move { code.list(&bot, &pins).await });
+            handle.spawn(async move { code.list(&bot).await });
         }
         out
     }

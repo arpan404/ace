@@ -417,3 +417,183 @@ async fn an_update_whose_component_imports_more_asks_for_more_and_starts_it_off(
     assert!(on.on.contains("code:fares"));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_component_switched_off_is_never_loaded_or_run_until_the_person_turns_it_on() -> Result {
+    let bytes = component(false);
+    let (spade, _titles) = spade(Vec::new(), Vec::new(), no_http()).await?;
+    let manifest = recipe(json!([]), json!([entry("fares", &["spade:package/tools"])]));
+    let (bot, _chat) = install(
+        &spade,
+        &manifest,
+        sent(&[("fares", &bytes)]),
+        json!({ "code:fares": false }),
+    )
+    .await?;
+    let code = spade.engine.code().unwrap_or_else(|| panic!("code"));
+    let sha: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let copy = spade.dir.path().join(format!("code/bots/{bot}/{sha}.wasm"));
+    // Install, startup and any listing run nothing of it.
+    code.list(&bot).await;
+    assert!(code.listed(&sha).is_none(), "its toolbox ran while off");
+    assert!(!copy.exists(), "its bytes reached its worker while off");
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{bot}/package/effects"),
+            json!({ "key": "code:fares", "on": true }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    code.list(&bot).await;
+    assert!(code.listed(&sha).is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn each_http_request_from_code_is_decided_afresh_and_one_after_untrusted_content_asks()
+-> Result {
+    let http = Arc::new(Fakes::new([(
+        "http:api.example-fares.com".to_owned(),
+        vec![r#"{"n":1}"#.to_owned(), r#"{"n":2}"#.to_owned()],
+    )]));
+    let (spade, _titles) = spade(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "code_fares_twice_get",
+                json!({ "u": "https://api.example-fares.com/x" }),
+            ),
+            Script::reply("Done."),
+        ],
+        Vec::new(),
+        http,
+    )
+    .await?;
+    let manifest = recipe(
+        json!([{ "effect": "network", "hosts": ["api.example-fares.com"], "why": "Reads fares." }]),
+        json!([entry(
+            "fares",
+            &["spade:package/tools", "spade:package/http"]
+        )]),
+    );
+    let (_bot, chat) = install(
+        &spade,
+        &manifest,
+        sent(&[("fares", &component(true))]),
+        json!({ "network:hosts:api.example-fares.com": true, "code:fares": true }),
+    )
+    .await?;
+    spade
+        .post(
+            &format!("/v1/conversations/{chat}/messages"),
+            json!({ "text": "Fares?" }),
+        )
+        .await?;
+    // The code tool reaches the network: the reviewer can't be reached, so the person decides.
+    for asked in 1..=2 {
+        let events = spade
+            .wait_for_count(&chat, "approval_requested", asked)
+            .await?;
+        let request = events
+            .iter()
+            .filter(|e| e["type"] == "approval_requested")
+            .nth(asked - 1)
+            .cloned()
+            .unwrap_or_default();
+        if asked == 2 {
+            // The second request comes after the first answer, a stranger's text: it is decided
+            // on its own, and goes to the person.
+            assert_eq!(request["name"], "spade:package/http", "{request}");
+        }
+        let id = request["call_id"].as_str().unwrap_or_default().to_owned();
+        let (status, body) = spade
+            .post(
+                &format!("/v1/conversations/{chat}/approvals/{id}"),
+                json!({ "allowed": true, "always": false }),
+            )
+            .await?;
+        assert_eq!(status, 202, "{body}");
+    }
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    let answer = finished(&events, "c1").unwrap_or_else(|| panic!("no result: {events:?}"));
+    assert_eq!(answer["content"], r#"{"n":2}"#, "{answer}");
+    assert_eq!(answer["untrusted"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn spade_refuses_tools_requests_from_a_component_whose_entry_doesnt_import_them() -> Result {
+    let search = FakeTool::new("memory_search", Risk::Read, "[]");
+    let searched = search.calls.clone();
+    let (spade, _titles) = spade(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "code_fares_ask_memory_search",
+                json!({ "q": "fares" }),
+            ),
+            Script::reply("No."),
+        ],
+        vec![Arc::new(search) as Arc<dyn Tool>],
+        no_http(),
+    )
+    .await?;
+    let manifest = recipe(json!([]), json!([entry("fares", &["spade:package/tools"])]));
+    let (bot, chat) = install(
+        &spade,
+        &manifest,
+        sent(&[("fares", &component(false))]),
+        json!({ "code:fares": true }),
+    )
+    .await?;
+    // The pinned entry no longer imports Spade's tools, whatever its worker says it asks for.
+    let mut link = spade
+        .engine
+        .bot_package(&bot)
+        .unwrap_or_else(|| panic!("linked"));
+    link.manifest.code[0].imports.clear();
+    spade.engine.set_bot_package(&bot, &link)?;
+    spade
+        .post(
+            &format!("/v1/conversations/{chat}/messages"),
+            json!({ "text": "Search." }),
+        )
+        .await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    let answer = finished(&events, "c1").unwrap_or_else(|| panic!("no result: {events:?}"));
+    assert!(
+        answer["content"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("doesn't import spade:package/tools"),
+        "{answer}"
+    );
+    assert_eq!(searched.lock().map(|c| c.len()).unwrap_or_default(), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn spade_run_by_hand_as_a_code_worker_compiles_nothing() -> Result {
+    let dir = tempfile::tempdir()?;
+    let bytes = component(false);
+    let sha: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let path = dir.path().join(format!("{sha}.wasm"));
+    std::fs::write(&path, &bytes)?;
+    let mut by_hand = tokio::process::Command::new(support::code::PROGRAM);
+    by_hand.arg(spade_wasm::launch::WORKER_ARG);
+    let worker = spade_wasm::Worker::start(by_hand).await?;
+    let loaded = worker.load(&sha, &path).await;
+    assert!(
+        loaded
+            .as_ref()
+            .is_err_and(|why| why == spade_wasm::confine::NOT_CONFINED),
+        "{loaded:?}"
+    );
+    Ok(())
+}

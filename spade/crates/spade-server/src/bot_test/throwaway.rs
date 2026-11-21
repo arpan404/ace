@@ -326,8 +326,8 @@ pub(crate) async fn run_on(
         seed(&folder)?;
     }
     // Its components list their tools before the scenario starts.
-    if let (Some(code), Some(link)) = (spade.engine.code(), spade.engine.bot_package(&agent)) {
-        code.list(&agent, &link.code).await;
+    if let Some(code) = spade.engine.code() {
+        code.list(&agent).await;
     }
     start(spade, scenario, &agent, &conversation).await?;
     Ok((agent, settle(spade, &conversation).await?))

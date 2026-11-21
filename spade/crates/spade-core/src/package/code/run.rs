@@ -189,6 +189,11 @@ const BARRED: &[&str] = &[
 /// `spade.v1` tools are callable (ADR 0203 §2), not an app's or ace's, not another code tool, and
 /// none of [`BARRED`].
 pub fn call_refusal(name: &str) -> Option<String> {
+    if name.len() > MOST_CALL_NAME {
+        return Some(format!(
+            "a tool's name is at most {MOST_CALL_NAME} characters; code asked for a longer one"
+        ));
+    }
     if is_tool(name) {
         return Some(format!("{name}: code doesn't call code tools"));
     }
@@ -292,6 +297,111 @@ pub fn route(call: CodeCall<'_>) -> crate::effect::Route {
             ask: None,
         },
         route => route,
+    }
+}
+
+/// What Spade knows about one `http` request a component makes, for [`http_route`].
+#[derive(Debug, Clone, Copy)]
+pub struct HttpCall<'a> {
+    /// Anything untrusted is in view: the call's input, an earlier answer, a tool's result.
+    pub tainted: bool,
+    pub mode: crate::autonomy::Mode,
+    /// The package's ceiling as it is now.
+    pub ceiling: Option<crate::effect::ceiling::Ceiling<'a>>,
+    /// The organization's policy as it is now, for a shared bot (ADR 0206 §3).
+    pub org: Option<crate::org::Gate<'a>>,
+}
+
+/// The name a request from code is decided and asked about under.
+pub const HTTP: &str = "spade:package/http";
+
+/// Where one `http` request from code goes (ADR 0203 §2), read afresh for each request before its
+/// egress ticket is issued: the gate's own route for a `network` step Spade makes on the code's
+/// behalf. The organization's policy and the package's ceiling come first, as they are now, in
+/// every mode. The code tool's own call stands for the step while nothing untrusted is in view;
+/// once anything is, each request is the person's, as a write after untrusted content is. On a
+/// shared bot every request is its approvers', since an outward step there needs a member's say.
+pub fn http_route(call: HttpCall<'_>) -> crate::effect::Route {
+    use crate::effect::{self, Effect, Place, Route};
+    use crate::tools::Risk;
+    let allowed = call.org.is_none();
+    let gate = effect::Call {
+        tool: HTTP,
+        rule: crate::gate::decide(Risk::Write, allowed, call.tainted),
+        risk: Risk::Write,
+        always: allowed,
+        effect: Some(Effect::Network),
+        remembered: None,
+        place: Place::Host,
+        tainted: call.tainted,
+        credentials: false,
+        standing: false,
+        fits: true,
+        granted: effect::Granted::No,
+        checkpointed: false,
+        target: None,
+        drive: effect::Drive::default(),
+        mode: call.mode,
+        remote: false,
+        classifier: false,
+        ceiling: call.ceiling,
+        command: None,
+        destructive: false,
+        org: call.org,
+    };
+    match effect::route(gate) {
+        Route::Review(concern) => Route::Ask {
+            line: concern.unwrap_or_else(|| NO_REVIEWER.to_owned()),
+            ask: None,
+        },
+        route => route,
+    }
+}
+
+/// The longest tool name code may ask for; a longer one is refused without being kept.
+pub const MOST_CALL_NAME: usize = 64;
+/// What a call's log of the tools it called keeps: this many lines, this many bytes in all.
+pub const MOST_CALL_LINES: usize = 64;
+pub const MOST_CALL_BYTES: usize = 4096;
+
+/// The tools a code call asked for and how each ended (`code_ran`'s `calls`), bounded whatever
+/// the component sends: a name past [`MOST_CALL_NAME`] is cut, and past [`MOST_CALL_LINES`]
+/// lines or [`MOST_CALL_BYTES`] bytes only a count is kept.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CallLog {
+    lines: Vec<String>,
+    bytes: usize,
+    more: usize,
+}
+
+impl CallLog {
+    pub fn push(&mut self, name: &str, outcome: &str) {
+        let name: String = name.chars().take(MOST_CALL_NAME).collect();
+        let line = format!("{name}: {outcome}");
+        if self.lines.len() >= MOST_CALL_LINES || self.bytes + line.len() > MOST_CALL_BYTES {
+            self.more += 1;
+            return;
+        }
+        self.bytes += line.len();
+        self.lines.push(line);
+    }
+
+    /// How many calls it holds or counted.
+    pub fn len(&self) -> usize {
+        self.lines.len() + self.more
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The lines kept, then how many more there were.
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = self.lines.clone();
+        if self.more > 0 {
+            out.push(format!("and {} more", self.more));
+        }
+        out
     }
 }
 

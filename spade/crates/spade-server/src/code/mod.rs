@@ -42,6 +42,18 @@ pub struct Code {
     listed: Mutex<HashMap<String, Listed>>,
     /// Components being listed now, so one is never listed twice at once.
     listing: Mutex<HashSet<String>>,
+    /// The engine whose links say which components are on, once it set this up.
+    engine: std::sync::OnceLock<std::sync::Weak<crate::engine::Engine>>,
+}
+
+/// The components of `link` whose switch is on, by name, with their pins: the only ones loaded,
+/// listed or run (ADR 0203 §5).
+pub fn enabled_pins(link: &spade_core::package::link::Link) -> BTreeMap<String, String> {
+    link.code
+        .iter()
+        .filter(|(name, _)| link.on.contains(&code_run::switch_key(name)))
+        .map(|(name, sha)| (name.clone(), sha.clone()))
+        .collect()
 }
 
 /// What a component's `toolbox.tools` answered.
@@ -63,7 +75,23 @@ impl Code {
             bots: Mutex::default(),
             listed: Mutex::default(),
             listing: Mutex::default(),
+            engine: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Reads which components are on from `engine`'s links.
+    pub(crate) fn bind(&self, engine: std::sync::Weak<crate::engine::Engine>) {
+        let _ = self.engine.set(engine);
+    }
+
+    /// `bot`'s switched-on components and their pins, as its link says now.
+    pub fn enabled(&self, bot: &str) -> BTreeMap<String, String> {
+        self.engine
+            .get()
+            .and_then(std::sync::Weak::upgrade)
+            .and_then(|engine| engine.bot_package(bot))
+            .map(|link| enabled_pins(&link))
+            .unwrap_or_default()
     }
 
     pub(crate) fn http(&self) -> &Arc<dyn http::Http> {
@@ -107,12 +135,10 @@ impl Code {
         (hex(&Sha256::digest(&bytes)) == sha).then_some(bytes)
     }
 
-    /// The bot's worker with every pinned component in its folder: started at its first call.
-    pub async fn bot(
-        &self,
-        bot: &str,
-        pins: &BTreeMap<String, String>,
-    ) -> Result<Arc<BotCode>, String> {
+    /// The bot's worker with every switched-on component in its folder, and no other: started at
+    /// its first call. A switch that moves retires it.
+    pub async fn bot(&self, bot: &str) -> Result<Arc<BotCode>, String> {
+        let pins = self.enabled(bot);
         if let Some(found) = self.bots.lock().unwrap_or_else(|p| p.into_inner()).get(bot) {
             return Ok(found.clone());
         }
@@ -122,7 +148,7 @@ impl Code {
         let launch = self.launch.clone();
         let launched = folder.clone();
         let code = Arc::new(BotCode::new(&folder, Box::new(move || launch(&launched))));
-        for (name, sha) in pins {
+        for (name, sha) in &pins {
             let bytes = self
                 .read_blob(sha)
                 .ok_or_else(|| format!("{name}'s bytes aren't kept on this machine"))?;
@@ -195,9 +221,11 @@ impl Code {
             .cloned()
     }
 
-    /// Asks the bot's worker for the tools of each pinned component not listed yet. A component
-    /// that can't be listed gives no tools, with why.
-    pub async fn list(&self, bot: &str, pins: &BTreeMap<String, String>) {
+    /// Asks the bot's worker for the tools of each switched-on component not listed yet; one
+    /// that is off is never loaded or run. A component that can't be listed gives no tools, with
+    /// why.
+    pub async fn list(&self, bot: &str) {
+        let pins = self.enabled(bot);
         let wanted: Vec<String> = {
             let listed = self.listed.lock().unwrap_or_else(|p| p.into_inner());
             let mut listing = self.listing.lock().unwrap_or_else(|p| p.into_inner());
@@ -207,21 +235,32 @@ impl Code {
                 .collect()
         };
         if !wanted.is_empty() {
-            self.list_now(bot, pins, wanted).await;
+            self.list_now(bot, wanted).await;
         }
         // Another listing of the same component may still be under way: its answer is waited
         // for, so whoever asks is offered its tools once this returns.
         let deadline = tokio::time::Instant::now() + LIST_WAIT;
-        while pins.values().any(|sha| self.listed(sha).is_none())
+        while self
+            .enabled(bot)
+            .values()
+            .any(|sha| self.listed(sha).is_none())
             && tokio::time::Instant::now() < deadline
         {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
     }
 
-    async fn list_now(&self, bot: &str, pins: &BTreeMap<String, String>, wanted: Vec<String>) {
-        let worker = self.bot(bot, pins).await;
+    async fn list_now(&self, bot: &str, wanted: Vec<String>) {
+        let worker = self.bot(bot).await;
         for sha in wanted {
+            // Checked again right before it runs: a switch turned off meanwhile runs nothing.
+            if !self.enabled(bot).values().any(|on| *on == sha) {
+                self.listing
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(&sha);
+                continue;
+            }
             let listed = match &worker {
                 Err(why) => Listed::Failed(why.clone()),
                 Ok(code) => list_one(code, &sha).await,
@@ -320,17 +359,17 @@ pub fn sandboxed(runner: spade_sandbox::Runner, workers: Workers) -> Launch {
 /// Asks `bot`'s components for their tools now, in the background, so its next turn is offered
 /// them: after an install or a step, and as Spade opens.
 pub fn warm(engine: &crate::engine::Engine, bot: &str) {
-    let (Some(code), Some(link)) = (engine.code(), engine.bot_package(bot)) else {
+    let Some(code) = engine.code() else {
         return;
     };
-    if link.code.is_empty() {
+    if code.enabled(bot).is_empty() {
         return;
     }
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return;
     };
     let bot = bot.to_owned();
-    handle.spawn(async move { code.list(&bot, &link.code).await });
+    handle.spawn(async move { code.list(&bot).await });
 }
 
 /// Every pin a bot's link, a step it is taking or a step held for it names, and every bot: what

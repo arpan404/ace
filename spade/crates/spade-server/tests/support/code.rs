@@ -7,7 +7,9 @@
 //! - `spin`: loops forever without yielding;
 //! - `ask_<tool>`: calls Spade's `<tool>` with its input, and answers what Spade said;
 //! - `http_get` (built with `http`): sends a GET to the URL its input names, written exactly
-//!   `{"u":"<url>"}`, and answers the body.
+//!   `{"u":"<url>"}`, and answers the body;
+//! - `twice_get` (built with `http`): the same request twice in one call, answering the second
+//!   body.
 
 use std::sync::Arc;
 
@@ -23,7 +25,7 @@ use super::{Options, Result, Spade};
 pub const PROGRAM: &str = env!("CARGO_BIN_EXE_spade");
 
 const TOOLS: &str = r#"[{"name":"echo","summary":"Says it back."},{"name":"spin","summary":"Never ends."},{"name":"ask_send_message","summary":"Sends through Spade."},{"name":"ask_memory_search","summary":"Searches notes."}"#;
-const HTTP_TOOL: &str = r#",{"name":"http_get","summary":"Fetches a URL."}"#;
+const HTTP_TOOL: &str = r#",{"name":"http_get","summary":"Fetches a URL."},{"name":"twice_get","summary":"Fetches a URL twice."}"#;
 
 /// The component; with `http`, it also imports `spade:package/http` and has `http_get`.
 pub fn component(http: bool) -> Vec<u8> {
@@ -60,6 +62,23 @@ pub fn component(http: bool) -> Vec<u8> {
     let http_branch = if http {
         r#"
       (if (i32.eq (local.get $op) (i32.const 104)) (then
+        (call $http-send (i32.const 2900) (i32.const 3)
+          (i32.add (local.get $in) (i32.const 6)) (i32.sub (local.get $in_len) (i32.const 8))
+          (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 3400))
+        (if (i32.eqz (i32.load8_u (i32.const 3400)))
+          (then
+            (i32.store8 (i32.const 3100) (i32.const 0))
+            (i32.store (i32.const 3104) (i32.load (i32.const 3416)))
+            (i32.store (i32.const 3108) (i32.load (i32.const 3420))))
+          (else
+            (i32.store8 (i32.const 3100) (i32.const 1))
+            (i32.store (i32.const 3104) (i32.load (i32.const 3404)))
+            (i32.store (i32.const 3108) (i32.load (i32.const 3408)))))
+        (return (i32.const 3100))))
+      (if (i32.eq (local.get $op) (i32.const 116)) (then
+        (call $http-send (i32.const 2900) (i32.const 3)
+          (i32.add (local.get $in) (i32.const 6)) (i32.sub (local.get $in_len) (i32.const 8))
+          (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 3400))
         (call $http-send (i32.const 2900) (i32.const 3)
           (i32.add (local.get $in) (i32.const 6)) (i32.sub (local.get $in_len) (i32.const 8))
           (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 3400))
@@ -287,8 +306,8 @@ pub async fn install(
 
 /// Waits until the bot's components listed their tools.
 pub async fn listed(spade: &Spade, bot: &str) {
-    let (Some(code), Some(link)) = (spade.engine.code(), spade.engine.bot_package(bot)) else {
-        panic!("the bot has no code");
+    let Some(code) = spade.engine.code() else {
+        panic!("this Spade runs no code");
     };
-    code.list(bot, &link.code).await;
+    code.list(bot).await;
 }

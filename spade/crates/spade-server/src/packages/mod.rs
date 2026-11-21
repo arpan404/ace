@@ -288,6 +288,14 @@ pub fn set_switch(engine: &Engine, bot: &str, key: &str, on: bool) -> Result<Lin
         after.remove(key);
     }
     switches::commit(engine, bot, &mut link, &before, after)?;
+    // A component turned on or off: its bot's worker ends, and the next starts with exactly the
+    // components on (ADR 0203 §5).
+    if spade_core::package::code::run::switch_component(key).is_some()
+        && let Some(code) = engine.code()
+    {
+        code.retire(bot);
+        crate::code::warm(engine, bot);
+    }
     Ok(link)
 }
 
