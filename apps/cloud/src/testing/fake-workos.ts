@@ -95,8 +95,10 @@ export async function fakeWorkos() {
         }
         // What the fake decided is held back, as a slow answer would be, before it is sent.
         const send = async (status: number, body: unknown) => {
+          // Decided now: what happens while it is held back doesn't change the answer.
+          const decided: unknown = JSON.parse(JSON.stringify(body ?? null));
           await holding(seen, "after");
-          reply(response, status, body);
+          reply(response, status, decided);
         };
         // Where WorkOS keeps profile pictures: an image, and a page that isn't one.
         if (request.url === "/pictures/person.png") {

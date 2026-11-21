@@ -62,6 +62,12 @@
       "namespace_id": "1007",
       "simple": { "limit": 600, "period": 60 },
     },
+    // WorkOS lookups by the standing route, all callers together.
+    {
+      "name": "STANDING_WORKOS",
+      "namespace_id": "1008",
+      "simple": { "limit": 1200, "period": 60 },
+    },
   ],
   // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
   "triggers": { "crons": ["17 * * * *", "* * * * *"] },
@@ -130,6 +136,12 @@
           "namespace_id": "1007",
           "simple": { "limit": 600, "period": 60 },
         },
+        // WorkOS lookups by the standing route, all callers together.
+        {
+          "name": "STANDING_WORKOS",
+          "namespace_id": "1008",
+          "simple": { "limit": 1200, "period": 60 },
+        },
       ],
       "triggers": { "crons": ["17 * * * *", "* * * * *"] },
       "observability": { "enabled": false },
@@ -193,6 +205,12 @@
           "name": "STANDING_REQUESTS",
           "namespace_id": "1107",
           "simple": { "limit": 600, "period": 60 },
+        },
+        // WorkOS lookups by the standing route, all callers together.
+        {
+          "name": "STANDING_WORKOS",
+          "namespace_id": "1108",
+          "simple": { "limit": 1200, "period": 60 },
         },
       ],
       "triggers": { "crons": ["17 * * * *", "* * * * *"] },

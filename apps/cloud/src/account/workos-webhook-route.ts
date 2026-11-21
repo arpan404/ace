@@ -1,6 +1,6 @@
 import type { OrgEvents } from "./org-events.ts";
-import { fail, json } from "./respond.ts";
-import { WEBHOOK_MAX_BYTES, boundedBody, verifiedWebhook } from "./workos-webhook.ts";
+import { boundedBody, fail, json } from "./respond.ts";
+import { WEBHOOK_MAX_BYTES, verifiedWebhook } from "./workos-webhook.ts";
 
 /**
  * POST /v1/workos/webhook: WorkOS's webhook deliveries (ADR 0206 §6), so a directory's

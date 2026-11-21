@@ -65,8 +65,12 @@ export function accountApi(
     sleep?: (ms: number) => Promise<void>;
     /** A machine left the account's list: one still registered on the relay lists itself again. */
     forgotten?: (hostId: string, accountId: string) => Promise<void>;
-    /** The standing route's limit per member account; none when unset. */
-    standingLimited?: (account: string) => Promise<boolean>;
+    /** The standing route's limit per caller and member account; none when unset. */
+    standingLimited?: (key: string) => Promise<boolean>;
+    /** The standing route's limit on WorkOS lookups overall; none when unset. */
+    standingWorkosLimited?: () => Promise<boolean>;
+    /** The per-address limit, for the standing route's callers that don't authenticate. */
+    addressLimited?: (request: Request) => Promise<boolean>;
   },
 ) {
   if (setup.status !== "ready")
@@ -154,7 +158,16 @@ export function accountApi(
     orgs,
     workos: workosOrg,
     now,
+    marketToken: config.marketStandingToken,
+    hostOrg: async (token) => {
+      const principal = await principals.read(token);
+      if (!principal) return undefined;
+      if (principal.kind !== "machine") return null;
+      return (await orgs.credentialOrg(principal.hash)) ?? null;
+    },
+    addressLimited: deps.addressLimited ?? (async () => false),
     limited: deps.standingLimited ?? (async () => false),
+    workosLimited: deps.standingWorkosLimited ?? (async () => false),
   });
   const webhook = workosWebhookRoute({ secret: config.webhookSecret, events, now });
   const loginFor = (publicUrl: string) => {

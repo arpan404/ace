@@ -49,6 +49,16 @@ export const AccountConfig = z.object({
    * route answers 404 and the members mirror follows the minute's Events API run alone.
    */
   webhookSecret: z.string().trim().min(16).optional(),
+  /**
+   * The market's token for `POST /v1/grants/standing` (ADR 0206 §6), a secret the market Worker
+   * holds too, shaped as ace's opaque tokens (32 random bytes, base64url). Without it the
+   * market is never answered there.
+   */
+  marketStandingToken: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_-]{43}$/)
+    .optional(),
 });
 export type AccountConfig = z.infer<typeof AccountConfig>;
 
@@ -79,6 +89,7 @@ export type AccountEnv = {
       | "ACE_GRANT_PREVIOUS_KEY"
       | "ACE_ACCOUNT_PUBLIC_ORIGINS"
       | "WORKOS_WEBHOOK_SECRET"
+      | "ACE_MARKET_STANDING_TOKEN"
   ]?: string;
 };
 
@@ -95,6 +106,7 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
     grantKey: env.ACE_GRANT_KEY,
     previousGrantKey: env.ACE_GRANT_PREVIOUS_KEY || undefined,
     webhookSecret: env.WORKOS_WEBHOOK_SECRET || undefined,
+    marketStandingToken: env.ACE_MARKET_STANDING_TOKEN || undefined,
     allowedOrigins:
       typeof allowed === "string"
         ? allowed

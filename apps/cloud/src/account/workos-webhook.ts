@@ -38,37 +38,6 @@ const fromHex = (hex: string) =>
   Uint8Array.from(hex.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16));
 
 /**
- * Reads at most `max` bytes of a request's body, or undefined once it has more: a body past the
- * limit is never buffered whole, nor waited on to its end.
- */
-export async function boundedBody(request: Request, max: number): Promise<Uint8Array | undefined> {
-  const declared = request.headers.get("Content-Length");
-  if (declared !== null && !(/^[0-9]{1,12}$/.test(declared) && Number(declared) <= max))
-    return undefined;
-  if (!request.body) return new Uint8Array();
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    length += value.byteLength;
-    if (length > max) {
-      await reader.cancel().catch(() => {});
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
-}
-
-/**
  * Checks one WorkOS webhook delivery (ADR 0206 §6, amendment 1): the `WorkOS-Signature` header
  * must carry one canonical `t` and a `v1` HMAC-SHA256 of `<t>.` followed by the body's bytes as
  * sent, under the endpoint's secret, checked by WebCrypto's own `verify`; `t` must be within
