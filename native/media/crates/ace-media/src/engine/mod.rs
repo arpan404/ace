@@ -647,6 +647,17 @@ impl Engine {
                 now.mono_ms,
                 out,
             ),
+            // Image jobs run in the image process (`ace-media --images`, ADR 0201), never beside
+            // live video and recordings.
+            ToMedia::ImageJob { request, .. } => normal(
+                out,
+                FromMedia::ImageFailed {
+                    request,
+                    reason: media_wire::image::ImageFailure::Unsupported,
+                    message: "Image jobs go to ace-media's image process.".into(),
+                },
+            ),
+            ToMedia::ImageCancel { .. } => {}
         }
     }
 

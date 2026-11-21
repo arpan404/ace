@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { appIcon } from "./app-icon.ts";
-import { installedIconPng, rasterPng } from "./icon-image.ts";
+import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
+import { iconImages } from "./icon-image.ts";
+
+/* ace-media draws icons (ADR 0201): the drawing test needs a built binary. */
+const mediaBinary = testMediaBinary();
+const { installedIconPng, rasterPng } = iconImages(binaryImages(mediaBinary ?? ""));
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -88,16 +93,19 @@ it("a KDE app's icon comes from its Breeze theme, and a theme's odd sizes count"
   expect((await lookup("org.kde.kate", env))?.toString()).toBe("kate 310");
 });
 
-it("an installed SVG icon with inline styles is drawn, one with a script never is", async () => {
-  const styled = Buffer.from(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" style="fill:#3584e4"/></svg>',
-  );
-  const scripted = Buffer.from(
-    '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect width="1" height="1"/></svg>',
-  );
-  const png = await installedIconPng(styled);
-  expect(png?.subarray(1, 4).toString()).toBe("PNG");
-  expect(await installedIconPng(scripted)).toBeNull();
-  // A downloaded or repository SVG with the same inline style is still refused.
-  expect(await rasterPng(styled, true)).toBeNull();
-});
+it.skipIf(!mediaBinary)(
+  "an installed SVG icon with inline styles is drawn, one with a script never is",
+  async () => {
+    const styled = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" style="fill:#3584e4"/></svg>',
+    );
+    const scripted = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect width="1" height="1"/></svg>',
+    );
+    const png = await installedIconPng(styled);
+    expect(png?.subarray(1, 4).toString()).toBe("PNG");
+    expect(await installedIconPng(scripted)).toBeNull();
+    // A downloaded or repository SVG with the same inline style is still refused.
+    expect(await rasterPng(styled, true)).toBeNull();
+  },
+);

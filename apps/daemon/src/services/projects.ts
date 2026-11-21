@@ -2,19 +2,16 @@ import { join } from "node:path";
 import { ProjectCommands, ProjectsResult } from "@ace/protocol";
 import { Projects } from "../projects.ts";
 import type { ServiceContext } from "./types.ts";
+import { iconImages } from "../icons/icon-image.ts";
+import { daemonImages } from "./media-images.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-export function startProjects({
-  store,
-  services,
-  options,
-  now,
-  resources,
-  config,
-  log,
-}: ServiceContext): void {
+export function startProjects(context: ServiceContext): void {
+  const { store, services, options, now, resources, config, log } = context;
   const projects = new Projects(store, now, {
     chatsRoot: join(config.dataDir, "chats"),
+    // Favicons are drawn by ace-media (ADR 0201).
+    icons: iconImages(daemonImages(context)),
     ...options.projects,
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     roots:

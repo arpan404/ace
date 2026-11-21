@@ -28,6 +28,8 @@ interface MeasurementContext {
     beforeInput: () => void,
   ): Promise<unknown>;
   host?(): { hostLoad: number; cores: number };
+  /** ace-media, which draws the filmstrip (ADR 0201); without it there is none. */
+  images?: import("@ace/media/images").ImageWork;
 }
 function wait(clock: NavigationClock, ms: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
@@ -216,6 +218,7 @@ async function runMeasurement(
           .candidates()
           .map((candidate) => ({ data: candidate.data, atMs: candidate.atMs - (actionAtMs ?? 0) })),
         measurement,
+        context.images,
       );
       context.read();
       signal?.throwIfAborted();

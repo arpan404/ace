@@ -21,7 +21,6 @@
     "./elision": "./src/elision.ts",
     "./binary-elision": "./src/binary-elision.ts",
     "./data-url": "./src/data-url.ts",
-    "./image": "./src/image.ts",
     "./discovery": "./src/discovery/index.ts",
     "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",

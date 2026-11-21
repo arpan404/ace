@@ -16,6 +16,7 @@ import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import { writeDeviceMessage } from "./device-write.ts";
 import { noMediaRecorder, startMedia } from "./media.ts";
+import { daemonImages } from "./media-images.ts";
 
 export async function startDevices(context: ServiceContext): Promise<void> {
   const { resources, services, options } = context;
@@ -59,6 +60,8 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
       emulatorWindow: async () =>
         (await services.settings?.get("devices.emulatorWindow"))?.value === true,
       ...(services.screen ? { screen: services.screen } : {}),
+      // Screenshots, chrome as PNG, skins and Simulator bodies (ADR 0201).
+      images: daemonImages(context),
     }),
     runtime: {
       now,

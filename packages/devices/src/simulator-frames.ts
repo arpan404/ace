@@ -1,5 +1,5 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
-import { fitImage } from "@ace/provider-kit/image";
+import { fitImage } from "./simulator-frame-fit.ts";
 import { jpegComplete } from "./jpeg.ts";
 import { DeviceError } from "./sdk.ts";
 import { deviceImageStream } from "./stream-control.ts";

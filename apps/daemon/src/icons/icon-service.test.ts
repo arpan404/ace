@@ -5,7 +5,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { ToolIcon } from "@ace/protocol";
 import { IconCache } from "./icon-cache.ts";
 import { IconService } from "./icon-service.ts";
+import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
 import { faviconPng } from "./favicon-image.ts";
+import { iconImages } from "./icon-image.ts";
+
+/* ace-media decodes favicons (ADR 0201): the decoder test needs a built binary. */
+const mediaBinary = testMediaBinary();
 
 const homes: string[] = [];
 const caches: IconCache[] = [];
@@ -194,7 +199,7 @@ test("the same icon stored for two sites at once is written and counted once", a
 });
 
 // Mutation: treating bytes the decoder refuses as a passing failure, fetched again every time.
-test("a favicon the decoder refuses is remembered as no icon", async () => {
+test.skipIf(!mediaBinary)("a favicon the decoder refuses is remembered as no icon", async () => {
   const corrupt = Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     Buffer.from("not really a png at all"),
@@ -208,7 +213,7 @@ test("a favicon the decoder refuses is remembered as no icon", async () => {
     },
     app: async () => null,
     avatar: async () => null,
-    normalize: (bytes) => faviconPng(bytes),
+    normalize: (bytes) => faviconPng(bytes, iconImages(binaryImages(mediaBinary ?? ""))),
     now: () => 1_000,
   });
   expect(await icons.resolve(github)).toBeNull();

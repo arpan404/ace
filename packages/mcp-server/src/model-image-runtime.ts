@@ -1,4 +1,4 @@
-import { fitImage } from "@ace/provider-kit/image";
+import type { ImageWork } from "@ace/media/images";
 
 export interface ModelImageRuntime {
   /** The image scaled down to fit `box`, keeping its shape, as a JPEG of `quality`. */
@@ -10,18 +10,38 @@ export interface ModelImageRuntime {
   after(milliseconds: number, expire: () => void): () => void;
 }
 
-/** The images an agent's screenshot may decode: sharp's old bound, about 268 MP. */
-const maxPixels = 0x3fff * 0x3fff;
+/** The screens an agent's screenshot may come from: a 6K display is about 20 megapixels. */
+const maxPixels = 50_000_000;
 
-/**
- * The sole system boundary. The resize is `fitImage` (`@ace/provider-kit/image`); X4 moves it
- * into ace-media. Tests supply the resize and the deadline.
- */
+function after(milliseconds: number, expire: () => void): () => void {
+  const timer = setTimeout(expire, milliseconds);
+  return () => clearTimeout(timer);
+}
+
+/** The resize as ace-media's image process does it (ADR 0201). */
+export function modelImageRuntime(images: ImageWork): ModelImageRuntime {
+  return {
+    async fit(input, box, quality) {
+      const fitted = await images.run({
+        inputs: [{ kind: "bytes", bytes: input }],
+        op: {
+          op: "fit",
+          maxPixels,
+          width: box.width,
+          height: box.height,
+          autoOrient: false,
+          output: { format: "jpeg", quality },
+        },
+        deadlineMs: 10_000,
+      });
+      return { bytes: Buffer.from(fitted.bytes), width: fitted.width, height: fitted.height };
+    },
+    after,
+  };
+}
+
+/** Without image work a screenshot that needs fitting fails, saying so. */
 export const systemModelImageRuntime: ModelImageRuntime = {
-  fit: (input, box, quality) =>
-    fitImage({ input, maxPixels, autoOrient: false }, box, { format: "jpeg", quality }),
-  after(milliseconds, expire) {
-    const timer = setTimeout(expire, milliseconds);
-    return () => clearTimeout(timer);
-  },
+  fit: () => Promise.reject(new Error("Screenshot resize needs ace-media's image process")),
+  after,
 };

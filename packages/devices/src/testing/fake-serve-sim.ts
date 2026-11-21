@@ -1,7 +1,7 @@
 import { chmod, writeFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import sharp from "sharp";
+import { readFileSync } from "node:fs";
 import { WebSocketServer } from "ws";
 import { onTestFinished } from "vitest";
 
@@ -66,13 +66,10 @@ export async function fakeServeSim(
   let avccOpened = 0;
   let mjpegOpen = 0;
   const mjpeg = new Set<ServerResponse>();
-  const jpeg = await sharp({
-    create: { width: 201, height: 437, channels: 3, background: "white" },
-  })
-    .jpeg()
-    .toBuffer();
+  // A white 201 × 437 screen.
+  const jpeg = readFileSync(new URL("fixtures/white-201x437.jpg", import.meta.url));
   /** What the screen shows now: like serve-sim, a new MJPEG stream starts with it. */
-  let current = jpeg;
+  let current: Buffer = jpeg;
   const server = createServer((req, res) => {
     if (req.url === `${base}/stream.mjpeg`) {
       mjpegOpen++;

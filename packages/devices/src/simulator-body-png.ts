@@ -1,4 +1,5 @@
-import sharp from "sharp";
+import type { ImageLayer } from "@ace/media/image-wire";
+import { lookDeadlineMs, type ImageWork } from "./device-images.ts";
 import type { BodyPainter } from "./simulator-body.ts";
 import { stretchedArt } from "./simulator-body.ts";
 
@@ -17,53 +18,60 @@ const longestSide = 2400;
 const urlLimit = 900_000;
 
 async function paintAt(
+  images: ImageWork,
   size: { width: number; height: number },
   pieces: Parameters<BodyPainter>[1],
   perUnit: number,
 ): Promise<string | undefined> {
   const width = Math.max(1, Math.round(size.width * perUnit));
   const height = Math.max(1, Math.round(size.height * perUnit));
-  const layers = await Promise.all(
-    pieces.map(async ({ art, rect }) => {
-      const left = Math.round(rect.x * perUnit);
-      const top = Math.round(rect.y * perUnit);
-      const w = Math.round((rect.x + rect.width) * perUnit) - left;
-      const h = Math.round((rect.y + rect.height) * perUnit) - top;
-      if (w <= 0 || h <= 0) return undefined;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg"${stretchedArt(art, w, h).slice("<svg".length)}`;
-      const input = await sharp(Buffer.from(svg, "utf8")).png().toBuffer();
-      // A piece reaching past the body (none should) is cut to it.
-      const cut = {
-        left: Math.max(0, -left),
-        top: Math.max(0, -top),
-        width: Math.min(w, width - left) - Math.max(0, -left),
-        height: Math.min(h, height - top) - Math.max(0, -top),
-      };
-      if (cut.width <= 0 || cut.height <= 0) return undefined;
-      const fits = cut.left === 0 && cut.top === 0 && cut.width === w && cut.height === h;
-      return {
-        input: fits ? input : await sharp(input).extract(cut).toBuffer(),
-        left: Math.max(0, left),
-        top: Math.max(0, top),
-      };
-    }),
-  );
-  const png = await sharp({
-    create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-  })
-    .composite(layers.filter((layer) => layer !== undefined))
-    .png({ compressionLevel: 9 })
-    .toBuffer();
-  const url = `data:image/png;base64,${png.toString("base64")}`;
+  const inputs: { kind: "bytes"; bytes: Uint8Array }[] = [];
+  const layers: ImageLayer[] = [];
+  for (const { art, rect } of pieces) {
+    const left = Math.round(rect.x * perUnit);
+    const top = Math.round(rect.y * perUnit);
+    const w = Math.round((rect.x + rect.width) * perUnit) - left;
+    const h = Math.round((rect.y + rect.height) * perUnit) - top;
+    if (w <= 0 || h <= 0) continue;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"${stretchedArt(art, w, h).slice("<svg".length)}`;
+    // Each piece drawn on its own at whole pixels; a piece reaching past the body (none should)
+    // is cut to it by the canvas.
+    layers.push({
+      kind: "image",
+      input: inputs.length,
+      left,
+      top,
+      width: w,
+      height: h,
+      fit: "fill",
+    });
+    inputs.push({ kind: "bytes", bytes: Buffer.from(svg, "utf8") });
+  }
+  const png = await images.run({
+    inputs,
+    op: {
+      op: "compose",
+      width,
+      height,
+      background: [0, 0, 0, 0],
+      maxPixels: width * height,
+      layers,
+      output: { format: "png" },
+    },
+    deadlineMs: lookDeadlineMs,
+  });
+  const url = `data:image/png;base64,${Buffer.from(png.bytes).toString("base64")}`;
   return url.length < urlLimit ? url : undefined;
 }
 
-/** Paints the pieces as PNG, as sharp as fits; undefined when they can't be drawn. */
-export const pngBody: BodyPainter = async (size, pieces) => {
-  const largest = Math.min(mostPerUnit, longestSide / Math.max(size.width, size.height, 1));
-  for (const perUnit of [largest, largest / 2]) {
-    const url = await paintAt(size, pieces, perUnit).catch(() => undefined);
-    if (url) return url;
-  }
-  return undefined;
-};
+/** Paints the pieces as PNG through ace-media, as crisp as fits; undefined when they can't be drawn. */
+export function pngBody(images: ImageWork): BodyPainter {
+  return async (size, pieces) => {
+    const largest = Math.min(mostPerUnit, longestSide / Math.max(size.width, size.height, 1));
+    for (const perUnit of [largest, largest / 2]) {
+      const url = await paintAt(images, size, pieces, perUnit).catch(() => undefined);
+      if (url) return url;
+    }
+    return undefined;
+  };
+}

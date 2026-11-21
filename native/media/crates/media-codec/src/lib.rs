@@ -21,7 +21,7 @@ pub use resample::SimdKernel;
 
 pub use contract::*;
 pub use picture::*;
-pub use still::{CpuScaler, fit_size, fit_size_with_max_pixels};
+pub use still::{CpuScaler, fit_size, fit_size_with_max_pixels, resample_rgba};
 
 /// The portable SIMD CPU fallback. Hardware selection belongs to the probe.
 pub fn default_still_codec() -> Box<dyn StillCodec> {

@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { imageWidth } from "./media-image-test-support.ts";
 import { afterEach, expect, vi } from "vitest";
 import { z } from "zod";
 import { MediaRuntime } from "@ace/media/runtime";
@@ -67,9 +68,8 @@ const pages: Record<string, string> = {
 const magenta = ([r, g, b]: [number, number, number]) => r > 190 && g < 110 && b > 190;
 
 async function bytesImage(bytes: Uint8Array) {
-  const { default: sharp } = await import("sharp");
   const data = Buffer.from(bytes);
-  return { data: data.toString("base64"), width: (await sharp(data).metadata()).width ?? 0 };
+  return { data: data.toString("base64"), width: await imageWidth(data) };
 }
 
 /**
