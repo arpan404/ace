@@ -1,11 +1,6 @@
 import { MagnifyingGlassIcon } from "@ace/icons";
 import { useConnectionState } from "@ace/client-react";
-import {
-  fuzzyPositions,
-  parseQuickOpen,
-  pathParts,
-  type QuickOpenRow,
-} from "@ace/ui-core";
+import { fuzzyPositions, parseQuickOpen, pathParts, type QuickOpenRow } from "@ace/ui-core";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { CommandDialog } from "@/components/ui/command.tsx";
@@ -68,7 +63,11 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   const rows = useMemo<Row[]>(
     () =>
       query
-        ? typedQuickOpenRows(query, search.data ?? [], { open: openEditors, changed: edited, recent })
+        ? typedQuickOpenRows(query, search.data ?? [], {
+            open: openEditors,
+            changed: edited,
+            recent,
+          })
         : emptyQuickOpenRows({ open: openEditors, changed: edited, recent }),
     [query, search.data, recent, edited, openEditors],
   );

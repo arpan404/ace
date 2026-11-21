@@ -62,9 +62,7 @@ export function FileMatches(props: {
             key={path}
             name={name}
             tabbable={false}
-            items={
-              <FileRowItems entry={{ path: clean, folder }} commands={props.commands} />
-            }
+            items={<FileRowItems entry={{ path: clean, folder }} commands={props.commands} />}
           >
             {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the filter field's arrows and Enter pick through aria-activedescendant */}
             <div

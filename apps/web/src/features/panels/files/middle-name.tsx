@@ -38,11 +38,7 @@ export function MiddleName(props: {
       </span>
       {end && (
         <span data-part="name-end" className="shrink-0 whitespace-pre">
-          <Highlighted
-            text={end}
-            offset={props.offset + head.length}
-            positions={props.positions}
-          />
+          <Highlighted text={end} offset={props.offset + head.length} positions={props.positions} />
         </span>
       )}
     </span>

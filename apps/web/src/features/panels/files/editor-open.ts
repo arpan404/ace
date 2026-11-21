@@ -44,7 +44,12 @@ export function useEditorOpen(threadId: string): EditorOpen {
   return {
     open: (path, options) =>
       openInEditorPanel(
-        { scope: threadId, read: () => store.get(threadId), actions, preferred: () => store.preferred },
+        {
+          scope: threadId,
+          read: () => store.get(threadId),
+          actions,
+          preferred: () => store.preferred,
+        },
         path,
         {
           keep: !options.preview,
