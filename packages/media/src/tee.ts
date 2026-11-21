@@ -11,11 +11,18 @@ import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
  * as it applies it.
  */
 
-/** One encoded unit as the daemon has it. */
+/**
+ * One unit as the daemon has it: encoded video or audio, or a JPEG picture for a source whose
+ * pictures ace-media encodes itself (`picture`, MediaFrame kind 3, codec 7). Every picture is
+ * whole, so none waits for a keyframe.
+ */
 export type TeeUnit = {
-  kind: "video" | "audio";
+  kind: "video" | "audio" | "picture";
   keyframe: boolean;
-  /** MediaFrame codec: 1 H.264 Annex B, 2 H.264 AVCC, 3 HEVC Annex B, 4 HEVC HVCC, 9 Opus. */
+  /**
+   * MediaFrame codec: 1 H.264 Annex B, 2 H.264 AVCC, 3 HEVC Annex B, 4 HEVC HVCC, 7 JPEG,
+   * 9 Opus.
+   */
   codec: number;
   width: number;
   height: number;
@@ -49,8 +56,10 @@ export type MediaTeeOptions = {
   connect: (path: string) => IngestSocket;
   now: () => number;
   randomBytes: (length: number) => Uint8Array;
-  /** The tee connected, or dropped deltas while ace-media fell behind: ask the producer for a
-   * keyframe. */
+  /**
+   * The tee connected, dropped deltas while ace-media fell behind, or ace-media asked
+   * (`source.keyframe`, its recording resuming after a discarded epoch): a keyframe is owed.
+   */
   keyframe: () => void;
   /**
    * The established ingest connection was lost while ace-media runs: its socket closed or
@@ -115,7 +124,7 @@ export class MediaTee {
   /**
    * ace-media's messages about its own source: `source.status` (connect at `starting`, lost at
    * `retrying` or `ended`), `source.ingest` (ace-media took the hello: accepted) and
-   * `source.synced` (a barrier holds).
+   * `source.synced` (a barrier holds), and `source.keyframe` (a keyframe is owed).
    */
   message(message: FromMedia): void {
     if (!("source" in message) || message.source !== this.#options.source) return;
@@ -124,6 +133,11 @@ export class MediaTee {
         this.#bound = true;
         this.#settle(true);
       }
+      return;
+    }
+    if (message.type === "source.keyframe") {
+      // The recording waits for a keyframe in a clear epoch after one it discarded.
+      if (this.#socket) this.#options.keyframe();
       return;
     }
     if (message.type === "source.synced") {
@@ -187,10 +201,13 @@ export class MediaTee {
       }
       if (this.#skipping && !unit.keyframe) return;
       this.#skipping = false;
-    } else if (this.#skipping) return;
+    } else if (unit.kind === "audio" && this.#skipping) return;
+    // A picture behind a full queue is dropped: the next one stands on its own.
+    else if (unit.kind === "picture" && socket.queued > teeQueueLimit) return;
     const epoch = this.#stamper.stamp(this.#options.now());
-    const kind = unit.kind === "video" ? 1 : 2;
-    const flags = (unit.keyframe ? 1 : 0) | (unit.description ? 4 : 0);
+    const kind = unit.kind === "video" ? 1 : unit.kind === "audio" ? 2 : 3;
+    const keyframe = unit.keyframe || unit.kind === "picture";
+    const flags = (keyframe ? 1 : 0) | (unit.description ? 4 : 0);
     this.#frames++;
     socket.write(
       encodeMediaFrame({

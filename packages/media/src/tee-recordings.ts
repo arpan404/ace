@@ -5,11 +5,19 @@ import type { MediaHealth } from "./supervision-policy.ts";
 import { MediaTee, type IngestSocket, type TeeUnit } from "./tee.ts";
 import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
+type EncodeSpec = Extract<ToMedia, { type: "source.encodes" }>["encodes"][number];
+/** The encode id a picture recording's one encode runs under. */
+const recordingEncode = 1;
+/** Origins whose units are JPEG pictures ace-media encodes. */
+const pictureOrigins: ReadonlySet<Origin["kind"]> = new Set(["tab-pictures", "screen-pictures"]);
+
 /**
- * Recordings until X2 (docs/media/plan.md, phase 1): the daemon has a source's frames (from its
- * own producer socket, or back from ace-media on egress) and tees them into ace-media's ingest,
- * where ace-media's recorder writes the parts. There is no other recorder: when ace-media can't
- * take a recording, it refuses to start with the reason, rather than record nothing.
+ * Every recording (docs/media/plan.md, X1): the daemon has a source's units and tees them into
+ * ace-media's ingest, where ace-media's recorder writes the parts. Encoded video (a device's
+ * H.264, a screen's from egress) goes in as it is; JPEG pictures (a browser tab's screencast, a
+ * JPEG-only screen) go in as pictures that ace-media encodes for the recording alone, whether
+ * anyone watches or not. There is no other recorder: when ace-media can't take a recording, it
+ * refuses to start with the reason, rather than record nothing.
  *
  * The daemon's state is the truth. After an ace-media restart `replay` reopens every recording's
  * source and starts it again; the new process makes the part the crash cut playable, and the
@@ -37,17 +45,25 @@ export type TeeRecordingsPort = {
   clock: MediaClock;
 };
 
+/** The one encode ace-media runs for a recording of JPEG pictures, whether anyone watches or not. */
+export type RecordingEncode = Omit<EncodeSpec, "id">;
+
 export type TeeRecordingSpec = {
-  /** What the source is, as ace-media's `source.open` names it. */
+  /**
+   * What the source is, as ace-media's `source.open` names it. A JPEG kind (`tab-pictures`,
+   * `screen-pictures`) takes `picture` units, which ace-media encodes as `encode` says.
+   */
   origin: Origin;
+  /** For a source of JPEG pictures: the stream ace-media encodes them into and records. */
+  encode?: RecordingEncode;
   /** Where ace-media writes the parts (`part-NNNN.mp4`). */
   directory: string;
   /** The most one part holds; ace-media keeps it between 64 KiB and 512 MiB. */
   maxBytes: number;
   /** The source is private now: frames read now are never written. */
   private(): boolean;
-  /** Ask the producer for a keyframe. */
-  keyframe(): void;
+  /** Ask the producer for a keyframe (an encoded source's; a picture source needs none). */
+  keyframe?(): void;
   /** The recording ended without `stop` (ace-media failed it). */
   failed?(end: RecordingEnd): void;
   /** A part closed: ace-media reported it, once. */
@@ -102,6 +118,20 @@ export class TeeRecordings {
     if (refused) {
       release();
       return { ok: false, reason: refused };
+    }
+    const pictures = pictureOrigins.has(spec.origin.kind);
+    if (pictures !== (spec.encode !== undefined)) {
+      release();
+      return { ok: false, reason: "A recording of pictures needs its encode, and only it does" };
+    }
+    // An older ace-media takes pictures only as stills, never encodes them: nothing would be
+    // recorded, so it refuses rather than record nothing.
+    if (pictures && !port.speaks("picture-ingest")) {
+      release();
+      return {
+        ok: false,
+        reason: unavailable("this ace-media is too old to record pictures; update ace"),
+      };
     }
     const recording = new TeeRecording(port, spec, release, (it) => this.#live.delete(it));
     if (!recording.begin()) {
@@ -202,6 +232,8 @@ export class TeeRecording implements ActiveRecording {
   readonly #spec: TeeRecordingSpec;
   /** ace-media exited and hasn't been replayed yet. */
   #down = false;
+  readonly #source: string;
+  readonly #send: (message: ToMedia) => boolean;
 
   constructor(
     port: TeeRecordingsPort,
@@ -215,6 +247,8 @@ export class TeeRecording implements ActiveRecording {
     this.#spec = spec;
     const id = port.id();
     const source = `recording:${id}`;
+    this.#source = source;
+    this.#send = (message) => port.send(message);
     this.#tee = new MediaTee(
       {
         source,
@@ -225,7 +259,7 @@ export class TeeRecording implements ActiveRecording {
         connect: (path) => port.connect(path),
         now: () => port.clock.now(),
         randomBytes: (length) => port.randomBytes(length),
-        keyframe: () => spec.keyframe(),
+        keyframe: () => this.#keyframe(),
         lost: (reason) => this.#lost(reason),
         speaks: (feature) => port.speaks(feature),
       },
@@ -243,7 +277,7 @@ export class TeeRecording implements ActiveRecording {
       epoch: 1,
       // The tee stamps with an epoch from the moment it has it, so it acknowledges at once.
       issue: (issued) => this.#media.acknowledged(this.#tee.epoch(issued)),
-      keyframe: () => spec.keyframe(),
+      keyframe: () => this.#keyframe(),
       part: (part) => spec.part?.(part),
       // ace-media answers once it took every frame written and decided the last epoch.
       drain: (decided) => deadline(this.#tee.sync(decided), port.clock, syncMs),
@@ -262,7 +296,27 @@ export class TeeRecording implements ActiveRecording {
 
   /** @internal Opens the source and starts the recording; false when ace-media refused. */
   begin(): boolean {
-    return this.#tee.open() && this.#media.start();
+    return this.#open() && this.#media.start();
+  }
+
+  /** Opens the source in the running ace-media, with a picture source's encode. */
+  #open(): boolean {
+    if (!this.#tee.open()) return false;
+    const encode = this.#spec.encode;
+    if (!encode) return true;
+    // Its own encode, whatever the live views want: it runs while nobody watches.
+    return this.#send({
+      type: "source.encodes",
+      source: this.#source,
+      encodes: [{ ...encode, id: recordingEncode }],
+    });
+  }
+
+  /** A keyframe is owed: a picture source's encode makes one; any other asks its producer. */
+  #keyframe(): void {
+    if (this.#spec.encode)
+      this.#send({ type: "source.key", source: this.#source, encode: recordingEncode });
+    else this.#spec.keyframe?.();
   }
 
   /** @internal A recording that never got going: whatever ace-media began is stopped. */
@@ -279,7 +333,7 @@ export class TeeRecording implements ActiveRecording {
   replay(): void {
     if (this.#done) return;
     this.#down = false;
-    this.#tee.open();
+    this.#open();
     // A stopping recording takes no more video: the new process recovering the part the crash
     // cut is all that's left, so the crash's own loss needs no replacement (the end still says
     // its last epoch was left out). A running one needs ace-media to accept the new connection.

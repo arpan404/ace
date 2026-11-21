@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { decodeMediaFrame } from "./frame.ts";
 import { recoveryMs } from "./recordings.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
 import { ManualClock } from "./supervisor-test-support.ts";
@@ -414,4 +415,98 @@ it("ingest lost while the stop's barrier is pending stays a failure when ace-med
   m.recordings.message({ type: "record.part", recording: id, ...part(0) });
   m.recordings.message({ type: "record.done", recording: id, parts: [] });
   await expect(stopping).resolves.toEqual({ ok: false, reason: "ingest-closed", parts: [part(0)] });
+});
+
+const pictureSpec = (): TeeRecordingSpec => ({
+  ...spec(),
+  origin: { kind: "tab-pictures" },
+  encode: { codec: "avc1.42E033", width: 1280, height: 720, fps: 15, bitrate: 4_000_000 },
+});
+
+const jpeg = {
+  kind: "picture",
+  keyframe: false,
+  codec: 7,
+  width: 1280,
+  height: 720,
+  payload: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+} as const;
+
+it("records a picture source through its own encode, opened before anyone watches and again after a restart", async () => {
+  const m = media();
+  m.up();
+  const { recording } = await started(m, pictureSpec());
+  const encodes = () =>
+    m.sent.filter((message) => message.type === "source.encodes").map((message) => message);
+  expect(encodes()).toEqual([
+    {
+      type: "source.encodes",
+      source: expect.stringMatching(/^recording:/),
+      encodes: [
+        { id: 1, codec: "avc1.42E033", width: 1280, height: 720, fps: 15, bitrate: 4_000_000 },
+      ],
+    },
+  ]);
+  recording.push(jpeg);
+  // The picture goes in whole, as a still picture ace-media encodes: none waits for a keyframe.
+  const frames = m.written.map((bytes) => decodeMediaFrame(bytes));
+  expect(frames.map((frame) => [frame.kind, frame.codec, frame.flags & 1])).toEqual([
+    [5, 0, 0],
+    [3, 7, 1],
+  ]);
+  m.crash();
+  m.up();
+  await Promise.resolve();
+  expect(encodes()).toHaveLength(2);
+});
+
+it("asks a picture recording's own encode for the keyframe ace-media wants, never the producer", async () => {
+  const m = media();
+  m.up();
+  const asked: string[] = [];
+  await started(m, { ...pictureSpec(), keyframe: () => asked.push("producer") });
+  const open = m.sent.find((message) => message.type === "source.open");
+  if (open?.type !== "source.open") throw new Error("no source.open");
+  const keys = () => m.sent.filter((message) => message.type === "source.key");
+  const before = keys().length;
+  // ace-media's recording resumes after a discarded epoch and needs a clear keyframe.
+  m.recordings.message({
+    type: "source.keyframe",
+    source: open.source,
+    encode: 1,
+    reason: "resume",
+  });
+  expect(keys().slice(before)).toEqual([{ type: "source.key", source: open.source, encode: 1 }]);
+  expect(asked).toEqual([]);
+});
+
+it("passes ace-media's keyframe ask on to an encoded source's producer", async () => {
+  const m = media();
+  m.up();
+  let asked = 0;
+  await started(m, { ...spec(), keyframe: () => void asked++ });
+  const open = m.sent.find((message) => message.type === "source.open");
+  if (open?.type !== "source.open") throw new Error("no source.open");
+  const before = asked;
+  m.recordings.message({
+    type: "source.keyframe",
+    source: open.source,
+    encode: 0,
+    reason: "resume",
+  });
+  expect(asked).toBe(before + 1);
+});
+
+it("refuses a picture recording, saying why, on an ace-media that can't encode pictures", async () => {
+  const m = media();
+  m.state.speaks = false;
+  m.up();
+  const start = await m.recordings.start(pictureSpec());
+  expect(start).toEqual({
+    ok: false,
+    reason:
+      "ace-media isn't available to record: this ace-media is too old to record pictures; update ace",
+  });
+  expect(m.types()).toEqual([]);
+  expect(m.needs()).toBe(0);
 });
