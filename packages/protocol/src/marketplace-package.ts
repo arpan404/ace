@@ -31,6 +31,7 @@ export const PackageModule = z.enum([
   "devices",
   "outward",
   "notify",
+  "code",
 ]);
 
 const Host = z

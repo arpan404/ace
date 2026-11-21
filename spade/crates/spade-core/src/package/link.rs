@@ -172,12 +172,12 @@ pub fn narrowed(chain: impl IntoIterator<Item = Option<Effects>>) -> Option<Effe
     chain.into_iter().flatten().reduce(Effects::and)
 }
 
-/// The switches as the person left them on the review: a declared effect is on only where their
-/// switch says so (a switch missing from the answer is off), and a key the package didn't
+/// The switches as the person left them on the review: a declared effect, or a component, is on
+/// only where their switch says so (a switch missing from the answer is off), and a key the package didn't
 /// declare turns nothing on.
 pub fn switched_on(manifest: &Manifest, switches: &BTreeMap<String, bool>) -> BTreeSet<String> {
     manifest
-        .effect_keys()
+        .switch_keys()
         .into_iter()
         .filter(|key| switches.get(key).copied().unwrap_or(false))
         .collect()

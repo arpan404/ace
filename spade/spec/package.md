@@ -129,6 +129,7 @@ doesn't have, by the module's name.
 | `devices` | ace's browser, screen and simulators, and devices named with @, through ace. |
 | `outward` | Pushes, comments and messages with the person's own sign-ins. |
 | `notify` | Proactive notices to the person, under their quiet hours, do not disturb, interruption budget and each bot's notification switch; what waits goes into the morning brief. A bot sends at most 3 an hour (more wait for the brief) and 12 a day (more are refused). The words are the bot's, shown as plain text. |
+| `code` | The tools of the package's own WebAssembly components (ADR 0203), one per tool a component gives, named `code_<component>_<tool>`. Each runs in the bot's sandbox with no authority of its own: what it reaches through `spade:package/http` and `spade:package/tools` Spade does after the gate, the ceiling first. A component the person turned off gives no tools. |
 <!-- spec:end modules -->
 
 ## Triggers
