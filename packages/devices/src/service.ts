@@ -141,7 +141,6 @@ export class DevicesService {
         !session.startup &&
         !session.stopping &&
         !session.recording &&
-        !session.recordingOpening &&
         !session.recordingClosing &&
         !session.completed &&
         !session.logs.running &&
@@ -830,6 +829,10 @@ export class DevicesService {
   }
   private stop(session: DeviceSession): Promise<void> {
     return stopDevice(session, this.lifecycleOwner());
+  }
+  /** How an agent's screenshot is fitted to the model (ADR 0201). */
+  modelImages(): import("@ace/mcp-server").ModelImageRuntime {
+    return this.options.platform.modelImages();
   }
   async screenshot(id: string, actor: Actor): Promise<Frame> {
     const session = await this.session(id);

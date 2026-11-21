@@ -29,14 +29,20 @@ import {
 } from "./lanes.ts";
 import {
   crashLoop,
-  mediaWanted,
   restartDelay,
   supervisionTimings,
   type MediaHealth,
   type MediaSettings,
 } from "./supervision-policy.ts";
 import { secureRandomBytes, type MediaClock, type MediaHost } from "./supervisor-host.ts";
-import { controlLane, decodeFromMedia, type FromMedia, type ToMedia } from "./wire.ts";
+import {
+  controlLane,
+  decodeFromMedia,
+  unknownFromMedia,
+  type FromMedia,
+  type MediaFeature,
+  type ToMedia,
+} from "./wire.ts";
 
 export * from "./diagnostics.ts";
 export * from "./grants.ts";
@@ -120,11 +126,10 @@ export class MediaSupervisor {
   /**
    * Marks a use of ace-media (a source, viewer, recording or still) and starts it if needed.
    * Returns the release; 60 s after the last release ace-media is shut down. A need that comes
-   * during that shutdown starts a fresh process once the old one has exited. While the setting
-   * gate is closed this does nothing.
+   * during that shutdown starts a fresh process once the old one has exited.
    */
   need(): () => void {
-    if (this.#disposed || !mediaWanted(this.#options.settings())) return () => {};
+    if (this.#disposed) return () => {};
     this.#needs++;
     this.#idleTimer?.();
     this.#idleTimer = undefined;
@@ -153,6 +158,11 @@ export class MediaSupervisor {
    */
   ingest(): Ready["ingest"] | undefined {
     return this.#accepting() ? this.#run?.ready?.ingest : undefined;
+  }
+
+  /** Whether the running ace-media agreed to speak `feature` (`ready.features`). */
+  speaks(feature: MediaFeature): boolean {
+    return this.#accepting() && (this.#run?.ready?.features?.includes(feature) ?? false);
   }
 
   /** ace-media's direct listener for clients (D1), while it takes grants. */
@@ -241,7 +251,7 @@ export class MediaSupervisor {
     if (run) return run.stopping ? "stopping" : run.up ? "running" : "starting";
     if (this.#unavailable) return "unavailable";
     if (this.#restartTimer) return "backoff";
-    return mediaWanted(this.#options.settings()) ? "idle" : "disabled";
+    return "idle";
   }
 
   #start(): void {
@@ -311,6 +321,13 @@ export class MediaSupervisor {
     try {
       decoded = decodeFromMedia(frame, lane);
     } catch (error) {
+      // A newer ace-media's message type is skipped (decode leniently); anything else is fatal.
+      if (unknownFromMedia(frame, lane)) {
+        this.#options.log("debug", "ace-media sent a message type this daemon doesn't know", {
+          lane,
+        });
+        return;
+      }
       this.#options.log("error", "ace-media sent an invalid frame", { lane, error: String(error) });
       return this.#kill(run, "protocol");
     }

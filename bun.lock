@@ -850,6 +850,7 @@
       "name": "@ace/mcp-server",
       "dependencies": {
         "@ace/html": "workspace:*",
+        "@ace/media": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@modelcontextprotocol/client": "2.2.0",

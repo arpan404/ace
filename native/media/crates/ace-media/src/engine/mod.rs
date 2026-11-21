@@ -192,6 +192,11 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Speaks the optional features the daemon agreed to (`ready.features`).
+    pub fn agree(&mut self, features: &[String]) {
+        self.sources.report_ingest = features.iter().any(|f| f == "source.ingest");
+    }
+
     pub fn new(recorders: Box<dyn Recorders>, egress: Box<dyn EgressSink>) -> Self {
         Self {
             vault: Vault::new(),
@@ -336,6 +341,12 @@ impl Engine {
                     out,
                 );
             }
+            ToMedia::SourceSync {
+                source,
+                seq,
+                frames,
+                decided,
+            } => self.sources.sync(&source, seq, frames.get(), decided, out),
             ToMedia::SourceEpoch {
                 source,
                 seq,

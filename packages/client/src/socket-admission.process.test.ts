@@ -21,7 +21,7 @@ function deviceService() {
     },
     env: {},
     recordingDirectory: "/unused",
-    publishArtifact: async (artifact) => artifact,
+    publishArtifact: async () => {},
   });
 }
 

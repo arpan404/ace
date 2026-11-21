@@ -21,6 +21,7 @@
     "./images": "./src/images.ts",
     "./image-process": "./src/image-process.ts",
     "./tee": "./src/tee.ts",
+    "./tee-recordings": "./src/tee-recordings.ts",
     "./session-link": "./src/session-link.ts",
     "./ingest-sources": "./src/ingest-sources.ts",
     "./ingest-writer": "./src/ingest-writer.ts",

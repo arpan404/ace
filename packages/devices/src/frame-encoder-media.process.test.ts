@@ -48,8 +48,8 @@ it.runIf(process.platform === "darwin" && !!binary)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const resumed: string[] = [];
     const runtime = new MediaRuntime({
@@ -73,8 +73,6 @@ it.runIf(process.platform === "darwin" && !!binary)(
       },
       capabilities: {
         ingest: ["emulator-frames"],
-        recordings: false,
-        stills: false,
         delivery: false,
       },
     });

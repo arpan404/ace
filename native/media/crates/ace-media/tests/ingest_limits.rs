@@ -105,5 +105,6 @@ fn a_connection_that_never_sends_a_valid_hello_is_closed_and_real_producers_stil
     let mut producer = unix(&ingest);
     let _ = producer.write_all(&media_frame(5, 0, vec![5; 32]));
     let _ = producer.write_all(&media_frame(1, 1, vec![0; 100]));
+    assert_eq!(ingest_of(media.read()), "s1");
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
 }

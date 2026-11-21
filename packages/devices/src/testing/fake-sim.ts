@@ -141,7 +141,12 @@ function liveFrame(streamId: string, sequence: number): Frame {
 }
 
 /** A devices service over the fake platform, with devices on and a capture that goes live. */
-export async function fakeSimService(): Promise<{
+export async function fakeSimService(
+  options: {
+    /** Android captures can't stream video (scrcpy-server can't run on the image). */
+    androidVideo?: boolean;
+  } = {},
+): Promise<{
   service: DevicesService;
   platform: FakeSimPlatform;
   close(): Promise<void>;
@@ -158,8 +163,14 @@ export async function fakeSimService(): Promise<{
       spawn: spawnRawSupervised,
       after: () => () => {},
     },
-    async capture(options) {
-      options.publish(liveFrame(options.streamId, 0));
+    async capture(capture) {
+      if (options.androidVideo === false && capture.device.platform === "android")
+        throw new DeviceError(
+          "not_supported",
+          "The Android live view needs scrcpy-server: it exited at once",
+          "Use an Android 5 or later image.",
+        );
+      capture.publish(liveFrame(capture.streamId, 0));
       return { async stop() {} };
     },
     recordingDirectory: home,

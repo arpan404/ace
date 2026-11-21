@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { deriveLaneKeys, LaneRecords, laneTranscript } from "./lane-records.ts";
 import { laneAccepted, type ByteSource, type LaneSocket } from "./lanes.ts";
 import type { MediaChild, MediaClock, MediaHost, MediaSupervisorOptions } from "./supervisor.ts";
-import { legacyMediaSettings } from "./supervisor.ts";
+import { defaultMediaSettings } from "./supervisor.ts";
 import { decodeToMedia, encodeControl, type FromMedia, type ToMedia } from "./wire.ts";
 
 /** A clock whose timers run only when the test advances it. */
@@ -463,7 +463,7 @@ export function harness(overrides: Partial<MediaSupervisorOptions> = {}) {
     binary: "/opt/ace/media/ace-media",
     runtimeDir: "/run/ace",
     dataDir: "/data/ace",
-    settings: () => ({ ...legacyMediaSettings, delivery: "auto" }),
+    settings: () => ({ ...defaultMediaSettings, delivery: "auto" }),
     host,
     clock,
     random: () => 0.5,

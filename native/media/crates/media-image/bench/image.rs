@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! cargo run --release -p media-image --example image
-//! One-shot image jobs (ADR 0201) on the jobs the daemon sends, against the `Bun.Image` path
+//! One-shot image jobs (ADR 0201) on the jobs the daemon sends, against the Bun image-pipeline path
 //! they replace (about 10 ms on the Mac for the screenshot fit, docs/media/plan.md M5). Five
 //! warm-ups, then 50 samples each; one JSON line per job. Fails above its bound unless
 //! ACE_MEDIA_BENCH_REPORT_ONLY=1, or when the load average is past twice the core count.
@@ -49,7 +49,7 @@ fn load_too_high() -> bool {
         .is_some_and(|load| load > 2.0 * cores)
 }
 
-/// The screenshot fit's bound: Bun.Image's ≈ 10 ms on the Mac, and M5's x86 AVX2 bound.
+/// The screenshot fit's bound: the Bun image pipeline's ≈ 10 ms on the Mac, and M5's x86 AVX2 bound.
 const FIT_BOUND_MS: f64 = if cfg!(target_os = "macos") {
     10.0
 } else {
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     let jobs: Vec<(&str, &[Input], ImageOp, f64)> = vec![
-        // The screenshot and model-image fit: JPEG to JPEG, M5's planar path. Bun.Image ≈ 10 ms.
+        // The screenshot and model-image fit: JPEG to JPEG, M5's planar path (Bun: ≈ 10 ms).
         (
             "fit-jpeg-1568",
             &screen,

@@ -404,7 +404,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   screenshot_failed: {
     message: "Screenshot encoding failed or exceeded the model limit",
-    hint: "Install ffmpeg on the daemon host for large screenshots, or use semantic UI tools.",
+    hint: "Take the screenshot again; if it keeps failing, use semantic UI tools.",
   },
   target_gone: {
     message: "Native target is no longer available",

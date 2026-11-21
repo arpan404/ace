@@ -21,6 +21,7 @@ import { SimulatorPostures } from "./simulator-posture.ts";
 import { EmulatorPostures, type EmulatorConsole } from "./android-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { unavailableImages, type ImageWork } from "@ace/media/images";
+import { modelImageRuntime, type ModelImageRuntime } from "@ace/mcp-server";
 import { useSimulatorFrameImages } from "./simulator-frame-fit.ts";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import { iosNeedsMac } from "./sdk.ts";
@@ -469,6 +470,10 @@ export class DevicePlatform {
   async boot(device: Device, authorize?: () => void): Promise<void> {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
     else await this.android.boot(device, authorize);
+  }
+  /** How an agent's screenshot is fitted to the model: through ace-media (ADR 0201). */
+  modelImages(): ModelImageRuntime {
+    return modelImageRuntime(this.images);
   }
   /** One still of the screen, for when no live view is running. */
   screenshot(device: Device, authorize?: () => void): Promise<DeviceShot> {

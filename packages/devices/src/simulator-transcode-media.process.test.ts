@@ -140,8 +140,8 @@ it.runIf(process.platform === "darwin" && ffmpeg && !!binary)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const statuses: Extract<FromMedia, { type: "source.status" }>[] = [];
     const media = new MediaRuntime({
@@ -162,7 +162,7 @@ it.runIf(process.platform === "darwin" && ffmpeg && !!binary)(
       onMessage: (message) => {
         if (message.type === "source.status") statuses.push(message);
       },
-      capabilities: { ingest: ["simulator"], recordings: false, stills: false, delivery: false },
+      capabilities: { ingest: ["simulator"], delivery: false },
     });
     onTestFinished(() => media.dispose());
     const published: Frame[] = [];
