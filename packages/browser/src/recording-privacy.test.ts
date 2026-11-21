@@ -182,3 +182,21 @@ it("a quick move to a private tab and back never records the private tab's pictu
   expect(t.recorded()).not.toContain(9);
   expect(t.recorded()).not.toContain(8);
 });
+
+it("two recordings started at once on different tabs: one runs, the other is refused, nothing is orphaned", async () => {
+  const t = await thread();
+  await t.service.execute("thread", { action: "tabs", operation: "open" });
+  const results = await Promise.allSettled([
+    t.service.execute("thread", { action: "record_start", tabId: "tab-1" }),
+    t.service.execute("thread", { action: "record_start", tabId: "tab-2" }),
+  ]);
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.find((result) => result.status === "rejected")).toMatchObject({
+    reason: { code: "recording_active" },
+  });
+  // Only one recording ever reached ace-media, and stopping it stops it.
+  expect(t.recorder.recordings).toHaveLength(1);
+  t.frame(results[0]?.status === "fulfilled" ? 0 : 1, 3);
+  await t.service.stopRecording("thread").catch(() => {});
+  expect(t.recorder.recordings.every((recording) => recording.stopped)).toBe(true);
+});

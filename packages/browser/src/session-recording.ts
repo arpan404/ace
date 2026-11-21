@@ -65,6 +65,8 @@ type Running = { media: ActiveRecording; tab: RecordedTab };
  */
 export class SessionRecording {
   private recording: Running | undefined;
+  /** A start is under way: the recording slot is its. */
+  private reserved = false;
   private stopPolling = () => {};
   private actor: BrowserTabActor | undefined;
   private options: SessionOptions;
@@ -83,8 +85,9 @@ export class SessionRecording {
     this.paused = paused;
     this.masked = masked;
   }
+  /** A recording runs, or one is starting (its slot is taken until it runs or is cleaned up). */
   get active(): boolean {
-    return this.recording !== undefined;
+    return this.recording !== undefined || this.reserved;
   }
   /** Who started the recording that runs now; people see it and can stop it. */
   get by(): BrowserTabActor | undefined {
@@ -114,13 +117,20 @@ export class SessionRecording {
   ): Promise<void> {
     check();
     if (this.paused()) throw new BrowserActionError("browser_paused");
-    if (this.recording) throw new BrowserActionError("recording_active");
-    await this.masked(true);
+    // The one slot is taken before anything awaits, and held until the recording runs or what
+    // a failed start opened is stopped: a second start meanwhile, from any tab, is refused.
+    if (this.recording || this.reserved) throw new BrowserActionError("recording_active");
+    this.reserved = true;
     try {
-      await this.begin(check, tab, by);
-    } catch (error) {
-      await this.masked(false);
-      throw error;
+      await this.masked(true);
+      try {
+        await this.begin(check, tab, by);
+      } catch (error) {
+        await this.masked(false);
+        throw error;
+      }
+    } finally {
+      this.reserved = false;
     }
   }
   private async begin(check: () => void, tab: RecordedTab, by: BrowserTabActor): Promise<void> {
