@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { messageAt, statusCarriers } from "./status-carriers.test-support.ts";
 import { supportedWireTrims, WireTrimmer } from "./wire-trim.ts";
 
 /** The thread status a client built before ADR 0191 decodes: no `moved`, nothing lenient. */
@@ -146,4 +147,66 @@ describe("moved thread status on the wire", () => {
     });
     expect(new WireTrimmer(undefined).outgoing(working)[0]).toBe(working);
   });
+});
+
+describe("every place a thread status rides", () => {
+  // No other trim: the shapes built here hold only the path to the status.
+  const older = new WireTrimmer(undefined);
+  const carriers = statusCarriers();
+
+  it("is found in the wire schema", () => {
+    // The walk itself works: it sees the places this file names above.
+    expect([...carriers.keys()]).toEqual(
+      expect.arrayContaining([
+        "threads.patch:.threads{}.status",
+        "events:.events[].payload(type=thread.updated).status",
+        "search.results:.hits[].status",
+      ]),
+    );
+  });
+
+  it.each([...carriers])("reaches an older client without moved: %s", (path, leaf) => {
+    const message = messageAt(path, leaf === "status" ? moved : "moved", {
+      // What the schema requires beside the path: a turn's subagents, a thread view's thread.
+      turns: () => ({ status: { state: "new" }, subagents: [] }),
+      view: () => ({ thread: { status: { state: "new" } }, items: {} }),
+    });
+    const [frame] = older.outgoing(message as ServerMessage);
+    expect(JSON.stringify(frame)).not.toContain('"moved"');
+    expect(JSON.stringify(frame)).toContain(leaf === "status" ? '"upstream"' : '"waiting"');
+  });
+});
+
+it("never looks into a provider's own payloads, even one shaped like a moved status", () => {
+  const older = new WireTrimmer(undefined);
+  const native = { state: "moved", to: { hostId: "h", threadId: "t" } };
+  const event = ServerMessage.parse({
+    type: "events",
+    subscriptionId: "thread",
+    afterSeq: 1,
+    throughSeq: 2,
+    events: [
+      {
+        id: "e2",
+        seq: 2,
+        threadId: "t",
+        at: 5,
+        payload: {
+          type: "item.created",
+          item: {
+            id: "m",
+            agentId: "a",
+            type: "message",
+            role: "assistant",
+            parts: [{ type: "text", text: "hi" }],
+            createdAt: 1,
+            raw: [{ type: "assistant", data: native }],
+          },
+        },
+      },
+    ],
+  });
+  const [frame] = older.outgoing(event);
+  expect(frame).toBe(event);
+  expect(JSON.stringify(frame)).toContain('"state":"moved"');
 });
