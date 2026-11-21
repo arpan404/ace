@@ -62,6 +62,9 @@ import Foundation
             guard let self else { return }
             self.posting = nil
             self.sequence += 1
+            // When this sample was taken, on the clock the test shares with the simulator: a test
+            // reading after something it did waits for a sample taken after it (`probeSample`).
+            self.values["probe.at"] = String(format: "%.3f", Date().timeIntervalSince1970)
             Self.post(self.text, sequence: self.sequence, to: destination.url, run: destination.run)
         }
     }

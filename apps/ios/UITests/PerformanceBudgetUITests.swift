@@ -172,14 +172,25 @@ import XCTest
         // read just before and just after them, over the time the swipes took.
         var lostMs: [Double] = [], spentS: [Double] = []
         measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
-            let lostBefore = app.probeValue("frames.lostMsTotal") ?? 0
+            // Both ends come from a sample the app took after that moment: a missing or stale one
+            // fails the run rather than counting as nothing lost.
+            guard let lostBefore = app.probeSample(takenAfter: Date())?["frames.lostMsTotal"].flatMap(Double.init) else {
+                return XCTFail("no frame sample before the swipes")
+            }
             let began = Date()
             list.swipeDown(velocity: .fast)
             list.swipeDown(velocity: .fast)
             list.swipeUp(velocity: .fast)
             list.swipeUp(velocity: .fast)
-            spentS.append(Date().timeIntervalSince(began))
-            lostMs.append((app.probeValue("frames.lostMsTotal") ?? 0) - lostBefore)
+            let ended = Date()
+            // A late frame is counted on the frame after it, and the app posts its numbers in
+            // batches: only a sample taken a little after the last swipe covers it.
+            guard let lostAfter = app.probeSample(takenAfter: ended.addingTimeInterval(0.2))?["frames.lostMsTotal"]
+                    .flatMap(Double.init) else {
+                return XCTFail("no frame sample covering the last swipe")
+            }
+            spentS.append(ended.timeIntervalSince(began))
+            lostMs.append(lostAfter - lostBefore)
         }
         // The sampler ran while the thread was on screen (it reports every five seconds).
         XCTAssertTrue(app.waitForCount("frames.windows", from: windowsBefore, timeout: 10), "frame sampler never reported")
@@ -444,6 +455,18 @@ extension XCUIApplication {
         PerfProbeRead.text(port: launchArgument("--spike-port") ?? "9841", run: launchArgument("--perf-probe-run") ?? "")
     }
     func probeValue(_ key: String) -> Double? { probe[key].flatMap(Double.init) }
+    /// The probe's numbers once the app has posted a sample taken at or after `time`
+    /// (`probe.at`), or nil if none arrives within `timeout`. While a thread is on screen the app
+    /// samples every quarter second, so a fresh one is never far off.
+    func probeSample(takenAfter time: Date, timeout: TimeInterval = 5) -> [String: String]? {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        repeat {
+            let values = probe
+            if let at = values["probe.at"].flatMap(Double.init), at >= time.timeIntervalSince1970 { return values }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        } while Date() < deadline
+        return nil
+    }
     private func launchArgument(_ name: String) -> String? {
         launchArguments.firstIndex(of: name).flatMap { launchArguments.indices.contains($0 + 1) ? launchArguments[$0 + 1] : nil }
     }
