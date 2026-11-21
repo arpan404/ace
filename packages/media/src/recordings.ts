@@ -36,6 +36,8 @@ export type MediaRecordingOptions = {
   keyframe: () => void;
   /** The recording ended: stopped, failed in ace-media, or lost with it while stopping. */
   ended?: (end: RecordingEnd) => void;
+  /** A part closed (its size counts toward the caller's own budget). */
+  part?: (part: RecordedPart) => void;
 };
 
 export type RecordingEnd =
@@ -104,7 +106,9 @@ export class MediaRecording {
     if (!("recording" in message) || message.recording !== this.#options.recording) return;
     if (message.type === "record.part") {
       const { type: _, recording: __, ...part } = message;
+      const fresh = !this.#parts.has(part.index);
       this.#parts.set(part.index, part);
+      if (fresh) this.#options.part?.(part);
     } else if (message.type === "record.done") {
       for (const part of message.parts) this.#parts.set(part.index, part);
       this.#end({ ok: true, parts: this.parts });

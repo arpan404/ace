@@ -186,8 +186,6 @@ function deviceService() {
     },
     env: {},
     recordingDirectory: "/unused",
-    async publishArtifact(artifact) {
-      return artifact;
-    },
+    async publishArtifact() {},
   });
 }

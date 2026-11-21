@@ -1,5 +1,5 @@
 import type { Origin } from "./ingest-sources.ts";
-import { MediaRecording, type RecordingEnd } from "./recordings.ts";
+import { MediaRecording, type RecordedPart, type RecordingEnd } from "./recordings.ts";
 import type { MediaClock } from "./supervisor-host.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
 import { MediaTee, type IngestSocket, type TeeUnit } from "./tee.ts";
@@ -48,9 +48,25 @@ export type TeeRecordingSpec = {
   keyframe(): void;
   /** The recording ended without `stop` (ace-media failed it). */
   failed?(end: RecordingEnd): void;
+  /** A part closed: ace-media reported it, once. */
+  part?(part: RecordedPart): void;
 };
 
-export type RecordingStart = { ok: true; recording: TeeRecording } | { ok: false; reason: string };
+/** A recording as its producer drives it. */
+export type ActiveRecording = {
+  /** One unit of the source, read now. */
+  push(unit: TeeUnit): void;
+  /** The source turned private or public. */
+  privacy(): void;
+  /** Stops, and resolves with the parts once ace-media closed the last one. */
+  stop(): Promise<RecordingEnd>;
+  /** Every part ace-media reported so far, across its restarts. */
+  readonly parts: RecordedPart[];
+};
+
+export type RecordingStart =
+  | { ok: true; recording: ActiveRecording }
+  | { ok: false; reason: string };
 
 /** How long a recording waits for ace-media to start before it refuses. */
 export const recordingStartMs = 10_000;
@@ -142,7 +158,7 @@ function unavailable(why: string): string {
 }
 
 /** One recording: a tee into ace-media's ingest and the recording ace-media makes of it. */
-export class TeeRecording {
+export class TeeRecording implements ActiveRecording {
   readonly #tee: MediaTee;
   readonly #media: MediaRecording;
   readonly #release: () => void;
@@ -187,6 +203,7 @@ export class TeeRecording {
       // The tee stamps with an epoch from the moment it has it, so it acknowledges at once.
       issue: (issued) => this.#media.acknowledged(this.#tee.epoch(issued)),
       keyframe: () => spec.keyframe(),
+      part: (part) => spec.part?.(part),
       ended: (end) => {
         const stopping = this.#stopping;
         this.#finish();
@@ -223,8 +240,7 @@ export class TeeRecording {
     this.#media.lost("media-exited");
   }
 
-  /** Every part ace-media reported so far, across its restarts. */
-  get parts() {
+  get parts(): RecordedPart[] {
     return this.#media.parts;
   }
 

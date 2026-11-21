@@ -44,13 +44,14 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
   return { recordings, clock, sent, state, up, needs: () => needs, written };
 }
 
-const spec = (failed: string[] = []): TeeRecordingSpec => ({
+const spec = (failed: string[] = [], parts: number[] = []): TeeRecordingSpec => ({
   origin: { kind: "scrcpy", host: "127.0.0.1", port: 27183 },
   directory: "/data/recordings/r1",
   maxBytes: 64 << 20,
   private: () => false,
   keyframe: () => {},
   failed: (end) => void failed.push(end.ok ? "ok" : end.reason),
+  part: (part) => void parts.push(part.index),
 });
 
 it("refuses at once, saying why, while ace-media is unavailable, and holds no use of it", async () => {
@@ -115,7 +116,8 @@ it("starts once ace-media is up: the source opens, then the recording, into the 
 it("after ace-media restarts, the recording reopens its source and continues in a new part; stop resolves with every part", async () => {
   const m = media();
   m.up();
-  const start = await m.recordings.start(spec());
+  const closed: number[] = [];
+  const start = await m.recordings.start(spec([], closed));
   if (!start.ok) throw new Error(start.reason);
   const recording = start.recording;
   const record = m.sent.find((message) => message.type === "record.start");
@@ -139,6 +141,8 @@ it("after ace-media restarts, the recording reopens its source and continues in 
   const stopping = recording.stop();
   m.recordings.message({ type: "record.done", recording: record.recording, parts: [part(1)] });
   await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0), part(1)] });
+  // The owner hears of each closed part once, for its own budget.
+  expect(closed).toEqual([0]);
   expect(m.sent.map((message) => message.type)).toContain("source.close");
   expect(m.needs()).toBe(0);
   expect(m.recordings.active).toBe(0);

@@ -1,21 +1,71 @@
 import { afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, chmod, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, chmod, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FilesService } from "@ace/files";
 import { basename } from "node:path";
 import { DeviceOperation } from "@ace/protocol/devices";
-import { framePacket, type Frame, type RecordingArtifact } from "@ace/screen";
+import { framePacket, type Frame } from "@ace/screen";
+import type { MediaRecorder, TeeRecordingSpec } from "@ace/media/tee-recordings";
 import {
   spawnRawSupervised,
   spawnSupervised,
   type SupervisedProcess,
   type RawSupervisedProcess,
 } from "@ace/provider-kit/process";
-import { DevicesService, DevicePlatform, agentOwner, type Actor } from "./index.ts";
+import {
+  DevicesService,
+  DevicePlatform,
+  agentOwner,
+  type Actor,
+  type DeviceRecordingArtifact,
+} from "./index.ts";
 import type { startCapture } from "./capture.ts";
 
 /** Shared fixture for the devices service process tests: a scripted platform and service. */
+
+/**
+ * ace-media's recorder at its boundary: it writes the payloads of the units it was given into one
+ * part, in `spec.directory`, as ace-media writes `part-0000.mp4`. `refuse` makes every start
+ * refuse with that reason, as an unavailable ace-media does.
+ */
+export class FakeRecorder implements MediaRecorder {
+  refuse: string | undefined;
+  /** Units of the running recording; each is the frame payload, as ace-media got it. */
+  units: { keyframe: boolean; payload: Buffer }[] = [];
+  spec: TeeRecordingSpec | undefined;
+  async start(spec: TeeRecordingSpec) {
+    if (this.refuse) return { ok: false as const, reason: this.refuse };
+    this.spec = spec;
+    this.units = [];
+    const units = this.units;
+    return {
+      ok: true as const,
+      recording: {
+        push: (unit: { keyframe: boolean; payload: Uint8Array }) =>
+          void units.push({ keyframe: unit.keyframe, payload: Buffer.from(unit.payload) }),
+        privacy: () => {},
+        parts: [],
+        stop: async () => {
+          await mkdir(spec.directory, { recursive: true, mode: 0o700 });
+          const path = join(spec.directory, "part-0000.mp4");
+          const bytes = Buffer.concat(units.map((unit) => unit.payload));
+          await writeFile(path, bytes);
+          return {
+            ok: true as const,
+            parts: units.length
+              ? [{ path, index: 0, bytes: bytes.length, durationMs: 1, gaps: 0 }]
+              : [],
+          };
+        },
+      },
+    };
+  }
+  /** ace-media closed a part of `bytes`, as it does at its size cap. */
+  closePart(bytes: number): void {
+    this.spec?.part?.({ path: "", index: 0, bytes, durationMs: 1, gaps: 0 });
+  }
+}
 
 export const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -70,6 +120,7 @@ export async function harness(
   let firstFrame = true;
   /** What the fake capture streams: JPEG until a viewer's video preference reaches it. */
   let codec: "jpeg" | "h264" = "jpeg";
+  let keyframes = 0;
   const frameDeadline = deferred<void>();
   let id = 0;
   const timers = new Map<() => void, number>();
@@ -86,7 +137,8 @@ export async function harness(
   if (files) cleanups.push(async () => files.close());
   const effects: string[] = [];
   const profiles: import("@ace/protocol").ScreenStreamSettings[] = [];
-  const publications: RecordingArtifact[] = [];
+  const publications: { id: string; path: string; bytes: number }[] = [];
+  const recorder = new FakeRecorder();
   const published = deferred<void>();
   const publishing = deferred<void>();
   let publicationGate: ReturnType<typeof deferred<void>> | undefined;
@@ -229,6 +281,10 @@ export async function harness(
           codec = settings.codec;
           return { codec: settings.codec };
         },
+        // A keyframe asked for comes at once, numbered from 1000 to tell it apart.
+        async keyframe() {
+          if (codec === "h264") options.publish(frame(options.streamId, 1000 + keyframes++, codec));
+        },
         async stop() {
           stopEntered.resolve();
           if (stopGate) await stopGate.promise;
@@ -237,21 +293,26 @@ export async function harness(
         },
       };
     },
-    async publishArtifact(artifact) {
-      publications.push(artifact);
+    recorder,
+    async publishArtifact(artifact: DeviceRecordingArtifact) {
+      const part = artifact.parts[0];
+      if (!part) throw new Error("No part");
+      const path = join(root, `${artifact.id}.mp4`);
+      await rename(part.path, path);
+      publications.push({ id: artifact.id, path, bytes: part.bytes });
       publishing.resolve();
       if (publicationGate) await publicationGate.promise;
       published.resolve();
       if (files) {
         const registered = await files.registerArtifact({
           root,
-          path: basename(artifact.path),
-          name: "device.screen",
+          path: basename(path),
+          name: "Device recording.mp4",
           category: "recording",
         });
-        return { id: registered, bytes: artifact.bytes, mimeType: artifact.mimeType };
+        return { id: registered, bytes: part.bytes, mimeType: "video/mp4" };
       }
-      return { ...artifact };
+      return { id: artifact.id, bytes: part.bytes, mimeType: "video/mp4" };
     },
   });
   cleanups.push(() => service.close());
@@ -276,6 +337,7 @@ export async function harness(
     request,
     effects,
     publications,
+    recorder,
     published,
     publishing,
     blockPublication() {

@@ -1,6 +1,5 @@
 import sharp from "sharp";
 import { expect, it, onTestFinished } from "vitest";
-import { recordingImages } from "./recording-feed.ts";
 import { SimulatorJpeg } from "./simulator-jpeg.ts";
 import { deviceImageStream, deviceStillStream } from "./stream-control.ts";
 
@@ -115,22 +114,6 @@ it("stills asked together share one picture from serve-sim", async () => {
   const requests = sim.requests();
   await Promise.all([jpeg.replay(), jpeg.replay(), jpeg.replay()]);
   expect(sim.requests() - requests).toBe(1);
-  expect(sim.open()).toBe(0);
-});
-
-it("a recording keeps every change coming, and stills resume when it ends", async () => {
-  const { sim, jpeg, published } = await capture();
-  await jpeg.configure(deviceStillStream);
-  await jpeg.configure({ ...deviceImageStream, ...recordingImages });
-  expect(sim.open()).toBe(1);
-  const before = published.length;
-  for (let index = 1; index <= 5; index++) {
-    sim.paint(await screen(index * 40));
-    await pause(1000 / recordingImages.fps + 20);
-  }
-  await expect.poll(() => published.length - before).toBeGreaterThanOrEqual(5);
-  expect(await red(published.at(-1) ?? Buffer.alloc(0))).toBeGreaterThan(180);
-  await jpeg.configure(deviceStillStream);
   expect(sim.open()).toBe(0);
 });
 

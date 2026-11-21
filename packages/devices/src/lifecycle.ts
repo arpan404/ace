@@ -1,4 +1,5 @@
-import { type RecordingArtifact, type ScreenManager } from "@ace/screen";
+import type { MediaRecorder } from "@ace/media/tee-recordings";
+import { type ScreenManager } from "@ace/screen";
 import { startCapture } from "./capture.ts";
 import { DeviceError } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
@@ -9,6 +10,7 @@ import type { Actor } from "./lease.ts";
 import { mirrorDeviceController } from "./screen-controller.ts";
 import { withMediaWant, type DeviceMedia } from "./media-paths.ts";
 import type { ScreenStreamSettings } from "@ace/protocol";
+import type { DeviceRecordingArtifact, PublishedRecording } from "./recording.ts";
 
 export interface LifecycleOptions {
   platform: DevicePlatform;
@@ -16,11 +18,14 @@ export interface LifecycleOptions {
   screen?: ScreenManager;
   env: NodeJS.ProcessEnv;
   recordingDirectory: string;
+  /** Publishes a finished recording's parts to its thread. */
   publishArtifact(
-    artifact: RecordingArtifact,
+    artifact: DeviceRecordingArtifact,
     threadId: string,
-  ): Promise<{ id: string; bytes: number; mimeType: string } | void>;
+  ): Promise<PublishedRecording | void>;
   recordingAvailable?(): boolean;
+  /** Where every recording is made (ace-media, X1); without it a recording refuses to start. */
+  recorder?: MediaRecorder;
   recordingLimitBytes?: number;
   capture?: typeof startCapture;
   /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
@@ -114,7 +119,7 @@ export async function startDevice(
         session.latest = frame;
         firstResolve?.();
         session.hub.publish(frame);
-        session.recordingFeed?.push(frame);
+        session.recording?.push(frame);
       },
       failure(error) {
         if (session.generation !== generation) return;
@@ -263,7 +268,7 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
 
 /** Ends any recording the device has open or is opening; the capture keeps running. */
 export async function closeDeviceRecording(session: DeviceSession): Promise<void> {
-  const recording = session.recording ?? (await session.recordingOpening) ?? session.completed;
+  const recording = session.recording ?? session.completed;
   const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
   const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
   delete session.recording;
