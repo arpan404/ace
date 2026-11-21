@@ -29,10 +29,35 @@ router handles it.
 
 ## Build settings
 
-| Variable       | What it does                                                                                                           |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `SITE_URL`     | The public address. Turns on canonical links, absolute social-card URLs and the sitemap. Without it they are left out. |
-| `GITHUB_TOKEN` | Optional. Raises GitHub's API rate limit for the release lookup on CI.                                                 |
+| Variable                | What it does                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `SITE_URL`              | The public address. Turns on canonical links, absolute social-card URLs and the sitemap. Without it they are left out. |
+| `GITHUB_TOKEN`          | Optional. Raises GitHub's API rate limit for the release lookup on CI.                                                 |
+| `PUBLIC_POSTHOG_KEY`    | Optional. The public `phc_` project token for website analytics and session replay.                                    |
+| `PUBLIC_POSTHOG_REGION` | `us` (default) or `eu`, matching the PostHog Cloud project.                                                            |
+
+## Marketing analytics
+
+Set the two PostHog variables in the **Production** environment of the `ace-marketing` Pages
+project, then rebuild. Use a marketing-only PostHog project. In its settings, enable Session
+Replay (where you set sampling and retention) and **Web analytics > Enable cookieless tracking**.
+Without the cookieless setting PostHog drops anonymous visits. Leave the variables unset for
+previews, or use a separate test project when verifying changes.
+
+The site shows no consent banner. Visitors from the EEA, the UK and Switzerland, visitors whose
+browser sends Global Privacy Control, and visitors whose country is unknown are counted
+anonymously, with nothing stored and no replay. Everyone else gets a stored id and session
+replay. The country comes from Cloudflare's `/cdn-cgi/trace`, so on a local dev server every visit
+is anonymous until you choose **Allow recording** in the footer.
+
+Open **Web Analytics** for visits, referrers, campaign UTMs, and Web Vitals. Add
+`marketing_download_clicked` as a conversion goal. Filter `destination` to `installer` to count
+direct installer clicks. `release_page` counts links to GitHub releases. Filter by `platform`
+to compare operating systems. The event measures clicks on the website.
+
+To verify a deployment, open the site in a fresh browser profile and click a download link.
+Check Live Events for `$pageview` and `marketing_download_clicked`, and Session Replay for the
+visit. Choose **Turn off recording** in the footer to switch the visit to anonymous counting.
 
 ## Download links
 
