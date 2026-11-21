@@ -39,7 +39,9 @@ export function RaisedCard(
       {...rest}
       {...part("card", "waiting", `spade-${asks}`)}
       className={cn(
-        "@container/card my-2 flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-raised p-5 shadow-chat-raised focus-ring pointer-coarse:p-4",
+        // Focused when the chat opens on it, for screen readers: a target, not a control, so
+        // no ring (its own buttons keep theirs).
+        "@container/card my-2 flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-raised p-5 shadow-chat-raised outline-none pointer-coarse:p-4",
         className,
       )}
     >
