@@ -27,6 +27,7 @@ const askShell = (id: number) => {
 };
 /** The prompt waiting on an answer to request 101 before it ends. */
 let gatedPrompt: unknown;
+let heldPrompt: unknown;
 createInterface({ input: process.stdin }).on("line", (line) => {
   const frame = object(JSON.parse(line));
   const params = object(frame["params"]);
@@ -57,7 +58,17 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     send({ id: frame["id"], result: { sessionId: "native-root" } });
   else if (frame["method"] === "session/prompt") {
     const text = string(object(list(params["prompt"])[0])["text"]);
-    if (["shell", "controlled-shell", "antigravity-shell"].includes(text)) {
+    if (heldPrompt !== undefined) {
+      send({ id: frame["id"], error: { code: -32603, message: "Overlapping prompt" } });
+    } else if (text === "hold-for-steer") {
+      heldPrompt = frame["id"];
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: "held",
+        kind: "read",
+        status: "in_progress",
+      });
+    } else if (["shell", "controlled-shell", "antigravity-shell"].includes(text)) {
       update({
         sessionUpdate: "tool_call",
         toolCallId: "s",
@@ -105,6 +116,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       });
       send({ id: frame["id"], error: { code: -32603, message: "Internal error" } });
     } else send({ id: frame["id"], result: { stopReason: "end_turn" } });
+  } else if (frame["method"] === "session/cancel" && heldPrompt !== undefined) {
+    setTimeout(() => {
+      update({ sessionUpdate: "tool_call_update", toolCallId: "held", status: "cancelled" });
+      send({ id: heldPrompt, result: { stopReason: "cancelled" } });
+      heldPrompt = undefined;
+    }, 25);
   } else if (frame["id"] === 101 && Object.hasOwn(frame, "result")) {
     send({ id: gatedPrompt, result: { stopReason: "end_turn" } });
   } else if (frame["id"] === 100 && Object.hasOwn(frame, "result")) {
