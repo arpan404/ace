@@ -113,7 +113,7 @@ export function hostWire(
     string,
     { resolve(): void; reject(): void; timer: ReturnType<typeof setTimeout> }
   >();
-  const confirmed = async (method: string, params: unknown) => {
+  const confirmed = async (method: string, params: unknown, timeoutMs = 300_000) => {
     if (acknowledgements.size >= 32) throw new Error("SDK storage acknowledgements exceed budget");
     const id = `host:${++outbound}`;
     const completion = Promise.withResolvers<void>();
@@ -121,7 +121,7 @@ export function hostWire(
     const timer = setTimeout(() => {
       acknowledgements.delete(id);
       completion.reject(new Error("SDK storage acknowledgement expired"));
-    }, 30000);
+    }, timeoutMs);
     acknowledgements.set(id, {
       resolve: () => completion.resolve(),
       reject: () => completion.reject(new Error("SDK storage refused frame")),
@@ -152,11 +152,10 @@ export function hostWire(
     const decoded: unknown = JSON.parse(line);
     const reply = Reply.safeParse(decoded);
     if (reply.success && reply.data.id.startsWith("host:")) {
+      // A reply after the host stopped waiting finds nothing: that frame already fenced its
+      // turn, and a late answer from a busy daemon is no reason to stop the host.
       const acknowledgement = acknowledgements.get(reply.data.id);
-      if (!acknowledgement) {
-        disconnected();
-        return;
-      }
+      if (!acknowledgement) return;
       if (reply.data.error !== undefined) acknowledgement.reject();
       else acknowledgement.resolve();
       return;

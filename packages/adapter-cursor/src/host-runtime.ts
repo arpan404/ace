@@ -72,6 +72,10 @@ export class HostRuntime {
       ACE_MCP_BEARER: this.options?.mcp?.bearer,
     });
   }
+  /** How long ace may take to store one frame, from the open session's limits. */
+  get acknowledgementTimeoutMs(): number | undefined {
+    return this.options?.limits.ackTimeoutMs;
+  }
   private async frame(
     kind: CursorEnvelope["kind"],
     body: unknown,
