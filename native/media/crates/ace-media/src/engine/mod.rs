@@ -333,7 +333,9 @@ impl Engine {
                 width,
                 height,
                 scale,
-            } => self.delivery.page(source.get(), width, height, scale.get()),
+            } => self
+                .delivery
+                .page(source.get(), width, height, scale.get(), now.mono_ms, out),
             ToMedia::SourceCodecs { source, codecs } => {
                 self.delivery
                     .codecs(source.get(), &codecs, now.mono_ms, out)

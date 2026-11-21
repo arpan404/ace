@@ -339,10 +339,24 @@ impl Delivery {
         self.replan(&source, now_ms, out);
     }
 
-    /// `source.page`: the size views are planned against.
-    pub fn page(&mut self, source: &str, width: u32, height: u32, scale: f64) {
+    /// `source.page`: the size views are planned against. A new size plans them again, so a
+    /// resized page is never letterboxed into its old shape.
+    pub fn page(
+        &mut self,
+        source: &str,
+        width: u32,
+        height: u32,
+        scale: f64,
+        now_ms: u64,
+        out: &mut Vec<Effect>,
+    ) {
         let facts = self.sources.entry(source.to_owned()).or_default();
-        facts.page = Some((f64::from(width), f64::from(height), scale.max(0.1)));
+        let page = Some((f64::from(width), f64::from(height), scale.max(0.1)));
+        if facts.page == page {
+            return;
+        }
+        facts.page = page;
+        self.replan(source, now_ms, out);
     }
 
     /// `source.codecs`: what the producer's encoder supports.

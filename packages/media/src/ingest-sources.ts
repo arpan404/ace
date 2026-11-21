@@ -194,6 +194,8 @@ type Entry = {
   encodes: EncodeSpec[] | undefined;
   /** What the producer encodes (`source.codecs`), told to every open. */
   codecs: string[] | undefined;
+  /** The page it shows (`source.page`), told to every open: views are planned at its shape. */
+  page: IngestPage | undefined;
   /** Bumped by every switch, so a late answer to an older one is ignored. */
   generation: number;
   /** Ingest failed or was refused: it stays off until its route changes or ace-media restarts. */
@@ -231,6 +233,18 @@ type Path = {
   acknowledged: boolean;
 };
 
+/** A page's CSS size and its device pixel ratio, as a producer shows it. */
+export type IngestPage = { width: number; height: number; scale: number };
+
+const pageMessage = (source: string, page: IngestPage) =>
+  ({
+    type: "source.page",
+    source,
+    width: Math.max(1, Math.round(page.width)),
+    height: Math.max(1, Math.round(page.height)),
+    scale: page.scale,
+  }) as const;
+
 export type IngestSource = {
   /** The producer streams to ace-media now. */
   streaming(): boolean;
@@ -241,6 +255,12 @@ export type IngestSource = {
    * only in these. Never called: whatever the views decode.
    */
   codecs(codecs: string[]): void;
+  /**
+   * The page the producer shows, on every change: ace-media plans its views at this shape
+   * (its own guess is the first unit's, which a resize leaves behind). Only producers that show
+   * a page have one.
+   */
+  page?(page: IngestPage): void;
   /** For a JPEG source: the encodes ace-media runs for it. */
   encodes(encodes: EncodeSpec[]): void;
   /** For a JPEG source: the encode's next unit is a keyframe. */
@@ -273,6 +293,7 @@ export class IngestSources {
       release: undefined,
       encodes: undefined,
       codecs: undefined,
+      page: undefined,
       generation: 0,
       failed: false,
       reopens: 0,
@@ -292,6 +313,14 @@ export class IngestSources {
         entry.codecs = [...codecs];
         const live = entry.live;
         if (live) this.#send({ type: "source.codecs", source: live.id, codecs: entry.codecs });
+      },
+      page: (page) => {
+        const was = entry.page;
+        if (was?.width === page.width && was.height === page.height && was.scale === page.scale)
+          return;
+        entry.page = { ...page };
+        const live = entry.live;
+        if (live) this.#send(pageMessage(live.id, entry.page));
       },
       encodes: (encodes) => {
         entry.encodes = encodes;
@@ -559,6 +588,7 @@ export class IngestSources {
     entry.state = "opening";
     if (route.egress) this.#send({ type: "source.egress", source: id, on: true });
     if (entry.codecs) this.#send({ type: "source.codecs", source: id, codecs: entry.codecs });
+    if (entry.page) this.#send(pageMessage(id, entry.page));
     if (entry.encodes) this.#send({ type: "source.encodes", source: id, encodes: entry.encodes });
   }
 

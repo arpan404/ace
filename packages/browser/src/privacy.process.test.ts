@@ -1,8 +1,8 @@
 import { expect, it, vi } from "vitest";
-import { cursorFixture, executablePath } from "./cursor-test-support.ts";
+import { cursorFixture, runnable } from "./cursor-test-support.ts";
 import { Snapshot } from "./test-support.ts";
 
-const test = it.skipIf(!executablePath);
+const test = it.skipIf(!runnable);
 
 /** Dark pixels (text, bullets) inside a CSS box of a viewport image. */
 async function inkIn(
