@@ -22992,14 +22992,15 @@ Example:
   "name": [],
   "recipe": {
     "blurb": "example",
-    "contracts": [],
-    "effects": [],
     "face": {},
     "format": "spade-bot",
+    "limits": {},
     "model": "capable",
     "name": "example",
     "plugins": [],
     "skills": [],
+    "tests": [],
+    "triggers": [],
     "version": 2
   },
   "routines": [],
@@ -23175,6 +23176,28 @@ Example:
   },
   "requestId": "example",
   "type": "marketplace.request"
+}
+```
+
+## MarketCodeRow
+
+[JSON Schema](schema/MarketCodeRow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":24} |
+| imports | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/PackageCodeImport.json"}} |
+| why | yes | string | {"maxLength":500} |
+| sentence | yes | string | {"maxLength":2000} |
+
+Example:
+
+```json
+{
+  "imports": [],
+  "name": "example",
+  "sentence": "example",
+  "why": "example"
 }
 ```
 
@@ -25005,6 +25028,7 @@ Example:
 | path | no | string | {"maxLength":512} |
 | line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | message | yes | string | {"maxLength":500} |
+| rule | no | string | {"maxLength":80} |
 
 Example:
 
@@ -25012,7 +25036,8 @@ Example:
 {
   "line": 8,
   "message": "example",
-  "path": "example"
+  "path": "example",
+  "rule": "example"
 }
 ```
 
@@ -26310,15 +26335,15 @@ Example:
   "leftOut": [],
   "op": "botRecipe",
   "recipe": {
-    "effects": [],
+    "contracts": [],
     "face": {},
     "format": "spade-bot",
     "name": "example",
     "requires": {},
-    "style": {
-      "accent": "#61Ce1d"
-    },
+    "spec": "1.5440569212",
     "task": "example",
+    "tests": [],
+    "uses": [],
     "version": 3
   }
 }
@@ -26498,12 +26523,13 @@ Example:
 ```json
 {
   "items": [],
+  "nextOffset": 6,
   "op": "reviewPage",
   "review": {
-    "blocked": "example",
     "body": {
       "botName": "example",
       "brings": [],
+      "code": [],
       "face": {},
       "linked": false,
       "model": "capable",
@@ -26512,22 +26538,35 @@ Example:
       "routines": [],
       "spadeReady": false,
       "task": "example",
-      "triggers": [],
-      "type": "spade-bot"
+      "type": "spade-bot",
+      "update": {
+        "asksMore": [],
+        "bot": "example",
+        "plan": {
+          "asks_more": [],
+          "face": "replace",
+          "name": "kept",
+          "notes_kept": 9,
+          "off": [],
+          "personality": "kept",
+          "routines": [],
+          "task": "same"
+        },
+        "rollback": false
+      }
     },
     "byAce": true,
-    "expiresAt": 6,
+    "expiresAt": 5,
     "from": "example",
     "hash": "51b77ff3950f2be9bc92925e36a9bbd830b697bc36eace11c30ffb302c3b2dcb",
     "id": "SyIwyNKmaZDg9IuNm8L9LD7Csrw4zEhF3-xZsLH9f1TBsQ0R30lOsHH-PdoyacMskRZkx",
-    "items": 9,
+    "items": 6,
     "name": "8.edd3-55ov",
     "reviewed": false,
     "signed": true,
     "source": "market",
     "title": "example",
     "type": "ace-plugin",
-    "unlisted": true,
     "version": "example"
   }
 }
@@ -26706,9 +26745,6 @@ Example:
     "botName": "example",
     "brings": [],
     "limits": {
-      "spend_alert": {
-        "usd_per_day": 7
-      },
       "workspace_mb": 7
     },
     "model": "fast",
@@ -26718,6 +26754,7 @@ Example:
     "routines": [],
     "spadeReady": true,
     "task": "example",
+    "triggers": [],
     "type": "spade-bot"
   },
   "byAce": true,
@@ -26829,6 +26866,7 @@ Example:
 | spadeReady | yes | boolean |  |
 | linked | no | boolean |  |
 | effects | no | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/MarketEffectRow.json"}} |
+| code | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MarketCodeRow.json"}} |
 | triggers | no | array | {"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
 | limits | no | [PackageLimits.json](schema/PackageLimits.json) |  |
 | unused | no | array | {"maxItems":64,"items":{"type":"string","maxLength":80}} |
@@ -26840,10 +26878,6 @@ Example:
 {
   "botName": "example",
   "brings": [],
-  "limits": {
-    "workers_at_once": 5,
-    "workspace_mb": 9
-  },
   "linked": false,
   "model": "fast",
   "needs": [],
@@ -26852,6 +26886,7 @@ Example:
   "spadeReady": false,
   "task": "example",
   "tools": [],
+  "triggers": [],
   "type": "spade-bot",
   "unused": []
 }
@@ -30124,6 +30159,44 @@ Example:
   "screen": [],
   "type": "outside.state"
 }
+```
+
+## PackageCode
+
+[JSON Schema](schema/PackageCode.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"pattern":"^[a-z][a-z0-9]{0,23}$"} |
+| file | yes | string | {"pattern":"^code\\/[a-z][a-z0-9]{0,23}\\.wasm$"} |
+| world | yes | `"spade:package/bot-tools@1.0.0"` |  |
+| imports | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/PackageCodeImport.json"}} |
+| why | yes | string | {"minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| timeout_s | no | integer | {"minimum":1,"maximum":300} |
+| memory_mb | no | integer | {"minimum":1,"maximum":512} |
+
+Example:
+
+```json
+{
+  "file": "code/huzakj.wasm",
+  "imports": [],
+  "name": "tmzpo3w",
+  "why": "example",
+  "world": "spade:package/bot-tools@1.0.0"
+}
+```
+
+## PackageCodeImport
+
+[JSON Schema](schema/PackageCodeImport.json), input validation.
+
+Type: ["spade:package/tools","spade:package/http","spade:package/log","spade:package/kv","wasi:clocks/wall-clock@0.2","wasi:clocks/monotonic-clock@0.2","wasi:random/random@0.2"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"spade:package/http"
 ```
 
 ## PackageContract
@@ -35965,6 +36038,7 @@ Example:
 | needs | no | object | {"default":{"connectors":[]},"properties":{"connectors":{"default":[],"maxItems":32,"type":"array","items":{"anyOf":[{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/RecipeConnectorId.json"},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["id","why"],"additionalProperties":false},{"type":"object","properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.","x-ace-url-maxLength":2048},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["url","why"],"additionalProperties":false}]}},"tools":{"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}},"additionalProperties":false} |
 | notes | no | array | {"default":[],"maxItems":50,"items":{"type":"string","maxLength":2000}} |
 | personality | no | [SpadePersonality.json](schema/SpadePersonality.json) |  |
+| spec | no | string | {"pattern":"^1\\.[0-9]+$"} |
 | requires | no | [PackageRequires.json](schema/PackageRequires.json) |  |
 | uses | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageModule.json"}} |
 | triggers | no | array | {"default":[],"maxItems":40,"items":{"$ref":"https://ace.local/protocol/v1/PackageTrigger.json"}} |
@@ -35974,20 +36048,23 @@ Example:
 | tests | no | array | {"default":[],"maxItems":64,"items":{"type":"string","pattern":"^tests\\/[A-Za-z0-9._-]+\\.json$"}} |
 | style | no | object | {"properties":{"accent":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["accent"],"additionalProperties":false} |
 | surfaces | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/PackageSurface.json"}} |
+| code | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/PackageCode.json"}} |
 
 Example:
 
 ```json
 {
-  "effects": [],
   "format": "spade-bot",
   "limits": {
-    "workspace_mb": 1
+    "spend_alert": {
+      "usd_per_day": 8
+    },
+    "workspace_mb": 2
   },
   "name": "example",
   "needs": {},
-  "style": {
-    "accent": "#ABDDCF"
+  "requires": {
+    "spade": "example"
   },
   "task": "example",
   "uses": [],

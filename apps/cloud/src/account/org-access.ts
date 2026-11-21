@@ -13,8 +13,16 @@ export function orgRefusal(org: string, error: "not_member" | "org_sign_in_requi
   return fail(403, "not_member");
 }
 
-/** A person acting in an organization, with the role WorkOS just confirmed. */
-export type Member = { principal: Principal & { kind: "session" }; org: string; role: string };
+/**
+ * A person acting in an organization, with the role WorkOS just confirmed and the mirror row's
+ * `seq` that answer was decided under.
+ */
+export type Member = {
+  principal: Principal & { kind: "session" };
+  org: string;
+  role: string;
+  seq: number | null;
+};
 
 /**
  * Who may call an org route (ADR 0206 §1.4, §8): only the person's own session (`person`
@@ -56,7 +64,7 @@ export function orgAccess(deps: {
       const check = await deps.checker.check(principal, org.data);
       if (!check.ok) return orgRefusal(org.data, check.error);
       if (permission && !orgAllows(check.role, permission)) return fail(403, "forbidden");
-      return then({ principal, org: org.data, role: check.role });
+      return then({ principal, org: org.data, role: check.role, seq: check.seq });
     },
   };
 }

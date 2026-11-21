@@ -24,7 +24,9 @@ const REFRESH_LEASE_MS = 15_000;
  * user loses access. Each refresh renews the session for another `SESSION_LIFETIME_MS`, so a
  * session in use never lapses; one left unused that long does. WorkOS refresh tokens are single-use, so concurrent reads must not spend
  * the same one: readers in this isolate share one refresh, and a D1 lease stops readers in
- * other isolates, which get the stored account instead.
+ * other isolates, which get the stored account instead. The token is read only once the lease is
+ * held, and what the refresh found (a rotated token, a refusal that ends the session) is written
+ * only while that lease still is: a reader never spends or acts on a token another replaced.
  */
 export function sessionReader(deps: {
   store: SessionStore;
@@ -34,46 +36,60 @@ export function sessionReader(deps: {
   const { store, provider, now } = deps;
   const inflight = new Map<string, Promise<ActiveSession | undefined>>();
 
+  const read = (hash: string, held: boolean) =>
+    held ? store.held(hash, now()) : store.get(hash, now());
+  const active = (stored: NonNullable<Awaited<ReturnType<typeof read>>>): ActiveSession => ({
+    account: stored.account,
+    expiresAt: stored.expiresAt,
+    signedInAt: stored.signedInAt,
+    standing: stored.standing,
+  });
+
   async function refresh(hash: string, held: boolean): Promise<ActiveSession | undefined> {
-    const stored = held ? await store.held(hash, now()) : await store.get(hash, now());
-    if (!stored) return undefined;
-    if (!(await store.lease(hash, now(), REFRESH_LEASE_MS)))
-      return {
-        account: stored.account,
-        expiresAt: stored.expiresAt,
-        signedInAt: stored.signedInAt,
-        standing: stored.standing,
-      };
+    const lease = await store.lease(hash, now(), REFRESH_LEASE_MS);
+    // Another reader is refreshing it: the stored account stands meanwhile.
+    if (!lease) {
+      const stored = await read(hash, held);
+      return stored ? active(stored) : undefined;
+    }
+    // Read under the lease: a token read before it may be one the previous holder spent.
+    const stored = await read(hash, held);
+    if (!stored) {
+      await store.release(hash, lease);
+      return undefined;
+    }
     let identity;
     try {
       identity = await provider.refresh(await stored.refresh());
     } catch (error) {
       if (error instanceof InvalidGrantError) {
-        await store.remove(hash);
-        return undefined;
+        if (await store.endLeased(hash, lease)) return undefined;
+        // The lease ran out and another reader renewed the session with the token it spent.
+        const current = await read(hash, held);
+        return current ? active(current) : undefined;
       }
-      await store.release(hash);
+      await store.release(hash, lease);
       throw error;
     }
     if (now() >= stored.expiresAt || identity.account.id !== stored.account.id) {
-      await store.remove(hash);
+      await store.endLeased(hash, lease);
       return undefined;
     }
     const expiresAt = Math.max(stored.expiresAt, now() + SESSION_LIFETIME_MS);
     const rotated = await store.rotate(
       hash,
+      lease,
       identity.account,
       identity.refreshToken,
       expiresAt,
       identity.pictureUrl,
     );
-    if (!rotated) return undefined;
-    return {
-      account: identity.account,
-      expiresAt,
-      signedInAt: stored.signedInAt,
-      standing: stored.standing,
-    };
+    if (!rotated) {
+      // Revoked meanwhile, or the lease ran out and another reader holds the session now.
+      const current = await read(hash, held);
+      return current ? active(current) : undefined;
+    }
+    return { ...active(stored), account: identity.account, expiresAt };
   }
 
   /** `held`: read for a machine credential, which a retired session still serves. */

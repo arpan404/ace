@@ -235,7 +235,7 @@ interface ManifestCases {
  * Spade's reader runs too (`spade_core::package::read`): accepted, or refused with a problem
  * naming the case's rule, whatever its words.
  */
-const suites = ["package", "effects", "contracts", "surfaces"].map((part) => {
+const suites = ["package", "effects", "contracts", "surfaces", "code"].map((part) => {
   const url = new URL(`../../../spade/spec/conformance/${part}/manifests.json`, import.meta.url);
   return [part, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
 });

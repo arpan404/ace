@@ -162,6 +162,34 @@ export const PackageContract = z.strictObject({
 });
 export type PackageContract = z.infer<typeof PackageContract>;
 
+/** What a package's code may import (ADR 0203 §2), by the names a manifest lists. */
+export const PackageCodeImport = z.enum([
+  "spade:package/tools",
+  "spade:package/http",
+  "spade:package/log",
+  "spade:package/kv",
+  "wasi:clocks/wall-clock@0.2",
+  "wasi:clocks/monotonic-clock@0.2",
+  "wasi:random/random@0.2",
+]);
+export type PackageCodeImport = z.infer<typeof PackageCodeImport>;
+
+/**
+ * One WebAssembly component a package ships (ADR 0203 §1): its file under `code/`, the world it
+ * is built for and what it imports, which the signer holds to the binary's own list. Schema
+ * only: `@ace/marketplace`'s `codeProblems` and `spade_core::package::code` read it.
+ */
+export const PackageCode = z.strictObject({
+  name: z.string().regex(/^[a-z][a-z0-9]{0,23}$/),
+  file: z.string().regex(/^code\/[a-z][a-z0-9]{0,23}\.wasm$/),
+  world: z.literal("spade:package/bot-tools@1.0.0"),
+  imports: z.array(PackageCodeImport).max(7),
+  why: trimmedText(1, 500),
+  timeout_s: z.number().int().min(1).max(300).optional(),
+  memory_mb: z.number().int().min(1).max(512).optional(),
+});
+export type PackageCode = z.infer<typeof PackageCode>;
+
 /** The version 3 fields a read recipe carries; a version 2 recipe has none of them. */
 export const packageFields = {
   /** The Spade Agent Format version it was written for (ADR 0201 §1); missing reads as `1.0`. */
@@ -181,6 +209,7 @@ export const packageFields = {
     .default([]),
   style: z.strictObject({ accent: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).optional(),
   surfaces: z.array(PackageSurface).max(16).optional(),
+  code: z.array(PackageCode).max(4).optional(),
 };
 
 /** A linked bot's package and version, from the signed manifest (ADR 0200 §3.9). */

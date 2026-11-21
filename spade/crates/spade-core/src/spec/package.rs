@@ -9,7 +9,7 @@ use crate::routine;
 /// What each field of a version 3 `bot.json` is. Every field the reader knows has a line here,
 /// and only those: the writer refuses otherwise, so a field can't be added to the reader and
 /// left out of the spec.
-const FIELDS: [(&str, &str); 24] = [
+const FIELDS: [(&str, &str); 25] = [
     (
         "$schema",
         "The address of the format's JSON Schema, for editors; it changes nothing a runtime does.",
@@ -78,6 +78,10 @@ const FIELDS: [(&str, &str); 24] = [
     (
         "contracts",
         "Typed calls other bots of the person may make to it ([contracts](contracts.md)).",
+    ),
+    (
+        "code",
+        "WebAssembly components it ships under `code/`, each built for Spade's world ([code](code.md)).",
     ),
 ];
 

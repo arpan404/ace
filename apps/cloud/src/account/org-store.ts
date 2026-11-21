@@ -7,7 +7,9 @@ import type { AceOrgMember, AceOrgSpace } from "@ace/protocol/ace-org";
  * refuses faster; `org_checks` holds WorkOS's own recent answers, which decide every grant.
  *
  * Mirror rows carry the WorkOS time of the state they hold (`version`, ISO 8601, which sorts as
- * text): an event older than a row's state changes nothing, so the feed can be replayed.
+ * text): an event older than a row's state changes nothing, so the feed can be replayed. The
+ * profile they show (email, name) keeps its own time, `profile_version`, the same way. `seq`
+ * counts the changes applied to a row: an org check counts only under the `seq` it began with.
  */
 
 /** How long WorkOS's answer on a session's membership is reused (ADR 0206 §1.4). */
@@ -22,6 +24,7 @@ const MemberRow = z.object({
   directory_managed: z.number(),
   email: z.string().nullable(),
   name: z.string().nullable(),
+  seq: z.number(),
 });
 export type MemberRow = z.infer<typeof MemberRow>;
 const memberStatus = (status: string): AceOrgMember["status"] =>
@@ -40,7 +43,12 @@ const MachineRow = z.object({
   platform: z.string(),
   last_seen_at: z.number(),
 });
-const CheckRow = z.object({ role: z.string(), sid: z.string(), checked_at: z.number() });
+const CheckRow = z.object({
+  role: z.string(),
+  sid: z.string(),
+  checked_at: z.number(),
+  member_seq: z.number().nullable(),
+});
 const PolicyRow = z.object({
   version: z.number(),
   body: z.string(),
@@ -66,14 +74,20 @@ export function orgStore(db: D1Database) {
   const upsertingMember = (member: MirroredMember, now: number) =>
     db
       .prepare(
-        `INSERT INTO org_members (org_id, account_id, membership_id, role, status, directory_managed, email, name, version, joined_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        `INSERT INTO org_members (org_id, account_id, membership_id, role, status, directory_managed, email, name, version, joined_at, profile_version)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CASE WHEN ?7 IS NULL AND ?8 IS NULL THEN '' ELSE ?9 END)
          ON CONFLICT (org_id, account_id) DO UPDATE SET
            membership_id = excluded.membership_id, role = excluded.role, status = excluded.status,
            directory_managed = excluded.directory_managed,
-           email = COALESCE(excluded.email, org_members.email),
-           name = COALESCE(excluded.name, org_members.name),
-           version = excluded.version
+           email = CASE WHEN excluded.email IS NOT NULL AND excluded.version >= org_members.profile_version
+             THEN excluded.email ELSE org_members.email END,
+           name = CASE WHEN excluded.name IS NOT NULL AND excluded.version >= org_members.profile_version
+             THEN excluded.name ELSE org_members.name END,
+           profile_version = CASE WHEN (excluded.email IS NOT NULL OR excluded.name IS NOT NULL)
+             AND excluded.version > org_members.profile_version
+             THEN excluded.version ELSE org_members.profile_version END,
+           version = excluded.version,
+           seq = org_members.seq + 1
          WHERE excluded.version >= org_members.version`,
       )
       .bind(
@@ -109,13 +123,16 @@ export function orgStore(db: D1Database) {
     removingMember: (org: string, account: string, membership: string, version: string) =>
       db
         .prepare(
-          "UPDATE org_members SET status = 'removed', version = ?4 WHERE org_id = ?1 AND account_id = ?2 AND membership_id = ?3 AND version <= ?4",
+          "UPDATE org_members SET status = 'removed', version = ?4, seq = seq + 1 WHERE org_id = ?1 AND account_id = ?2 AND membership_id = ?3 AND version <= ?4",
         )
         .bind(org, account, membership, version),
-    renamingAccount: (account: string, email: string, name: string) =>
+    /** A user's new profile, at WorkOS time `version`: never over one WorkOS gave later. */
+    renamingAccount: (account: string, email: string, name: string, version: string) =>
       db
-        .prepare("UPDATE org_members SET email = ?2, name = ?3 WHERE account_id = ?1")
-        .bind(account, email, name),
+        .prepare(
+          "UPDATE org_members SET email = ?2, name = ?3, profile_version = ?4 WHERE account_id = ?1 AND profile_version <= ?4",
+        )
+        .bind(account, email, name, version),
     /** Flags an organization the directory left with no active owner, or clears the flag. */
     flaggingOwners: (org: string) =>
       db
@@ -130,20 +147,11 @@ export function orgStore(db: D1Database) {
     async member(org: string, account: string): Promise<MemberRow | undefined> {
       const raw = await db
         .prepare(
-          "SELECT org_id, account_id, membership_id, role, status, directory_managed, email, name FROM org_members WHERE org_id = ? AND account_id = ?",
+          "SELECT org_id, account_id, membership_id, role, status, directory_managed, email, name, seq FROM org_members WHERE org_id = ? AND account_id = ?",
         )
         .bind(org, account)
         .first();
       return raw ? MemberRow.parse(raw) : undefined;
-    },
-    async activeOwners(org: string): Promise<number> {
-      const raw = await db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM org_members WHERE org_id = ? AND role = 'owner' AND status = 'active'",
-        )
-        .bind(org)
-        .first<{ n: number }>();
-      return raw?.n ?? 0;
     },
     /** The account's spaces: every organization it is an active member of. */
     async spaces(account: string): Promise<AceOrgSpace[]> {
@@ -172,7 +180,7 @@ export function orgStore(db: D1Database) {
     async members(org: string): Promise<AceOrgMember[]> {
       const { results } = await db
         .prepare(
-          "SELECT org_id, account_id, membership_id, role, status, directory_managed, email, name FROM org_members WHERE org_id = ? AND status != 'removed' ORDER BY name, email LIMIT 10000",
+          "SELECT org_id, account_id, membership_id, role, status, directory_managed, email, name, seq FROM org_members WHERE org_id = ? AND status != 'removed' ORDER BY name, email LIMIT 10000",
         )
         .bind(org)
         .all();
@@ -197,27 +205,51 @@ export function orgStore(db: D1Database) {
       return raw?.name;
     },
 
-    /** WorkOS's answer for this session and organization, if it is under 60 seconds old. */
+    /**
+     * WorkOS's answer for this session and organization, if it is under 60 seconds old and the
+     * membership's mirror row hasn't changed since the check began (`seq`).
+     */
     async check(session: string, org: string, now: number) {
       const raw = await db
-        .prepare("SELECT role, sid, checked_at FROM org_checks WHERE session = ? AND org_id = ?")
+        .prepare(
+          `SELECT c.role, c.sid, c.checked_at, c.member_seq FROM org_checks c
+           LEFT JOIN org_members m ON m.org_id = c.org_id AND m.account_id = c.account_id
+           WHERE c.session = ? AND c.org_id = ? AND c.member_seq IS m.seq`,
+        )
         .bind(session, org)
         .first();
       if (!raw) return undefined;
       const row = CheckRow.parse(raw);
-      return now - row.checked_at < ORG_CHECK_TTL_MS && row.checked_at <= now ? row : undefined;
+      return now - row.checked_at < ORG_CHECK_TTL_MS && row.checked_at <= now
+        ? { role: row.role, sid: row.sid, seq: row.member_seq }
+        : undefined;
     },
+    /**
+     * Keeps WorkOS's answer, only while the membership's mirror row is still at `seq` (null: no
+     * row yet): an answer from before a demotion or removal never lands after it.
+     */
     async putCheck(
-      check: { session: string; org: string; account: string; role: string; sid: string },
+      check: {
+        session: string;
+        org: string;
+        account: string;
+        role: string;
+        sid: string;
+        seq: number | null;
+      },
       now: number,
-    ) {
-      await db
+    ): Promise<boolean> {
+      const result = await db
         .prepare(
-          `INSERT INTO org_checks (session, org_id, account_id, role, sid, checked_at) VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT (session, org_id) DO UPDATE SET account_id = excluded.account_id, role = excluded.role, sid = excluded.sid, checked_at = excluded.checked_at`,
+          `INSERT INTO org_checks (session, org_id, account_id, role, sid, checked_at, member_seq)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+           WHERE (SELECT seq FROM org_members WHERE org_id = ?2 AND account_id = ?3) IS ?7
+           ON CONFLICT (session, org_id) DO UPDATE SET account_id = excluded.account_id, role = excluded.role,
+             sid = excluded.sid, checked_at = excluded.checked_at, member_seq = excluded.member_seq`,
         )
-        .bind(check.session, check.org, check.account, check.role, check.sid, now)
+        .bind(check.session, check.org, check.account, check.role, check.sid, now, check.seq)
         .run();
+      return result.meta.changes > 0;
     },
     async dropCheck(session: string, org: string) {
       await db
@@ -237,45 +269,80 @@ export function orgStore(db: D1Database) {
       return raw?.org_id;
     },
     /**
-     * Gives a machine to an organization: its directory row and machine credentials name the
-     * org, in one batch. Only a machine on `account`'s own list, not yet any org's, moves.
+     * The organization a machine credential speaks for: its host's, only while the credential is
+     * bound to the host's current enrollment (ADR 0206 §2.1). One from an earlier enrollment, or
+     * for another account than the one the machine is signed in to, speaks for none.
+     */
+    async credentialOrg(credential: string): Promise<string | undefined> {
+      const raw = await db
+        .prepare(
+          `SELECT h.org_id FROM machine_credentials c
+           JOIN org_hosts h ON h.host_id = c.host_id AND h.enrollment = c.enrollment AND h.org_id = c.org_id
+           WHERE c.token = ?`,
+        )
+        .bind(credential)
+        .first<{ org_id: string }>();
+      return raw?.org_id;
+    },
+    /**
+     * Gives a machine to an organization as enrollment `enrollment`, in one batch: its directory
+     * row names the org, and its credentials for the account it is signed in to (the directory
+     * row's) are bound to this enrollment; any other account's are bound to none. Only a machine
+     * on `account`'s own list, not yet any org's, moves.
      */
     async enrollHost(
-      host: { hostId: string; org: string; account: string; auditKey?: string | undefined },
+      host: {
+        hostId: string;
+        org: string;
+        account: string;
+        enrollment: string;
+        auditKey?: string | undefined;
+      },
       now: number,
     ): Promise<boolean> {
       const [inserted] = await db.batch([
         db
           .prepare(
-            `INSERT OR IGNORE INTO org_hosts (host_id, org_id, enrolled_by, enrolled_at, audit_key)
-             SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM machines WHERE host_id = ?1 AND account_id = ?3 AND org_id IS NULL)`,
+            `INSERT OR IGNORE INTO org_hosts (host_id, org_id, enrolled_by, enrolled_at, audit_key, enrollment)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM machines WHERE host_id = ?1 AND account_id = ?3 AND org_id IS NULL)`,
           )
-          .bind(host.hostId, host.org, host.account, now, host.auditKey ?? null),
+          .bind(host.hostId, host.org, host.account, now, host.auditKey ?? null, host.enrollment),
         db
           .prepare(
-            "UPDATE machines SET org_id = ?2 WHERE host_id = ?1 AND EXISTS (SELECT 1 FROM org_hosts WHERE host_id = ?1 AND org_id = ?2)",
+            "UPDATE machines SET org_id = ?2 WHERE host_id = ?1 AND EXISTS (SELECT 1 FROM org_hosts WHERE host_id = ?1 AND org_id = ?2 AND enrollment = ?3)",
           )
-          .bind(host.hostId, host.org),
+          .bind(host.hostId, host.org, host.enrollment),
         db
           .prepare(
-            "UPDATE machine_credentials SET org_id = ?2 WHERE host_id = ?1 AND EXISTS (SELECT 1 FROM org_hosts WHERE host_id = ?1 AND org_id = ?2)",
+            `UPDATE machine_credentials SET org_id = ?2, enrollment = ?3
+             WHERE host_id = ?1 AND account_id = (SELECT account_id FROM machines WHERE host_id = ?1)
+               AND EXISTS (SELECT 1 FROM org_hosts WHERE host_id = ?1 AND org_id = ?2 AND enrollment = ?3)`,
           )
-          .bind(host.hostId, host.org),
+          .bind(host.hostId, host.org, host.enrollment),
       ]);
       return (inserted?.meta.changes ?? 0) > 0;
     },
-    /** Releases an org host: it is nobody's org host until the next owner's proof (ADR 0206 §2.1). */
+    /**
+     * Releases an org host: it is nobody's org host until the next owner's proof (ADR 0206
+     * §2.1), and every credential bound to the organization's enrollment of it is revoked, with
+     * the session it was the only holder of.
+     */
     async releaseHost(hostId: string, org: string): Promise<boolean> {
-      const [removed] = await db.batch([
+      const results = await db.batch([
+        db
+          .prepare(
+            "DELETE FROM sessions WHERE token IN (SELECT session FROM machine_credentials WHERE host_id = ? AND org_id = ? AND sole = 1)",
+          )
+          .bind(hostId, org),
+        db
+          .prepare("DELETE FROM machine_credentials WHERE host_id = ? AND org_id = ?")
+          .bind(hostId, org),
         db.prepare("DELETE FROM org_hosts WHERE host_id = ? AND org_id = ?").bind(hostId, org),
         db
           .prepare("UPDATE machines SET org_id = NULL WHERE host_id = ? AND org_id = ?")
           .bind(hostId, org),
-        db
-          .prepare("UPDATE machine_credentials SET org_id = NULL WHERE host_id = ? AND org_id = ?")
-          .bind(hostId, org),
       ]);
-      return (removed?.meta.changes ?? 0) > 0;
+      return (results[2]?.meta.changes ?? 0) > 0;
     },
     async hosts(org: string): Promise<AceMachine[]> {
       const { results } = await db
@@ -359,6 +426,21 @@ export function orgStore(db: D1Database) {
         .first<{ after: string }>();
       return raw?.after;
     },
+    /**
+     * The statements that open and close an events page's batch: the first fails, and so rolls
+     * the whole batch back, unless the cursor is still `from`, where the run read it.
+     */
+    guardingCursor: (
+      feed: string,
+      from: string | undefined,
+    ): [D1PreparedStatement, D1PreparedStatement] => [
+      db
+        .prepare(
+          "INSERT INTO workos_event_guard (ok) SELECT CASE WHEN (SELECT after FROM workos_events WHERE feed = ?1) IS ?2 THEN 1 ELSE 0 END",
+        )
+        .bind(feed, from ?? null),
+      db.prepare("DELETE FROM workos_event_guard"),
+    ],
     settingCursor: (feed: string, after: string, now: number) =>
       db
         .prepare(

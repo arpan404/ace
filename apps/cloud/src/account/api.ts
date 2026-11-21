@@ -1,7 +1,7 @@
 import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
-import { sealer } from "./crypto.ts";
+import { opaqueToken, sealer } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
@@ -24,6 +24,8 @@ import { orgAudit } from "./org-audit.ts";
 import { orgChecker } from "./org-check.ts";
 import { orgEvents } from "./org-events.ts";
 import { orgHostRoutes } from "./org-host-routes.ts";
+import { orgLocks } from "./org-locks.ts";
+import { portalRevocations } from "./org-portal.ts";
 import { orgRoutes } from "./org-routes.ts";
 import { orgStore } from "./org-store.ts";
 
@@ -72,7 +74,7 @@ export function accountApi(
   );
   const keys = { ...setup.keys, exchangeKey: exchangeKey.publicKey };
   const seal = sealer(config.encryptionKey, random);
-  const sessions = sessionStore(deps.db, seal);
+  const sessions = sessionStore(deps.db, seal, () => opaqueToken(random));
   const provider = workos(config, deps.fetch);
   const reader = sessionReader({ store: sessions, provider, now });
   const credentials = machineCredentialStore(deps.db);
@@ -94,6 +96,10 @@ export function accountApi(
   // Organizations (ADR 0206).
   const orgs = orgStore(deps.db);
   const workosOrg = workosOrgs(config, deps.fetch);
+  const sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const newId = () => opaqueToken(random);
+  const locks = orgLocks(deps.db, { now, newHolder: newId, sleep });
+  const portal = portalRevocations({ db: deps.db, locks, workos: workosOrg, now });
   const checker = orgChecker({
     store: sessions,
     provider,
@@ -105,11 +111,20 @@ export function accountApi(
     orgs,
     workos: workosOrg,
     now,
-    sleep: deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    sleep,
   });
   const access = orgAccess({ principals, sessionStore: sessions, checker, now });
   const audit = orgAudit({ workos: workosOrg, now });
-  const orgApi = orgRoutes({ principals, access, orgs, workos: workosOrg, audit, now });
+  const orgApi = orgRoutes({
+    principals,
+    access,
+    orgs,
+    workos: workosOrg,
+    audit,
+    locks,
+    portal,
+    now,
+  });
   const hostApi = orgHostRoutes({
     principals,
     access,
@@ -117,8 +132,9 @@ export function accountApi(
     audit,
     signingKey: config.grantKey,
     now,
+    newEnrollment: newId,
   });
-  const events = orgEvents({ orgs, workos: workosOrg, now });
+  const events = orgEvents({ orgs, workos: workosOrg, portal, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
     return loginRoutes({
@@ -224,9 +240,16 @@ export function accountApi(
       await enrollments.sweep(now());
       await orgs.sweep(now());
     },
-    /** Brings the organization members mirror up to WorkOS's Events API (ADR 0206 §1.1). */
+    /**
+     * Brings the organization members mirror up to WorkOS's Events API (ADR 0206 §1.1), then
+     * retries the Admin Portal revocations that are due (§6), whatever the feed did.
+     */
     events: async () => {
-      await events.catchUp();
+      try {
+        await events.catchUp();
+      } finally {
+        await portal.drain();
+      }
     },
     /**
      * `limited` is the caller's rate-limit verdict for this client address; `_gate` says which

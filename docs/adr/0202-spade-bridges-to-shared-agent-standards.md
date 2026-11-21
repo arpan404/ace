@@ -277,3 +277,72 @@ The founder took each recommendation on 2026-11-20.
   during a task doesn't send a second new task; `TASK_STATE_INPUT_REQUIRED` becomes a card and
   the caller reads `waiting`; Stop sends a cancel; the result is untrusted; Spade's own card
   carries the extension and verifies with the machine key.
+
+## Amendment 1: contracts out, as built
+
+Accepted 2026-11-20, with phase 2 (sections 3 and 6). The A2A facts above were not read
+first-hand when this ADR was written; they were checked against the primary sources before
+building:
+
+- **A2A's current version is 1.0.1** (released 2026-05-28; 1.0.0 was 2026-03-12), from the
+  [specification](https://a2a-protocol.org/latest/specification/) and `specification/a2a.proto`
+  at tag `v1.0.1` in the [repository](https://github.com/a2aproject/A2A). Versions are named
+  `Major.Minor` (`1.0`) in requests and cards; a request with no `A2A-Version` is 0.3.
+- **Transports:** three core protocol bindings, `JSONRPC` (JSON-RPC 2.0 over HTTP, PascalCase
+  methods such as `SendMessage`, SSE for streaming), `GRPC` and `HTTP+JSON`, each declared in the
+  card's `supportedInterfaces` with its URL and version. Spade serves `JSONRPC` at 1.0 only.
+- **The Agent Card's well-known path is `/.well-known/agent-card.json`.** Signatures are JWS
+  objects in `signatures` (`protected`, `signature`, optional `header`) over the card's RFC 8785
+  form with defaults and `signatures` left out; the protected header carries `alg`, `typ: JOSE`
+  and `kid`, and may carry `jku`.
+
+How sections 3 and 6 were built, where they say more than the text above:
+
+1. **One listener, two resources.** ace's outside listener (ADR 0122) serves `<base>/spade/mcp`
+   and `<base>/spade/a2a`, each with its own protected-resource metadata naming the
+   `spade-contracts` scope, and the card at `<base>/.well-known/agent-card.json` (on ace's relay
+   that is `/m/<host>/.well-known/agent-card.json`, under the machine's prefix like every other
+   path there). A sign-in may name either resource; its code and tokens are bound to the base,
+   as ADR 0122's are. The daemon decides who gets through (a live grant issued for that base,
+   holding `spade-contracts`, never Spade's own grant) and passes the request to Spade stamped
+   with the grant (`ace:outside:<grant>`, the client's name) and signed with ace's local token.
+   Spade refuses anything unstamped, so its own bearer can't speak for a client.
+2. **A call is a contract call** (`engine/contracts_outside.rs`): its id is a hash of the grant
+   and the caller's key, kept in the inbox under the grant, so the same key never runs twice and
+   one grant can't read or stop another's calls. The callee reads
+   `<contract_call from="<client>" id="outside:<grant>" outside="mcp|a2a" …>`, "one of the
+   person's own agents outside Spade, not the person's words"; the call's held effects, the
+   callee's ceiling and gate, the output check and the taint rule are those of every call.
+3. **MCP.** `spade-mcp` gained a server side (`serve`): stateless at 2026-07-28 (`server/discover`,
+   `resultType`, the version header matching `_meta`) and for clients that `initialize` at
+   2025-11-25, 2025-06-18 or 2025-03-26. A tool's annotations follow section 3; `openWorldHint` is
+   always set, since MCP's default for it is `true`. A caller's own idempotency key goes in
+   `_meta["dev.acehq.spade/key"]` (a fresh one otherwise); untrusted output says so in
+   `_meta["dev.acehq.spade/untrusted"]`. Stop is a modern client's closed stream, or a legacy
+   client's `notifications/cancelled`.
+4. **MCP `input_required` is not used.** In 2026-07-28 it asks the _client_ for input (an
+   elicitation the client answers). A callee waiting on the person is waiting for the person in
+   ace, and section 3 says the call never answers for them, so the call stays open until it ends.
+   The A2A side reports the wait as `TASK_STATE_INPUT_REQUIRED` with a message saying the person
+   is deciding in ace.
+5. **A2A skills are named `<bot slug>__<contract>`**, as MCP tools are, not by the contract's name
+   alone: two bots may publish the same name. `AgentSkill` has no extension field, so Spade's
+   facts travel in the card's one `capabilities.extensions` entry,
+   `https://spec.acehq.dev/a2a/spade/1` (`required: true`), as `params.skills.<skill id>`:
+   `{bot, package {source, name, version, hash}, effects, input, output}`. A message names its
+   skill in `metadata["https://spec.acehq.dev/a2a/spade/1"].skill` and gives its input as its
+   first data part; its `messageId` is the call's key. An artifact says whether its output is
+   untrusted in the same extension's metadata. Streaming, push notifications, `ListTasks` and the
+   extended card answer the spec's errors for them.
+6. **The card's key.** ADR 0190's machine credential is a secret shared with ace's backend, not
+   a signing key, so the card is signed (ES256) with a P-256 key the daemon makes for this alone
+   (`a2a-card-key.pem` in its data directory). `kid` is its RFC 7638 thumbprint and `jku` points
+   at `<base>/spade/jwks.json`, which is public.
+7. **Not yet:** the signed version manifest isn't on the card, because an installed bot keeps
+   its package's hash but not the market's signed manifest (a receiver can fetch it by name and
+   version and compare the hash); the spec annex in `spade/spec/bridges/` and its conformance
+   cases are still to write.
+
+Tests: `outside_contracts.rs` in `spade-server` (Spade's own MCP client and an A2A client through
+a stand-in for the daemon), `serve` in `spade-mcp`, and `spade-contracts.test.ts` and
+`card-signature.test.ts` in the daemon.

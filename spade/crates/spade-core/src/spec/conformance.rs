@@ -14,7 +14,7 @@ pub struct Suite {
 }
 
 /// The manifest cases, by part: each a base manifest with a case's fields merged over it.
-pub const MANIFESTS: [Suite; 4] = [
+pub const MANIFESTS: [Suite; 5] = [
     Suite {
         part: "package",
         file: "package/manifests.json",
@@ -34,6 +34,11 @@ pub const MANIFESTS: [Suite; 4] = [
         part: "surfaces",
         file: "surfaces/manifests.json",
         text: include_str!("../../../../spec/conformance/surfaces/manifests.json"),
+    },
+    Suite {
+        part: "code",
+        file: "code/manifests.json",
+        text: include_str!("../../../../spec/conformance/code/manifests.json"),
     },
 ];
 

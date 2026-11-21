@@ -1,11 +1,13 @@
 import type { MarketEntryType, MarketScanFinding } from "@ace/protocol/marketplace";
 import type { ArchiveFile } from "../archive.ts";
 import { isLicencePath, licenceProblem } from "./licence.ts";
+import { wasmKind } from "../code.ts";
 
 /*
  * The `files` check (ADR 0174 §8): nothing executable or packaged travels in an entry. Native
  * programs are told by their first bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a
- * plugin by its header, a compiled AppleScript by its `FasdUAS` marker, and an archive inside the
+ * plugin by its header (but a bot package's components under `code/`, ADR 0203: the bot checks
+ * read their manifest entries and the signer the binary), a compiled AppleScript by its `FasdUAS` marker, and an archive inside the
  * archive by its own magic (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg). An executable bit on a
  * type that has none is a finding, and a Suit may hold only its own file kinds (plus plain-text licences, see licence.ts). Pure.
  */
@@ -54,6 +56,10 @@ function archiveKind(bytes: Uint8Array): string | undefined {
 function isWasm(bytes: Uint8Array): boolean {
   return startsWith(bytes, [0x00, 0x61, 0x73, 0x6d]);
 }
+
+/** A bot package's WebAssembly component: a component (never a core module) at `code/<name>.wasm`. */
+const packageComponent = (type: MarketEntryType, path: string, bytes: Uint8Array): boolean =>
+  type === "spade-bot" && /^code\/[a-z][a-z0-9]{0,23}\.wasm$/.test(path) && wasmKind(bytes) === "component";
 
 /** A compiled AppleScript by its `FasdUAS` marker near the start. */
 function isCompiledAppleScript(bytes: Uint8Array): boolean {
@@ -115,7 +121,7 @@ export function filesCheck(
         ),
       );
     }
-    if (isWasm(bytes) && type !== "spade-plugin") {
+    if (isWasm(bytes) && type !== "spade-plugin" && !packageComponent(type, file.path, bytes)) {
       findings.push(
         findingOf(
           file.path,

@@ -29,6 +29,7 @@ with a note.
 | [`runtime`](runtime.md) | 1.0 | `spade.v1`: its modules, tool names, the effect of each tool, `since`, aliases and the major and minor rule. |
 | [`surfaces`](surfaces.md) | 1.0 | Card layout parts and actions, panels, their state and actions, the panel message protocol and `confirm` actions. |
 | [`contracts`](contracts.md) | 1.0 | Contract declaration, call and return, the bounded schema subset, input and output bounds, held effects, taint at entry, exactly-once keys, compatible changes. |
+| [`code`](code.md) | 1.0 | WebAssembly components a package ships: Spade's world `spade:package@1.0.0`, what a component may import, its manifest entry, the checks its binary passes and the bounds of a call. |
 | [`distribution`](distribution.md) | 1.0 | The content hash, the signed version manifest, withdrawal and scenario test files. |
 <!-- spec:end parts -->
 
@@ -74,6 +75,7 @@ both.
 | [`conformance/effects/manifests.json`](conformance/effects/manifests.json) | [`effects`](effects.md) | 15 |
 | [`conformance/contracts/manifests.json`](conformance/contracts/manifests.json) | [`contracts`](contracts.md) | 18 |
 | [`conformance/surfaces/manifests.json`](conformance/surfaces/manifests.json) | [`surfaces`](surfaces.md) | 16 |
+| [`conformance/code/manifests.json`](conformance/code/manifests.json) | [`code`](code.md) | 19 |
 | [`conformance/contracts/schemas.json`](conformance/contracts/schemas.json) | [`contracts`](contracts.md) | 11 |
 | [`conformance/runtime/packages.json`](conformance/runtime/packages.json) | [`runtime`](runtime.md) | 10 |
 | [`conformance/runtime/scenarios.json`](conformance/runtime/scenarios.json) | [`runtime`](runtime.md) | 3 |

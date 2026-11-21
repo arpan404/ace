@@ -47,6 +47,9 @@ export function fakeWorkosOrgs(clientId: string) {
   const audits = new Map<string, { org: string; event: Json }>();
   const portalLinks: { organization: string; intent: string; external_user_id: string }[] = [];
   const portalRevocations: { organization: string; external_user_id: string }[] = [];
+  /** Links and revocations in the order WorkOS made them. */
+  const portalLog: { kind: "link" | "revoke"; organization: string; external_user_id: string }[] =
+    [];
   /** Organizations whose sign-in policy this session can't meet, with WorkOS's error code. */
   const refusals = new Map<string, string>();
   let ids = 0;
@@ -242,10 +245,20 @@ export function fakeWorkosOrgs(clientId: string) {
         intent: String(body.intent),
         external_user_id: String(body.external_user_id),
       });
+      portalLog.push({
+        kind: "link",
+        organization: String(body.organization),
+        external_user_id: String(body.external_user_id),
+      });
       return ok({ link: `https://setup.workos.test/portal?token=${portalLinks.length}` });
     }
     if (method === "POST" && path === "/portal/revoke_link") {
       portalRevocations.push({
+        organization: String(body.organization),
+        external_user_id: String(body.external_user_id),
+      });
+      portalLog.push({
+        kind: "revoke",
         organization: String(body.organization),
         external_user_id: String(body.external_user_id),
       });
@@ -323,6 +336,13 @@ export function fakeWorkosOrgs(clientId: string) {
       const membership = membershipOf(user, org);
       if (membership) changeMembership(membership, { role: { slug: role } });
     },
+    /** The user changes their name at WorkOS: a `user.updated` event. */
+    renameUser(user: string, first: string) {
+      const known = users.get(user);
+      if (!known) return;
+      known.first_name = first;
+      emit("user.updated", { object: "user", ...known, updated_at: timestamp() });
+    },
     deactivate(user: string, org: string) {
       const membership = membershipOf(user, org);
       if (membership) changeMembership(membership, { status: "inactive" });
@@ -336,6 +356,7 @@ export function fakeWorkosOrgs(clientId: string) {
     audits: () => [...audits.values()],
     portalLinks: () => portalLinks,
     portalRevocations: () => portalRevocations,
+    portalLog: () => portalLog,
   };
 }
 export type FakeWorkosOrgs = ReturnType<typeof fakeWorkosOrgs>;

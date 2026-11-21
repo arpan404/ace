@@ -10,6 +10,7 @@ import type {
 } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
+  codeReviewRow,
   hashFiles,
   recipeEffects,
   recipeEntries,
@@ -242,6 +243,16 @@ function body(entry: PreparedReview): MarketReviewBody {
           ? {
               linked: true,
               effects: recipeEffects(recipe),
+              ...(recipe.code?.length
+                ? {
+                    code: recipe.code.map((code) => ({
+                      name: code.name,
+                      imports: code.imports,
+                      why: code.why,
+                      sentence: codeReviewRow(code, recipe.effects),
+                    })),
+                  }
+                : {}),
               triggers: recipe.triggers,
               ...(recipe.limits ? { limits: recipe.limits } : {}),
               unused: Object.keys(recipe.extra ?? {}).slice(0, 64),

@@ -19,11 +19,12 @@ macro_rules! file {
 }
 
 /// The Reader level's manifest cases, by part.
-pub const MANIFESTS: [File; 4] = [
+pub const MANIFESTS: [File; 5] = [
     file!("package/manifests.json"),
     file!("effects/manifests.json"),
     file!("contracts/manifests.json"),
     file!("surfaces/manifests.json"),
+    file!("code/manifests.json"),
 ];
 /// The Reader level's schema cases.
 pub const SCHEMAS: File = file!("contracts/schemas.json");

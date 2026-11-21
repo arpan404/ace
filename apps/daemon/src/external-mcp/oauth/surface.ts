@@ -5,9 +5,13 @@
  * arrived never changes what it may do.
  */
 import type { ResourceFetch } from "@ace/mcp-server";
-import { relativePath, resourceOf, type OutsideBase } from "./base.ts";
+import { isSpadeContractPath, relativePath, resourceOf, type OutsideBase } from "./base.ts";
 import type { Authorizations } from "./authorize.ts";
-import { authorizationServerMetadata, protectedResourceMetadata } from "./metadata.ts";
+import {
+  authorizationServerMetadata,
+  protectedResourceMetadata,
+  spadeResourceMetadata,
+} from "./metadata.ts";
 import { RateLimit } from "./rate-limit.ts";
 import type { ClientRegistrations } from "./registrations.ts";
 import { tokenRequest, type TokenDeps } from "./token.ts";
@@ -28,6 +32,8 @@ const cors = {
 
 export interface SurfaceDeps {
   authorizations: Authorizations;
+  /** Spade's contracts over MCP and A2A, and the Agent Card (ADR 0202 §3, §6). */
+  spade: (request: Request, base: OutsideBase, path: string) => Promise<Response>;
   registrations: ClientRegistrations;
   token: TokenDeps;
   machine(): string;
@@ -97,6 +103,11 @@ export function outsideSurface(deps: SurfaceDeps) {
         return new Response("Origin not allowed", { status: 403 });
       return mcp(request, resourceOf(base));
     }
+    if (isSpadeContractPath(path)) {
+      if (!originAllowed(request.headers.get("origin"), base))
+        return new Response("Origin not allowed", { status: 403 });
+      return deps.spade(request, base, path ?? "");
+    }
     const json = (body: unknown, status = 200) =>
       withCors(Response.json(body, { status, headers: { "cache-control": "no-store" } }));
     if (method === "OPTIONS")
@@ -108,6 +119,17 @@ export function outsideSurface(deps: SurfaceDeps) {
       case "/.well-known/oauth-protected-resource/mcp":
         return method === "GET"
           ? json(protectedResourceMetadata(base, deps.machine()))
+          : new Response(null, { status: 405 });
+      case "/.well-known/oauth-protected-resource/spade/mcp":
+      case "/.well-known/oauth-protected-resource/spade/a2a":
+        return method === "GET"
+          ? json(
+              spadeResourceMetadata(
+                base,
+                path.endsWith("/mcp") ? "/spade/mcp" : "/spade/a2a",
+                deps.machine(),
+              ),
+            )
           : new Response(null, { status: 405 });
       case "/.well-known/oauth-authorization-server":
         return method === "GET"

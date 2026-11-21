@@ -186,6 +186,39 @@ rules! {
     ACTION_LABEL = "surfaces.action-label", "surfaces", true,
         "An action's label isn't a few words (at most 40 characters).";
     CONFIRM = "surfaces.confirm", "surfaces", true, "An action's `confirm` isn't true or false.";
+    CODE_LIST = "code.list", "code", true, "`code` isn't a list of at most 4 components.";
+    CODE_FIELD = "code.field", "code", true, "A component's entry isn't an object.";
+    CODE_NAME = "code.name", "code", true,
+        "A component's name isn't 1 to 24 lower-case letters and digits, starting with a letter.";
+    CODE_NAME_UNIQUE = "code.name-unique", "code", false, "Two components have one name.";
+    CODE_FILE = "code.file", "code", false,
+        "A component's file isn't `code/<name>.wasm`: never precompiled code, never outside `code/`.";
+    CODE_WORLD = "code.world", "code", true, "A component's world isn't one of Spade's.";
+    CODE_WORLD_LATER = "code.world-later", "code", false,
+        "A component is built for a world of Spade's that the runtime doesn't run yet.";
+    CODE_IMPORTS = "code.imports", "code", true,
+        "A component's `imports` isn't a list of interface names.";
+    CODE_IMPORT = "code.import", "code", true,
+        "A component imports something outside Spade's world: a file system, sockets, the \
+         command line, incoming HTTP, threads or any other interface.";
+    CODE_IMPORT_TWICE = "code.import-twice", "code", true, "A component lists an import twice.";
+    CODE_HTTP_NETWORK = "code.http-network", "code", false,
+        "A component imports `spade:package/http` and the package declares no `network` effect \
+         naming hosts.";
+    CODE_WHY = "code.why", "code", true,
+        "A component doesn't say what its code does, in 1 to 500 characters.";
+    CODE_BOUND = "code.bound", "code", true,
+        "A component's `timeout_s` isn't 1 to 300, or its `memory_mb` 1 to 512.";
+    CODE_FILE_MISSING = "code.file-missing", "code", false,
+        "A component the manifest names isn't in the package.";
+    CODE_STRAY = "code.stray", "code", false,
+        "A file under `code/` isn't a named component, `code/src/` or `code/build.json`.";
+    CODE_BINARY = "code.binary", "code", false,
+        "A component's bytes aren't a component of Spade's world: over 8 MiB, a core module, \
+         precompiled code, invalid with the features a runtime enables, importing outside the \
+         world, or exporting what the world doesn't.";
+    CODE_BINARY_IMPORTS = "code.binary-imports", "code", false,
+        "A component's binary imports differ from its entry's `imports`, either way.";
 }
 
 /// The rule of `id`.
