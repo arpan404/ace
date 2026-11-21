@@ -1,5 +1,5 @@
 import { facts, type FakeDaemon, type FakeSpadeApi } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { until } from "./test-host.ts";
 import { setUp } from "./spade-test-host.ts";
@@ -82,6 +82,7 @@ test("a bot's workers show one row each, and one waiting on its plan says so and
         conversation: null,
         tone: "needs-you",
         line: "Waiting for you to approve its plan",
+        asking: [planner],
       },
       {
         id: builder,
@@ -91,6 +92,7 @@ test("a bot's workers show one row each, and one waiting on its plan says so and
         conversation: null,
         tone: "working",
         line: "Running",
+        asking: [],
       },
     ],
   });
@@ -104,6 +106,65 @@ test("a worker that starts waiting on the person shows it in the open chat, with
 
   await until(() => workers()?.workers[1]?.tone === "needs-you");
   expect(workers()?.workers[0]?.tone).toBe("working");
+});
+
+test("a worker whose delegated child waits on the person names the child, where its request is", async () => {
+  const child = ThreadId.parse("worker-planner-child");
+  const { workers } = await research((daemon) => {
+    daemon.createThread({
+      id: child,
+      workspaceId: "ace",
+      title: "Check the index",
+      provider: "claude",
+      access: "ask",
+      parentThreadId: planner,
+    });
+    daemon.apply(child, [facts.rootAgent("claude"), facts.turn("root"), planReview("plan-3")]);
+    // The planner's agent that delegated it, as the daemon tells it the child's state.
+    daemon.apply(planner, [
+      {
+        type: "agent.seen",
+        agent: "checker",
+        parent: "root",
+        origin: "ace",
+        fidelity: "full",
+        native: { provider: "claude", nativeId: "checker" },
+        cwd: "/Users/dev/acme",
+        name: "Checker",
+      },
+      {
+        type: "agent.external",
+        agent: "checker",
+        threadId: child,
+        status: { state: "needs_you", interactions: 1 },
+      },
+    ]);
+  });
+
+  const row = await until(() =>
+    workers()?.workers[0]?.tone === "needs-you" ? workers() : undefined,
+  );
+
+  // The planner holds no request itself; the card looks up the child's under it too.
+  expect(row.workers[0]?.asking).toEqual([planner, child]);
+  expect(row.workers[1]?.asking).toEqual([]);
+});
+
+test("a finished worker outside the thread list reads as done, from its own thread", async () => {
+  const { workers } = await research((daemon) => {
+    daemon.apply(builder, [facts.endTurn("root")]);
+    // Archived, so ace's thread list no longer holds it.
+    daemon.command({
+      id: CommandId.parse("archive-builder"),
+      deviceId: DeviceId.parse("seed"),
+      payload: { type: "thread.archive", threadId: builder },
+    });
+  });
+
+  const row = await until(() => (workers()?.workers[1]?.line === "Done" ? workers() : undefined));
+
+  expect(row.workers[1]?.tone).toBe("rest");
+  expect(row.workers[0]?.tone).toBe("working");
 });
 
 test("a worker never reads as done while its thread still works, even before ace has listed it", async () => {

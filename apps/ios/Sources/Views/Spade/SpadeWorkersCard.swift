@@ -4,7 +4,8 @@ import SwiftUI
 /// each worker with its state's glyph, its name and how it stands, which opens its thread (an ace
 /// agent) or its chat (a bot). Under a worker waiting on the person sit its requests on the
 /// thread's own cards, so a plan is approved or sent back, a question answered, right here
-/// (`NeedsRequestCard`, answering through the inbox's path). The words and states are the bridge's.
+/// (`NeedsRequestCard`, answering through the inbox's path), whether they wait on its own thread
+/// or on one it delegated. The words and states are the bridge's.
 struct SpadeWorkersCard: View {
     let workers: SpadeModel.Workers
     let client: ClientModel
@@ -23,10 +24,12 @@ struct SpadeWorkersCard: View {
             ForEach(workers.workers) { worker in
                 VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                     row(worker)
-                    if worker.tone == "needs-you", let thread = worker.thread {
-                        ForEach(client.needsYou(thread)) { request in
-                            NeedsRequestCard(request: request, model: client, threadId: thread,
-                                             open: { open(worker) }, draft: draft(request.id))
+                    if worker.tone == "needs-you" {
+                        ForEach(asking(worker), id: \.self) { thread in
+                            ForEach(client.needsYou(thread)) { request in
+                                NeedsRequestCard(request: request, model: client, threadId: thread,
+                                                 open: { open(worker) }, draft: draft(request.id))
+                            }
                         }
                     }
                 }
@@ -68,6 +71,11 @@ struct SpadeWorkersCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityHint(worker.thread != nil ? "Opens its thread" : "Opens its chat")
         .accessibilityIdentifier("spade.worker")
+    }
+
+    /// The threads whose requests show under a waiting worker.
+    private func asking(_ worker: SpadeModel.Workers.Worker) -> [String] {
+        worker.asking ?? worker.thread.map { [$0] } ?? []
     }
 
     private func opens(_ worker: SpadeModel.Workers.Worker) -> Bool {
