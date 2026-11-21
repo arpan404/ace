@@ -17,6 +17,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { followAccountLeaving } from "./account-switch.ts";
 import { SpaceProvider } from "./space-context.tsx";
+import { SpaceScopeHost } from "./use-space-machines.tsx";
 import {
   aceAccountStore,
   type AceAccountBackend,
@@ -83,7 +84,9 @@ export function AceAccountProvider(props: { children: ReactNode }) {
   }, [store]);
   return (
     <StoreContext value={store}>
-      <SpaceProvider store={store}>{props.children}</SpaceProvider>
+      <SpaceProvider store={store}>
+        <SpaceScopeHost>{props.children}</SpaceScopeHost>
+      </SpaceProvider>
     </StoreContext>
   );
 }

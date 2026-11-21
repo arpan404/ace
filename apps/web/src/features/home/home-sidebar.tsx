@@ -21,7 +21,7 @@ import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
 import { scopeNames, useScopeMachines } from "./device-filter.tsx";
-import { usePrimaryMachine } from "@/lib/machines.ts";
+import { usePrimaryInSpace, usePrimaryMachine } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList, useSettledEntries } from "./use-home-threads.ts";
 import { useSettledSearch, useThreadHits, type SearchHit } from "./use-panel-search.ts";
@@ -64,7 +64,8 @@ export function HomeSidebar() {
   const own = usePrimaryMachine().id;
   const asked = useThreadHits(query);
   // Only this machine's daemon searches: another machine's threads match by title alone.
-  const found = inScope(device, own) ? asked : noHits;
+  const ownShown = usePrimaryInSpace();
+  const found = ownShown && inScope(device, own) ? asked : noHits;
   const list = useHomeList(others, query, found);
   // Settled also lists older settled threads the search found that the list hasn't paged in.
   const settledShown = useSettledEntries(list.settled);

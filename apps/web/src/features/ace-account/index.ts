@@ -44,4 +44,5 @@ export {
   spaceAllows,
   type ShownSpace,
 } from "./spaces.ts";
-export { useSpaceMachines } from "./use-space-machines.ts";
+export { SpaceScopeHost, useSpaceMachines } from "./use-space-machines.tsx";
+export { useOwnNoticeSpace, type NoticeSpace } from "./notice-space.ts";

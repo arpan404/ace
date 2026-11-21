@@ -6,6 +6,7 @@ import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/cl
 import { useHostIdentity } from "./host-name.ts";
 import { createContext, use, useMemo } from "react";
 import { useMachinePool } from "./machine-pool.ts";
+import { inSpace, useSpaceScope } from "./space-scope.ts";
 import type { MachineStatus, MachineVia } from "@ace/ui-core/fleet-map";
 
 export type { MachineStatus, MachineVia };
@@ -66,6 +67,29 @@ export function useMachines(): readonly Machine[] {
     return [own, ...others.filter((machine) => machine.id !== own.id)];
   }, [own, others]);
   return scoped?.machines ?? listed;
+}
+
+/**
+ * The machines whose projects and threads the window's space shows (ADR 0206 §2.4), this
+ * window's daemon first when it is one of them: the lists of work read these, while connections,
+ * notices and opening a thread still reach every machine.
+ */
+export function useMachinesInSpace(): readonly Machine[] {
+  const machines = useMachines();
+  const scope = useSpaceScope();
+  return useMemo(
+    () => (scope ? machines.filter((machine) => inSpace(scope, machine.id)) : machines),
+    [machines, scope],
+  );
+}
+
+/**
+ * Whether the window's space shows this window's own daemon's projects and threads: in an
+ * organization's space only when it is one of the organization's hosts (ADR 0206 §2.4).
+ */
+export function usePrimaryInSpace(): boolean {
+  const own = usePrimaryMachine().id;
+  return inSpace(useSpaceScope(), own);
 }
 
 /** The other machine this view runs against (inside a `MachineScope`), else undefined. */

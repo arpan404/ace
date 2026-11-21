@@ -22,6 +22,8 @@ import { threadToasts, type ToastCause } from "./toast-rules.ts";
 import { useNeedsYouCount } from "./needs-you-count.ts";
 import { CatchUpNotifier } from "./catch-up-notifier.tsx";
 import { useProjectName } from "@/lib/projects.ts";
+import { useOwnNoticeSpace } from "@/features/ace-account/index.ts";
+import { inSpaceWords } from "./notice-words.ts";
 
 // Automation runs and account limits are read after first paint: their toasts can wait.
 const LaterNotifiers = lazy(() => import("./later-notifiers.tsx"));
@@ -60,6 +62,7 @@ function ThreadNotifier() {
   const toast = useToast();
   const projectName = useProjectName();
   const navigate = useNavigate();
+  const space = useOwnNoticeSpace();
   const sidebar = useSidebarStore();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const statuses = useSidebarAll(readStatuses, arrayEqual);
@@ -74,14 +77,19 @@ function ThreadNotifier() {
     if (!thread || isSnoozedToTime(thread, Date.now())) return;
     const needsYou = cause.kind === "needs_you";
     const visible = documentVisibility.visible();
-    const description = `${projectName(thread.workspaceId)} · ${thread.title}`;
-    const open = () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } });
+    const project = inSpaceWords(space.label, projectName(thread.workspaceId)) ?? "";
+    const description = `${project} · ${thread.title}`;
+    // A notice from another space opens there (ADR 0206 §1.5).
+    const open = () => {
+      space.enter();
+      void navigate({ to: "/t/$threadId", params: { threadId: thread.id } });
+    };
     if (needsYou) {
       if (!visible) {
         if (context.current.prefs.browser)
           notifyInBrowser({
             title: `${thread.title} needs you`,
-            body: projectName(thread.workspaceId),
+            body: project,
             tag: needsToastId(thread.id),
             open,
           });
@@ -111,7 +119,7 @@ function ThreadNotifier() {
     }
     toast.error({
       title: `${thread.title} failed`,
-      description: projectName(thread.workspaceId),
+      description: project,
       timeout: attentionTimeout,
       actionProps: { children: "Open", onClick: open },
     });

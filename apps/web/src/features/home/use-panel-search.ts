@@ -5,7 +5,7 @@ import { isRemoved, isSettled } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
-import { usePrimaryMachine } from "@/lib/machines.ts";
+import { usePrimaryInSpace, usePrimaryMachine } from "@/lib/machines.ts";
 import { useIsChat, useIsChatThread } from "@/lib/projects.ts";
 import { useProjectScope } from "./use-project-scope.ts";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
@@ -76,7 +76,9 @@ export function useSettledSearch(
     () => new Set([...list.pinned, ...list.listed, ...list.snoozed, ...list.settled]),
     [list.pinned, list.listed, list.snoozed, list.settled],
   );
-  const offDevice = !inScope(device, own);
+  // Another space's machine searches nothing here either (ADR 0206 §2.4).
+  const ownShown = usePrimaryInSpace();
+  const offDevice = !inScope(device, own) || !ownShown;
   const isChat = useIsChat();
   const isChatThread = useIsChatThread();
   // Only hits whose thread is settled (or not loaded at all: the daemon pages settled threads).

@@ -73,3 +73,16 @@ export function machinesInSpace<T>(
     return !orgs.some((org) => hostsOf.get(org)?.has(id));
   });
 }
+
+/**
+ * The organization whose hosts include `hostId`, from the same hosts map `machinesInSpace` reads;
+ * undefined for Personal, or for a machine with no relay id (paired over the LAN).
+ */
+export function orgOfHost(
+  hostId: string | undefined,
+  spaces: readonly AceOrgSpace[],
+  hostsOf: ReadonlyMap<string, ReadonlySet<string>>,
+): AceOrgSpace | undefined {
+  if (hostId === undefined) return undefined;
+  return spaces.find((space) => hostsOf.get(space.id)?.has(hostId));
+}
