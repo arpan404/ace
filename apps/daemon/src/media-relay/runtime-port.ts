@@ -12,7 +12,7 @@ export class RuntimeRelayPort implements MediaRelayPort {
   readonly #delivering: () => boolean;
   readonly #watchers = new Set<MediaRelayWatcher>();
 
-  /** `delivering`: whether `media.delivery` is `auto` now. */
+  /** `delivering`: whether ace-media delivers views now. */
   constructor(live: Pick<MediaRuntime, "supervisor" | "connections">, delivering: () => boolean) {
     this.#live = live;
     this.#delivering = delivering;

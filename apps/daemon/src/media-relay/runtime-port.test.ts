@@ -34,12 +34,10 @@ function runtime() {
   });
 }
 
-const settings = () => ({ ...defaultMediaSettings, delivery: "auto" as const });
-
 it("repeated lookups through the delivery factory keep one watcher, and each message reaches the streams once", () => {
   const live = runtime();
   const port = new RuntimeRelayPort(live, () => true);
-  const relay = lateMediaRelay(() => daemonDelivery(live, port, settings).relay, {
+  const relay = lateMediaRelay(() => daemonDelivery(live, port).relay, {
     hostKeys: keyPair(),
   });
   for (let i = 0; i < 50; i++)
