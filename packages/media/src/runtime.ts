@@ -132,6 +132,8 @@ export class MediaRuntime {
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
       onLive: (producer, path) => this.viewers.live(producer, path),
       why: () => mediaDownReason(this.supervisor.snapshot()),
+      // Made just below; a still is only ever asked for after construction.
+      stills: { take: (request, capture, adopt) => this.stills.take(request, capture, adopt) },
       acceleration: (subject, acceleration) => this.acceleration.report(subject, acceleration),
     });
     const randomBytes = options.randomBytes ?? secureRandomBytes;

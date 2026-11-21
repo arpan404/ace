@@ -574,6 +574,9 @@ export class TeeRecording implements ActiveRecording {
     // turns it back into a clean recording.
     if (this.#loss && !this.#loss.restarting) this.#failure ??= this.#loss.reason;
     this.#stopping = true;
+    // ace-media's stop barrier (`source.sync`) holds a picture recording until its encoder
+    // handed over every picture it took; one it can't confirm in time is left out, and the end
+    // says so (`truncated`).
     return this.#media.stop().then((end) => this.#failed(end));
   }
 

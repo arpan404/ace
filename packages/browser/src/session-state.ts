@@ -25,6 +25,7 @@ export function browserState(
     blocked?: BrowserOriginBlock | undefined;
     annotation?: string | undefined;
     recording?: BrowserTabActor | undefined;
+    recordingNotice?: string | undefined;
     video?: BrowserVideoStatus | undefined;
     acceleration?: MediaAcceleration | undefined;
   },
@@ -52,6 +53,7 @@ export function browserState(
     ],
     ...(lifecycle.annotation ? { annotation: { owner: lifecycle.annotation } } : {}),
     ...(lifecycle.recording ? { recording: { by: lifecycle.recording } } : {}),
+    ...(lifecycle.recordingNotice ? { recordingNotice: lifecycle.recordingNotice } : {}),
     ...(lifecycle.video ? { video: lifecycle.video } : {}),
     ...(lifecycle.acceleration ? { acceleration: lifecycle.acceleration } : {}),
     ...(tabs

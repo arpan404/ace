@@ -29,7 +29,7 @@ async function live() {
 }
 
 it.skipIf(!serial)(
-  "the real emulator streams H.264 without ffmpeg, takes two fingers and Unicode text",
+  "the real emulator streams H.264 with nothing decoded on the host, takes two fingers and Unicode text",
   async () => {
     const { platform, device } = await live();
     const frames: Frame[] = [];

@@ -132,7 +132,10 @@ export class SimulatorFrames {
     // A wait timed at the old rate would hold back the next change; the replay covers it.
     this.cancel?.();
     this.cancel = undefined;
-    await this.replay();
+    // A picture over the new box isn't published, and isn't the stream's failure either.
+    await this.replay().catch((error: unknown) => {
+      if (!(error instanceof StillTooLarge)) throw error;
+    });
   }
   async replay(): Promise<void> {
     if (!this.latest || this.stopped) return;

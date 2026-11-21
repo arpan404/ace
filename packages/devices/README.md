@@ -97,9 +97,8 @@ audio off, control on) behind an `adb forward` tunnel. The emulator's own H.264 
 passed through to viewers with its parameter sets in front of every keyframe; a
 keyframe request resets the device encoder; size, frame rate and bitrate come from
 the shared stream profile (`max_fps=60`, `video_bit_rate` from the profile). There is no
-time limit and no ffmpeg in the live view. While nobody watches, agents' stills and
-recordings decode that H.264 once through ffmpeg; without ffmpeg the capture stays on
-H.264 and stills come from `screencap`. Input goes over the control socket:
+time limit, and the daemon decodes nothing: ace-media delivers the live view and records it,
+and while nobody watches agents' stills come from `screencap`. Input goes over the control socket:
 multi-touch with pointer ids (`pointer.pointerId`), keys including back, home,
 recents and volume up/down, rotation, and text. The `keyboard` key presses Alt+K, Gboard's "Show
 on-screen keyboard": physical-keyboard input (the emulator window, its console) collapses Gboard
@@ -111,10 +110,9 @@ the same socket: a read waits up to 1.5 s for the device's reply (no reply means
 clipboard), a write waits for its acknowledgement. Without the scrcpy view the Android
 clipboard is refused as unsupported; on iOS they run `xcrun simctl pbpaste|pbcopy`.
 Reads return at most 4,096 characters with `truncated` set when cut. When the
-server cannot start, capture falls back to `adb exec-out screenrecord` into ffmpeg
-(JPEG, restarted at screenrecord's time limit, input through `adb shell input`) for
-agents only: it has no frame rate or keyframe control, so a live view on it is refused
-with `not_supported` saying why scrcpy didn't start. `ACE_ANDROID_SCRCPY=off` forces that
+server cannot start, capture falls back to `screencap` stills with input through
+`adb shell input`, for agents only: a live view on it is refused with `not_supported`
+saying why scrcpy didn't start. `ACE_ANDROID_SCRCPY=off` forces that
 fallback.
 
 Android UI trees come from ace's own long-running UiAutomation reader
@@ -178,10 +176,9 @@ hardware buttons: through serve-sim as the HID usage Xcode's device chrome gives
 one, otherwise by name on the Simulator window (idb has no volume buttons).
 
 Recording requires `ACE_WORKSPACE_ROOT` so the daemon has a file artifact
-registry, and ffmpeg for MP4 export. Raw recordings are capped at 512 MiB;
-exported MP4 files retain a separate 50 MiB cap. Conversion
-reads frame payloads individually, preserves their timing, and returns an
-artifact ID and metadata. Clients stream the registered file through file
+registry, and ace-media, which records the capture's H.264 as MP4 parts (X1); without it a
+recording refuses to start and says why. Each recording returns an artifact ID and
+metadata per part. Clients stream the registered file through file
 transfer rather than receiving video bytes in a JSON result.
 
 ## Bounds and verification

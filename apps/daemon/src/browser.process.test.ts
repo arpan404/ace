@@ -100,13 +100,13 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
         requestId: "stop",
         threadId: thread.id,
       });
-      expect(recording).toMatchObject({ ok: true, result: { mimeType: "text/html" } });
+      expect(recording).toMatchObject({ ok: true, result: { mimeType: "video/mp4" } });
       const item = daemon.store
         .readEvents({ afterSeq: 0, threadId: thread.id, limit: 20 })
         .find((event) => event.payload.type === "item.created");
       expect(item).toMatchObject({
         payload: {
-          item: { type: "artifact", source: "browser", mimeType: "text/html", complete: true },
+          item: { type: "artifact", source: "browser", mimeType: "video/mp4", complete: true },
         },
       });
       if (item?.payload.type !== "item.created") throw new Error("Recording item missing");

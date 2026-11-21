@@ -674,6 +674,16 @@ pub enum ToMedia {
             skip_serializing_if = "Option::is_none"
         )]
         min_epoch: Option<u32>,
+        /// The still comes only from a picture that reaches ace-media after this request, never
+        /// one it already had (an agent's still right after its input). One that doesn't arrive
+        /// by the deadline fails, and the daemon takes the source's own capture.
+        #[serde(
+            rename = "fresh",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        fresh: Option<bool>,
     },
     /// A poster for a subscribe reply (ADR 0149, D1): the source's current picture fitted to
     /// `width` × `height` at 10–20 KB. Answered like `still.take`, with `still.done` (the JPEG
@@ -1019,12 +1029,14 @@ pub struct InvalidControl;
 /// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers;
 /// `picture-ingest` encodes a JPEG source's still pictures (kind 3) off its ingest (X2), so a
 /// daemon sends them there only to a build that says so; `privacy-open` reads
-/// `source.open.private` and `still.take.minEpoch` (M8), which a stricter build would refuse.
-pub const FEATURES: [&str; 4] = [
+/// `source.open.private` and `still.take.minEpoch` (M8), which a stricter build would refuse;
+/// `still-fresh` reads `still.take.fresh`.
+pub const FEATURES: [&str; 5] = [
     "source.ingest",
     "source.sync",
     "picture-ingest",
     "privacy-open",
+    "still-fresh",
 ];
 
 /// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own

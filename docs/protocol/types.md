@@ -8526,6 +8526,7 @@ Example:
       "owner": "example"
     },
     "closed": false,
+    "features": [],
     "pending_dialog": {
       "dialogId": "example",
       "message": "example",
@@ -8536,12 +8537,7 @@ Example:
     "status": "ready",
     "tabs": [],
     "threadId": "example",
-    "url": "example",
-    "video": {
-      "attempts": 7,
-      "reason": "example",
-      "status": "retrying"
-    }
+    "url": "example"
   },
   "type": "browser.state"
 }
@@ -8683,6 +8679,7 @@ Example:
 | pending_dialog | no | [BrowserDialog.json](schema/BrowserDialog.json) |  |
 | annotation | no | object | {"properties":{"owner":{"type":"string","minLength":1,"maxLength":256}},"required":["owner"]} |
 | recording | no | object | {"properties":{"by":{"$ref":"https://ace.local/protocol/v1/BrowserTabActor.json"}},"required":["by"]} |
+| recordingNotice | no | string | {"maxLength":256} |
 | features | no | array | {"maxItems":32,"items":{"type":"string","maxLength":64}} |
 | video | no | [BrowserVideoStatus.json](schema/BrowserVideoStatus.json) |  |
 | acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
@@ -8691,10 +8688,6 @@ Example:
 
 ```json
 {
-  "acceleration": {
-    "degraded": true,
-    "steps": []
-  },
   "closed": true,
   "pageStateLost": true,
   "permissionDenied": {
@@ -8702,7 +8695,12 @@ Example:
     "permission": "example"
   },
   "threadId": "example",
-  "url": "example"
+  "url": "example",
+  "video": {
+    "attempts": 5,
+    "reason": "example",
+    "status": "retrying"
+  }
 }
 ```
 

@@ -5,7 +5,7 @@ import type { BackendLog, BrowserBackendSession, PopupTarget } from "./backend.t
 import type { BrowserAnnotationEvent, BrowserOriginBlock, BrowserPageState } from "@ace/protocol";
 import { BrowserCommand, type BrowserArtifact, type BrowserState } from "@ace/protocol";
 import { refusingRecorder } from "@ace/media/tee-recordings";
-import { LiveCapture, type Privacy } from "./live.ts";
+import { LiveCapture, type CaptureTarget, type Privacy } from "./live.ts";
 import { SessionLogs } from "./logs.ts";
 import { browserState } from "./session-state.ts";
 import { closeSession } from "./session-close.ts";
@@ -133,6 +133,7 @@ export class BrowserSession {
       async (on) => {
         await Promise.all(this.tabs.all().map((tab) => tab.cursor.setRecording(on)));
       },
+      () => this.emit(),
     );
     this.tabs = new SessionTabs(this.host(), () => this.options.backend);
     this.shownWake = new RecoveryRetry(options.navigationClock);
@@ -364,6 +365,7 @@ export class BrowserSession {
       blocked: this.blocked,
       annotation: viewed?.annotation.owner,
       recording: this.recordings.by,
+      recordingNotice: this.recordings.notice,
       video: this.videoStatus(),
       // Read while the constructor still sets up the tabs, before the live capture exists.
       acceleration: (this.live as LiveCapture | undefined)?.video.acceleration(),
@@ -493,7 +495,12 @@ export class BrowserSession {
           },
         );
         if (!restored) return;
-        await this.live.replace(this.viewedPage().cdp);
+        // The tab and its page go together, read now: never the view as it is later.
+        const moved = await this.live.replace(
+          this.captureTarget(shown),
+          () => token !== this.captureToken || this.closed || this.paused,
+        );
+        if (!moved) return;
         this.livePage = shown;
         if (token === this.captureToken) this.emit();
       })
@@ -566,7 +573,7 @@ export class BrowserSession {
     this.captured = this.tabs.viewedId();
     // Supersede any view change queued against the old backend.
     this.captureToken++;
-    await this.live.replace(this.viewedPage().cdp);
+    await this.live.replace(this.captureTarget(this.captured));
     this.livePage = this.captured;
     signal?.throwIfAborted();
     this.lastUrl = undefined;
@@ -967,6 +974,12 @@ export class BrowserSession {
       this.live.demand();
       this.emit();
     });
+  }
+  /** What the capture shows for `tabId`: its page and its id, or the one page without tabs. */
+  private captureTarget(tabId: string | undefined): CaptureTarget {
+    if (!this.options.backend.tabs || tabId === undefined)
+      return { cdp: this.viewedPage().cdp, tabId: undefined };
+    return { cdp: this.tabs.page(tabId).cdp, tabId };
   }
   /**
    * The privacy of a tab by id; undefined is the page a backend without tabs shows. A tab that

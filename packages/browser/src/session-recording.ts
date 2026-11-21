@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { BrowserArtifact, BrowserFrame, BrowserTabActor } from "@ace/protocol";
+import type { RecordingEnd } from "@ace/media/recordings";
 import type { ActiveRecording, MediaRecorder, RecordingEncode } from "@ace/media/tee-recordings";
 import { PublicToolError } from "@ace/mcp-server/errors";
 import type { BrowserBackendPage } from "./backend.ts";
@@ -65,6 +66,12 @@ type Running = { media: ActiveRecording; tab: RecordedTab };
  */
 export class SessionRecording {
   private recording: Running | undefined;
+  /** A start is under way: the recording slot is its. */
+  private reserved = false;
+  /** A recording ace-media ended on its own (its capture is gone): kept for the stop. */
+  private completed: RecordingEnd | undefined;
+  private noticed: string | undefined;
+  private changed: () => void;
   private stopPolling = () => {};
   private actor: BrowserTabActor | undefined;
   private options: SessionOptions;
@@ -77,14 +84,22 @@ export class SessionRecording {
     recorder: MediaRecorder,
     paused: () => boolean,
     masked: (on: boolean) => Promise<void> = async () => {},
+    /** The recording's state changed on its own (ace-media ended it): the session tells clients. */
+    changed: () => void = () => {},
   ) {
     this.options = options;
     this.recorder = recorder;
     this.paused = paused;
     this.masked = masked;
+    this.changed = changed;
   }
+  /** What the person should know about the last recording, until the next one starts. */
+  get notice(): string | undefined {
+    return this.noticed;
+  }
+  /** A recording runs, or one is starting (its slot is taken until it runs or is cleaned up). */
   get active(): boolean {
-    return this.recording !== undefined;
+    return this.recording !== undefined || this.reserved;
   }
   /** Who started the recording that runs now; people see it and can stop it. */
   get by(): BrowserTabActor | undefined {
@@ -114,22 +129,44 @@ export class SessionRecording {
   ): Promise<void> {
     check();
     if (this.paused()) throw new BrowserActionError("browser_paused");
-    if (this.recording) throw new BrowserActionError("recording_active");
-    await this.masked(true);
+    // The one slot is taken before anything awaits, and held until the recording runs or what
+    // a failed start opened is stopped: a second start meanwhile, from any tab, is refused.
+    if (this.recording || this.reserved) throw new BrowserActionError("recording_active");
+    this.reserved = true;
     try {
-      await this.begin(check, tab, by);
-    } catch (error) {
-      await this.masked(false);
-      throw error;
+      await this.masked(true);
+      try {
+        await this.begin(check, tab, by);
+      } catch (error) {
+        await this.masked(false);
+        throw error;
+      }
+    } finally {
+      this.reserved = false;
     }
   }
   private async begin(check: () => void, tab: RecordedTab, by: BrowserTabActor): Promise<void> {
+    this.completed = undefined;
+    this.noticed = undefined;
+    let recording: Running | undefined;
     const started = await this.recorder.start({
       origin: { kind: "tab-pictures" },
       encode: recordingEncode(tab.page.viewport()),
       directory: join(this.options.dir, `${this.options.id()}.parts`),
       maxBytes: recordingPartBytes,
       private: () => tab.privacy().private === true,
+      // ace-media ended it (an ingest it lost for good, a write it couldn't make): the browser
+      // stops saying it records, and the stop publishes what was written and says why.
+      failed: (end) => {
+        if (!recording || this.recording !== recording) return;
+        this.recording = undefined;
+        this.stopPolling();
+        this.completed = end;
+        this.noticed =
+          "Recording stopped because it couldn't be written. What was recorded is saved when it is stopped.";
+        void this.masked(false).catch(() => {});
+        this.changed();
+      },
     });
     // ace-media can't record now: the recording refuses, saying why, rather than record nothing.
     if (!started.ok)
@@ -140,7 +177,7 @@ export class SessionRecording {
         undefined,
         started.reason,
       );
-    const recording: Running = { media: started.recording, tab };
+    recording = { media: started.recording, tab };
     try {
       check();
       // The first picture, as a static page may draw no screencast frame. Its capture time is
@@ -182,25 +219,45 @@ export class SessionRecording {
     };
     this.stopPolling = clock.set(pollMs, () => void tick());
   }
-  /** Stops, and publishes every part ace-media wrote; the first stands for the recording. */
+  /**
+   * Stops, and publishes every part ace-media wrote; the first stands for the recording. A
+   * recording ace-media failed publishes what it wrote and still fails, saying why; one whose
+   * last moment ace-media couldn't confirm is returned with a notice that its end may be
+   * incomplete.
+   */
   async stop(): Promise<BrowserArtifact> {
     const recording = this.recording;
-    if (!recording) throw new BrowserActionError("recording_inactive");
+    const completed = this.completed;
+    if (!recording && !completed) throw new BrowserActionError("recording_inactive");
     this.recording = undefined;
-    this.stopPolling();
-    await this.masked(false);
-    const end = await recording.media.stop();
+    this.completed = undefined;
+    let end: RecordingEnd | undefined = completed;
+    if (recording) {
+      this.stopPolling();
+      await this.masked(false);
+      end = await recording.media.stop();
+    }
+    if (!end) throw new BrowserActionError("recording_inactive");
     const artifacts: BrowserArtifact[] = end.parts.map((part) => ({
       path: part.path,
       mimeType: "video/mp4",
       bytes: part.bytes,
     }));
-    const [first] = artifacts;
-    if (!first)
-      throw end.ok
-        ? new BrowserActionError("recording_failed")
-        : new PublicToolError("recording_failed", undefined, undefined, undefined, end.reason);
     for (const artifact of artifacts) await this.options.artifact(artifact);
+    if (!end.ok) {
+      this.noticed = artifacts.length
+        ? "The recording failed; what was recorded before the failure is saved to this thread."
+        : undefined;
+      this.changed();
+      throw new PublicToolError("recording_failed", undefined, undefined, undefined, end.reason);
+    }
+    const [first] = artifacts;
+    if (!first) throw new BrowserActionError("recording_failed");
+    if (end.truncated) {
+      this.noticed =
+        "The recording is saved, but ace-media couldn't confirm its last moment: the end may be incomplete.";
+      this.changed();
+    }
     return first;
   }
 }

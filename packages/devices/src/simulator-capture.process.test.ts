@@ -190,7 +190,9 @@ it.skipIf(!mediaBinary)(
       };
       await capture.keyframe?.();
       await reconfigured.promise;
-      expect(frames.at(-1)?.header).toMatchObject({ width: 150, height: 300, scale: 0.75 });
+      // Nothing here re-encodes a picture over the new box (ace-media owns images, X1): the
+      // last one published stays the screen's own.
+      expect(frames.at(-1)?.header).toMatchObject({ width: 200, height: 400, scale: 1 });
       await capture.configure?.({
         codec: "jpeg",
         maxWidth: 100,
@@ -198,7 +200,7 @@ it.skipIf(!mediaBinary)(
         fps: 15,
         bitrate: 1000000,
       });
-      expect(frames.at(-1)?.header).toMatchObject({ width: 100, height: 200, scale: 0.5 });
+      expect(frames.at(-1)?.header).toMatchObject({ width: 200, height: 400, scale: 1 });
       const typing = capture.input({ kind: "type", text: "hello" }, () => {});
       const rejectedTyping = expect(typing).rejects.toThrow();
       await expect.poll(() => readFile(join(home, "typing"), "utf8").catch(() => "")).toBe("ready");

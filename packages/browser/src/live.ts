@@ -39,6 +39,12 @@ export function capturedEpoch(privacy: Privacy, at: number): number {
     : privacy.epoch;
 }
 
+/**
+ * What a capture shows: one tab's page and that tab's id, taken together. Its pictures are that
+ * tab's, fenced on that tab's privacy, whatever is viewed by the time they arrive.
+ */
+export type CaptureTarget = { readonly cdp: BrowserCdp; readonly tabId: string | undefined };
+
 export class LiveCapture {
   readonly video: LiveVideo;
   private sinks = new Map<string, ViewerSink>();
@@ -339,9 +345,14 @@ export class LiveCapture {
    * once. Chrome's screencast itself runs only while frames are wanted (`demand`).
    */
   async start(): Promise<void> {
+    return this.attachTo({ cdp: this.cdp, tabId: this.tab() });
+  }
+  /** Attaches to `target`: its page and its tab id are set together, before anything awaits. */
+  private async attachTo(target: CaptureTarget): Promise<void> {
     if (this.closed) throw new Error("Browser capture closed");
-    this.capturing = this.tab();
-    const cdp = this.cdp,
+    this.cdp = target.cdp;
+    this.capturing = target.tabId;
+    const cdp = target.cdp,
       generation = this.generation;
     this.receive = (raw) => this.captureFrame(raw, cdp, generation);
     // The video knows the tab's privacy before its first capture opens, so it opens in it.
@@ -450,17 +461,23 @@ export class LiveCapture {
     this.cdp.off("Page.screencastFrame", this.receive);
     this.video.detach();
   }
-  async replace(cdp: BrowserCdp): Promise<void> {
+  /**
+   * Moves the capture to `target`. A move `superseded` while the old screencast stops (the
+   * person went on to another tab) never starts: the newer move attaches instead. Resolves
+   * whether this one attached.
+   */
+  async replace(target: CaptureTarget, superseded: () => boolean = () => false): Promise<boolean> {
     const previous = this.cdp;
     this.detach();
     await previous.send("Page.stopScreencast").catch(() => {});
-    this.cdp = cdp;
+    if (superseded()) return false;
     this.closed = false;
     // Another page (another tab, or a reopened browser's): nothing is being restored on it.
     this.video.resume();
     this.lastFrame = -Infinity;
     this.settings = screencastSettings;
-    await this.start();
+    await this.attachTo(target);
+    return true;
   }
   async close(): Promise<void> {
     this.closed = true;

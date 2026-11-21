@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import type { BrowserArtifact } from "@ace/protocol";
 import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { markedJpeg, type FakePage } from "./backend-test-support.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
@@ -26,6 +27,7 @@ async function thread() {
   const home = await mkdtemp(join(tmpdir(), "ace-recording-privacy-"));
   const clock = { now: 1_000_000 };
   const recorder = new FakeMediaRecorder();
+  const artifacts: BrowserArtifact[] = [];
   const backend = new TabbedHeadless();
   const service = new BrowserService({
     dataDir: home,
@@ -35,6 +37,7 @@ async function thread() {
     navigationClock: new TestNavigationClock(),
     now: () => clock.now,
     recorder,
+    onArtifact: (_, artifact) => void artifacts.push(artifact),
   });
   cleanups.push(async () => {
     await service.close();
@@ -57,7 +60,7 @@ async function thread() {
     });
   };
   const recorded = () => recorder.last()?.units.map((unit) => unit.height) ?? [];
-  return { service, backend, clock, recorder, page, frame, recorded };
+  return { service, backend, clock, recorder, page, frame, recorded, artifacts };
 }
 
 it("records the public tab it follows, through ace-media's picture encode", async () => {
@@ -139,4 +142,93 @@ it("refuses to record, saying why, while ace-media can't record", async () => {
     detail: "ace-media isn't available to record: it keeps failing",
   });
   expect(t.service.state("thread").recording).toBeUndefined();
+});
+
+it("a quick move to a private tab and back never records the private tab's pictures as the public one's", async () => {
+  const t = await thread();
+  await t.service.execute("thread", { action: "tabs", operation: "open" });
+  // B (tab-2, public) is viewed and recorded; A (tab-1) is private.
+  await t.service.startRecording("thread");
+  t.frame(1, 3);
+  expect(t.recorded()).toEqual([3]);
+  t.clock.now += 1_000;
+  t.service.setPrivate("thread", "tab-1", true);
+  t.clock.now += 1_000;
+  // A's own screenshot, should anything take one, is marked 9.
+  const a = t.page(0);
+  a.command = (
+    (command) => (method: string, params?: Record<string, unknown>) =>
+      method === "Page.captureScreenshot"
+        ? { data: markedJpeg(9).toString("base64") }
+        : command(method, params)
+  )(a.command.bind(a));
+  // B's screencast stop hangs while the capture moves to A.
+  const b = t.page(1);
+  const stopping = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<unknown>();
+  b.command = ((command) => (method: string, params?: Record<string, unknown>) => {
+    if (method !== "Page.stopScreencast") return command(method, params);
+    stopping.resolve();
+    return held.promise;
+  })(b.command.bind(b));
+  void t.service.execute("thread", { action: "tabs", operation: "select", tabId: "tab-1" }, person);
+  await stopping.promise;
+  // Back to B before the move to A got its screencast stopped.
+  void t.service.execute("thread", { action: "tabs", operation: "select", tabId: "tab-2" }, person);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  held.resolve({});
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  // A's live picture, whatever its capture thinks it shows.
+  t.frame(0, 8);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  t.frame(1, 4);
+  expect(t.recorded()).not.toContain(9);
+  expect(t.recorded()).not.toContain(8);
+});
+
+it("two recordings started at once on different tabs: one runs, the other is refused, nothing is orphaned", async () => {
+  const t = await thread();
+  await t.service.execute("thread", { action: "tabs", operation: "open" });
+  const results = await Promise.allSettled([
+    t.service.execute("thread", { action: "record_start", tabId: "tab-1" }),
+    t.service.execute("thread", { action: "record_start", tabId: "tab-2" }),
+  ]);
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.find((result) => result.status === "rejected")).toMatchObject({
+    reason: { code: "recording_active" },
+  });
+  // Only one recording ever reached ace-media, and stopping it stops it.
+  expect(t.recorder.recordings).toHaveLength(1);
+  t.frame(results[0]?.status === "fulfilled" ? 0 : 1, 3);
+  await t.service.stopRecording("thread").catch(() => {});
+  expect(t.recorder.recordings.every((recording) => recording.stopped)).toBe(true);
+});
+
+it("a recording ace-media ends on its own stops showing as active, and its stop saves what was written and says it failed", async () => {
+  const t = await thread();
+  await t.service.startRecording("thread");
+  t.frame(0, 3);
+  t.recorder.last()?.fail("ingest-closed");
+  // Its capture is gone: the browser no longer says it records, and says why.
+  expect(t.service.state("thread").recording).toBeUndefined();
+  expect(t.service.state("thread").recordingNotice).toMatch(/couldn't be written/);
+  await expect(t.service.stopRecording("thread")).rejects.toMatchObject({
+    code: "recording_failed",
+    detail: "ingest-closed",
+  });
+  expect(t.artifacts).toEqual([expect.objectContaining({ mimeType: "video/mp4" })]);
+  expect(t.service.state("thread").recordingNotice).toMatch(/saved to this thread/);
+  // A new recording starts afresh.
+  await t.service.startRecording("thread");
+  expect(t.service.state("thread").recordingNotice).toBeUndefined();
+});
+
+it("a stop whose last moment ace-media couldn't confirm returns the recording and says its end may be incomplete", async () => {
+  const t = await thread();
+  t.recorder.truncate = true;
+  await t.service.startRecording("thread");
+  t.frame(0, 3);
+  const artifact = await t.service.stopRecording("thread");
+  expect(artifact.mimeType).toBe("video/mp4");
+  expect(t.service.state("thread").recordingNotice).toMatch(/end may be incomplete/);
 });

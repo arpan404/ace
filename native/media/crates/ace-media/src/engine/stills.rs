@@ -176,6 +176,9 @@ struct Request {
     clear: Option<Vec<(u32, u32)>>,
     /// A still's fence: the newest public epoch the daemon announced (`still.take.minEpoch`).
     min_epoch: Option<u32>,
+    /// Waiting for a picture that arrives after the request (`still.take.fresh`): what the
+    /// source had when it was asked may be from before the agent's input.
+    fresh: bool,
 }
 
 struct Held {
@@ -346,6 +349,7 @@ impl Stills {
             (KIND_PICTURE, CODEC_JPEG) => {
                 entry.current = jpeg(&frame.payload, config.size);
                 entry.epochs = Some((frame.epoch, frame.epoch));
+                self.dispatch_fresh(source, out);
             }
             (KIND_VIDEO, 1..=4) if key => {
                 entry.encode = frame.encode;
@@ -396,6 +400,7 @@ impl Stills {
                 if units.len() > MAX_UNITS || *bytes > MAX_BYTES {
                     entry.current = Current::Lost;
                 }
+                self.dispatch_fresh(source, out);
             }
             (KIND_VIDEO | KIND_PICTURE, _) => entry.current = Current::Unsupported,
             _ => {}
@@ -413,6 +418,7 @@ impl Stills {
         quality: u32,
         deadline_ms: u32,
         min_epoch: Option<u32>,
+        fresh: bool,
         now_ms: u64,
         out: &mut Vec<Effect>,
     ) {
@@ -437,7 +443,15 @@ impl Stills {
             deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
             clear: None,
             min_epoch,
+            fresh,
         };
+        // A fresh still waits for the source's next picture, at most until its deadline.
+        if fresh {
+            if !self.current.contains_key(&request.source) {
+                return failed(out, request.request, "no-source");
+            }
+            return self.waiting.push(request);
+        }
         self.start(request, out);
     }
 
@@ -472,6 +486,7 @@ impl Stills {
             deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
             clear: Some(clear),
             min_epoch: None,
+            fresh: false,
         };
         self.start(request, out);
     }
@@ -606,12 +621,29 @@ impl Stills {
         }
     }
 
+    /// A picture of `source` arrived: the fresh stills waiting for one may be made now.
+    fn dispatch_fresh(&mut self, source: &str, out: &mut Vec<Effect>) {
+        if !self.waiting.iter().any(|r| r.fresh && r.source == source) {
+            return;
+        }
+        let (ready, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.waiting)
+            .into_iter()
+            .partition(|r| r.fresh && r.source == source);
+        self.waiting = kept;
+        for mut request in ready {
+            request.fresh = false;
+            self.start(request, out);
+        }
+    }
+
     fn dispatch_waiting(&mut self, source: &str, out: &mut Vec<Effect>) {
         let (ready, kept) = std::mem::take(&mut self.waiting)
             .into_iter()
             .partition(|r| r.source == source);
         self.waiting = kept;
-        for request in ready {
+        for mut request in ready {
+            // A keyframe that arrived after a fresh request is a fresh picture.
+            request.fresh = false;
             self.start(request, out);
         }
     }

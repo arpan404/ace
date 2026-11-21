@@ -12,6 +12,7 @@ import {
   type IngestProducer,
 } from "./ingest-sources.ts";
 import { mediaRoutes, type RouteCapabilities, type SourceKind } from "./routes.ts";
+import { MediaStills } from "./stills.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
 import type { ToMedia } from "./wire.ts";
 
@@ -60,7 +61,24 @@ function world() {
   let bytes = 0;
   const routes = () => mediaRoutes(state.health, state.capabilities);
   const router = new EgressRouter((kind) => routes()[kind]);
+  const schedule = (run: () => void, ms: number) => {
+    const timer = { at: now + ms, run, cancelled: false };
+    timers.push(timer);
+    return () => void (timer.cancelled = true);
+  };
+  const stills = new MediaStills({
+    health: () => state.health,
+    send: (message) => {
+      if (!state.up) return false;
+      sent.push({ message });
+      return true;
+    },
+    clock: { now: () => now, setTimeout: schedule },
+    nextId: () => `still-${++ids}`,
+    speaks: (feature) => state.features.includes(feature),
+  });
   const sources = new IngestSources({
+    stills,
     port: {
       send: (message, payload) => {
         if (!state.up) return false;
@@ -110,7 +128,7 @@ function world() {
       ...(reason ? { reason } : {}),
       ...(to === "retrying" ? { attempts: 1 } : {}),
     });
-  return { state, sent, sources, router, advance, opened, types, closed, status };
+  return { state, sent, sources, router, advance, opened, types, closed, status, stills };
 }
 
 function producer(kind: SourceKind = "tab", source = "p") {
@@ -660,4 +678,76 @@ it("a source waiting before ace-media's first start hears every failed start's r
   w.sources.exited();
   expect(l.stops.at(-1)).toBe(restartingReason);
   expect(l.stops).toHaveLength(3);
+});
+
+const request = {
+  maxWidth: 1920,
+  maxHeight: 2160,
+  maxPixels: 1920 * 2160,
+  quality: 80,
+  deadlineMs: 1500,
+};
+const takes = (w: ReturnType<typeof world>) =>
+  w.sent.flatMap(({ message }) => (message.type === "still.take" ? [message] : []));
+/** A device source streaming into ace-media, at `epoch`. */
+function streamingDevice(w: ReturnType<typeof world>, epoch = 0) {
+  const source = w.sources.add({ ...producer("simulator").p, epoch: () => epoch });
+  w.status("s1", "starting");
+  return source;
+}
+const still = (source: ReturnType<typeof streamingDevice>, own = "the device's own") =>
+  source.still?.(
+    request,
+    () => Promise.resolve(own),
+    (made) => `ace-media ${made.width}x${made.height}`,
+  );
+
+describe("agents' stills", () => {
+  it("comes from ace-media fenced on the newest public epoch it was told, within the frame's 2160-pixel bound", async () => {
+    const w = world();
+    const source = streamingDevice(w, 4);
+    const taken = still(source);
+    expect(takes(w)).toEqual([
+      { type: "still.take", request: expect.any(String), source: "s1", minEpoch: 4, ...request },
+    ]);
+    const [take] = takes(w);
+    w.stills.message(
+      { type: "still.done", request: take?.request ?? "", width: 993, height: 2160, steps: [] },
+      new Uint8Array([0xff, 0xd8]),
+    );
+    expect(await taken).toBe("ace-media 993x2160");
+  });
+
+  it("falls back to the source's own capture when ace-media can't decode its video here", async () => {
+    const w = world();
+    const taken = still(streamingDevice(w));
+    const [take] = takes(w);
+    // Linux and Windows: ace-media's CPU still path decodes JPEG only.
+    w.stills.message(
+      { type: "still.failed", request: take?.request ?? "", reason: "decode-unavailable" },
+      new Uint8Array(0),
+    );
+    expect(await taken).toBe("the device's own");
+  });
+
+  it("is the source's own while it isn't streaming into ace-media, is private, or a privacy change hasn't reached ace-media", async () => {
+    const w = world();
+    // Not streaming: ace-media has no picture of it.
+    const idle = w.sources.add(producer("simulator").p);
+    expect(await still(idle)).toBe("the device's own");
+    // A JPEG source that is private now, or whose newest epoch ace-media hasn't heard.
+    const v = world();
+    let secret = false;
+    const tab = v.sources.add({ ...producer("tab-pictures").p, private: () => secret });
+    tab.epoch?.(1, false);
+    expect(await still(tab)).toBe("the device's own");
+    v.status("s1", "starting");
+    secret = true;
+    expect(await still(tab)).toBe("the device's own");
+    // No peer that honours the fence: never a still from before the epoch.
+    secret = false;
+    v.state.features = ["source.ingest", "source.sync", "picture-ingest"];
+    expect(await still(tab)).toBe("the device's own");
+    expect(takes(v)).toEqual([]);
+  });
 });

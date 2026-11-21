@@ -36,6 +36,7 @@ import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
 import { SimAgentState } from "./sim-state.ts";
 import { oneOffFrame } from "./one-off-screenshot.ts";
+import { StillTooLarge } from "./simulator-frames.ts";
 import { deviceTouch } from "./touch-support.ts";
 
 /** Expected refusals a person can act on; anything else is a fault worth a warning. */
@@ -861,18 +862,38 @@ export class DevicesService {
       return oneOffFrame(shot, this.options.runtime);
     }
     if (session.latest.header.codec === "h264" || session.liveVideo) {
-      // Someone is watching: the live view stays video, and the still comes from the device. Its
-      // own stills stopped when video took the capture, so the last one may be stale.
-      const shot = await this.options.platform.screenshot(session.device, () =>
-        this.authorize(session, actor),
-      );
+      // Someone is watching: the live view stays video. ace-media has its stream and makes the
+      // still, fenced and scaled there; when it can't (it isn't reading the device now, or its
+      // decoder isn't on this platform), the device's own screenshot. The capture's own stills
+      // stopped when video took it, so the last one may be stale.
+      const shot =
+        (await session.capture?.mediaStill?.()) ??
+        (await this.options.platform.screenshot(session.device, () =>
+          this.authorize(session, actor),
+        ));
       this.authorize(session, actor);
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
       return oneOffFrame(shot, this.options.runtime);
     }
     if (session.capture?.still) {
       // Stills come on demand while nobody watches: make one of the screen as it is now.
-      await session.capture.still();
+      const fits = await session.capture.still().then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof StillTooLarge) return false;
+          throw error;
+        },
+      );
+      if (!fits) {
+        // The picture is over the frame's bounds and nothing here scales it: the device's own
+        // screenshot, fitted on the model-image path.
+        const shot = await this.options.platform.screenshot(session.device, () =>
+          this.authorize(session, actor),
+        );
+        this.authorize(session, actor);
+        if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
+        return oneOffFrame(shot, this.options.runtime);
+      }
       this.authorize(session, actor);
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
     }

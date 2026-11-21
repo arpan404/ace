@@ -3480,7 +3480,7 @@ Example:
 {
   "state": {
     "acceleration": {
-      "degraded": false,
+      "degraded": true,
       "steps": []
     },
     "activeTabId": "example",
@@ -3491,7 +3491,12 @@ Example:
       "permission": "example"
     },
     "threadId": "example",
-    "url": "example"
+    "url": "example",
+    "video": {
+      "attempts": 6,
+      "reason": "example",
+      "status": "retrying"
+    }
   },
   "type": "browser.state"
 }

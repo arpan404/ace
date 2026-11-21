@@ -319,6 +319,9 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       },
       key: (encode) => slot.source?.key(encode),
       epoch: (epoch, followsPrivate) => slot.source?.epoch?.(epoch, followsPrivate),
+      // Until the runtime exists, the source's own capture takes every still.
+      still: (request, capture, adopt) =>
+        slot.source?.still ? slot.source.still(request, capture, adopt) : capture(),
       close: () => {
         waiting.delete(producer);
         slot.source?.close();

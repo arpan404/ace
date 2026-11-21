@@ -293,6 +293,11 @@ export const ToMedia = z.discriminatedUnion("type", [
     deadlineMs: u32,
     /** The newest public epoch the daemon announced (M8): no still from a picture before it. */
     minEpoch: u32.optional(),
+    /**
+     * Only from a picture that reaches ace-media after this request (`still-fresh`): never one
+     * it had already, which may show the screen from before an agent's input.
+     */
+    fresh: z.boolean().optional(),
   }),
   /**
    * A poster for a subscribe reply (ADR 0149): the source's picture fitted to the box at
@@ -534,6 +539,8 @@ export const mediaFeatures = [
   "picture-ingest",
   // `source.open.private` and `still.take.minEpoch` (M8): sent only to a build that reads them.
   "privacy-open",
+  // `still.take.fresh`: a still only from a picture that arrives after it was asked.
+  "still-fresh",
 ] as const;
 export type MediaFeature = (typeof mediaFeatures)[number];
 

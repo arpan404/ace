@@ -2546,3 +2546,42 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   `simulator-capture.process.test.ts`.
 - **Windows.** The image process runs there like everywhere (`media-images.test.ts`); the
   daemon RSS watchdog is its memory limit, since Windows has no `RLIMIT_DATA`.
+
+## X1b notes (the remaining recordings and stills)
+
+- **Every recording is a tee.** `TeeRecordings` takes encoded units (a device's capture, a
+  screen's H.264 back from egress) or, with `encode`, JPEG pictures (`tab-pictures`,
+  `screen-pictures`). A picture recording is its own source in ace-media with its own encode,
+  so it records with nobody watching. Because ace-media keeps a picture source's pictures only
+  up to the epochs it was told, the tee announces each 100 ms epoch (`source.epoch`) and stamps
+  with it once `epoch.applied` comes; its encode makes a keyframe every 2 s and once a resume's
+  read gap has passed (the barrier asks only once, and an ask can fall in a discarded epoch).
+  After a restart the encode waits for the new process's encoder (`capabilities.changed`).
+- **Browser.** `SessionRecording` hands the recorded tab's screencast and screenshots to a
+  picture recording. Each picture passes the recorded tab's own capture-time fence
+  (`recordable`): not private, captured after the last change, outside the read gap. The live
+  capture fences on its own tab's privacy and drops its pictures the moment the view moves
+  (`LiveCapture.retarget`). The JPEG-file recorder, its encoder process and the executable
+  lookup are deleted.
+- **Screens.** H.264 helpers' frames are teed as video, JPEG-only helpers' pictures as pictures;
+  the `.ace-screen` writer and its queue are deleted. Artifacts are MP4 parts.
+- **Stills.** `IngestSource.still` is `still.take`'s first caller: `minEpoch` is the newest
+  epoch ace-media was told, and it falls back to the source's own capture when the source isn't
+  streaming there, is private, has unannounced epochs, the peer lacks `privacy-open`, or the
+  still fails (Linux and Windows answer `decode-unavailable` for H.264). A watched Simulator's
+  agent still uses it, inside 1920×2160, then `simctl`. On stills, serve-sim pictures are passed
+  through as they came; one over the frame's bounds is not re-encoded (`StillTooLarge`) and the
+  device's own screenshot is taken. The frame-fit bridge is deleted with the transcode.
+- **Egress** stays on for every ingested source: its end marker orders path moves
+  (`IngestSources`), and screens and devices take their H.264 back on it for recordings.
+  Browser sources' units still ride it only to be dropped; turning that off needs ace-media to
+  send the end marker with egress off.
+- **ace-media fix.** A JPEG that reaches a picture source with no encoder running is for stills
+  and never reaches its recording (it ended recordings with `unsupported-codec`).
+- **Review fixes.** A capture moves with its tab and page as one target, and a move the person
+  went past never attaches. A barrier (`source.sync`) on a picture source drains its encoder and
+  holds only once it handed everything over. The browser's recording slot is reserved before
+  anything awaits. A recording ace-media ends says so (`BrowserState.recordingNotice`) and its
+  stop fails with the reason; a truncated end returns with a notice. `still.take.fresh`
+  (feature `still-fresh`): a still only from a picture that arrives after the request; a
+  watched Simulator's agent still asks for it, and `simctl` answers when none comes in time.

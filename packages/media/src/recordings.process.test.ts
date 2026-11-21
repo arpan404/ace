@@ -270,6 +270,12 @@ it.runIf(binary)(
   60_000,
 );
 
+const large = readFileSync(
+  new URL(
+    "../../../native/media/crates/media-codec/bench/data/still-1206x2622.jpg",
+    import.meta.url,
+  ),
+);
 const still = readFileSync(
   new URL("../../../packages/screen/src/testing/phone-screen.jpg", import.meta.url),
 );
@@ -347,4 +353,37 @@ it.runIf(binary)(
     expect(Math.max(...written)).toBeLessThanOrEqual(60);
   },
   90_000,
+);
+
+/** A JPEG picture unit for a recording's tee. */
+const picture = (payload: Buffer, width: number, height: number) =>
+  ({ kind: "picture", keyframe: true, codec: 7, width, height, payload }) as const;
+
+it.runIf(binary)(
+  "a picture recording stopped right after its last picture still holds every picture its encoder took",
+  async () => {
+    const { media: runtime, directory } = makeRuntime();
+    const start = await runtime.recordings.start({
+      origin: { kind: "tab-pictures" },
+      encode: { codec: "avc1.42E033", width: 390, height: 844, fps: 15, bitrate: 1_000_000 },
+      directory,
+      maxBytes: 1 << 20,
+      private: () => false,
+    });
+    if (!start.ok) throw new Error(start.reason);
+    for (let n = 0; n < 8; n++) {
+      start.recording.push(picture(still, 390, 844));
+      await sleep(150);
+    }
+    // The last picture is a large one, slow to decode and scale: still in the encoder when the
+    // stop's barrier arrives.
+    start.recording.push(picture(large, 1206, 2622));
+    const pushed = 9;
+    // No pause after the last one: the stop must wait for what the encoder still holds.
+    const end = await start.recording.stop();
+    expect(end.ok, JSON.stringify(end)).toBe(true);
+    expect(end.ok && end.truncated).toBeUndefined();
+    expect(end.parts.reduce((sum, part) => sum + samples(part.path), 0)).toBe(pushed);
+  },
+  60_000,
 );
