@@ -26,9 +26,10 @@ export async function startMarketWorker(
 ): Promise<MarketWorker> {
   // Without an account backend to ask, a stand-in calls every org grant current.
   const fake = options.standing ? undefined : await fakeOrgStanding();
+  const standing = options.standing ?? fake;
   const { harness, url } = await launchMarketWorker({
-    ...options,
-    standing: options.standing ?? fake,
+    ...(options.grantKeys ? { grantKeys: options.grantKeys } : {}),
+    ...(standing ? { standing } : {}),
   });
   return {
     origin: url.origin,
