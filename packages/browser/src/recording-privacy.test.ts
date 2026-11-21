@@ -28,6 +28,8 @@ async function thread() {
   const clock = { now: 1_000_000 };
   const recorder = new FakeMediaRecorder();
   const artifacts: BrowserArtifact[] = [];
+  /** While set, publishing a recording's part waits for it. */
+  const gate: { publishing: Promise<void> | undefined } = { publishing: undefined };
   const backend = new TabbedHeadless();
   const service = new BrowserService({
     dataDir: home,
@@ -37,7 +39,10 @@ async function thread() {
     navigationClock: new TestNavigationClock(),
     now: () => clock.now,
     recorder,
-    onArtifact: (_, artifact) => void artifacts.push(artifact),
+    onArtifact: async (_, artifact) => {
+      artifacts.push(artifact);
+      await gate.publishing;
+    },
   });
   cleanups.push(async () => {
     await service.close();
@@ -60,7 +65,7 @@ async function thread() {
     });
   };
   const recorded = () => recorder.last()?.units.map((unit) => unit.height) ?? [];
-  return { service, backend, clock, recorder, page, frame, recorded, artifacts };
+  return { service, backend, clock, recorder, page, frame, recorded, artifacts, gate };
 }
 
 it("records the public tab it follows, through ace-media's picture encode", async () => {
@@ -231,4 +236,28 @@ it("a stop whose last moment ace-media couldn't confirm returns the recording an
   const artifact = await t.service.stopRecording("thread");
   expect(artifact.mimeType).toBe("video/mp4");
   expect(t.service.state("thread").recordingNotice).toMatch(/end may be incomplete/);
+});
+
+it("an earlier recording's stop finishing late never writes its notice over the next recording's", async () => {
+  const t = await thread();
+  await t.service.execute("thread", { action: "tabs", operation: "open" });
+  t.recorder.truncate = true;
+  // The recorded tab isn't the viewed one: its own screenshots are its pictures.
+  t.backend.screenshots = () => markedJpeg(1);
+  await t.service.execute("thread", { action: "record_start", tabId: "tab-1" });
+  // Its stop frees the slot, then waits on publishing its part.
+  const published = Promise.withResolvers<void>();
+  t.gate.publishing = published.promise;
+  const stopping = t.service.execute("thread", { action: "record_stop", tabId: "tab-1" });
+  await expect.poll(() => t.artifacts.length).toBe(1);
+  // Meanwhile a new recording starts on the other tab.
+  t.gate.publishing = undefined;
+  t.recorder.truncate = false;
+  await t.service.execute("thread", { action: "record_start", tabId: "tab-2" });
+  expect(t.service.state("thread").recording).toBeDefined();
+  published.resolve();
+  await stopping;
+  // The old recording's "end may be incomplete" is not the running one's.
+  expect(t.service.state("thread").recordingNotice).toBeUndefined();
+  expect(t.service.state("thread").recording).toBeDefined();
 });

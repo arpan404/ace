@@ -71,6 +71,8 @@ export class SessionRecording {
   /** A recording ace-media ended on its own (its capture is gone): kept for the stop. */
   private completed: RecordingEnd | undefined;
   private noticed: string | undefined;
+  /** Bumped by every start: a notice belongs to the recording it is written for, no later one. */
+  private generation = 0;
   private changed: () => void;
   private stopPolling = () => {};
   private actor: BrowserTabActor | undefined;
@@ -148,6 +150,7 @@ export class SessionRecording {
   private async begin(check: () => void, tab: RecordedTab, by: BrowserTabActor): Promise<void> {
     this.completed = undefined;
     this.noticed = undefined;
+    const generation = ++this.generation;
     let recording: Running | undefined;
     const started = await this.recorder.start({
       origin: { kind: "tab-pictures" },
@@ -162,8 +165,9 @@ export class SessionRecording {
         this.recording = undefined;
         this.stopPolling();
         this.completed = end;
-        this.noticed =
-          "Recording stopped because it couldn't be written. What was recorded is saved when it is stopped.";
+        if (generation === this.generation)
+          this.noticed =
+            "Recording stopped because it couldn't be written. What was recorded is saved when it is stopped.";
         void this.masked(false).catch(() => {});
         this.changed();
       },
@@ -229,6 +233,14 @@ export class SessionRecording {
     const recording = this.recording;
     const completed = this.completed;
     if (!recording && !completed) throw new BrowserActionError("recording_inactive");
+    // The slot is free from here on, and a new recording may start while this one finishes:
+    // what this stop says is written only while no newer one has.
+    const generation = this.generation;
+    const notice = (text: string | undefined) => {
+      if (generation !== this.generation) return;
+      this.noticed = text;
+      this.changed();
+    };
     this.recording = undefined;
     this.completed = undefined;
     let end: RecordingEnd | undefined = completed;
@@ -245,19 +257,19 @@ export class SessionRecording {
     }));
     for (const artifact of artifacts) await this.options.artifact(artifact);
     if (!end.ok) {
-      this.noticed = artifacts.length
-        ? "The recording failed; what was recorded before the failure is saved to this thread."
-        : undefined;
-      this.changed();
+      notice(
+        artifacts.length
+          ? "The recording failed; what was recorded before the failure is saved to this thread."
+          : undefined,
+      );
       throw new PublicToolError("recording_failed", undefined, undefined, undefined, end.reason);
     }
     const [first] = artifacts;
     if (!first) throw new BrowserActionError("recording_failed");
-    if (end.truncated) {
-      this.noticed =
-        "The recording is saved, but ace-media couldn't confirm its last moment: the end may be incomplete.";
-      this.changed();
-    }
+    if (end.truncated)
+      notice(
+        "The recording is saved, but ace-media couldn't confirm its last moment: the end may be incomplete.",
+      );
     return first;
   }
 }
