@@ -1,0 +1,262 @@
+import type { Origin } from "./ingest-sources.ts";
+import { MediaRecording, type RecordingEnd } from "./recordings.ts";
+import type { MediaClock } from "./supervisor-host.ts";
+import type { MediaHealth } from "./supervision-policy.ts";
+import { MediaTee, type IngestSocket, type TeeUnit } from "./tee.ts";
+import type { FromMedia, ToMedia } from "./wire.ts";
+
+/**
+ * Recordings until X2 (docs/media/plan.md, phase 1): the daemon has a source's frames (from its
+ * own producer socket, or back from ace-media on egress) and tees them into ace-media's ingest,
+ * where ace-media's recorder writes the parts. There is no other recorder: when ace-media can't
+ * take a recording, it refuses to start with the reason, rather than record nothing.
+ *
+ * The daemon's state is the truth. After an ace-media restart `replay` reopens every recording's
+ * source and starts it again; the new process makes the part the crash cut playable, and the
+ * recording continues in a new part.
+ */
+
+export type TeeRecordingsPort = {
+  /** False when ace-media can't take the message now. */
+  send(message: ToMedia, payload?: Uint8Array): boolean;
+  /** ace-media's ingest socket path now; it changes with every start. */
+  ingest(): string | undefined;
+  /** Marks a use of ace-media and starts it; returns the release. */
+  need(): () => void;
+  health(): MediaHealth;
+  /** Why ace-media isn't available, when it isn't. */
+  reason(): string | undefined;
+  connect(path: string): IngestSocket;
+  /** A source handle never used before in this ace-media process. */
+  handle(): number;
+  randomBytes(length: number): Uint8Array;
+  /** An id unique for the daemon's lifetime. */
+  id(): string;
+  clock: MediaClock;
+};
+
+export type TeeRecordingSpec = {
+  /** What the source is, as ace-media's `source.open` names it. */
+  origin: Origin;
+  /** Where ace-media writes the parts (`part-NNNN.mp4`). */
+  directory: string;
+  /** The most one part holds; ace-media keeps it between 64 KiB and 512 MiB. */
+  maxBytes: number;
+  /** The source is private now: frames read now are never written. */
+  private(): boolean;
+  /** Ask the producer for a keyframe. */
+  keyframe(): void;
+  /** The recording ended without `stop` (ace-media failed it). */
+  failed?(end: RecordingEnd): void;
+};
+
+export type RecordingStart = { ok: true; recording: TeeRecording } | { ok: false; reason: string };
+
+/** How long a recording waits for ace-media to start before it refuses. */
+export const recordingStartMs = 10_000;
+
+type Waiter = { done(reason?: string): void };
+
+export class TeeRecordings {
+  readonly #port: TeeRecordingsPort;
+  readonly #live = new Set<TeeRecording>();
+  readonly #waiters = new Set<Waiter>();
+  /** ace-media is running with both lanes, and has been replayed. */
+  #up = false;
+
+  constructor(port: TeeRecordingsPort) {
+    this.#port = port;
+  }
+
+  /** Recordings running now. */
+  get active(): number {
+    return this.#live.size;
+  }
+
+  /**
+   * Starts a recording once ace-media runs. Refuses, with the reason, when ace-media is
+   * unavailable, doesn't start within `recordingStartMs`, or won't take the recording.
+   */
+  async start(spec: TeeRecordingSpec): Promise<RecordingStart> {
+    const port = this.#port;
+    const release = port.need();
+    const refused = await this.#ready();
+    if (refused) {
+      release();
+      return { ok: false, reason: refused };
+    }
+    const recording = new TeeRecording(port, spec, release, (it) => this.#live.delete(it));
+    if (!recording.begin()) {
+      recording.abandon();
+      return { ok: false, reason: unavailable(port.reason() ?? "it didn't take the recording") };
+    }
+    this.#live.add(recording);
+    return { ok: true, recording };
+  }
+
+  /** ace-media is up again (or for the first time): every recording continues in a new part. */
+  replay(): void {
+    this.#up = true;
+    for (const recording of this.#live) recording.replay();
+    for (const waiter of this.#waiters) waiter.done();
+  }
+
+  message(message: FromMedia): void {
+    for (const recording of this.#live) recording.message(message);
+  }
+
+  /** ace-media exited. A restart replays; a recording stopping meanwhile ends with what it has. */
+  exited(): void {
+    this.#up = false;
+    for (const recording of this.#live) recording.exited();
+    if (this.#port.health() === "unavailable")
+      for (const waiter of this.#waiters)
+        waiter.done(unavailable(this.#port.reason() ?? "it keeps failing"));
+  }
+
+  /** Undefined once ace-media is up; otherwise why the recording can't start. */
+  #ready(): Promise<string | undefined> {
+    if (this.#up) return Promise.resolve(undefined);
+    const port = this.#port;
+    if (port.health() === "unavailable")
+      return Promise.resolve(unavailable(port.reason() ?? "it keeps failing"));
+    return new Promise((resolve) => {
+      const waiter: Waiter = {
+        done: (reason) => {
+          if (!this.#waiters.delete(waiter)) return;
+          cancel();
+          resolve(reason);
+        },
+      };
+      this.#waiters.add(waiter);
+      const cancel = port.clock.setTimeout(
+        () => waiter.done(unavailable("it didn't start in time")),
+        recordingStartMs,
+      );
+    });
+  }
+}
+
+function unavailable(why: string): string {
+  return `ace-media isn't available to record: ${why}`;
+}
+
+/** One recording: a tee into ace-media's ingest and the recording ace-media makes of it. */
+export class TeeRecording {
+  readonly #tee: MediaTee;
+  readonly #media: MediaRecording;
+  readonly #release: () => void;
+  readonly #forget: (recording: TeeRecording) => void;
+  #stopping = false;
+  #done = false;
+
+  constructor(
+    port: TeeRecordingsPort,
+    spec: TeeRecordingSpec,
+    release: () => void,
+    forget: (recording: TeeRecording) => void,
+  ) {
+    this.#release = release;
+    this.#forget = forget;
+    const id = port.id();
+    const source = `recording:${id}`;
+    this.#tee = new MediaTee(
+      {
+        source,
+        handle: () => port.handle(),
+        origin: spec.origin,
+        send: (message, payload) => port.send(message, payload),
+        ingest: () => port.ingest(),
+        connect: (path) => port.connect(path),
+        now: () => port.clock.now(),
+        randomBytes: (length) => port.randomBytes(length),
+        keyframe: () => spec.keyframe(),
+      },
+      1,
+    );
+    this.#media = new MediaRecording({
+      recording: id,
+      source,
+      directory: spec.directory,
+      maxBytes: spec.maxBytes,
+      pointerTrack: false,
+      send: (message) => port.send(message),
+      clock: port.clock,
+      private: () => spec.private(),
+      epoch: 1,
+      // The tee stamps with an epoch from the moment it has it, so it acknowledges at once.
+      issue: (issued) => this.#media.acknowledged(this.#tee.epoch(issued)),
+      keyframe: () => spec.keyframe(),
+      ended: (end) => {
+        const stopping = this.#stopping;
+        this.#finish();
+        if (!stopping) spec.failed?.(end);
+      },
+    });
+  }
+
+  /** @internal Opens the source and starts the recording; false when ace-media refused. */
+  begin(): boolean {
+    return this.#tee.open() && this.#media.start();
+  }
+
+  /** @internal A recording that never started. */
+  abandon(): void {
+    this.#finish();
+  }
+
+  /** @internal */
+  replay(): void {
+    if (this.#done || this.#stopping) return;
+    this.#tee.open();
+    this.#media.replay();
+  }
+
+  /** @internal */
+  message(message: FromMedia): void {
+    this.#tee.message(message);
+    this.#media.message(message);
+  }
+
+  /** @internal */
+  exited(): void {
+    this.#media.lost("media-exited");
+  }
+
+  /** Every part ace-media reported so far, across its restarts. */
+  get parts() {
+    return this.#media.parts;
+  }
+
+  /** One unit of the source, read now. */
+  push(unit: TeeUnit): void {
+    if (!this.#done && !this.#stopping) this.#tee.push(unit);
+  }
+
+  /** The source turned private or public: a new epoch at once, so none spans the change. */
+  privacy(): void {
+    this.#media.privacy();
+  }
+
+  /** Stops, and resolves with the parts once ace-media closed the last one. */
+  stop(): Promise<RecordingEnd> {
+    this.#stopping = true;
+    return this.#media.stop();
+  }
+
+  #finish(): void {
+    if (this.#done) return;
+    this.#done = true;
+    this.#tee.close();
+    this.#forget(this);
+    this.#release();
+  }
+}
+
+/** What a recorder (a screen, device or browser session) records through. */
+export type MediaRecorder = { start(spec: TeeRecordingSpec): Promise<RecordingStart> };
+
+/** A recorder for a daemon without ace-media: every recording refuses, saying why. */
+export function refusingRecorder(why: string): MediaRecorder {
+  return { start: () => Promise.resolve({ ok: false, reason: unavailable(why) }) };
+}

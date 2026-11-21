@@ -29,7 +29,6 @@ import {
 } from "./lanes.ts";
 import {
   crashLoop,
-  mediaWanted,
   restartDelay,
   supervisionTimings,
   type MediaHealth,
@@ -120,11 +119,10 @@ export class MediaSupervisor {
   /**
    * Marks a use of ace-media (a source, viewer, recording or still) and starts it if needed.
    * Returns the release; 60 s after the last release ace-media is shut down. A need that comes
-   * during that shutdown starts a fresh process once the old one has exited. While the setting
-   * gate is closed this does nothing.
+   * during that shutdown starts a fresh process once the old one has exited.
    */
   need(): () => void {
-    if (this.#disposed || !mediaWanted(this.#options.settings())) return () => {};
+    if (this.#disposed) return () => {};
     this.#needs++;
     this.#idleTimer?.();
     this.#idleTimer = undefined;
@@ -241,7 +239,7 @@ export class MediaSupervisor {
     if (run) return run.stopping ? "stopping" : run.up ? "running" : "starting";
     if (this.#unavailable) return "unavailable";
     if (this.#restartTimer) return "backoff";
-    return mediaWanted(this.#options.settings()) ? "idle" : "disabled";
+    return "idle";
   }
 
   #start(): void {

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeEgress, encodeEgress } from "./frame.ts";
-import {
-  legacyMediaSettings,
-  mediaBinaryPath,
-  MediaSupervisor,
-  restartDelay,
-} from "./supervisor.ts";
+import { mediaBinaryPath, MediaSupervisor, restartDelay } from "./supervisor.ts";
 import { harness } from "./supervisor-test-support.ts";
 import type { ToMedia } from "./wire.ts";
 
@@ -61,16 +56,6 @@ async function running(overrides: Parameters<typeof harness>[0] = {}) {
 }
 
 describe("MediaSupervisor", () => {
-  it("never starts ace-media while every media setting is legacy", async () => {
-    const h = harness({ settings: () => legacyMediaSettings });
-    const supervisor = new MediaSupervisor(h.options);
-    supervisor.need();
-    await h.clock.advance(120_000);
-    expect(h.host.children).toHaveLength(0);
-    expect(supervisor.snapshot().phase).toBe("disabled");
-    expect(supervisor.health()).toBe("unavailable");
-  });
-
   it("starts on first need, authenticates both lanes with init's secret, then listens and replays", async () => {
     const h = harness();
     const supervisor = new MediaSupervisor(h.options);

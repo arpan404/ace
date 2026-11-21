@@ -11,8 +11,9 @@ import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections
 import type { MediaDeliveryPort } from "@ace/media/media-viewers";
 import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
+import { refusingRecorder, type MediaRecorder } from "@ace/media/tee-recordings";
 import {
-  legacyMediaSettings,
+  defaultMediaSettings,
   mediaBinaryPath,
   nodeMediaHost,
   systemMediaClock,
@@ -24,9 +25,10 @@ import type { MediaRelayPort } from "../media-relay/port.ts";
 import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
- * The daemon's ace-media for live video (E4, ADR 0147): one `MediaRuntime`, made once the
- * binary is found and `media.encode` asks for it. Until then, and whenever ace-media isn't
- * healthy, every capture takes the browser's own path.
+ * The daemon's ace-media (ADR 0147): one `MediaRuntime`, made once the binary is found and
+ * `media.encode` or `media.delivery` asks for it, or the first recording does. Live video takes
+ * the producers' own paths whenever ace-media isn't healthy; recordings have no other path, so
+ * one refuses to start, saying why, when ace-media can't make it.
  */
 
 const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
@@ -80,7 +82,14 @@ export type DaemonMedia = BrowserMedia & {
   acceleration: MediaAccelerationStore;
   /** ace-media's process while it runs. */
   pid(): number | undefined;
+  /** Every recording goes through ace-media (X1). */
+  recorder: MediaRecorder;
 };
+
+/** The recorder producers use on a daemon that has no ace-media at all. */
+export const noMediaRecorder: MediaRecorder = refusingRecorder(
+  "it isn't installed for this computer",
+);
 
 /** One per daemon: the browser and the screen share it. */
 const started = new WeakMap<object, DaemonMedia | undefined>();
@@ -100,7 +109,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   const binary = findMediaBinary();
   if (!binary) return undefined;
   const { services, id, config, resources } = context;
-  let settings: MediaSettings = legacyMediaSettings;
+  let settings: MediaSettings = defaultMediaSettings;
   let runtime: MediaRuntime | undefined;
   let starting: Promise<void> | undefined;
   let closed = false;
@@ -155,7 +164,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
       mediaKeys.map(async (key) => MediaSetting((await services.settings?.get(key))?.value)),
     );
     settings = {
-      ...legacyMediaSettings,
+      ...defaultMediaSettings,
       encode: encode ?? "legacy",
       delivery: delivery ?? "legacy",
     };
@@ -175,6 +184,16 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   });
 
   return {
+    recorder: {
+      start: async (spec) => {
+        await start();
+        if (!runtime)
+          return refusingRecorder(closed ? "the daemon is stopping" : "it didn't start").start(
+            spec,
+          );
+        return runtime.recordings.start(spec);
+      },
+    },
     delivery: () =>
       runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
     acceleration,

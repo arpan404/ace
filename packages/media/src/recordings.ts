@@ -6,7 +6,6 @@ import {
   type IssuedEpoch,
 } from "./epochs.ts";
 import type { MediaClock } from "./supervisor-host.ts";
-import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
 
 /**
@@ -15,16 +14,6 @@ import type { FromMedia, ToMedia } from "./wire.ts";
  * truth: after an ace-media restart `replay` starts the recording again, the new process makes
  * the part the crash cut playable and reports it, and the recording continues in a new part.
  */
-
-export type RecordingRoute = "ace-media" | "legacy";
-
-/**
- * Where a new recording goes. `media.recordings` is `legacy` by default; `auto` uses ace-media
- * only while it is healthy, so a recording never waits on a process that isn't there.
- */
-export function recordingRoute(settings: MediaSettings, health: MediaHealth): RecordingRoute {
-  return settings.recordings === "auto" && health === "healthy" ? "ace-media" : "legacy";
-}
 
 export type RecordedPart = Extract<FromMedia, { type: "record.done" }>["parts"][number];
 
@@ -45,6 +34,8 @@ export type MediaRecordingOptions = {
   issue: (epoch: IssuedEpoch) => void;
   /** A producer silent past the deadline must start over at a keyframe. */
   keyframe: () => void;
+  /** The recording ended: stopped, failed in ace-media, or lost with it while stopping. */
+  ended?: (end: RecordingEnd) => void;
 };
 
 export type RecordingEnd =
@@ -192,5 +183,6 @@ export class MediaRecording {
     this.#ended = end;
     this.#beat?.();
     for (const waiter of this.#waiters.splice(0)) waiter(end);
+    this.#options.ended?.(end);
   }
 }

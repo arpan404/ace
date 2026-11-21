@@ -125,8 +125,6 @@ function wire(address: IngestAddress): VideoIngestTarget {
 
 const consumers = (deliver: (unit: EgressUnit) => void) => ({
   deliver,
-  record: () => {},
-  still: () => {},
 });
 
 /**

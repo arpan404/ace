@@ -56,6 +56,18 @@ it("connects only once ace-media has the source, and starts at a keyframe", () =
   expect((out[1]?.flags ?? 0) & 1).toBe(1);
 });
 
+it("asks the producer for a keyframe as soon as it connects, at start and after every reopen", () => {
+  const { media, state } = tee();
+  media.open();
+  expect(state.keyframes).toBe(0);
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  expect(state.keyframes).toBe(1);
+  // ace-media restarted: the daemon reopens the source in the new process.
+  media.open();
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  expect(state.keyframes).toBe(2);
+});
+
 it("stamps what it reads with the private epoch for 100 ms after a resume", () => {
   const { media, state, frames } = tee();
   media.open();
@@ -79,13 +91,14 @@ it("drops deltas to the next keyframe while ace-media falls behind, and asks for
   media.open();
   media.message({ type: "source.status", source: "s1", status: "starting" });
   media.push(unit(true));
+  const asked = state.keyframes;
   state.queued = teeQueueLimit + 1;
   media.push(unit(false));
   state.queued = 0;
   media.push(unit(false));
   media.push(unit(true));
   media.push(unit(false));
-  expect(state.keyframes).toBe(1);
+  expect(state.keyframes - asked).toBe(1);
   expect(
     frames()
       .slice(1)

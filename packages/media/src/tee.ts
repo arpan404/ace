@@ -45,7 +45,8 @@ export type MediaTeeOptions = {
   connect: (path: string) => IngestSocket;
   now: () => number;
   randomBytes: (length: number) => Uint8Array;
-  /** The tee dropped deltas while ace-media fell behind: ask the producer for a keyframe. */
+  /** The tee connected, or dropped deltas while ace-media fell behind: ask the producer for a
+   * keyframe. */
   keyframe: () => void;
 };
 
@@ -103,8 +104,10 @@ export class MediaTee {
     socket.write(encodeMediaFrame(frame(5, 0, 0, token)));
     token.fill(0);
     this.#socket = socket;
-    // ace-media's recorder starts at a keyframe; nothing before one is any use.
+    // ace-media's recorder starts at a keyframe; nothing before one is any use, so ask for one
+    // rather than wait out the producer's group.
     this.#skipping = true;
+    this.#options.keyframe();
   }
 
   /** Applies a new epoch to what the tee reads from now on. It is acknowledged at once. */

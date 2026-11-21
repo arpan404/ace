@@ -92,16 +92,8 @@ function produce(socketPath: string, token: Uint8Array, mark: number): void {
 }
 
 function legacy() {
-  const got: Record<"deliver" | "record" | "still", EgressUnit[]> = {
-    deliver: [],
-    record: [],
-    still: [],
-  };
-  const sinks: LegacyConsumers = {
-    deliver: (unit) => void got.deliver.push(unit),
-    record: (unit) => void got.record.push(unit),
-    still: (unit) => void got.still.push(unit),
-  };
+  const got: Record<"deliver", EgressUnit[]> = { deliver: [] };
+  const sinks: LegacyConsumers = { deliver: (unit) => void got.deliver.push(unit) };
   return { got, sinks };
 }
 
@@ -115,13 +107,11 @@ it.runIf(real)(
     const settings: MediaSettings = {
       encode: "auto",
       delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
+      recordings: "auto",
+      stills: "auto",
     };
     const capabilities: RouteCapabilities = {
       ingest: ["tab"],
-      recordings: false,
-      stills: false,
       delivery: false,
     };
     const router = new EgressRouter((kind) => watch.routes()[kind]);
@@ -202,8 +192,6 @@ it.runIf(real)(
       producer: "ace-media",
       egress: true,
       deliverer: "legacy",
-      recorder: "legacy",
-      stills: "legacy",
     });
 
     // Local handles only mean source.open was queued on stdin. Ingest is a separate socket:
@@ -212,21 +200,20 @@ it.runIf(real)(
     produce(ingest, tokens.get("a") ?? new Uint8Array(0), 0xa);
     produce(ingest, tokens.get("b") ?? new Uint8Array(0), 0xb);
     await until(
-      () => sources.a.got.still.length >= 5 && sources.b.got.still.length >= 5,
+      () => sources.a.got.deliver.length >= 5 && sources.b.got.deliver.length >= 5,
       deadline,
       "five frames from each source",
     );
     for (const [id, mark] of [
       ["a", 0xa],
       ["b", 0xb],
-    ] as const)
-      for (const kind of ["deliver", "record", "still"] as const) {
-        const units = sources[id].got[kind];
-        expect(units.length).toBeGreaterThanOrEqual(5);
-        expect(units.every((unit) => unit.source === id && unit.frame.payload[0] === mark)).toBe(
-          true,
-        );
-      }
+    ] as const) {
+      const units = sources[id].got.deliver;
+      expect(units.length).toBeGreaterThanOrEqual(5);
+      expect(units.every((unit) => unit.source === id && unit.frame.payload[0] === mark)).toBe(
+        true,
+      );
+    }
 
     // The daemon closes "a" before ace-media hears of it: its frames still in flight are dropped.
     router.close(handles.get("a") ?? 0);
