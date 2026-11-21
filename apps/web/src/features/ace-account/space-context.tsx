@@ -149,10 +149,14 @@ export function SpaceProvider(props: { store: AceAccountStore | undefined; child
       if (!(error instanceof AceOrgError)) return;
       if (error.status === 401) void store?.ended();
       else if (error.code === "org_sign_in_required") setSignInNeeded(error.org);
-      // WorkOS no longer counts the person in: the list says what remains.
-      else if (error.code === "not_member") void refresh();
+      // WorkOS no longer counts the person in: the list says what remains. Only the list: the
+      // organization's own reads would be refused again.
+      else if (error.code === "not_member")
+        void queryClient.invalidateQueries({
+          queryKey: [...orgKey, "spaces", store?.origin, account],
+        });
     },
-    [store, refresh],
+    [store, queryClient, account],
   );
   const value: SpaceState = {
     spaces,

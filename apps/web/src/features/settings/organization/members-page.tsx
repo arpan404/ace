@@ -54,7 +54,7 @@ export function MembersPage(props: { org: AceOrgSpace }) {
   const options = assignable(org.role);
   return (
     <>
-      <SettingSection label="Members" anchor="org.members">
+      <SettingSection label="People" anchor="org.members">
         {members.isLoading && <SettingNote>Loading members…</SettingNote>}
         {members.error && <SettingNote role="alert">{orgFailure(members.error)}</SettingNote>}
         {rows.length > 0 && (

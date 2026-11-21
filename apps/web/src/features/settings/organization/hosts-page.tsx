@@ -42,7 +42,7 @@ export function HostsPage(props: { org: AceOrgSpace }) {
   const isHost = own !== undefined && rows.some((host) => host.hostId === own);
   return (
     <>
-      <SettingSection label="Hosts" anchor="org.hosts">
+      <SettingSection label="Machines" anchor="org.hosts">
         {hosts.isLoading && <SettingNote>Loading hosts…</SettingNote>}
         {hosts.error && <SettingNote role="alert">{orgFailure(hosts.error)}</SettingNote>}
         {hosts.isSuccess && rows.length === 0 && (

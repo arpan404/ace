@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { MachineAccountStatus } from "@ace/protocol";
 import type { AceAccount } from "@ace/protocol/ace-account";
+import { machineAccountRow } from "./machine-account-copy.ts";
 import { machineOwnerRow } from "./machine-owner-copy.ts";
 
 const me: AceAccount = { id: "user_p", email: "p@example.com", name: "Pat", emailVerified: true };
@@ -44,4 +45,17 @@ test("an organization's host says so, and offers nobody's personal release", () 
     sentence: "This machine is an organization's host: its owners can release it.",
     action: "none",
   });
+});
+
+test("an org host signed in as its organization is named by the organization, never its placeholder address", () => {
+  const acme: AceAccount = { id: "org:org_01ACME", email: "host@org_01acme.invalid", name: "Acme" };
+  const host = status({ account: acme, owner: { org: "org_01ACME", generation: 2 } });
+  expect(machineOwnerRow(host, me)?.sentence).toBe(
+    "This machine is Acme's host: its owners can release it.",
+  );
+  const row = machineAccountRow(host, me);
+  expect(row.sentence).toContain("Signed in as Acme");
+  expect(row.sentence).not.toContain(".invalid");
+  // Nothing to sign out or switch: the host's own sign-in isn't a person's.
+  expect(row.action).toBe("none");
 });
