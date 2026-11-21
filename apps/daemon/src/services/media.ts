@@ -202,13 +202,28 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     pid: () => runtime?.supervisor.snapshot().pid,
     images: {
       run: async (job) => {
-        await start();
+        // The job's deadline covers finding and starting ace-media too.
+        const started = systemMediaClock.now();
+        let cancel = () => {};
+        const late = new Promise<"late">((resolve) => {
+          cancel = systemMediaClock.setTimeout(() => resolve("late"), job.deadlineMs);
+        });
+        const ready = await Promise.race([start().then(() => "ready" as const), late]);
+        cancel();
+        if (ready === "late")
+          throw new ImageError(
+            "deadline",
+            "ace-media did not start before the image job's deadline.",
+          );
         if (!runtime)
           throw new ImageError(
             "unavailable",
             `ace-media could not start: ${closed ? "the daemon is stopping" : (startFailure ?? "unknown")}`,
           );
-        return runtime.images.run(job);
+        return runtime.images.run({
+          ...job,
+          deadlineMs: Math.max(1, job.deadlineMs - (systemMediaClock.now() - started)),
+        });
       },
     },
     add: (producer) => runtime?.sources.add(producer),

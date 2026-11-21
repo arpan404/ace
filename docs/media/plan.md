@@ -2512,7 +2512,15 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   - device chrome, a 430 × 932 pt body as a 1116 × 2400 PNG: median 69–92 ms (once per device
     type, then cached);
   - the filmstrip, eight full screens and captions: median 187–252 ms (once per measurement).
-  The Mac numbers remain to be measured.
+    The Mac numbers remain to be measured.
 - **Tests and tools.** `ace-media --image` runs one job, frame in on stdin and frame out on
   stdout. `vectors/image/cases.json` lists each op's inputs and outcome; `media-image`'s tests
   replay it, and `packages/media/src/images.process.test.ts` replays it against the binary.
+- **Left for X1.** `simulator-frames.ts` (X1's) re-encodes a frame over its bound with
+  `fitImage` from `packages/devices/src/simulator-frame-fit.ts`, a bridge over these one-shot
+  jobs that `DevicePlatform` installs (`useSimulatorFrameImages`). X1 deletes the transcode,
+  that import, the bridge file, its call in `platform.ts`, and the bridge setup in
+  `simulator-frames.test.ts`, `simulator-jpeg.test.ts`, `simulator-stills.process.test.ts` and
+  `simulator-capture.process.test.ts`.
+- **Windows.** `apps/daemon/src/services/media.ts` still starts no ace-media on Windows, so image
+  jobs there fail `unavailable` (no previews, icons or device chrome) until it does.
