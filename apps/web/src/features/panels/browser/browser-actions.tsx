@@ -12,6 +12,7 @@ import {
   DownloadSimpleIcon,
   FileCodeIcon,
   GearSixIcon,
+  LaptopIcon,
   EyeIcon,
   MagnifyingGlassIcon,
   PrinterIcon,
@@ -77,6 +78,11 @@ export function BrowserActions(props: {
   onSettings(): void;
   onKeepPrivate(value: boolean): void;
   onCloseTab(): void;
+  /**
+   * The page as a device tab on this computer (ADR 0194): offered in the desktop app on another
+   * machine's thread, for a web address.
+   */
+  onOpenOnDevice?: (() => void) | undefined;
   /** Where this thread's pages run; undefined before its browser opens. */
   engine: "embedded" | "headless" | "user" | undefined;
   /** Move the thread's browser to another engine, reopening its tabs there. */
@@ -266,6 +272,11 @@ export function BrowserActions(props: {
         >
           Open in your browser
         </MenuItem>
+        {props.onOpenOnDevice && (
+          <MenuItem icon={icon(LaptopIcon)} onClick={props.onOpenOnDevice}>
+            Open on this device
+          </MenuItem>
+        )}
         <AskAgentItem threadId={props.threadId} tab={tab} />
         {(tab?.audible || tab?.muted) && (
           <MenuItem

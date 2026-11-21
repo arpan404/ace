@@ -8,7 +8,10 @@ use serde_json::{Map, Value};
 use crate::event::{Event, Known};
 
 mod check;
+pub mod connect;
+pub mod elicit;
 mod state;
+pub mod suggest;
 #[cfg(test)]
 mod tests;
 
@@ -90,6 +93,11 @@ pub enum Kind {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         time: bool,
     },
+    /// Connect an app (`app_connect_request`): made by Spade only, answered by connecting.
+    Connect(Box<connect::Connect>),
+    /// Install a package a bot suggests (`package_suggest`): made by Spade only from the market's
+    /// signed manifest, answered by the person installing it on its review.
+    Suggest(Box<suggest::Suggest>),
 }
 
 /// An option of a `choice` or `choices` question.
@@ -109,6 +117,8 @@ impl Kind {
             Self::Confirm {} => "confirm",
             Self::Number { .. } => "number",
             Self::Date { .. } => "date",
+            Self::Connect(_) => "connect",
+            Self::Suggest(_) => "suggest",
         }
     }
 }
@@ -149,7 +159,7 @@ pub fn asked(question: &str, questions: &[Question]) -> Vec<Question> {
 
 /// The questions `call_id` asked, from the events.
 pub fn questions_of(events: &[Event], call_id: &str) -> Option<Vec<Question>> {
-    events.iter().find_map(|event| match event {
+    events.iter().rev().find_map(|event| match event {
         Event::Known(Known::QuestionAsked {
             call_id: c,
             question,
@@ -211,12 +221,29 @@ pub fn late_text(events: &[Event], event: &Known) -> Option<String> {
             ..
         } => {
             let questions = questions_of(events, call_id).unwrap_or_default();
-            Some(late(call_id, &shown(&questions, answers)))
+            let body = match (
+                connect::of(&questions),
+                suggest::of(&questions),
+                answers.first(),
+            ) {
+                (Some(app), _, Some(answer)) => connect::connected_late(app, answer),
+                (_, Some(package), Some(answer)) => suggest::installed_late(package, answer),
+                _ => shown(&questions, answers),
+            };
+            Some(late(call_id, &body))
         }
         Known::QuestionDismissed {
             call_id,
             late: true,
-        } => Some(late(call_id, DISMISSED)),
+        } => {
+            let questions = questions_of(events, call_id).unwrap_or_default();
+            let body = match (connect::of(&questions), suggest::of(&questions)) {
+                (Some(app), _) => connect::dismissed(app),
+                (_, Some(package)) => suggest::dismissed(package),
+                _ => DISMISSED.to_owned(),
+            };
+            Some(late(call_id, &body))
+        }
         _ => None,
     }
 }
@@ -231,6 +258,8 @@ pub fn is_late(event: &Known) -> bool {
 
 fn answer_text(kind: &Kind, answer: &Value) -> String {
     match (kind, answer) {
+        (Kind::Connect(app), _) => connect::connected_late(app, answer),
+        (Kind::Suggest(package), _) => suggest::installed_late(package, answer),
         (Kind::Confirm {}, Value::Bool(yes)) => if *yes { "yes" } else { "no" }.to_owned(),
         (Kind::Number { unit, .. }, Value::Number(n)) => match unit {
             Some(unit) => format!("{n} {unit}"),
@@ -274,30 +303,43 @@ fn object(value: &Value) -> Option<&Map<String, Value>> {
 /// "their reply follows" when a typed message answered it, or that it was left for later or
 /// dismissed. `None` while it still waits (or it asked nothing).
 pub fn call_result(events: &[Event], call_id: &str) -> Option<String> {
-    let at = events.iter().position(|event| {
+    let at = events.iter().rposition(|event| {
         matches!(event, Event::Known(Known::QuestionAsked { call_id: c, .. }) if c == call_id)
     })?;
+    let questions = questions_of(events, call_id).unwrap_or_default();
+    let app = connect::of(&questions);
+    let package = suggest::of(&questions);
     events[at..].iter().find_map(|event| {
         if typed_by_person(event) {
             return Some(ANSWERED_BY_MESSAGE.to_owned());
         }
         match event {
             Event::Known(Known::QuestionDeferred { call_id: c, by_bot }) if c == call_id => {
-                Some(if *by_bot { ASKED_FOR_LATER } else { DEFERRED }.to_owned())
+                Some(match (app, package) {
+                    (Some(app), _) => connect::deferred(app),
+                    (_, Some(package)) => suggest::deferred(package),
+                    _ if *by_bot => ASKED_FOR_LATER.to_owned(),
+                    _ => DEFERRED.to_owned(),
+                })
             }
             Event::Known(Known::QuestionAnswered {
                 call_id: c,
                 answers,
                 late: false,
                 typed: false,
-            }) if c == call_id => {
-                let questions = questions_of(events, call_id).unwrap_or_default();
-                Some(answered(&questions, answers))
-            }
+            }) if c == call_id => Some(match (app, package, answers.first()) {
+                (Some(app), _, Some(answer)) => connect::connected(app, answer),
+                (_, Some(package), Some(answer)) => suggest::installed(package, answer),
+                _ => answered(&questions, answers),
+            }),
             Event::Known(Known::QuestionDismissed {
                 call_id: c,
                 late: false,
-            }) if c == call_id => Some(DISMISSED.to_owned()),
+            }) if c == call_id => Some(match (app, package) {
+                (Some(app), _) => connect::dismissed(app),
+                (_, Some(package)) => suggest::dismissed(package),
+                _ => DISMISSED.to_owned(),
+            }),
             _ => None,
         }
     })
@@ -313,9 +355,10 @@ pub fn typed_answer(events: &[Event], message: &Event) -> Option<Event> {
     let Event::Known(Known::UserMessage { text, .. }) = message else {
         return None;
     };
+    // An app's form is the person's to answer on its card, never by a message.
     let waiting: Vec<View> = views(events)
         .into_iter()
-        .filter(|c| c.standing == Standing::Waiting)
+        .filter(|c| c.standing == Standing::Waiting && elicit::call_of(&c.call_id).is_none())
         .collect();
     let [card] = waiting.as_slice() else {
         return None;

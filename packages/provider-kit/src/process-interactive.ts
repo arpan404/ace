@@ -8,6 +8,7 @@ import {
   type WindowsJobFactory,
 } from "./process-containment.ts";
 import type { ProcessExit } from "./process.ts";
+import { markedEnv } from "./process-marker.ts";
 export type InteractiveProcess = {
   exited: Promise<ProcessExit>;
   stop(options?: { graceMs?: number }): Promise<ProcessExit>;
@@ -40,7 +41,7 @@ export function spawnInteractive(options: {
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
   const child = spawn(target.command, target.args, {
-    env: options.env,
+    env: markedEnv(options.env),
     stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
     // The console stays visible: login owns credential entry and browser handoff.
     ...(windows ? { detached: false, windowsHide: false } : { detached: true }),

@@ -5,9 +5,18 @@ import os
 protocol DaemonSocket: AnyObject, Sendable {
     func open()
     func send(_ text: String)
-    /// A binary message: only a direct media connection's hello is one.
+    /// A binary message: a direct media connection's hello, or a tunnel's frame.
     func send(bytes: Data)
+    /// A binary message, with `sent` once the socket has handed it on (the tunnel's backpressure).
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void)
     func close()
+}
+extension DaemonSocket {
+    /// Sockets that can't tell when a message left count it as sent at once.
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void) {
+        send(bytes: bytes)
+        sent()
+    }
 }
 extension PinnedSocket: DaemonSocket {}
 
@@ -29,6 +38,8 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private let path: String
     private let event: @Sendable (String, SocketPayload) -> Void
     private let streams: BrowserStreamHub?
+    private let aceClient: String?
+    private let allowLoopback: Bool
     private let keys: @Sendable () -> (NoiseKeys, NoiseKeys)
     /// Every field below is read and written on `queue` only.
     private let queue = OperationQueue()
@@ -41,8 +52,13 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private var deadline: DispatchWorkItem?
     private var opened = Date()
     private var flow = RelayFlow()
-    /// Data fragments waiting for the daemon's credit, sealed only when they go out.
-    private var waiting: [Data] = []
+    /// Data fragments waiting for the daemon's credit, sealed only when they go out. A binary
+    /// message's last fragment carries its `sent`, called once the socket has written it.
+    private var waiting: [Outgoing] = []
+    private struct Outgoing {
+        let plain: Data
+        var sent: (@Sendable () -> Void)? = nil
+    }
     /// The grant this connection presented, dropped from the kept ones if it is refused.
     private var grant: String?
     /// The daemon's welcome arrived; until then an `unauthorized` error refuses the grant.
@@ -65,9 +81,11 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     }
 
     init(route: RelayRoute, purpose: String? = nil, path: String = MediaDelivery.channel, streams: BrowserStreamHub? = nil,
+         aceClient: String? = AceCloudRequest.defaultClient,
+         allowLoopback: Bool = false,
          keys: @escaping @Sendable () -> (NoiseKeys, NoiseKeys) = { (.generate(), .generate()) },
          event: @escaping @Sendable (String, SocketPayload) -> Void) {
-        self.route = route; self.purpose = purpose; self.path = path; self.streams = streams; self.keys = keys; self.event = event
+        self.route = route; self.purpose = purpose; self.path = path; self.streams = streams; self.aceClient = aceClient; self.allowLoopback = allowLoopback; self.keys = keys; self.event = event
         super.init()
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
@@ -99,7 +117,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                 self?.queue.addOperation {
                     guard let self, !self.ended else { return }
                     if case .secured = self.phase { return }
-                    self.finish(1006, cause: "handshake timed out")
+                    self.finish(1006, named: "handshake_timeout", cause: "handshake timed out")
                 }
             }
             self.deadline = deadline
@@ -124,11 +142,23 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         upgraded = false
         // The grant travels as a subprotocol: never in a URL, which logs would keep. Neither it
         // nor the upgrade entry is ever logged.
-        let task = session.webSocketTask(with: url, protocols: RelayEarly.protocols(grant: grant, first: first, offer: offer))
-        task.maximumMessageSize = noiseMaxMessage
+        let protocols = RelayEarly.protocols(grant: grant, first: first, offer: offer)
+        let request = AceCloudRequest.webSocket(url: url, protocols: protocols, client: aceClient, allowLoopback: allowLoopback)
+        let task = session.webSocketTask(with: request)
+        Self.prepare(task)
         self.task = task
         LaunchTrace.mark("relay.open", url.host ?? "")
         task.resume()
+    }
+
+    /// What URLSession may take as one received message. It counts a message as it arrives, so
+    /// one that came through permessage-deflate (which the hosted relay's edge negotiates)
+    /// counts compressed: a full Noise frame doesn't compress and arrives a few bytes past
+    /// `noiseMaxMessage`, which at that limit failed every receive of one with EMSGSIZE (#1876).
+    /// The Noise layer still refuses any frame past `noiseMaxMessage` once it is read.
+    static let receiveLimit = noiseMaxMessage + 4096
+    static func prepare(_ task: URLSessionWebSocketTask) {
+        task.maximumMessageSize = receiveLimit
     }
 
     func send(_ text: String) {
@@ -137,15 +167,30 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             let message = self.helloSent ? text : Self.offering(text)
             self.helloSent = true
             do {
-                self.waiting += try channel.fragments(text: message)
+                self.waiting += try channel.fragments(text: message).map { Outgoing(plain: $0) }
                 self.pump()
             } catch { self.finish(1009, cause: "message too large to send") }
         }
     }
-    /// A relay stream's hello is JSON (`channel: "media"` with its ticket), so the script never
-    /// sends binary on one: if it did, the stream ends rather than carry something undefined.
-    func send(bytes: Data) {
-        queue.addOperation { [weak self] in self?.finish(1002, cause: "binary message from the app") }
+    func send(bytes: Data) { send(bytes: bytes) {} }
+    /// One binary message (a tunnel's frame, ADR 0194) as one binary record (kinds 2/3), queued
+    /// with the text ones behind the daemon's credit. `sent` runs once its last fragment is
+    /// written to the relay, so the script's count of unsent bytes falls only as the window
+    /// lets it out: backpressure over a relay is real.
+    func send(bytes: Data, sent: @escaping @Sendable () -> Void) {
+        queue.addOperation { [weak self] in
+            guard let self, !self.ended, case .secured = self.phase else { sent(); return }
+            guard !bytes.isEmpty, bytes.count <= RelaySession.binaryLimit else {
+                sent()
+                self.finish(1009, cause: "binary message too large to send")
+                return
+            }
+            var fragments = RelaySession.binaryFragments(bytes).map { Outgoing(plain: $0) }
+            guard let last = fragments.indices.last else { sent(); return }
+            fragments[last].sent = sent
+            self.waiting += fragments
+            self.pump()
+        }
     }
     func close() {
         queue.addOperation { [weak self] in
@@ -153,7 +198,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             if !self.ended { self.record(1000, cause: "closed by the app") }
             self.ended = true
             self.deadline?.cancel()
-            self.waiting.removeAll()
+            self.dropWaiting()
             self.task?.cancel(with: .goingAway, reason: nil)
             self.session?.invalidateAndCancel()
             self.task = nil; self.session = nil
@@ -190,14 +235,21 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         return reason
     }
 
-    private func write(_ frame: Data) {
-        guard let task else { return }
+    /// Unsent fragments go with the channel; their `sent` still runs, so nothing waits on them.
+    private func dropWaiting() {
+        let dropped = waiting
+        waiting.removeAll()
+        for fragment in dropped { fragment.sent?() }
+    }
+    private func write(_ frame: Data, sent: (@Sendable () -> Void)? = nil) {
+        guard let task else { sent?(); return }
         task.send(.data(frame)) { [weak self] error in
+            sent?()
             guard let error else { return }
             self?.queue.addOperation { [weak self] in
                 // A dial this socket already replaced says nothing of the current one.
                 guard let self, task === self.task else { return }
-                self.finish(1006, cause: "send failed (\(Self.describe(error)))")
+                self.finish(1006, named: "send_failed", cause: "send failed (\(Self.describe(error)))")
             }
         }
     }
@@ -212,10 +264,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private func pump() {
         guard !ended, case .secured(var channel) = phase else { return }
         do {
-            while let next = waiting.first, flow.allows(RelayFlow.cost(next.count)) {
+            while let next = waiting.first, flow.allows(RelayFlow.cost(next.plain.count)) {
                 waiting.removeFirst()
-                flow.spend(RelayFlow.cost(next.count))
-                write(try channel.seal(plain: next))
+                flow.spend(RelayFlow.cost(next.plain.count))
+                write(try channel.seal(plain: next.plain), sent: next.sent)
             }
             phase = .secured(channel)
         } catch { finish(1002, cause: "seal failed") }
@@ -231,7 +283,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                 case .failure(let error):
                     // A close frame ends the receive before its callback: 4020 dials again.
                     if task.closeCode.rawValue == RelayEarly.lostClose, self.redial(closeCode: RelayEarly.lostClose) { return }
-                    self.finish(1006, cause: "receive failed (\(Self.describe(error)))")
+                    self.finish(1006, named: Self.failureCause(error) ?? "receive_failed", cause: "receive failed (\(Self.describe(error)))")
                 }
             }
         }
@@ -321,14 +373,16 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         }
         return true
     }
-    private func finish(_ code: Int, reason: String = "", cause: String) {
+    /// `named`: the cause from the daemon's list (`ClientCloseCause`) the SDK reports in its next
+    /// hello, for the failures this socket can name; `cause` is only logged on the phone.
+    private func finish(_ code: Int, reason: String = "", named: String? = nil, cause: String) {
         guard !ended else { return }
         record(code, cause: reason.isEmpty ? cause : "\(cause): \(reason)")
         ended = true
         deadline?.cancel()
-        waiting.removeAll()
+        dropWaiting()
         phase = .connecting
-        event("close", .text(reason.isEmpty ? String(code) : "\(code) \(reason)"))
+        event("close", .text(Self.closeEvent(code, reason: reason, named: named)))
         task?.cancel(with: .goingAway, reason: nil)
         session?.invalidateAndCancel()
         task = nil; session = nil
@@ -377,10 +431,24 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         // A 403 before the upgrade is a refusal for good; 401 and 503 retry with a fresh grant.
         let status = (task.response as? HTTPURLResponse)?.statusCode
         if status == 401, let grant { route.grants.discard(grant) }
-        finish(status == 403 ? 4003 : 1006,
+        // The same failure may end the task before its receive callback says so.
+        finish(status == 403 ? 4003 : 1006, named: Self.failureCause(error),
                cause: "connection failed (\(status.map(String.init) ?? "no response"), \(Self.describe(error)))")
     }
 
+    /// The close event the bridge reads as `<code>` or `<code> <reason>`: the daemon's reason
+    /// when it gave one, else `relay:<cause>` when this socket named one. Pure.
+    static func closeEvent(_ code: Int, reason: String, named: String?) -> String {
+        if !reason.isEmpty { return "\(code) \(reason)" }
+        if let named { return "\(code) relay:\(named)" }
+        return String(code)
+    }
+    /// The listed cause a socket failure names on its own: `emsgsize`, a message the socket
+    /// refused as too large (#1876). Pure.
+    static func failureCause(_ error: Error) -> String? {
+        let error = error as NSError
+        return error.domain == NSPOSIXErrorDomain && error.code == Int(EMSGSIZE) ? "emsgsize" : nil
+    }
     /// One line in the relay log: the close code the SDK will see, why, and how long it lasted.
     private func record(_ code: Int, cause: String) {
         let seconds = Date().timeIntervalSince(opened)

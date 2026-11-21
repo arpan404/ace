@@ -57,7 +57,11 @@ it("a process that reads ace-account.json can't act as the person", async () => 
 
 it("the person signing in in a browser acts as the person on the socket that proves it, and nowhere else", async () => {
   const daemonHome = await signedInDaemon();
-  const { session, host, accountSocket, f } = daemonHome;
+  const { session, host, home, accountSocket, f } = daemonHome;
+  const ownerFile = join(home, "ace-owner.json");
+  const secondWindow = await daemonHome.pageSocket();
+  expect(await changesGuardedSetting(secondWindow.client)).toBe(false);
+  await expect(readFile(ownerFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   const key = await deviceKey();
   const socket = await accountSocket(session.token, key);
   const grant = socket.grant.standing;
@@ -69,6 +73,8 @@ it("the person signing in in a browser acts as the person on the socket that pro
   expect(await changesGuardedSetting(socket.client)).toBe(false);
   expect(await changesGuardedSettingInBatch(socket.client)).toBe(false);
   expect(await proves(socket.client, grant, proof)).toBe(true);
+  expect(JSON.parse(await readFile(ownerFile, "utf8"))).toEqual({ account: session.account.id });
+  expect(await changesGuardedSetting(secondWindow.client)).toBe(false);
   expect(await changesGuardedSetting(socket.client)).toBe(true);
   expect(await changesGuardedSettingInBatch(socket.client)).toBe(true);
   // The same grant and proof, captured and sent on another socket, prove nothing there.

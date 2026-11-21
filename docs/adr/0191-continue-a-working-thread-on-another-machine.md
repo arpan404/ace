@@ -130,6 +130,15 @@ behaves the same way. Plainly, this ADR changes ordinary Stop in three ways:
   sign the request won't still come: the Stop itself closes the item, while the provider's
   request may still be on its way. A call the provider never
   reported before the Stop can't be told from a new one, and is judged by its agent's run.
+  Amended 2026-11-20 (the delegation-cli fix): Spade's host thread is not fenced. No turn runs
+  in it (ADR 0121); its calls are Spade's own, so no turn of it is ever stopped and none could
+  run to lift a fence, and every Spade delegation after a Stop of it was refused for good. A
+  Stop of it still stops what it delegated, and the cascade refuses calls while that runs.
+  The same day (review of that fix): a delegation to another machine skipped this admission, so
+  a late call from the stopped turn naming `machine` with a fresh request id started a child
+  there, which the cascade, knowing only children already registered, never stopped. It now
+  passes the same stopped-work rule (`DelegationAdmission.validateRemote`, Spade's host thread
+  included) before any task of the call is sent; that machine still checks the rest.
 - **A whole-thread Stop stops background shells.** It used to leave the agent's background
   shells and monitors running (ADR 0052 listed this as a follow-up). It now stops each with the
   provider's own task stop, bounded like the interrupt, and closes the session when one won't
@@ -187,14 +196,15 @@ The agent keeps its full history when its provider allows it. One small interfac
 
 - `capture(home, nativeSessionId, sourceCwd)` lists the session's files, read from the
   provider's home of the thread's account, never anything else in it;
-- `place(home, files, sourceCwd, targetCwd)` writes them into the target account's home, with
-  the folder paths rewritten to the landed checkout, and says how the session continues there.
+- `place(home, files, sourceCwd, targetCwd, newId)` writes them into the target account's home,
+  with the folder paths rewritten to the landed checkout and every session id renamed to a
+  fresh one, and says how the session continues there and under which id.
 
-| Provider                         | Carried                                                                        | What is rewritten                                                                    | How it continues                                      |
-| -------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| Claude Code                      | `projects/<folder>/<id>.jsonl` and its `subagents/`                            | the `cwd` of every record; the file moves under the target folder's `projects/` name | resume by id                                          |
-| Codex                            | the rollout and the rollouts it forks from (`sessions/…/rollout-…-<id>.jsonl`) | `session_meta.payload.cwd` and `turn_context.payload.cwd`                            | fork from the end, as an account copy does (ADR 0018) |
-| OpenCode, Pi, Cursor, ACP agents | nothing                                                                        |                                                                                      | the handoff summary                                   |
+| Provider                         | Carried                                                                        | What is rewritten                                                                                                                                                   | How it continues                                      |
+| -------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Claude Code                      | `projects/<folder>/<id>.jsonl` and its `subagents/`                            | the `cwd` of every record; the file moves under the target folder's `projects/` name; the id in the file name, the subagents' folder and every record's `sessionId` | resume by the fresh id                                |
+| Codex                            | the rollout and the rollouts it forks from (`sessions/…/rollout-…-<id>.jsonl`) | `session_meta.payload.cwd` and `turn_context.payload.cwd`; each rollout's id in its name and header, and the ids it forks from or was spawned by                    | fork from the end, as an account copy does (ADR 0018) |
+| OpenCode, Pi, Cursor, ACP agents | nothing                                                                        |                                                                                                                                                                     | the handoff summary                                   |
 
 The lineage rules are `@ace/accounts`' account-copy plans (`claudePlan`, `codexPlan`), shared,
 not repeated. Lines are decoded leniently: a line that isn't JSON, or a record of a type the
@@ -204,10 +214,26 @@ continue message names the new one. Compressed Codex rollouts, a session with mo
 files or 256 MiB, a Claude folder name longer than its 200-character limit, and a home the
 thread's account doesn't have are not carried.
 
+**The copy takes fresh session ids.** A copy under the original id meets the original wherever a
+home holds both: two daemons sharing one `~/.codex` (a rollout's path depends only on its date
+and id), and every return trip (A → B → A), where A still holds the session it started, for
+Claude as well as Codex. So placing renames every session id the carried files hold to one the
+target's injected generator makes (a UUID, the form both CLIs use): Claude's one session id;
+for Codex, each rollout in the lineage, so a fork's `forked_from_id`, `history_base` and
+spawning thread point at the copies of their parents and the lineage reads back whole from the
+fresh ids. A JSON string value equal to a renamed id (any case) is renamed wherever it sits in a
+record, in place when the line allows, so the rest of the line stays as written; text that only
+mentions an id, a key and a line that isn't JSON stay byte for byte. The original files are
+never touched. The transfer records both ids (`session.sessionIds: { from, to }` on the start
+row and the sender's `Transfer.live`), and the new thread's native session is the fresh one. A
+restart between placing and recording places again under new ids; the earlier copy is left as
+an unused session, which costs a file and never a wrong history.
+
 Session files are provider data, never credentials (ADR 0002). Only the session's own files are
 read; auth files (`auth.json`, `.credentials.json`, keychain entries) are never opened, and a
 listed file named like one is refused. The target writes only inside the chosen account's home,
-through `@ace/files`' descriptor-safe merge, never over a file that is already there.
+through `@ace/files`' descriptor-safe merge, never over a file that is already there: with fresh
+ids that can't happen by accident, and it stays as the safety net.
 
 On the target the new thread uses the account its provider would pick for a new thread there.
 Any failure (nothing to carry, capture, copy, placing, the resume itself) falls back to ADR
@@ -405,7 +431,9 @@ message is the result.
 Unit tests: the cutover's stage machine (each failure before and after
 `handing`, each restart point), the turn-start rule, the ownership record's transitions (one owner
 at every step, a stale epoch refused), the Claude and Codex carriers against fixture homes (paths
-rewritten, unknown lines kept, auth files never read, oversized and compressed sessions refused),
+rewritten, unknown lines kept, auth files never read, oversized and compressed sessions refused,
+a session placed into a home that already holds it taking fresh ids in every file name and
+reference with the original untouched and a Codex lineage readable again through the fresh ids),
 the source's rest wait (a finished turn's build waited out; a shell that never ends and a remote
 child that never confirmed both failing the move before the hold), the target's start (native
 session, the summary fallback through the same held message, which records no start when the
@@ -438,7 +466,11 @@ it freed. Unit tests also cover an opening provider ended and waited for, a gran
 process in the tree's deadline, the durable resume across a restart, a target's setup and start
 given up on and answered, indexing carried on after a restart, and recovery past one batch on
 both sides with every live payload kept.
-Live checks owed, because no real CLI ran: Claude resuming a session
-placed under a new folder name; Codex forking from a copied rollout whose `cwd` changed; the
-interrupt landing between tool calls for each provider; a resume failure reading as `failed` on
-the new thread.
+Live check, 2026-11-20, real Claude Code (Haiku 5.5) and Codex (GPT-6.2 Sol) on one Mac: two
+daemons with empty homes sharing one `~/.claude` and one `~/.codex`, each thread told a codeword,
+then moved while a 90-second shell command ran, and moved back the same way. Both providers, both
+ways: the continue message said the full conversation came, the agent answered the codeword, the
+copy took a fresh id (recorded on the start row), and the original file's SHA-256 was unchanged.
+Claude resumed from a new folder name; Codex forked from a copied rollout whose `cwd` changed, and
+the return trip renamed both rollouts of its lineage, the fork pointing at its parent's copy.
+Still owed: a resume failure reading as `failed` on the new thread.

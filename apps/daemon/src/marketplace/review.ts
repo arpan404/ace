@@ -1,4 +1,5 @@
 import type {
+  MarketBotUpdate,
   MarketEntryType,
   MarketNeed,
   MarketPublisher,
@@ -9,7 +10,9 @@ import type {
 } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
+  codeReviewRow,
   hashFiles,
+  recipeEffects,
   recipeEntries,
   recipeNeeds,
   type ArchiveFile,
@@ -33,6 +36,11 @@ export interface PreparedEntry {
   publisher?: MarketPublisher | undefined;
   from?: string | undefined;
   signed: boolean;
+  /**
+   * The market's signed version manifest as it served it: Spade believes a package's identity
+   * only from it, over these exact bytes (ADR 0200 §3.2). Absent for a git catalog's entry.
+   */
+  signedManifest?: unknown;
   reviewed: boolean;
   byAce: boolean;
   checked: CheckedEntry;
@@ -55,6 +63,10 @@ export interface PreparedReview extends PreparedEntry {
   /** A recipe's skills and plugins from the same source, each reviewed as itself. */
   brings: PreparedEntry[];
   spadeReady: boolean;
+  /** An update or rollback of a linked bot: which bot, and what Spade's plan says it does. */
+  updating?: MarketBotUpdate | undefined;
+  /** No model the bot would think with calls tools, which what it uses needs (ADR 0205 §3). */
+  modelWarning?: string | undefined;
 }
 
 const textLimit = 65_536;
@@ -193,6 +205,10 @@ function body(entry: PreparedReview): MarketReviewBody {
         description: inspection.description,
         files: entry.checked.files.length,
         flagged: inspection.flagged.length,
+        ...(inspection.license ? { license: inspection.license } : {}),
+        ...(inspection.compatibility ? { compatibility: inspection.compatibility } : {}),
+        ...(inspection.allowedTools.length ? { allowedTools: inspection.allowedTools } : {}),
+        ...(inspection.unused.length ? { unused: inspection.unused } : {}),
       };
     case "spade-plugin":
       return {
@@ -213,6 +229,7 @@ function body(entry: PreparedReview): MarketReviewBody {
         routines: recipe.routines,
         ...(recipe.needs.tools ? { tools: recipe.needs.tools } : {}),
         notes: recipe.notes,
+        ...(recipe.personality ? { personality: recipe.personality } : {}),
         brings: recipeEntries(recipe).map((brought) => ({
           type: brought.type,
           name: brought.name,
@@ -222,6 +239,27 @@ function body(entry: PreparedReview): MarketReviewBody {
         })),
         needs,
         spadeReady: entry.spadeReady,
+        ...(recipe.version === 3
+          ? {
+              linked: true,
+              effects: recipeEffects(recipe),
+              ...(recipe.code?.length
+                ? {
+                    code: recipe.code.map((code) => ({
+                      name: code.name,
+                      imports: code.imports,
+                      why: code.why,
+                      sentence: codeReviewRow(code, recipe.effects),
+                    })),
+                  }
+                : {}),
+              triggers: recipe.triggers,
+              ...(recipe.limits ? { limits: recipe.limits } : {}),
+              unused: Object.keys(recipe.extra ?? {}).slice(0, 64),
+            }
+          : {}),
+        ...(entry.updating ? { update: entry.updating } : {}),
+        ...(entry.modelWarning ? { modelWarning: entry.modelWarning } : {}),
       };
     }
     case undefined:

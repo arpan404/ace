@@ -12,6 +12,7 @@ import {
   type HostScope,
   type HostTarget,
 } from "./host-open-target.ts";
+import { keptEnv, noteKept } from "@ace/provider-kit/process-marker";
 
 /*
  * `host.open`: a client on another device (a phone) opens a folder or file on the machine running
@@ -89,14 +90,17 @@ export type HostSpawner = (launch: HostLaunch) => Promise<void>;
 /** The real spawner: detached, no shell, no inherited output, so the editor outlives nothing. */
 export const spawnDetached: HostSpawner = (launch) =>
   new Promise((done, fail) => {
+    // Kept: an editor outlives the daemon, and no sweep of the daemon's ever ends it.
     const child = spawn(launch.command, launch.args, {
       detached: true,
       stdio: "ignore",
       shell: false,
       windowsHide: true,
+      env: keptEnv(process.env),
     });
     child.once("error", fail);
     child.once("spawn", () => {
+      noteKept(child.pid);
       child.unref();
       done();
     });

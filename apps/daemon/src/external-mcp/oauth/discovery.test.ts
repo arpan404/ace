@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import { namesResource, outsideBase, relativePath, resourceMetadataUrl } from "./base.ts";
-import { authorizationServerMetadata, protectedResourceMetadata } from "./metadata.ts";
+import {
+  authorizationServerMetadata,
+  protectedResourceMetadata,
+  spadeResourceMetadata,
+} from "./metadata.ts";
 
 const relay = outsideBase("relay", "https://relay.example/m/host-1");
 const local = outsideBase("local", "http://127.0.0.1:4100");
@@ -40,6 +44,24 @@ test("paths are read below the base, and a request outside it has none", () => {
   );
   expect(at("https://relay.example/m/host-10/token")).toBeUndefined();
   expect(relativePath(new Request("http://127.0.0.1:4100/mcp"), local)).toBe("/mcp");
+});
+
+test("Spade's contracts are resources of the same base, each with the scope its calls need", () => {
+  for (const path of ["/spade/mcp", "/spade/a2a"] as const) {
+    expect(spadeResourceMetadata(relay, path, "Studio")).toMatchObject({
+      resource: `https://relay.example/m/host-1${path}`,
+      authorization_servers: ["https://relay.example/m/host-1"],
+      scopes_supported: ["spade-contracts"],
+    });
+    expect(resourceMetadataUrl(relay, path)).toBe(
+      `https://relay.example/.well-known/oauth-protected-resource/m/host-1${path}`,
+    );
+    // A sign-in may name it; its code and tokens are this base's.
+    expect(namesResource(`https://relay.example/m/host-1${path}`, relay)).toBe(true);
+    expect(namesResource(`https://relay.example/m/host-2${path}`, relay)).toBe(false);
+  }
+  expect(namesResource("https://relay.example/m/host-1/spade", relay)).toBe(false);
+  expect(namesResource("https://relay.example/m/host-1/spade/jwks.json", relay)).toBe(false);
 });
 
 test("a resource matches only this base's MCP URL", () => {

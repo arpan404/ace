@@ -118,13 +118,20 @@ impl Engine {
         }
         let mut kept = detail(&held);
         change(&mut kept);
+        // The other machine holds it now: a shared bot's move is on the log with this step.
+        let entries = if state == FINISHING && held.state != FINISHING {
+            self.moved_entries(&held, &kept)
+        } else {
+            Vec::new()
+        };
         self.store
-            .advance_move(
+            .advance_move_audited(
                 &entry.id,
                 Some(&[held.state.as_str()]),
                 state,
                 &kept.to_string(),
                 self.now_ms(),
+                &entries,
             )
             .map_err(|e| e.to_string())
     }
@@ -546,6 +553,9 @@ impl Engine {
         };
         self.store
             .move_members(&agents, &entry.peer)
+            .map_err(|e| e.to_string())?;
+        // A paused bot's pause went with it.
+        self.forget_moved_pauses(&agents)
             .map_err(|e| e.to_string())?;
         self.forget_moved(&selection)?;
         for agent in &agents {

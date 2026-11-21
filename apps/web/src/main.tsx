@@ -71,9 +71,14 @@ const environment = {
     idle: (task) => whenIdle(task),
     automated: navigator.webdriver === true,
   }),
-  windowBackground: (value: { mode: string; light: string; dark: string }) =>
-    setDesktopWindowBackground(value),
+  windowBackground: setDesktopWindowBackground,
   suitsOff: suitsOffForSession(location.search, session),
+  // Another window's change to this origin's saved settings (its look among them).
+  onStorage: (listener: (key: string | null) => void) => {
+    const changed = (event: StorageEvent) => listener(event.key);
+    addEventListener("storage", changed);
+    return () => removeEventListener("storage", changed);
+  },
 };
 // Windows desktop app: the OS light/dark mode comes from the app (`desktop-color-scheme.ts`),
 // asked before the first render so a reload after a Windows switch starts in the right scheme.

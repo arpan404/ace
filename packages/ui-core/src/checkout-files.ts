@@ -79,6 +79,9 @@ const languages: Record<string, string> = {
   cs: "cs",
 };
 
+/** Every language the highlighter colours, each once, for a picker that overrides a file's. */
+export const fileLanguages: readonly string[] = [...new Set(Object.values(languages))];
+
 /** The highlighter's language for a file, from its extension; undefined shows it plain. */
 export function fileLanguage(path: string): string | undefined {
   const name = pathParts(path).name.toLowerCase();
@@ -105,7 +108,9 @@ const images: Record<string, string> = {
 /** The image type a viewer can draw for this file, if it is one. */
 export function imageType(path: string): string | undefined {
   const name = pathParts(path).name.toLowerCase();
-  return images[name.slice(name.lastIndexOf(".") + 1)];
+  const ext = name.slice(name.lastIndexOf(".") + 1);
+  // Own entries only: a file named "constructor" is no image.
+  return Object.hasOwn(images, ext) ? images[ext] : undefined;
 }
 
 /**

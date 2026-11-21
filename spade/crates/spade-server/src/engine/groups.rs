@@ -13,7 +13,7 @@ use super::roster::{self, State};
 
 /// Members a group has at least and at most, the lead counted.
 pub const FEWEST_MEMBERS: usize = 2;
-pub const MOST_MEMBERS: usize = 8;
+pub use spade_core::group::MOST_MEMBERS;
 /// A group's name, in characters.
 pub const GROUP_NAME_CHARS: usize = 60;
 
@@ -204,6 +204,7 @@ impl Engine {
                 });
         }
         if self.main_enabled()?
+            && !self.shared_club(members)
             && let Some(main) = self
                 .store
                 .agents()?
@@ -232,6 +233,38 @@ impl Engine {
             })
     }
 
+    /// The space a club's members are in, when they share one: a club stays inside one space
+    /// (ADR 0206 §2.3). A bot of another machine is the person's: no shared bot's club takes it.
+    fn check_space(&self, members: &[StoredMember]) -> Result<(), GroupError> {
+        let space = |m: &StoredMember| {
+            if m.machine.is_empty() {
+                self.agent_space(&m.agent_id)
+            } else {
+                spade_core::org::Space::Personal
+            }
+        };
+        let Some(first) = members.first().map(space) else {
+            return Ok(());
+        };
+        for member in &members[1..] {
+            if let Some(why) =
+                spade_core::org::crossing(&first, &space(member), spade_core::org::Crossing::Club)
+            {
+                return Err(GroupError::Conflict(why.to_owned()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether any of `members` is a shared bot: such a club never takes Spade, the person's
+    /// own, as its lead.
+    fn shared_club(&self, members: &[StoredMember]) -> bool {
+        members.iter().any(|m| {
+            m.machine.is_empty()
+                && self.agent_space(&m.agent_id) != spade_core::org::Space::Personal
+        })
+    }
+
     fn check_size(members: &[StoredMember]) -> Result<(), GroupError> {
         if members.len() < FEWEST_MEMBERS || members.len() > MOST_MEMBERS {
             return Err(GroupError::Invalid(format!(
@@ -249,6 +282,7 @@ impl Engine {
         let mut members = self.members_from(&refs).await?;
         let lead_id = self.lead_of(&mut members, input.lead.as_deref())?;
         Self::check_size(&members)?;
+        self.check_space(&members)?;
         let now = self.now_ms();
         let group = StoredGroup {
             id: self.ids.next("g"),
@@ -284,6 +318,7 @@ impl Engine {
             let asked = asked.map(str::to_owned);
             group.lead_id = self.lead_of(&mut group.members, asked.as_deref())?;
             Self::check_size(&group.members)?;
+            self.check_space(&group.members)?;
         }
         if !self.store.update_group(&group, self.now_ms())? {
             return Err(GroupError::NotFound);

@@ -183,6 +183,9 @@
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
+        "speaker": {
+          "$ref": "https://ace.local/protocol/v1/Speaker.json"
+        },
         "synthetic": {
           "default": false,
           "type": "boolean"
@@ -518,6 +521,9 @@
       "properties": {
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "asked": {
+          "$ref": "https://ace.local/protocol/v1/AskedLine.json"
         },
         "code": {
           "type": "string"

@@ -1,6 +1,8 @@
 import {
   spadeAnswerWords,
   spadeCardAnswers,
+  spadeConnectOf,
+  spadeSuggestOf,
   spadeCardSettledWords,
   spadeDraftAnswer,
   spadeEmptyDraft,
@@ -16,6 +18,8 @@ import { useCardFocus } from "./use-card-focus.ts";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { QuestionInputs } from "./spade-question-inputs.tsx";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { SpadeConnectBubble } from "./spade-connect-bubble.tsx";
+import { SpadeSuggestBubble } from "./spade-suggest-bubble.tsx";
 import {
   botBubble,
   CardBody,
@@ -48,6 +52,34 @@ export function SpadeQuestionBubble(props: {
   item: Card;
   botName: string;
   /** Resolves with undefined once sent, else what to say under the card ("" for nothing). */
+  onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
+}) {
+  const ask = spadeConnectOf(props.item.questions);
+  if (ask)
+    return (
+      <SpadeConnectBubble
+        item={props.item}
+        ask={ask}
+        botName={props.botName}
+        onReply={props.onReply}
+      />
+    );
+  const suggest = spadeSuggestOf(props.item.questions);
+  if (suggest)
+    return (
+      <SpadeSuggestBubble
+        item={props.item}
+        ask={suggest}
+        botName={props.botName}
+        onReply={props.onReply}
+      />
+    );
+  return <QuestionCard {...props} />;
+}
+
+function QuestionCard(props: {
+  item: Card;
+  botName: string;
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
 }) {
   const { item } = props;

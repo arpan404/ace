@@ -419,6 +419,8 @@ enum BridgePatch: Decodable, Sendable {
     case browser(BrowserPatch)
     /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
     case devices(DevicesPatch)
+    /// The machine's device tabs on this phone (`bridge/device-tabs.ts`).
+    case deviceTabs(DeviceTabsPatch)
     case computerAccess(ComputerAccessModel.State)
     /// Outside apps' sign-ins and screen use on this machine (`bridge/outside-clients.ts`).
     case outside(OutsideClientsModel.State)
@@ -543,6 +545,7 @@ enum BridgePatch: Decodable, Sendable {
         case "work.result": self = .workResult(try WorkResult(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
         case "workspace": self = .workspace(try box.decode(PanelView.self, forKey: .view))
+        case "device.tabs": self = .deviceTabs(try DeviceTabsPatch(from: decoder))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
         case "computer.access": self = .computerAccess(try ComputerAccessModel.State(from: decoder))

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Client, webSocketTransport, type Transport } from "@ace/client";
+import { Client, onSocketMove, webSocketTransport, type Transport } from "@ace/client";
 import {
   DeviceId,
   HostId,
@@ -10,6 +10,9 @@ import {
 import { pairedSocketCredential } from "@ace/client/access-ticket";
 import type { Alert } from "../notifications/router.ts";
 import { alertFromDaemon } from "../notifications/router.ts";
+import { admissionWords } from "@ace/ui-core/host-care";
+import type { TrayAction, TrayTab } from "../os/native-tray-action.ts";
+import type { TrayUsagePreferences, trayUsage } from "../os/native-tray-model.ts";
 import { derivedAlerts, WorkTally, type WorkSummary } from "./thread-watch.ts";
 
 export interface LinkOptions {
@@ -27,6 +30,8 @@ export interface LinkOptions {
   quietHours(): { timeZone: string; startMinute: number; endMinute: number } | null;
   onAlert(alert: Alert): void;
   onSummary(summary: WorkSummary): void;
+  /** How many threads have an agent using apps on this computer, as the daemon reports it. */
+  onAppsInUse?(threads: number): void;
   /**
    * The daemon's socket closed, with its close code and reason (`1001 Daemon shutdown`,
    * `4003 Device revoked` …), so the app's log says why the link dropped. Not called when the
@@ -50,10 +55,15 @@ export class DesktopLink {
   private send: ((frame: unknown) => void) | undefined;
   private presence: string | null = null;
   private entries = new Map<string, ThreadListEntry>();
+  private trayThreads = new Map<string, ThreadListEntry>();
+  private trayUsageCache:
+    | { at: number; preferences: string; value: Awaited<ReturnType<typeof trayUsage>> }
+    | undefined;
   private tally = new WorkTally();
   private summary: WorkSummary | undefined;
   private stops: (() => void)[] = [];
   private options: LinkOptions;
+  private appsInUse = 0;
 
   constructor(options: LinkOptions) {
     this.options = options;
@@ -84,11 +94,13 @@ export class DesktopLink {
     const connection = this.client.connectionState();
     this.stops.push(
       connection.subscribe(() => {
+        this.trayUsageCache = undefined;
         if (connection.getSnapshot() === "ready") this.register();
       }),
     );
     await this.client.start();
-    this.watchThreads();
+    await this.watchThreads();
+    this.watchAppsInUse();
   }
 
   async close(): Promise<void> {
@@ -174,13 +186,74 @@ export class DesktopLink {
     };
   }
 
-  private watchThreads(): void {
+  async traySnapshot(
+    tab: TrayTab,
+    now: number,
+    signal: AbortSignal,
+    preferences?: TrayUsagePreferences,
+  ) {
+    if (!this.trayCurrent()) return;
+    const { trayApps, trayThread, trayUsage } = await import("../os/native-tray-model.ts");
+    const admission = this.client
+      .request({ type: "admission.request", operation: "status" }, { signal })
+      .then((reply) => (reply.ok && reply.admission ? admissionWords(reply.admission) : undefined))
+      .catch(() => undefined);
+    const apps = tab === "apps" ? trayApps(this.client, signal).catch(() => null) : undefined;
+    const key = JSON.stringify(preferences ?? null);
+    const cached = this.trayUsageCache;
+    const usage =
+      tab !== "usage"
+        ? undefined
+        : cached && cached.preferences === key && now - cached.at < 30_000
+          ? cached.value
+          : trayUsage(this.client, now, signal, preferences)
+              .then((value) => {
+                if (!signal.aborted) this.trayUsageCache = { at: now, preferences: key, value };
+                return value;
+              })
+              .catch(() => null);
+    const [pause, appRows, usageRows] = await Promise.all([admission, apps, usage]);
+    if (signal.aborted || !this.trayCurrent()) return;
+    return {
+      working: this.tally.summary().working,
+      needsYou: this.tally.summary().needsYou,
+      appsInUse: this.appsInUse,
+      threads:
+        tab === "agents"
+          ? [...this.trayThreads.values()]
+              .map((entry) => trayThread(entry, now))
+              .toSorted(
+                (a, b) => Number(b.needsYou) - Number(a.needsYou) || b.updatedAt - a.updatedAt,
+              )
+          : undefined,
+      apps: appRows,
+      usage: usageRows,
+      pause,
+    };
+  }
+
+  private trayCurrent(): boolean {
+    const list = this.client.cachedThreads();
+    return this.client.state === "ready" && !!list && !list.unconfirmed && !list.syncing;
+  }
+
+  async trayAction(action: TrayAction, signal: AbortSignal): Promise<void> {
+    if (this.client.state !== "ready") throw new Error("The daemon is offline");
+    const { applyTrayServiceAction } = await import("../os/native-tray-model.ts");
+    await applyTrayServiceAction(this.client, action, signal);
+    if (action.action === "reset") this.trayUsageCache = undefined;
+  }
+
+  private async watchThreads(): Promise<void> {
+    const { listedInTray } = await import("../os/native-tray-model.ts");
     const { store, release } = this.client.threads();
     const threadStops = new Map<string, () => void>();
     const refresh = (id: string) => {
       const next = store.thread(id);
       const previous = this.entries.get(id);
       this.tally.set(id, next);
+      if (next && listedInTray(next)) this.trayThreads.set(id, next);
+      else this.trayThreads.delete(id);
       if (!next) this.entries.delete(id);
       else {
         this.entries.set(id, next);
@@ -202,6 +275,7 @@ export class DesktopLink {
           stop();
           threadStops.delete(id);
           this.entries.delete(id);
+          this.trayThreads.delete(id);
           this.tally.set(id, undefined);
         }
       for (const id of current)
@@ -223,6 +297,45 @@ export class DesktopLink {
       release();
     });
     sync();
+  }
+
+  /**
+   * Computer use (`computer.using`): asked on every ready connection and socket move, answered
+   * with the whole set and again on each change. The ask carries a request id, so a daemon that
+   * refuses it answers that request alone and the link stays up.
+   */
+  private watchAppsInUse(): void {
+    const report = this.options.onAppsInUse;
+    if (!report) return;
+    let asked = 0;
+    let last: number | undefined;
+    const ask = () => {
+      if (this.client.connectionState().getSnapshot() !== "ready") return;
+      try {
+        this.client.send({ type: "computer.using.watch", requestId: `apps-in-use-${++asked}` });
+      } catch {
+        // The socket went away; the next ready asks again.
+      }
+    };
+    const connection = this.client.connectionState();
+    this.stops.push(
+      this.client.onMessage((message) => {
+        if (message.type !== "computer.using" || message.threads.length === last) return;
+        last = message.threads.length;
+        this.appsInUse = last;
+        report(last);
+      }),
+      connection.subscribe(() => {
+        if (connection.getSnapshot() === "ready") ask();
+      }),
+      onSocketMove(this.client, ask),
+      // A closed link knows nothing more: the icon stops claiming an agent uses an app.
+      () => {
+        this.appsInUse = 0;
+        if (last) report(0);
+      },
+    );
+    ask();
   }
 }
 

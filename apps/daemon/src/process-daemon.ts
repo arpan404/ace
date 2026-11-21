@@ -1,6 +1,6 @@
 import { logFields } from "@ace/diagnostics";
 import type { DaemonOptions } from "./services/options.ts";
-import { DaemonStop } from "./stop-reason.ts";
+import { DaemonStop, type StopReason } from "./stop-reason.ts";
 
 type Daemon = Awaited<ReturnType<typeof import("./index.ts").startDaemon>>;
 type Signal = "SIGINT" | "SIGTERM";
@@ -43,8 +43,24 @@ export async function runDaemonProcess(
     signals.removeListener("SIGTERM", terminate);
     consoleBreak?.removeListener("SIGBREAK", interrupt);
   };
-  const stop = (signal: Signal) => {
-    cancelExit ??= shutdown.after(() => {
+  /** After everything the daemon owns has closed, exit once stdio drains. */
+  const closed = () => {
+    // A handle something forgot to release (a pipe an escaped grandchild still holds) must
+    // neither keep the process alive nor turn a clean stop into a deadline failure.
+    cancelExit?.();
+    cancelExit = shutdown.after(() => {
+      const open = shutdown.openHandles?.() ?? process.getActiveResourcesInfo();
+      console.error(`Daemon stopped; exiting with handles still open: ${open.join(", ")}`);
+      shutdown.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
+    }, STOPPED_DRAIN_MS);
+  };
+  /**
+   * Every stop ends the process: a signal, and a stop request (`ace stop`, POST /v1/stop),
+   * which closes the daemon from inside but leaves exiting to whoever owns the process.
+   */
+  const stop = (reason: StopReason) => {
+    if (cancelExit) return;
+    cancelExit = shutdown.after(() => {
       const message = `Daemon shutdown exceeded ${SHUTDOWN_LIMIT_MS}ms; pending resources did not exit`;
       const pending = daemon?.pendingShutdown() ?? [];
       console.error(pending.length ? `${message}: ${pending.join(", ")}` : message);
@@ -53,34 +69,21 @@ export async function runDaemonProcess(
       daemon?.log.flushSync();
       shutdown.exit(1);
     }, SHUTDOWN_LIMIT_MS);
-    const reason = { source: "signal", signal } as const;
     // The daemon logs the reason once: an abort during startup and a close after it share it.
     lifetime.abort(new DaemonStop(reason));
     if (daemon)
       void daemon
         .close(reason)
-        .then(
-          () => {
-            // Everything the daemon owns has closed. A handle something forgot to release must
-            // not hold the process until the deadline and turn a clean stop into a failure.
-            cancelExit?.();
-            cancelExit = shutdown.after(() => {
-              const open = shutdown.openHandles?.() ?? process.getActiveResourcesInfo();
-              console.error(`Daemon stopped; exiting with handles still open: ${open.join(", ")}`);
-              shutdown.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
-            }, STOPPED_DRAIN_MS);
-          },
-          (error: unknown) => {
-            console.error(error);
-            process.exitCode = 1;
-          },
-        )
+        .then(closed, (error: unknown) => {
+          console.error(error);
+          process.exitCode = 1;
+        })
         .finally(() => {
           remove();
         });
   };
-  const interrupt = () => stop("SIGINT");
-  const terminate = () => stop("SIGTERM");
+  const interrupt = () => stop({ source: "signal", signal: "SIGINT" });
+  const terminate = () => stop({ source: "signal", signal: "SIGTERM" });
   signals.once("SIGINT", interrupt);
   signals.once("SIGTERM", terminate);
   // Windows consoles send Ctrl+Break as SIGBREAK, whose default ends the process uncleanly.
@@ -89,6 +92,10 @@ export async function runDaemonProcess(
     daemon = await start({
       ...options,
       signal: options.signal ? AbortSignal.any([lifetime.signal, options.signal]) : lifetime.signal,
+      onStopRequest: () => {
+        options.onStopRequest?.();
+        stop({ source: "stop-request" });
+      },
     });
     if (lifetime.signal.aborted) {
       await daemon.close();

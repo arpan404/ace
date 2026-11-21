@@ -224,6 +224,19 @@ impl Store {
         )?)
     }
 
+    /// The earliest next slot of any active scheduled routine after `now_ms`: one still due then
+    /// is left out (its bot is paused, or it couldn't run), so a timer never waits on it in a loop.
+    pub fn next_routine_due_after(&self, now_ms: i64) -> Result<Option<i64>> {
+        Ok(self.lock()?.query_row(
+            &format!(
+                "SELECT MIN(next_due_ms) FROM routines WHERE paused = 0 AND next_due_ms > ?1
+                 AND agent_id NOT IN {ARRIVING_AGENTS}"
+            ),
+            params![now_ms],
+            |row| row.get(0),
+        )?)
+    }
+
     /// Records `run` and, for a scheduled firing, moves the routine's next slot from `slot` to
     /// `next`, together. Returns false, recording nothing, when the routine is gone, paused, or
     /// its next slot is no longer `slot` (another firing claimed it first).
@@ -452,22 +465,23 @@ mod tests {
         {
             // As a database from before the column: the column goes and the version steps back,
             // past the skill store, the helpers table, seen cursors and pins that came after it.
-            let connection = rusqlite::Connection::open(&path)?;
+            let connection = crate::Store::connect(&path)?;
             connection.execute("DROP TABLE helpers", [])?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
             connection
                 .execute_batch(
-                "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
+                "ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin;
+                 ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
                  DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
                  DROP TABLE episodes_search; DROP TABLE episodes;
-                 DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
+                 DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
             )?;
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 10,
+                crate::schema::current_version() as i64 - 14,
             )?;
         }
         let store = Store::open(&path)?;

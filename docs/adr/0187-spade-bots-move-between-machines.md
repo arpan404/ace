@@ -369,3 +369,15 @@ becomes `undoing`, `undoing` and `aborting` carry on, `placing` finishes.
   record is the same on both.
 - Web: the main Spade stays on the chosen machine when that machine goes offline and comes back;
   a window copies the newest record to stale machines; no window switches a main off.
+
+## Amendment, 2026-11-20: a paused bot moves paused
+
+[ADR 0200](0200-spade-is-an-agent-operating-system.md) §6.1 added Pause. A paused bot is no longer
+refused a move: its pause travels in the manifest (`extras.paused`: when it was paused, the wakes
+met meanwhile, the services Pause stopped, and each routine that was on with its due slot) and the
+target writes it into its own pauses in the cutover's transaction, so the bot is never anyone's
+unpaused. Its open wakes are armed on arrival and stay held. Decision 17 still pauses every
+routine on arrival; for a bot that arrived paused, the person's Resume there is the go-ahead
+decision 17 waits for: each routine that was on comes back on at the slot it held (one that came
+due catches up once), each held wake fires once and what waited is answered. While a move holds a
+bot frozen, Pause and Resume change nothing.

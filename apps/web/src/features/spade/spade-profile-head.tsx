@@ -1,11 +1,13 @@
 import { botFaceStateOf, faceForId } from "@ace/ui-core/bot-face";
-import { spadeAgentNameMax } from "@ace/ui-core/spade-chat";
+import { spadeAgentNameMax, spadeIsDevelopment } from "@ace/ui-core/spade-chat";
 import { useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
+import { useMarkAccent } from "./spade-accent.ts";
 import { DottedFace, faceDotOf } from "./spade-list-parts.tsx";
+import { ProfileArchived } from "./spade-profile-archived.tsx";
 import { spadeBotRow } from "./spade-list-rows.ts";
 import { sentAvatar, useEditBot } from "./spade-profile-actions.ts";
 import { useWornPairs, type RosterBot } from "./use-spade-roster.ts";
@@ -22,7 +24,13 @@ const faceSize = 96;
 export function ProfileHead(props: { bot: RosterBot }) {
   const { bot } = props;
   const main = bot.kind === "main";
+  // One quiet line under the name: a development bot, and Full access while it is in it.
+  const quiet = [
+    spadeIsDevelopment(bot.package) && "Development",
+    bot.fullAccess && "Full access",
+  ].filter((word): word is string => typeof word === "string");
   const state = bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot);
+  const accent = useMarkAccent(bot);
   const face = (
     <DottedFace
       avatar={bot.avatar}
@@ -30,6 +38,7 @@ export function ProfileHead(props: { bot: RosterBot }) {
       state={state}
       dot={faceDotOf(spadeBotRow(bot).state)}
       large
+      accent={accent}
     />
   );
   return (
@@ -48,13 +57,21 @@ export function ProfileHead(props: { bot: RosterBot }) {
       ) : (
         <NameField bot={bot} />
       )}
-      {bot.fullAccess && <p className="-mt-1.5 text-ui text-muted-foreground">Full access</p>}
+      {quiet.length > 0 && (
+        <p className="-mt-1.5 text-ui text-muted-foreground">{quiet.join(" · ")}</p>
+      )}
+      {bot.archived && <ProfileArchived bot={bot} />}
     </div>
   );
 }
 
 /** The face as a button: a popover of faces and pictures; what the person chose saves on close. */
-function FaceButton(props: { bot: RosterBot; children: React.ReactNode }) {
+export function FaceButton(props: {
+  bot: RosterBot;
+  children: React.ReactNode;
+  /** Its accessible name; "Change face" when absent. */
+  label?: string;
+}) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const worn = useWornPairs(bot.id);
@@ -85,7 +102,7 @@ function FaceButton(props: { bot: RosterBot; children: React.ReactNode }) {
       }}
     >
       <PopoverTrigger
-        aria-label="Change face"
+        aria-label={props.label ?? "Change face"}
         className="relative rounded-full focus-ring before:absolute before:-inset-1.5 before:-z-1 before:rounded-full before:transition-colors before:duration-(--motion-fast) hover:before:bg-hover aria-expanded:before:bg-active"
       >
         {props.children}

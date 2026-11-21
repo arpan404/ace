@@ -23,7 +23,7 @@ use super::{Options, Result, Spade, TOKEN};
 pub const DAEMON_TOKEN: &str = "d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0";
 
 /// The key each machine's daemon shares with its Spade for the person's stamps.
-const PERSON_KEY: [u8; 32] = [7; 32];
+pub const PERSON_KEY: [u8; 32] = [7; 32];
 
 /// Ids that never collide between the machines, as UUIDs never do.
 struct MachineIds(&'static str, AtomicU64);
@@ -44,6 +44,8 @@ pub struct Fleet {
     /// host id → (Spade's address, machine name).
     pub spades: Mutex<Vec<(String, String, String)>>,
     pub offline: Mutex<HashSet<String>>,
+    /// host id → the organization that owns it, for org hosts (ADR 0206).
+    pub orgs: Mutex<std::collections::HashMap<String, String>>,
     /// Listed online, but every call is lost before it arrives.
     pub unreachable: AtomicBool,
     /// Drops one note row from the next notes part on the way.
@@ -54,6 +56,11 @@ pub struct Fleet {
     pub lose_commit_answer: AtomicBool,
     /// Answers this many commits and statuses, once delivered, with a 500 instead of the reply.
     pub garble_answers: AtomicU64,
+    /// Delivers every contract call, then says the connection was lost.
+    pub lose_call_answers: AtomicBool,
+    /// Leaves this field out of each listed contract's output schema, as an older version of the
+    /// package listed it.
+    pub unlisted_output_field: Mutex<Option<String>>,
     /// Every request body carried, as sent.
     pub carried: Mutex<Vec<String>>,
     /// Each machine's ace home, by host id, for restarts.
@@ -116,6 +123,7 @@ impl Remote for Link {
                     host_id: host.clone(),
                     name: name.clone(),
                     online: !offline.contains(host),
+                    org: lock(&self.fleet.orgs).get(host).cloned(),
                 })
                 .collect())
         })
@@ -165,6 +173,22 @@ impl Remote for Link {
                 && self.fleet.lose_commit_answer.swap(false, Ordering::SeqCst)
             {
                 return Err(RemoteError::Disconnected);
+            }
+            if request["op"] == "contract_call"
+                && self.fleet.lose_call_answers.load(Ordering::SeqCst)
+            {
+                return Err(RemoteError::Disconnected);
+            }
+            let mut answer = answer;
+            if request["op"] == "contracts"
+                && let Some(field) = lock(&self.fleet.unlisted_output_field).clone()
+                && let Some(listed) = answer.1["contracts"].as_array_mut()
+            {
+                for contract in listed {
+                    if let Some(fields) = contract["output"]["properties"].as_object_mut() {
+                        fields.remove(&field);
+                    }
+                }
             }
             if matches!(request["step"].as_str(), Some("commit" | "status"))
                 && self
@@ -266,6 +290,16 @@ async fn secure(spade: &Spade, home: &std::path::Path, key: &std::path::Path) ->
 /// linked into the fleet yet (`link` does that): until then it hears inbox requests but can
 /// reach no other machine.
 pub async fn restart(fleet: &Arc<Fleet>, host: &str, spade: Spade) -> Result<Spade> {
+    restart_scripted(fleet, host, spade, vec![Script::reply("unused")]).await
+}
+
+/// [`restart`], its model answering with `scripts`.
+pub async fn restart_scripted(
+    fleet: &Arc<Fleet>,
+    host: &str,
+    spade: Spade,
+    scripts: Vec<Script>,
+) -> Result<Spade> {
     let home = lock(&fleet.homes)
         .iter()
         .find(|(h, _)| h == host)
@@ -274,7 +308,7 @@ pub async fn restart(fleet: &Arc<Fleet>, host: &str, spade: Spade) -> Result<Spa
     let spade = spade
         .restart_with(
             Vec::new(),
-            vec![Script::reply("unused")],
+            scripts,
             Options {
                 ace_home: Some(home.clone()),
                 ids: Some(Arc::new(MachineIds("r", AtomicU64::new(0)))),
@@ -475,4 +509,11 @@ pub async fn move_ends(spade: &Spade, bot: &str) -> Result<Value> {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     Err(format!("the move never ended: {last}").into())
+}
+
+/// Which organization owns each machine, as the fleet's list says it (ADR 0206).
+pub fn lock_orgs(
+    fleet: &Fleet,
+) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, String>> {
+    lock(&fleet.orgs)
 }

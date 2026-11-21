@@ -1,7 +1,6 @@
 import type { Position, Selection } from "@ace/editor";
 import { isBefore, type Affinity } from "./affinity.ts";
 import { ordered } from "./cursor.ts";
-import { lineHeight } from "./geometry.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { rowOffset, rowOfColumn } from "./wrap.ts";
 
@@ -19,12 +18,13 @@ interface Box {
 }
 
 /** Where a position sits: the row it is on and its cells from the row's left edge. */
-function caretOf(
+export function caretOf(
   lines: (index: number) => string,
   layout: RowLayout,
   position: Position,
   gutter: number,
   cell: number,
+  lineHeight: number,
   before: boolean,
 ): { left: number; top: number } {
   const text = lines(position.line);
@@ -47,6 +47,7 @@ function boxes(
   lastRow: number,
   gutter: number,
   cell: number,
+  lineHeight: number,
   affinity: Affinity,
   primary: number,
 ): { selections: Box[]; carets: Box[] } {
@@ -94,8 +95,13 @@ function boxes(
         }
       }
     }
-    const caret = caretOf(lines, layout, selection.head, gutter, cell, headBefore);
-    carets.push({ key: `c${index}`, ...caret, width: 2, height: lineHeight });
+    const caret = caretOf(lines, layout, selection.head, gutter, cell, lineHeight, headBefore);
+    carets.push({
+      key: `c${index}:${caret.left}:${caret.top}`,
+      ...caret,
+      width: 2,
+      height: lineHeight,
+    });
   });
   return { selections: rects, carets };
 }
@@ -117,6 +123,9 @@ export function CaretLayers(props: {
   lastRow: number;
   gutter: number;
   cell: number;
+  lineHeight: number;
+  /** Blink the carets (Settings › Editor). */
+  blink?: boolean | undefined;
   /** Each caret's side of a hard break, so secondary carets draw on their own row. */
   affinity: Affinity;
   primary: number;
@@ -136,6 +145,7 @@ export function CaretLayers(props: {
     props.lastRow,
     props.gutter,
     props.cell,
+    props.lineHeight,
     props.affinity,
     props.primary,
   );
@@ -154,7 +164,7 @@ export function CaretLayers(props: {
         <div
           key={box.key}
           data-caret
-          className="absolute bg-ring"
+          className={props.blink ? "fx-caret-blink absolute bg-ring" : "absolute bg-ring"}
           style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
         />
       ))}
@@ -166,6 +176,7 @@ export function CaretLayers(props: {
               selection.head,
               props.gutter,
               props.cell,
+              props.lineHeight,
               isBefore(props.affinity, index),
             );
             return (
@@ -173,7 +184,7 @@ export function CaretLayers(props: {
                 key={`compose-${selection.head.line}-${selection.head.column}`}
                 data-composing
                 className="absolute whitespace-pre bg-background text-foreground shadow-[inset_0_-2px_0_var(--ring)]"
-                style={{ left: at.left, top: at.top, height: lineHeight }}
+                style={{ left: at.left, top: at.top, height: props.lineHeight }}
               >
                 {compose.text}
               </div>

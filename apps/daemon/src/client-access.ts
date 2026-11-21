@@ -147,6 +147,8 @@ export async function accessRequest(
     body?: unknown;
     fingerprint?: string;
     now?: () => number;
+    /** How long the request may take; 10 s unless a caller's own deadline is shorter. */
+    timeoutMs?: number;
   } = {},
 ): Promise<unknown> {
   const url = new URL(path, origin);
@@ -166,7 +168,8 @@ export async function accessRequest(
         url,
         {
           method: options.method ?? "GET",
-          ...(agent ? { agent } : {}),
+          // One request each: no pooled keep-alive socket outlives it to hold the server open.
+          agent: agent ?? false,
           headers: {
             ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
             ...(data === undefined
@@ -202,7 +205,13 @@ export async function accessRequest(
           });
         },
       );
-      request.setTimeout(10_000, () => request.destroy(new Error("Request timed out")));
+      // The caller's deadline, never more than 10 s; it never holds the process open.
+      const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? 10_000, 10_000));
+      const timer = setTimeout(() => request.destroy(new Error("Request timed out")), timeoutMs);
+      timer.unref();
+      request.once("close", () => clearTimeout(timer));
+      request.once("error", () => clearTimeout(timer));
+      request.once("response", (response) => response.once("end", () => clearTimeout(timer)));
       request.on("error", reject);
       request.end(data);
     });

@@ -130,6 +130,8 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
     }
     /// The thread's project, where its pull requests open.
     let workspaceId: String
+    /// The project's folder, which older automations name instead of its id; nil from an older bridge.
+    let workspacePath: String?
     let now: Now
     let catchUp: [Line]
     let agents: Agents?

@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "Teach me the basics of SQL joins."
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: Teach me the basics of SQL joins.",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "Let's start with the inner join, then I'll check you understood."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["inner join"]
+  }
+}

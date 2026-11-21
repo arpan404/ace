@@ -104,6 +104,7 @@ export default defineConfig({
           globalSetup: [
             "./scripts/test-home-global-setup.ts",
             "./scripts/process-test-setup.ts",
+            "./scripts/history-binary-setup.ts",
             "./tools/web-perf/src/browser-test-setup.ts",
           ],
           setupFiles: ["./scripts/test-home-setup.ts"],
@@ -124,6 +125,7 @@ export default defineConfig({
                 globalSetup: [
                   "./scripts/test-home-global-setup.ts",
                   "./scripts/process-test-setup.ts",
+                  "./scripts/history-binary-setup.ts",
                 ],
                 setupFiles: ["./scripts/test-home-setup.ts"],
               },
@@ -141,6 +143,7 @@ export default defineConfig({
           globalSetup: [
             "./scripts/test-home-global-setup.ts",
             "./scripts/process-test-setup.ts",
+            "./scripts/history-binary-setup.ts",
             "./tools/web-perf/src/browser-test-setup.ts",
           ],
           setupFiles: ["./scripts/test-home-setup.ts"],
@@ -171,7 +174,7 @@ export default defineConfig({
           sequence: { groupOrder: 3 },
           testTimeout: PROCESS_TEST_TIMEOUT,
           hookTimeout: PROCESS_TEST_TIMEOUT,
-          globalSetup: ["./scripts/test-home-global-setup.ts"],
+          globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/history-binary-setup.ts"],
           setupFiles: ["./scripts/test-home-setup.ts"],
         },
       },

@@ -204,3 +204,35 @@ table (`oversight` and `oversight:<agent id>`), deleted with the bot.
 | `GET`/`PUT /agents/{id}/digest` | `{every?, polish?}`, `null` inherits | `{"settings", "every_ms", "polish", "next_ms"}` |
 | `POST /agents/{id}/digests`     |                                      | `201 {"digest"}`                                |
 | `GET /notices/live`             |                                      | server-sent `notice` events                     |
+
+## Reaching the person
+
+[ADR 0195](../../docs/adr/0195-spade-reaches-the-person.md). Every notice on
+`GET /v1/notices/live` carries `id`, `category` and `reach` (`now`, `held` with `why`, or
+`none`), decided by `spade_core::reach`: a `stop` or `block` always reaches the person; do not
+disturb, the daily quiet window and the interruption budget hold the rest, which goes into the
+bot's next digest (While you were away) and the morning brief, with one `summary` notice when
+quiet ends. ace's daemon turns `reach: now` notices into its alerts.
+
+| Route                          | Body                                               | Answer                          |
+| ------------------------------ | -------------------------------------------------- | ------------------------------- |
+| `GET`/`PUT /reach`             | `{notify?, dnd?, quiet?, budget?, brief?, spend?}` | `{"settings", "quiet", "held"}` |
+| `POST /reach/brief`            |                                                    | `201 {"digest"}`                |
+| `GET`/`PUT /agents/{id}/reach` | `{notify}`, `null` follows                         | `{"notify"}`                    |
+
+- **A bot's own notice** (`notify {title, body}`, `spade.v1` module `notify`, ADR 0200 §4.2):
+  category `notice`, proactive, so do not disturb, quiet hours, the budget and the bot's own
+  switch decide it like a routine's. On top, each bot has a rate (`spade_core::reach::notice`,
+  kept in `reach:notify:<bot>`): past 3 in the last hour a notice is held (`why: rate`) for the
+  brief and digest, past 12 in the last day it is refused to the bot and nothing is kept. Title
+  (≤80) and body (≤600) are plain text, control characters dropped; the notice carries `title`,
+  `body` and `conversation`, and ace's alert shows "title: body" under the bot's name. The bot's
+  conversation stores `notice_sent {call_id, id, title, body, reach, why?}`, which the chat draws
+  as a row, and a call run again after a restart reads that instead of sending twice. Helpers
+  can't notify. It replaces ace's own `notify` tool for Spade's bots (Spade's tools win a name).
+- **Morning brief** (opt-in): a `digests` row of kind `brief` beside the main bot's
+  conversation, once a day at `brief.at` (minutes, the person's zone): what finished with its
+  event, what waits with one-tap answers, today's routines, spend since the last brief.
+- **Spend alerts**: a bot's last hour above `spend.floor_micros` and `spend.factor` times its
+  trailing hourly median alerts once per episode, as a `spend` notice and a `digests` row of
+  kind `spend` in its chat. Information only.

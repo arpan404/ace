@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliBotScenario.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "calls": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliBotCall.json"
+      },
+      "type": "array"
+    },
+    "failures": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "file": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "passed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "file",
+    "name",
+    "passed",
+    "failures",
+    "calls"
+  ],
+  "type": "object"
+}

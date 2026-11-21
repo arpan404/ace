@@ -41,31 +41,46 @@ const BottomPanel = deferredComponent(() =>
   import("./bottom-panel.tsx").then((m) => m.BottomPanel),
 );
 
-/** Hold the panel back until the kinds (icons, titles, views) have loaded too. */
+/** Code that loads after the first paint and says when it has (a `deferredComponent`). */
+interface PanelCode {
+  loaded(): boolean;
+  preload(): Promise<unknown>;
+}
+
+const loadAll = (definition: WorkspaceDefinition, code: PanelCode | undefined) =>
+  Promise.all([definition.load(), code?.preload()]);
+
+/**
+ * Hold the panel back until the kinds (icons, titles, views) have loaded too, and `code` (the
+ * panel's own) when given. Meanwhile it shows a plain placeholder, never a Suspense fallback:
+ * React holds back revealing what a fallback stood in for until 300 ms after the fallback
+ * showed, which a reload with the panel open (the editor's editors) would otherwise wait out.
+ */
 export function WhenKindsReady(props: {
   definition: WorkspaceDefinition;
   children: ReactNode;
   visible?: boolean;
+  code?: PanelCode;
 }) {
   // Kept out of the compiler: `loaded()` reads the definition's load state, which changes
   // without the definition itself changing, so a memoized read would wait forever.
   "use no memo";
-  const definition = props.definition;
-  const ready = definition.loaded();
+  const { definition, code } = props;
+  const ready = definition.loaded() && (code?.loaded() ?? true);
   const [, invalidate] = useState(0);
   const [failed, setFailed] = useState<WorkspaceDefinition>();
   const error = failed === definition;
   useEffect(() => {
     if (ready) return;
     let live = true;
-    definition.load().then(
+    loadAll(definition, code).then(
       () => live && invalidate((value) => value + 1),
       () => live && setFailed(definition),
     );
     return () => {
       live = false;
     };
-  }, [ready, definition]);
+  }, [ready, definition, code]);
   if (ready) return props.children;
   if (!props.visible) return null;
   if (!error)
@@ -94,7 +109,7 @@ export function WhenKindsReady(props: {
         variant="secondary"
         onClick={() => {
           setFailed(undefined);
-          void definition.load().then(
+          void loadAll(definition, code).then(
             () => invalidate((value) => value + 1),
             () => setFailed(definition),
           );
@@ -194,6 +209,18 @@ export function Workspace(props: {
   const place = room.mode === "closed" ? "beside" : room.mode;
   const bottom = place === "bottom";
   const phone = place === "replace";
+  // Once the kinds load, tabs stored in an older shape take today's (per-file tabs into the
+  // Editor); a no-op after the first time.
+  useEffect(() => {
+    let live = true;
+    void definition.load().then(
+      () => live && store.update(scope, (current) => definition.upgrade(current)),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [store, scope, definition]);
   // Warm the kinds and the panel's code once the screen has painted.
   useEffect(
     () => whenIdle(() => void Promise.all([definition.load(), loadPanel()]).catch(() => {})),
@@ -333,7 +360,11 @@ export function Workspace(props: {
             </div>
             {shown && (
               <Suspense fallback={null}>
-                <WhenKindsReady definition={definition} visible={workspace.open}>
+                <WhenKindsReady
+                  definition={definition}
+                  visible={workspace.open}
+                  code={WorkspacePanel}
+                >
                   <WorkspacePanel.Component
                     scope={scope}
                     definition={definition}

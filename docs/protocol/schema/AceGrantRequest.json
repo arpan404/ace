@@ -2,11 +2,29 @@
   "$id": "https://ace.local/protocol/v1/AceGrantRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "action": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "host": {
+      "pattern": "^[A-Z2-7]{52}$",
+      "type": "string"
+    },
+    "key": {
+      "pattern": "^[A-Za-z0-9_-]{87}$",
+      "type": "string"
+    },
     "kind": {
       "enum": [
         "machine",
-        "device"
+        "device",
+        "member"
       ],
+      "type": "string"
+    },
+    "org": {
+      "pattern": "^org_[A-Za-z0-9]{1,64}$",
       "type": "string"
     },
     "purpose": {

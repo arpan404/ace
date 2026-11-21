@@ -19,6 +19,11 @@ export const ProbeReply = z.discriminatedUnion("type", [
     type: z.literal("spawned"),
     id: z.number().int().nonnegative(),
     pid: z.number().int().positive(),
+    /** macOS: the probe's kernel unique id, read before it can exit (`process-lineage.ts`). */
+    unique: z
+      .string()
+      .regex(/^\d{1,20}$/)
+      .optional(),
   }),
   z.object({
     type: z.literal("exit"),

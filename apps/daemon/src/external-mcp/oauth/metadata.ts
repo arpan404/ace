@@ -3,7 +3,7 @@
  * and authorization-server metadata (RFC 8414), the daemon being both. Pure: a base in, JSON out.
  */
 import { OutsideScope } from "@ace/protocol";
-import { resourceOf, type OutsideBase } from "./base.ts";
+import { resourceOf, type OutsideBase, type SpadePath } from "./base.ts";
 
 /** What a client asks for when nothing else tells it: reading, the scope every grant has. */
 export const baselineScopes: readonly OutsideScope[] = ["threads:read"];
@@ -16,6 +16,20 @@ export function protectedResourceMetadata(base: OutsideBase, machine: string) {
     scopes_supported: [...baselineScopes],
     bearer_methods_supported: ["header"],
     resource_name: `ace on ${machine}`,
+  };
+}
+
+/**
+ * The metadata of one of Spade's resources at `base` (ADR 0202 §3, §6): the same authorization
+ * server, and the scope its calls need.
+ */
+export function spadeResourceMetadata(base: OutsideBase, path: SpadePath, machine: string) {
+  return {
+    resource: `${base.url}${path}`,
+    authorization_servers: [base.url],
+    scopes_supported: ["spade-contracts"] satisfies OutsideScope[],
+    bearer_methods_supported: ["header"],
+    resource_name: `Spade's contracts on ${machine}`,
   };
 }
 

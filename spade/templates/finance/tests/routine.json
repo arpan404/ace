@@ -1,0 +1,14 @@
+{
+  "name": "Monthly review runs and reports",
+  "given": {
+    "trigger": "Monthly review"
+  },
+  "model": [
+    {
+      "say": "No new bills or unusual spending this week."
+    }
+  ],
+  "expect": {
+    "reply_contains": ["No"]
+  }
+}

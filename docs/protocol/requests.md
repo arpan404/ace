@@ -439,6 +439,7 @@ Example:
 | code | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
 | installId | no | [InstallId.json](schema/InstallId.json) |  |
+| standingKey | no | string | {"pattern":"^[A-Za-z0-9_-]{87}$"} |
 | type | yes | `"pair.redeem"` |  |
 
 Example:
@@ -479,14 +480,18 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"fleet.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"links"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"link"},"pairingUrl":{"type":"string","minLength":1,"maxLength":4096},"hostId":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["op","pairingUrl","hostId","name"]},{"type":"object","properties":{"op":{"type":"string","const":"unlink"},"hostId":{"$ref":"https://ace.local/protocol/v1/HostId.json"}},"required":["op","hostId"]},{"type":"object","properties":{"scopes":{"default":["read","operate"],"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["read","operate","admin","projects","accounts"]}},"label":{"type":"string","minLength":1,"maxLength":64},"ttlMs":{"anyOf":[{"type":"number","const":300000},{"type":"number","const":3600000},{"type":"number","const":86400000},{"type":"number","const":604800000}]},"deviceTtlMs":{"anyOf":[{"anyOf":[{"type":"number","const":86400000},{"type":"number","const":604800000},{"type":"number","const":2592000000}]},{"type":"null"}]},"op":{"type":"string","const":"pairing"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"pairings"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancelPairing"},"id":{"type":"string","minLength":1,"maxLength":128}},"required":["op","id"]},{"type":"object","properties":{"op":{"type":"string","const":"devices"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"deviceId":{"$ref":"https://ace.local/protocol/v1/DeviceId.json"}},"required":["op","deviceId"]},{"type":"object","properties":{"op":{"type":"string","const":"revokeOthers"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"remoteStatus"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"grants"},"deviceIds":{"maxItems":64,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/DeviceId.json"}}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"grant"},"deviceId":{"$ref":"https://ace.local/protocol/v1/DeviceId.json"},"capability":{"$ref":"https://ace.local/protocol/v1/MachineCapability.json"},"level":{"$ref":"https://ace.local/protocol/v1/MachineGrantLevel.json"}},"required":["op","deviceId","capability","level"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"links"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"link"},"pairingUrl":{"type":"string","minLength":1,"maxLength":4096},"hostId":{"$ref":"https://ace.local/protocol/v1/HostId.json"},"name":{"type":"string","minLength":1,"maxLength":256},"keep":{"type":"boolean","const":true}},"required":["op","pairingUrl","hostId","name"]},{"type":"object","properties":{"op":{"type":"string","const":"unlink"},"hostId":{"$ref":"https://ace.local/protocol/v1/HostId.json"}},"required":["op","hostId"]},{"type":"object","properties":{"scopes":{"default":["read","operate"],"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["read","operate","admin","projects","accounts"]}},"label":{"type":"string","minLength":1,"maxLength":64},"ttlMs":{"anyOf":[{"type":"number","const":300000},{"type":"number","const":3600000},{"type":"number","const":86400000},{"type":"number","const":604800000}]},"deviceTtlMs":{"anyOf":[{"anyOf":[{"type":"number","const":86400000},{"type":"number","const":604800000},{"type":"number","const":2592000000}]},{"type":"null"}]},"op":{"type":"string","const":"pairing"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"pairings"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancelPairing"},"id":{"type":"string","minLength":1,"maxLength":128}},"required":["op","id"]},{"type":"object","properties":{"op":{"type":"string","const":"devices"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"deviceId":{"$ref":"https://ace.local/protocol/v1/DeviceId.json"}},"required":["op","deviceId"]},{"type":"object","properties":{"op":{"type":"string","const":"scope"},"commandId":{"$ref":"https://ace.local/protocol/v1/CommandId.json"},"deviceId":{"$ref":"https://ace.local/protocol/v1/DeviceId.json"},"scope":{"type":"string","enum":["read","operate","admin","projects","accounts"]},"allowed":{"type":"boolean"}},"required":["op","commandId","deviceId","scope","allowed"]},{"type":"object","properties":{"op":{"type":"string","const":"revokeOthers"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"remoteStatus"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"grants"},"deviceIds":{"maxItems":64,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/DeviceId.json"}}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"grant"},"deviceId":{"$ref":"https://ace.local/protocol/v1/DeviceId.json"},"capability":{"$ref":"https://ace.local/protocol/v1/MachineCapability.json"},"level":{"$ref":"https://ace.local/protocol/v1/MachineGrantLevel.json"}},"required":["op","deviceId","capability","level"]}]} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "op": "revokeOthers"
+    "allowed": false,
+    "commandId": "example",
+    "deviceId": "example",
+    "op": "scope",
+    "scope": "accounts"
   },
   "requestId": "example",
   "type": "fleet.request"
@@ -499,7 +504,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"outside.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"endpoints"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":7,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"endpoints"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
 
 Example:
 
@@ -612,14 +617,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"transfers.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]},{"type":"object","properties":{"op":{"type":"string","const":"carryOnHere"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "op": "cancel",
+    "op": "carryOnHere",
     "transferId": "example"
   },
   "requestId": "example",
@@ -1269,7 +1274,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"workspace.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.lifecycle"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeIssueSearch.json"}},"required":["op","workspaceId","query"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.detail"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.timeline"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"page":{"default":1,"type":"integer","minimum":1,"maximum":120}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.actions"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"default":0,"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.inbox.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"host":{"type":"string","maxLength":253,"pattern":"^[a-zA-Z0-9.-]+$"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeInboxQuery.json"}},"required":["op","workspaceId","query"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.file.content"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"sha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"path":{"type":"string","minLength":1,"maxLength":4096},"page":{"default":1,"type":"integer","minimum":1,"maximum":16},"image":{"$ref":"https://ace.local/protocol/v1/ForgeImageType.json"}},"required":["op","workspaceId","sha","path"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.people"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeCompletionQuery.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.references"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeCompletionQuery.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.reviewers"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.merge-state"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.stack"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.stack-memberships"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"numbers":{"maxItems":100,"type":"array","items":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}}},"required":["op","workspaceId","numbers"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.review-state"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.activity"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"page":{"default":1,"type":"integer","minimum":1,"maximum":10000}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgePrSearch.json"}},"required":["op","workspaceId","query"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.open-work"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repository"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repositories"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.group-counts"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"grouping":{"$ref":"https://ace.local/protocol/v1/ForgeGroupCounting.json"}},"required":["op","workspaceId","grouping"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.detail"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.commits"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"before":{"type":"string","minLength":1,"maxLength":256},"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"}},"required":["op","workspaceId","number","headSha"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.files"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"page":{"default":1,"type":"integer","minimum":1,"maximum":4000},"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"baseSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"commit":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"since":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"}},"required":["op","workspaceId","number","headSha","baseSha"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.check"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"checkRunId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"jobId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","checkRunId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.new-context"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repo.pr-options"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repo.milestones"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.compare"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"base":{"$ref":"https://ace.local/protocol/v1/ForgeBranchName.json"},"head":{"$ref":"https://ace.local/protocol/v1/ForgeCompareHead.json"},"page":{"default":1,"type":"integer","minimum":1,"maximum":12},"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"}},"required":["op","workspaceId","base","head"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.media.resolve"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"items":{"minItems":1,"maxItems":32,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ForgeMediaRequest.json"}}},"required":["op","workspaceId","items"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.emoji.images"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspaces.list"},"after":{"type":"string","minLength":1,"maxLength":128},"limit":{"default":50,"type":"integer","minimum":1,"maximum":100}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"scripts.list"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"editors.list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"host.open"},"app":{"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"editor"},"editorId":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","editorId"]},{"type":"object","properties":{"kind":{"type":"string","const":"files"}},"required":["kind"]}]},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"path":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."},"hostPath":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Absolute or ~-relative host path without NUL bytes."},"line":{"type":"integer","exclusiveMinimum":0,"maximum":10000000}},"required":["op","app"]},{"type":"object","properties":{"op":{"type":"string","const":"branches.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspace.origin"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspaces.match"},"url":{"type":"string","minLength":1,"maxLength":4096},"subpath":{"type":"string","maxLength":4096}},"required":["op","url"]},{"type":"object","properties":{"op":{"type":"string","const":"workspace.checkout"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspaces.identitySuggestions"},"remotes":{"maxItems":64,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"subpath":{"type":"string","maxLength":4096},"identityId":{"$ref":"https://ace.local/protocol/v1/ProjectIdentityId.json"},"after":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"limit":{"default":32,"type":"integer","minimum":1,"maximum":64}},"required":["op","remotes","subpath"]},{"type":"object","properties":{"op":{"type":"string","const":"thread.details"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"pr.status"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"git.status"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"git.diff"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"path":{"$ref":"https://ace.local/protocol/v1/ReviewPath.json"},"from":{"$ref":"https://ace.local/protocol/v1/ReviewPath.json"},"offset":{"type":"integer","minimum":0,"maximum":33554432},"expected":{"type":"string","minLength":1,"maxLength":128}},"required":["op","threadId"]},{"$ref":"https://ace.local/protocol/v1/GitConflictsOperation.json"},{"type":"object","properties":{"op":{"type":"string","const":"git.draft.context"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"selection":{"$ref":"https://ace.local/protocol/v1/SourceControlSelection.json"}},"required":["op","threadId","selection"]},{"type":"object","properties":{"op":{"type":"string","const":"git.draft.generate"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"input":{"$ref":"https://ace.local/protocol/v1/SourceControlDraftInput.json"}},"required":["op","threadId","input"]},{"type":"object","properties":{"op":{"type":"string","const":"git.draft.cancel"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"generationId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","threadId","generationId"]},{"type":"object","properties":{"op":{"type":"string","const":"runs.list"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"before":{"default":9007199254740991,"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"limit":{"default":50,"type":"integer","minimum":1,"maximum":100}},"required":["op","threadId"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.lifecycle"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeIssueSearch.json"}},"required":["op","workspaceId","query"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.detail"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.timeline"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"page":{"default":1,"type":"integer","minimum":1,"maximum":120}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.issue.actions"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"default":0,"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.inbox.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"host":{"type":"string","maxLength":253,"pattern":"^[a-zA-Z0-9.-]+$"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeInboxQuery.json"}},"required":["op","workspaceId","query"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.file.content"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"sha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"path":{"type":"string","minLength":1,"maxLength":4096},"page":{"default":1,"type":"integer","minimum":1,"maximum":16},"image":{"$ref":"https://ace.local/protocol/v1/ForgeImageType.json"}},"required":["op","workspaceId","sha","path"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.people"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeCompletionQuery.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.references"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgeCompletionQuery.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.reviewers"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.merge-state"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.stack"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.stack-memberships"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"numbers":{"maxItems":100,"type":"array","items":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}}},"required":["op","workspaceId","numbers"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.review-state"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.activity"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"page":{"default":1,"type":"integer","minimum":1,"maximum":10000}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"query":{"$ref":"https://ace.local/protocol/v1/ForgePrSearch.json"}},"required":["op","workspaceId","query"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.open-work"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repository"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repositories"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.group-counts"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"grouping":{"$ref":"https://ace.local/protocol/v1/ForgeGroupCounting.json"}},"required":["op","workspaceId","grouping"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.detail"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","number"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.commits"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"before":{"type":"string","minLength":1,"maxLength":256},"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"}},"required":["op","workspaceId","number","headSha"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.files"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"page":{"default":1,"type":"integer","minimum":1,"maximum":4000},"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"baseSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"commit":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"since":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"}},"required":["op","workspaceId","number","headSha","baseSha"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.check"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"checkRunId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"jobId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["op","workspaceId","checkRunId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.pr.new-context"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repo.pr-options"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.repo.milestones"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.compare"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"base":{"$ref":"https://ace.local/protocol/v1/ForgeBranchName.json"},"head":{"$ref":"https://ace.local/protocol/v1/ForgeCompareHead.json"},"page":{"default":1,"type":"integer","minimum":1,"maximum":12},"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"}},"required":["op","workspaceId","base","head"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.media.resolve"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"items":{"minItems":1,"maxItems":32,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ForgeMediaRequest.json"}}},"required":["op","workspaceId","items"]},{"type":"object","properties":{"op":{"type":"string","const":"forge.emoji.images"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspaces.list"},"after":{"type":"string","minLength":1,"maxLength":128},"limit":{"default":50,"type":"integer","minimum":1,"maximum":100}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"scripts.list"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"editors.list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"host.open"},"app":{"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"editor"},"editorId":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","editorId"]},{"type":"object","properties":{"kind":{"type":"string","const":"terminal"},"terminalId":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","terminalId"]},{"type":"object","properties":{"kind":{"type":"string","const":"files"}},"required":["kind"]}]},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"path":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."},"hostPath":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Absolute or ~-relative host path without NUL bytes."},"line":{"type":"integer","exclusiveMinimum":0,"maximum":10000000}},"required":["op","app"]},{"type":"object","properties":{"op":{"type":"string","const":"branches.list"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspace.origin"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspaces.match"},"url":{"type":"string","minLength":1,"maxLength":4096},"subpath":{"type":"string","maxLength":4096}},"required":["op","url"]},{"type":"object","properties":{"op":{"type":"string","const":"workspace.checkout"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op","workspaceId"]},{"type":"object","properties":{"op":{"type":"string","const":"workspaces.identitySuggestions"},"remotes":{"maxItems":64,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"subpath":{"type":"string","maxLength":4096},"identityId":{"$ref":"https://ace.local/protocol/v1/ProjectIdentityId.json"},"after":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"limit":{"default":32,"type":"integer","minimum":1,"maximum":64}},"required":["op","remotes","subpath"]},{"type":"object","properties":{"op":{"type":"string","const":"thread.details"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"pr.status"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"git.status"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}},"required":["op","threadId"]},{"type":"object","properties":{"op":{"type":"string","const":"git.diff"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"path":{"$ref":"https://ace.local/protocol/v1/ReviewPath.json"},"from":{"$ref":"https://ace.local/protocol/v1/ReviewPath.json"},"offset":{"type":"integer","minimum":0,"maximum":33554432},"expected":{"type":"string","minLength":1,"maxLength":128}},"required":["op","threadId"]},{"$ref":"https://ace.local/protocol/v1/GitConflictsOperation.json"},{"type":"object","properties":{"op":{"type":"string","const":"git.draft.context"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"selection":{"$ref":"https://ace.local/protocol/v1/SourceControlSelection.json"}},"required":["op","threadId","selection"]},{"type":"object","properties":{"op":{"type":"string","const":"git.draft.generate"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"input":{"$ref":"https://ace.local/protocol/v1/SourceControlDraftInput.json"}},"required":["op","threadId","input"]},{"type":"object","properties":{"op":{"type":"string","const":"git.draft.cancel"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"generationId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","threadId","generationId"]},{"type":"object","properties":{"op":{"type":"string","const":"runs.list"},"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"before":{"default":9007199254740991,"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"limit":{"default":50,"type":"integer","minimum":1,"maximum":100}},"required":["op","threadId"]}]} |
 
 Example:
 
@@ -1485,14 +1490,16 @@ Example:
 | requestId | yes | string | {"minLength":1,"maxLength":80} |
 | operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
 | thread | no | [ThreadId.json](schema/ThreadId.json) |  |
+| personGrant | no | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "id": "zrFhWjc-3n0XUrHFrc4UtU2x2kYXBG7K6FZTL6heBmyyrTvras0aKPYUN",
-    "op": "cancel"
+    "name": "o",
+    "op": "prepareUpdate",
+    "type": "spade-bot"
   },
   "requestId": "example",
   "thread": "example",
@@ -1684,7 +1691,7 @@ Example:
 ```json
 {
   "keys": [
-    "threads.sortBy"
+    "threads.keepSettledFor"
   ],
   "requestId": "example",
   "scope": {},
@@ -2020,9 +2027,12 @@ Example:
   "id": 10,
   "request": {
     "call": {
-      "op": "describe"
+      "args": {},
+      "op": "browser",
+      "tool": "browser_fthysumudfmgdfrxaodus"
     },
     "origin": {
+      "accepts": [],
       "agentId": "example",
       "ceiling": "operate",
       "hostId": "example",
@@ -2048,6 +2058,37 @@ Example:
 {
   "id": 3,
   "type": "machine.cancel"
+}
+```
+
+### machine.transfer
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.transfer"` |  |
+| id | yes | integer | {"minimum":1,"maximum":9007199254740991} |
+| request | yes | [TransferRelayRequest.json](schema/TransferRelayRequest.json) |  |
+| timeoutMs | no | integer | {"minimum":1,"maximum":3600000} |
+
+Example:
+
+```json
+{
+  "id": 1,
+  "request": {
+    "call": {
+      "method": "bundle",
+      "name": "example",
+      "op": "begin",
+      "origin": {
+        "hostId": "example",
+        "hostName": "example"
+      },
+      "transferId": "Rxg"
+    },
+    "kind": "call"
+  },
+  "type": "machine.transfer"
 }
 ```
 
@@ -2089,7 +2130,6 @@ Example:
 
 ```json
 {
-  "arguments": {},
   "commandId": "example",
   "requestId": "example",
   "threadId": "example",
@@ -2110,14 +2150,11 @@ Example:
 ```json
 {
   "operation": {
-    "expectedRevision": null,
-    "name": "dFs80.md",
-    "op": "write",
+    "name": "GIp2E7wtJh.md",
+    "op": "read",
     "scope": {
-      "kind": "project",
-      "workspaceId": "example"
-    },
-    "text": "example"
+      "kind": "global"
+    }
   },
   "requestId": "example",
   "type": "prompts.request"
@@ -2143,14 +2180,13 @@ Example:
 
 ```json
 {
-  "limit": 6,
-  "query": "example",
-  "requestId": "example",
-  "type": "catalog.list",
-  "workspace": {
-    "provider": "cursor",
+  "draft": {
+    "draftId": "example",
+    "provider": "acp",
     "workspaceId": "example"
-  }
+  },
+  "requestId": "example",
+  "type": "catalog.list"
 }
 ```
 
@@ -2183,10 +2219,10 @@ Example:
 ```json
 {
   "operation": {
-    "id": "skl_46d211a943babf5d3dfb372747be8038d2e8a81a",
-    "op": "files",
-    "path": "example",
-    "workspaceId": "example"
+    "expectedHash": "cffb9be76d24afc8b330667595843dae93099a3537a41174feb0a14bd48a278a",
+    "id": "skl_cfe1fcfa3803be5d0adf73e64610706f93d0aebe",
+    "op": "applyUpdate",
+    "reviewId": "example"
   },
   "requestId": "example",
   "type": "skills.request"
@@ -2242,8 +2278,8 @@ Example:
 
 ```json
 {
-  "contentType": "example",
-  "method": "GET",
+  "method": "PATCH",
+  "parts": 8,
   "path": "example",
   "requestId": "example",
   "type": "spade.http"
@@ -2264,7 +2300,7 @@ Example:
 ```json
 {
   "body": "example",
-  "index": 7,
+  "index": 5,
   "requestId": "example",
   "type": "spade.http.part"
 }
@@ -2282,7 +2318,7 @@ Example:
 
 ```json
 {
-  "index": 6,
+  "index": 9,
   "requestId": "example",
   "type": "spade.http.read"
 }
@@ -2386,7 +2422,7 @@ Example:
 
 ```json
 {
-  "bot": "i6epxkSK7myYSOqbLiRS3-XwNtkvX-oT8XEPKJmVK-MSfJX7NkcnZn7o4UsifpF8.mhG:uzfxFo:V0BKTiL:s5Q6HdZ5kujY2cBmS9AnspGV:i",
+  "bot": "wa:m1qo3",
   "requestId": "example",
   "type": "spade.computer.get"
 }
@@ -2408,8 +2444,8 @@ Example:
 
 ```json
 {
-  "bot": "CuQwcNsdapwq-TspVPDpEemATrHRu_MsKeqIxVaQC4Of.7ZHAPOtz9BgL",
-  "driver": "bot",
+  "bot": ":9ci4x_iyuHuJS2eP3qicf8NYrt9HIq2.19",
+  "mode": "cowork",
   "requestId": "example",
   "type": "spade.computer.drive"
 }
@@ -2429,8 +2465,8 @@ Example:
 
 ```json
 {
-  "label": "z",
-  "provider": "claude",
+  "label": "0",
+  "provider": "opencode",
   "requestId": "example",
   "type": "accounts.add"
 }
@@ -2454,9 +2490,8 @@ Example:
 ```json
 {
   "instanceId": "example",
-  "label": "M",
+  "label": "`",
   "requestId": "example",
-  "shortLabel": "AB",
   "type": "accounts.rename"
 }
 ```
@@ -2494,7 +2529,7 @@ Example:
 ```json
 {
   "instanceId": "example",
-  "provider": "cursor",
+  "provider": "opencode",
   "requestId": "example",
   "type": "accounts.setDefault"
 }
@@ -2549,7 +2584,7 @@ Example:
 
 ```json
 {
-  "idempotencyKey": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+  "idempotencyKey": "00000000-0000-0000-0000-000000000000",
   "instanceId": "example",
   "requestId": "example",
   "type": "accounts.consumeReset"
@@ -2623,7 +2658,7 @@ Example:
 {
   "from": "example",
   "nativeSessionId": "example",
-  "provider": "cursor",
+  "provider": "acp",
   "requestId": "example",
   "to": "example",
   "type": "accounts.migrate"
@@ -2642,7 +2677,7 @@ Example:
 
 ```json
 {
-  "provider": "antigravity",
+  "provider": "pi",
   "requestId": "example",
   "type": "provider.accounts.list"
 }
@@ -2665,10 +2700,12 @@ Example:
 
 ```json
 {
-  "method": "login",
-  "provider": "pi",
+  "label": "p",
+  "method": "api_key",
+  "provider": "claude",
   "requestId": "example",
-  "type": "provider.accounts.add"
+  "type": "provider.accounts.add",
+  "upstream": "openai"
 }
 ```
 
@@ -2690,11 +2727,12 @@ Example:
 
 ```json
 {
-  "badgeIcon": null,
-  "instanceId": "jS_kdS3oIw0H41amiMaa_FOnM5PJPlIrxjll_pHJSKkl-dk6hDEJZYc14Pj59kUMP6ZzZ3gW9eJtY7wdf-JQd0LBNtev5w3LAcjwzE9QAcVMd",
-  "label": "k",
-  "provider": "claude",
+  "badgeUsesInitial": true,
+  "instanceId": "xl7njbJkMbF866botYiZUX3sL_pBTmtZMfpR865w7dckF0-b",
+  "label": "z",
+  "provider": "cursor",
   "requestId": "example",
+  "shortLabel": "W",
   "type": "provider.accounts.rename"
 }
 ```
@@ -2712,8 +2750,8 @@ Example:
 
 ```json
 {
-  "instanceId": "xl7njbJkMbF866botYiZUX3sL_pBTmtZMfpR865w7dckF0-b",
-  "provider": "cursor",
+  "instanceId": "TUfe1aFwBaFQ0P9i0oXAE8kcOWBZFiam7sdnc5Y7qMAm_IESBZLNJPrWUXmzX8aUW8PsmDW82BLuweGJaAlg0tUJB6PaPFqDKY1aKoaa",
+  "provider": "antigravity",
   "requestId": "example",
   "type": "provider.accounts.setDefault"
 }
@@ -2735,8 +2773,9 @@ Example:
 ```json
 {
   "confirm": true,
-  "instanceId": "TUfe1aFwBaFQ0P9i0oXAE8kcOWBZFiam7sdnc5Y7qMAm_IESBZLNJPrWUXmzX8aUW8PsmDW82BLuweGJaAlg0tUJB6PaPFqDKY1aKoaa",
-  "provider": "antigravity",
+  "deleteHome": true,
+  "instanceId": "6nch8wlsFRkf2V_k_A5noozhN1cRKjXUjnhSaKjVEfs",
+  "provider": "codex",
   "requestId": "example",
   "type": "provider.accounts.remove"
 }
@@ -2758,14 +2797,9 @@ Example:
 
 ```json
 {
-  "instanceId": "MfloQ",
-  "provider": "claude",
+  "instanceId": "sWl9OvhEtRlZVE6dF2H1_yR3QNndwgEiEA7ogIcu0NRo9bYEWjTRuGFQK5o5MVr24_GlLdBhVXNu7nQe82ZIKY4RqIpQyPPvUII",
+  "provider": "opencode",
   "requestId": "example",
-  "signIn": {
-    "location": "o5o8uf-av",
-    "method": "agent_platform",
-    "project": "j6yh80msfp57jc4v-8l"
-  },
   "type": "provider.accounts.reauth"
 }
 ```
@@ -2783,8 +2817,7 @@ Example:
 
 ```json
 {
-  "instanceId": "EXWl9OvhEtRlZVE6dF2H1_yR3QNndwgEiEA7ogIc",
-  "label": "example",
+  "instanceId": "RspibVRZAxv1oXJ7fPcPOUQ68PR07BhpQSw-TenAicgInEXOLM_jj8f4TPvTPlviYu9",
   "requestId": "example",
   "type": "cursor.auth.start"
 }
@@ -2838,7 +2871,7 @@ Example:
 
 ```json
 {
-  "instanceId": "rqrp6I-BIqaG",
+  "instanceId": "8aKKK3zyUaUi9kJlFBh_w9UH4FFGJpuQJkNRgUPH-DEjfch4XZe-vWwklFj-6TaPekXz2oEBdAQzsGyUawrc7b3_8w0VR7WueXcxXTDWsZX4dRRW",
   "requestId": "example",
   "type": "cursor.auth.status"
 }
@@ -2856,7 +2889,7 @@ Example:
 
 ```json
 {
-  "instanceId": "8aKKK3zyUaUi9kJlFBh_w9UH4FFGJpuQJkNRgUPH-DEjfch4XZe-vWwklFj-6TaPekXz2oEBdAQzsGyUawrc7b3_8w0VR7WueXcxXTDWsZX4dRRW",
+  "instanceId": "lHdHN_VeQez",
   "requestId": "example",
   "type": "cursor.auth.select"
 }
@@ -2874,7 +2907,7 @@ Example:
 
 ```json
 {
-  "instanceId": "lHdHN_VeQez",
+  "instanceId": "IlhhelRRlzN4kk13gCpdQ3wgoIsJ1j_PDn3KGFV-WdwWkx3-axD9wKBHhK2f1vCofEsChjKXluz",
   "requestId": "example",
   "type": "cursor.auth.logout"
 }
@@ -2897,15 +2930,9 @@ Example:
 
 ```json
 {
-  "filters": {
-    "kinds": [
-      "message"
-    ],
-    "provider": "codex",
-    "status": "needs_you",
-    "threadId": "example",
-    "workspaceId": "example"
-  },
+  "cursor": "example",
+  "limit": 1,
+  "mode": "tokens",
   "requestId": "example",
   "text": "example",
   "type": "search.query"
@@ -2957,17 +2984,10 @@ Example:
 ```json
 {
   "operation": {
-    "op": "stream.configure",
-    "sessionId": "MNrium7oDWBi6Xo5O-5cfDcqPYinSp-ArEee",
-    "settings": {
-      "bitrate": 128001,
-      "codec": "h264",
-      "fps": 4,
-      "maxHeight": 65,
-      "maxWidth": 68
-    }
+    "op": "unsubscribe",
+    "sessionId": "ajlCei87pfj08aVvSvh36WfHffsURTJjGZXWi"
   },
-  "requestId": "7MPq63PMwnL42cJX-8QQrMFx9KdTn66v1HdxbKS2uy3im0LDQ19N6STv9uHO",
+  "requestId": "Tfkt3Wt6Aj6oBaDW8YDIE2oi3L-gv15KtthtHMbEHkyqmu0",
   "type": "screen.request"
 }
 ```
@@ -2987,9 +3007,9 @@ Example:
 ```json
 {
   "keyframe": true,
-  "sequence": 6,
-  "sessionId": "Tfkt3Wt6Aj6oBaDW8YDIE2oi3L-gv15KtthtHMbEHkyqmu0",
-  "streamId": "JajlCei87pfj08aVvSvh36WfHffsURTJjGZXWizwS",
+  "sequence": 4,
+  "sessionId": "FKRxZP-oEgpJ_-yV6NrBRg85YM6FDX3ZXf",
+  "streamId": "pcOwgT85yn0eX",
   "type": "screen.ack"
 }
 ```
@@ -3007,9 +3027,10 @@ Example:
 ```json
 {
   "operation": {
-    "op": "tools.install"
+    "deviceId": "ios:fAeDEdAE15E64dffBFB9c577F87b7bD04D25",
+    "op": "logs.stop"
   },
-  "requestId": "FKRxZP-oEgpJ_-yV6NrBRg85YM6FDX3ZXf",
+  "requestId": "sdnAWJOIIcK5K7sT4Dft",
   "type": "devices.request"
 }
 ```
@@ -3028,9 +3049,9 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:159Bdecc1dEdF6AEa27E8ffAeDEdAE15E64d",
-  "sequence": 2,
-  "streamId": "RU6UzGott7wuFtG1_k1gnmuWYbD0x-WtwWS-CvVp2TQC",
+  "deviceId": "ios:cAbAa7De-F53F4AD7F42e9aeeB6AeD6Ae731",
+  "sequence": 9,
+  "streamId": "_wgG6OpZJfpFQ2bnBXYbXTKkljHxy5TaPfY6N2pb6s658T",
   "type": "devices.ack"
 }
 ```
@@ -3048,7 +3069,7 @@ Example:
 ```json
 {
   "options": {
-    "profile": "ephemeral",
+    "background": true,
     "threadId": "example",
     "workspaceId": "example"
   },
@@ -3072,6 +3093,28 @@ Example:
   "requestId": "example",
   "threadId": "example",
   "type": "browser.close"
+}
+```
+
+### browser.engine.move
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.engine.move"` |  |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| engine | yes | ["embedded","headless"] |  |
+
+Example:
+
+```json
+{
+  "engine": "embedded",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.engine.move",
+  "workspaceId": "example"
 }
 ```
 
@@ -3108,8 +3151,7 @@ Example:
 {
   "requestId": "example",
   "threadId": "example",
-  "type": "browser.tabs.open",
-  "url": "example"
+  "type": "browser.tabs.open"
 }
 ```
 
@@ -3207,8 +3249,9 @@ Example:
 
 ```json
 {
-  "accept": false,
+  "accept": true,
   "dialogId": "example",
+  "promptText": "example",
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -3275,11 +3318,7 @@ Example:
 ```json
 {
   "command": {
-    "action": "select",
-    "ref": "example",
-    "values": [
-      "example"
-    ]
+    "action": "page_source"
   },
   "requestId": "example",
   "threadId": "example",
@@ -3304,13 +3343,21 @@ Example:
 
 ```json
 {
+  "media": {
+    "connection": "mc_QsuC6YfNWdcmYxcM7krwm7u1aWcoH3xvY7YwirZ_KlGn"
+  },
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",
+  "video": {
+    "codecs": [
+      "aWDotNe5"
+    ]
+  },
   "viewport": {
-    "devicePixelRatio": 4,
-    "height": 106,
-    "width": 102
+    "devicePixelRatio": 1,
+    "height": 101,
+    "width": 101
   }
 }
 ```
@@ -3332,9 +3379,15 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "devicePixelRatio": 4,
+    "audio": true,
+    "devicePixelRatio": 2,
     "height": 102,
-    "paused": true,
+    "link": {
+      "effectiveType": "example",
+      "expensive": false,
+      "rttMs": 7
+    },
+    "nativeShown": true,
     "width": 100
   }
 }
@@ -3354,6 +3407,7 @@ Example:
 ```json
 {
   "requestId": "example",
+  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.unsubscribe"
 }
@@ -3375,10 +3429,9 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 3,
+  "sequence": 0,
   "threadId": "example",
-  "type": "browser.ack",
-  "video": true
+  "type": "browser.ack"
 }
 ```
 
@@ -3426,15 +3479,15 @@ Example:
   "files": [
     {
       "name": "example",
-      "sha256": "2f38c0ae4bd63358251091b5279ec79339e81ebcf6fc7bb42f846d2ddcdf9eeb"
+      "sha256": "11732ec3a9f935ae6e8914a763cf580159ded82ba5f42f6e0eb62f4bd4025cca"
     }
   ],
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
   "type": "browser.files.drop",
-  "x": 0,
-  "y": 9
+  "x": 5,
+  "y": 3
 }
 ```
 
@@ -3455,11 +3508,11 @@ Example:
 ```json
 {
   "downloadId": "example",
-  "offset": 8,
+  "length": 1,
+  "offset": 2,
   "requestId": "example",
   "threadId": "example",
-  "type": "browser.download.read",
-  "validator": "example"
+  "type": "browser.download.read"
 }
 ```
 
@@ -3522,9 +3575,10 @@ Example:
 ```json
 {
   "input": {
-    "event": "touchEnd",
-    "kind": "touch",
-    "points": []
+    "event": "keyDown",
+    "key": "example",
+    "kind": "key",
+    "modifiers": 3
   },
   "requestId": "example",
   "threadId": "example",
@@ -3612,6 +3666,11 @@ Example:
 
 ```json
 {
+  "options": {
+    "acpAgentId": "example",
+    "offset": 6,
+    "provider": "cursor"
+  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -3629,12 +3688,26 @@ Example:
 
 ```json
 {
-  "filter": {
-    "instance": "example",
-    "provider": "cursor"
-  },
   "requestId": "example",
   "type": "models.refresh"
+}
+```
+
+### models.load
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.load"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| instance | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "instance": "example",
+  "requestId": "example",
+  "type": "models.load"
 }
 ```
 
@@ -3652,11 +3725,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
-    "installationId": "example",
-    "instance": "example",
-    "preferenceOrder": [],
-    "role": "example"
+    "provider": "pi",
+    "role": "example",
+    "selection": "strongest",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -3675,8 +3747,8 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 5,
-  "threadId": null,
+  "inputAgeMs": 0,
+  "threadId": "example",
   "type": "presence.update"
 }
 ```
@@ -3694,12 +3766,9 @@ Example:
 ```json
 {
   "device": {
-    "auth": "CkPq04-vMMy6yBvfRSeSen",
-    "channel": "push",
-    "environment": "sandbox",
-    "p256dh": "QqtRniz7fFO92ScnyHE6E9WuZgKYqb88ErpW71b-bYvTyaN1iULX0fEc_5rKvaRID7EIBtUdhnRg6IoqVTMwz5C",
+    "channel": "apns",
     "platform": "phone",
-    "token": "8dDeDAa62a7ba0d9734FbfE7F7faAED5d70fd3cc1bB7cBaE0eD44CEBf32AD3168ABdF8b55AFBe25A51DF8d9DD33485fe4BfBfDDeB81Af36aBd3438AE26A9Cb24dcf3Ca3f5a4D8C8f9B50FF1Db20fc4FC389eAaACf"
+    "token": "7DebCadF7cff5C959Cadbaf6398AaAa9bbC62a758bB3225ecC523315ddB771AB"
   },
   "type": "notification.register"
 }
@@ -3716,6 +3785,7 @@ Example:
 
 ```json
 {
+  "requestId": "example",
   "type": "notification.unregister"
 }
 ```
@@ -3747,9 +3817,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "agentSays": false
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -3813,14 +3881,13 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"hello"` |  |
-| channel | no | ["files","devices","browser","screen","provider_auth","media","machine"] |  |
+| channel | no | ["files","devices","browser","screen","provider_auth","media","machine","tunnel"] |  |
 | mediaTicket | no | [MediaTicket.json](schema/MediaTicket.json) |  |
 | protocolVersion | yes | `1` |  |
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | token | no | string |  |
 | ticket | no | string |  |
 | grant | no | string | {"minLength":1,"maxLength":2048} |
-| standing | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | installId | no | [InstallId.json](schema/InstallId.json) |  |
 | link | no | [PairingLinkProof.json](schema/PairingLinkProof.json) |  |
@@ -3829,16 +3896,31 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 | framing | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | nextTicket | no | `true` |  |
+| lastClose | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ClientCloseReport.json"},{"x-ace-constraint":"A report that doesn't parse is read as none; the hello still stands.","$ref":"https://ace.local/protocol/v1/ClientCloseReport.json"}]} |
 
 Example:
 
 ```json
 {
+  "channel": "browser",
   "deviceId": "example",
   "flowControl": [],
   "grant": "example",
-  "mediaTicket": "_zJEZrDf9Y-IYPxwVZG-FnBp-DC68g9ftbyth16Chna",
+  "installId": "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e",
+  "lastClose": {
+    "attempt": 5,
+    "cause": "send_failed",
+    "code": 7,
+    "wasReady": true
+  },
+  "link": {
+    "deviceId": "example",
+    "proof": "q4wXzMPG3B0ImimA6zOUThQsthzQt0j8PO1TtiBgt8Z"
+  },
+  "mediaTicket": "xlzZCDjM-J4zUZtBZ7WObf4C71QRQGp3lqFdedQxVz9",
+  "nextTicket": true,
   "protocolVersion": 1,
+  "trims": [],
   "type": "hello"
 }
 ```
@@ -3858,14 +3940,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 9,
+  "afterSeq": 0,
   "scope": {
-    "kind": "threads",
-    "window": {
-      "archived": true,
-      "limit": 8,
-      "project": "example"
-    }
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -3903,22 +3981,8 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "action": "disable",
-      "headSha": "BC3aC8BeDE7a86fAfc2702bEEEf4B5976f2aEa9274C5efc6a6c1F1a75eBA",
-      "link": {
-        "pr": {
-          "number": 9,
-          "repository": {
-            "forge": "forgejo",
-            "host": "yzqjUUfK",
-            "name": "KZybdIl.i",
-            "owner": "XQq3y_9/Z6vpt1"
-          }
-        },
-        "threadId": "example"
-      },
-      "method": "merge",
-      "type": "forge.pr.merge-state.change"
+      "threadId": "example",
+      "type": "thread.title.regenerate"
     }
   },
   "type": "command"
@@ -3939,8 +4003,8 @@ Example:
 
 ```json
 {
-  "limit": 9,
-  "offset": 7,
+  "limit": 4,
+  "offset": 3,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -3983,8 +4047,8 @@ Example:
 
 ```json
 {
-  "before": 2,
-  "limit": 2,
+  "before": 8,
+  "limit": 9,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -4007,9 +4071,10 @@ Example:
 
 ```json
 {
-  "before": 4,
-  "collection": "runs",
-  "limit": 5,
+  "before": 1,
+  "collection": "backgroundTasks",
+  "limit": 10,
+  "maxBytes": 16390,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -4030,7 +4095,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 5,
+    "at": 2,
     "id": "example"
   },
   "requestId": "example",
@@ -4088,5 +4153,95 @@ Example:
   "grant": "example",
   "requestId": "example",
   "type": "account.grant.refresh"
+}
+```
+
+### account.standing
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.standing"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| grant | yes | string | {"minLength":1,"maxLength":2048} |
+| proof | yes | string | {"pattern":"^[A-Za-z0-9_-]{86}$"} |
+
+Example:
+
+```json
+{
+  "grant": "example",
+  "proof": "qQrPCUdpl_uFBEV3ndfWZkXU7C1uByE5vVJhvO53j2EUn-HC6_PRtK0ytRATekE9IHTKpo6dFglIw5puLbyuIg",
+  "requestId": "example",
+  "type": "account.standing"
+}
+```
+
+### device.standing
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"device.standing"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| proof | yes | string | {"pattern":"^[A-Za-z0-9_-]{86}$"} |
+
+Example:
+
+```json
+{
+  "proof": "ohU6mhTHAB94nhZ2Hr7TOmu6PTsftBsU2FZAIJvC5kvUL19e5PEnDoK_5l3j7XSeOweKgW9FB6NzDJl1n2tIn9",
+  "requestId": "example",
+  "type": "device.standing"
+}
+```
+
+### account.owner.release
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.release"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "account.owner.release"
+}
+```
+
+### account.owner.enroll
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "org": "org_DiSyrs8e2JSNekk3LAThyFRYZR0scKt05gQHGFGw",
+  "requestId": "example",
+  "type": "account.owner.enroll"
+}
+```
+
+### account.owner.enroll.confirm
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll.confirm"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| org | yes | [AceOrgId.json](schema/AceOrgId.json) |  |
+
+Example:
+
+```json
+{
+  "org": "org_REwvuzTKyM824mp5NKfpl0imeQ4TUPulcuMLkDvJTOM6JVO9Nui6c",
+  "requestId": "example",
+  "type": "account.owner.enroll.confirm"
 }
 ```

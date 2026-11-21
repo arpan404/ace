@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -13,13 +13,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_connect::{Access, Callback, ConnectError, ConnectRequest, Connectors, Started};
 
-use super::body::Body;
+use super::body::{Body, Digested};
 use super::{AppState, problem};
 
 /// The routes behind the bearer token.
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/connectors", get(list).post(connect))
+        .route("/connectors/fit", get(fit))
         .route("/connectors/{id}", get(one).delete(disconnect))
         .route("/connectors/{id}/connect", post(reconnect))
         .route("/agents/{id}/connectors", get(allowed).put(set_allowed))
@@ -55,6 +56,29 @@ async fn list(State(state): State<AppState>) -> Response {
         Err(response) => return *response,
     };
     Json(json!({ "catalogue": hub.listed().await, "connectors": connectors })).into_response()
+}
+
+/// `?need=`: the catalogue apps that fit a need or a bot's task, best first, by words alone
+/// (ADR 0131, amendment 1). The app suggests them when a bot is made and in its apps.
+#[derive(Deserialize)]
+struct Need {
+    #[serde(default)]
+    need: String,
+}
+
+/// The most apps suggested for one need.
+const MOST_FITTING: usize = 6;
+
+async fn fit(State(state): State<AppState>, Query(need): Query<Need>) -> Response {
+    let hub = match hub(&state) {
+        Ok(hub) => hub,
+        Err(response) => return *response,
+    };
+    let apps: Vec<&str> = spade_connect::fit::fitting(hub.catalogue(), &need.need, MOST_FITTING)
+        .into_iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    Json(json!({ "apps": apps })).into_response()
 }
 
 /// Each connector with `bots`: the ids of the bots allowed to use it, in roster order. Spade,
@@ -168,6 +192,15 @@ async fn start(state: &AppState, request: ConnectRequest) -> Response {
     }
 }
 
+/// Whether `new` lets a bot use an app `old` didn't.
+fn widens(old: &Access, new: &Access) -> bool {
+    match (old, new) {
+        (Access::All, _) => false,
+        (Access::Only(_), Access::All) => true,
+        (Access::Only(old), Access::Only(new)) => new.iter().any(|id| !old.contains(id)),
+    }
+}
+
 fn connect_problem(error: &ConnectError) -> Response {
     let (status, needs) = match error {
         ConnectError::Invalid(_) => (StatusCode::BAD_REQUEST, None),
@@ -242,15 +275,18 @@ async fn allowed(State(state): State<AppState>, Path(id): Path<String>) -> Respo
 async fn set_allowed(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<Allowed>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<Allowed>,
 ) -> Response {
     let hub = match hub(&state) {
         Ok(hub) => hub,
         Err(response) => return *response,
     };
-    if let Err(response) = agent(&state, &id) {
-        return *response;
-    }
+    let is_main = match agent(&state, &id) {
+        Ok(is_main) => is_main,
+        Err(response) => return *response,
+    };
     let access = if body.all {
         Access::All
     } else {
@@ -262,6 +298,18 @@ async fn set_allowed(
                 .collect(),
         )
     };
+    // An app the bot couldn't use before lets it do more: the person's stamp over this change,
+    // or on a shared bot the member whose `configure` stamp let it through (ADR 0171, amendment
+    // 7; ADR 0206 §2.3). Narrowing never needs it.
+    if widens(&hub.access(&id, is_main), &access) {
+        let stamp = headers
+            .get(crate::security::attest::HEADER)
+            .and_then(|value| value.to_str().ok());
+        let value = format!("connectors:{digest}");
+        if member.is_none() && !state.engine.person_says(stamp, &id, &value) {
+            return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+        }
+    }
     match hub.set_access(&id, access.clone()) {
         Ok(()) => Json(access_json(&access)).into_response(),
         Err(error) => connect_problem(&error),

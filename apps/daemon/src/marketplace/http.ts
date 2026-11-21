@@ -138,6 +138,8 @@ export class MarketHttp {
   blocklist = () => this.#signed("/v1/blocklist");
   verified = () => this.#signed("/v1/verified");
   official = () => this.#signed("/v1/official");
+  /** Subscriptions' terms changes between builds, signed (ADR 0205 §4). */
+  notices = () => this.#signed("/v1/notices");
 
   /**
    * A request with any method, its answer read whatever the status, so the caller maps the

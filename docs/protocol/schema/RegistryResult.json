@@ -86,6 +86,13 @@
             },
             "stale": {
               "type": "boolean"
+            },
+            "updates": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/RegistryPendingUpdate.json"
+              },
+              "maxItems": 512,
+              "type": "array"
             }
           },
           "required": [

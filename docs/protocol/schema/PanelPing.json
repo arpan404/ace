@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/PanelPing.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "n": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "const": "ace.panel.ping",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "n"
+  ],
+  "type": "object"
+}

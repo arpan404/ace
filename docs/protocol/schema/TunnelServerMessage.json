@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/TunnelServerMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/TunnelPorts.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TunnelRefused.json"
+    }
+  ]
+}

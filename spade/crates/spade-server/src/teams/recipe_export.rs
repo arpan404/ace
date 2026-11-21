@@ -83,22 +83,8 @@ pub fn export_recipe(
     }
     let mut left_out = Vec::new();
 
-    let stored: Value = serde_json::from_str(&agent.avatar).unwrap_or(Value::Null);
-    let face = match stored["kind"].as_str() {
-        Some("image") => {
-            left_out.push("Its picture isn't part of a recipe; the bot gets a face.".to_owned());
-            None
-        }
-        _ => Some(spade_core::face::shown_avatar(&agent.id, &agent.avatar))
-            .filter(|face| face["kind"] == "character"),
-    };
-
-    let fast = engine.fast_model().ok().flatten();
-    let model = if fast.as_deref() == Some(agent.model.as_str()) {
-        "fast"
-    } else {
-        "capable"
-    };
+    let face = face_of(&agent, &mut left_out);
+    let model = model_of(engine, &agent);
 
     let mut routines = Vec::new();
     for routine in engine
@@ -135,15 +121,7 @@ pub fn export_recipe(
     }
 
     let skills = market_skills(sources.skills, id)?;
-    let plugins: Vec<String> = sources
-        .plugins
-        .map(|p| p.allowed(id))
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|name| entry_name(name))
-        .take(MOST_PLUGINS)
-        .map(|name| format!("spade-plugin/{name}"))
-        .collect();
+    let plugins = plugins_of(sources.plugins, id);
 
     let connectors = sources
         .connectors
@@ -184,8 +162,46 @@ pub fn export_recipe(
     Ok(ExportedRecipe { recipe, left_out })
 }
 
+/// The bot's face as a package carries it: a character, never a picture (named in `left_out`).
+pub(super) fn face_of(agent: &spade_store::Agent, left_out: &mut Vec<String>) -> Option<Value> {
+    let stored: Value = serde_json::from_str(&agent.avatar).unwrap_or(Value::Null);
+    match stored["kind"].as_str() {
+        Some("image") => {
+            left_out.push("Its picture isn't part of a recipe; the bot gets a face.".to_owned());
+            None
+        }
+        _ => Some(spade_core::face::shown_avatar(&agent.id, &agent.avatar))
+            .filter(|face| face["kind"] == "character"),
+    }
+}
+
+/// `fast` when the bot runs on the person's fast model, else `capable`: never a model id.
+pub(super) fn model_of(engine: &Engine, agent: &spade_store::Agent) -> &'static str {
+    let fast = engine.fast_model().ok().flatten();
+    if fast.as_deref() == Some(agent.model.as_str()) {
+        "fast"
+    } else {
+        "capable"
+    }
+}
+
+/// The plugins `agent` is allowed, as `spade-plugin/<name>`.
+pub(super) fn plugins_of(plugins: Option<&Plugins>, agent: &str) -> Vec<String> {
+    plugins
+        .map(|p| p.allowed(agent))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| entry_name(name))
+        .take(MOST_PLUGINS)
+        .map(|name| format!("spade-plugin/{name}"))
+        .collect()
+}
+
 /// The marketplace skills `agent` has loaded, as `spade-skill/<name>`.
-fn market_skills(store: Option<&SkillStore>, agent: &str) -> Result<Vec<String>, PortableError> {
+pub(super) fn market_skills(
+    store: Option<&SkillStore>,
+    agent: &str,
+) -> Result<Vec<String>, PortableError> {
     let Some(store) = store else {
         return Ok(Vec::new());
     };
@@ -207,7 +223,11 @@ fn market_skills(store: Option<&SkillStore>, agent: &str) -> Result<Vec<String>,
 }
 
 /// Each connector `agent` is allowed, as a need: by catalogue id, else by its https address.
-fn connector_needs(hub: &Connectors, agent: &str, left_out: &mut Vec<String>) -> Vec<Value> {
+pub(super) fn connector_needs(
+    hub: &Connectors,
+    agent: &str,
+    left_out: &mut Vec<String>,
+) -> Vec<Value> {
     let ids = match hub.access(agent, false) {
         Access::All => {
             left_out.push(

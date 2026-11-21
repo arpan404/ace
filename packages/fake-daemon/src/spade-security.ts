@@ -1,4 +1,5 @@
 import type { FakeSpadeAnswer } from "./spade.ts";
+import { FakeSpadePermissions, isFakePermissionKey } from "./spade-permissions.ts";
 
 /*
  * The security part of the fake Spade API (ADR 0167, spade/docs/security.md), in the shapes of
@@ -97,12 +98,21 @@ export class FakeSpadeSecurity {
     plugin_network: { mode: "open", allow: [], dropped: [] },
   };
   toolchainsFound: string[] = [];
+  /** Bots' Permissions and the apps they never use (ADR 0171, amendment 7). */
+  readonly permissions = new FakeSpadePermissions();
   /** Each bot's settings, as Spade stores `security:<bot>`. */
   readonly bots = new Map<string, FakeSpadeBotSecurity>();
   /** Each bot's egress lines, oldest first, in Spade's JSON. */
   readonly egress = new Map<string, Json[]>();
   /** Each bot's checkpoints, newest first. */
   readonly checkpoints = new Map<string, FakeSpadeCheckpoint[]>();
+  /**
+   * What undoing from a step would put back, by bot then the step's position, as Spade answers
+   * `GET …/checkpoints/undo?seq=` (`{checkpoint, changes}`); a position not set answers 404.
+   */
+  readonly undoPreviews = new Map<string, Map<number, Json>>();
+  /** Checkpoints restored, by bot, in order. */
+  readonly restored = new Map<string, string[]>();
   /** Bots whose workspace is being restored: another restore answers 409. */
   readonly reserved = new Set<string>();
   /** Bots whose services are running: a restore answers 409. */
@@ -147,6 +157,32 @@ export class FakeSpadeSecurity {
   }
 
   machineRoute(method: string, sub?: string, body: Json = {}): FakeSpadeAnswer {
+    if (method === "PUT" && sub === "permissions") {
+      if (!isFakePermissionKey(body.key) || typeof body.on !== "boolean")
+        return problem(400, "There is no such permission.");
+      if (body.on) {
+        const refused = this.permissions.refusal();
+        if (refused) return refused;
+      }
+      const key = body.key;
+      if (key === "commands") this.botDefaults.commands = body.on ? "outside" : "sandboxed";
+      else if (key === "network")
+        this.botDefaults.network = {
+          ...this.botDefaults.network,
+          mode: body.on ? "open" : "allow_list",
+        };
+      else if (this.permissions.isKept(key)) this.permissions.defaults[key] = body.on;
+      return this.machineView();
+    }
+    if (method === "PUT" && sub === "never-apps") {
+      const apps = Array.isArray(body.apps) ? body.apps.map((app) => String(app).trim()) : [];
+      const next = [...new Set(apps.filter(Boolean))];
+      const drops = this.permissions.neverApps.some((app) => !next.includes(app));
+      const refused = drops ? this.permissions.refusal() : undefined;
+      if (refused) return refused;
+      this.permissions.neverApps = next;
+      return this.machineView();
+    }
     if (method === "PUT" && sub === "autonomy") {
       if (body.autonomy !== "auto_review" && body.autonomy !== "full_access")
         return problem(422, `unknown variant \`${String(body.autonomy)}\``);
@@ -178,6 +214,10 @@ export class FakeSpadeSecurity {
       contained: this.contains(),
       defaults: this.defaults,
       toolchains_found: this.toolchainsFound,
+      permissions: this.permissions.machineView({
+        commands: this.botDefaults.commands === "outside",
+        network: this.botDefaults.network.mode === "open",
+      }),
     });
   }
 
@@ -196,6 +236,12 @@ export class FakeSpadeSecurity {
     const [root, sub, action] = rest;
     if (root === "security") return this.securityRoute(method, agent.id, sub, query, body);
     if (root === "grants") return this.grantsRoute(method, agent.id, sub, body);
+    if (root === "checkpoints" && sub === "undo" && method === "GET") {
+      const preview = this.undoPreviews.get(agent.id)?.get(Number(query.get("seq")));
+      return preview === undefined
+        ? problem(404, "no checkpoint was kept from before this step")
+        : reply(preview);
+    }
     if (root === "checkpoints") return this.checkpointRoute(method, agent, sub, action);
     return problem(404, "Not found.");
   }
@@ -221,6 +267,16 @@ export class FakeSpadeSecurity {
       folders: settings.grants
         .filter((grant) => grant.kind === "folder")
         .map((grant) => ({ grant: grant.id, path: grant.path, write: grant.write === true })),
+      permissions: this.permissions.view(id, {
+        commands: [
+          (settings.commands ?? this.botDefaults.commands) === "outside",
+          settings.commands !== null,
+        ],
+        network: [
+          (settings.network ?? this.botDefaults.network).mode === "open",
+          settings.network !== null,
+        ],
+      }),
     };
   }
 
@@ -249,6 +305,7 @@ export class FakeSpadeSecurity {
     body: Json,
   ): FakeSpadeAnswer {
     if (sub === undefined && method === "GET") return reply(this.view(id));
+    if (sub === "permissions" && method === "PUT") return this.permissionRoute(id, body);
     if (sub === "commands" && method === "PUT") {
       const commands = body.commands;
       if (commands !== null && commands !== "sandboxed" && commands !== "outside")
@@ -289,6 +346,34 @@ export class FakeSpadeSecurity {
       return reply({ entries: (this.egress.get(id) ?? []).slice(-limit) });
     }
     return problem(405, "Not allowed.");
+  }
+
+  /** One of a bot's switches; a raise is refused without the person's standing. */
+  private permissionRoute(id: string, body: Json): FakeSpadeAnswer {
+    const key = body.key;
+    const on = body.on ?? null;
+    if (!isFakePermissionKey(key) || (on !== null && typeof on !== "boolean"))
+      return problem(400, "There is no such permission.");
+    const before = this.view(id).permissions.on[key];
+    const settings = this.bot(id);
+    const undo = { commands: settings.commands, network: settings.network };
+    const own = { ...this.permissions.own(id) };
+    if (key === "commands") settings.commands = on === null ? null : on ? "outside" : "sandboxed";
+    else if (key === "network")
+      settings.network =
+        on === null
+          ? null
+          : { ...(settings.network ?? this.botDefaults.network), mode: on ? "open" : "allow_list" };
+    else if (this.permissions.isKept(key)) this.permissions.set(id, key, on);
+    const refused =
+      !before && this.view(id).permissions.on[key] ? this.permissions.refusal() : undefined;
+    if (refused) {
+      settings.commands = undo.commands;
+      settings.network = undo.network;
+      this.permissions.bots.set(id, own);
+      return refused;
+    }
+    return reply(this.view(id));
   }
 
   private grantsRoute(
@@ -351,6 +436,7 @@ export class FakeSpadeSecurity {
           "the bot's services are running; stop them before restoring a checkpoint",
         );
       if (!list.some((each) => each.id === checkpoint)) return problem(404, "there is no such bot");
+      this.restored.set(agent.id, [...(this.restored.get(agent.id) ?? []), checkpoint]);
       const saved = { id: `cp${++this.next}`, at: this.now(), reason: "before_restore" };
       this.checkpoints.set(agent.id, [saved, ...list]);
       return reply({ restored: checkpoint, saved });

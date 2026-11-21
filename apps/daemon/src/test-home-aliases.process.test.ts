@@ -34,7 +34,8 @@ test("a home alias and its absent descendants cannot enter protected homes", asy
   expect(() => testHomeEnvironment(join(alias, "absent/worker"), protectedHome)).toThrow(
     /ACE_TEST_REAL_HOME guard/,
   );
-  expect(await readdir(protectedHome)).toEqual([".ace", "child"]);
+  // Directory order is the filesystem's; what matters is that nothing else was written.
+  expect((await readdir(protectedHome)).toSorted()).toEqual([".ace", "child"]);
   expect(await readdir(join(protectedHome, "child"))).toEqual([".ace"]);
   expect(await readFile(join(protectedHome, "child/.ace/ace.db"), "utf8")).toBe("legacy bytes");
   expect(await readFile(join(protectedHome, ".ace/host-id"), "utf8")).toBe(

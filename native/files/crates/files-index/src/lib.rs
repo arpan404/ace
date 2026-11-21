@@ -183,8 +183,19 @@ impl PathIndex {
             return Err(Error::Aborted);
         }
         let filters = Filters::new(root, &options.hide, options.include_ignored)?;
-        let mut arena = PathArena::with_capacity(self.len() + replacement.len(), 0);
-        let mut members = Membership::with_capacity(self.len() + replacement.len());
+        // Sized exactly, so the copy holds no slack: it replaces the served index for good, and a
+        // byte arena grown by doubling keeps up to half its capacity unused.
+        let (kept, kept_bytes) = self
+            .live_paths()
+            .filter(|path| !under(path, folder))
+            .fold((0, 0), |(count, bytes), path| {
+                (count + 1, bytes + path.len())
+            });
+        let mut arena = PathArena::with_capacity(
+            kept + replacement.len(),
+            kept_bytes + replacement.arena.text_len(),
+        );
+        let mut members = Membership::with_capacity(kept + replacement.len());
         let mut truncated = false;
         for slot in 0..self.arena.slots() {
             if !self.arena.is_live(slot) {
@@ -228,6 +239,13 @@ impl PathIndex {
             max_files: self.max_files,
             truncated,
         })
+    }
+
+    /// Every indexed path, in slot order.
+    fn live_paths(&self) -> impl Iterator<Item = &str> {
+        (0..self.arena.slots())
+            .filter(|slot| self.arena.is_live(*slot))
+            .filter_map(|slot| self.arena.get(slot))
     }
 
     /// Search for `query`, best first. An empty or all-whitespace query returns the shallowest

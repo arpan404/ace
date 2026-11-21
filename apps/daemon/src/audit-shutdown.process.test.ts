@@ -13,6 +13,7 @@ import { runDaemonProcess } from "./process-daemon.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { retainNotifications } from "./notification-test-support.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
+import { accessRequest } from "./client-access.ts";
 
 async function stalledWorker() {
   const root = await mkdtemp(join(tmpdir(), "ace-shutdown-audit-"));
@@ -276,6 +277,57 @@ test("a daemon that stopped cleanly exits 0 even while a handle keeps the proces
     drained?.run();
     expect(exits).toEqual([0]);
     expect(reports.join("\n")).toContain("TCPSocketWrap");
+  } finally {
+    console.error = report;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// `ace stop` reaches the daemon over POST /v1/stop. Its process must end as it does after a
+// signal, even when a leftover handle (a pipe a provider's escaped grandchild still holds)
+// would keep the runtime alive, or the home's daemon lingers after a "stopped" receipt.
+test("a daemon asked to stop over /v1/stop exits even while a handle keeps the process alive", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-request-exit-"));
+  const signals = new EventEmitter();
+  const timers: { milliseconds: number; run: () => void; cancelled: boolean }[] = [];
+  const exits: number[] = [];
+  const report = console.error;
+  console.error = () => {};
+  try {
+    const daemon = await runDaemonProcess(
+      startDaemon,
+      {
+        engine: noProviderDiscovery,
+        config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "error" }),
+        modelInstances: [],
+        history: { instances: [] },
+      },
+      signals,
+      {
+        after(run, milliseconds) {
+          const timer = { milliseconds, run, cancelled: false };
+          timers.push(timer);
+          return () => {
+            timer.cancelled = true;
+          };
+        },
+        exit(code) {
+          exits.push(code);
+        },
+        openHandles: () => ["PipeWrap"],
+      },
+    );
+    if (!daemon) throw new Error("Daemon did not start");
+    const token = await readFile(daemon.tokenPath, "utf8");
+    const origin = await readFile(join(root, "daemon-endpoint"), "utf8");
+    await accessRequest(origin, "/v1/stop", { method: "POST", token });
+    for (let waited = 0; waited < 5_000 && timers.length < 2; waited += 50)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(timers.map((timer) => timer.milliseconds)).toEqual([7_500, expect.any(Number)]);
+    const [deadline, drained] = timers;
+    expect(deadline).toMatchObject({ milliseconds: 7_500, cancelled: true });
+    drained?.run();
+    expect(exits).toEqual([0]);
   } finally {
     console.error = report;
     await rm(root, { recursive: true, force: true });

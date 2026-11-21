@@ -1,6 +1,29 @@
 import { it, expect } from "vitest";
 import { harness, required, spawn, chunk, end } from "./test-helper.ts";
+import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { nativeAgentKey } from "./keys.ts";
+
+it("streams ACP thought text and closes the reasoning when a tool starts", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  const reasoning = () => Object.values(h.state.items).find((item) => item.type === "reasoning");
+
+  chunk(h, "Check ", "root-session", true);
+  chunk(h, "the config", "root-session", true);
+  expect(reasoning()).toMatchObject({ text: "Check the config", complete: false });
+  expect(h.state.agents["root"]?.agent.status).toMatchObject({
+    state: "working",
+    activity: "thinking",
+  });
+
+  h.update({ sessionUpdate: "tool_call", toolCallId: "read", kind: "read", status: "in_progress" });
+  expect(reasoning()).toMatchObject({ text: "Check the config", complete: true });
+  expect(h.state.agents["root"]?.agent.status).toMatchObject({
+    state: "working",
+    activity: "tool",
+    itemId: required(h.tools()[0]).id,
+  });
+});
 
 it("keeps a late registered child linked to its actual parent without losing its transcript", () => {
   const h = harness();
@@ -279,4 +302,38 @@ it("does not expire a silent live tool but marks silent model work unresponsive"
   thinking.ready();
   thinking.tick(1000000);
   expect(thinking.state.status.state).toBe("unresponsive");
+});
+it("treats updates that arrive before the session/new answer as the root, so the turn settles", () => {
+  const h = harness();
+  h.frame("send", { id: 1, method: "session/new", params: { cwd: "/workspace" } });
+  h.update({ sessionUpdate: "available_commands_update", availableCommands: [] }, "early-session");
+  h.frame("recv", { id: 1, result: { sessionId: "early-session" } });
+  h.frame("send", {
+    id: 2,
+    method: "session/prompt",
+    params: { sessionId: "early-session", prompt: [{ type: "text", text: "Hi" }] },
+  });
+  chunk(h, "Hello", "early-session");
+  end(h);
+  expect(Object.keys(h.state.agents)).toHaveLength(1);
+  expect(h.state.status.state).toBe("done");
+});
+it("binds early updates to the root of a fresh session opened after the agent restarts", () => {
+  const h = harness();
+  h.ready();
+  chunk(h, "first", "root-session");
+  end(h);
+  h.frame("note", { event: "process-exit", detail: { deliberate: false } });
+  h.frame("send", { id: 3, method: "session/new", params: { cwd: "/workspace" } });
+  h.update({ sessionUpdate: "available_commands_update", availableCommands: [] }, "next-session");
+  h.frame("recv", { id: 3, result: { sessionId: "next-session" } });
+  h.frame("send", {
+    id: 4,
+    method: "session/prompt",
+    params: { sessionId: "next-session", prompt: [{ type: "text", text: "Again" }] },
+  });
+  chunk(h, "second", "next-session");
+  h.frame("recv", { id: 4, result: { stopReason: "end_turn" } });
+  expect(Object.keys(h.state.agents)).toHaveLength(1);
+  expect(h.state.status.state).toBe("done");
 });

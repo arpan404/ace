@@ -13,6 +13,7 @@ mod error;
 mod guard;
 mod hidden;
 mod io;
+mod memory;
 mod ops;
 mod quick_open;
 mod requests;

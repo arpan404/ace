@@ -16,6 +16,7 @@ import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as SpadeRouteImport } from "./routes/spade"
+import { Route as TrayRouteImport } from "./routes/tray"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
@@ -34,6 +35,7 @@ import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appear
 import { Route as SettingsBetaRouteImport } from "./routes/settings.beta"
 import { Route as SettingsBrowserRouteImport } from "./routes/settings.browser"
 import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
+import { Route as SettingsEditorRouteImport } from "./routes/settings.editor"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
@@ -49,6 +51,7 @@ import { Route as SkillsNewRouteImport } from "./routes/skills.new"
 import { Route as SpadeIndexRouteImport } from "./routes/spade.index"
 import { Route as SpadeAgentIdRouteImport } from "./routes/spade.$agentId"
 import { Route as SpadeNewRouteImport } from "./routes/spade.new"
+import { Route as SpadeRunningRouteImport } from "./routes/spade.running"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
@@ -105,6 +108,11 @@ const SkillsRoute = SkillsRouteImport.update({
 const SpadeRoute = SpadeRouteImport.update({
   id: "/spade",
   path: "/spade",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrayRoute = TrayRouteImport.update({
+  id: "/tray",
+  path: "/tray",
   getParentRoute: () => rootRouteImport,
 } as any)
 const UsageRoute = UsageRouteImport.update({
@@ -197,6 +205,11 @@ const SettingsComputerUseRoute = SettingsComputerUseRouteImport.update({
   path: "/computer-use",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsEditorRoute = SettingsEditorRouteImport.update({
+  id: "/editor",
+  path: "/editor",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: "/general",
   path: "/general",
@@ -270,6 +283,11 @@ const SpadeAgentIdRoute = SpadeAgentIdRouteImport.update({
 const SpadeNewRoute = SpadeNewRouteImport.update({
   id: "/new",
   path: "/new",
+  getParentRoute: () => SpadeRoute,
+} as any)
+const SpadeRunningRoute = SpadeRunningRouteImport.update({
+  id: "/running",
+  path: "/running",
   getParentRoute: () => SpadeRoute,
 } as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
@@ -402,6 +420,7 @@ export interface FileRoutesByFullPath {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/chats": typeof HomeChatsRoute
@@ -417,6 +436,7 @@ export interface FileRoutesByFullPath {
   "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
+  "/settings/editor": typeof SettingsEditorRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
@@ -430,6 +450,7 @@ export interface FileRoutesByFullPath {
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
   "/spade/new": typeof SpadeNewRoute
+  "/spade/running": typeof SpadeRunningRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
@@ -461,6 +482,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
+  "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/chats": typeof HomeChatsRoute
@@ -476,6 +498,7 @@ export interface FileRoutesByTo {
   "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
+  "/settings/editor": typeof SettingsEditorRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
@@ -489,6 +512,7 @@ export interface FileRoutesByTo {
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
   "/spade/new": typeof SpadeNewRoute
+  "/spade/running": typeof SpadeRunningRoute
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
@@ -527,6 +551,7 @@ export interface FileRoutesById {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
   "/_home/chats": typeof HomeChatsRoute
@@ -542,6 +567,7 @@ export interface FileRoutesById {
   "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
+  "/settings/editor": typeof SettingsEditorRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
@@ -555,6 +581,7 @@ export interface FileRoutesById {
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
   "/spade/new": typeof SpadeNewRoute
+  "/spade/running": typeof SpadeRunningRoute
   "/_home/": typeof HomeIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
@@ -594,6 +621,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/tray"
     | "/usage"
     | "/archived"
     | "/chats"
@@ -609,6 +637,7 @@ export interface FileRouteTypes {
     | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
+    | "/settings/editor"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
@@ -622,6 +651,7 @@ export interface FileRouteTypes {
     | "/skills/new"
     | "/spade/$agentId"
     | "/spade/new"
+    | "/spade/running"
     | "/automations/"
     | "/settings/"
     | "/skills/"
@@ -653,6 +683,7 @@ export interface FileRouteTypes {
   to:
     | "/pair"
     | "/setup"
+    | "/tray"
     | "/usage"
     | "/archived"
     | "/chats"
@@ -668,6 +699,7 @@ export interface FileRouteTypes {
     | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
+    | "/settings/editor"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
@@ -681,6 +713,7 @@ export interface FileRouteTypes {
     | "/skills/new"
     | "/spade/$agentId"
     | "/spade/new"
+    | "/spade/running"
     | "/"
     | "/automations"
     | "/settings"
@@ -718,6 +751,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/tray"
     | "/usage"
     | "/_home/archived"
     | "/_home/chats"
@@ -733,6 +767,7 @@ export interface FileRouteTypes {
     | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
+    | "/settings/editor"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
@@ -746,6 +781,7 @@ export interface FileRouteTypes {
     | "/skills/new"
     | "/spade/$agentId"
     | "/spade/new"
+    | "/spade/running"
     | "/_home/"
     | "/automations/"
     | "/settings/"
@@ -784,6 +820,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   SpadeRoute: typeof SpadeRouteWithChildren
+  TrayRoute: typeof TrayRoute
   UsageRoute: typeof UsageRoute
 }
 
@@ -836,6 +873,13 @@ declare module "@tanstack/react-router" {
       path: "/spade"
       fullPath: "/spade"
       preLoaderRoute: typeof SpadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/tray": {
+      id: "/tray"
+      path: "/tray"
+      fullPath: "/tray"
+      preLoaderRoute: typeof TrayRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/usage": {
@@ -964,6 +1008,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsComputerUseRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/editor": {
+      id: "/settings/editor"
+      path: "/editor"
+      fullPath: "/settings/editor"
+      preLoaderRoute: typeof SettingsEditorRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/general": {
       id: "/settings/general"
       path: "/general"
@@ -1067,6 +1118,13 @@ declare module "@tanstack/react-router" {
       path: "/new"
       fullPath: "/spade/new"
       preLoaderRoute: typeof SpadeNewRouteImport
+      parentRoute: typeof SpadeRoute
+    }
+    "/spade/running": {
+      id: "/spade/running"
+      path: "/running"
+      fullPath: "/spade/running"
+      preLoaderRoute: typeof SpadeRunningRouteImport
       parentRoute: typeof SpadeRoute
     }
     "/_home/t/$threadId": {
@@ -1296,6 +1354,7 @@ interface SettingsRouteChildren {
   SettingsBetaRoute: typeof SettingsBetaRoute
   SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsComputerUseRoute: typeof SettingsComputerUseRoute
+  SettingsEditorRoute: typeof SettingsEditorRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
@@ -1327,6 +1386,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsBetaRoute: SettingsBetaRoute,
   SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsComputerUseRoute: SettingsComputerUseRoute,
+  SettingsEditorRoute: SettingsEditorRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
@@ -1373,6 +1433,7 @@ const SkillsRouteWithChildren =
 interface SpadeRouteChildren {
   SpadeAgentIdRoute: typeof SpadeAgentIdRoute
   SpadeNewRoute: typeof SpadeNewRoute
+  SpadeRunningRoute: typeof SpadeRunningRoute
   SpadeIndexRoute: typeof SpadeIndexRoute
   SpadeGroupsGroupIdRoute: typeof SpadeGroupsGroupIdRoute
   SpadeGroupsNewRoute: typeof SpadeGroupsNewRoute
@@ -1381,6 +1442,7 @@ interface SpadeRouteChildren {
 const SpadeRouteChildren: SpadeRouteChildren = {
   SpadeAgentIdRoute: SpadeAgentIdRoute,
   SpadeNewRoute: SpadeNewRoute,
+  SpadeRunningRoute: SpadeRunningRoute,
   SpadeIndexRoute: SpadeIndexRoute,
   SpadeGroupsGroupIdRoute: SpadeGroupsGroupIdRoute,
   SpadeGroupsNewRoute: SpadeGroupsNewRoute,
@@ -1396,6 +1458,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
   SpadeRoute: SpadeRouteWithChildren,
+  TrayRoute: TrayRoute,
   UsageRoute: UsageRoute,
 }
 export const routeTree = rootRouteImport

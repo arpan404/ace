@@ -18,7 +18,8 @@ export const rolesKey = ["spade", "roles"] as const;
 
 /** A change: a role to a model, or null to follow; and the retry switch, null to follow. */
 export interface SpadeRolesChange {
-  roles?: Partial<Record<SpadeRole, string | null>>;
+  /** A role to one model, its route (models in order, `main` included), or null to follow. */
+  roles?: Partial<Record<SpadeRole | "main", string | string[] | null>>;
   escalate?: boolean | null;
 }
 

@@ -16,6 +16,7 @@ import { browserToolkit } from "@ace/browser";
 import { startDaemonMcp } from "./mcp.ts";
 import { measurementObserver } from "./measurement-mcp.ts";
 import { ScreenManager } from "@ace/screen";
+import { macHostPlatform } from "@ace/screen/testing/support";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { BrowserState, McpScope, type ProviderKind } from "@ace/protocol";
 import { startDaemon, readConfig, createDevThread } from "./index.ts";
@@ -49,6 +50,9 @@ export async function toolFixture(
   await writeFile(image, bytes);
   let next = 0;
   const screen = new ScreenManager({
+    // fake-helper.ts replies as a Mac helper, so it is judged by Mac rules on any host: on
+    // Linux, portal input needs no Accessibility (4716115b8).
+    ...macHostPlatform,
     command: process.execPath,
     args: [
       new URL("../../../packages/screen/src/testing/fake-helper.ts", import.meta.url).pathname,

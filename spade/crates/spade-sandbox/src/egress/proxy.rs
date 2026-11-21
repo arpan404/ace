@@ -294,6 +294,49 @@ impl Proxy {
     }
 }
 
+impl Proxy {
+    /// Ends the access of every live run whose bot `cut` names, as if its ticket dropped: no new
+    /// request is accepted for it, and its open and pending connections end. Its ticket still
+    /// ends nothing more when it drops.
+    pub fn cut(&self, cut: &dyn Fn(&str) -> bool) {
+        self.cut_where(&|bot, _| cut(bot));
+    }
+
+    /// [`Proxy::cut`] for each live run whose bot and policy `cut` names: a run issued a policy
+    /// that has since narrowed ends, and its next run is issued the narrower one.
+    pub fn cut_where(&self, cut: &dyn Fn(&str, &NetworkPolicy) -> bool) {
+        let live: Vec<(String, Arc<Session>)> = self
+            .inner
+            .sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .map(|(token, session)| (token.clone(), session.clone()))
+            .collect();
+        // Asked with no lock held: `cut` may read what decides it.
+        let ended: std::collections::HashSet<String> = live
+            .into_iter()
+            .filter(|(_, session)| cut(&session.bot, &session.policy))
+            .map(|(token, _)| token)
+            .collect();
+        if ended.is_empty() {
+            return;
+        }
+        let mut sessions = self
+            .inner
+            .sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        sessions.retain(|token, session| {
+            let keep = !ended.contains(token);
+            if !keep {
+                session.cancel.send_replace(true);
+            }
+            keep
+        });
+    }
+}
+
 /// One run's access to the proxy, ended when dropped: no new request is accepted for it, and
 /// its open and pending connections end.
 pub struct Ticket {

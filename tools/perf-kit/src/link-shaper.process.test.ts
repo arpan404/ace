@@ -136,7 +136,9 @@ test("parallel connections through one shaper share its bandwidth", async () => 
 });
 
 test("a receiver that stops reading stalls the sender while the proxy holds a bounded amount", async () => {
-  const total = 8 * 1024 * 1024;
+  // More than both loopback legs' kernel buffers hold: Linux grows a sending socket's to
+  // 4 MiB (tcp_wmem), so 8 MiB could all leave the sender with no backpressure at all.
+  const total = 32 * 1024 * 1024;
   const sender = { stalled: false, sent: 0 };
   const server = await listener((socket) => {
     const chunk = Buffer.alloc(64 * 1024, 1);
@@ -165,7 +167,7 @@ test("a receiver that stops reading stalls the sender while the proxy holds a bo
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     // The sender is waiting for room, well short of everything, and the proxy kept to its bound
     // plus the one socket read that crossed it (up to 64 KiB on Node, 512 KiB on Bun). Without
-    // backpressure it would hold most of the 8 MiB.
+    // backpressure it would hold most of the 32 MiB.
     expect(sender.stalled).toBe(true);
     expect(sender.sent).toBeLessThan(total);
     expect(shaper.peakHeldBytes()).toBeLessThanOrEqual(profile.queueBytes + 512 * 1024);

@@ -50,6 +50,7 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/spade/$agentId": ["/spade/spade", "spade"],
   "/spade/groups/$groupId": ["/spade/groups/group-missing", "spade"],
   "/spade/new": ["/spade/new", "spade"],
+  "/spade/running": ["/spade/running", "spade"],
   "/spade/groups/new": ["/spade/groups/new", "spade"],
   "/usage": ["/usage", "usage"],
   "/setup": ["/setup", "setup"],
@@ -61,6 +62,7 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/general": ["/settings/general", "settings"],
   "/settings/profile": ["/settings/profile", "settings"],
   "/settings/appearance": ["/settings/appearance", "settings"],
+  "/settings/editor": ["/settings/editor", "settings"],
   "/settings/agents": ["/settings/agents", "settings"],
   "/settings/prompts": ["/settings/prompts", "settings"],
   "/settings/providers/": ["/settings/providers", "settings"],
@@ -84,6 +86,8 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/remote/$machine_/apps": ["/settings/remote/machine-missing/apps", "settings"],
   "/settings/remote/every-machine": ["/settings/remote/every-machine", "settings"],
   "/settings/remote/map": ["/settings/remote/map", "settings"],
+  // The desktop's menu-bar popover, drawn without the app's frame (no page for a Suit).
+  "/tray": null,
 };
 
 /** Pages finer than their route's: a pull request's Code tab is its review. */

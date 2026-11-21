@@ -144,6 +144,8 @@ export class InteractionLedger {
       interaction?.request.kind === "approval" && execution && resolution?.kind === "approval"
         ? interaction.request.options.find((option) => option.id === resolution.optionId)?.kind
         : undefined;
+    // A neutral choice ("Ask later") neither starts nor refuses the call: the agent settles it.
+    if (decision === "other") return [];
     const declined = decision === "deny" || decision === "deny_always";
     const cancelled = decision === "cancel";
     const allowed = execution && event.state === "resolved" && !declined && !cancelled;

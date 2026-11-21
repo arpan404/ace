@@ -93,3 +93,43 @@ it("a running background task cannot move to a sibling or back to an ancestor", 
   ]);
   expect(h.task("task")).toMatchObject({ status: "running", agentId: h.agent("one")?.id });
 });
+
+const hold = (task: string) => ({
+  type: "background.started",
+  owner: "ace",
+  agent: "root",
+  task,
+  kind: "other",
+  title: "Research is answering",
+  stoppable: true,
+});
+
+it("ace's held work waiting on the person makes the thread need them until it no longer waits or ends", () => {
+  const h = harness();
+  h.see();
+  h.start();
+  h.end();
+  h.send(hold("ace-ask:a"));
+  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  h.send({ type: "background.waiting", task: "ace-ask:a", waiting: true });
+  expect(h.view.status).toEqual({ state: "needs_you", interactions: 1 });
+  h.send({ type: "background.waiting", task: "ace-ask:a", waiting: false });
+  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  h.send({ type: "background.waiting", task: "ace-ask:a", waiting: true });
+  h.send({ type: "background.ended", task: "ace-ask:a", status: "completed" });
+  expect(h.view.status).toEqual({ state: "done" });
+});
+
+it("only ace's own running task can wait on the person", () => {
+  const h = harness();
+  h.see();
+  h.start();
+  h.shell();
+  h.background();
+  h.end();
+  const before = h.view.status;
+  h.send({ type: "background.waiting", task: "task", waiting: true });
+  expect(h.view.status).toEqual(before);
+  h.send({ type: "background.waiting", task: "missing", waiting: true });
+  expect(h.view.status).toEqual(before);
+});

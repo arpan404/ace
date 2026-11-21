@@ -1,5 +1,5 @@
 export { geminiUntrustedGuidance } from "./session-guidance.ts";
-export { keepPattern } from "./advertised-schema.ts";
+export { hostSet, keepPattern } from "./advertised-schema.ts";
 export { aceToolAction } from "./actions.ts";
 export { aceWaitTargets } from "./waits.ts";
 export { maxToolTimeoutMs } from "./timeouts.ts";

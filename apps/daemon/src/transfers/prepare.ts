@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { relative, sep } from "node:path";
 import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
+import { isLocalRemoteKey } from "@ace/git/remote-url";
 import { maxTransferBytes, type TransferMethod } from "@ace/protocol";
 import { archivePrune, ignoredInProject } from "./archive-selection.ts";
 import { ignoredSelection, staysBehind } from "./ignored-files.ts";
@@ -84,7 +85,19 @@ export async function planSource(
   const refs = await git.bundleRefs(input.source);
   if (!refs.head && !input.includeChanges) return archived;
   const remote = await git.transferOrigin(input.source);
-  if (remote) (policy.validateUrl ?? validateCloneUrl)(remote.url);
+  if (remote) {
+    try {
+      (policy.validateUrl ?? validateCloneUrl)(remote.url);
+    } catch (error) {
+      if (!(error instanceof GitError) || error.code !== "invalid_argument") throw error;
+      throw new TransferError(
+        "origin_not_cloneable",
+        isLocalRemoteKey(remote.normalized)
+          ? "This project's origin is a local file path, which another machine can't clone. Push it to a remote, or move it as a folder."
+          : "This project's origin can't be used for a move. Set it to an HTTPS or SSH remote without embedded credentials, then try again.",
+      );
+    }
+  }
   const changes = input.includeChanges
     ? await git.captureChanges(input.source, {
         ref: changesRef(input.transferId),

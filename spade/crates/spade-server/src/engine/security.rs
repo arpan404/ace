@@ -6,7 +6,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_core::autonomy::Mode;
 use spade_core::effect::{self, Effect, Granted};
+use spade_core::event::{Event, Known};
 use spade_core::grant::Action;
+use spade_store::StoreError;
 
 use super::Engine;
 use crate::security::Security;
@@ -16,11 +18,40 @@ use crate::workspace::shell::Launch;
 impl Engine {
     /// Sets the security service, once.
     pub fn set_security(&self, security: Arc<Security>) {
+        // Its writes of a bot's package link (switches, an install's grants) record their steps
+        // as the engine's own do.
+        self.watch_package_links(security.store());
         let _ = self.security.set(security);
     }
 
     pub(crate) fn security(&self) -> Option<&Arc<Security>> {
         self.security.get()
+    }
+
+    /// Where the person's key is when Spade runs without its security service, once.
+    pub fn set_person_key(&self, path: std::path::PathBuf) {
+        let _ = self.person_key.set(path);
+    }
+
+    /// Whether `stamp` is the person's say on `target` becoming `value` (`security::attest`); a
+    /// good stamp is used up. Checked with the security service's key, else the one set with
+    /// [`Engine::set_person_key`]; with neither, nothing is the person's.
+    pub(crate) fn person_says(&self, stamp: Option<&str>, target: &str, value: &str) -> bool {
+        if let Some(security) = self.security() {
+            return security.person_says(stamp, target, value);
+        }
+        let Some(key) = self.person_key.get() else {
+            return false;
+        };
+        let claim =
+            |nonce: &str, now: i64| crate::security::attest::claim_in(&self.store, nonce, now);
+        crate::security::attest::Attestor::new(Some(key.clone())).person(
+            stamp,
+            target,
+            value,
+            self.clock.now_ms(),
+            &claim,
+        )
     }
 
     /// `agent`'s parent bot, grandparent and so on, nearest first: the bots a worker's grants
@@ -49,16 +80,33 @@ impl Engine {
         arguments: &Value,
         declared: Option<Effect>,
     ) -> Granted {
+        self.granting(conversation, tool, arguments, declared)
+            .map_or(Granted::No, |(granted, _)| granted)
+    }
+
+    /// [`Engine::granted`], with the grant that covers the call: for a shared bot's audit
+    /// entry, which names it and who made it (ADR 0206 §4.1).
+    pub(crate) fn granting(
+        &self,
+        conversation: &str,
+        tool: &str,
+        arguments: &Value,
+        declared: Option<Effect>,
+    ) -> Option<(Granted, spade_core::grant::Grant)> {
         let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
-            return Granted::No;
+            return None;
         };
         let grants = security.effective_grants(&agent);
+        let covering = |action: &Action<'_>| {
+            grants
+                .iter()
+                .find(|grant| spade_core::grant::allowed(std::slice::from_ref(*grant), action))
+                .cloned()
+        };
         let text = |name: &str| arguments.get(name).and_then(Value::as_str).unwrap_or("");
         // Pushes and comments are matched by their canonical destination, host included.
         if matches!(tool, effect::GIT_PUSH | effect::PR_COMMENT) {
-            let Ok(repo) = spade_core::outward::canonical_repo(text("repo")) else {
-                return Granted::No;
-            };
+            let repo = spade_core::outward::canonical_repo(text("repo")).ok()?;
             let action = if tool == effect::GIT_PUSH {
                 Action::GitPush {
                     repo: &repo,
@@ -70,22 +118,14 @@ impl Engine {
                     own: false,
                 }
             };
-            return if spade_core::grant::allowed(&grants, &action) {
-                Granted::Typed
-            } else {
-                Granted::No
-            };
+            return covering(&action).map(|grant| (Granted::Typed, grant));
         }
         // A generic grant covers only a tool that declares what it does, and never one that
         // could pay, send, drive a page or app, change access or read secrets.
         if effect::never_granted(declared).is_some() {
-            return Granted::No;
+            return None;
         }
-        if spade_core::grant::allowed(&grants, &Action::Tool { tool, arguments }) {
-            Granted::Tool
-        } else {
-            Granted::No
-        }
+        covering(&Action::Tool { tool, arguments }).map(|grant| (Granted::Tool, grant))
     }
 
     /// Records what the gate authorized for the call `key`, for its launch: where it may start,
@@ -154,6 +194,7 @@ impl Engine {
         conversation: &str,
         tool: &str,
         shell_contained: bool,
+        reply: &str,
     ) -> bool {
         if !shell_contained && !matches!(tool, "workspace_write" | "workspace_edit") {
             return false;
@@ -165,7 +206,7 @@ impl Engine {
         if !security.contains() {
             return false;
         }
-        let work = security.before_unreviewed(&agent);
+        let work = security.before_unreviewed(&agent, Some(reply));
         match tokio::task::spawn_blocking(work).await {
             Ok(Ok(())) => true,
             Ok(Err(why)) => {
@@ -186,5 +227,34 @@ impl Engine {
         while security.reserved(&agent) {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
+    }
+}
+
+impl Engine {
+    /// When the event at `seq` of the bot's own conversation was stored, for undo to find the
+    /// checkpoint taken before a step (`tool_started`); `None` for no such event.
+    pub fn bot_event_time(&self, agent: &str, seq: i64) -> Result<Option<i64>, StoreError> {
+        let Some(agent) = self.store.agent(agent)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .store
+            .events_window(&agent.conversation, seq, 1)?
+            .into_iter()
+            .find(|stored| stored.seq == seq)
+            .map(|stored| stored.at_ms))
+    }
+
+    /// Tells the bot the person undid changes in its workspace, as a note from Spade it reads at
+    /// its next step (`person_activity`, which opens no reply by itself).
+    pub fn note_workspace_restored(&self, agent: &str, text: String) -> Result<(), StoreError> {
+        let Some(agent) = self.store.agent(agent)? else {
+            return Ok(());
+        };
+        let event = Event::Known(Known::PersonActivity {
+            text,
+            data: Vec::new(),
+        });
+        self.record(&agent.conversation, &event).map(|_| ())
     }
 }

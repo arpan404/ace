@@ -265,6 +265,48 @@ Patch, key `files.tree:<key>`:
 `markLabel` are the web's git letter and word. A `loading`, `more` or `error` row names its
 `folder` (`""` for the root), and an error row also carries `error`, the sentence to show.
 
+## 3d. Search in file contents
+
+The Files search field's Contents scope searches a thread's checkout with the daemon's
+`files.request` `search` (a project's own folder can't be searched this way). The query, the
+operation it becomes, the merge of streamed batches, the counts and the preview trim are the
+web's, shared through `@ace/ui-core` (`content-search.ts`, `content-search-preview.ts`).
+
+```json
+{ "type": "files.contents.search", "threadId": "<id>",
+  "query": { "pattern": "todo", "matchCase": false, "wholeWord": false, "regex": false },
+  "now": false }
+{ "type": "files.contents.stop", "threadId": "<id>" }
+```
+
+- `search` stops the thread's running search at once (the client sends `files.abort`), empties
+  its list, and starts the new one 250 ms later, or at once with `now` (Return, Try again). An
+  empty pattern only stops.
+- `stop` when the field is cleared or leaves the Contents scope: the search stops and its
+  results go. Pushing a file keeps them, so coming back shows the same list. The results of the
+  three most recently searched threads are kept; a fourth stops and drops the oldest.
+
+Patch, key `files.contents:<threadId>`, after every change and every streamed batch:
+
+```json
+{
+  "type": "files.contents", "threadId": "<id>",
+  "query": { "pattern": "todo", "matchCase": false, "wholeWord": false, "regex": false },
+  "status": "idle" | "searching" | "done" | "failed",
+  "tally": "12 results in 3 files" | null,
+  "note": "Showing the first 2,000 results. Narrow the search to see the rest." | null,
+  "error": "<sentence>" | null,
+  "files": [
+    { "path": "src/app.ts", "name": "app.ts", "folder": "src", "count": 2,
+      "lines": [{ "key": "src/app.ts:12", "line": 12, "column": 4, "length": 4,
+                  "parts": [{ "text": "…", "match": false }, { "text": "todo", "match": true }] }] }
+  ]
+}
+```
+
+`column` and `length` are the first match's UTF-16 column and length in the line. `parts` is the
+preview trimmed so its first match shows, each match marked.
+
 ## 4. Recent and open files (in place of tabs)
 
 Kept per thread (or project folder) on this device, between launches, in

@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use files_index::PathIndex;
+use files_index::{IndexChange, PathIndex};
 
 const PATHS: usize = 1_000_000;
 const LIMIT: usize = 100;
@@ -17,7 +17,7 @@ const QUERIES: [&str; 3] = ["srvmain", "main.rs", "crates/ace"];
 fn main() {
     let paths = generated(PATHS);
     let started = Instant::now();
-    let index = PathIndex::from_paths(paths);
+    let mut index = PathIndex::from_paths(paths.clone());
     let build = started.elapsed();
 
     let bytes_per_path = index.bytes_used() as f64 / index.len().max(1) as f64;
@@ -40,6 +40,60 @@ fn main() {
             millis(samples[ROUNDS / 2]),
             millis(samples[0]),
             hits.len()
+        );
+    }
+    live_updates(&mut index, &paths);
+}
+
+/// One deleted file, and one renamed file, applied to the full index: what a lone delete or
+/// rename costs the watcher before its batch reaches a client.
+fn live_updates(index: &mut PathIndex, paths: &[String]) {
+    // `apply` reads ignore rules from the root; deletes never touch it, so an empty folder will do.
+    let Ok(dir) = tempfile::tempdir() else {
+        return println!("live updates      skipped: no temp folder");
+    };
+    let Ok(root) = files_safe::Root::open(dir.path()) else {
+        return println!("live updates      skipped: the temp folder is not a root");
+    };
+    let mut deletes: Vec<Duration> = Vec::with_capacity(ROUNDS);
+    let mut renames: Vec<Duration> = Vec::with_capacity(ROUNDS);
+    for round in 0..ROUNDS {
+        let gone = &paths[round * 997];
+        let started = Instant::now();
+        index.apply(
+            &root,
+            &[IndexChange {
+                path: gone.clone(),
+                deleted: true,
+                directory: false,
+            }],
+        );
+        deletes.push(started.elapsed());
+        let old = &paths[round * 991 + 1];
+        let started = Instant::now();
+        index.apply(
+            &root,
+            &[
+                IndexChange {
+                    path: old.clone(),
+                    deleted: true,
+                    directory: false,
+                },
+                IndexChange {
+                    path: format!("{old}.moved"),
+                    deleted: false,
+                    directory: false,
+                },
+            ],
+        );
+        renames.push(started.elapsed());
+    }
+    for (name, mut samples) in [("delete one file", deletes), ("rename one file", renames)] {
+        samples.sort_unstable();
+        println!(
+            "{name:<17} p50 {:.2} ms  best {:.2} ms",
+            millis(samples[ROUNDS / 2]),
+            millis(samples[0])
         );
     }
 }

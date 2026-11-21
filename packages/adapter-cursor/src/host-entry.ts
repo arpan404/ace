@@ -1,22 +1,29 @@
-import { z } from "zod";
-import { createRedactor } from "@ace/redaction";
-import { boundedJson } from "@ace/provider-kit/ipc";
-import { access } from "node:fs/promises";
-import { writeSync } from "node:fs";
-import { homedir, hostname } from "node:os";
-import { join } from "node:path";
-import { discoverCursorSdk } from "./host.ts";
-import { hostWire } from "./host-wire.ts";
-import { explainSandboxRefusal } from "./sandbox-helper.ts";
-import { fatalLine } from "./host-fatal.ts";
-import { safeCursorErrorMessage } from "./sdk-failure.ts";
-import { probeCursorSandbox } from "./sandbox-support.ts";
-import { HostRuntime } from "./host-runtime.ts";
-import { snapshotInHost } from "./history.ts";
-import { validateCursorAuthHome } from "./auth-home.ts";
-import { cursorModelsInHost } from "./model-discovery.ts";
-import { cursorAuthInHost } from "./auth-host.ts";
-import { windowsArm64RipgrepPath } from "./ripgrep-path.ts";
+import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
+import type { HostRuntime as Runtime } from "./host-runtime.ts";
+
+// Stdout is the JSON-RPC channel, and Bun's console writes there directly. Static imports would
+// evaluate ahead of this call, so console goes to stderr first and every module loads after it.
+// hostWire installs the same guard again once it has patched stderr; doing so twice is harmless.
+routeConsoleToStderr();
+const { z } = await import("zod");
+const { createRedactor } = await import("@ace/redaction");
+const { boundedJson } = await import("@ace/provider-kit/ipc");
+const { access } = await import("node:fs/promises");
+const { writeSync } = await import("node:fs");
+const { homedir, hostname } = await import("node:os");
+const { join } = await import("node:path");
+const { discoverCursorSdk } = await import("./host.ts");
+const { hostWire } = await import("./host-wire.ts");
+const { explainSandboxRefusal } = await import("./sandbox-helper.ts");
+const { fatalLine } = await import("./host-fatal.ts");
+const { safeCursorErrorMessage } = await import("./sdk-failure.ts");
+const { probeCursorSandbox } = await import("./sandbox-support.ts");
+const { HostRuntime } = await import("./host-runtime.ts");
+const { snapshotInHost } = await import("./history.ts");
+const { validateCursorAuthHome } = await import("./auth-home.ts");
+const { cursorModelsInHost } = await import("./model-discovery.ts");
+const { cursorAuthInHost } = await import("./auth-host.ts");
+const { windowsArm64RipgrepPath } = await import("./ripgrep-path.ts");
 
 // This entry is launched only by provider-kit with HOME set before any SDK import.
 const admission = await discoverCursorSdk();
@@ -26,7 +33,7 @@ if (process.platform === "win32") {
   const ripgrep = windowsArm64RipgrepPath(process.env, process.platform, process.arch);
   if (ripgrep) process.env.CURSOR_RIPGREP_PATH = ripgrep;
 }
-let runtime: HostRuntime | undefined;
+let runtime: Runtime | undefined;
 let sdk: typeof import("@cursor/sdk") | undefined;
 let ending = false;
 const lifetime = new AbortController();

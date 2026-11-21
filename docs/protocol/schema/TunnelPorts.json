@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/TunnelPorts.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "ports": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "type": {
+      "const": "tunnel.ports",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "ports"
+  ],
+  "type": "object"
+}

@@ -17,9 +17,11 @@ use spade_core::autonomy::Mode;
 use spade_core::grant::{BY_PERSON, Scope};
 use spade_sandbox::egress::NetworkPolicy;
 
-use super::body::Body;
+use super::body::{Body, Digested};
 use super::{AppState, off_thread, problem};
+use crate::security::permissions::Asker;
 use crate::security::{Commands, Network, Security, SecurityError};
+use spade_core::permission::Switch;
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -28,6 +30,8 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/security/autonomy", put(machine_autonomy))
         .route("/security/network", put(machine_network))
         .route("/security/plugin-network", put(machine_plugin_network))
+        .route("/security/permissions", put(machine_permission))
+        .route("/security/never-apps", put(never_apps))
         .route("/agents/{id}/security", get(agent))
         .route("/agents/{id}/security/commands", put(commands))
         .route("/agents/{id}/security/autonomy", put(autonomy))
@@ -39,6 +43,7 @@ pub(super) fn routes() -> Router<AppState> {
             "/agents/{id}/security/plugin-network",
             put(plugin_network).delete(inherit_plugin_network),
         )
+        .route("/agents/{id}/security/permissions", put(permission))
         .route("/agents/{id}/security/toolchains", put(toolchains))
         .route("/agents/{id}/security/egress", get(egress))
         .route("/agents/{id}/grants", get(grants).post(grant))
@@ -47,6 +52,7 @@ pub(super) fn routes() -> Router<AppState> {
             "/agents/{id}/checkpoints",
             get(checkpoints).post(checkpoint),
         )
+        .route("/agents/{id}/checkpoints/undo", get(undo_preview))
         .route(
             "/agents/{id}/checkpoints/{checkpoint}/restore",
             axum::routing::post(restore),
@@ -117,6 +123,7 @@ fn view(security: &Security, id: &str) -> Value {
         "grants": settings.grants,
         "effective_grants": effective,
         "folders": folders,
+        "permissions": security.permissions_view(id),
     })
 }
 
@@ -135,6 +142,10 @@ fn machine_view(security: &Security) -> Value {
             "toolchains_found".to_owned(),
             json!(security.toolchain_candidates()),
         );
+        object.insert(
+            "permissions".to_owned(),
+            security.machine_permissions_view(),
+        );
     }
     view
 }
@@ -146,18 +157,63 @@ struct MachineCommands {
 
 async fn machine_commands(
     State(state): State<AppState>,
-    Body(body): Body<MachineCommands>,
+    headers: HeaderMap,
+    Digested(body, digest): Digested<MachineCommands>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
+    let says = Say::new(
+        &state,
+        &headers,
+        None,
+        "machine",
+        format!("commands:{digest}"),
+    );
     off_thread(
-        move || match security.change_machine(|machine| machine.commands = body.commands) {
+        move || match security.set_machine_commands(body.commands, &|| says.given()) {
             Ok(_) => Json(machine_view(&security)).into_response(),
             Err(error) => failed(error),
         },
     )
     .await
+}
+
+/// Who asks to loosen what a bot may do (ADR 0171, amendment 7), and whether they may: the
+/// person's stamp from ace's daemon over this change (`target`, `value`), or, on a shared bot, the
+/// member whose `configure` stamp let the write through (ADR 0206 §2.3). Read only when the
+/// change loosens, so a stamp is used up only then.
+struct Say {
+    engine: Arc<crate::engine::Engine>,
+    stamp: Option<String>,
+    member: bool,
+    target: String,
+    value: String,
+}
+
+impl Say {
+    fn new(
+        state: &AppState,
+        headers: &HeaderMap,
+        member: Option<&super::org_guard::Stamped>,
+        target: &str,
+        value: String,
+    ) -> Self {
+        Self {
+            engine: state.engine.clone(),
+            stamp: person_stamp(headers),
+            member: member.is_some(),
+            target: target.to_owned(),
+            value,
+        }
+    }
+
+    fn given(&self) -> bool {
+        self.member
+            || self
+                .engine
+                .person_says(self.stamp.as_deref(), &self.target, &self.value)
+    }
 }
 
 #[derive(Deserialize)]
@@ -184,6 +240,103 @@ async fn machine_autonomy(
     .await
 }
 
+/// What a request naming no switch of the Permissions is told.
+fn no_switch() -> Response {
+    problem(StatusCode::BAD_REQUEST, "There is no such permission.")
+}
+
+#[derive(Deserialize)]
+struct MachinePermission {
+    key: String,
+    on: bool,
+}
+
+/// One of the Permissions every bot without its own follows (ADR 0171, amendment 7); turning
+/// one on is the person's alone.
+async fn machine_permission(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Body(body): Body<MachinePermission>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    let Some(which) = Switch::parse(&body.key) else {
+        return no_switch();
+    };
+    let stamp = person_stamp(&headers);
+    off_thread(
+        move || match security.set_machine_permission(which, body.on, stamp.as_deref()) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+struct NeverApps {
+    apps: Vec<String>,
+}
+
+/// The apps no bot uses through Computer use; dropping one is the person's alone.
+async fn never_apps(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Body(body): Body<NeverApps>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    let stamp = person_stamp(&headers);
+    off_thread(
+        move || match security.set_never_apps(&body.apps, stamp.as_deref()) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+struct BotPermission {
+    key: String,
+    /// `null` follows the bot above it, or the machine.
+    on: Option<bool>,
+}
+
+/// One of a bot's Permissions; turning it on is the person's alone, or on a shared bot its
+/// organization's owners' and admins'.
+async fn permission(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Body(body): Body<BotPermission>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    let Some(which) = Switch::parse(&body.key) else {
+        return no_switch();
+    };
+    let stamp = person_stamp(&headers);
+    off_thread(move || {
+        let asker = match &member {
+            Some(axum::Extension(super::org_guard::Stamped(member))) => Asker::Member {
+                admin: member.role().admin(),
+                commands_outside: state.engine.org_policy().commands_outside_allowed(),
+            },
+            None => Asker::Person(stamp.as_deref()),
+        };
+        match security.set_permission(&id, which, body.on, asker) {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        }
+    })
+    .await
+}
+
 /// The daemon's stamp of the person's say on this change (`attest`), when it sent one.
 fn person_stamp(headers: &HeaderMap) -> Option<String> {
     headers
@@ -192,29 +345,49 @@ fn person_stamp(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
-async fn set_machine_network(state: AppState, which: Network, body: NetworkPolicy) -> Response {
+/// The word a stamp over a change to one of the network policies starts with.
+fn network_word(which: Network) -> &'static str {
+    match which {
+        Network::Commands => "network",
+        Network::Plugins => "plugin_network",
+    }
+}
+
+async fn set_machine_network(
+    state: AppState,
+    headers: HeaderMap,
+    which: Network,
+    body: NetworkPolicy,
+    digest: String,
+) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.set_machine_network(which, body) {
-        Ok(_) => Json(machine_view(&security)).into_response(),
-        Err(error) => failed(error),
-    })
+    let value = format!("{}:{digest}", network_word(which));
+    let says = Say::new(&state, &headers, None, "machine", value);
+    off_thread(
+        move || match security.set_machine_network(which, body, &|| says.given()) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
     .await
 }
 
 async fn machine_network(
     State(state): State<AppState>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_machine_network(state, Network::Commands, body).await
+    set_machine_network(state, headers, Network::Commands, body, digest).await
 }
 
 async fn machine_plugin_network(
     State(state): State<AppState>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_machine_network(state, Network::Plugins, body).await
+    set_machine_network(state, headers, Network::Plugins, body, digest).await
 }
 
 #[derive(Deserialize)]
@@ -226,15 +399,27 @@ struct BotCommands {
 async fn commands(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<BotCommands>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<BotCommands>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.set_commands(&id, body.commands) {
-        Ok(_) => Json(view(&security, &id)).into_response(),
-        Err(error) => failed(error),
-    })
+    let member = member.map(|axum::Extension(member)| member);
+    let says = Say::new(
+        &state,
+        &headers,
+        member.as_ref(),
+        &id,
+        format!("commands:{digest}"),
+    );
+    off_thread(
+        move || match security.set_commands(&id, body.commands, &|| says.given()) {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
     .await
 }
 
@@ -249,14 +434,48 @@ async fn autonomy(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
     Body(body): Body<BotAutonomy>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
     let stamp = person_stamp(&headers);
+    off_thread(move || {
+        // A shared bot rises to Full access only as its organization's policy allows, for the
+        // member who configures it (ADR 0206 §2.3); the person's stamp counts for nothing there.
+        let set = match &member {
+            Some(axum::Extension(super::org_guard::Stamped(member))) => {
+                let may = state
+                    .engine
+                    .org_policy()
+                    .may_raise_full_access(member.role(), true);
+                security.set_autonomy_as_member(&id, body.autonomy, may)
+            }
+            None => security.set_autonomy(&id, body.autonomy, stamp.as_deref()),
+        };
+        match set {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        }
+    })
+    .await
+}
+
+async fn inherit(
+    state: AppState,
+    id: String,
+    headers: HeaderMap,
+    member: Option<super::org_guard::Stamped>,
+    which: Network,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    let value = format!("{}:inherit", network_word(which));
+    let says = Say::new(&state, &headers, member.as_ref(), &id, value);
     off_thread(
-        move || match security.set_autonomy(&id, body.autonomy, stamp.as_deref()) {
+        move || match security.inherit_network(&id, which, &|| says.given()) {
             Ok(_) => Json(view(&security, &id)).into_response(),
             Err(error) => failed(error),
         },
@@ -264,23 +483,24 @@ async fn autonomy(
     .await
 }
 
-async fn inherit(state: AppState, id: String, which: Network) -> Response {
-    let Some(security) = security(&state) else {
-        return unavailable();
-    };
-    off_thread(move || match security.inherit_network(&id, which) {
-        Ok(_) => Json(view(&security, &id)).into_response(),
-        Err(error) => failed(error),
-    })
-    .await
+async fn inherit_network(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+) -> Response {
+    let member = member.map(|axum::Extension(member)| member);
+    inherit(state, id, headers, member, Network::Commands).await
 }
 
-async fn inherit_network(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    inherit(state, id, Network::Commands).await
-}
-
-async fn inherit_plugin_network(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    inherit(state, id, Network::Plugins).await
+async fn inherit_plugin_network(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+) -> Response {
+    let member = member.map(|axum::Extension(member)| member);
+    inherit(state, id, headers, member, Network::Plugins).await
 }
 
 async fn agent(State(state): State<AppState>, Path(id): Path<String>) -> Response {
@@ -294,31 +514,71 @@ async fn agent(State(state): State<AppState>, Path(id): Path<String>) -> Respons
     .await
 }
 
-async fn set_network(state: AppState, id: String, which: Network, body: NetworkPolicy) -> Response {
+/// A bot's network change, as its route reads it.
+struct NetworkChange {
+    id: String,
+    headers: HeaderMap,
+    member: Option<super::org_guard::Stamped>,
+    body: NetworkPolicy,
+    digest: String,
+}
+
+async fn set_network(state: AppState, which: Network, change: NetworkChange) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.set_network(&id, which, body) {
-        Ok(_) => Json(view(&security, &id)).into_response(),
-        Err(error) => failed(error),
-    })
+    let NetworkChange {
+        id,
+        headers,
+        member,
+        body,
+        digest,
+    } = change;
+    let value = format!("{}:{digest}", network_word(which));
+    let says = Say::new(&state, &headers, member.as_ref(), &id, value);
+    off_thread(
+        move || match security.set_network(&id, which, body, &|| says.given()) {
+            Ok(_) => Json(view(&security, &id)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
     .await
 }
 
 async fn network(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_network(state, id, Network::Commands, body).await
+    let member = member.map(|axum::Extension(member)| member);
+    let change = NetworkChange {
+        id,
+        headers,
+        member,
+        body,
+        digest,
+    };
+    set_network(state, Network::Commands, change).await
 }
 
 async fn plugin_network(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<NetworkPolicy>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(body, digest): Digested<NetworkPolicy>,
 ) -> Response {
-    set_network(state, id, Network::Plugins, body).await
+    let member = member.map(|axum::Extension(member)| member);
+    let change = NetworkChange {
+        id,
+        headers,
+        member,
+        body,
+        digest,
+    };
+    set_network(state, Network::Plugins, change).await
 }
 
 #[derive(Deserialize)]
@@ -384,12 +644,32 @@ async fn grants(State(state): State<AppState>, Path(id): Path<String>) -> Respon
 async fn grant(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(scope): Body<Scope>,
+    headers: HeaderMap,
+    member: Option<axum::Extension<super::org_guard::Stamped>>,
+    Digested(scope, digest): Digested<Scope>,
 ) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || match security.add_grant(&id, scope, BY_PERSON) {
+    // Every grant lets the bot do more without asking (ADR 0171, amendment 7).
+    let says = Say::new(
+        &state,
+        &headers,
+        member.as_ref().map(|axum::Extension(member)| member),
+        &id,
+        format!("grant:{digest}"),
+    );
+    if !says.given() {
+        return failed(SecurityError::PersonOnly(crate::security::attest::CONFIRM));
+    }
+    // A shared bot's grant names the member who made it (ADR 0206 §4.1).
+    let by = match &member {
+        Some(axum::Extension(super::org_guard::Stamped(member))) => {
+            format!("{}{}", crate::engine::MEMBER_BY, member.account)
+        }
+        None => BY_PERSON.to_owned(),
+    };
+    off_thread(move || match security.add_grant(&id, scope, &by) {
         Ok(grant) => (StatusCode::CREATED, Json(json!({"grant": grant}))).into_response(),
         Err(error) => failed(error),
     })
@@ -439,6 +719,50 @@ async fn checkpoint(State(state): State<AppState>, Path(id): Path<String>) -> Re
     .await
 }
 
+#[derive(Deserialize)]
+struct UndoQuery {
+    /// The position in the bot's conversation of the step (its `tool_started`) whose changes,
+    /// and everything after them, would be undone.
+    seq: i64,
+}
+
+/// What undoing a step (or a turn, from its first file-changing step) would revert: the
+/// checkpoint taken just before it and the files that would go back, be removed or come back.
+async fn undo_preview(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<UndoQuery>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || {
+        let started = match state.engine.bot_event_time(&id, query.seq) {
+            Ok(Some(at)) => at,
+            Ok(None) => return problem(StatusCode::NOT_FOUND, "there is no such step"),
+            Err(error) => return failed(SecurityError::Store(error.to_string())),
+        };
+        match security.undo_preview(&id, started) {
+            Ok(Some((checkpoint, changes))) => {
+                Json(json!({"checkpoint": checkpoint, "changes": changes})).into_response()
+            }
+            Ok(None) => problem(
+                StatusCode::NOT_FOUND,
+                "no checkpoint was kept from before this step",
+            ),
+            Err(error) => failed(error),
+        }
+    })
+    .await
+}
+
+/// `2026-11-19 14:03 UTC`, for the bot's note after an undo.
+fn utc_minute(at_ms: i64) -> String {
+    jiff::Timestamp::from_millisecond(at_ms)
+        .map(|at| at.strftime("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|_| "an earlier checkpoint".to_owned())
+}
+
 async fn restore(
     State(state): State<AppState>,
     Path((id, checkpoint)): Path<(String, String)>,
@@ -469,8 +793,25 @@ async fn restore(
                 "the bot's services are running; stop them before restoring a checkpoint",
             );
         }
+        // What goes back, read before it does, for the bot's note.
+        let reverted = security.changes_since(&id, &checkpoint);
+        let at = security
+            .checkpoints(&id)
+            .ok()
+            .and_then(|all| all.into_iter().find(|c| c.id == checkpoint))
+            .map(|c| c.at);
         match security.restore_checkpoint(&id, &checkpoint) {
-            Ok(saved) => Json(json!({"restored": checkpoint, "saved": saved})).into_response(),
+            Ok(saved) => {
+                if let (Ok(changes), Some(at)) = (&reverted, at)
+                    && !changes.is_empty()
+                {
+                    let note = crate::security::undo::note_for_bot(&utc_minute(at), changes);
+                    if let Err(error) = state.engine.note_workspace_restored(&id, note) {
+                        tracing::warn!(%error, "the bot couldn't be told of the restore");
+                    }
+                }
+                Json(json!({"restored": checkpoint, "saved": saved})).into_response()
+            }
             Err(error) => failed(error),
         }
     })

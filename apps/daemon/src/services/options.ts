@@ -60,14 +60,26 @@ export type DaemonOptions = {
   utility?: import("./utility.ts").UtilityDaemonOptions;
   /** The host owns daemon cancellation, including initialization before endpoint discovery. */
   signal?: AbortSignal;
+  /**
+   * Called once an authenticated stop request (POST /v1/stop, `ace stop`) has begun the
+   * shutdown. The process host ends the process from here, as it does after a signal.
+   */
+  onStopRequest?: () => void;
   files?: Pick<import("@ace/files").FilesOptions, "workspaceRuntime" | "maxReservedBytes">;
   /** Startup deadlines and scheduler are injected at the timer boundary. */
   startup?: Partial<import("./startup.ts").StartupRuntime>;
+  /**
+   * How loaded the machine is as the daemon starts; on a heavily loaded one each service's
+   * startup deadline is longer (ADR 0196). Defaults to the real machine's.
+   */
+  pressure?: () => Promise<import("@ace/diagnostics/pressure").SystemPressure>;
   /**
    * Stops every child process group the daemon still owns, SIGTERM then SIGKILL after
    * `graceMs`, once a shutdown's polite window has passed. Tests substitute it.
    */
   stopProcesses?: (graceMs: number) => Promise<void>;
+  /** How long after startup the daemon stops what an earlier run of its home left running. */
+  earlierSweepMs?: number;
   agentControl?: {
     policy?: Partial<import("@ace/protocol").DelegationPolicy>;
     /** Inject the host Git boundary; never exposed as MCP input. */

@@ -57,6 +57,17 @@ export interface StoredInstall extends MarketInstalled {
   signed?: boolean | undefined;
   publisher?: string | undefined;
   /**
+   * For a linked bot: the market's signed manifest of the installed version, and of the one it
+   * had before, so an update or a rollback proves its identity to Spade with no network.
+   */
+  signedManifest?: unknown;
+  previousSignedManifest?: unknown;
+  /**
+   * A linked bot's update Spade holds until the bot's turn ends (ADR 0200 §6.1): the record this
+   * one becomes once Spade runs that version. Until then this record is the version running.
+   */
+  waiting?: StoredInstall | undefined;
+  /**
    * For a Spade skill: the hash the person turned on for their bots. `null` when no one with the
    * person's standing has, so no bot sees it; absent on records from before it, which a person
    * installed and which stay on.
@@ -89,6 +100,34 @@ export interface StoredListing {
 
 const verifiedLimit = 2048;
 
+/** A bot install's row: the bot it made. A record from before bots had one keeps its name. */
+const botKey = (install: StoredInstall) => install.target ?? `name:${install.name}`;
+
+/**
+ * Bot installs were once one row per package name; each is now its bot's own row. The rows a
+ * home has are a person's bot installs, a handful, moved once in one transaction.
+ */
+function moveBotInstalls(db: DatabaseSync): void {
+  const rows = db.prepare("SELECT data FROM installs WHERE type = 'spade-bot'").all();
+  if (rows.length === 0) return;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const row of rows) {
+      const install = storedMarketInstall(String(row["data"]));
+      db.prepare("INSERT OR IGNORE INTO bot_installs (bot, name, data) VALUES (?, ?, ?)").run(
+        botKey(install),
+        install.name,
+        JSON.stringify(install),
+      );
+    }
+    db.exec("DELETE FROM installs WHERE type = 'spade-bot'");
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 /** The verified-publisher cache's key for one entry version. */
 export const verifiedKey = (entry: { type: string; name: string; version: string }) =>
   `${entry.type}/${entry.name}@${entry.version}`;
@@ -112,7 +151,9 @@ export class MarketStore {
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS journal (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS verified_publishers (key TEXT PRIMARY KEY, publisher TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS removed_installs (type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (type, name));`);
+      CREATE TABLE IF NOT EXISTS removed_installs (type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (type, name));
+      CREATE TABLE IF NOT EXISTS bot_installs (bot TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL);`);
+    moveBotInstalls(db);
     return new MarketStore(root, db);
   }
 
@@ -162,26 +203,63 @@ export class MarketStore {
   }
 
   installs(): StoredInstall[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT data, type, name, '' AS bot FROM installs
+         UNION ALL SELECT data, 'spade-bot' AS type, name, bot FROM bot_installs
+         ORDER BY type, name, bot`,
+      )
+      .all();
+    return rows.map((row) => storedMarketInstall(String(row["data"])));
+  }
+
+  /**
+   * The install of `type` and `name`. A bot package can make several bots, one install each
+   * (ADR 0200 §3.9): `bot` names which; without it, the one accepted last.
+   */
+  install(type: string, name: string, bot?: string): StoredInstall | undefined {
+    if (type !== "spade-bot") {
+      const row = this.#db
+        .prepare("SELECT data FROM installs WHERE type = ? AND name = ?")
+        .get(type, name);
+      return row ? storedMarketInstall(String(row["data"])) : undefined;
+    }
+    if (bot !== undefined) {
+      const row = this.#db
+        .prepare("SELECT data FROM bot_installs WHERE bot = ? AND name = ?")
+        .get(bot, name);
+      return row ? storedMarketInstall(String(row["data"])) : undefined;
+    }
+    return this.botInstalls(name).toSorted((a, b) => b.acceptedAt - a.acceptedAt)[0];
+  }
+
+  /** Every bot made here from the bot package `name`, one install each. */
+  botInstalls(name: string): StoredInstall[] {
     return this.#db
-      .prepare("SELECT data FROM installs ORDER BY type, name")
-      .all()
+      .prepare("SELECT data FROM bot_installs WHERE name = ? ORDER BY bot")
+      .all(name)
       .map((row) => storedMarketInstall(String(row["data"])));
   }
 
-  install(type: string, name: string): StoredInstall | undefined {
-    const row = this.#db
-      .prepare("SELECT data FROM installs WHERE type = ? AND name = ?")
-      .get(type, name);
-    return row ? storedMarketInstall(String(row["data"])) : undefined;
-  }
-
   saveInstall(install: StoredInstall): void {
+    if (install.type === "spade-bot") {
+      this.#db
+        .prepare("INSERT OR REPLACE INTO bot_installs (bot, name, data) VALUES (?, ?, ?)")
+        .run(botKey(install), install.name, JSON.stringify(install));
+      return;
+    }
     this.#db
       .prepare("INSERT OR REPLACE INTO installs (type, name, data) VALUES (?, ?, ?)")
       .run(install.type, install.name, JSON.stringify(install));
   }
 
-  removeInstall(type: string, name: string): void {
+  /** Drops the install of `type` and `name`; for a bot package, the one of `bot`. */
+  removeInstall(type: string, name: string, bot?: string): void {
+    if (type === "spade-bot") {
+      if (bot === undefined) this.#db.prepare("DELETE FROM bot_installs WHERE name = ?").run(name);
+      else this.#db.prepare("DELETE FROM bot_installs WHERE bot = ? AND name = ?").run(bot, name);
+      return;
+    }
     this.#db.prepare("DELETE FROM installs WHERE type = ? AND name = ?").run(type, name);
   }
 
@@ -199,7 +277,11 @@ export class MarketStore {
     this.#db
       .prepare("INSERT OR REPLACE INTO removed_installs (type, name, data) VALUES (?, ?, ?)")
       .run(install.type, install.name, JSON.stringify(kept));
-    this.removeInstall(install.type, install.name);
+    this.removeInstall(
+      install.type,
+      install.name,
+      install.type === "spade-bot" ? botKey(install) : undefined,
+    );
   }
 
   /**
@@ -308,6 +390,10 @@ export class MarketStore {
     const keep = new Set(
       [
         ...this.installs().map((install) => install.hash),
+        // A linked bot's earlier version stays, so a rollback needs no network (ADR 0200), and
+        // so does an update waiting for its bot's turn to end.
+        ...this.installs().flatMap((install) => (install.previous ? [install.previous.hash] : [])),
+        ...this.installs().flatMap((install) => (install.waiting ? [install.waiting.hash] : [])),
         ...this.journals().flatMap(journalHashes),
       ].map((hash) => `${hash}.tar`),
     );

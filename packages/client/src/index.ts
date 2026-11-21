@@ -83,7 +83,7 @@ export type { LockedUseOwner } from "./locked-use-subscription.ts";
 export type { RetryTimers, SettingsOwner } from "./settings-subscription.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
-export { keepBrowserEngine, moveBrowserEngine, type BrowserEngine } from "./browser-engine.ts";
+export { moveBrowserEngine, type BrowserEngine } from "./browser-engine.ts";
 export { deviceDownloadMax, fetchBrowserDownload } from "./browser-download.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {
@@ -114,9 +114,11 @@ export {
   readFileRange,
   type FileRangeInput,
   type FileReadInput,
+  type FileReadOptions,
   type FileReadOutcome,
   type FileReader,
 } from "./file-read.ts";
+export { type ReadPriority } from "./file-read-budget.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 
 export {

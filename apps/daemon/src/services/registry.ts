@@ -24,6 +24,7 @@ import { createAutomationsSession } from "./automations.ts";
 import { createWorkspaceActionsSession } from "./workspace-actions.ts";
 import { createTerminalSession } from "./terminal.ts";
 import { createThreadOrganizationSession } from "./thread-organization.ts";
+import { createThreadAddressSession } from "./thread-address.ts";
 import { createRecoverySession } from "./recovery.ts";
 import { createDevicesSession } from "./devices.ts";
 import { createThreadTransitionsSession } from "./thread-transitions.ts";
@@ -31,6 +32,7 @@ import { createPiSocketSession } from "./pi.ts";
 
 import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
+import { createTunnelSession } from "./machine-tunnel.ts";
 import { createLockedUseSession } from "./locked-use.ts";
 import { Simulators, placeholderLockedUseInstaller, type LockedUseInstaller } from "@ace/screen";
 import { LockedUseState } from "../locked-use-state.ts";
@@ -85,6 +87,7 @@ export const socketServiceFactories = [
   createIconsSession,
   createMediaConnectSession,
   createThreadOrganizationSession,
+  createThreadAddressSession,
   createWorkspaceActionsSession,
   createProjectsSession,
   createTransfersSession,
@@ -102,8 +105,10 @@ export const socketServiceFactories = [
   createSpadeSession,
   createSpadeRemoteSession,
   createSpadeComputerSession,
-  // Before files: the files channel claims every binary message on a socket, and the desktop's
-  // backend socket sends its video encoder's (ADR 0088).
+  // Before files: the files channel claims every binary message on a socket, a tunnel socket's
+  // are its stream frames (ADR 0194), and the desktop's backend socket sends its video
+  // encoder's (ADR 0088).
+  createTunnelSession,
   createBrowserSession,
   createFilesSession,
   createNotificationsSession,

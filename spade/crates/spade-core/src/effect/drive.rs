@@ -1,10 +1,11 @@
-//! Where a driving step acts, resolved right before it, and whether that place is the person's
-//! alone (ADR 0171, amendment 3). A `browser_*`, `screen_*` or `sim_*` call ace doesn't mark
-//! read-only goes to the reviewer; to the person in mail, chat, money, passwords, settings,
-//! sign-in pages, social sites or a browser driven through the screen, and wherever Spade can't
-//! tell where it acts. The place is never inferred from earlier answers: a page is the tab the
-//! step runs in as ace lists it now, an app is every app ace could open for the name given.
-//! The engine asks ace ([`lookup`]) and this module reads the answer ([`read`]). Pure.
+//! Where a driving step acts, resolved right before it (ADR 0171, amendments 3 and 7). A
+//! `browser_*`, `screen_*` or `sim_*` call ace doesn't mark read-only runs under its family's
+//! switch in the bot's Permissions, held to the page or app found here; under Computer use, the
+//! names found here are checked against the person's never-use list. The place is never
+//! inferred from earlier answers: a page is the tab the step runs in as ace lists it now, an app
+//! is every app ace could open for the name given. The engine asks ace ([`lookup`]) and this
+//! module reads the answer ([`read`]). Which places were once the person's alone
+//! ([`sensitive`]) still decides what a drive grant may name. Pure.
 
 pub mod address;
 pub mod sensitive;
@@ -110,14 +111,26 @@ impl Place {
 pub struct Step {
     pub place: Result<Place, &'static str>,
     pub sensitive: Option<&'static str>,
+    /// Every name and id of an app it may act in: the name the call gave and each app ace could
+    /// open for it, read against the never-use list. Empty for a page or a device.
+    pub names: Vec<String>,
 }
 
 impl Step {
     fn at(place: Place) -> Self {
         let sensitive = sensitive(&place);
+        let names = match &place {
+            Place::App { id, name } => [name, id]
+                .into_iter()
+                .filter(|each| !each.is_empty())
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        };
         Self {
             place: Ok(place),
             sensitive,
+            names,
         }
     }
 
@@ -125,6 +138,7 @@ impl Step {
         Self {
             place: Err(why),
             sensitive: None,
+            names: Vec::new(),
         }
     }
 }
@@ -152,8 +166,35 @@ pub const UNBOUND: &str = "this version of ace can't hold the step to it while i
 
 /// Why a step held to its place doesn't run: ace can't hold it there (an ace from before
 /// `expect`, or arguments that aren't an object).
-pub const CANT_HOLD: &str = "Not run: ace can't hold this step to the page or app Spade checked, \
-     so only the person may let it run. Ask them, or update ace.";
+pub const CANT_HOLD: &str = "Not run: ace can't hold this step to the page or app Spade checked. \
+     Updating ace lets it run.";
+
+/// Why a step under a switch that must be held to its place isn't run: this ace's tool can't be
+/// told where (`expect`).
+pub const UNHELD: &str = "This version of ace can't hold the step to the page or app it acts in. \
+     Updating ace lets it run.";
+
+/// Why a driving tool Spade doesn't know where it acts isn't run.
+pub const UNPLACED_REFUSED: &str =
+    "Spade can't tell which page or app this step acts in. Name it, then act.";
+
+/// Why a step under a switch with no place Spade could hold it to isn't run: the line that says
+/// why, as one the bot can act on ("It acts in a page that is still loading. Look again, then
+/// act.").
+pub fn unplaced(why: &str) -> String {
+    let plain = why
+        .trim()
+        .trim_end_matches(", so you decide.")
+        .trim_end_matches('.');
+    format!("{plain}. Look again, then act.")
+}
+
+/// Whether a step under Browser or Simulators may run with no place: its operation sends no
+/// input to a tab and picks none to change ([`table`]), so there is nothing to hold it to. A
+/// screen step never may: the never-use list needs the app it acts in.
+pub fn placeless(tool: &str, arguments: &Value) -> bool {
+    !tool.starts_with("screen_") && table::operation(tool, arguments).is_some_and(|row| !row.holds)
+}
 
 /// The arguments a step runs with at `place`: `expect` added where ace's tool takes it, so ace
 /// refuses the step if the place moves on while it waits. A step only the reviewer let run
@@ -391,7 +432,19 @@ fn app(given: &str, answer: Option<&str>) -> Step {
         }),
         None => Err(NO_APP),
     };
-    Step { place, sensitive }
+    let names = std::iter::once(given.trim().to_owned())
+        .chain(
+            matching
+                .iter()
+                .flat_map(|(name, id)| [name.clone(), id.clone()]),
+        )
+        .filter(|each| !each.is_empty())
+        .collect();
+    Step {
+        place,
+        sensitive,
+        names,
+    }
 }
 
 /// `Name (id)` or `Name (id), frontmost`.

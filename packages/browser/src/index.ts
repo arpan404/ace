@@ -2,6 +2,12 @@ export { BrowserService, type BrowserServiceOptions } from "./service.ts";
 export type { BrowserMedia } from "./media-video.ts";
 export { detectChromium, installChromium } from "./discovery.ts";
 export { connectBrowser } from "./bridge.ts";
+export type {
+  BrowserEngine,
+  EngineMove,
+  EnginePreference,
+  EnginePreferencePort,
+} from "./engine-move.ts";
 export type { ViewerSink } from "./viewer-sink.ts";
 export { screencastSettings } from "./capture-policy.ts";
 export { SessionLogs } from "./logs.ts";
@@ -48,7 +54,7 @@ export type {
   EncodedChunk,
   VideoHost,
 } from "./backend.ts";
-export type { BrowserTabRecord, BrowserTabStore } from "./tab-store.ts";
+export type { BrowserTabRecord, BrowserTabStore, EngineMoveJournal } from "./tab-store.ts";
 export { agentTabLimit, daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 export { TabBudget } from "./tab-budget.ts";
 export type { LifecycleSchedule } from "./session-lifecycle.ts";

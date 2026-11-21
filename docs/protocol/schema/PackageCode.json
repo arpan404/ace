@@ -1,0 +1,50 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageCode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "file": {
+      "pattern": "^code\\/[a-z][a-z0-9]{0,23}\\.wasm$",
+      "type": "string"
+    },
+    "imports": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PackageCodeImport.json"
+      },
+      "maxItems": 7,
+      "type": "array"
+    },
+    "memory_mb": {
+      "maximum": 512,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9]{0,23}$",
+      "type": "string"
+    },
+    "timeout_s": {
+      "maximum": 300,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "why": {
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    },
+    "world": {
+      "const": "spade:package/bot-tools@1.0.0",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "file",
+    "world",
+    "imports",
+    "why"
+  ],
+  "type": "object"
+}

@@ -14,10 +14,13 @@ use std::time::Duration;
 use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::model::{
     CancelledNotificationParam, ClientCapabilities, ClientConfig, ClientRequest, CustomRequest,
-    Implementation, PaginatedRequestParams, PingRequest, ProtocolVersion,
+    ElicitRequestParams, ElicitResult, ElicitationCapability, ErrorCode, ErrorData,
+    FormElicitationCapability, Implementation, PaginatedRequestParams, PingRequest,
+    ProtocolVersion,
 };
 use rmcp::service::{
-    NotificationContext, PeerRequestOptions, RunningService, RunningServiceCancellationToken,
+    NotificationContext, PeerRequestOptions, RequestContext, RunningService,
+    RunningServiceCancellationToken,
 };
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
@@ -25,6 +28,7 @@ use rmcp::{ClientHandler, Peer, RoleClient, ServiceExt};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, Semaphore, watch};
 
+use crate::ask::{self, Asker};
 use crate::errors::{self, ToolsError};
 use crate::http::{CallRoutes, ROUTE_KEY, RawKeeping};
 use crate::map::{self, McpTool, McpToolResult};
@@ -49,6 +53,9 @@ pub struct McpConfig {
     direct: bool,
     /// A local server Spade starts, in place of the HTTP address.
     stdio: Option<StdioCommand>,
+    /// Declares form elicitation: a call made with an [`Asker`] may show the server's forms to
+    /// the person.
+    eliciting: bool,
 }
 
 impl McpConfig {
@@ -63,6 +70,7 @@ impl McpConfig {
             timeout,
             direct: false,
             stdio: None,
+            eliciting: false,
         }
     }
 
@@ -95,6 +103,15 @@ impl McpConfig {
     #[must_use]
     pub fn header(mut self, name: HeaderName, value: HeaderValue) -> Self {
         self.headers.insert(name, value);
+        self
+    }
+
+    /// Tells the server Spade can show it forms (MCP elicitation, form mode), for the calls made
+    /// with an [`Asker`] ([`McpClient::call_asking`]). A form that comes any other way is
+    /// declined. Sampling is never declared, and refused if asked.
+    #[must_use]
+    pub fn eliciting(mut self) -> Self {
+        self.eliciting = true;
         self
     }
 
@@ -191,6 +208,10 @@ struct Local {
 }
 
 type Slot = std::sync::Mutex<Option<Process>>;
+
+/// The MCP Apps extension and the one page type Spade draws (ADR 0202 §4).
+pub const MCP_APPS_EXTENSION: &str = "io.modelcontextprotocol/ui";
+pub const MCP_APP_MIME: &str = "text/html;profile=mcp-app";
 
 /// Why a closed client refuses.
 const WITHDRAWN: &str = "Spade's access to the server was withdrawn";
@@ -315,7 +336,20 @@ impl McpClient {
         arguments: Value,
         meta: serde_json::Map<String, Value>,
     ) -> Result<McpToolResult, ToolsError> {
-        match self.call_raw(name, arguments, meta).await {
+        self.call_asking(name, arguments, meta, None).await
+    }
+
+    /// [`McpClient::call_with_meta`], where a form the server sends during this call (on a
+    /// client made [`McpConfig::eliciting`]) goes to `asker`, and the call's timeout waits while
+    /// the person decides. Without an asker every form is declined.
+    pub async fn call_asking(
+        &self,
+        name: &str,
+        arguments: Value,
+        meta: serde_json::Map<String, Value>,
+        asker: Option<Arc<dyn Asker>>,
+    ) -> Result<McpToolResult, ToolsError> {
+        match self.call_raw(name, arguments, meta, asker).await {
             Ok(mut result) => {
                 self.config.scrub_value(&mut result);
                 Ok(map::call_result(result))
@@ -329,6 +363,7 @@ impl McpClient {
         name: &str,
         arguments: Value,
         mut meta: serde_json::Map<String, Value>,
+        asker: Option<Arc<dyn Asker>>,
     ) -> Result<Value, ToolsError> {
         let mut params = json!({ "name": name });
         match arguments {
@@ -348,6 +383,8 @@ impl McpClient {
         meta.insert(ROUTE_KEY.into(), token.into());
         params["_meta"] = Value::Object(meta);
         let mut raw = routes.register(token);
+        // Counts the person's open forms for this call, while it may ask them.
+        let open = asker.map(|asker| routes.asking(token, asker));
         let mut waiting = Waiting {
             routes,
             token,
@@ -355,7 +392,11 @@ impl McpClient {
         };
         // Sent as a plain request so the answer is read from its raw JSON, whatever it holds.
         let request = ClientRequest::CustomRequest(CustomRequest::new("tools/call", Some(params)));
-        let options = PeerRequestOptions::with_timeout(self.config.timeout());
+        // A call that may ask the person keeps its own time, paused while they decide.
+        let options = match open {
+            Some(_) => PeerRequestOptions::no_options(),
+            None => PeerRequestOptions::with_timeout(self.config.timeout()),
+        };
         let handle = tokio::time::timeout(
             self.config.timeout(),
             peer.send_request_with_option(request, options),
@@ -370,7 +411,15 @@ impl McpClient {
             }
         };
         waiting.unanswered = Some((peer.clone(), handle.id.clone()));
-        let answer = handle.await_response().await;
+        let answer = match open {
+            Some(open) => {
+                // Out of time with nobody asked: dropped, so the server is told to cancel.
+                ask_paused(handle.await_response(), self.config.timeout(), open)
+                    .await
+                    .ok_or(ToolsError::Timeout)?
+            }
+            None => handle.await_response().await,
+        };
         // Answered, refused or timed out (the SDK cancels on its own timeout): nothing to cancel.
         waiting.unanswered = None;
         let answer = match answer {
@@ -390,6 +439,31 @@ impl McpClient {
                 .map_err(|error| ToolsError::Protocol(self.config.scrub(error.to_string())))?,
         };
         Ok(result)
+    }
+
+    /// Reads one resource (`resources/read`), as its JSON: an MCP app's page under `ui://`
+    /// (ADR 0202 §4). Credentials this client knows are removed from it, as from a call's answer.
+    pub async fn read_resource(&self, uri: &str) -> Result<Value, ToolsError> {
+        let params: rmcp::model::ReadResourceRequestParams =
+            serde_json::from_value(json!({ "uri": uri }))
+                .map_err(|error| ToolsError::Protocol(error.to_string()))?;
+        let (peer, epoch, _) = self.peer().await.map_err(not_run_if_unavailable)?;
+        self.refuse_if_closed()?;
+        let read = tokio::time::timeout(self.config.timeout(), peer.read_resource(params))
+            .await
+            .map_err(|_| ToolsError::Timeout)?;
+        match read {
+            Ok(result) => {
+                let mut value = serde_json::to_value(result)
+                    .map_err(|error| ToolsError::Protocol(error.to_string()))?;
+                self.config.scrub_value(&mut value);
+                Ok(value)
+            }
+            // Reading changes nothing, so a failed read is as good as not sent.
+            Err(error) => Err(self
+                .config
+                .scrub_error(not_run_if_unavailable(self.failed(error, epoch).await))),
+        }
     }
 
     /// The cached listing when it belongs to the live session, which still answers a ping;
@@ -513,9 +587,9 @@ impl McpClient {
         routes: CallRoutes,
     ) -> Result<RunningService<RoleClient, Listener>, ToolsError> {
         if let Some(command) = &self.config.stdio {
-            return self.open_stdio(command).await;
+            return self.open_stdio(command, routes).await;
         }
-        let client = RawKeeping::new(routes, self.config.direct)
+        let client = RawKeeping::new(routes.clone(), self.config.direct)
             .map_err(|error| ToolsError::Unavailable(self.config.scrub(error.to_string())))?;
         let mut transport_config =
             StreamableHttpClientTransportConfig::with_uri(self.config.url.as_str())
@@ -526,10 +600,7 @@ impl McpClient {
             transport_config = transport_config.auth_header(token.expose());
         }
         let transport = StreamableHttpClientTransport::with_client(client, transport_config);
-        let listener = Listener {
-            stale: self.stale.clone(),
-            changes: self.changes.clone(),
-        };
+        let listener = self.listener(routes);
         listener
             .serve(transport)
             .await
@@ -538,11 +609,22 @@ impl McpClient {
 }
 
 impl McpClient {
+    /// The handler for one session's messages from the server.
+    fn listener(&self, routes: CallRoutes) -> Listener {
+        Listener {
+            stale: self.stale.clone(),
+            changes: self.changes.clone(),
+            routes,
+            eliciting: self.config.eliciting,
+        }
+    }
+
     /// Starts the stdio server and opens a session on its pipes. Every start after the first
     /// that did not follow an idle stop is a crash restart, counted against the budget.
     async fn open_stdio(
         &self,
         command: &StdioCommand,
+        routes: CallRoutes,
     ) -> Result<RunningService<RoleClient, Listener>, ToolsError> {
         let now = tokio::time::Instant::now();
         {
@@ -571,10 +653,7 @@ impl McpClient {
             self.local.idled.clone(),
             command.idle,
         );
-        let listener = Listener {
-            stale: self.stale.clone(),
-            changes: self.changes.clone(),
-        };
+        let listener = self.listener(routes);
         listener
             .serve((stdout, stdin))
             .await
@@ -642,6 +721,34 @@ impl Drop for Waiting {
     }
 }
 
+/// `answer`, given `timeout` of the call's own time: the clock stops while any of its forms is
+/// open (`open` counts them) and starts afresh once the person replied. `None` when the time ran
+/// out with nobody asked.
+async fn ask_paused<T>(
+    answer: impl Future<Output = T>,
+    timeout: Duration,
+    mut open: watch::Receiver<usize>,
+) -> Option<T> {
+    let mut answer = std::pin::pin!(answer);
+    let mut deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        tokio::select! {
+            answered = &mut answer => return Some(answered),
+            () = tokio::time::sleep_until(deadline) => {
+                if *open.borrow() == 0 {
+                    return None;
+                }
+                // The person is deciding: wait for every form to close, then a fresh timeout.
+                tokio::select! {
+                    answered = &mut answer => return Some(answered),
+                    _ = open.wait_for(|open| *open == 0) => {}
+                }
+                deadline = tokio::time::Instant::now() + timeout;
+            }
+        }
+    }
+}
+
 enum ListError {
     Service(rmcp::ServiceError),
     Other(ToolsError),
@@ -655,25 +762,119 @@ fn not_run_if_unavailable(error: ToolsError) -> ToolsError {
     }
 }
 
-/// Receives the server's notifications for one session.
+/// Receives the server's notifications and requests for one session.
 struct Listener {
     stale: Arc<AtomicBool>,
     changes: Arc<watch::Sender<u64>>,
+    /// The session's calls, to find the one a form belongs to.
+    routes: CallRoutes,
+    eliciting: bool,
 }
 
 impl ClientHandler for Listener {
     fn get_info(&self) -> ClientConfig {
+        // Form elicitation only, and only when a call can show it; never sampling (ADR 0202 §2).
+        let mut capabilities = ClientCapabilities::default();
+        if self.eliciting {
+            capabilities.elicitation =
+                Some(ElicitationCapability::new().with_form(FormElicitationCapability::new()));
+        }
+        // MCP Apps (ADR 0202 §4): Spade can show an app's `ui://` pages, as panels, so a server
+        // may link them. One that keeps a text-only variant for other clients still answers it.
+        let mut ui = serde_json::Map::new();
+        ui.insert("mimeTypes".into(), json!([MCP_APP_MIME]));
+        capabilities.extensions = Some([(MCP_APPS_EXTENSION.to_owned(), ui)].into_iter().collect());
         // The newest revision with sessions, which carry the list-change stream; servers still
         // on earlier revisions answer with theirs.
         ClientConfig::new(
-            ClientCapabilities::default(),
+            capabilities,
             Implementation::new("spade", env!("CARGO_PKG_VERSION")),
         )
         .with_protocol_version(ProtocolVersion::LATEST_WITH_INITIALIZE)
     }
 
+    /// A form the server asks the person to fill in, mid-call: shown by the call's asker, with
+    /// its timeout paused until they reply. A form no call in flight can show, a URL form, and
+    /// one the person leaves past [`ask::MOST_WAIT`] are declined or cancelled.
+    async fn create_elicitation(
+        &self,
+        request: ElicitRequestParams,
+        context: RequestContext<RoleClient>,
+    ) -> Result<ElicitResult, ErrorData> {
+        let id = serde_json::to_string(&context.id).unwrap_or_default();
+        let (
+            ElicitRequestParams::FormElicitationParams {
+                message,
+                requested_schema,
+                ..
+            },
+            Some(asking),
+        ) = (request, self.routes.asker_for(&id))
+        else {
+            return Ok(ask::result(ask::Reply::Decline));
+        };
+        let schema = serde_json::to_value(&requested_schema).unwrap_or(Value::Null);
+        asking.open.send_modify(|open| *open += 1);
+        let reply = tokio::time::timeout(
+            ask::MOST_WAIT,
+            asking.asker.ask(ask::Form { message, schema }),
+        )
+        .await
+        .unwrap_or(ask::Reply::Cancel);
+        asking
+            .open
+            .send_modify(|open| *open = open.saturating_sub(1));
+        Ok(ask::result(reply))
+    }
+
+    /// A server never borrows the person's model (ADR 0202 §2). Sampling is deprecated in the
+    /// spec, so naming its types is too.
+    #[expect(deprecated)]
+    async fn create_message(
+        &self,
+        _request: rmcp::model::CreateMessageRequestParams,
+        _context: RequestContext<RoleClient>,
+    ) -> Result<rmcp::model::CreateMessageResult, ErrorData> {
+        Err(ErrorData::new(
+            ErrorCode::METHOD_NOT_FOUND,
+            ask::SAMPLING_REFUSED,
+            None,
+        ))
+    }
+
     async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) {
         self.stale.store(true, Ordering::Release);
         self.changes.send_modify(|count| *count += 1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TIMEOUT: Duration = Duration::from_millis(60);
+
+    #[tokio::test]
+    async fn a_call_nobody_is_asked_about_times_out_on_its_own_clock() {
+        let (_open, counted) = watch::channel(0usize);
+        let slow = tokio::time::sleep(TIMEOUT * 4);
+        assert_eq!(ask_paused(slow, TIMEOUT, counted).await, None);
+    }
+
+    #[tokio::test]
+    async fn the_clock_waits_while_the_person_decides_then_starts_afresh() {
+        let (open, counted) = watch::channel(1usize);
+        // The person takes three timeouts to reply; the answer comes half a timeout after.
+        tokio::spawn(async move {
+            tokio::time::sleep(TIMEOUT * 3).await;
+            open.send_replace(0);
+            // Kept open so the count stays readable.
+            tokio::time::sleep(TIMEOUT * 4).await;
+        });
+        let answer = async {
+            tokio::time::sleep(TIMEOUT * 3 + TIMEOUT / 2).await;
+            "answered"
+        };
+        assert_eq!(ask_paused(answer, TIMEOUT, counted).await, Some("answered"));
     }
 }

@@ -1,5 +1,6 @@
 import {
   spadeBotRow,
+  spadeGroupRow,
   spadeBubbles,
   spadeByState,
   spadeFailureSentence,
@@ -9,11 +10,13 @@ import {
   spadeStateLine,
   type SpadeAgent,
   type SpadeBubble,
+  type SpadeGroup,
   type SpadeRequestDetail,
   type SpadeRowState,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import type { SpadeStatus } from "@ace/protocol";
+import { botFace, groupFaces, initialOf, type SpadeFaceRow } from "./spade-group-rows.ts";
 import { spadeQuestionCardRow, type SpadeQuestionCardRow } from "./spade-question-rows.ts";
 
 /*
@@ -21,7 +24,7 @@ import { spadeQuestionCardRow, type SpadeQuestionCardRow } from "./spade-questio
  * (`@ace/ui-core/spade-chat`). Pure: no I/O. Swift lays these rows out and decides nothing.
  */
 
-/** One bot in the list: its face, its name, and its state and line as web's list says them. */
+/** One bot or group in the list: its face, its name, and its state and line as web's list says them. */
 export interface SpadeListRow {
   id: string;
   conversation: string;
@@ -30,47 +33,75 @@ export interface SpadeListRow {
   main: boolean;
   /** A character face's initial, for a bot whose face the phone doesn't draw yet. */
   initial: string;
+  /** A group's id (ADR 0132); null for a bot. */
+  group: string | null;
+  /** The faces the row shows: the bot's own, or a group's first three members'. */
+  faces: SpadeFaceRow[];
   state: SpadeRowState;
   line: string;
   pinned: boolean;
 }
 
 /**
- * The connected machine's bots in the list's order: Spade first, then the rest by state, newest
- * first within one. While its Spade doesn't answer (`answering` false) each row says so and
- * nothing it was doing shows as still going, as web's roster lists an unavailable machine.
+ * The connected machine's bots and groups in the list's order: Spade first, then the rest by
+ * state, newest first within one, as web's list mixes them. While its Spade doesn't answer
+ * (`answering` false) each row says so and nothing it was doing shows as still going, as web's
+ * roster lists an unavailable machine.
  */
 export function spadeListRows(
   agents: readonly SpadeAgent[],
+  groups: readonly SpadeGroup[],
   machine: string,
   answering: boolean,
+  hostId?: string,
 ): SpadeListRow[] {
   const place = {
     machine: { primary: false, name: machine },
     away: false,
     unavailable: !answering,
   };
-  const rows = agents.map((agent) => {
-    const shown = answering ? agent : { ...agent, state: "idle" as const, status: undefined };
+  const still = { state: "idle" as const, status: undefined };
+  const bots = agents.map((agent) => {
+    const shown = answering ? agent : { ...agent, ...still };
     const row = spadeBotRow({ ...shown, ...place });
-    return { agent, row };
+    const listed: SpadeListRow = {
+      id: agent.id,
+      conversation: agent.conversation,
+      name: agent.name || "Untitled bot",
+      main: agent.kind === "main",
+      initial: initialOf(agent.name),
+      group: null,
+      faces: [botFace(agent)],
+      state: row.state,
+      line: row.line,
+      pinned: agent.pinnedAt !== undefined,
+    };
+    return { listed, at: agent.lastActivity };
   });
-  const main = rows.filter(({ agent }) => agent.kind === "main");
+  const clubs = groups.map((group) => {
+    const shown = answering ? group : { ...group, ...still };
+    const row = spadeGroupRow({ ...shown, ...place });
+    const listed: SpadeListRow = {
+      id: `group:${group.id}`,
+      conversation: group.conversation,
+      name: group.name,
+      main: false,
+      initial: initialOf(group.name),
+      group: group.id,
+      faces: groupFaces(group, agents, hostId),
+      state: row.state,
+      line: row.line,
+      pinned: group.pinnedAt !== undefined,
+    };
+    return { listed, at: group.lastActivity };
+  });
+  const main = bots.filter(({ listed }) => listed.main);
   const rest = spadeByState(
-    rows.filter(({ agent }) => agent.kind !== "main"),
-    ({ row }) => row.state,
-    ({ agent }) => agent.lastActivity,
+    [...bots.filter(({ listed }) => !listed.main), ...clubs],
+    ({ listed }) => listed.state,
+    ({ at }) => at,
   );
-  return [...main, ...rest].map(({ agent, row }) => ({
-    id: agent.id,
-    conversation: agent.conversation,
-    name: agent.name || "Untitled bot",
-    main: agent.kind === "main",
-    initial: (agent.name.trim()[0] ?? "?").toLocaleUpperCase(),
-    state: row.state,
-    line: row.line,
-    pinned: agent.pinnedAt !== undefined,
-  }));
+  return [...main, ...rest].map(({ listed }) => listed);
 }
 
 /** What the Spade tab says about Spade itself while it isn't ready, and whether it offers Turn on. */
@@ -128,6 +159,8 @@ export function spadeDetailText(detail: SpadeRequestDetail | undefined): string 
       return [detail.to && `To ${detail.to}`, detail.subject].filter(Boolean).join(" · ") || null;
     case "message":
       return `To ${detail.to}: ${detail.text}`;
+    case "task":
+      return detail.after;
     case "fields":
       return detail.fields.map((field) => `${field.label}: ${field.value}`).join("\n") || null;
   }
@@ -184,8 +217,17 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
       return { kind: "note", text: bubble.text };
     case "quiet":
       return { kind: "note", text: spadeQuietLine(bubble.quiet).label };
+    // The workers a call started, by name, until the iPhone draws their cards.
+    case "workers":
+      return {
+        kind: "note",
+        text: `Started ${bubble.workers.map((worker) => worker.name).join(", ")}`,
+      };
     case "remembered":
       return { kind: "note", text: `Remembered: ${bubble.note.text}` };
+    // The iPhone doesn't show which notes a reply had in mind yet.
+    case "recalled":
+      return undefined;
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
     case "question":
@@ -207,7 +249,12 @@ export function spadeConversationRows(
 }
 
 /** The conversation around its bubbles: whether it has loaded, works, and why it can't follow. */
-export function spadeConversationHead(id: string, view: SpadeView, problem: string | undefined) {
+export function spadeConversationHead(
+  id: string,
+  view: SpadeView,
+  problem: string | undefined,
+  face: SpadeFaceRow | null = null,
+) {
   return {
     type: "spade.conversation",
     id,
@@ -220,7 +267,7 @@ export function spadeConversationHead(id: string, view: SpadeView, problem: stri
         ? { words: spadeForLaterWords(view.questionsForLater), callId: view.forLater[0] }
         : null,
     working: view.working
-      ? { label: view.status ?? view.working.label, moving: view.working.moving }
+      ? { label: view.status ?? view.working.label, moving: view.working.moving, face }
       : null,
   };
 }

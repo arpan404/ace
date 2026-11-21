@@ -1,4 +1,3 @@
-import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
   DeviceMobileIcon,
@@ -27,23 +26,20 @@ import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { setLoading } from "./browser/loading.ts";
 import { browserTabData, daemonTabId } from "./browser/browser-data.ts";
 import { closeBrowserTab } from "./browser/browser-closers.ts";
+import { deviceTabData, deviceTabKind } from "./device-browser/device-data.ts";
+import { closeDeviceTab } from "./device-browser/close-device-tab.ts";
 import { BrowserTabBadge, BrowserTabMark } from "./browser/tab-mark.tsx";
 import { BrowserTabMenuItems } from "./browser/tab-menu.tsx";
-import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
+import { prepareEditorClose } from "./editor/editor-close.ts";
+import { editorKind as editorKindId } from "./editor/editor-layout.ts";
+import { upgradeWorkspace } from "./editor/editor-migration.ts";
+import { EditorOverlay } from "./editor/editor-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
-import { fileTabId } from "./files/tab-id.ts";
 import { logsKind } from "./logs/logs-kind.tsx";
 import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
 import { visualizationKind } from "@/features/visualization/index.ts";
 
 export { logsKind, shellKind, terminalKind };
-
-/** A string field of a tab's data, read defensively: tab data comes from storage. */
-function field(data: unknown, name: "path"): string | undefined {
-  if (typeof data !== "object" || data === null || !(name in data)) return undefined;
-  const value: unknown = Reflect.get(data, name);
-  return typeof value === "string" ? value : undefined;
-}
 
 /*
  * The thread workspace's tab kinds: the tools and resources that open beside a conversation.
@@ -67,35 +63,22 @@ export const changesKind = defineTabKind({
 });
 
 /**
- * Files of the thread's checkout: the pinned Files tab (the tree, no file yet) and one tab per
- * file, each with the tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
+ * The thread's editor (docs/editor/workbench.md, ADR 0193): one tab holding the explorer and the
+ * editor groups; every checkout file opens there. Its data is the workbench layout. ⌘P opens
+ * quick open rather than toggling the tab. Closing it with unsaved files asks first.
  */
-export const filesKind = defineTabKind({
-  kind: "files",
-  label: "Files",
-  multiple: true,
-  closeWarning: (_scope, tabs) =>
-    tabs.some(({ tab }) => {
-      const data = fileTabData(tab);
-      return data.draft && data.draft.text !== data.draft.original;
-    })
-      ? {
-          title: "Discard file edits?",
-          description: "These tabs have unsaved file changes.",
-          confirm: "Discard",
-        }
-      : undefined,
+export const editorKind = defineTabKind({
+  kind: editorKindId,
+  label: "Editor",
   icon: FilesIcon,
+  singleton: true,
   launcher: 30,
-  title: (tab) => {
-    const path = field(tab.data, "path");
-    return path ? (path.split("/").at(-1) ?? path) : "Files";
-  },
+  title: () => "Editor",
   Skeleton: FilesSkeleton,
-  load: () => import("./files/file-tab.tsx"),
-  fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
+  load: () => import("./editor/editor-panel.tsx"),
+  prepareClose: (scope) => prepareEditorClose(scope),
   onShortcut: (scope) => quickOpen.set(() => scope),
-  Overlay: QuickOpenOverlay,
+  Overlay: EditorOverlay,
 });
 
 /**
@@ -155,6 +138,25 @@ export const browserKind = defineTabKind({
     const tabId = daemonTabId(tab);
     if (tabId) closeBrowserTab(scope, tabId);
   },
+});
+
+/**
+ * A page the person opened, in the desktop app, on another machine's thread (ADR 0194): it runs
+ * on this computer, its `localhost` is the machine's. Only this window's panel knows it, so a
+ * closed one doesn't come back. Opened from a browser tab, never from the launcher.
+ */
+export const deviceBrowserKind = defineTabKind({
+  kind: deviceTabKind,
+  label: "Browser",
+  icon: GlobeSimpleIcon,
+  title: (tab) => {
+    const data = deviceTabData(tab);
+    if (data?.title) return data.title;
+    return (data && addressHost(data.url)) ?? "New tab";
+  },
+  load: () => import("./device-browser/device-browser-tab.tsx"),
+  reopenable: () => false,
+  onClose: (_scope, tab) => closeDeviceTab(tab.id),
 });
 
 export const previewKind = defineTabKind({
@@ -249,10 +251,11 @@ export const threadKinds: readonly TabKind[] = [
   workKind,
   changesKind,
   terminalKind,
-  filesKind,
+  editorKind,
   filePreviewKind,
   textEditKind,
   browserKind,
+  deviceBrowserKind,
   previewKind,
   portKind,
   devicesKind,
@@ -266,3 +269,6 @@ export const threadKinds: readonly TabKind[] = [
 ];
 
 export default threadKinds;
+
+/** Stored tabs from before the editor: per-file panel tabs move into it (spec 55). */
+export const upgrade = upgradeWorkspace;

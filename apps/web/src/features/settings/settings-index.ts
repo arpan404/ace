@@ -496,6 +496,79 @@ const entries = [
     title: "Transcript text size",
     keywords: ["font", "zoom", "bigger"],
   },
+  // Editor
+  {
+    id: "editor.autoSave",
+    page: "/settings/editor",
+    title: "Auto save",
+    keywords: ["save", "autosave", "auto-save", "focus", "delay"],
+  },
+  {
+    id: "editor.autoSaveDelay",
+    page: "/settings/editor",
+    title: "Save after",
+    keywords: ["auto save", "delay", "pause", "seconds"],
+  },
+  {
+    id: "editor.fontSize",
+    page: "/settings/editor",
+    title: "Font size",
+    keywords: ["text size", "zoom", "bigger", "smaller", "code"],
+  },
+  {
+    id: "editor.lineSpacing",
+    page: "/settings/editor",
+    title: "Line height",
+    keywords: ["spacing", "leading", "rows"],
+  },
+  {
+    id: "editor.fontFamily",
+    page: "/settings/editor",
+    title: "Font",
+    keywords: ["font family", "typeface", "monospace", "ligatures"],
+  },
+  {
+    id: "editor.tabSize",
+    page: "/settings/editor",
+    title: "Tab size",
+    keywords: ["indent", "indentation", "spaces", "width"],
+  },
+  {
+    id: "editor.insertSpaces",
+    page: "/settings/editor",
+    title: "Indent with",
+    keywords: ["tabs", "spaces", "indentation", "insert spaces"],
+  },
+  {
+    id: "editor.wordWrap",
+    page: "/settings/editor",
+    title: "Word wrap",
+    keywords: ["wrap", "long lines", "soft wrap"],
+  },
+  {
+    id: "editor.renderWhitespace",
+    page: "/settings/editor",
+    title: "Show whitespace",
+    keywords: ["whitespace", "spaces", "tabs", "invisibles"],
+  },
+  {
+    id: "editor.indentGuides",
+    page: "/settings/editor",
+    title: "Indent guides",
+    keywords: ["guides", "indentation", "lines"],
+  },
+  {
+    id: "editor.stickyScroll",
+    page: "/settings/editor",
+    title: "Sticky scroll",
+    keywords: ["scope", "function header", "pinned", "breadcrumbs"],
+  },
+  {
+    id: "editor.cursorBlinking",
+    page: "/settings/editor",
+    title: "Cursor blinking",
+    keywords: ["caret", "cursor", "blink"],
+  },
   // Notifications
   {
     id: "notifications.inApp",

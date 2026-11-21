@@ -180,7 +180,45 @@ const HexColour = z.string().regex(/^#[0-9a-f]{6}$/i);
  * The window paints it behind the page before first paint and while resizing, so a theme other
  * than the default, or a mode other than the OS's, never flashes the wrong colour.
  */
-export const WindowBackground = z.object({ mode: ThemeSource, light: HexColour, dark: HexColour });
+const NativeTrayPalette = z.object({
+  surface: HexColour,
+  text: HexColour,
+  muted: HexColour,
+  accent: HexColour,
+  needs: HexColour,
+  opacity: z.number().min(0).max(1),
+});
+const NativeTrayAppearance = z.object({
+  dark: z.boolean(),
+  palette: NativeTrayPalette,
+  radius: z.number().min(0).max(2).optional(),
+  border: z.number().min(0.5).max(2).optional(),
+  compact: z.boolean().optional(),
+  font: z.string().min(1).max(200).optional(),
+});
+export type NativeTrayAppearance = z.infer<typeof NativeTrayAppearance>;
+
+export const WindowBackground = z.object({
+  mode: ThemeSource,
+  light: HexColour,
+  dark: HexColour,
+  tray: z
+    .object({
+      light: NativeTrayPalette,
+      dark: NativeTrayPalette,
+      radius: NativeTrayAppearance.shape.radius,
+      border: NativeTrayAppearance.shape.border,
+      compact: NativeTrayAppearance.shape.compact,
+      font: NativeTrayAppearance.shape.font,
+    })
+    .optional(),
+  trayUsage: z
+    .object({
+      measure: z.enum(["week", "session"]),
+      pins: z.array(z.string().min(1).max(512)).max(4),
+    })
+    .optional(),
+});
 export type WindowBackground = z.infer<typeof WindowBackground>;
 
 /**
@@ -219,7 +257,15 @@ export const DeepLink = z.discriminatedUnion("kind", [
     itemId: z.string().optional(),
   }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
+  /** A Spade bot's conversation, with the approval or question to bring forward (ADR 0195). */
+  z.object({
+    kind: z.literal("spade"),
+    agent: z.string().min(1),
+    request: z.string().optional(),
+  }),
   z.object({ kind: z.literal("new-thread") }),
+  /** The Usage page (the menu-bar popover's "Open Usage"). */
+  z.object({ kind: z.literal("usage") }),
   z.object({ kind: z.literal("open-folder"), path: AbsolutePath }),
   /** `ace://account/signed-in?status=`: the browser back from ace sign-in, with how it ended. */
   z.object({ kind: z.literal("signed-in"), status: AceSignInReturnStatus }),
@@ -233,8 +279,12 @@ export function deepLinkRoute(link: DeepLink): string {
       return `/t/${encodeURIComponent(link.threadId)}${link.itemId ? `?item=${encodeURIComponent(link.itemId)}` : ""}`;
     case "settings":
       return `/settings/${link.page ?? "general"}`;
+    case "spade":
+      return `/spade/${encodeURIComponent(link.agent)}${link.request ? `?request=${encodeURIComponent(link.request)}` : ""}`;
     case "new-thread":
       return "/new";
+    case "usage":
+      return "/usage";
     case "open-folder":
       return `/new?folder=${encodeURIComponent(link.path)}`;
     // Profile, where the sign-in started; the app's own claim delivers the session.
@@ -246,6 +296,8 @@ export function deepLinkRoute(link: DeepLink): string {
 /** Notification categories; kept in step with the web's Settings › Notifications. */
 export const NotificationCategory = z.enum([
   "agentSays",
+  /** Spade's bots: what needs the person, what stopped, digests, briefs (ADR 0195). */
+  "spade",
   "needsYou",
   "finished",
   "failed",
@@ -286,6 +338,11 @@ export const DesktopSettings = z.object({
   attention: z.boolean().default(true),
   /** Electron accelerator for the quick composer; off by default. */
   globalShortcut: z.string().max(64).nullable().default(null),
+  /**
+   * Push to talk to the main Spade from anywhere (ADR 0134, amended). Absent: the platform's
+   * default (⌥Space on macOS, none elsewhere, where the chord belongs to the system); null: off.
+   */
+  spadeTalkShortcut: z.string().max(64).nullable().optional(),
   /**
    * Keyboard shortcuts rebound on this app, per device. Null until the app first stores them,
    * which is when it adopts what the machine's old shared setting held. A damaged value reads
@@ -329,6 +386,7 @@ export const DesktopSettingsPatch = z.object({
     .optional(),
   attention: z.boolean().optional(),
   globalShortcut: z.string().max(64).nullable().optional(),
+  spadeTalkShortcut: z.string().max(64).nullable().optional(),
   keybindings: Keybindings.nullable().optional(),
   /**
    * Keyboard shortcuts to store only if the app has none yet: adopting the machine's old shared
@@ -370,12 +428,34 @@ export const ScreenPermission = z.enum([
   "restricted",
   "unknown",
 ]);
+export type ScreenPermission = z.infer<typeof ScreenPermission>;
 export const Permissions = z.object({
   screenRecording: ScreenPermission,
   accessibility: z.boolean(),
 });
 export type Permissions = z.infer<typeof Permissions>;
-export const PermissionPane = z.enum(["screen-recording", "accessibility", "notifications"]);
+export const PermissionPane = z.enum([
+  "screen-recording",
+  "accessibility",
+  "notifications",
+  "microphone",
+]);
+/** The app's microphone permission (macOS asks once per app; elsewhere the page's own prompt). */
+export const MicrophonePermission = ScreenPermission;
+
+/** A press of the push-to-talk shortcut, or Cancel in its indicator. */
+export const SpadeTalkPhase = z.enum(["start", "send", "cancel"]);
+export type SpadeTalkPhase = z.infer<typeof SpadeTalkPhase>;
+/** How the push-to-talk turn goes, as the page tells it, for the indicator. */
+export const SpadeTalkState = z.enum([
+  "off",
+  "listening",
+  "hearing",
+  "transcribing",
+  "thinking",
+  "speaking",
+]);
+export type SpadeTalkState = z.infer<typeof SpadeTalkState>;
 export type PermissionPane = z.infer<typeof PermissionPane>;
 
 /** Where the renderer wants a thread's embedded browser view drawn, in CSS pixels. */

@@ -1,0 +1,30 @@
+{
+  "name": "Answers its first message",
+  "given": {
+    "message": "I want to walk every day."
+  },
+  "model": [
+    {
+      "calls": [
+        {
+          "tool": "todo",
+          "arguments": {
+            "items": [
+              {
+                "text": "Answer: I want to walk every day.",
+                "done": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "say": "I'll keep you on track with a daily walk."
+    }
+  ],
+  "expect": {
+    "calls": ["todo"],
+    "reply_contains": ["daily walk"]
+  }
+}

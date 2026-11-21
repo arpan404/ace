@@ -1,0 +1,413 @@
+# 0194: A device's own browser opens the machine's localhost
+
+Status: accepted. Date: 2026-11-19. Decided by: the owner, 2026-11-19 (ports, agent tabs, web
+app); the desktop and phone mechanisms follow the spikes below. Amends
+[ADR 0008](0008-preview-gateway.md) (preview gateway, which said browsers can't use the relay),
+[ADR 0088](0088-remote-browser-view-v2.md) (remote clients only watch ace's Chrome) and
+[ADR 0114](0114-fastest-path.md) (paths).
+
+## Context
+
+A person away from the machine (on the phone, or in the desktop app connected to another
+machine) sees a thread's pages only as video of ace's Chrome on the machine. That is right for a
+tab an agent is working in: the person sees exactly what the agent sees. It is wrong for a page the
+person just wants to use, such as their own dev server. Scrolling, typing, autofill, text
+selection and zoom all go through a picture of a browser on the other machine.
+
+Opening `localhost:3000` in the device's own browser fails, because localhost is the device. The
+preview gateway (ADR 0008) puts a dev server on a device's own browser, but only one port at a
+time, under a `p<port>-<generation>` hostname, over loopback, the LAN or Tailscale. The page's
+origin is not `localhost:3000`, so a frontend calling `localhost:4000`, an OAuth redirect to
+localhost or a CORS allowlist breaks.
+
+The client already reaches each machine over its fastest working path: same computer, LAN,
+Tailscale, the person's relay, ace's relay (ADR 0114).
+
+## Decision
+
+### Loopback goes to the machine, everything else goes direct
+
+In ace's own apps, a page the person opens loads in the device's own engine: `WKWebView` on the
+phone, Chromium in the desktop app. ace splits that browser's connections by hostname, on the
+device:
+
+- `localhost`, `*.localhost`, `127.0.0.0/8` and `[::1]` go to the machine, through a tunnel on
+  the path the client is already on.
+- Every other host connects straight from the device, on the device's own network.
+
+The page keeps its real origin (`http://localhost:3000`), so other localhost ports, redirects,
+CORS allowlists and secure-context features (localhost counts as potentially trustworthy) behave
+as they do on the machine. The tunnel carries TCP bytes, not HTTP. Websockets (hot reload),
+server-sent events, uploads and HTTPS dev servers pass through unchanged, and nothing on the way
+parses or rewrites them.
+
+Each machine has its own cookie and storage partition on the device, so `localhost:3000` on one
+machine never sees sign-ins made against `localhost:3000` on another.
+
+The desktop app splits them with a proxy on the device; the phone takes the loopback ports
+themselves, because iOS never sends loopback to a proxy (see "The device side"). Where a hostname
+rule is needed, it is one pure function in `@ace/ui-core`.
+
+### Which pages run where
+
+- **Tabs an agent works in stay in ace's Chrome on the machine,** shown as video (ADR 0088).
+  Agents keep the full browser toolset there; nothing about browser use changes.
+- **Pages the person opens on a remote device run on that device.** These device tabs are the
+  person's own. Agents don't see or drive them. An agent's tab offers "Open on this phone" (or
+  "this device"), which opens the same URL as a device tab. Sign-ins don't carry over: ace's
+  Chrome and the device keep separate profiles.
+- **The desktop app on the machine's own computer** is unchanged. Its native view already runs
+  there, and localhost is already the machine.
+- **The web app in an ordinary browser tab** is unchanged. It keeps showing ace's Chrome as video.
+  A web page can't set a proxy for itself.
+
+### Which ports
+
+A paired device with `operate` authority may reach any TCP port on the machine's loopback. That
+gives nothing it lacked: such a device can already run commands on the machine through agents
+and terminals. Read-only devices are refused. A per-machine setting turns the tunnel off.
+
+The tunnel always refuses every port an ace process listens on, whatever the device asks for:
+the daemon's listeners, the preview gateway and Spade's service. A tunnelled connection arrives at
+the machine from loopback, and loopback is what those listeners trust. The refused ports are never
+a stored list, and the guard does not depend on polling:
+
+- Every listener in the daemon's own process is held as ace's synchronously as it binds, before
+  it can accept: on Node through the listen tracing channel, which also covers servers no list
+  names (the MCP endpoint, git leases, page probes); on any runtime for the daemon's named
+  listeners, from their `listening` event. A dev server is always another process.
+- ace's other processes register through what they already publish: Spade's port from its
+  `server.json`, read live.
+- A scan of the daemon's, Spade's and ace-media's processes supplements both. It is one pass over
+  the OS tables, shared with the port list devices hear (one `lsof` on macOS, one `netstat` on
+  Windows, the socket tables and only those processes' descriptors on Linux). An open whose last
+  scan is over a second old waits for a fresh one, shared with every other open.
+
+The last check runs synchronously as the stream's socket connects, and again once it has
+connected, before any byte moves. Both are the mux's own readiness check: a stream refused there
+is removed (its slot freed) before its RESET goes, and is never READY. Without a successful scan in the last five seconds, a port no
+source names is unknown, and unknown is refused: the guard fails closed. A port that becomes ace's
+(Spade starting on a port a stream already uses) resets every stream open to it.
+
+The desktop app's localhost proxy (see "The device side") is an ace listener on the loopback of
+the computer it runs on, and it reaches another machine with this device's credentials. No other
+process on that computer, and no device tunnelled to it, may borrow that reach, so the proxy
+demands a secret of each run (`Proxy-Authorization`, a password only its own partition is given)
+and refuses any request without it.
+
+The daemon connects only to `127.0.0.1` or `::1` on the requested port. The device names a port,
+never a host.
+
+### The tunnel
+
+- **Transport.** The tunnel uses the path the client's machine connection is on (same computer,
+  LAN, Tailscale or a relay), and is authenticated the same way. It runs on its own connection,
+  so a large bundle download never delays agent state behind it on a slow link. Its framing is
+  `@ace/preview`'s existing stream protocol (OPEN, READY, DATA, CREDIT, END, RESET, with per-stream
+  credit), carried in binary messages, never JSON or Base64.
+- **Path switches.** When the client moves to a better path, new streams open on the new path.
+  Streams already open finish on the old one, which closes once they have ended or after a bounded
+  wait. A stream cut by a lost path is reset. The browser retries the request and hot reload
+  reconnects, as after any dropped connection.
+- **Connection.** A tunnel connection says `hello` with `channel: "tunnel"` and the path's own
+  credential: a one-use ticket on a direct path (under the listener's pinned key), the paired
+  token inside a relay's Noise stream. Its welcome must name the expected daemon, on every path.
+  After the welcome the machine sends `tunnel.ports` (the whole listening set, again only when it
+  changes) and `tunnel.refused` (with a stream id for one OPEN, before that stream's RESET;
+  without one for the whole tunnel, which then closes). Refusals are `tunnel_off`,
+  `tunnel_forbidden`, `tunnel_port_refused` and `tunnel_limit`. A port with nothing listening is
+  a plain RESET, which the client reports as `tunnel_reset`. How a stream closes is under
+  "Stream lifecycle" below. The client keeps
+  a stream's refusal only while that stream is opening. Once its hello is read, a tunnel
+  connection carries only its stream frames and pings: its other JSON reaches no service,
+  command or read, whatever the device's scopes. Its authority is decided before any frame is
+  handled.
+- **Stream lifecycle.** A stream closes as a TCP connection does, and both ends of the mux
+  run the same pure state machine (`@ace/preview`'s `stream-lifecycle.ts`, tested state by
+  event). The tunnel is this mux's first deployed user, so these are its semantics from the
+  start, and the preview relay shares them.
+  - Each direction closes on its own. END means no more DATA that way (a FIN) and goes behind
+    every DATA before it. DATA after the peer's own END, or a second END, is a protocol error
+    that closes the channel.
+  - RESET aborts both directions at once: whatever either side still queued (bytes waiting for
+    credit, bytes waiting for the local socket) is discarded, and the slot is freed before the
+    RESET is sent. A RESET that follows an END still wins and discards, so a sender must not
+    follow END with RESET when it means a graceful close.
+  - A stream finishes without a RESET only when both ENDs have been exchanged, every byte the
+    peer sent has been written to the local socket, and the local socket has closed. A peer END
+    that arrives while bytes still wait for the socket, or while our own END still waits to go,
+    ends the socket only after those bytes are written; nothing is removed early.
+  - A local socket that closes after its end, with the stream unfinished, leaves the stream
+    waiting for what is still owed: its last bytes and our END going, then the peer's END,
+    which finishes it. Peer DATA then resets it (nothing can read it, as a closed TCP socket
+    answers with RST). The wait has a fixed deadline of 15 s from the socket's close that
+    nothing extends, CREDIT included, so a peer that only returns credit cannot hold the slot.
+    CREDIT in that state is checked as any CREDIT, against what this side sent and the peer has
+    not acknowledged; an invalid one closes the channel. A socket that closes with bytes it never
+    took resets the stream at once.
+  - A close before the socket's end, a socket error, a write the socket reports failed (through
+    its callback alone too), and an explicit local abort are RESETs, sent at once in every
+    state, after our END and after both ENDs too, until the stream is removed.
+  - The lifecycle alone decides. The socket adapters (`node-socket.ts` for real sockets,
+    `tunnel-stream.ts` for the device's `TunnelStream`) keep no close, abort or deadline state of
+    their own: they report what happened to their socket (bytes read, its end, its close, an
+    error or failed write, a local abort, a reader that cancelled) and carry out what the
+    lifecycle asks (write, end, destroy). The one deadline is the mux's, on its injected timer.
+    A Node socket that closes after its end while the adapter still holds bytes read before that
+    end (a read larger than a window) reports a hang-up at once, so the deadline runs from the
+    physical close, and hands its end over once those bytes have gone. A stream leaves the mux
+    once, and its socket is told how: finished (both sides closed) or reset (a RESET either way,
+    a refusal, the channel closing).
+  - `TunnelStream.reset()` and a reader that cancels are aborts: the tunnel stream signals the
+    mux with its own abort event, never with a close, and an abort counts until the mux has
+    removed the stream, so one after `end()`, or after both sides ended while our END still
+    waits to go, still sends RESET. A stream removed as reset errors its reader, and bytes the
+    reader had not read are discarded, so a peer's END followed by its RESET never reads as a
+    clean answer. A reader that has already read the end has nothing left to cancel.
+  - Once a stream has finished, nothing undoes it, as with TCP after both FINs. A RESET that
+    one side sends in the moment the other has already finished (both ENDs exchanged, every
+    byte written, its socket closed) arrives for a stream that is gone and is ignored: there is
+    nothing left to abort, since the exchange completed. Likewise, a reader that has read every
+    byte and the end has a complete answer, and a RESET that comes after cannot take it back.
+    A RESET discards only what has not yet been delivered.
+- **Reconnects.** After a drop the client reconnects on a backoff (250 ms up to 10 s), and opens
+  honour it: an open while the machine is unreachable waits for the next scheduled attempt,
+  shared with every other open; an open given up meanwhile leaves at once and the attempt still
+  runs for the rest. The backoff starts over only once the machine has accepted the
+  tunnel (its port list or a stream), since a refusal can follow the welcome. The client opens
+  the tunnel as a device tab opens, not at its first request.
+- **Limits.** 256 open streams per device across its tunnel connections, 100 opens a second
+  after a burst of 200, and at most 64 opens waiting for authorization across the daemon. Every
+  OPEN is charged as it arrives, before anything is allocated for it, refused ones included, and
+  a device's bucket is kept until it has refilled, so closing streams buys no opens back. A
+  stream's slot is freed the moment the mux removes it. Per stream at most the mux's window
+  (256 KiB) is buffered each way, written to the loopback socket one write at a time with frames
+  that arrive meanwhile joined into the next; across a connection at most 32 MiB waits for its
+  sockets, and a stream past it is reset. That bound is the tunnel's (both its ends pass it to
+  the mux); the preview relay's streams keep only their window. Excess opens are refused with `tunnel_limit`, never
+  queued.
+- **Revocation.** Revoking a device, removing its `operate` authority or turning the tunnel off
+  ends its open streams at once. The refusal is sent first, then every TCP stream is destroyed,
+  and the connection closes once the refusal is written or after two seconds, so the device
+  hears why and backs off instead of retrying the path. A revoked device's tunnel sockets and
+  relay channels go through this path too (`tunnel_forbidden`), ahead of the generic close its
+  other sockets get, a relay channel whose welcome is still being sent included: its refusal
+  follows the welcome.
+
+### The device side
+
+- **Desktop app.** Each remote machine gets a session partition with
+  `setProxy({ proxyRules: "http://127.0.0.1:<port>", proxyBypassRules: "*,<-loopback>" })`,
+  pointing at an HTTP proxy in the main process. `*` sends every host direct and `<-loopback>`
+  then takes loopback back from Chromium's built-in bypass. The order matters: the last matching
+  rule wins, so `<-loopback>,*` sends everything direct. Chromium names the host unresolved, so
+  the proxy sees `localhost`, `foo.localhost`, `127.0.0.1` or `::1` and a port. HTTPS and every
+  websocket (`ws:` too) arrive as a `CONNECT`, whose bytes the proxy then moves through a tunnel
+  stream untouched. Plain HTTP arrives in absolute form (`GET http://localhost:3000/app.js`); the
+  proxy sends each request on in origin form, without its own headers, over streams it keeps per
+  port, as a browser keeps its connections, and passes the response back as it comes. Only this
+  local proxy reads those requests; the tunnel and any relay still carry bytes. A PAC script
+  can't do this: Chromium bypasses loopback for PAC results regardless.
+  - The proxy answers a request without its secret with `407` and `Proxy-Authenticate: Basic`.
+    Chromium then asks Electron's `login`, which the app answers with the secret only when the
+    challenge is that proxy's own (`isProxy`, its host and port) and the asking page, if there is
+    one, is in that proxy's partition. Chromium keeps the answer in the partition's auth cache and
+    sends it up front from then on, on page loads, `CONNECT`s and a service worker's requests
+    alike, with no prompt (Electron 44.5.1, verified by a real-Electron test). SOCKS5 can't do
+    this: Chromium's SOCKS5 client offers no authentication. Telling the partition's traffic by
+    the connecting process (the network service's socket, from `/proc`, libproc or the TCP table)
+    was rejected: that process serves every session of the app, Linux hides its sockets from
+    the app under a hardened ptrace scope, and it needs code per platform.
+  - A refused `CONNECT` is answered (`403`, `502`, `503`) and closed within two seconds, read or
+    not. A stream that doesn't open within ten seconds, or whose browser leaves, is given up
+    (`MachineTunnel.open`'s `signal`), resetting it on the machine. A plain-HTTP request whose
+    browser leaves gives up its open the same way, as does a phone connection the page closes
+    while its stream opens. A plain-HTTP request that
+    couldn't reach the machine drops its connection, so Chromium shows its own error page,
+    which the tab explains with the port's recorded failure.
+  - The tunnel opens with the dialer that pins what the window's own connection verified: only a
+    path its worker dials, a direct one with the listener's public-key pin and a one-use ticket,
+    a relay with the daemon's Noise key, each welcome naming the paired daemon. Each window holds
+    a lease on the machine's tunnel while it has a device tab of the machine and says which path
+    its connection is on. The lease, and the credential with it, ends when the window says the
+    machine is offline or gone, its last device tab of the machine closes, or it reloads or
+    closes. The machine's tunnel closes with its last lease, and its proxy once it has no device
+    tab either. A new credential on the same path is a new path: new streams use it.
+- **Phone.** iOS sends `localhost` and the loopback addresses straight to the phone, whatever
+  proxy is set (spike 1), so the phone takes the ports themselves. While a device tab of a machine
+  is in front, the app listens on the phone's `127.0.0.1` and `::1` on each port the machine is
+  listening on at loopback, minus ace's own. Each connection it accepts opens a tunnel stream to the
+  machine on the same port. `localhost:3000`, `127.0.0.1:3000`, `[::1]:3000` and
+  `foo.localhost:3000` all land there, so no hostname rule is needed on iOS. Every other host goes
+  direct, with no proxy set at all.
+  - The machine's listening ports come from the daemon's existing port discovery (ADR 0008's
+    `pollPorts`), sent over the tunnel connection as changes only. The page's own port is
+    listened on even before discovery reports it.
+  - A listener can't tell which web view connected, so a port serves one machine at a time:
+    the machine of the device tab in front. Switching to another machine's device tab moves the
+    listeners to that machine. Each machine keeps its own `WKWebsiteDataStore` (iOS 17 or later,
+    keyed by the machine), so cookies stay apart.
+  - A port already taken on the phone isn't listened on. A page that needs it says which port is
+    busy.
+  - The listeners, and the connections they accepted, close when no device tab is on screen: the
+    last device tab closes, the browser shows ace's Chrome or is left, or the app goes to the
+    background. They open again when a device tab is back in front. While they're open, other
+    apps on the phone could connect to them too, the way any app can reach another app's loopback
+    port.
+  - A port listens once both `127.0.0.1` and `::1` are bound (or the phone has no IPv6
+    loopback), so a page never reaches a half-bound port. An address in use is tried again
+    briefly before the port reads as busy.
+  - A route change to the same machine (relay to direct, Wi-Fi to cellular) replaces the phone's
+    runtime for that machine. Its device tabs and their pages stay where they are, and the new
+    runtime opens the tunnel on the new path. Two runtimes can't share a machine's local store,
+    so the old one stops before the new one starts, and streams open on the old path are reset
+    rather than drained. The page retries, as after any dropped connection.
+  - Swift only owns the listeners and moves bytes. Which ports to take and which machine owns them
+    are decided in the shared JavaScript, behind the native host contract.
+- **Android**, later: `ProxyController` with `removeImplicitRules()`.
+
+### Public pages don't reach the machine's localhost
+
+On the device, a public page could otherwise `fetch("http://localhost:…")` and reach the
+machine through the tunnel. Electron launches with Chromium's Local Network Access checks turned
+off, so the spike saw such a request go through with no preflight. A device tab therefore blocks
+loopback requests from pages that aren't themselves on a loopback host:
+
+- desktop app: the partition's `webRequest.onBeforeRequest` cancels a loopback request unless
+  its initiator, the origin of the document or worker that sent it (which Chromium checks against
+  the frame itself), is loopback. A public frame inside a localhost page is refused, while a
+  localhost page's own service worker, which has no frame, still works. A request with no
+  initiator, or an opaque one, is refused;
+- phone: a `WKContentRuleList` blocks loopback URLs `unless-top-url` is loopback. Its patterns
+  name every host `isMachineLoopbackHost` accepts as WebKit serializes a request's URL, a
+  trailing dot (`localhost.`) and userinfo (`user@localhost`) included; both are tested against
+  one table (`machine-loopback-urls.json`), and real web views on the simulator load each spelling
+  from a public page and from a localhost one. The top URL alone would let a public frame inside
+  a localhost page through, so a second rule blocks a child frame's loopback subresources
+  (fetches, images, scripts, websockets, everything but a document) `unless-frame-url` is
+  loopback, the frame the request loads in. A child frame's own navigation is left to the
+  navigation policy below, which lets one to loopback through only when the frame that started
+  it (`sourceFrame`'s security origin) is on loopback, whatever its method, as the desktop app
+  refuses a frame's request without a loopback initiator. Documents stay out of the frame rule
+  because WebKit matches a frame's document load against the frame before it navigates (a new
+  frame's `about:blank`), which would block a localhost app's own frames. Real web views on the
+  iOS 26.1 simulator check a public frame in a localhost page fetching, loading an image,
+  posting a form, navigating itself, framing localhost, framing its own page that then
+  navigates there, being sent through a chain of redirects into localhost, loading an image a
+  redirect sends there, opening a websocket, sending a beacon, and starting a worker (served or
+  from a blob) that fetches localhost: none arrive, beside the same from a localhost frame, all
+  of which arrive. A public frame's refusal counts only once the frame has reported to the public
+  site that it ran and made each request, so a frame that never loaded can't pass for a refusal.
+  No request type tried there gets through, workers included, so no gap is known on that
+  WebKit. The navigation policy lives in the web view's navigation delegate, which WebKit holds
+  weakly, and a tab's web view outlives the view on screen (another tab can be shown while its
+  page runs on); the tab's model therefore keeps each page's delegate with its web view, never
+  the on-screen view. Measured on iOS 26.1 with the delegate gone, WebKit drops every navigation
+  of the page, so an orphaned page failed closed (broken, not leaking); the test switches tabs
+  away and back and requires a localhost frame's loads at every stage. The cost, seen on the same simulator: a localhost page's frame
+  with no URL of its own (`srcdoc`, `about:blank`) is matched as that URL, so its loopback
+  subresources are blocked although its document is the localhost app's. Letting `about:` frame
+  URLs through would undo the rule, since a public frame can make a blank frame of its own and
+  script it, so a localhost app that loads from the machine inside such frames doesn't work in
+  a phone's device tab.
+
+Neither rule can judge a top-level navigation: its own URL is the top-level URL, so a public page
+could still submit a form to a service on the machine. Each app's navigation policy therefore
+asks one pure function, `loopbackNavigationAllowed` in `@ace/ui-core`, about every top-level
+navigation to loopback (the desktop app from the same `onBeforeRequest`, which Electron calls for
+every redirect with the method that hop sends and the initiating document's origin; the phone
+from `WKNavigationDelegate`'s navigation-action policy, which sees each redirect again with its
+method and names its source frame):
+
+- it goes ahead when the document that started it is itself on a loopback host. For a form the
+  browser resubmits (a reload, or a move back or forward to a page a POST made), that is the
+  document the browser names for it: on the phone, the page on screen;
+- it goes ahead when it is a GET: a link, a script setting `location`, a redirect chain whose
+  request to loopback is a GET, so an OAuth provider's 302 or 303 back to `localhost` works, and
+  every navigation the person starts in ace (a typed address, a tab it opened, "Open on this
+  phone", a reload or a move back or forward, and each redirect of them), since each of those
+  is a GET and a redirect keeps a GET a GET;
+- otherwise it is refused: a public page's form post, a 307 or 308 redirect that keeps its POST,
+  and a POST the browser resubmits for a page that isn't on loopback, whoever asked for the reload.
+
+No navigation is trusted for who started it, on either app. The only non-GET a person's action
+makes is a form resubmission, and that replays a page's POST: a public page whose server answers
+its form once and sends the resubmission on to `localhost` with a 307 must not reach the machine
+because the person tapped Reload. Telling the person's navigations apart would not be reliable
+anyway: on the phone (iOS 26.1) WebKit names the page on screen as the source of a load the app
+asked for, just as for a script's, and a script's `history.back()` or `location.reload()` has the
+same navigation type as the person's. The desktop app's reload never resubmits a form at all:
+Electron leaves a repost to a prompt it doesn't show, so it sends nothing (verified in a
+real-Electron run).
+
+A GET from a public page can still reach a loopback page, as it can on the machine itself; a
+service that changes state on a GET is open to that anywhere. The phone's WebKit policy can't
+call into the script while it decides, so Swift keeps a copy of the rule, tested against the same
+table as the function (`loopback-navigation-cases.json`).
+
+### Spikes
+
+1. **WebKit, answered 2026-11-19: no.** On an iPhone with iOS 27.2.1, a store's
+   `proxyConfigurations` carried `foo.localhost` and public hosts but not `localhost`,
+   `127.0.0.1` or `[::1]`, for pages, `fetch` and websockets alike. The iOS 26.1 simulator did
+   carry `localhost`, because it uses the Mac's network stack, so loopback behaviour must be
+   tested on a device. A listener in the app on the same port served `localhost`, both IP literals
+   and `foo.localhost`, and was still serving after the app had been in the background for a
+   minute.
+2. **Electron, answered 2026-11-19.** Electron 44.5.1 (Chromium 152) on macOS, partition session
+   as above: `localhost`, `127.0.0.1`, `[::1]`, `foo.localhost`, cross-port `fetch`, websockets
+   and HTTPS all went through the proxy. Public hosts went direct, and the default session and
+   other partitions were unaffected. `window.isSecureContext` stays true and the origin keeps its
+   value. Chromium retries a failed HTTPS connect once, so the tunnel sees a duplicate open.
+3. **A Vite-like dev page, answered 2026-11-19** (`apps/daemon/bench/machine-tunnel.ts`). A
+   dev server in its own process served an HTML page, its entry script and a two-level graph of
+   300 modules (about 2 KB each, 302 requests). A loader stood in for the browser: HTTP/1.1,
+   keep-alive, six connections, each module fetched once its importer arrived. The slow-link
+   shaper (`@ace/perf-kit/link`) sat on the device's leg, in front of the daemon's TLS listener
+   or of a local relay (apps/relay). "No tunnel" is the same loader straight to the dev server
+   over the same link: the floor. Load average about 10 on 12 cores.
+
+   | Link    | Path      | Tunnel up | First paint | Full load |
+   | ------- | --------- | --------: | ----------: | --------: |
+   | lan     | no tunnel |         — |       11 ms |    161 ms |
+   | lan     | direct    |     51 ms |       14 ms |    210 ms |
+   | lan     | relay     |     33 ms |       11 ms |    272 ms |
+   | 3g-fast | no tunnel |         — |      935 ms |    18.4 s |
+   | 3g-fast | direct    |     2.2 s |      924 ms |    21.3 s |
+   | 3g-fast | relay     |     1.2 s |      927 ms |    21.1 s |
+   | 3g-slow | no tunnel |         — |       1.9 s |    29.3 s |
+   | 3g-slow | direct    |     3.7 s |       1.3 s |    33.0 s |
+   | 3g-slow | relay     |     2.3 s |       1.3 s |    32.7 s |
+
+   On 3G the tunnel costs 12 to 15% of full load over the floor, the same on either path: the
+   page is bound by HTTP/1.1's round trips (302 requests over six connections), which the tunnel
+   neither adds nor removes. First paint matches the floor once the tunnel is up (the floor's
+   includes its first TCP handshake). The tunnel itself comes up while the device tab opens: about
+   seven round trips on a direct path (TLS for the ticket exchange, TLS for the socket, the
+   hello), four on a relay. A direct path can drop the exchange by keeping the next ticket the
+   welcome hands out (ADR 0150), a follow-up.
+
+## Consequences
+
+- A person on the phone uses their dev server in a real mobile browser, with the machine's
+  localhost, from any network ace reaches the machine on.
+- A device with `operate` authority can now reach every loopback service on the machine, such as
+  databases or local model servers, not only the dev servers ace found. That was already possible
+  through an agent's shell. The per-machine switch turns it off.
+- An HTTPS dev server's certificate (a local CA, for example) is checked by the device, which
+  usually doesn't trust it. The device shows its own certificate error. Trusting a machine's local
+  CA is not part of this decision.
+- Agents can't see what a person does in a device tab. A page the person wants an agent to look at
+  has to be opened in ace's Chrome.
+- The preview gateway stays for the web app's "Open outside" and for browsers that are not ace's.
+
+## Alternatives rejected
+
+- **Rewrite URLs to per-port hostnames** (ADR 0008's gateway). The origin changes, so pages that
+  call other localhost ports or redirect to localhost break.
+- **Show every page as video of ace's Chrome.** Right for agents, wrong for a person using their
+  own page.
+- **Let the relay read the HTTP.** Simpler, and websockets would work without a tunnel, but the
+  relay would see the dev server's traffic. The relay stays end-to-end encrypted.
+- **Let agents drive the phone's `WKWebView`.** It has no automation protocol like Chrome's
+  DevTools Protocol. Agents keep ace's Chrome.

@@ -12,6 +12,7 @@ export {
   ComputerUseSettingsScreen,
   GeneralSettingsScreen,
   ProfileSettingsScreen,
+  EditorSettingsScreen,
   KeyboardSettingsScreen,
   NotificationSettingsScreen,
   ProviderDetailScreen,

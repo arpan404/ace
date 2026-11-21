@@ -70,6 +70,10 @@ pub struct Entry {
     pub id: String,
     pub name: String,
     pub category: Category,
+    /// Words a task that needs it may use ("issues", "inbox"): how [`crate::fit`] finds the
+    /// apps that fit a bot's task or a need it names, with no model call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<String>,
     pub url: String,
     pub sign_in: Vec<SignIn>,
     #[serde(default)]
@@ -99,6 +103,12 @@ pub struct Entry {
     /// What every tool of the app does at least (`pay` for a payments app), read-only or not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub every_tool: Option<Value>,
+    /// ace reviewed this server and trusts its tools' annotations (ADR 0202 §2): a tool it marks
+    /// `readOnlyHint: true` reads without asking, any other annotated tool reaches outside the
+    /// bot. Without it the annotations are the server's own word and lower nothing. Only a
+    /// shipped entry carries it; a server added by URL never does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trusted_annotations: bool,
 }
 
 #[derive(Deserialize)]
@@ -235,6 +245,7 @@ mod tests {
             "id",
             "name",
             "category",
+            "words",
             "url",
             "sign_in",
             "via",

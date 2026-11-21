@@ -161,9 +161,12 @@ export class EngineRepository {
       correlated: this.store.statement(
         `UPDATE intents SET awaiting=0, acknowledged=1, uncertain=0, status=CASE WHEN uncertain=1 THEN 'done' ELSE status END, error=NULL WHERE thread_id=? AND command_id=? AND submitted_generation IS NOT NULL AND (awaiting=1 OR uncertain=1) RETURNING id`,
       ),
+      // A run start takes the input handed over for it and whatever else of its group was
+      // handed over with it. A member claimed and not yet sent is never taken: it waits for its
+      // own hand-over (`pending.handedOver`).
       ack: this.store
-        .statement(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
-        SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
+        .statement(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND submitted_generation IS NOT NULL AND ack_target=(
+        SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 AND submitted_generation IS NOT NULL ORDER BY id LIMIT 1
       ) RETURNING id`),
     }));
   }
@@ -584,6 +587,27 @@ export class EngineRepository {
       ...(held ? { held } : {}),
       ...(stopped ? { stopped } : {}),
     };
+  }
+  /** The thread's newest command ace took, by intent id (never reused, never deleted). */
+  latestIntent(id: ThreadId): number {
+    return Number(
+      this.store.statement("SELECT COALESCE(MAX(id),0) AS n FROM intents WHERE thread_id=?").get(id)
+        ?.n,
+    );
+  }
+  /**
+   * What became of the thread's commands newer than `intent`: one was carried out or handed to
+   * the provider (its input taken: done, or acknowledged by the provider), one is still being carried
+   * out, or none did either. One still queued, sent back to the queue or refused changed nothing.
+   */
+  commandsSince(id: ThreadId, intent: number): "acted" | "in_flight" | "none" {
+    const row = this.store
+      .statement(
+        "SELECT MAX(status='done' OR acknowledged=1) AS acted, MAX(status='running') AS running FROM intents WHERE thread_id=? AND id>?",
+      )
+      .get(id, intent);
+    if (Number(row?.acted ?? 0)) return "acted";
+    return Number(row?.running ?? 0) ? "in_flight" : "none";
   }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.

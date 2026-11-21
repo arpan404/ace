@@ -95,9 +95,13 @@ async fn an_openai_endpoints_models_are_listed_live_and_saved_with_their_facts()
         json!([
             // Only what someone stated: the list gave a context and no capabilities, the person
             // capabilities and no context. Spade's own guesses for the rest never show.
-            { "id": "kimi", "name": "kimi", "context": 262144, "capabilities": null, "source": "listed" },
+            // The gateway is on this computer, so each model also says whether Spade's checks
+            // ran (ADR 0205 §3): they run when a model is added from a local server.
+            { "id": "kimi", "name": "kimi", "context": 262144, "capabilities": null, "source": "listed",
+              "probes": { "state": "unchecked" }, "known_good": null },
             { "id": "vendor/typed", "name": "vendor/typed", "context": null,
-              "capabilities": ["tools", "images"], "source": "typed" }
+              "capabilities": ["tools", "images"], "source": "typed",
+              "probes": { "state": "unchecked" }, "known_good": null }
         ])
     );
     let (status, _) = spade
@@ -222,6 +226,35 @@ async fn an_endpoint_an_agent_uses_cannot_be_deleted_and_no_key_is_ever_answered
     assert_eq!(spade.delete("/v1/endpoints/local").await?.0, 204);
     assert_eq!(spade.keys.get("local")?, None, "its key went with it");
     assert_eq!(endpoint(&spade, "local").await?, Value::Null);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_endpoint_named_local_keeps_its_models_beside_the_local_server_list() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    spade.engine.set_local_servers(Vec::new());
+    spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Local", "format": "openai-chat", "base_url": "http://127.0.0.1:9",
+                    "needs_key": false }),
+        )
+        .await?;
+    let (status, body) = spade
+        .post("/v1/endpoints/local/models", json!({ "id": "llama" }))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["endpoint"]["models"][0]["id"], "llama", "{body}");
+    let (status, body) = spade.get("/v1/endpoints/local").await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["servers"],
+        json!([]),
+        "still the servers on this computer"
+    );
+    let (status, _) = spade.delete("/v1/endpoints/local/models?id=llama").await?;
+    assert_eq!(status, 204);
+    assert_eq!(endpoint(&spade, "local").await?["models"], json!([]));
     Ok(())
 }
 

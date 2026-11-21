@@ -12,8 +12,16 @@ import {
 export type { Device } from "@ace/protocol";
 export type Scope = DeviceScope;
 export const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope) =>
+/**
+ * Whether a device may act with `scope`. A member's socket on an organization's host that only
+ * talks to Spade (`spadeOnly`, ADR 0206 §2.2) is refused everywhere else, whatever its scopes.
+ */
+export const allows = (
+  device: (Pick<Device, "scopes"> & { spadeOnly?: boolean | undefined }) | undefined,
+  scope: Scope,
+) =>
   device !== undefined &&
+  device.spadeOnly !== true &&
   (device.scopes.includes(scope) ||
     (scope === "projects" || scope === "accounts"
       ? device.scopes.includes("desktop")
@@ -58,6 +66,16 @@ export type SessionActor = Device & {
    * device's standing is proven on its socket instead.
    */
   person?: boolean | undefined;
+  /**
+   * For a member admitted to an organization's host (ADR 0206 §2.2): who, in which organization,
+   * with which role. Their standing is proven on the socket, as a person's is.
+   */
+  member?: { org: string; role: string; account: string } | undefined;
+  /**
+   * A member whose role holds no admin on the host: their socket reaches Spade, where shared
+   * bots live, and nothing else (`allows` refuses them every scope).
+   */
+  spadeOnly?: boolean | undefined;
 };
 const generationOf = (row: Record<string, SQLOutputValue>) =>
   hash(`generation:${String(row.token_hash)}`).slice(0, 32);
@@ -82,6 +100,15 @@ export class Devices {
     this.revoked.add(listener);
     return () => {
       this.revoked.delete(listener);
+    };
+  }
+  private rescoped = new Set<(id: string) => void>();
+  /** Hear a device's scopes change (`setScopes`): what it holds open may need ending. */
+  onRescope(listener: (id: string) => void): () => void {
+    if (this.rescoped.size >= 32) throw new Error("Device rescope subscriber limit");
+    this.rescoped.add(listener);
+    return () => {
+      this.rescoped.delete(listener);
     };
   }
   private runtime: CredentialRuntime;
@@ -341,6 +368,7 @@ export class Devices {
     if (!activeDevice(held, at)) return undefined;
     const device = Device.parse({ ...held, scopes: [...new Set(scopes)] });
     this.rescope.run(JSON.stringify(device.scopes), device.id);
+    for (const listener of this.rescoped) listener(device.id);
     return device;
   }
   revoke(id: string, at: number): boolean {

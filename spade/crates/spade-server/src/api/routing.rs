@@ -1,5 +1,5 @@
 //! Model roles over HTTP (ADR 0162): the person's global and per-bot choices, each role's model
-//! and what each role spent. The UI (Settings › Spade › Models) comes later.
+//! and what each role spent. Each role is a route (ADR 0205 §2): models in order.
 
 use std::collections::BTreeMap;
 
@@ -18,14 +18,16 @@ use crate::engine::{OversightError, RolesChange};
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/models/roles", get(global).put(change_global))
+        .route("/models/package-routes", get(package_routes))
         .route("/agents/{id}/models", get(agent).put(change_agent))
 }
 
-/// A change: each role named maps to a model, or `null` to clear it.
+/// A change: each role named maps to its route (a list of models in order, or one model), or
+/// `null` (or `[]`) to clear it. `main`'s route is what the bot's own model falls back to.
 #[derive(Deserialize)]
 struct Change {
     #[serde(default)]
-    roles: BTreeMap<String, Option<String>>,
+    roles: BTreeMap<String, Option<spade_core::routing::Route>>,
     #[serde(default, deserialize_with = "present")]
     allowed: Option<Option<Vec<String>>>,
     #[serde(default, deserialize_with = "present")]
@@ -97,4 +99,9 @@ pub(super) fn entries_with_roles(entries: &[spade_core::activity::Entry]) -> Vec
             value
         })
         .collect()
+}
+
+/// What a package's bot would think with (ADR 0205 §3): for the install review's warning.
+async fn package_routes(State(state): State<AppState>) -> Response {
+    off_thread(move || Json(state.engine.package_routes_view()).into_response()).await
 }

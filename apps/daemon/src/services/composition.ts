@@ -39,6 +39,7 @@ import { startNotifications } from "./notifications.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import { startUtility } from "./utility.ts";
+import type { Command } from "@ace/protocol";
 import type { ServiceContext, Services } from "./types.ts";
 import { loadOnStart, type ServiceDefinition } from "./startup.ts";
 import { serviceOrder, type ServiceName } from "./service-order.ts";
@@ -88,6 +89,7 @@ const starts: Record<ServiceName, ServiceDefinition["start"]> = {
   parcels: loadOnStart(() => import("../parcels/service.ts"), "startParcels"),
   externalMcp: loadOnStart(() => import("./external-mcp.ts"), "startExternalMcp"),
   spade: loadOnStart(() => import("./spade.ts"), "startSpade"),
+  threadAddress: loadOnStart(() => import("./thread-address.ts"), "startThreadAddress"),
   previewClient: startPreviewClient,
   backgroundPorts: startBackgroundPorts,
   threadOrganization: startThreadOrganization,
@@ -108,11 +110,35 @@ export function readyServices(
 ): asserts services is Partial<Services> & Pick<Services, "handler"> {
   const handler = requireService(services.handler, "engine");
   services.handler = {
-    handle: (command, store) =>
-      services.asks?.resolve(command) ??
-      services.browserHelp?.resolve(command) ??
-      services.marketAgent?.requests.resolve(command) ??
-      handler.handle(command, store),
+    handle: (sent, store) => {
+      // Stop in a thread also stops what its bots and clubs are answering (ADR 0198).
+      if (sent.payload.type === "thread.interrupt")
+        void services.threadAsks?.stopThread(sent.payload.threadId);
+      const command = withBotReplies(sent, services.threadAsks);
+      return (
+        services.asks?.resolve(command) ??
+        services.browserHelp?.resolve(command) ??
+        services.marketAgent?.requests.resolve(command) ??
+        handler.handle(command, store)
+      );
+    },
+  };
+}
+/**
+ * The person's message to their thread's agent carries what bots answered there since its last
+ * turn (ADR 0198), as untrusted context the daemon expands; ace's own sends don't take them.
+ */
+function withBotReplies(command: Command, asks: Services["threadAsks"]): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send" || !asks) return command;
+  if (p.origin && p.origin.kind !== "person") return command;
+  if (p.origin?.via) return command;
+  const replies = asks.takeReplies(p.threadId);
+  if (!replies) return command;
+  const context = p.context ?? { mentions: [], attachments: [] };
+  return {
+    ...command,
+    payload: { ...p, context: { ...context, items: [...(context.items ?? []), replies] } },
   };
 }
 export type { ServiceContext };

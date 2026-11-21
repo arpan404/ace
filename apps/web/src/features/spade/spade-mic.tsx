@@ -5,9 +5,14 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { StripSurface } from "@/features/thread/index.ts";
-import { prepareSpadeVoice, type PreparedVoice } from "./spade-attachments.ts";
+import type { PreparedVoice } from "./spade-attachments.ts";
 import { transcribe } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { stopSpeaking } from "./spade-speech.ts";
+import { talkLine } from "./spade-talk.ts";
+import type { TalkMode } from "./spade-talk-mode.ts";
+import { wordsOf } from "./spade-talk-mode.ts";
+import { TranscriptionSetup } from "./spade-voice-setup.tsx";
 import {
   canRecordVoice,
   hasSpeechRecognition,
@@ -24,7 +29,8 @@ const holdMs = 400;
  * Voice in (ADR 0134): hold the mic to record, or tap it to start and again to stop; Space or
  * Enter toggles it. The words are heard on the device where the browser can, else by the
  * transcription model; they land in the message to be checked, and the recording rides along.
- * Without either way to turn speech into words, there is no mic.
+ * Without either way to turn speech into words, the mic offers the person's endpoints that can
+ * (`TranscriptionSetup`), one click each. Starting to talk stops anything being read aloud.
  */
 export function useSpadeVoice(props: {
   transcriptionModel: string | undefined;
@@ -43,7 +49,10 @@ export function useSpadeVoice(props: {
   /** A pointer is down on the mic (and captured by it). */
   const held = useRef(false);
   const speech = hasSpeechRecognition() && !speechBroken;
-  const available = canRecordVoice() && (speech || props.transcriptionModel !== undefined);
+  /** Nothing here turns speech into words yet: a press offers a way first. */
+  const needsSetup = !speech && props.transcriptionModel === undefined;
+  const [setup, setSetup] = useState(false);
+  const available = canRecordVoice();
   useEffect(
     () => () => {
       starting.current?.abort();
@@ -59,6 +68,9 @@ export function useSpadeVoice(props: {
     });
 
   const start = async () => {
+    if (needsSetup) return setSetup(true);
+    // The person talking stops the bot talking.
+    stopSpeaking();
     const controller = new AbortController();
     starting.current = controller;
     setState("starting");
@@ -100,16 +112,15 @@ export function useSpadeVoice(props: {
     try {
       const take = await running.finish();
       if (take.recognitionBroken) setSpeechBroken(true);
-      const prepared = await prepareSpadeVoice(take.recording);
-      const words =
-        take.heard ||
-        (props.transcriptionModel !== undefined ? (await transcribe(client, prepared)).trim() : "");
+      const { words, voice: prepared } = await wordsOf(take, (recording) =>
+        props.transcriptionModel !== undefined
+          ? transcribe(client, recording)
+          : Promise.resolve(""),
+      );
       if (!words) {
-        fail(
-          take.recognitionBroken && props.transcriptionModel === undefined
-            ? "Couldn't turn speech into words here. Choose a transcription model in Settings › Spade."
-            : "Couldn't make out any words",
-        );
+        // The device couldn't after all, and nothing else can yet: offer a way.
+        if (take.recognitionBroken && props.transcriptionModel === undefined) setSetup(true);
+        else fail("Couldn't make out any words");
         return;
       }
       props.onWords(words);
@@ -125,6 +136,14 @@ export function useSpadeVoice(props: {
     available,
     state,
     voice,
+    /** On-device recognition is worth trying here. */
+    recognize: speech,
+    /** No way to turn speech into words yet. */
+    needsSetup,
+    /** The way-to-transcribe choice is open above the composer. */
+    setup,
+    openSetup: () => setSetup(true),
+    closeSetup: () => setSetup(false),
     remove: () => setVoice(undefined),
     /** Pointer handlers and keys for the mic button. */
     press(event: PointerEvent<HTMLButtonElement>) {
@@ -190,9 +209,14 @@ export function MicButton(props: { voice: SpadeVoiceInput }) {
   );
 }
 
-/** The strip above the composer while recording, transcribing, or with a recording attached. */
+/**
+ * The strip above the composer while recording, transcribing, choosing a way to transcribe, or
+ * with a recording attached.
+ */
 export function VoiceStrip(props: { voice: SpadeVoiceInput }) {
   const { voice } = props;
+  if (voice.setup)
+    return <TranscriptionSetup onChosen={voice.closeSetup} onClose={voice.closeSetup} />;
   if (voice.state === "recording" || voice.state === "transcribing")
     return (
       <StripSurface slot="voice" variant={voice.state}>
@@ -218,17 +242,62 @@ export function VoiceStrip(props: { voice: SpadeVoiceInput }) {
 }
 
 /**
- * The filled button at the composer's end while the field is empty: voice mode, where the person
- * talks with the bot. Voice comes later; until then it is drawn but off, and says so.
+ * The filled button at the composer's end while the field is empty: a spoken conversation with
+ * the bot, hands free. Pressed again, it ends. Without a way to turn speech into words yet, it
+ * offers one first.
  */
-export function VoiceButton(props: { name: string }) {
+export function VoiceButton(props: { name: string; talk: TalkMode; voice: SpadeVoiceInput }) {
+  const { talk, voice } = props;
+  const on = talk.state.kind !== "off";
+  if (!voice.available)
+    return (
+      <IconButton
+        icon={WaveformIcon}
+        label={`Talk with ${props.name}`}
+        disabled
+        reason="This device can't record"
+        className={filled}
+      />
+    );
   return (
     <IconButton
       icon={WaveformIcon}
-      label={`Talk with ${props.name}`}
-      disabled
-      reason="Voice is coming"
-      className={`${round} bg-tint text-tint-foreground hover:bg-tint hover:text-tint-foreground`}
+      label={on ? `End the conversation with ${props.name}` : `Talk with ${props.name}`}
+      tip={on ? "End" : "Talk hands free"}
+      pressed={on}
+      className={filled}
+      onClick={() => (on ? talk.end() : voice.needsSetup ? voice.openSetup() : talk.start())}
     />
+  );
+}
+
+const filled = `${round} bg-tint text-tint-foreground hover:bg-tint hover:text-tint-foreground`;
+
+/**
+ * The one quiet line above the field while a spoken conversation lasts, in the composer's strip
+ * like Recording: where it is, in words, and End. Nothing tinted: the words say it.
+ */
+export function TalkLine(props: { name: string; talk: TalkMode; push: boolean }) {
+  const line = talkLine(props.talk.state, props.name);
+  if (!line) return null;
+  const stop =
+    props.talk.state.kind === "speaking"
+      ? " · Esc to stop"
+      : props.talk.state.kind === "listening" && props.push
+        ? " · it sends when you stop talking"
+        : "";
+  return (
+    <StripSurface slot="talk" variant={props.talk.state.kind}>
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs"
+      >
+        <span className="min-w-0 flex-1 truncate text-foreground">{`${line}${stop}`}</span>
+        <Button size="xs" variant="ghost" onClick={props.talk.end}>
+          End
+        </Button>
+      </div>
+    </StripSurface>
   );
 }

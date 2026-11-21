@@ -52,9 +52,20 @@ pub enum Frame {
 /// `TOO_LARGE` when the message does not fit in [`MAX_FRAME_LEN`], and `INVALID_ARGUMENT` when it
 /// cannot be serialized.
 pub fn encode(message: &Message) -> Result<Vec<u8>, Error> {
-    let payload =
-        serde_json::to_vec(message).map_err(|source| Error::Message { id: None, source })?;
-    frame(JSON_KIND, &payload)
+    // The JSON is written straight after a placeholder header, which is filled in once its
+    // length is known, so a frame costs one buffer rather than a payload and a copy of it.
+    let mut bytes = Vec::with_capacity(256);
+    bytes.extend_from_slice(&[0; HEADER_LEN]);
+    bytes.push(JSON_KIND);
+    serde_json::to_writer(&mut bytes, message)
+        .map_err(|source| Error::Message { id: None, source })?;
+    let length = (bytes.len() - HEADER_LEN) as u64;
+    if length > u64::from(MAX_FRAME_LEN) {
+        return Err(Error::FrameTooLarge { length });
+    }
+    let length = u32::try_from(length).map_err(|_| Error::FrameTooLarge { length })?;
+    bytes[..HEADER_LEN].copy_from_slice(&length.to_le_bytes());
+    Ok(bytes)
 }
 
 /// Encode a binary body as one frame, tagged with the request id it belongs to.

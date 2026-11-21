@@ -11,6 +11,7 @@ use spade_core::checkpoint::Checkpoints;
 use spade_core::context;
 use spade_core::event::{Call, FailureKind, Known, ReplyEnd, Tokens};
 use spade_core::maintenance::{Pause, Point, halts};
+use spade_core::routing::fallback;
 use spade_core::turn::{Next, next_step, progress, stop_requested, unique_call_ids};
 use spade_core::{Event, Transcript, spending, title};
 use spade_models::{Delta, ToolCall};
@@ -174,6 +175,9 @@ pub(super) async fn run(
     if let Some(planned) = planned {
         engine.carry_on_as(&id, planned);
     }
+    // An update the person accepted while it worked applies now, if nothing of it still works
+    // (ADR 0200 §6.1); a task carrying on keeps it waiting for that turn's end.
+    crate::packages::held::turn_ended(&engine, &id);
 }
 
 /// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no
@@ -281,6 +285,17 @@ async fn drive(
                 // prompt is built, so the step reads it.
                 if !helper && engine.offer_person_activity(id) {
                     continue;
+                }
+                // A shared bot thinks only with models its organization allows, and never on a
+                // member's coding subscription (ADR 0206 §3).
+                if let Some(why) = engine.org_model_refusal(id, &model) {
+                    return Ended::Failed(String::new(), why.to_owned());
+                }
+                // A reply left open on a subscription its maker's terms no longer allow (one
+                // from before this record): it ends with why, and what comes next waits for the
+                // person to pick another model (ADR 0205 §4).
+                if let Some(record) = engine.refused_terms(&model) {
+                    return Ended::Failed(String::new(), record.refusal());
                 }
                 if cli {
                     let step =
@@ -406,8 +421,13 @@ async fn model_step(
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Step {
-    let model = turn_model(engine, events, reply);
-    let images = engine.images_for(&model);
+    let started_on = turn_model(engine, events, reply);
+    // The models the step may run on (ADR 0205 §2), from the one its reply's last step ran on, so
+    // a fallback doesn't move the next step back and forth.
+    let whole = engine.step_route(id, &started_on);
+    let route = &whole[fallback::start(&whole, fallback::last_served(events, reply))..];
+    let lead = route.first().cloned().unwrap_or(started_on);
+    let images = engine.images_for(&lead);
     let system = engine.system_for(id);
     let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
     let live = engine.live(id);
@@ -416,7 +436,6 @@ async fn model_step(
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     // Paid for when it ends (ADR 0135); never refused (ADR 0166).
     let hint = super::ledger::turn_hint(events);
-    let admitted = engine.admit(id, &model);
     // A step cut off before its usage came is still paid for: its prompt, and what streamed.
     let input = super::ledger::prompt_tokens(&prompt);
     let partly = |text: &str| {
@@ -425,8 +444,11 @@ async fn model_step(
     };
     // Sent again while it fails before anything streams; only a call the endpoint answered is
     // paid for, and one cut off while waiting for its answer may have been.
-    let mut stream = match super::retry::open(engine, id, reply, &model, &prompt, stop, pause).await
-    {
+    let (opened, served, skipped) =
+        super::retry::open(engine, id, reply, route, &prompt, stop, pause).await;
+    let model = if served.is_empty() { lead } else { served };
+    let admitted = engine.admit(id, &model);
+    let mut stream = match opened {
         super::retry::Opened::Answering(stream) => stream,
         super::retry::Opened::Stopped => {
             admitted.settle(&partly(""));
@@ -450,6 +472,22 @@ async fn model_step(
             );
         }
     };
+    // Which model served it and why the earlier ones didn't, for a bot with a route.
+    let served = (whole.len() > 1).then(|| {
+        let line = fallback::line(
+            &whole,
+            &model,
+            &skipped,
+            |m| engine.model_name(m),
+            |m| engine.is_local_model(m),
+        );
+        Event::Known(Known::StepServed(fallback::Served {
+            reply: reply.to_owned(),
+            model: model.clone(),
+            skipped,
+            line,
+        }))
+    });
     let mut text = String::new();
     let mut calls: Vec<ToolCall> = Vec::new();
     let mut checkpoints = Checkpoints::new(engine.now_ms());
@@ -508,6 +546,11 @@ async fn model_step(
                         cost_micros: cost,
                         seen: Some(events.len()),
                     });
+                    if let Some(served) = &served
+                        && let Err(error) = engine.record(id, served)
+                    {
+                        return Step::Failed(String::new(), error.to_string());
+                    }
                     if let Err(error) = engine.record(id, &step) {
                         return Step::Failed(String::new(), error.to_string());
                     }
@@ -711,7 +754,7 @@ mod tests {
         engine.record("c1", &Event::user_message("Hi"))?;
         engine.record("c1", &Event::reply_started("r1", "fake/m"))?;
         // Storage fails from the moment the worker is scheduled.
-        let hide = rusqlite::Connection::open(dir.path().join("spade.sqlite"))?;
+        let hide = spade_store::Store::connect(dir.path().join("spade.sqlite"))?;
         hide.execute_batch("ALTER TABLE events RENAME TO events_away;")?;
         let (_stop, stop_rx) = watch::channel(false);
         let pause_rx = engine.pause.subscribe();

@@ -37,6 +37,7 @@ export async function remoteCliFixture() {
     failedTickets = 0,
     dropReply = false,
     dropSnapshot = false,
+    withholdHanded = false,
     lostSnapshots = 0;
   const commands: Command[] = [];
   const receipts: string[] = [];
@@ -105,6 +106,11 @@ export async function remoteCliFixture() {
           receipts.push(parsed.commandId);
           if (dropReply) return;
         }
+        if (withholdHanded && parsed.type === "welcome" && parsed.ticket) {
+          const { ticket: _handed, ...welcome } = parsed;
+          if (downstream.readyState === WebSocket.OPEN) downstream.send(JSON.stringify(welcome));
+          return;
+        }
       }
       if (downstream.readyState === WebSocket.OPEN) downstream.send(bytes, { binary });
     });
@@ -150,6 +156,10 @@ export async function remoteCliFixture() {
     },
     restoreReplies() {
       dropReply = false;
+    },
+    /** Welcomes reach the CLI without their handed-over next ticket, so a reconnect exchanges one. */
+    withholdHandedTickets() {
+      withholdHanded = true;
     },
     interruptWithTicketFailure() {
       ticketFailures = 1;

@@ -9,3 +9,10 @@ export { visualizationKind } from "./kind.ts";
 export { visualizationTab } from "./visualization-tab.ts";
 /** Which pages in a transcript keep a live frame. */
 export { LiveFrames, LiveFramesContext } from "./live-frames.ts";
+/**
+ * The sandboxed frame itself, for a package panel's page (ADR 0200 §5.2), which reuses it with
+ * its own channel, a live-frame pool of its own and the live theme.
+ */
+export { HtmlFrame, type PanelChannel } from "./html-frame.tsx";
+export { useLiveFrame } from "./live-frames.ts";
+export { useHtmlTheme } from "./page-source.ts";

@@ -3,6 +3,8 @@ import { useClient } from "@ace/client-react";
 import type { ProviderKind } from "@ace/protocol";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
+import { useConfirmPersonNotice } from "@/features/ace-account/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { daemonErrorCode, describeDaemonError, useDaemonReady } from "@/lib/daemon-command.ts";
 import { catalogKey } from "@/lib/model-catalog.ts";
@@ -11,6 +13,11 @@ import { catalogKey } from "@/lib/model-catalog.ts";
 export interface RefreshModels {
   /** Discover one provider's models again (every provider's without one). */
   refresh(provider: ProviderKind | undefined, instance?: string): void;
+  /**
+   * Load one row's models because the person asked (Load models): the one request that starts
+   * an ACP agent for its list. The daemon admits it only from the person's own device.
+   */
+  load(instance: string): void;
   /** A refresh this window asked for is running. */
   pending: boolean;
   /** Why it can't refresh: offline, or this device may only read. */
@@ -18,6 +25,7 @@ export interface RefreshModels {
 }
 
 const readOnly = "This device can view models but not refresh them";
+class LoadRefused extends Error {}
 /** Daemons that refused this device a refresh: it only has the read scope. */
 const refused = new WeakSet<ClientApi>();
 
@@ -31,11 +39,35 @@ export function useRefreshModels(): RefreshModels {
   const queryClient = useQueryClient();
   const daemon = useDaemonReady();
   const toast = useToast();
+  const confirm = useConfirmPersonNotice();
   const [forbidden, setForbidden] = useState(() => refused.has(client));
   const mutation = useMutation({
-    mutationFn: (filter: { provider?: ProviderKind | undefined; instance?: string | undefined }) =>
-      client.request({ type: "models.refresh", filter }),
-    onError: (error) => {
+    mutationFn: async (
+      request:
+        | { provider?: ProviderKind | undefined; instance?: string | undefined }
+        | { load: string; confirmed?: boolean },
+    ) => {
+      if (!("load" in request)) return client.request({ type: "models.refresh", filter: request });
+      const reply = await withStanding(
+        client,
+        () => client.request({ type: "models.load", instance: request.load }),
+        ({ result }) => "ok" in result && !result.ok && isStandingRefusal(result.reason),
+      );
+      // A refusal (not the person's device) is the daemon's own sentence.
+      if ("ok" in reply.result && !reply.result.ok) throw new LoadRefused(reply.result.reason);
+      return reply;
+    },
+    onError: (error, request) => {
+      if (
+        "load" in request &&
+        !request.confirmed &&
+        error instanceof LoadRefused &&
+        isStandingRefusal(error.message) &&
+        confirm(client, () => mutation.mutate({ ...request, confirmed: true }))
+      )
+        return;
+      if (error instanceof LoadRefused)
+        return toast.error({ title: "Couldn't load models", description: error.message });
       const code = daemonErrorCode(error);
       if (code !== "forbidden")
         return toast.error({
@@ -51,6 +83,9 @@ export function useRefreshModels(): RefreshModels {
   return {
     refresh: (provider, instance) => {
       if (daemon.ready && !forbidden) mutation.mutate({ provider, instance });
+    },
+    load: (instance) => {
+      if (daemon.ready && !forbidden) mutation.mutate({ load: instance });
     },
     pending: mutation.isPending,
     reason: forbidden ? readOnly : daemon.reason,

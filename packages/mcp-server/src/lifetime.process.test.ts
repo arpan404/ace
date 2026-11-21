@@ -2,7 +2,13 @@ import { ThreadId } from "@ace/protocol";
 import { setImmediate } from "node:timers/promises";
 import { z } from "zod";
 import { afterEach, expect, it, vi } from "vitest";
-import { CredentialRegistry, ToolRegistry, startMcpServer, type Scheduler } from "./index.ts";
+import {
+  CredentialRegistry,
+  ToolRegistry,
+  startMcpServer,
+  type CallAct,
+  type Scheduler,
+} from "./index.ts";
 import { deferred, harness, scope } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -132,6 +138,7 @@ it("retains capacity for a backend that ignores timeout until it finishes", asyn
   const credentials = new CredentialRegistry(() => "a".repeat(64));
   const lease = credentials.issue(scope(), new AbortController().signal);
   const release = deferred<void>();
+  const started = deferred<void>();
   const finished = deferred<void>();
   registry.register({
     name: "ace_wait",
@@ -141,6 +148,7 @@ it("retains capacity for a backend that ignores timeout until it finishes", asyn
     capability: null,
     timeoutMs: 1,
     async run() {
+      started.resolve();
       await release.promise;
       finished.resolve();
       return { done: true };
@@ -148,6 +156,8 @@ it("retains capacity for a backend that ignores timeout until it finishes", asyn
   });
   const signal = new AbortController().signal;
   const first = registry.call("ace_wait", {}, lease.principal, signal);
+  // The deadline passes once the backend runs, and the backend ignores it.
+  await started.promise;
   (await timer.promise)();
   expect(await first).toMatchObject({
     isError: true,
@@ -403,4 +413,149 @@ it("a thread holding forty long waits can still call its other tools", async () 
       expect(result).toMatchObject({ structuredContent: { done: true } });
     credentials.close();
   }
+});
+
+it.each(["the client leaves", "the tool's deadline passes"] as const)(
+  "a host's hook that hangs gives the call's slot back when %s, and lets go of its late answer",
+  async (how) => {
+    const deadlines: (() => void)[] = [];
+    // The first call's hook answers only after the call was given up; later ones at once.
+    const late = deferred<CallAct | undefined>();
+    let released = 0;
+    const hooks: Promise<CallAct | undefined>[] = [late.promise];
+    const registry = new ToolRegistry({
+      scheduler: {
+        after(_, callback) {
+          deadlines.push(callback);
+          return () => {};
+        },
+      },
+      maxCalls: 1,
+      actAs: () => hooks.shift() ?? Promise.resolve(undefined),
+    });
+    const credentials = new CredentialRegistry(() => "a".repeat(64));
+    const lease = credentials.issue(scope(), new AbortController().signal);
+    registry.register({
+      name: "ace_wait",
+      description: "Wait",
+      input,
+      output,
+      capability: null,
+      timeoutMs: 1_000,
+      async run() {
+        return { done: true };
+      },
+    });
+    const client = new AbortController();
+    const first = registry.call("ace_wait", {}, lease.principal, client.signal);
+    await expect.poll(() => deadlines.length).toBe(1);
+    if (how === "the client leaves") client.abort();
+    else deadlines[0]?.();
+    expect(await first).toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: expect.stringContaining(
+            how === "the client leaves" ? '"code":"cancelled"' : '"code":"tool_timeout"',
+          ),
+        },
+      ],
+    });
+    expect(
+      await registry.call("ace_wait", {}, lease.principal, new AbortController().signal),
+    ).toMatchObject({ structuredContent: { done: true } });
+    // What the hook holds for the call it answered too late is let go.
+    late.resolve({ caller: lease.principal.scope, settled: () => released++ });
+    await expect.poll(() => released).toBe(1);
+  },
+);
+
+it("a host's hook and the tool share one deadline, counted from the call's start", async () => {
+  // A clock the test moves: each timer fires once its time comes.
+  let now = 0;
+  const timers = new Set<{ at: number; run: () => void }>();
+  const advance = (to: number) => {
+    now = to;
+    for (const timer of timers)
+      if (timer.at <= to) {
+        timers.delete(timer);
+        timer.run();
+      }
+  };
+  const hook = deferred<undefined>();
+  const registry = new ToolRegistry({
+    scheduler: {
+      after(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => timers.delete(timer);
+      },
+    },
+    actAs: () => hook.promise,
+  });
+  const credentials = new CredentialRegistry(() => "a".repeat(64));
+  const lease = credentials.issue(scope(), new AbortController().signal);
+  const started = deferred<void>();
+  registry.register({
+    name: "ace_wait",
+    description: "Wait",
+    input,
+    output,
+    capability: null,
+    timeoutMs: 1_000,
+    async run(_, context) {
+      started.resolve();
+      await new Promise((resolve) => context.signal.addEventListener("abort", resolve));
+      return { done: true };
+    },
+  });
+  const call = registry.call("ace_wait", {}, lease.principal, new AbortController().signal);
+  // The hook takes most of the budget; what is left is the tool's.
+  advance(600);
+  hook.resolve(undefined);
+  await started.promise;
+  advance(1_000);
+  expect(await call).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining('"code":"tool_timeout"') }],
+  });
+});
+
+it("a stalled observation of a result never holds the reply or the slot past the call's deadline", async () => {
+  const deadlines: (() => void)[] = [];
+  let observations = 0;
+  const registry = new ToolRegistry({
+    scheduler: {
+      after(_, callback) {
+        deadlines.push(callback);
+        return () => {};
+      },
+    },
+    maxCalls: 1,
+    // The first result's evidence write hangs, as on a stalled disk; later ones finish at once.
+    observeCall: () => async () => {
+      if (observations++ === 0) await new Promise(() => {});
+    },
+  });
+  const credentials = new CredentialRegistry(() => "a".repeat(64));
+  const lease = credentials.issue(scope(), new AbortController().signal);
+  registry.register({
+    name: "ace_wait",
+    description: "Wait",
+    input,
+    output,
+    capability: null,
+    timeoutMs: 1_000,
+    async run() {
+      return { done: true };
+    },
+  });
+  const first = registry.call("ace_wait", {}, lease.principal, new AbortController().signal);
+  await expect.poll(() => observations).toBe(1);
+  deadlines[0]?.();
+  // The tool had answered: that answer goes, though its evidence never finished.
+  expect(await first).toMatchObject({ structuredContent: { done: true } });
+  expect(
+    await registry.call("ace_wait", {}, lease.principal, new AbortController().signal),
+  ).toMatchObject({ structuredContent: { done: true } });
 });

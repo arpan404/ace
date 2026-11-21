@@ -26,7 +26,8 @@ export interface SuitInputs {
   cached: SuitDetail | undefined;
 }
 
-const sameVersion = (a: SuitSummary, b: SuitSummary) =>
+/** Whether two reads are of the same version of one Suit. */
+export const sameVersion = (a: SuitSummary, b: SuitSummary) =>
   a.id === b.id && a.contentHash === b.contentHash;
 
 export function appliedSuit(inputs: SuitInputs): SuitDetail | null {

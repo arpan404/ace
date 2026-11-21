@@ -8,6 +8,7 @@ use jiff::tz::TimeZone;
 use spade_ace::events::{ThreadChange, ThreadState};
 use spade_core::Event;
 use spade_core::event::{FromRoutine, Known};
+use spade_core::goal::view::{RunCheck, run_check};
 use spade_core::routine::{self, AceEvent, Trigger};
 use spade_store::{HEARTBEAT, ROUTINE, StoreError, StoredRoutine, StoredRun};
 
@@ -45,11 +46,18 @@ pub async fn tick(engine: &Arc<Engine>) -> Result<Option<i64>, StoreError> {
     recover(engine)?;
     let now = engine.now_ms();
     for r in engine.store().due_routines(now)? {
+        // A paused bot's slot stays due, unclaimed: Resume catches it up once (ADR 0200 §6.1).
+        // Nor does a bot whose package install hasn't finished (ADR 0200 §3.4).
+        if engine.paused_since(&r.agent_id).is_some() || engine.installing(&r.agent_id) {
+            continue;
+        }
         if let Err(error) = fire_due(engine, &r, now) {
             tracing::warn!(%error, routine = %r.id, "a routine could not run");
         }
     }
-    engine.store().next_routine_due()
+    // A slot still due now is a paused bot's (or one that couldn't run): looked at again on the
+    // timer's next minute, never in a loop.
+    engine.store().next_routine_due_after(now)
 }
 
 fn fire_due(engine: &Arc<Engine>, r: &StoredRoutine, now: i64) -> Result<(), RoutineError> {
@@ -199,6 +207,12 @@ fn fire(
         ))
     } else if heartbeat && !engine.idle(&agent.conversation)? {
         Some(("skipped_busy", "The bot was busy.".to_owned()))
+    } else if matches!(firing.cause, "event" | "webhook")
+        && engine.paused_since(&agent.id).is_some()
+    {
+        // A paused bot's triggers don't fire; the person's own Run now waits for Resume, as a
+        // message does.
+        Some(("skipped_paused", "The bot was paused.".to_owned()))
     } else {
         None
     };
@@ -345,6 +359,23 @@ fn answered(
     };
     let after = run.seq.unwrap_or(1) - 1;
     let events = engine.store().events(&agent.conversation, after)?;
+    let check = run_check(events.iter().map(|stored| &stored.event), &run.id);
+    match &check {
+        Some(RunCheck::Done) => return Ok(("verified", None)),
+        Some(RunCheck::Failed(missing)) => {
+            let mut why = format!(
+                "The check said not yet {} times.",
+                spade_core::goal::verify::MOST_ROUTINE_NOT_YET
+            );
+            if let Some(first) = missing.first() {
+                why.push(' ');
+                why.push_str(first);
+            }
+            return Ok(("failed", Some(why)));
+        }
+        Some(RunCheck::Ended) => return Ok(("stopped", None)),
+        Some(RunCheck::Checking) | None => {}
+    }
     for stored in &events {
         let Event::Known(known) = &stored.event else {
             continue;
@@ -353,6 +384,8 @@ fn answered(
             Known::ReplyFinished { text, .. } if r.kind == HEARTBEAT && routine::is_quiet(text) => {
                 ("quiet", None)
             }
+            // A verified run isn't done when its reply ends: its check decides.
+            Known::ReplyFinished { .. } if check.is_some() => ("checking", None),
             Known::ReplyFinished { .. } => ("answered", run.detail.clone()),
             Known::ReplyFailed { error, .. } => ("failed", Some(error.clone())),
             Known::ReplyStopped { .. } => ("stopped", None),

@@ -75,6 +75,7 @@ export const settingSummaries: Readonly<Partial<Record<SettingsKey, string>>> = 
   "remote.agentTransfers": "Let agents move projects and threads to other machines",
   "remote.transferIgnoredFiles": "Transfers also carry files Git ignores, such as .env",
   "remote.hostedPairingLink": "Pairing links open the hosted web app",
+  "remote.machineLocalhost": "Open this machine's localhost on your devices",
   "remote.relayMcp": "Outside MCP clients reach this machine through ace's relay",
   "remote.relayWebhooks": "Automation webhooks reach this machine through ace's relay",
   "remote.tailscaleWebhooks": "Automation webhooks reach this machine on Tailscale",

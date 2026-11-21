@@ -56,6 +56,7 @@ async function setup() {
   const alerts: Alert[] = [];
   const summaries: WorkSummary[] = [];
   const closes: { code: number; reason: string }[] = [];
+  const appsInUse: number[] = [];
   let saved: string | null = null;
   const keeper = new LinkKeeper(
     runtimeLinkSource(runtime),
@@ -74,11 +75,23 @@ async function setup() {
         onAlert: (alert) => alerts.push(alert),
         onSummary: (summary) => summaries.push(summary),
         onClose: (code, reason) => closes.push({ code, reason }),
+        onAppsInUse: (threads) => appsInUse.push(threads),
       }),
     () => {},
   );
   cleanups.push(() => keeper.close());
-  return { home, runtime, statuses, blocker, daemons, keeper, alerts, summaries, closes };
+  return {
+    home,
+    runtime,
+    statuses,
+    blocker,
+    daemons,
+    keeper,
+    alerts,
+    summaries,
+    closes,
+    appsInUse,
+  };
 }
 
 it("attaches notifications, badge and tray once a daemon is up, after the first start failed", async () => {
@@ -124,6 +137,19 @@ it("attaches notifications, badge and tray once a daemon is up, after the first 
       hostedWaiting: 0,
     }),
   );
+  const link = t.keeper.link();
+  if (!link) throw new Error("no desktop link");
+  const tray = () => link.traySnapshot("agents", Date.now(), AbortSignal.timeout(5_000));
+  await vi.waitFor(async () => {
+    expect(await tray()).toMatchObject({
+      working: 1,
+      threads: [{ id: thread.id, needsYou: false }],
+      pause: { paused: false },
+    });
+  });
+  await link.trayAction({ action: "pause", paused: true }, AbortSignal.timeout(5_000));
+  expect(await tray()).toMatchObject({ pause: { paused: true } });
+  await link.trayAction({ action: "pause", paused: false }, AbortSignal.timeout(5_000));
   daemon.store.appendEvents(
     thread.id,
     [{ type: "thread.updated", status: { state: "waiting", on: "rate_limit" } }],
@@ -275,4 +301,24 @@ it("ignores window focus and settings changes while the daemon socket is still o
   expect(() => link.setPresence(randomUUID())).not.toThrow();
   expect(() => link.setPresence(null)).not.toThrow();
   expect(() => link.updatePreferences()).not.toThrow();
+});
+
+it("hears which apps agents use, and the link stays up for the tray after asking", async () => {
+  const t = await setup();
+  await new Promise<void>((resolve) => t.blocker.close(() => resolve()));
+  t.keeper.start();
+  void t.runtime.start();
+  // The daemon answers the watch with its whole set: no agent uses an app yet.
+  await eventually(() => expect(t.appsInUse).toEqual([0]));
+  const daemon = t.daemons.started[0];
+  if (!daemon) throw new Error("no daemon");
+  // The same socket still carries the thread list to the badge and tray.
+  const thread = createDevThread(daemon.store, daemon.store.createWorkspace(t.home, "test"));
+  daemon.store.appendEvents(
+    thread.id,
+    [{ type: "thread.updated", status: { state: "working", agents: 1 } }],
+    Date.now(),
+  );
+  await eventually(() => expect(t.summaries.at(-1)?.working).toBe(1));
+  expect(t.closes).toEqual([]);
 });

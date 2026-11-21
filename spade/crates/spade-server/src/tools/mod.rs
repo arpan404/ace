@@ -4,16 +4,22 @@
 mod ace;
 mod ace_link;
 mod ace_wait;
+mod apps;
 mod bots;
+mod cards;
 mod cloud_account;
 mod connectors;
+mod contracts;
 mod decision;
 mod goal;
 mod helper;
 mod knowledge;
 mod memory;
+mod notify;
 pub mod outward;
+mod panels;
 mod plugins;
+mod self_edit;
 mod services;
 mod skill_tools;
 mod skills;
@@ -36,14 +42,19 @@ use spade_core::tools::{Registry, ToolDef};
 pub(crate) use ace::reattaches;
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
+pub use cards::CardShow;
 pub use cloud_account::CloudAccount;
 pub use connectors::ConnectorSource;
+pub use contracts::{ContractCall, ContractReturn, ContractsFind};
 pub use decision::DecisionLog;
 pub use goal::{TaskGoal, TaskPlan};
 pub use helper::HelperTool;
 pub use knowledge::KnowledgeTool;
 pub use memory::{AskUser, MemoryTool};
+pub use notify::{Notify, PackageSuggest};
+pub use panels::PanelUpdate;
 pub use plugins::PluginTools;
+pub use self_edit::{ClubAdd, ProfileUpdate, TaskUpdate};
 pub use services::service_tools;
 pub use skill_tools::{SkillLoad, SkillSearch};
 pub use skills::{
@@ -83,6 +94,10 @@ pub struct ToolOutput {
     /// Where a command ran and how it went, stored as `command_ran` beside the result for the
     /// reply's steps; the model is not shown it. Set only by the tools that run commands.
     pub command: Option<Box<CommandRun>>,
+    /// Not run because the sign-in to this connector expired and couldn't be renewed: the call
+    /// waits on a Reconnect card and runs again once the person reconnects (ADR 0131,
+    /// amendment 1). Set only by connector tools.
+    pub reconnect: Option<String>,
 }
 
 /// Where a command ran and how it went (`command_ran`).
@@ -136,6 +151,7 @@ impl ToolOutput {
             shared: Box::default(),
             transient: false,
             command: None,
+            reconnect: None,
         }
     }
 
@@ -164,6 +180,7 @@ impl ToolOutput {
             shared: Box::default(),
             transient: false,
             command: None,
+            reconnect: None,
         }
     }
 
@@ -223,6 +240,11 @@ pub trait Tool: Send + Sync {
     fn sealed(&self) -> bool {
         false
     }
+    /// A tool of an app the person connected (a connector's), under the Apps switch of the bot's
+    /// Permissions (ADR 0171, amendment 7).
+    fn connected_app(&self) -> bool {
+        false
+    }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the
     /// server and its version, the tool's own name and its schema, so an answer kept for it never
     /// carries over to another tool offered under the same name (ADR 0171, amendment 1).
@@ -262,6 +284,12 @@ pub struct TurnFacts {
     /// The only untrusted thing in view is a summary drawn from untrusted text: a note saved or
     /// rewritten now is kept as a suggestion the person keeps or dismisses (memory.md).
     pub memory_suggests: bool,
+    /// The untrusted content in view, each in a few words, oldest first: what a note or entry
+    /// written now records as read (its origin).
+    pub in_view: Vec<String>,
+    /// The call running, set by the tool from its key: what a note or entry written now
+    /// records as having written it.
+    pub call: Option<String>,
 }
 
 /// Tools whose list changes while Spade runs, such as ace's. Every one is offered deferred, so

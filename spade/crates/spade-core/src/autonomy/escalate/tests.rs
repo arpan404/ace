@@ -25,6 +25,12 @@ fn outside(effect: Option<Effect>) -> Call<'static> {
         mode: Mode::AutoReview,
         remote: false,
         classifier: true,
+        ceiling: None,
+        command: None,
+        destructive: false,
+        org: None,
+        permits: crate::permission::Held::default(),
+        connected: false,
     }
 }
 

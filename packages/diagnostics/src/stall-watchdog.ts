@@ -100,6 +100,22 @@ export function startStallWatchdog(options: StallWatchdogOptions): () => Promise
 }
 
 /**
+ * The stall a running process is in right now, as its watchdog last wrote it: undefined when it
+ * is in none (or the report cannot be read). While a stall lasts the report is rewritten every
+ * 2 s, so `silentSince + silentMs` says when the watchdog last saw it.
+ */
+export function readStallReport(directory: string, pid: number): StallReport | undefined {
+  try {
+    const report = StallReport.safeParse(
+      JSON.parse(readFileSync(join(directory, `stall-${pid}.json`), "utf8")),
+    );
+    return report.success && report.data.pid === pid ? report.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Stalls a previous daemon run recorded and never came back from (it was killed while frozen).
  * Each report is returned once: reading removes it. The current run's own report is left alone.
  */

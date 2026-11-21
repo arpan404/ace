@@ -7,6 +7,7 @@ import { z } from "zod";
 import { runsOnBun } from "./bun-ffi.ts";
 import { createKillOnCloseJob, createRetainedJob } from "./process-containment.ts";
 import { windowsSystemExecutable } from "./process-owner.ts";
+import { createProbeThread } from "./probe-thread.ts";
 import { observeProcessGroups, probeOutput, spawnSupervised, stopOwnedGroups } from "./process.ts";
 
 /*
@@ -103,7 +104,16 @@ test.runIf(posix)(
   "on Node a global stop waits for a probe whose pid has not arrived yet and ends it",
   async () => {
     await recordingGroups(async ({ owned, seen }) => {
-      const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"]);
+      // Straight to the worker, so the stop comes while it is still starting the process.
+      const running = createProbeThread().run(
+        {
+          command: "/bin/sh",
+          args: ["-c", "sleep 30 & sleep 30"],
+          env: { PATH: process.env.PATH ?? "" },
+          maxBytes: 65_536,
+        },
+        new AbortController().signal,
+      );
       void running.catch(() => {});
       // Straight away: the worker has not reported the pid, so only the admission owns it.
       await stopOwnedGroups(0);

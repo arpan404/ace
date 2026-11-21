@@ -18,6 +18,16 @@ const groupEvent = z.discriminatedUnion("type", [
     run,
     text: z.string().catch(""),
     from: spadeGroupBotShape.nullish().catch(undefined),
+    /** The person wrote it in an ace thread (ADR 0198). */
+    thread: z
+      .object({
+        id: z.string().min(1),
+        title: z.string().catch(""),
+        /** The person's other machine the thread is on; absent for this machine's. */
+        machine: z.string().max(256).optional().catch(undefined),
+      })
+      .nullish()
+      .catch(undefined),
   }),
   z.object({
     type: z.literal("group_asked"),
@@ -46,7 +56,12 @@ const groupEvent = z.discriminatedUnion("type", [
 type GroupEvent = z.infer<typeof groupEvent>;
 
 export type SpadeGroupItem =
-  | { kind: "person"; key: string; text: string }
+  | {
+      kind: "person";
+      key: string;
+      text: string;
+      fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
+    }
   | { kind: "member"; key: string; bot: SpadeGroupBot; text: string }
   /** A handoff, a queued ask, one that failed, Stop: a short muted line. */
   | { kind: "line"; key: string; text: string };
@@ -115,7 +130,14 @@ export function foldSpadeGroup(state: SpadeGroupState, input: SpadeFoldInput): b
           waiting !== undefined &&
           sameBot(state.waitingMember, waiting));
       // A group never sleeps itself; a stream that says so reads as at work, as older clients do.
-      const next = input.state === "sleeping" ? "working" : input.state;
+      // Nor is it paused: only bots are (ADR 0200 §6.1), so one that says so reads at rest; nor
+      // updated, so one that says so reads at work.
+      const next =
+        input.state === "sleeping" || input.state === "updating"
+          ? "working"
+          : input.state === "paused"
+            ? "idle"
+            : input.state;
       const first = !state.reported;
       state.reported = true;
       if (state.state === next && state.status === status && sameWaiting) return first;
@@ -152,7 +174,20 @@ function foldEvent(state: SpadeGroupState, event: GroupEvent, key: string): bool
       }
       const mine = state.pending.findIndex((message) => message.text === event.text);
       if (mine >= 0) state.pending = state.pending.filter((_, index) => index !== mine);
-      state.items.push({ kind: "person", key, text: event.text });
+      state.items.push({
+        kind: "person",
+        key,
+        text: event.text,
+        ...(event.thread
+          ? {
+              fromThread: {
+                id: event.thread.id,
+                title: event.thread.title,
+                ...(event.thread.machine ? { machine: event.thread.machine } : {}),
+              },
+            }
+          : {}),
+      });
       return true;
     }
     case "group_asked":
@@ -202,7 +237,14 @@ function answeredLine(name: string, outcome: string, detail: string | undefined)
 
 /** One row of a group's chat; a member's carries where it sits in its run of messages. */
 export type SpadeGroupRow =
-  | { kind: "person"; key: string; text: string; sending: boolean }
+  | {
+      kind: "person";
+      key: string;
+      text: string;
+      sending: boolean;
+      /** Written in an ace thread (ADR 0198): the line above links back to it. */
+      fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
+    }
   | {
       kind: "member";
       key: string;
@@ -237,13 +279,16 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
   for (const message of state.pending)
     items.push({ kind: "person", key: message.key, text: message.text });
   const rows = items.map((item, index): SpadeGroupRow => {
-    if (item.kind === "person")
-      return {
+    if (item.kind === "person") {
+      const row: SpadeGroupRow = {
         kind: "person",
         key: item.key,
         text: item.text,
         sending: index >= state.items.length,
       };
+      if (item.fromThread) row.fromThread = item.fromThread;
+      return row;
+    }
     if (item.kind === "line") return item;
     const before = items[index - 1];
     const after = items[index + 1];

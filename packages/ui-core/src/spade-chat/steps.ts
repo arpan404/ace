@@ -1,15 +1,8 @@
 import type { SpadeCallState, SpadeReplyEntry, SpadeReplyPart } from "./fold.ts";
+import { spadeTurnUndo, spadeUndoable, type SpadeTurnUndo } from "./undo.ts";
 import { spadeToolWords } from "./words.ts";
 
-/*
- * The steps a reply took, folded into one quiet line under it ("Ran 3 commands, changed 2
- * files") that opens to each step: what ran, where, and how it ended (docs/design/spade.md §3).
- * A step the person must see without opening anything stands under the line as it is: one the
- * sandbox's network policy blocked, the review refused or the person declined, one that deletes
- * or can't be undone, and one that acted outside the bot's box (it ran outside the sandbox,
- * reached the network, pushed, commented or sent). Pure, so every client reads steps the same.
- */
-
+/** A finished step in the reply's disclosure (docs/design/spade.md §3). */
 export interface SpadeStep {
   /** The call's id. */
   key: string;
@@ -17,12 +10,12 @@ export interface SpadeStep {
   line: string;
   /** One line of what it touched: the command, a file's path, a page's address. */
   detail: string | undefined;
-  /** Where and how, in order: "In its sandbox", "You allowed it", "Exit code 2", "Hard to undo". */
+  /** Where it ran, exceptional approvals and how it ended. */
   meta: readonly string[];
   /** What the network policy refused it, each said plainly: "Blocked example.com: …". */
   blocked: readonly string[];
-  /** It shows under the folded line without opening it. */
-  notable: boolean;
+  /** The step's position, when undo can put back what it changed in the bot's files. */
+  undoFrom: number | undefined;
 }
 
 export interface SpadeSteps {
@@ -30,14 +23,17 @@ export interface SpadeSteps {
   summary: string;
   /** Every finished step, in the order taken. */
   steps: readonly SpadeStep[];
+  /** Undoing the whole turn, when any of its steps can be undone. */
+  undo: SpadeTurnUndo | undefined;
 }
 
 /**
- * Calls the chat already shows in their own way: a card, a helper's line, a skill's bubble, a
+ * Calls the chat already shows in their own way: a card (a question, or an app to connect), a helper's line, a skill's bubble, a
  * note it saved (ADR 0128), and what it showed the person (ADR 0134).
  */
 const shownElsewhere = new Set([
   "ask_user",
+  "app_connect_request",
   "helper",
   "skill_propose",
   "memory_save",
@@ -45,6 +41,18 @@ const shownElsewhere = new Set([
   "memory_forget",
   "image_generate",
   "share_file",
+  // A card the bot showed is its own row (ADR 0200 §5.1), and so are a notice it sent and a
+  // package it suggested (§4.2, §8).
+  "card_show",
+  "notify",
+  "package_suggest",
+  // A bot changing its own task, name or face: its own quiet line (`task-changed`, `named`).
+  "task_update",
+  "profile_update",
+  // A bot made for the person, or added to a club: their own lines (`made`, `club-added`).
+  "club_add",
+  // A call to another bot's contract: its own line, with what came back (ADR 0200 §7).
+  "contract_call",
 ]);
 
 /** A call that has finished one way or another; one still going is the working line's. */
@@ -57,17 +65,30 @@ type CallPart = Extract<SpadeReplyPart, { kind: "call" }>;
 /** A reply's finished steps folded into one line; undefined while it has none. */
 export function spadeReplySteps(entry: SpadeReplyEntry): SpadeSteps | undefined {
   // How the person answered each call that asked them, by its id.
-  const answers = new Map<string, "allowed" | "denied">();
+  const allowed = new Set<string>();
   for (const part of entry.parts)
-    if (part.kind === "request" && part.answer) answers.set(part.callId, part.answer);
+    if (part.kind === "request" && part.answer === "allowed" && !part.always)
+      allowed.add(part.callId);
   const steps: SpadeStep[] = [];
+  const otherSteps: SpadeStep[] = [];
+  let failed = 0;
   for (const part of entry.parts) {
     if (part.kind !== "call" || !settled.has(part.state)) continue;
     if (shownElsewhere.has(baseName(part.name))) continue;
-    steps.push(stepOf(part, answers.get(part.key)));
+    const step = stepOf(part, allowed.has(part.key));
+    steps.push(step);
+    if (part.state === "failed") failed++;
+    else otherSteps.push(step);
   }
   if (!steps.length) return undefined;
-  return { summary: spadeStepsSummary(steps), steps };
+  const undo = spadeTurnUndo(entry.parts, stepLine);
+  const summary = spadeStepsSummary(otherSteps);
+  const failures = failed === 1 ? "one step failed" : `${failed} steps failed`;
+  return {
+    summary: failed ? (summary ? `${summary}, ${failures}` : upperFirst(failures)) : summary,
+    steps,
+    undo,
+  };
 }
 
 /**
@@ -86,33 +107,32 @@ export function spadeRunningDetail(entry: SpadeReplyEntry | undefined): string |
   return undefined;
 }
 
-function stepOf(part: CallPart, answer: "allowed" | "denied" | undefined): SpadeStep {
+function stepLine(part: CallPart): string {
   const words = spadeToolWords(part.name);
+  if (part.state === "failed") return `Couldn't ${words.base}`;
+  return part.state === "done" ? words.done : `Didn't ${words.base}`;
+}
+
+function stepOf(part: CallPart, explicitlyAllowed: boolean): SpadeStep {
   const ran = part.state === "done" || part.state === "failed";
   const meta: string[] = [];
   const { ran: command } = part;
   if (command?.contained !== undefined)
     meta.push(command.contained ? "In its sandbox" : "Outside its sandbox");
-  if (answer === "allowed" && ran) meta.push("You allowed it");
+  if (ran && explicitlyAllowed) meta.push("You allowed it");
+  else if (ran && part.reviewedAllow) meta.push("The reviewer allowed it");
   meta.push(...outcome(part));
   if (command?.reached.length) meta.push(`Reached ${listed(command.reached)}`);
-  if (part.weight === "destructive" && ran) meta.push("Hard to undo");
   const blocked = (command?.refused ?? []).map(
     (refused) => `Blocked ${refused.host}${because(refused.host, refused.reason)}`,
   );
   return {
     key: part.key,
-    line: ran ? words.done : `Didn't ${words.base}`,
+    line: stepLine(part),
     detail: part.detail,
     meta,
     blocked,
-    notable:
-      blocked.length > 0 ||
-      part.state === "refused" ||
-      part.state === "declined" ||
-      (ran && part.weight !== undefined) ||
-      command?.contained === false ||
-      (command?.reached.length ?? 0) > 0,
+    undoFrom: spadeUndoable(part) ? part.logged : undefined,
   };
 }
 
@@ -132,7 +152,7 @@ function outcome(part: CallPart): string[] {
   if (command?.timedOut) return ["Stopped at its deadline"];
   if (command)
     return [command.exitCode === undefined ? "Ended by a signal" : `Exit code ${command.exitCode}`];
-  return part.state === "failed" ? ["Failed"] : [];
+  return part.state === "failed" && part.reason ? [part.reason] : [];
 }
 
 /** Why a host was refused, without its name said twice: ": not on this bot's network allow-list". */
@@ -191,3 +211,5 @@ function plural(words: string): string {
 
 /** A line after a comma starts lower case. */
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+
+const upperFirst = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

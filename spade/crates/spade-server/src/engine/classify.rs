@@ -27,8 +27,9 @@ use super::Engine;
 pub(super) enum Screened {
     /// Clearly low-risk: it runs, with no reviewer.
     Run,
-    /// A person-only effect: the person decides, with this line.
-    Ask(String),
+    /// A person-only effect: the person decides, with this line; with the effect the classifier
+    /// read in it, when it raised it.
+    Ask(String, Option<spade_core::effect::Effect>),
     /// The reviewer decides.
     Review,
     /// A verdict stored for it refused it (the reviewer's, or the rules'): it stays refused,
@@ -213,7 +214,7 @@ impl Engine {
                         self.decisions.mark(&key, form);
                         Screened::Run
                     }
-                    _ => Screened::Ask(NO_FORM.to_owned()),
+                    _ => Screened::Ask(NO_FORM.to_owned(), None),
                 });
             }
             return Ok(Screened::Review);
@@ -241,7 +242,11 @@ impl Engine {
             }
             Screen::Person(effect) => {
                 let line = line(effect).to_owned();
-                (Verdict::Escalate, line.clone(), Screened::Ask(line))
+                (
+                    Verdict::Escalate,
+                    line.clone(),
+                    Screened::Ask(line, Some(effect)),
+                )
             }
         };
         self.store_screened(id, reply, s, model, verdict, reason, screened)
@@ -262,7 +267,7 @@ impl Engine {
         // refusal is never turned into a run, nor a question into one.
         if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
             return Ok(match verdict {
-                Verdict::Escalate => Screened::Ask(reason),
+                Verdict::Escalate => Screened::Ask(reason, review::raised(events, &s.call.id)),
                 Verdict::Refuse => Screened::Refuse(reason),
                 Verdict::Allow => Screened::Run,
             });
@@ -282,7 +287,7 @@ impl Engine {
         match self.decided(id, s, model, &subject).screen {
             Screen::Person(effect) => {
                 let line = line(effect).to_owned();
-                let screened = Screened::Ask(line.clone());
+                let screened = Screened::Ask(line.clone(), Some(effect));
                 self.store_screened(id, reply, s, model, Verdict::Escalate, line, screened)
             }
             Screen::LowRisk | Screen::Abstain => Ok(Screened::Run),
@@ -355,6 +360,10 @@ impl Engine {
             bound: crate::workspace::outside::binding(s.classed).stored(),
             acts_in: None,
             launch: Some(s.launch),
+            raised: match &screened {
+                Screened::Ask(_, raised) => *raised,
+                _ => None,
+            },
         });
         Ok(match self.record_unless_stopped(id, reply, &event)? {
             true => screened,

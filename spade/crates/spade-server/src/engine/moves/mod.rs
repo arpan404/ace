@@ -179,11 +179,13 @@ fn strings(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// What `state` a bot is in, in the person's words, when that keeps it from moving.
+/// What `state` a bot is in, in the person's words, when that keeps it from moving. A paused bot
+/// moves: its pause goes with it, held wakes and all, and it arrives paused (`pause::moving`).
 fn busy_words(name: &str, state: State) -> Option<String> {
     let doing = match state {
-        State::Idle => return None,
+        State::Idle | State::Paused => return None,
         State::Working => "working",
+        State::Updating => "being updated",
         State::Waiting => "waiting on you",
         State::Sleeping => "sleeping",
     };
@@ -269,15 +271,30 @@ impl Engine {
         accept: &AcceptFor,
         stamp: Option<&str>,
     ) -> Result<(), MoveError> {
+        self.accept_move_by(id, accept, stamp, None)
+    }
+
+    /// [`Engine::accept_move`] on an org host, where no person stands: an admin of its
+    /// organization accepts, with their member stamp (ADR 0206 §2.3, `move` is admins').
+    pub fn accept_move_by(
+        &self,
+        id: &str,
+        accept: &AcceptFor,
+        stamp: Option<&str>,
+        member: Option<&spade_core::org::Member>,
+    ) -> Result<(), MoveError> {
         paths::moves_here().map_err(MoveError::Refused)?;
         if !paths::plain_id(id) || !accept.plain() {
             return Err(MoveError::Invalid(
                 "a move names plain ids, its manifest's hash and what it replaces".to_owned(),
             ));
         }
-        let says = self.security().is_some_and(|security| {
-            security.person_says(stamp, &format!("move:{id}"), &accept.stamped())
-        });
+        let says = match self.org_binding() {
+            Some(_) => member.is_some_and(|member| member.role().admin()),
+            None => self.security().is_some_and(|security| {
+                security.person_says(stamp, &format!("move:{id}"), &accept.stamped())
+            }),
+        };
         if !says {
             return Err(MoveError::PersonOnly(ACCEPT_PERSON_ONLY));
         }
@@ -354,6 +371,19 @@ impl Engine {
         id: &str,
         connectors: Option<&spade_connect::Connectors>,
     ) -> Result<Value, MoveError> {
+        self.start_move_by(agent_id, to, id, connectors, None).await
+    }
+
+    /// [`Engine::start_move`], asked for by `by` (a member's stamp on an org host), whom the
+    /// move's record names (ADR 0206 §4.1).
+    pub async fn start_move_by(
+        self: &Arc<Self>,
+        agent_id: &str,
+        to: &str,
+        id: &str,
+        connectors: Option<&spade_connect::Connectors>,
+        by: Option<&spade_core::org::Member>,
+    ) -> Result<Value, MoveError> {
         paths::moves_here().map_err(MoveError::Refused)?;
         if !paths::plain_id(id) {
             return Err(MoveError::Invalid(
@@ -425,6 +455,7 @@ impl Engine {
                 "sent": 0,
                 "total": 0,
                 "deadline": deadline,
+                "by": by,
             })
             .to_string(),
             created_ms: now,
@@ -452,6 +483,9 @@ impl Engine {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             self.freeze(id, &selection.conversations);
         }
+        // A made bot takes the ceiling its makers hold it to now, never one they have since
+        // narrowed (ADR 0200 §3.4).
+        self.narrow_made_under();
         let release = |error: MoveError| {
             self.thaw(id, &selection.conversations);
             let _ = self
@@ -477,6 +511,15 @@ impl Engine {
         };
         if !target.online {
             return release(MoveError::Refused(format!("{} is offline.", target.name)));
+        }
+        // A shared bot moves only between its organization's hosts (ADR 0206 §2.3).
+        let there = spade_core::org::Space::of(target.org.as_deref());
+        if let Some(why) = spade_core::org::crossing(
+            &self.agent_space(&agent.id),
+            &there,
+            spade_core::org::Crossing::Move,
+        ) {
+            return release(MoveError::Refused(why.to_owned()));
         }
         self.store
             .set_move_peer(id, &target.host_id, &target.name)?;
@@ -638,7 +681,8 @@ impl Engine {
     }
 
     /// Starts the archive sweep once: every `Limits::archive_sweep`, never at start, it removes
-    /// a few archives past their time, off the async threads.
+    /// a few archives past their time, off the async threads, then the panel pages no bot shows
+    /// any more, in batches (ADR 0170).
     fn start_sweeping(self: &Arc<Self>) {
         if self
             .moves
@@ -655,8 +699,11 @@ impl Engine {
                 let Some(engine) = engine.upgrade() else {
                     return;
                 };
-                let _ =
-                    tokio::task::spawn_blocking(move || engine.sweep_archives(SWEEP_BATCH)).await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    engine.sweep_archives(SWEEP_BATCH);
+                    engine.collect_panel_pages();
+                })
+                .await;
             }
         });
     }

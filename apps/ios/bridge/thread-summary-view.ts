@@ -77,6 +77,8 @@ type Tone = "plain" | "needs-you" | "failed";
 export interface SummaryView {
   /** The thread's project, where its pull requests open. */
   workspaceId: string;
+  /** The project's folder, which older automations name instead of its id. */
+  workspacePath: string | null;
   now: {
     say: string;
     lead: string;
@@ -238,6 +240,7 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
   );
   return {
     workspaceId: facts.thread.workspaceId,
+    workspacePath: facts.thread.details?.workspace?.path ?? null,
     now: nowView(facts, prs, agents, preview),
     catchUp: facts.catchUp
       ? catchUpLines(facts.catchUp).map((line) => ({

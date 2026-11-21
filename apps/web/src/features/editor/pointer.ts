@@ -1,9 +1,9 @@
-import type { Position } from "@ace/editor";
+import type { Position, Selection } from "@ace/editor";
 import type { MouseEvent, PointerEvent } from "react";
 import { useRef } from "react";
 import { carrySides, noAffinity, type Affinity } from "./affinity.ts";
 import { wordAt } from "./cursor.ts";
-import { lineHeight, tabSize } from "./geometry.ts";
+import { tabSize } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { atHardBreak, columnOnRow } from "./wrap.ts";
@@ -11,13 +11,15 @@ import { atHardBreak, columnOnRow } from "./wrap.ts";
 /*
  * Mouse and trackpad selection over the rendered rows: a click places one caret, a drag
  * extends it, Shift+click extends the last one, double-click takes a word, triple-click its line,
- * Alt+click adds a caret and Alt+drag makes a box selection through the document's own command.
+ * Alt+click adds a caret, Alt+drag adds a selection, and Shift+Alt+drag (or Shift+Alt+click)
+ * makes a box selection from the caret through the document's own command.
  * A click lands on a visual row and comes back as a (line, column) through the wrap layout.
  */
 
 export function usePointerSelection(options: {
   state: EditorDocumentState;
   cell: number;
+  lineHeight: number;
   gutter: number;
   layout: RowLayout | undefined;
   element: { current: HTMLDivElement | null };
@@ -27,10 +29,23 @@ export function usePointerSelection(options: {
   affinity: Affinity;
   /** Records every caret's side of a hard break after the click moved them. */
   onBefore(affinity: Affinity): void;
+  /**
+   * A click in the gutter on a line, `x` pixels from its left edge; true when it was taken (a
+   * fold opened or closed, a layer selected the line).
+   */
+  onGutter?: ((line: number, at: { x: number; shiftKey: boolean }) => boolean) | undefined;
 }) {
-  const { state, cell, gutter, layout } = options;
+  const { state, cell, lineHeight, gutter, layout } = options;
   const drag = useRef<
-    { anchor: Position; before: boolean; box: boolean; moved: boolean } | undefined
+    | {
+        anchor: Position;
+        before: boolean;
+        mode: "replace" | "box" | "add";
+        moved: boolean;
+        /** The cursors an Alt+drag adds its selection to. */
+        kept: readonly Selection[];
+      }
+    | undefined
   >(undefined);
 
   const positionAt = (
@@ -64,20 +79,46 @@ export function usePointerSelection(options: {
     const position = target.position;
     event.preventDefault();
     options.focus();
+    // The gutter sticks to the scroller's left edge, wherever the text has scrolled to.
+    const edge = options.element.current?.parentElement?.getBoundingClientRect().left ?? 0;
+    const x = event.clientX - edge;
+    if (x < gutter && options.onGutter?.(position.line, { x, shiftKey: event.shiftKey })) return;
     const selections = doc.selections();
     const current = selections[doc.primarySelection()];
-    if (event.shiftKey && current) {
+    if (event.shiftKey && event.altKey && current) {
+      // A box from the caret to the click, as VS Code's column selection.
+      const anchor = current.head;
+      drag.current = { anchor, before: target.before, mode: "box", moved: true, kept: [] };
+      state.selectBy((one) => one.selectColumn(anchor, position, tabSize));
+    } else if (event.shiftKey && current) {
       options.state.select(
         selections.map((selection, at) =>
           at === doc.primarySelection() ? { anchor: selection.anchor, head: position } : selection,
         ),
       );
-      drag.current = { anchor: current.anchor, before: target.before, box: false, moved: false };
+      drag.current = {
+        anchor: current.anchor,
+        before: target.before,
+        mode: "replace",
+        moved: false,
+        kept: [],
+      };
     } else if (event.altKey) {
-      drag.current = { anchor: position, before: target.before, box: true, moved: false };
-      state.select([{ anchor: position, head: position }]);
+      drag.current = {
+        anchor: position,
+        before: target.before,
+        mode: "add",
+        moved: false,
+        kept: selections,
+      };
     } else {
-      drag.current = { anchor: position, before: target.before, box: false, moved: false };
+      drag.current = {
+        anchor: position,
+        before: target.before,
+        mode: "replace",
+        moved: false,
+        kept: [],
+      };
       state.select([{ anchor: position, head: position }]);
     }
     // A Shift+click must leave every caret it did not move on the side it already had.
@@ -98,9 +139,10 @@ export function usePointerSelection(options: {
     if (!landed || !doc) return;
     target.moved = true;
     const previous = doc.selections();
-    if (target.box) {
-      doc.selectColumn(target.anchor, landed.position, tabSize);
-      state.select(doc.selections());
+    if (target.mode === "box") {
+      state.selectBy((current) => current.selectColumn(target.anchor, landed.position, tabSize));
+    } else if (target.mode === "add") {
+      state.select([...target.kept, { anchor: target.anchor, head: landed.position }]);
     } else {
       state.select([{ anchor: target.anchor, head: landed.position }]);
     }
@@ -117,10 +159,9 @@ export function usePointerSelection(options: {
     const target = drag.current;
     drag.current = undefined;
     const doc = state.doc;
-    if (target?.box && !target.moved && doc) {
+    if (target?.mode === "add" && !target.moved && doc) {
       const previous = doc.selections();
-      doc.setSelections([...previous, { anchor: target.anchor, head: target.anchor }]);
-      state.select(doc.selections());
+      state.select([...previous, { anchor: target.anchor, head: target.anchor }]);
       // Alt+click adds a caret: every other caret was not touched by it.
       options.onBefore(
         carrySides(layout, previous, options.affinity, doc.selections(), {

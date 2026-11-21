@@ -241,18 +241,19 @@ impl RootEntry {
             if !install.is_empty() {
                 index.apply(&self.root, &install);
             }
-            let swapped = match guard::write(&self.index) {
-                Ok(mut slot) => {
-                    *slot = Some(Arc::new(index));
-                    true
-                }
-                Err(_) => false,
+            let (swapped, replaced) = match guard::write(&self.index) {
+                Ok(mut slot) => (true, slot.replace(Arc::new(index))),
+                Err(_) => (false, None),
             };
             book.building = false;
             book.walking = None;
             book.failure = None;
             let again = std::mem::take(&mut book.again);
             drop(book);
+            // The index it replaced goes now, unless a query still holds it, and with it whatever
+            // the walk freed: give that memory back rather than keep it resident.
+            drop(replaced);
+            crate::memory::release();
             if !swapped {
                 return Err(Error::System(std::io::Error::other(
                     "the index lock was poisoned",

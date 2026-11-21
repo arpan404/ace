@@ -1,12 +1,13 @@
-//! The engine's side of driving steps (ADR 0171, amendment 3): where a step acts, asked of ace
-//! right before the gate decides and again right before the step runs, whether a drive grant
-//! covers that place, and the grant a "for this bot" answer makes. What to ask and how to read
+//! The engine's side of driving steps (ADR 0171, amendments 3 and 7): where a step acts, asked of
+//! ace right before the gate decides and again right before the step runs, the bot's
+//! Permissions that decide it, and the grant an older "for this bot" answer makes. What to ask and how to read
 //! the answer is `spade_core::effect::drive`; this is the I/O around it.
 
 use std::time::Duration;
 
 use serde_json::Value;
 use spade_core::effect::drive::{self, Lookup, Place, Step};
+use spade_core::permission::{Held, never};
 
 use super::Engine;
 
@@ -43,13 +44,13 @@ impl Engine {
         drive::read(name, arguments, answer.as_deref())
     }
 
-    /// Whether a drive grant of the bot that owns `conversation` covers `place`: an app by its
-    /// id, a site by its host, never a device.
-    pub(super) fn drive_granted(&self, conversation: &str, place: &Place) -> bool {
-        let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
-            return false;
-        };
-        place.granted_by(&security.effective_grants(&agent))
+    /// The Permissions of the bot that owns `conversation` (ADR 0171, amendment 7), and the
+    /// machine's never-use list; the defaults (driving off) where Spade has no security settings.
+    pub(super) fn permits(&self, conversation: &str) -> (Held, Vec<String>) {
+        match (self.security(), self.agent_of(conversation)) {
+            (Some(security), Some(agent)) => (security.permits(&agent), security.never_apps()),
+            _ => (Held::default(), never::default_list()),
+        }
     }
 
     /// Allows driving `place` for the bot that owns `conversation`, as the person answered a

@@ -333,3 +333,25 @@ test("the find bar takes its own row above the text, so it never covers the firs
   expect(box2?.contains(bar)).toBe(false);
   expect(box2?.contains(box)).toBe(true);
 });
+
+test("the find bar's field sits inside the bar and only the field shows focus", async () => {
+  await openEditor({ text: "first line\nsecond line" });
+
+  await userEvent.keyboard("{Meta>}f{/Meta}");
+  const find = await screen.findByRole("textbox", { name: "Find in file" });
+  const bar = find.closest("search");
+  const region = screen.getByRole("region", { name: "Editor" });
+  expect(document.activeElement).toBe(find);
+  // The field is a box inside the 36px bar, never the bar's full height: its ring stays inside.
+  expect(find.parentElement?.className).toMatch(/\bh-9\b/);
+  expect(bar?.contains(find.parentElement ?? null)).toBe(true);
+  expect(find.className).toMatch(/\bh-6\b/);
+  expect(find.className).not.toMatch(/\bh-full\b/);
+  expect(find.className).not.toMatch(/\bfocus-ring\b/);
+  // The editor's focus frame belongs to the text, not to the region that holds the bar.
+  expect(region.className).not.toMatch(/focus-within/);
+  const frame = document.querySelector("[data-editor-frame]");
+  expect(frame?.className).toMatch(/focus-within/);
+  expect(frame?.contains(bar)).toBe(false);
+  expect(frame?.contains(screen.getByRole("textbox", { name: "example.ts" }))).toBe(true);
+});

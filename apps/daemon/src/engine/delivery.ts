@@ -1,5 +1,5 @@
 import { contextNotice } from "@ace/context";
-import { stoppableTasks, stopsWholeThread } from "./stop-scope.ts";
+import { stopsWholeThread, tasksHoldingPrompts, tasksToStop } from "./stop-scope.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
@@ -200,10 +200,18 @@ export async function executeIntent(
       // the queue as the next message, as a steer that lost its turn does.
       // The adapter checks the same fence again after its own last await, right before writing.
       let fence: SteerFence | undefined;
-      // A fence is never dropped: the run it names having ended is itself a lost turn, whether
-      // or not another runs now, and the message goes back to the queue as the next one.
+      // The steer that cancelled its own target can start from idle. Every other fenced steer
+      // whose target ended is refused unread and returns to the queue.
       if (steering && p.type === "thread.send" && p.runId !== undefined) {
-        const runId = p.runId;
+        const yielded = actor.steerYield;
+        const runId =
+          session.steerViaCancel &&
+          yielded?.state === "pending" &&
+          yielded.intentId === intent.id &&
+          yielded.run === p.runId &&
+          !steerLostRun(repo, actor.id, null)
+            ? null
+            : p.runId;
         if (steerLostRun(repo, actor.id, runId)) throw new SteerTargetLost();
         fence = {
           turn: runId === null ? undefined : repo.requireState(actor.id).runs[runId]?.nativeId,
@@ -223,6 +231,10 @@ export async function executeIntent(
         generation,
       );
       repo.pending.submit(intent, generation);
+      // A steer claimed between turns that is handed over once a turn runs joins that turn.
+      const live = repo.requireState(actor.id);
+      if (steering && live.agents[live.rootKey ?? ""]?.activeRun)
+        repo.pending.joinRunningTurn(intent);
       // Whose input this is decides whether its steer may cut in: only the person's does.
       await session.send(
         input,
@@ -284,9 +296,6 @@ export async function executeIntent(
       repo.evict(actor.id);
       throw error;
     }
-  } else if (p.type === "thread.mode.set") {
-    if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
-    await actor.session.setMode(p.mode);
   } else if (p.type === "thread.goal.set") {
     if (!actor.session.setGoal) throw new Error("Provider goals unavailable");
     await actor.session.setGoal(p.change);
@@ -332,10 +341,12 @@ export async function executeIntent(
     }
     // A Stop of the whole thread stops the agent's background shells and monitors too (ADR
     // 0052's follow-up): left running, they would keep the thread waiting and keep writing.
-    // Each is bounded like the interrupt; one that won't stop closes the session below.
+    // Each is bounded like the interrupt; one that won't stop closes the session below. Work the
+    // provider said it can't stop is not asked to; what of it keeps the next prompt out gets a
+    // bounded time to end by itself (`closeAfter`).
     const whole = stopsWholeThread(p, state.agents[state.rootKey ?? ""]?.agent.id);
     if (whole)
-      for (const key of stoppableTasks(repo.requireState(actor.id)))
+      for (const key of tasksToStop(repo.requireState(actor.id)))
         try {
           await interruptWithin(session.stopTask(key));
         } catch (error) {
@@ -349,7 +360,7 @@ export async function executeIntent(
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
       // cleaned up and everything still marked running ends with an unknown outcome.
       await sessions.closeForStop(actor);
-    }
+    } else if (whole) sessions.closeAfter(actor, tasksHoldingPrompts(repo.requireState(actor.id)));
   } else if (p.type === "interaction.resolve") {
     const entry = Object.entries(state.interactions).find(
       ([, item]) => item.id === p.interactionId,

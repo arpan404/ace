@@ -45,6 +45,11 @@ export interface SocketService {
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;
+  /**
+   * The device's access was revoked: called just before the socket's cleanup and close, while
+   * it is still open, so a session can say why first.
+   */
+  revoked?(): void;
   healthPending?(): number;
 }
 export interface SocketContext {
@@ -86,6 +91,18 @@ export interface SocketContext {
    * machine's standing. Absent counts as not.
    */
   personProven?(): boolean;
+  /**
+   * On an organization's host (ADR 0206 §2.2): the member this socket proved, with their role,
+   * while that standing lasts; undefined otherwise.
+   */
+  memberStanding?(): { org: string; role: string; account: string } | undefined;
+  /** Whether this machine is an organization's host (ADR 0206 §2.1). */
+  orgHost?(): boolean;
+  /**
+   * Spade's own access check (`spade.*`): a member who reaches only Spade may read and change it
+   * there; every other socket as `authorize` says.
+   */
+  spadeAuthorize?(scope: DeviceScope): boolean;
   /** The ace account an account device's grant names (ADR 0111); undefined for others. */
   accountDevice?(): string | undefined;
   /** Pairing and paired devices on this daemon (`fleet.request`). */

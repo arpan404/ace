@@ -28,7 +28,15 @@ pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -
             if !change.path.is_empty() && Root::check(&change.path).is_ok() {
                 prepared.deletes.push(change.path.clone());
             }
-        } else if change.directory {
+            continue;
+        }
+        if changed_kind(index, change) {
+            // A folder replaced by a file of the same name, or the other way round, inside one
+            // watcher window arrives as a change, not a deletion: what the index holds under the
+            // old kind (a folder's whole subtree) goes before the new entry comes in.
+            prepared.deletes.push(change.path.clone());
+        }
+        if change.directory {
             add_subtree(
                 index,
                 &filters,
@@ -51,27 +59,43 @@ pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -
     prepared
 }
 
-/// Drop every deleted path and its subtree in one pass over the slots, then add the new paths.
+/// Whether the index holds `change.path` as the other kind: a file where a folder now is, or a
+/// folder where a file now is.
+fn changed_kind(index: &PathIndex, change: &IndexChange) -> bool {
+    if change.path.is_empty() || Root::check(&change.path).is_err() {
+        return false;
+    }
+    let held_as = |path: &str| index.members.find(&index.arena, path).is_some();
+    if change.directory {
+        held_as(&change.path)
+    } else {
+        held_as(&format!("{}/", change.path))
+    }
+}
+
+/// Drop every deleted path and its subtree, then add the new paths.
+///
+/// A deleted file costs one lookup: the index holds it under its own path and holds no folder of
+/// that name, so nothing below it can be indexed. Anything else (a folder, a path the index holds
+/// as both, or one it does not hold at all, whose subtree may still be there) is dropped in one
+/// pass over the slots together with the batch's other such paths.
 pub(crate) fn commit(index: &mut PathIndex, prepared: Prepared) {
-    if !prepared.deletes.is_empty() {
-        let deleted: HashSet<&str> = prepared.deletes.iter().map(String::as_str).collect();
-        let mut doomed = Vec::new();
-        for slot in 0..index.arena.slots() {
-            if !index.arena.is_live(slot) {
-                continue;
-            }
-            if let Some(path) = index.arena.get(slot)
-                && (deleted.contains(path) || under_deleted(path, &deleted))
-            {
-                doomed.push(slot);
-            }
+    let mut subtrees: Vec<&str> = Vec::new();
+    for path in &prepared.deletes {
+        if index
+            .members
+            .find(&index.arena, &format!("{path}/"))
+            .is_none()
+            && let Some(slot) = index.members.find(&index.arena, path)
+        {
+            index.members.remove(&index.arena, path);
+            index.arena.remove(slot);
+        } else {
+            subtrees.push(path);
         }
-        for slot in doomed {
-            if let Some(path) = index.arena.get(slot).map(str::to_owned) {
-                index.members.remove(&index.arena, &path);
-                index.arena.remove(slot);
-            }
-        }
+    }
+    if !subtrees.is_empty() {
+        drop_subtrees(index, &subtrees);
     }
     for path in &prepared.adds {
         if index.arena.live_len() >= index.max_files {
@@ -93,6 +117,47 @@ pub(crate) fn commit(index: &mut PathIndex, prepared: Prepared) {
         index.arena.compact();
         reindex(index);
     }
+}
+
+/// Up to this many deleted folders are matched against each path directly; past it each path's
+/// ancestors are looked up in a set instead.
+const DIRECT_MATCH: usize = 8;
+
+/// Drops each path in `deleted` and everything below it, in one pass over the slots.
+fn drop_subtrees(index: &mut PathIndex, deleted: &[&str]) {
+    let set: HashSet<&str> = if deleted.len() > DIRECT_MATCH {
+        deleted.iter().copied().collect()
+    } else {
+        HashSet::new()
+    };
+    let doomed_path = |path: &str| {
+        if set.is_empty() {
+            deleted.iter().any(|folder| at_or_under(path, folder))
+        } else {
+            set.contains(path) || under_deleted(path, &set)
+        }
+    };
+    let mut doomed = Vec::new();
+    for slot in 0..index.arena.slots() {
+        if index.arena.is_live(slot)
+            && let Some(path) = index.arena.get(slot)
+            && doomed_path(path)
+        {
+            doomed.push(slot);
+        }
+    }
+    for slot in doomed {
+        if let Some(path) = index.arena.get(slot).map(str::to_owned) {
+            index.members.remove(&index.arena, &path);
+            index.arena.remove(slot);
+        }
+    }
+}
+
+/// Whether `path` is `folder` itself, its folder entry (`folder/`), or anything below it.
+fn at_or_under(path: &str, folder: &str) -> bool {
+    path.strip_prefix(folder)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Compacting renumbers slots, so the membership map has to be rebuilt from the arena.

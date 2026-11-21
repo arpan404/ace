@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 base64.workspace = true
+ring = "0.17"
 hmac.workspace = true
 jiff.workspace = true
 sha2.workspace = true
@@ -32,9 +33,12 @@ spade-connect = { path = "../spade-connect" }
 spade-mcp = { path = "../spade-mcp" }
 spade-fetch = { path = "../spade-fetch" }
 spade-docs = { path = "../spade-docs" }
+# Spade runs the Spade Agent Format's conformance suite on itself (ADR 0201 §5).
+spade-conform = { path = "../spade-conform" }
 spade-sandbox = { path = "../spade-sandbox", default-features = false }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
+spade-wasm = { path = "../spade-wasm" }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "io-util"] }
 tokio-stream.workspace = true
@@ -49,6 +53,8 @@ cap-fs-ext = "4.0.3"
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 regex = "1"
 reqwest.workspace = true
+# The scripted model a package's scenario tests run against (`spade --bot-test`, ADR 0200 §9).
+spade-testkit = { path = "../spade-testkit" }
 
 [features]
 default = ["landlock"]
@@ -71,14 +77,16 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "server",
   "transport-streamable-http-server",
 ] }
-spade-testkit = { path = "../spade-testkit" }
 spade-docs = { path = "../spade-docs" }
+# Spade runs the Spade Agent Format's conformance suite on itself (ADR 0201 §5).
+spade-conform = { path = "../spade-conform" }
 url = "2"
 tokio-util = "0.7"
 # Fake daemon WebSockets: routines' ace events, and the skill library shared with spade-ace's
 # tests.
 tokio-tungstenite = "0.30.0"
 tower = "0.5"
+wat = "=1.254.2"
 
 [lints]
 workspace = true

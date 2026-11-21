@@ -1,8 +1,11 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
+import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
+import { ownProcesses, type OwnedCapture } from "./owned-processes.ts";
+import { systemListing } from "@ace/provider-kit/process-listing";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
-import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
+import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 import { daemonLockedUse } from "./locked-use-installer.ts";
 import { privilegedRunnerFromEnv } from "./locked-use-privileged.ts";
@@ -58,6 +61,7 @@ import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
+import { openWhileBusy } from "./busy-open.ts";
 import { runningBuildId, storedTrustBuild } from "./stored-shape.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
@@ -69,6 +73,8 @@ import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
 import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
 import { ServiceStartup, systemStartup } from "./services/startup.ts";
+import { loadAwareBudget, pressureFields, pressureVerdict } from "@ace/diagnostics/pressure";
+import { readSystemPressure } from "@ace/diagnostics/pressure-read";
 import { attemptFile, safeModeSkips, startupAttempts } from "./startup-attempts.ts";
 import { crashRecord, installCrashAttribution, repeatedCrashes } from "./service-crashes.ts";
 import { ServiceScope } from "./services/service-scope.ts";
@@ -215,10 +221,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
     // logHomeBackup() logs its own outcome, including a failure to describe the backup.
     void logHomeBackup(prepared, log, new Date(now()), followUp.signal).catch(() => {});
   }
+  // This run's id in every process it starts (ACE_PROCESS_OWNER), recorded in its run marker.
+  const processOwner = randomUUID();
   // Under the lock: the last run's ending tells an expected restart from a crash.
   let run: DaemonRun | undefined;
   try {
-    run = beginRun(config.dataDir, process.pid, now);
+    run = beginRun(config.dataDir, process.pid, now, processOwner, {
+      start: systemListing.info(process.pid)?.start,
+      unique: systemListing.ancestry?.(process.pid)?.unique,
+    });
     const previous = previousRunRecord(run.previous);
     log.log(previous.level, previous.message, logFields([...previous.fields, ...build]));
   } catch (error) {
@@ -334,6 +345,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
     stopInventory();
     inventory.close();
   }, "process inventory");
+  // Before any service spawns, so every marked spawn of this run carries its id.
+  // Closed by the shutdown itself, after its last process check, not with the other resources.
+  const owned = ownProcesses({ home: config.dataDir, run: processOwner, log });
   resources.own(
     watchStalls(log, daemonLogDirectory(config), options.stallTiming),
     "stall watchdog",
@@ -347,7 +361,26 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const reason: unknown = options.signal?.reason;
     return reason instanceof DaemonStop ? reason.reason : { source: "abort" };
   };
+  /*
+   * Every process this run started, wherever it went (`owned-processes.ts`), read before
+   * shutdown signals any of them: a child that left its group never gets a group signal, and
+   * once its parent exits it belongs to init, where no tree reaches it.
+   */
+  let ownedTree: OwnedCapture | undefined;
+  /** Whether a capture couldn't see everything: the stop's receipt then says it is unaccounted. */
+  let unaccounted = false;
+  const captureOwnedTree = (): OwnedCapture => {
+    if (ownedTree) return ownedTree;
+    try {
+      ownedTree = owned.capture();
+    } catch (error) {
+      ownedTree = { members: [], complete: false };
+      log.log("warn", "The daemon's child process tree could not be read", logError(error));
+    }
+    return ownedTree;
+  };
   const abort = () => {
+    captureOwnedTree();
     resources.beginShutdown();
     if (initialized) void closeResources(abortReason()).catch(() => {});
   };
@@ -387,6 +420,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     return closing;
   };
   const disposeResources = async () => {
+    const { members: tree, complete } = captureOwnedTree();
     resources.beginShutdown();
     const runtime = { ...systemStartup, ...options.startup };
     let disposed = false;
@@ -400,6 +434,37 @@ export async function startDaemon(options: DaemonOptions = {}) {
       } catch (error) {
         results.push({ status: "rejected", reason: error });
       }
+      // What outlived its own service's stop: never a clean shutdown while one still runs. A
+      // capture that couldn't see everything makes the stop unaccounted, never a clean success.
+      if (!complete) unaccounted = true;
+      // Then once more, now every service has closed: a process started while shutdown ran (a
+      // probe already in flight) was after the first capture, and its marker still names it.
+      let late: TreeMember[] = [];
+      let left: TreeMember[];
+      try {
+        try {
+          const again = owned.capture();
+          late = again.members;
+          if (!again.complete) unaccounted = true;
+        } catch (error) {
+          // The log may be closed by now; an unchecked end is a failed shutdown, not a quiet one.
+          results.push({ status: "rejected", reason: error });
+        }
+        const first = new Set(tree.map((member) => `${member.pid}:${member.start}`));
+        left = await stopMembers(
+          [...tree, ...late.filter((member) => !first.has(`${member.pid}:${member.start}`))],
+          FORCED_GRACE_MS,
+        );
+      } finally {
+        owned.close();
+      }
+      if (left.length)
+        results.push({
+          status: "rejected",
+          reason: new Error(
+            `Child processes outlived the daemon: ${left.map((member) => member.pid).join(", ")}`,
+          ),
+        });
       const errors = results.flatMap((result, index) =>
         result.status === "rejected"
           ? [
@@ -420,7 +485,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
     });
     const cancelForcedStop = forceStopAfterPoliteWindow({
       schedule: runtime.schedule,
-      stop: options.stopProcesses ?? stopOwnedGroups,
+      stop: async (graceMs) => {
+        const [groups] = await Promise.allSettled([
+          (options.stopProcesses ?? stopOwnedGroups)(graceMs),
+          stopMembers(tree, graceMs),
+        ]);
+        if (groups.status === "rejected") throw groups.reason;
+      },
       log,
       pending: pendingShutdown,
     });
@@ -446,28 +517,52 @@ export async function startDaemon(options: DaemonOptions = {}) {
   try {
     const logDirectory = daemonLogDirectory(config);
     lifetime.signal.throwIfAborted();
+    // Read while the store opens; it sets how long each service may take to start.
+    const pressure = (options.pressure ?? readSystemPressure)().catch(() => undefined);
     const storeBegan = now();
-    const eventStore = openAtStart(
+    const eventStore = await openWhileBusy(
       () =>
-        new Store(
-          join(config.dataDir, "events.sqlite"),
-          (error) => {
-            storage.observe(error);
-            log.log("error", "Event subscriber failed", logError(error));
-          },
-          // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
-          {
-            now,
-            lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
-            storedTrustBuild: storedTrustBuild(
-              process.env.ACE_VERSION,
-              process.argv[1] === undefined ? undefined : runningBuildId(dirname(process.argv[1])),
+        openAtStart(
+          () =>
+            new Store(
+              join(config.dataDir, "events.sqlite"),
+              (error) => {
+                storage.observe(error);
+                log.log("error", "Event subscriber failed", logError(error));
+              },
+              // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
+              {
+                now,
+                lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
+                storedTrustBuild: storedTrustBuild(
+                  process.env.ACE_VERSION,
+                  process.argv[1] === undefined
+                    ? undefined
+                    : runningBuildId(dirname(process.argv[1])),
+                ),
+              },
             ),
-          },
+          config.dataDir,
+          diskSpace,
+          pauseBelow,
         ),
-      config.dataDir,
-      diskSpace,
-      pauseBelow,
+      {
+        // A stop asked for meanwhile ends the wait.
+        sleep: (delayMs) =>
+          new Promise<void>((wake) => setTimeout(wake, delayMs)).then(() =>
+            lifetime.signal.throwIfAborted(),
+          ),
+        onBusy: (attempt, delayMs, error) =>
+          log.log(
+            "warn",
+            "The event store is busy; opening it again shortly",
+            logFields([
+              ["attempt", attempt],
+              ["delayMs", delayMs],
+              ...Object.entries(logError(error)),
+            ]),
+          ),
+      },
     );
     log.log(
       "info",
@@ -538,10 +633,26 @@ export async function startDaemon(options: DaemonOptions = {}) {
       : [];
     if (config.safeMode)
       log.log("warn", "Daemon starting in safe mode", logFields([["services", skip]]));
+    const load = await pressure;
+    const verdict = load ? pressureVerdict(load) : undefined;
+    const timeoutMs = verdict
+      ? loadAwareBudget(systemStartup.timeoutMs, verdict)
+      : systemStartup.timeoutMs;
+    if (load && verdict?.heavy)
+      log.log(
+        "warn",
+        "The machine is overloaded; services get longer to start",
+        logFields([
+          ["timeoutMs", timeoutMs],
+          ["pressure", verdict.reasons],
+          ...Object.entries(pressureFields(load)),
+        ]),
+      );
     const startup = new ServiceStartup(
       serviceContext,
       {
         ...systemStartup,
+        timeoutMs,
         onAttempt: attempts.onAttempt,
         inService: (name, work) => scope.run(name, work),
         ...options.startup,
@@ -584,7 +695,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
       shutdown: shutdownControl(config.dataDir, {
         id: randomUUID,
         now,
-        close: () => closeResources({ source: "stop-request" }),
+        verifyCaller: (hint, connection) => owned.verifyCaller(hint, connection),
+        caller: (members) => owned.spareCaller(members),
+        unaccounted: () => unaccounted,
+        close: () => {
+          const closed = closeResources({ source: "stop-request" });
+          // The process host ends the process once it has closed, as after a signal.
+          options.onStopRequest?.();
+          return closed;
+        },
       }),
       ...services,
       get promptFiles() {
@@ -690,6 +809,20 @@ export async function startDaemon(options: DaemonOptions = {}) {
     await startup.listening(server);
     lifetime.signal.throwIfAborted();
     initialized = true;
+    // What an earlier run of this home left running. Off the startup path: it reads every
+    // process's environment when that run didn't stop in order.
+    const previous = run?.previous;
+    const unclean =
+      previous?.kind === "crashed" || (previous?.kind === "stopped" && previous.overran);
+    const earlier = setTimeout(() => {
+      owned
+        .sweepEarlier(unclean && previous && "owner" in previous ? previous.owner : undefined)
+        .catch((error: unknown) =>
+          log.log("warn", "An earlier run's processes could not be swept", logError(error)),
+        );
+    }, options.earlierSweepMs ?? 1_000);
+    earlier.unref();
+    resources.own(() => clearTimeout(earlier), "earlier-run sweep");
     queueMicrotask(() => socketReady.resolve());
     return daemonHandle({
       server,

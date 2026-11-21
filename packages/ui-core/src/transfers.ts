@@ -14,7 +14,13 @@ import type {
  * the web and the phones draw it.
  */
 
-export { doneWords, refusalWords, runningWords, type Refusal } from "./transfer-words.ts";
+export {
+  carryOnWarning,
+  doneWords,
+  refusalWords,
+  runningWords,
+  type Refusal,
+} from "./transfer-words.ts";
 
 /** A machine work can go to, or why it can't right now. */
 export interface TransferMachine {

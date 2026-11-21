@@ -601,3 +601,34 @@ test("a new automation offers the web's ideas as whole starting forms", async ()
   });
   expect(ideas[0]?.form).toMatchObject({ trigger: "github", event: "pr_changed" });
 });
+
+test("the Summary's line counts the project's schedules, by id or folder, with when the next starts", async () => {
+  const elsewhere: Automation = { ...base, id: "elsewhere", workspace: "/Users/me/other" };
+  const byId: Automation = { ...base, id: "weekly", workspace: "ace-next" };
+  const { ask } = await fixture({ automations: [base, byId, elsewhere] });
+  const reply = await ask({
+    type: "automations.projectLine",
+    workspaceId: "ace-next",
+    workspacePath: "/Users/me/ace-next",
+    zone,
+  });
+  expect(reply).toMatchObject({
+    ok: true,
+    line: "2 automations in this project · next tomorrow 9:00 AM · in 21h",
+    failed: null,
+  });
+  // A project with no schedules shows no line at all.
+  const none = await ask({ type: "automations.projectLine", workspaceId: "empty", zone });
+  expect(none).toMatchObject({ ok: true, line: null, failed: null });
+});
+
+test("with automations off on the machine the Summary's line promises no start", async () => {
+  const { ask } = await fixture({ automations: [base] }, {}, { running: false });
+  const reply = await ask({
+    type: "automations.projectLine",
+    workspaceId: "ace-next",
+    workspacePath: "/Users/me/ace-next",
+    zone,
+  });
+  expect(reply.line).toBe("1 automation in this project · Automations are off on this machine.");
+});

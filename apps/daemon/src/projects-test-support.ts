@@ -25,8 +25,13 @@ import type { ServerOptions } from "./server-options.ts";
 import type { GitProcessRuntime } from "@ace/git";
 
 const execute = promisify(execFile);
+
+/** Where test projects go: project policy refuses /var, where TMPDIR can point on Linux. */
+export function projectTemporaryRoot(): string {
+  return process.platform === "win32" ? tmpdir() : "/tmp";
+}
 export async function projectFixture(options: ProjectsOptions = {}) {
-  const temporaryRoot = tmpdir();
+  const temporaryRoot = projectTemporaryRoot();
   const root = await realpath(await mkdtemp(join(temporaryRoot, "ace-projects-test-")));
   const config = join(root, "gitconfig");
   await writeFile(config, "[init]\n\tdefaultBranch = trunk\n");

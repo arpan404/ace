@@ -1,0 +1,69 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryPendingUpdate.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "bridgeDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "changed": {
+      "items": {
+        "enum": [
+          "agent",
+          "native_cli"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "type": "array"
+    },
+    "executableDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "observedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "previousBridgeDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "previousExecutableDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "acpAgentId",
+    "installationId",
+    "instanceId",
+    "changed",
+    "executableDigest",
+    "previousExecutableDigest",
+    "generation",
+    "observedAt"
+  ],
+  "type": "object"
+}

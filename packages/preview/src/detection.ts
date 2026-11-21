@@ -9,6 +9,7 @@ export {
   joinProcListeners,
   parseLsofCwds,
   parseLsofListeners,
+  parseNetstatListeners,
   parseProcessParents,
   parseProcSockets,
   reachOf,
@@ -18,6 +19,8 @@ export {
 export {
   discoverListeners,
   processCwds,
+  scanListeningPorts,
+  type ListeningScan,
   processParents,
   systemProcessIo,
   type ProcessIo,

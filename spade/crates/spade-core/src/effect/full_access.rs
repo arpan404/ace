@@ -4,10 +4,6 @@
 //! with no reviewer, and untrusted content in view adds no ask, except for an app's tool. What
 //! still asks:
 //!
-//! - a driving step in a place where a step could send, pay or change access (mail and chat, money,
-//!   passwords, sign-in and account pages, settings, social sites, a browser driven through the
-//!   screen), on a simulator or device or an app that shows one, or where Spade can't tell where
-//!   it acts or ace can't hold it there;
 //! - a command outside the sandbox the shell classifier reads as a payment, a send or an access
 //!   change;
 //! - a command asking to leave the sandbox this once: Full access never widens the sandbox;
@@ -28,11 +24,9 @@ use super::{
 use crate::autonomy::{Class, Sensitive};
 
 pub(super) fn route(call: Call<'_>) -> Route {
+    // A driving step goes by its switch, as in every mode (ADR 0171, amendment 7).
     if call.effect == Some(Effect::Drive) {
-        return match super::persons_place(call) {
-            Ok(_) => Route::Run,
-            Err(asked) => asked,
-        };
+        return super::permitted::drive(call);
     }
     match call.place {
         Place::AsksOutside => {

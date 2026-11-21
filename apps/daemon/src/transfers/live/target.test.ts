@@ -17,6 +17,8 @@ import type { ContinueFacts } from "./turn-start.ts";
 import { LiveStarts } from "./target-rows.ts";
 
 const id = "0b6f7c1e-1d2a-4c3b-8e9f-1a2b3c4d5e6f";
+/** The id the target's generator gives the placed copy. */
+const fresh = "9d1e2f3a-4b5c-4d6e-8f70-81a2b3c4d5e6";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
@@ -56,6 +58,7 @@ async function target(
   await mkdir(home);
   const sent: string[] = [];
   const sessions: string[] = [];
+  const adopted: string[] = [];
   const notices: string[] = [];
   const retried: string[] = [];
   const inputs = new Map<string, ContinueFacts>();
@@ -72,7 +75,10 @@ async function target(
     continueFate: (_thread, key) =>
       options.fateAt?.(clock, key) ??
       inputs.get(key) ?? { fate: { state: "unknown" }, held: false },
-    adoptSession: (_thread, session) => sessions.push(`adopt:${session.action}`),
+    adoptSession: (_thread, session) => {
+      sessions.push(`adopt:${session.action}`);
+      adopted.push(session.nativeSessionId);
+    },
     dropSession: () => sessions.push("drop"),
     adoptHandoff: () => sessions.push("handoff"),
     send: (_thread, key, text) => {
@@ -98,6 +104,7 @@ async function target(
     atomic: (run) => store.atomic(run),
     notice: (_thread, text) => notices.push(text),
     now: () => clock,
+    newSessionId: () => fresh,
     sleep: async (ms) => {
       clock += ms;
       // A watch that never ends fails the test instead of hanging it.
@@ -111,6 +118,7 @@ async function target(
     ports,
     sent,
     sessions,
+    adopted,
     notices,
     retried,
     home,
@@ -164,9 +172,12 @@ describe("a moved thread starting on this machine", () => {
     const t = await target();
     const live = carried([await staged(t.folder)]);
     const outcome = await prep(t, live);
-    expect(outcome).toEqual({ kind: "native" });
+    // The copy takes a fresh id, which the thread continues; the transfer keeps both.
+    expect(outcome).toEqual({ kind: "native", sessionIds: { from: id, to: fresh } });
+    expect(t.adopted).toEqual([fresh]);
     expect(
-      JSON.parse(await readFile(join(t.home, "projects", "-srv-app", `${id}.jsonl`), "utf8")).cwd,
+      JSON.parse(await readFile(join(t.home, "projects", "-srv-app", `${fresh}.jsonl`), "utf8"))
+        .cwd,
     ).toBe("/srv/app");
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
     expect(t.sent).toHaveLength(1);
@@ -314,9 +325,7 @@ describe("a moved thread starting on this machine", () => {
     const live = carried([await staged(t.folder)]);
     await prep(t, live);
     // The session is placed already: preparing again neither fails nor changes how it came.
-    expect(await prep(t, live)).toEqual({
-      kind: "native",
-    });
+    expect(await prep(t, live)).toEqual({ kind: "native", sessionIds: { from: id, to: fresh } });
     expect((await all(t.live.unfinished())).map((start) => start.transferId)).toEqual(["x"]);
   });
 

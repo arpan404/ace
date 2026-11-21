@@ -107,7 +107,7 @@ test.each(["shell", "file.write", "mcp"] as const)(
   },
 );
 
-test.each(["allow_once", "deny", "cancel"] as const)(
+test.each(["allow_once", "deny", "cancel", "other"] as const)(
   "an execution permission decision %s preserves its outcome until a native result",
   async (decision) => {
     const frames = scriptFrames();
@@ -168,10 +168,17 @@ test.each(["allow_once", "deny", "cancel"] as const)(
       expect(
         Object.values(h.store.snapshotThread(id).items).find((item) => item.type === "tool_call"),
       ).toMatchObject({
-        complete: decision !== "allow_once",
+        complete: decision !== "allow_once" && decision !== "other",
         call: {
+          // A neutral choice ("Ask later") neither starts nor refuses the call.
           status:
-            decision === "allow_once" ? "running" : decision === "deny" ? "declined" : "cancelled",
+            decision === "allow_once"
+              ? "running"
+              : decision === "other"
+                ? "awaiting_approval"
+                : decision === "deny"
+                  ? "declined"
+                  : "cancelled",
         },
       });
       if (decision === "allow_once") {

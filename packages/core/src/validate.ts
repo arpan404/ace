@@ -77,6 +77,7 @@ const allowed: Record<Fact["type"], string[]> = {
     "raw",
   ],
   "background.listening": ["task", "ports"],
+  "background.waiting": ["task", "waiting"],
   "background.ended": ["task", "status", "uncertain"],
   "agent.disconnected": ["agent"],
   "agent.reconnected": ["agent"],
@@ -340,6 +341,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       );
     case "background.listening":
       return BackgroundTask.shape.listening.unwrap().safeParse(fact.ports).success;
+    case "background.waiting":
+      return typeof fact.waiting === "boolean";
     case "background.ended":
       return (
         oneOf(fact.status, ["completed", "failed", "stopped", "unknown"]) &&

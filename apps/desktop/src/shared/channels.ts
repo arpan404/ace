@@ -25,8 +25,11 @@ import {
   NativeAppearance,
   NotifyRequest,
   OpenInEditor,
+  MicrophonePermission,
   PermissionPane,
   Permissions,
+  SpadeTalkPhase,
+  SpadeTalkState,
   RevealPath,
   ThemeSource,
   WindowBackground,
@@ -40,6 +43,16 @@ import {
   WindowState,
 } from "./contract.ts";
 import { DiagnosticReport } from "./diagnostics.ts";
+import {
+  DeviceTabFocus,
+  DeviceTabGo,
+  DeviceTabId,
+  DeviceTabOpen,
+  DeviceTabOpenRequest,
+  DeviceTabPlacement,
+  DeviceTabState,
+  MachineTunnelPath,
+} from "./device-tabs.ts";
 import { DoctorReport, ProviderSummary, Toolchain } from "./onboarding.ts";
 import {
   SpadeDirectAnswer,
@@ -96,6 +109,11 @@ export const requests = {
   "app.quit": { request: None, result: None },
   /** Reload the window with a fresh daemon connection; restarts a daemon that failed. */
   "app.reload": { request: None, result: None },
+  /**
+   * The window wrote its pending editor drafts after "drafts.flush". `kept` false: the device
+   * couldn't store them, so the quit stops and the window asks. No payload (an older page): kept.
+   */
+  "drafts.flushed": { request: z.object({ kept: z.boolean() }).optional(), result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
   /**
    * The connection the page will most likely get, at once, before the daemon answers; the
@@ -162,6 +180,10 @@ export const requests = {
   "settings.shortcutHint": { request: None, result: z.string().max(500).nullable() },
   "permissions.status": { request: None, result: Permissions },
   "permissions.open": { request: PermissionPane, result: z.boolean() },
+  /** The app's microphone permission, asking the person first where the OS has not yet. */
+  "permissions.microphone": { request: None, result: MicrophonePermission },
+  /** What the push-to-talk shortcut still needs on this desktop, in a sentence; null: nothing. */
+  "settings.talkShortcutHint": { request: None, result: z.string().max(500).nullable() },
   "browser.place": { request: BrowserPlacement, result: BrowserPlacementReceipt },
   /** The shown view's picture, held in its place while an app overlay covers it. */
   "browser.snapshot": { request: BrowserThread, result: BrowserSnapshot },
@@ -172,6 +194,23 @@ export const requests = {
   "browser.focus-app": { request: None, result: None },
   /** Print or developer tools for the thread's shown native tab; false: no such view here. */
   "browser.page": { request: BrowserPageAction, result: z.boolean() },
+  /**
+   * A device tab (ADR 0194): a page the person opens on a remote machine's thread, run here in
+   * that machine's partition. Opening a tab that has a view shows it as it is.
+   */
+  "deviceTab.open": { request: DeviceTabOpen, result: None },
+  "deviceTab.place": {
+    request: DeviceTabPlacement,
+    result: z.enum(["shown", "hidden", "unavailable"]),
+  },
+  /** False: no such tab here. */
+  "deviceTab.go": { request: DeviceTabGo, result: z.boolean() },
+  "deviceTab.close": { request: DeviceTabId, result: None },
+  /**
+   * The path a remote machine's connection is on, for its tunnel here; null ends this window's
+   * lease on it. Never logged.
+   */
+  "machineTunnel.path": { request: MachineTunnelPath, result: None },
   /** Whether a terminal runs `ace`; waits for the launch's own install to finish. */
   "cli.status": { request: None, result: TerminalCommand },
   /** Turn the `ace` command on the terminal's PATH on or off, and save the choice. */
@@ -206,6 +245,17 @@ export const requests = {
   /** Open a live stream; its frames and end arrive as `spade.live` events. */
   "spade.live.open": { request: SpadeLiveOpen, result: None },
   "spade.live.close": { request: SpadeLiveClose, result: None },
+  /**
+   * The menu-bar popover (macOS): open the app window (on a thread or page when given) and
+   * close the popover; fit the popover to its page's height; close it (Esc); quit, or quit
+   * completely.
+   */
+  "tray.open": { request: DeepLink.nullable(), result: None },
+  "tray.fit": { request: z.number().int().min(40).max(1200), result: None },
+  "tray.hide": { request: None, result: None },
+  "tray.quit": { request: z.object({ completely: z.boolean() }), result: None },
+  /** How the push-to-talk turn goes, for the floating indicator. */
+  "spade.talkState": { request: SpadeTalkState, result: None },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;
@@ -216,6 +266,8 @@ export const events = {
   "daemon.status": DaemonStatus,
   "deep-link": DeepLink,
   "keymap.action": z.string().min(1).max(64),
+  /** The app is quitting: write every pending editor draft, then call "drafts.flushed" saying whether they are kept. */
+  "drafts.flush": None,
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
@@ -226,6 +278,12 @@ export const events = {
   }),
   "browser.shortcut": BrowserShortcut,
   "browser.context": BrowserContextAction,
+  /** A device tab's address, title, loading and history, and why its last load failed. */
+  "deviceTab.state": DeviceTabState,
+  /** A link in a device tab asked for a new tab. */
+  "deviceTab.openTab": DeviceTabOpenRequest,
+  /** `CmdOrCtrl+L` in a device tab's page: typing moves to its address. */
+  "deviceTab.focusAddress": DeviceTabFocus,
   "updates.status": UpdateStatus,
   /** The outcome of the menu's Check for Updates…, for the page to answer with a toast. */
   "updates.checked": UpdateStatus,
@@ -236,6 +294,8 @@ export const events = {
   "spade.live": SpadeLiveEvent,
   /** Spade's files changed (it started, stopped or restarted): ask `spade.endpoint` again. */
   "spade.endpoint.changed": None,
+  /** The push-to-talk shortcut was pressed (or its indicator's Cancel). */
+  "spade.talk": SpadeTalkPhase,
 } as const;
 export type EventChannel = keyof typeof events;
 export type EventOf<C extends EventChannel> = z.output<(typeof events)[C]>;

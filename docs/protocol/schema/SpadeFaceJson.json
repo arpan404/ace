@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeFaceJson.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "anyOf": [
+      {
+        "maxLength": 256,
+        "type": "string"
+      },
+      {
+        "type": "number"
+      },
+      {
+        "type": "boolean"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  "propertyNames": {
+    "maxLength": 32,
+    "type": "string"
+  },
+  "type": "object",
+  "x-ace-constraint": "At most 24 fields."
+}

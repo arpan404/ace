@@ -18,11 +18,13 @@ import { MarketPictures } from "./pictures.ts";
 import { markOwnProfile } from "./own-profile.ts";
 import { publishRequest } from "./publish-request.ts";
 import { saveGitSource, sourcesOf } from "./sources.ts";
+import { spadeBot } from "./spade-bot.ts";
 import { spadeSkillFiles, spadeSkills } from "./spade-skills.ts";
 import { MarketStore } from "./store.ts";
 import { badgesOf, Trust } from "./trust.ts";
 import { TurnedOff } from "./turned-off.ts";
 import { markUpdates, turnOffWithdrawn } from "./upkeep.ts";
+import { holdsUpdates, reconcileBots, settleHeldUpdates } from "./arrived-bots.ts";
 
 export type { MarketPluginPort, MarketplaceOptions, MarketRequestPorts } from "./options.ts";
 
@@ -116,8 +118,9 @@ export class MarketplaceService {
   #daily(ms: number): void {
     this.#cancelTimer = this.#options.schedule(() => {
       if (this.#closed) return;
-      // Off, the refresh stops at its first fetch; the next day tries again.
-      void this.#refreshAll()
+      // Off, the refresh stops at its first fetch; the next day tries again. In turn with every
+      // install, so a bot made meanwhile is never read as gone.
+      void this.#serial(() => this.#refreshAll())
         .catch(() => {})
         .finally(() => this.#daily(dayMs));
     }, ms);
@@ -272,6 +275,12 @@ export class MarketplaceService {
         await this.#reviews.cancel(operation.id);
         return { op: "done" };
       case "installed":
+        // An update Spade held for a bot's turn shows as installed once Spade runs it.
+        if (holdsUpdates(this.#store))
+          await this.#serial(async () => {
+            const spade = this.#options.spade;
+            if (await settleHeldUpdates({ store: this.#store, spade })) this.#emit();
+          }).catch(() => {});
         return { op: "installed", installed: this.#installed() };
       case "turnOnForBots":
         return this.#serial(async () => {
@@ -285,26 +294,41 @@ export class MarketplaceService {
           return { op: "done" };
         });
       case "prepareUpdate": {
-        const install = this.#store.install(operation.type, operation.name);
-        if (!install) return error("not_found", "That entry isn't installed");
+        const install = this.#installOf(operation);
+        if ("op" in install) return install;
+        // A linked bot's update moves that bot (ADR 0200 §6.1).
+        const bot = install.type === "spade-bot" && install.linked ? install.target : undefined;
         return this.#serial(() =>
-          this.#reviews.prepare(install.source, install.type, install.name, install.update),
+          this.#reviews.prepare(install.source, install.type, install.name, install.update, bot),
         );
+      }
+      case "prepareRollback": {
+        const install = this.#installOf(operation);
+        if ("op" in install) return install;
+        return this.#serial(() => this.#reviews.prepareRollback(install));
       }
       case "remove":
         return this.#serial(async () => {
-          const install = this.#store.install(operation.type, operation.name);
-          if (!install) return error("not_found", "That entry isn't installed");
+          const install = this.#installOf(operation);
+          if ("op" in install) return install;
           await removeInstall(this.#installPorts(), install);
           this.#emit();
           return { op: "done" };
         });
       case "turnOn":
-        return this.#serial(() => this.#turnOn(operation.type, operation.name));
+        return this.#serial(() => this.#turnOn(operation));
       case "spadeSkills":
         return spadeSkills(this.#store);
       case "spadeSkillFiles":
         return spadeSkillFiles(this.#store, operation.name, operation.path);
+      case "spadeBot":
+        return spadeBot(
+          {
+            store: this.#store,
+            fetch: (name, version) => this.#reviews.fetchVersion("market", name, version),
+          },
+          operation.name,
+        );
       case "discover":
         return discover(
           {
@@ -365,9 +389,29 @@ export class MarketplaceService {
     }
   }
 
-  async #turnOn(type: string, name: string): Promise<MarketResult> {
-    const install = this.#store.install(type, name);
-    if (!install) return error("not_found", "That entry isn't installed");
+  /**
+   * The install an operation names. A bot package can have made several bots here, one install
+   * each: then the operation names its bot.
+   */
+  #installOf(key: { type: string; name: string; bot?: string | undefined }) {
+    if (key.type === "spade-bot" && key.bot === undefined) {
+      const installs = this.#store.botInstalls(key.name);
+      if (installs.length > 1)
+        return error("invalid", "More than one bot was made from this package; say which");
+    }
+    return (
+      this.#store.install(key.type, key.name, key.bot) ??
+      error("not_found", "That entry isn't installed")
+    );
+  }
+
+  async #turnOn(key: {
+    type: string;
+    name: string;
+    bot?: string | undefined;
+  }): Promise<MarketResult> {
+    const install = this.#installOf(key);
+    if ("op" in install) return install;
     const on = await turnOnUnlessBlocked(
       () => this.#installPorts(),
       install,
@@ -399,13 +443,33 @@ export class MarketplaceService {
       await this.#enforceBlocklist();
       const withdrawn = readWithdrawn(this.#store);
       await this.#reviews.cancelWithdrawn(withdrawn);
+      // A linked bot a move brought here becomes an install here, with its pinned bytes; one
+      // that moved away is the other machine's; an update Spade held becomes the version run.
+      await reconcileBots({
+        store: this.#store,
+        spade: this.#options.spade,
+        now: this.#options.now,
+        fetch: (source, name, version) => this.#reviews.fetchVersion(source, name, version),
+      });
       await turnOffWithdrawn(() => this.#installPorts(), this.#store, withdrawn);
       await markUpdates(this.#store);
+      await this.#passNotices();
       this.#emit();
     })().finally(() => {
       this.#refreshing = undefined;
     });
     return this.#refreshing;
+  }
+
+  /**
+   * Hands Spade the newest terms notices this device verified (ADR 0205 §4), on every refresh:
+   * the daily one included. Spade keeps only a list newer than the one it has, so sending the
+   * same one again changes nothing; while Spade isn't running the next refresh sends it.
+   */
+  async #passNotices(): Promise<void> {
+    const signed = this.#trust.signedNotices();
+    if (signed === undefined || !this.#options.spade.ready()) return;
+    await this.#options.spade.termsNotices(signed).catch(() => {});
   }
 
   /** A stale listing is read again in the background; the answer uses what the daemon has. */

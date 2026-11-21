@@ -38,13 +38,23 @@ export interface ChannelEvents {
 export interface AuthenticatedChannel {
   open(events: ChannelEvents): void;
   send(message: ClientMessage): Promise<void>;
+  /**
+   * Send one binary message once welcomed (a tunnel's frames, ADR 0194), in order with the JSON
+   * ones. Resolves once the socket or relay stream has admitted it: on a direct socket, once
+   * what it holds unsent is back under `binaryHighWater`.
+   */
+  sendBinary(bytes: Uint8Array): Promise<void>;
   close(): void;
 }
+/** What a direct socket may hold unsent before a binary send waits for it to drain. */
+export const binaryHighWater = 1024 * 1024;
+/** How often a waiting binary send looks at a direct socket's buffered amount again. */
+const drainPollMs = 4;
 
 /** One authenticated channel per feature. No input queue, replay or token in a URL. */
 export function authenticatedChannel(
   options: AuthenticatedChannelOptions,
-  kind: "devices" | "files" | "screen" | "provider_auth",
+  kind: "devices" | "files" | "screen" | "provider_auth" | "tunnel",
 ): AuthenticatedChannel {
   let socket: PortableSocket | undefined;
   let relay: PortableRelay | undefined;
@@ -57,6 +67,9 @@ export function authenticatedChannel(
   let controller: AbortController | undefined;
   let cancelRetry: (() => void) | undefined;
   let limitAttempts = 0;
+  // A tunnel's frames are small and come many to a socket read; credit already bounds their
+  // bytes, so only the byte bound applies to them.
+  const maxPending = kind === "tunnel" ? 8192 : 32;
   const close = () => {
     epoch++;
     ready = false;
@@ -140,8 +153,9 @@ export function authenticatedChannel(
           deviceId: options.deviceId,
           ...(typeof credential === "string" ? { token: credential } : credential),
           channel: kind,
-          // Relayed bulk JSON may come deflated; sign-in traffic never is.
-          ...(options.target.kind === "relay" && kind !== "provider_auth"
+          // Relayed bulk JSON may come deflated; sign-in traffic never is, and a tunnel's bulk
+          // is binary.
+          ...(options.target.kind === "relay" && kind !== "provider_auth" && kind !== "tunnel"
             ? { compression: relayCompression() }
             : {}),
           // A relay route returns credit as it reads, so the relay never holds a backlog.
@@ -181,7 +195,9 @@ export function authenticatedChannel(
             const code = event.success ? event.data.code : 1006;
             if (epoch !== stamp) return;
             if (code !== 4013) {
-              fail();
+              // Messages that came before the close are read first: a refusal the daemon sent
+              // just before closing (a tunnel's, say) still reaches the consumer.
+              void inbound.finally(fail);
               return;
             }
             const waitingEvents = events;
@@ -225,7 +241,7 @@ export function authenticatedChannel(
               !bytes ||
               bytes > 8 * 1024 * 1024 + 4096 ||
               queued + bytes > 16 * 1024 * 1024 ||
-              pending >= 32
+              pending >= maxPending
             ) {
               fail();
               return;
@@ -251,6 +267,18 @@ export function authenticatedChannel(
           });
         }
       })().catch(fail);
+    },
+    async sendBinary(bytes) {
+      if (!ready) throw new Error("Device channel is not authenticated");
+      if (relay) return relay.sendBinary(bytes);
+      const opened = socket;
+      if (!opened) throw new Error("Device channel disconnected");
+      opened.send(bytes);
+      const stamp = epoch;
+      while (opened.bufferedAmount > binaryHighWater) {
+        await new Promise<void>((resolve) => options.schedule(resolve, drainPollMs));
+        if (epoch !== stamp) throw new Error("Device channel disconnected");
+      }
     },
     async send(message) {
       try {

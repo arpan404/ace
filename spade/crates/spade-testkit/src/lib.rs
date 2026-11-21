@@ -3,6 +3,7 @@
 //! [`Script`] (or a sequence of them, one per request), and records every request it receives.
 //! [`FakeConnector`] stands in for an app's remote MCP server and its OAuth server.
 
+pub mod a2a;
 mod anthropic;
 pub mod client_document;
 pub mod cloud;
@@ -27,10 +28,11 @@ use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
+pub use a2a::FakeAgent;
 pub use client_document::ClientDocument;
 pub use cloud::FakeCloud;
 pub use connector::FakeConnector;
-pub use media::FakeMedia;
+pub use media::{FakeMedia, SPEECH_REST, SPEECH_START};
 pub use models::FakeModelList;
 
 /// A tool call the fake makes.
@@ -201,6 +203,9 @@ struct Shared {
     scripts: Arc<Vec<Script>>,
     next: Arc<AtomicUsize>,
     seen: Arc<Mutex<Vec<Seen>>>,
+    /// With `start_turns`: how every plain (non-streamed) call is answered, so only the model's
+    /// turns take the scripts.
+    plain: Option<Arc<Script>>,
 }
 
 pub struct FakeProvider {
@@ -223,6 +228,16 @@ impl FakeProvider {
 
     /// The Nth request gets the Nth script; the last one repeats.
     pub async fn start_sequence(scripts: Vec<Script>) -> Result<Self, Error> {
+        Self::serve(scripts, None).await
+    }
+
+    /// The Nth streamed request (a turn's model step) gets the Nth script, the last repeating;
+    /// every plain request (a title, a summary) gets `plain`, whenever it comes.
+    pub async fn start_turns(turns: Vec<Script>, plain: Script) -> Result<Self, Error> {
+        Self::serve(turns, Some(plain)).await
+    }
+
+    async fn serve(scripts: Vec<Script>, plain: Option<Script>) -> Result<Self, Error> {
         let shared = Shared {
             scripts: Arc::new(if scripts.is_empty() {
                 vec![Script::reply("")]
@@ -231,6 +246,7 @@ impl FakeProvider {
             }),
             next: Arc::default(),
             seen: Arc::default(),
+            plain: plain.map(Arc::new),
         };
         let app = Router::new()
             .route("/{*path}", post(answer))
@@ -284,8 +300,13 @@ async fn answer(
             body,
         });
     }
-    let index = shared.next.fetch_add(1, Ordering::SeqCst);
-    let script = &shared.scripts[index.min(shared.scripts.len() - 1)];
+    let script = match (&shared.plain, streamed) {
+        (Some(plain), false) => &**plain,
+        _ => {
+            let index = shared.next.fetch_add(1, Ordering::SeqCst);
+            &shared.scripts[index.min(shared.scripts.len() - 1)]
+        }
+    };
     if let Some(status) = script.fail {
         let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let error = json!({ "error": { "message": "fake endpoint failure", "type": "fake" } });

@@ -33,6 +33,20 @@ function snapshot<T>(
   return value;
 }
 
+export function onDeviceSetting(
+  storage: KeyValueStorage | undefined,
+  key: string,
+  listener: () => void,
+): () => void {
+  if (!storage) return () => {};
+  const byKey = listeners.get(storage) ?? new Map();
+  listeners.set(storage, byKey);
+  const set = byKey.get(key) ?? new Set<() => void>();
+  byKey.set(key, set);
+  set.add(listener);
+  return () => void set.delete(listener);
+}
+
 export function useDeviceSetting<T>(
   key: string,
   schema: SafeParser<T>,
@@ -40,15 +54,7 @@ export function useDeviceSetting<T>(
 ): [T, (next: T) => void] {
   const { storage } = useLayout();
   const subscribe = useCallback(
-    (listener: () => void) => {
-      if (!storage) return () => {};
-      const byKey = listeners.get(storage) ?? new Map<string, Set<() => void>>();
-      listeners.set(storage, byKey);
-      const set = byKey.get(key) ?? new Set();
-      byKey.set(key, set);
-      set.add(listener);
-      return () => void set.delete(listener);
-    },
+    (listener: () => void) => onDeviceSetting(storage, key, listener),
     [storage, key],
   );
   const read = () => snapshot(storage, key, schema, fallback);

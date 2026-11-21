@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/ClientCloseReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "aliveMs": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "attempt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cause": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ClientCloseCause.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/ClientCloseCause.json",
+          "x-ace-constraint": "A cause this daemon doesn't know is read as `other`."
+        }
+      ]
+    },
+    "code": {
+      "maximum": 4999,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "downMs": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "wasReady": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "cause",
+    "wasReady",
+    "attempt"
+  ],
+  "type": "object"
+}

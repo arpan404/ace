@@ -365,7 +365,7 @@ test("with terminals set to open in the side panel, ⌘J shows the thread's term
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("New tab offers an address, tools and suggested sites, and opens a Files tab in its place", async () => {
+test("New tab offers an address, tools and suggested sites, and opens the editor in its place", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
@@ -373,9 +373,9 @@ test("New tab offers an address, tools and suggested sites, and opens a Files ta
   const tools = await within(panel).findByRole("list", { name: "Tools" });
   expect(await within(panel).findByRole("list", { name: "Suggested" })).toBeTruthy();
   expect(within(panel).getByRole("combobox", { name: "Address" })).toBeTruthy();
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
-  expect(selected(panel).textContent).toBe("Files");
-  expect(tabNames(panel)).toEqual(["Summary", "Files"]);
+  await userEvent.click(within(tools).getByRole("button", { name: /^Editor/ }));
+  expect(selected(panel).textContent).toBe("Editor");
+  expect(tabNames(panel)).toEqual(["Summary", "Editor"]);
 });
 
 test("the new tab's tools are one Tab stop that arrow keys move through by row and column", async () => {
@@ -427,13 +427,13 @@ test("the command palette pins the showing tab and reopens the tab closed last",
   expect(await within(panel).findByRole("tab", { name: "Logs", selected: true })).toBeTruthy();
 });
 
-test("Files keeps its filter across repeated panel hide and reopen", async () => {
+test("the editor keeps its explorer filter across repeated panel hide and reopen", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const tools = await within(panel).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
+  await userEvent.click(within(tools).getByRole("button", { name: /^Editor/ }));
   const filter = await within(panel).findByRole("searchbox", {
     name: "Find files in the checkout",
   });

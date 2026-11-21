@@ -116,6 +116,13 @@ export const MachineCallOrigin = z.object({
   provider: z.string().min(1).max(64).optional(),
   /** The calling thread's ceiling: a read-only thread never acts there. Absent is operate. */
   ceiling: z.enum(["read", "operate"]).optional(),
+  /**
+   * Newer values the calling machine reads, by the names a client's hello trims use:
+   * `moved-status` (a thread status of the `moved` state, ADR 0191; without it the target sends
+   * a moved thread as `waiting` on `upstream`). Unknown names are ignored; older targets drop
+   * the field.
+   */
+  accepts: z.array(z.string().max(32)).max(16).optional(),
 });
 export type MachineCallOrigin = z.infer<typeof MachineCallOrigin>;
 

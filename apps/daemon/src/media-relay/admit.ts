@@ -1,3 +1,4 @@
+import { orgRole } from "@ace/account-grant/org-roles";
 import { HostId, type ServerMessage } from "@ace/protocol";
 import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Devices } from "../devices.ts";
@@ -44,6 +45,9 @@ export function mediaHelloAdmission(options: {
     // ticket is left unclaimed.
     if (signal.aborted) return { ok: false };
     if (!admitted.device) return { ok: false, refusal: admitted.refusal ?? refused };
+    // A member who reaches only Spade opens no media channel (ADR 0206 §2.2).
+    if (admitted.member && orgRole(admitted.member.role) !== "owner")
+      return { ok: false, refusal: refused };
     const account = admitted.stillAdmitted !== undefined;
     if (
       !account &&

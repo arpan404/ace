@@ -2,6 +2,7 @@ import { ClientError } from "@ace/client";
 import {
   SourceControlPreferences,
   ThreadId,
+  WorkspaceId,
   type CommandPayload,
   type CommandResult,
   type ForgeRepository,
@@ -13,6 +14,7 @@ import {
   parsePrReference,
   staleLockOutcome,
   type CheckoutMove,
+  type StaleLockTarget,
 } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
@@ -96,6 +98,9 @@ function failed(error: unknown): Outcome {
         ok: false,
         message: "Not sent: the machine isn't connected. Try again once it is.",
       };
+    // The daemon refused the command before admission (e.g. operate revoked: "forbidden"),
+    // so it definitely did not happen.
+    if (error.code === "daemon") return { ok: false, message: actionErrorText(error.message) };
     return unconfirmed;
   }
   if (error instanceof Error && error.message) return { ok: false, message: error.message };
@@ -284,28 +289,47 @@ export async function workAction(
   }
 }
 
+const lockCommand = (target: StaleLockTarget): CommandPayload =>
+  "threadId" in target
+    ? { type: "git.lock.clear", threadId: ThreadId.parse(target.threadId) }
+    : { type: "workspace.git.lock.clear", workspaceId: WorkspaceId.parse(target.workspaceId) };
+
 /**
- * "Clear stale lock" for the open thread, from the transcript or the Work sheet, once the person
- * confirmed. The daemon retires the lock only after checking its daemon has stopped; the words
- * say whether this cleared one, found none, or what still holds it.
+ * Clear a stale Git lock for an open thread (`git.lock.clear`) or a project's repository
+ * (`workspace.git.lock.clear`), once the person confirmed. The daemon retires the lock only
+ * after checking its daemon has stopped; `staleLockOutcome` says whether this cleared one,
+ * found none, or what still holds it.
+ */
+export async function clearLock(
+  owner: Pick<ChangesOwner, "command">,
+  target: StaleLockTarget,
+): Promise<Outcome> {
+  try {
+    const result = await owner.command(lockCommand(target));
+    if (!result.ok && result.error === "forbidden")
+      return { ok: false, message: actionErrorText("forbidden") };
+    const said = staleLockOutcome(result, target);
+    return { ok: said.ok, message: `${said.title}. ${said.detail}` };
+  } catch (error) {
+    return failed(error);
+  }
+}
+
+/**
+ * "Clear stale lock" for the open thread (or a project's repository), from the transcript or the
+ * Work sheet, once the person confirmed. Publishes its outcome as `work.result`.
  */
 export async function clearStaleLock(
-  owner: ChangesOwner,
-  threadId: string,
+  owner: Pick<ChangesOwner, "command">,
+  target: string | StaleLockTarget,
   requestId: string,
   sink: PatchSink,
   preview: Preview,
-): Promise<void> {
-  let outcome: Outcome;
-  try {
-    const result = await owner.command({
-      type: "git.lock.clear",
-      threadId: ThreadId.parse(threadId),
-    });
-    const said = staleLockOutcome(result, { threadId });
-    outcome = { ok: said.ok, message: `${said.title}. ${said.detail}` };
-  } catch (error) {
-    outcome = failed(error);
-  }
+): Promise<Outcome> {
+  const outcome = await clearLock(
+    owner,
+    typeof target === "string" ? { threadId: target } : target,
+  );
   putResult(sink, preview, requestId, outcome);
+  return outcome;
 }

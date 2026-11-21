@@ -179,6 +179,9 @@ export function marketPickFixture(): MarketPickSeed {
         recipe: {
           format: "spade-bot",
           version: 2,
+          triggers: [],
+          effects: [],
+          tests: [],
           name: "Inbox sorter",
           blurb: "",
           task: "You look after Arlo Quint's inbox.",

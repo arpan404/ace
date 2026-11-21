@@ -2,6 +2,11 @@ import type { ContentPart } from "@ace/protocol";
 import { sanitizeTypedText, sanitizeUserText } from "@ace/native-session/user-text";
 import { withoutPortableHandoff } from "@ace/projection";
 import { splitAnnotationParts, splitBrowserAnnotations } from "./browser-annotation-parse.ts";
+import {
+  splitCodeAnnotationParts,
+  splitCodeAnnotations,
+  type ParsedCodeAnnotation,
+} from "./code-annotation.ts";
 import { tokensFromInput } from "./composer-tokens.ts";
 import { extensionDisplayName } from "./extension-names.ts";
 import { splitQuoteParts, type ParsedMessageQuote } from "./message-quotes.ts";
@@ -22,6 +27,8 @@ export interface BubbleContent {
   /** Whether the bubble has anything to read: words or a mention. */
   readable: boolean;
   annotations: ReturnType<typeof splitAnnotationParts>["annotations"];
+  /** Code the person marked in the editor, each with their note. */
+  code?: ParsedCodeAnnotation[] | undefined;
   /** Passages of the agent's messages the person commented on. */
   quotes?: ParsedMessageQuote[] | undefined;
 }
@@ -30,7 +37,8 @@ export function bubbleContent(input: readonly ContentPart[]): BubbleContent {
   // Browser annotations travel as a block after the person's words; they show as a card.
   // Browser annotations and marked passages travel as blocks after the person's words; each
   // shows as a card.
-  const annotated = splitAnnotationParts(withoutPortableHandoff(input));
+  const coded = splitCodeAnnotationParts(withoutPortableHandoff(input));
+  const annotated = splitAnnotationParts(coded.parts);
   const quoted = splitQuoteParts(annotated.parts);
   const parts = quoted.parts;
   const text = sanitizeUserText(splitBrowserAnnotations(tokensFromInput(parts).text).text);
@@ -40,6 +48,7 @@ export function bubbleContent(input: readonly ContentPart[]): BubbleContent {
     text,
     readable,
     annotations: annotated.annotations,
+    ...(coded.code ? { code: coded.code } : {}),
     ...(quoted.quotes ? { quotes: quoted.quotes } : {}),
   };
 }
@@ -50,7 +59,8 @@ export function bubbleContent(input: readonly ContentPart[]): BubbleContent {
  * For a message still on its way; the transcript's bubble uses `bubbleContent`.
  */
 export function typedWords(parts: readonly ContentPart[]): string {
-  return sanitizeTypedText(splitBrowserAnnotations(tokensFromInput(parts).text).text);
+  const words = splitBrowserAnnotations(tokensFromInput(parts).text).text;
+  return sanitizeTypedText(splitCodeAnnotations(words).text);
 }
 
 /** A mention's chip name: its title, else its catalog name in words. */
@@ -67,7 +77,7 @@ export function mentionName(part: Mention): string {
 
 export type ReferenceSegment =
   | { kind: "text"; text: string }
-  | { kind: "mention"; name: string; mention: Mention["kind"] };
+  | { kind: "mention"; name: string; mention: Mention["kind"]; icon?: string | undefined };
 
 /**
  * The words of a message with mentions as chips in place. Mentions are kept as opaque markers
@@ -96,7 +106,14 @@ export function referenceSegments(parts: readonly ContentPart[]): ReferenceSegme
     if (index % 2 === 0) return value ? [{ kind: "text", text: value }] : [];
     const part = parts[Number(value)];
     return part?.type === "mention"
-      ? [{ kind: "mention", name: mentionName(part), mention: part.kind }]
+      ? [
+          {
+            kind: "mention",
+            name: mentionName(part),
+            mention: part.kind,
+            ...(part.icon ? { icon: part.icon } : {}),
+          },
+        ]
       : [];
   });
 }

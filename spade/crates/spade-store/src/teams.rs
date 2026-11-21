@@ -7,6 +7,7 @@ use rusqlite::{OptionalExtension, Row, params};
 use spade_core::Event;
 
 use crate::gate::{ARRIVING_CONVERSATIONS, ARRIVING_GROUPS};
+use crate::outside::OUTSIDE_LIKE;
 use crate::{Result, Store, StoreError, StoredEvent};
 
 pub(crate) const SCHEMA: &str = "
@@ -499,10 +500,12 @@ impl Store {
     }
 
     /// Forgets asks delivered before `before_ms`; a retry of one that old is no longer expected.
+    /// Outside calls are kept: their grant's task ids, Stop and retries rely on them, and
+    /// [`Store::prune_outside`] forgets them only once they ended.
     pub fn prune_inbox(&self, before_ms: i64) -> Result<usize> {
         Ok(self.lock()?.execute(
             &format!(
-                "DELETE FROM inbox WHERE created_ms < ?1
+                "DELETE FROM inbox WHERE created_ms < ?1 AND NOT {OUTSIDE_LIKE}
                  AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
             ),
             params![before_ms],
@@ -544,7 +547,7 @@ impl Store {
     ) -> Result<Delivered> {
         let ask = delivery.ask;
         let mut connection = self.lock()?;
-        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = connection.transaction()?;
         let known: bool = tx
             .query_row(
                 &format!(

@@ -43,6 +43,7 @@ import type { DismissedSends } from "./dismissed-sends.ts";
 export type NewThreadOwner = Pick<
   ClientCore,
   | "request"
+  | "command"
   | "enqueue"
   | "intent"
   | "commandId"

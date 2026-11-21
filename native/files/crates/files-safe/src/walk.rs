@@ -175,6 +175,19 @@ pub(crate) fn open_folder_unstored(root: &Root, rel: &str) -> Result<Dir, Error>
     walk.handle()
 }
 
+/// Opens the folder `rel` names, refusing a link at any step, without resolving stored spellings.
+///
+/// A walker that does not follow links never lists a path through one, so a link found on the
+/// way now was swapped in after the walk: it is `PATH_ESCAPE`, wherever it points, never a
+/// redirection to another folder, inside the checkout or out of it.
+pub(crate) fn open_folder_unlinked(root: &Root, rel: &str) -> Result<Dir, Error> {
+    let rel = Root::check(rel)?;
+    let mut walk = Walk::start(root, rel, Last::Folder, Links::Refuse)?;
+    walk.store_names = false;
+    walk.run(request_segments(rel))?;
+    walk.handle()
+}
+
 /// The parent half of a non-empty relative path and its leaf.
 pub(crate) fn split(rel: &str) -> Result<(&str, &str), Error> {
     match rel.rsplit_once('/') {

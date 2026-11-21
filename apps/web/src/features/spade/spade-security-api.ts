@@ -4,9 +4,11 @@ import {
   parseSpadeEgress,
   parseSpadeGrantAnswer,
   parseSpadeSecurityMachine,
+  parseSpadeUndoPreview,
   type SpadeAutonomy,
   type SpadeCommandsMode,
   type SpadeNetworkPolicy,
+  type SpadePermissionKey,
 } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
@@ -112,6 +114,38 @@ export async function setMachineNetwork(
   return sure(parseSpadeSecurityMachine(body), "security settings");
 }
 
+/**
+ * One of a bot's Permissions (ADR 0171, amendment 7); null follows its parent's or the default.
+ * Turning one on is the person's alone: ace's daemon stamps it, or refuses it.
+ */
+export async function setBotPermission(
+  target: SpadeTarget,
+  agent: string,
+  key: SpadePermissionKey,
+  on: boolean | null,
+) {
+  const body = await spadeHttp(target, "PUT", agentPath(agent, "security/permissions"), {
+    body: { key, on },
+  });
+  return sure(parseSpadeBotSecurity(body), "security settings");
+}
+
+/** One of the Permissions every bot without its own follows. */
+export async function setMachinePermission(
+  target: SpadeTarget,
+  key: SpadePermissionKey,
+  on: boolean,
+) {
+  const body = await spadeHttp(target, "PUT", "/v1/security/permissions", { body: { key, on } });
+  return sure(parseSpadeSecurityMachine(body), "security settings");
+}
+
+/** The apps no bot uses through Computer use, as a whole list; the person's to change. */
+export async function setNeverApps(target: SpadeTarget, apps: readonly string[]) {
+  const body = await spadeHttp(target, "PUT", "/v1/security/never-apps", { body: { apps } });
+  return sure(parseSpadeSecurityMachine(body), "security settings");
+}
+
 /** A grant's scope as Spade takes it: `{kind, …}`. */
 export type SpadeGrantRequest =
   | { kind: "folder"; path: string; write: boolean }
@@ -136,6 +170,19 @@ export async function readCheckpoints(target: SpadeTarget, agent: string, signal
 export async function restoreCheckpoint(target: SpadeTarget, agent: string, checkpoint: string) {
   const path = agentPath(agent, `checkpoints/${segment(checkpoint)}/restore`);
   await spadeHttp(target, "POST", path);
+}
+
+/** What undoing the step at `seq` (and everything after it) would put back, before it does. */
+export async function readUndoPreview(
+  target: SpadeTarget,
+  agent: string,
+  seq: number,
+  signal?: AbortSignal,
+) {
+  const body = await spadeHttp(target, "GET", agentPath(agent, `checkpoints/undo?seq=${seq}`), {
+    signal,
+  });
+  return sure(parseSpadeUndoPreview(JSON.parse(body)), "undo");
 }
 
 export async function readEgress(target: SpadeTarget, agent: string, signal?: AbortSignal) {
@@ -170,4 +217,17 @@ export function useBotSecurity(agent: string) {
     queryFn: ({ signal }) => readBotSecurity(client, agent, signal),
     retry: false,
   });
+}
+
+/**
+ * Turns one effect a bot's package declares on or off (ADR 0200 §3.4): on is the person's grant,
+ * and Spade refuses a key the package didn't declare.
+ */
+export async function setPackageEffect(
+  target: SpadeTarget,
+  agent: string,
+  key: string,
+  on: boolean,
+) {
+  await spadeHttp(target, "PUT", agentPath(agent, "package/effects"), { body: { key, on } });
 }

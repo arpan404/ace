@@ -1,4 +1,5 @@
 export * from "./extension-catalog.ts";
+export * from "./close-report.ts";
 export * from "./skill-library.ts";
 export * from "./contained-path.ts";
 export * from "./spade.ts";
@@ -23,6 +24,7 @@ export * from "./events.ts";
 export * from "./ids.ts";
 export * from "./interactions.ts";
 export * from "./items.ts";
+export * from "./addressing.ts";
 export * from "./provider.ts";
 export * from "./thread.ts";
 export * from "./thread-place.ts";
@@ -109,6 +111,7 @@ export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
 export * from "./machine-relay.ts";
+export * from "./machine-tunnel.ts";
 export * from "./parcels.ts";
 export * from "./machine-grants.ts";
 export * from "./fleet.ts";
@@ -216,6 +219,8 @@ export * from "./cli-control.ts";
 export * from "./storage.ts";
 
 export * from "./html.ts";
+export * from "./html-panel.ts";
+export * from "./mcp-app-panel.ts";
 export * from "./image-share.ts";
 export * from "./forge-inbox.ts";
 

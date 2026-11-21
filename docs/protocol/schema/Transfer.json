@@ -33,6 +33,20 @@
       ],
       "type": "string"
     },
+    "live": {
+      "properties": {
+        "session": {
+          "$ref": "https://ace.local/protocol/v1/TransferSessionOutcome.json"
+        },
+        "stage": {
+          "$ref": "https://ace.local/protocol/v1/TransferLiveStage.json"
+        }
+      },
+      "required": [
+        "stage"
+      ],
+      "type": "object"
+    },
     "method": {
       "$ref": "https://ace.local/protocol/v1/TransferMethod.json"
     },
@@ -144,6 +158,10 @@
       "maxLength": 128,
       "minLength": 1,
       "type": "string"
+    },
+    "unlinked": {
+      "const": true,
+      "type": "boolean"
     },
     "updatedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"

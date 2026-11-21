@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/PackageRequires.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "runtime": {
+      "maxLength": 20,
+      "type": "string"
+    },
+    "spade": {
+      "maxLength": 40,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

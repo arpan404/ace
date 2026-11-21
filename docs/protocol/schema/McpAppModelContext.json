@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpAppModelContext.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "content": {
+      "items": {
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "const": "text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "text"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "structuredContent": {
+      "additionalProperties": {},
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    }
+  },
+  "type": "object"
+}

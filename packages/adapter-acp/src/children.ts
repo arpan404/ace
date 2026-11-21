@@ -44,6 +44,7 @@ export function childUpdate(
   if (!association || association.id === parent.nativeId) return false;
   const { id, type, status } = association;
   const child = state.agent(id, facts);
+  child.associated = true;
   const meta = object(object(update["_meta"])["cursor"]);
   const nativeTool = string(meta["toolCallId"]);
   const previousTool = state.childTools.get(id);
@@ -126,7 +127,7 @@ export function childUpdate(
     );
     child.terminal = true;
     if (tool) state.backgroundTools.delete(tool);
-    delete child.cancelAt;
+    state.disarmCancel(child);
     if (parent.suspended) {
       parent.suspended = false;
       state.start(parent, facts, "subagent_result");
@@ -152,6 +153,7 @@ export function placeholderChild(state: TranslationState, tool: ToolState, facts
   if (!tool.child) {
     const id = state.key("placeholder");
     const child = state.agent(id, facts);
+    child.placeholder = true;
     child.spawn = tool.key;
     tool.child = child;
     state.childTools.set(id, tool);
@@ -190,16 +192,23 @@ export function placeholderChild(state: TranslationState, tool: ToolState, facts
             : "failed",
       );
     child.terminal = true;
+    // No native session can name it again: the tool keeps it, the agent index lets it go.
+    state.disarmCancel(child);
+    if (state.agents.get(child.nativeId) === child) state.agents.delete(child.nativeId);
   }
 }
 export function expireChildren(state: TranslationState, now: number): Fact[] {
   const facts: Fact[] = [];
-  for (const child of state.agents.values()) {
-    if (child.cancelAt === undefined || now < child.cancelAt || child.terminal) continue;
+  for (const child of state.cancelling) {
+    if (child.terminal) {
+      state.disarmCancel(child);
+      continue;
+    }
+    if (child.cancelAt === undefined || now < child.cancelAt) continue;
     state.start(child, facts, "spawn");
     state.end(child, facts, "interrupted");
     child.terminal = true;
-    delete child.cancelAt;
+    state.disarmCancel(child);
     finishChildTasks(state, child, "unknown", facts);
     state.notice(
       facts,

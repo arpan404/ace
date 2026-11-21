@@ -51,6 +51,9 @@ impl Engine {
             return None;
         }
         let mut events = self.load(id).ok()?;
+        if self.give_up_routine_goal(id, &events) {
+            return None;
+        }
         // A claim of done is checked before anything else (ADR 0159).
         match verify::claim(&events) {
             Claim::None => {}
@@ -65,6 +68,10 @@ impl Engine {
                     return None;
                 }
                 events = self.load(id).ok()?;
+                drop(_order);
+                if self.give_up_routine_goal(id, &events) {
+                    return None;
+                }
             }
             Claim::Check { claim, .. } => {
                 let token = self.ids.next("k");
@@ -101,6 +108,25 @@ impl Engine {
                 })
             }
         }
+    }
+
+    /// Ends a verified routine's goal as failed once its check said "not yet" too often (ADR 0204
+    /// §3): its run never reads done, and nothing carries it on. Whether it ended it.
+    fn give_up_routine_goal(&self, id: &str, events: &[Event]) -> bool {
+        let Some(ended) = verify::gave_up(events) else {
+            return false;
+        };
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let still = self
+            .load(id)
+            .is_ok_and(|now| verify::gave_up(&now).is_some());
+        if still && let Err(error) = self.append(id, &Event::Known(ended)) {
+            tracing::error!(%error, "could not end a routine's goal");
+        }
+        drop(_order);
+        self.remember_episodes(id);
+        self.announce(id);
+        true
     }
 
     /// Acts on what [`Engine::plan_carry_on`] decided: starts the step once its backoff is over
@@ -167,9 +193,10 @@ impl Engine {
     }
 
     /// Whether a step of the bot's task may start now: Spade is open, the bot is not being
-    /// deleted, and the person doesn't have its computer. Spend never stops it (ADR 0166).
+    /// deleted, and the person neither has its computer nor paused it. Spend never stops it
+    /// (ADR 0166).
     fn may_start_step(&self, id: &str) -> bool {
-        self.admission.load(Ordering::SeqCst) && !self.deleting(id) && !self.held(id)
+        self.admission.load(Ordering::SeqCst) && !self.deleting(id) && !self.closed(id)
     }
 
     /// Starts step `step` if it is still the one due and `token` is still the latest plan. Stored

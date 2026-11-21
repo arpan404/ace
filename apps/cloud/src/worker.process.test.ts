@@ -4,7 +4,9 @@ import {
   GRANT_LIFETIME_MS,
   GRANT_SUBPROTOCOL_PREFIX,
   GrantKeySet,
+  encodeBase64url,
   grantPublicKey,
+  signMemberGrant,
 } from "@ace/account-grant";
 import { FLOW_WINDOW, hostId, keyPair } from "@ace/secure-channel";
 import type { KeyPair } from "@ace/secure-channel";
@@ -12,7 +14,7 @@ import { connectClientViaRelay, connectHostToRelay } from "@ace/relay";
 import type { HostChannel } from "@ace/relay";
 import { address, CONTROL, deferred, initiate, openPeer } from "@ace/relay/testing";
 import { WebSocket } from "ws";
-import { mint, startWorker, upgrade } from "./testing/harness.ts";
+import { grantKey, mint, startWorker, upgrade } from "./testing/harness.ts";
 
 let worker: Awaited<ReturnType<typeof startWorker>>;
 const cleanups: (() => unknown)[] = [];
@@ -92,7 +94,12 @@ it("a daemon and a device on the same account exchange encrypted messages in bot
 });
 
 it("a daemon and a device that name their versions, or garble them, connect as before", async () => {
-  for (const aceClient of ["daemon/0.0.24-beta.1", "not a client"]) {
+  for (const aceClient of [
+    "daemon/0.0.24-beta.1",
+    "ios/0.1.0",
+    "ios/development",
+    "not a client",
+  ]) {
     const { connect } = await host({ aceClient });
     const { client, server } = await connect();
     await client.send({ type: "ping" });
@@ -117,6 +124,50 @@ it("a device on another account is told the machine is not theirs", async () => 
     reason: "Not your machine",
   });
   await expect(client(mint("device", "user_b", "phone"))).rejects.toThrow();
+});
+
+it("a member of the organization that holds a host reaches it; anyone else is refused", async () => {
+  const { connection, client } = await host({ account: "user_a" });
+  await worker.db
+    .prepare(
+      "INSERT INTO org_hosts (host_id, org_id, enrolled_by, enrolled_at) VALUES (?, 'org_team', 'user_a', 1)",
+    )
+    .bind(connection.hostId)
+    .run();
+  const member = (org: string, target = connection.hostId) => {
+    const iat = Date.now();
+    return signMemberGrant(
+      {
+        org,
+        role: "member",
+        account: "user_m",
+        subject: "phone",
+        host: target,
+        key: encodeBase64url(new Uint8Array(65).fill(4)),
+        policy: 0,
+        iat,
+        exp: iat + GRANT_LIFETIME_MS,
+      },
+      grantKey,
+    );
+  };
+  // Mia isn't on the account the host signed in with, but her organization holds the host.
+  const opened = await client(member("org_team"));
+  cleanups.push(() => opened.close());
+  const url = address(worker.relayUrl, "/client", { hostId: connection.hostId });
+  // Another organization's member, a member grant for another host, and a device grant from
+  // the member's own account are all refused.
+  expect(await upgrade(url, [GRANT_SUBPROTOCOL_PREFIX + member("org_other")])).toEqual({
+    status: 403,
+  });
+  const elsewhere = hostId(keyPair().publicKey);
+  expect(await upgrade(url, [GRANT_SUBPROTOCOL_PREFIX + member("org_team", elsewhere)])).toEqual({
+    status: 403,
+  });
+  expect(await upgrade(url, deviceProtocol("user_m"))).toMatchObject({
+    code: 4403,
+    reason: "Not your machine",
+  });
 });
 
 it("upgrades without a valid grant are refused before reaching a machine", async () => {

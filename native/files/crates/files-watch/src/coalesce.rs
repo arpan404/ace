@@ -127,6 +127,27 @@ impl Coalescer {
         self.count_burst(&folder_with_news, now);
     }
 
+    /// Adds what a check of the open folders found.
+    ///
+    /// The check runs on its own clock and often finds what an event in this window already
+    /// described. Those facts join the path's record without restarting the quiet period: the
+    /// window closes when the events go quiet, and the disk decides the change then either way.
+    /// Anything the window does not hold yet is pushed as news.
+    pub(crate) fn push_found(&mut self, notice: Notice, now: Instant) {
+        if self.scope.is_none()
+            && let Some(observed) = self.paths.get_mut(&notice.change.path)
+        {
+            let Notice {
+                change,
+                rename,
+                present,
+            } = notice;
+            observed.push(change.kind, change.directory, rename, present);
+            return;
+        }
+        self.push(notice, now);
+    }
+
     /// Turns a folder that keeps changing into one rescan of itself.
     ///
     /// The window is already over what one folder can reasonably re-report change by change, even
@@ -731,6 +752,37 @@ mod tests {
                 dir: Some("burst".to_owned())
             })
         );
+    }
+
+    #[test]
+    fn a_check_that_finds_what_the_window_already_holds_does_not_hold_it_open() {
+        // The open-folder check runs on its own clock. Landing inside a window, it finds the
+        // deletion an event already described, and restarting the quiet period for that would
+        // report every such delete a whole debounce late.
+        let mut coalescer = coalescer(100);
+        let start = Instant::now();
+        coalescer.push(notice("gone.txt", ChangeKind::Deleted), start);
+        let checked = start + Duration::from_millis(50);
+        coalescer.push_found(notice("gone.txt", ChangeKind::Deleted), checked);
+        assert_eq!(
+            coalescer.wait(checked),
+            Some(DEBOUNCE - Duration::from_millis(50))
+        );
+        assert_eq!(
+            changes_of(coalescer.settle(start + DEBOUNCE, &mut Gone)),
+            vec![Change {
+                path: "gone.txt".to_owned(),
+                kind: ChangeKind::Deleted,
+                directory: false,
+            }]
+        );
+
+        // News the window does not hold yet is news: it waits for a quiet period of its own.
+        let start = Instant::now();
+        coalescer.push(notice("a.txt", ChangeKind::Deleted), start);
+        let checked = start + Duration::from_millis(50);
+        coalescer.push_found(notice("b.txt", ChangeKind::Deleted), checked);
+        assert_eq!(coalescer.wait(checked), Some(DEBOUNCE));
     }
 
     #[test]

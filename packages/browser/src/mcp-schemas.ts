@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hostSet } from "@ace/mcp-server";
 import { BrowserMeasurementOptions, browserWaitLimitMs } from "@ace/protocol";
 
 // Tool inputs are what a model reads; the service re-validates each command it builds.
@@ -10,6 +11,7 @@ const tabId = z.string().min(1).max(256).optional();
 /** Set by a caller's gate (Spade) to bind the step to the tab and address it checked. */
 const expect = z
   .object({ tabId: z.string().min(1).max(256), url })
+  .meta(hostSet)
   .optional()
   .describe("Set by your host; leave it out.");
 const tab = { tabId };

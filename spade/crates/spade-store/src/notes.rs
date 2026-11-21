@@ -66,6 +66,8 @@ pub struct StoredNote {
     /// Extracted from a span with untrusted content: waits for the person to keep it, and no
     /// bot sees it meanwhile.
     pub suggested: bool,
+    /// Where it came from; `None` for the person's own and for notes from before origins.
+    pub origin: Option<spade_core::provenance::Origin>,
 }
 
 /// A note to store. `text` is already cleaned.
@@ -163,7 +165,7 @@ pub struct HistoryWindow {
 }
 
 const COLUMNS: &str = "n.id, n.agent_id, n.text, n.source, n.created_ms, n.updated_ms, n.used_ms, \
-                       n.uses, n.suggested";
+                       n.uses, n.suggested, n.origin";
 
 fn note(row: &Row<'_>) -> rusqlite::Result<StoredNote> {
     let source: String = row.get(3)?;
@@ -177,6 +179,7 @@ fn note(row: &Row<'_>) -> rusqlite::Result<StoredNote> {
         used_ms: row.get(6)?,
         uses: u32::try_from(row.get::<_, i64>(7)?).unwrap_or(0),
         suggested: row.get::<_, i64>(8)? != 0,
+        origin: spade_core::provenance::Origin::parse(row.get::<_, Option<String>>(9)?.as_deref()),
     })
 }
 
@@ -238,7 +241,7 @@ impl Store {
         most: usize,
     ) -> Result<Saved> {
         let mut connection = self.lock()?;
-        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = connection.transaction()?;
         let existing = {
             let mut statement = tx.prepare(&format!(
                 "SELECT {COLUMNS} FROM notes n
@@ -356,6 +359,53 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Records where note `id` came from, once it is written.
+    pub fn set_note_origin(&self, id: &str, origin: &spade_core::provenance::Origin) -> Result<()> {
+        let text = serde_json::to_string(origin).unwrap_or_default();
+        self.lock()?.execute(
+            "UPDATE notes SET origin = ?2 WHERE id = ?1",
+            params![id, text],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes these notes; how many there were.
+    pub fn delete_notes(&self, ids: &[String]) -> Result<usize> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let mut gone = 0;
+        for id in ids {
+            gone += tx.execute("DELETE FROM notes WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(gone)
+    }
+
+    /// The position of the newest message from the person in `conversation`, looking back at
+    /// most `within` events: the message a turn writing a note was answering.
+    pub fn last_person_message(&self, conversation: &str, within: usize) -> Result<Option<i64>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT seq, body FROM events WHERE conversation_id = ?1 ORDER BY seq DESC LIMIT ?2",
+        )?;
+        let within = i64::try_from(within).unwrap_or(i64::MAX);
+        let mut rows = statement.query(params![conversation, within])?;
+        while let Some(row) = rows.next()? {
+            let body: String = row.get(1)?;
+            let value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+            if let Event::Known(spade_core::event::Known::UserMessage {
+                from_agent: None,
+                from_routine: None,
+                from_group: None,
+                ..
+            }) = Event::from_json(value)
+            {
+                return Ok(Some(row.get(0)?));
+            }
+        }
+        Ok(None)
+    }
+
     /// Deletes a note; whether there was one.
     pub fn delete_note(&self, id: &str) -> Result<bool> {
         Ok(self.lock()?.execute(
@@ -382,7 +432,7 @@ impl Store {
         ))?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = statement.query_map(params![which.agent(), query, limit], |row| {
-            Ok((note(row)?, row.get::<_, f64>(9)?))
+            Ok((note(row)?, row.get::<_, f64>(10)?))
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }

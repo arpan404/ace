@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferSessionOutcome.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "kind": {
+      "enum": [
+        "native",
+        "summary"
+      ],
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "sessionIds": {
+      "properties": {
+        "from": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "to": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}

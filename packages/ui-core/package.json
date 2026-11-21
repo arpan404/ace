@@ -27,7 +27,10 @@
     "./outside-clients": "./src/outside-clients.ts",
     "./devices": "./src/device-kit.ts",
     "./browser-devices": "./src/browser-devices.ts",
+    "./machine-loopback": "./src/machine-loopback.ts",
     "./browser-device-settings": "./src/browser-device-settings.ts",
+    "./device-loopback": "./src/device-loopback.ts",
+    "./loopback-navigation": "./src/loopback-navigation.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
     "./editor-url": "./src/editor-url.ts",
     "./editor-commands": "./src/editor-commands.ts",
@@ -42,6 +45,7 @@
     "./project-groups": "./src/project-groups.ts",
     "./thread-place": "./src/thread-place.ts",
     "./thread-title": "./src/thread-title.ts",
+    "./mention-shares": "./src/mention-shares.ts",
     "./chat-list": "./src/chat-list.ts",
     "./host-care": "./src/host-care.ts",
     "./machine-update": "./src/machine-update.ts",
@@ -58,7 +62,8 @@
     "./review": "./src/review.ts",
     "./workspace-tabs": "./src/workspace-tabs.ts",
     "./workspace-bounds": "./src/workspace-bounds.ts",
-    "./tablet-workspace": "./src/tablet-workspace.ts"
+    "./tablet-workspace": "./src/tablet-workspace.ts",
+    "./editor-workbench": "./src/editor-workbench/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

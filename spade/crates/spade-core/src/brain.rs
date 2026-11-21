@@ -147,7 +147,10 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
 /// answer after `event`.
 fn still_asking(asking: bool, event: &Event) -> bool {
     match event {
-        Event::Known(Known::QuestionAsked { .. }) => true,
+        // An app's form is answered only on its card, never by a typed message.
+        Event::Known(Known::QuestionAsked { call_id, .. }) => {
+            crate::question::elicit::call_of(call_id).is_none() || asking
+        }
         Event::Known(
             Known::QuestionDeferred { .. }
             | Known::QuestionAnswered { late: false, .. }
@@ -170,6 +173,7 @@ fn turn_part(event: &Event) -> Option<String> {
             from_agent,
             from_routine,
             from_group,
+            from_thread,
         }) => {
             let spoken = match voice {
                 Some(_) => format!("{} {text}", context::SPOKEN),
@@ -181,6 +185,7 @@ fn turn_part(event: &Event) -> Option<String> {
                 from_agent.as_ref(),
                 from_routine.as_deref(),
                 from_group.as_deref(),
+                from_thread.as_deref(),
             );
             // The extracted text, with how to read on (`document_read` through spade_call).
             for document in documents {
@@ -212,6 +217,10 @@ fn turn_part(event: &Event) -> Option<String> {
         Event::Known(Known::ComputerHandedBack { text, data }) => {
             Some(context::handed_back(text, data))
         }
+        // A choice pressed on a card (ADR 0200 §5.1); the card's title is in the CLI's own view.
+        Event::Known(known @ Known::CardAction { .. }) => crate::card::action_text(&[], known),
+        // An action sent from a panel (ADR 0200 §5.2): its page's unless the person confirmed it.
+        Event::Known(known @ Known::PanelAction { .. }) => crate::panel::action_text(known),
         // A wake's note and a job's check-in (ADR 0160), as an endpoint model reads them.
         Event::Known(known) if crate::wake::is_note(known) => crate::wake::note_text(known),
         _ => None,
@@ -335,6 +344,8 @@ mod tests {
         Event::Known(Known::AgentConfigured {
             task: task.into(),
             model: "cli:codex/m".into(),
+            personality: None,
+            change: None,
         })
     }
 

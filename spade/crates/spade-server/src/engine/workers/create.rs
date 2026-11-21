@@ -59,9 +59,11 @@ struct Arguments {
 }
 
 impl Engine {
-    /// Sets where connectors are granted to workers. Once; later calls are ignored.
-    pub fn set_connector_grants(&self, grants: Arc<dyn ConnectorGrants>) {
-        let _ = self.workers.grants.set(grants);
+    /// Sets the person's apps: where connectors are granted to workers, and what a bot asking
+    /// for an app is answered from. Once; later calls are ignored.
+    pub fn set_connector_grants(&self, hub: Arc<spade_connect::Connectors>) {
+        let _ = self.apps.set(hub.clone());
+        let _ = self.workers.grants.set(hub);
     }
 
     /// The person's apps, as bots are let use them; `None` when Spade has none.
@@ -157,6 +159,9 @@ impl Engine {
         }
         // Fixed now, while the brief is written: a queued one may start much later.
         let untrusted = !context::untrusted_in_view(&events, &registry).is_empty();
+        // The contract calls the maker serves now (and any it was made under) hold the worker
+        // for good: it may outlive the reply and the call (ADR 0200 §7).
+        let held = self.call_ceilings(caller);
         let id = self.ids.next("a");
         let conversation = self.ids.next("c");
         let avatar = self.avatar(&id, None).map_err(|e| e.to_string())?;
@@ -172,12 +177,15 @@ impl Engine {
             },
             brief,
             untrusted,
+            held,
         };
         let first = [
             Event::Known(Known::WorkerOf(link)),
             Event::Known(Known::AgentConfigured {
                 task: task.clone(),
                 model: model.clone(),
+                personality: None,
+                change: None,
             }),
             // Named by its maker: no model call for a title.
             Event::renamed(name.clone()),
@@ -326,6 +334,7 @@ impl Engine {
                 name: link.parent_name.clone(),
                 depth: u32::try_from(self.worker_ancestors(conversation).len()).unwrap_or(1),
                 machine: None,
+                contract: None,
             });
         }
         message

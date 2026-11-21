@@ -66,9 +66,11 @@ fn from_bot(id: &str, name: &str) -> Event {
             name: name.into(),
             depth: 1,
             machine: None,
+            contract: None,
         }),
         from_routine: None,
         from_group: None,
+        from_thread: None,
     })
 }
 

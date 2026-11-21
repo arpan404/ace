@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
+import {
+  spadeCantRunBots,
+  spadeChecksOf,
+  spadeKnownGoodOf,
+  type SpadeKnownGood,
+  type SpadeModelChecks,
+} from "./model-checks.ts";
 
 /*
  * The person's model endpoints and their models (ADR 0126), as `GET /v1/models` and the endpoint
@@ -26,6 +33,10 @@ export interface SpadeModelInfo {
   capabilities: string[];
   /** `listed`: from the endpoint's list; `typed`: the person's; `preset`: the shipped file's. */
   source: "listed" | "typed" | "preset" | undefined;
+  /** On this computer: what Spade's checks found (ADR 0205 §3). */
+  checks?: SpadeModelChecks | undefined;
+  /** On this computer: the family ace measured it in, if it did. */
+  knownGood?: SpadeKnownGood | undefined;
 }
 
 export interface SpadeEndpoint {
@@ -37,6 +48,8 @@ export interface SpadeEndpoint {
   /** Names of the extra headers it sends; their values stay with Spade. */
   headerNames: string[];
   needsKey: boolean;
+  /** It runs on this computer (a local model server): offered before any other (ADR 0205). */
+  local: boolean;
   /** Undefined while the keychain hasn't answered (a prompt is open): not known yet. */
   keySet: boolean | undefined;
   /**
@@ -70,6 +83,8 @@ export interface SpadeModels {
   fastModel: string | undefined;
   /** `endpoint/model` that turns recordings into words (ADR 0134); undefined: none set. */
   transcriptionModel: string | undefined;
+  /** `endpoint/model` that reads replies aloud (ADR 0134, amended); undefined: none set. */
+  speechModel: string | undefined;
   /** `endpoint/model` a new bot starts on; undefined: the person's first usable model. */
   newBotModel: string | undefined;
   /** False only when Spade says this machine has no keychain to keep keys in. */
@@ -95,6 +110,8 @@ const modelShape = z.object({
   context: z.number().int().positive().nullish().catch(undefined),
   capabilities: z.unknown().optional(),
   source: z.enum(["listed", "typed", "preset"]).nullish().catch(undefined),
+  probes: z.unknown().optional(),
+  known_good: z.unknown().optional(),
 });
 
 function modelOf(raw: unknown): SpadeModelInfo | undefined {
@@ -107,6 +124,10 @@ function modelOf(raw: unknown): SpadeModelInfo | undefined {
     context: model.context ?? undefined,
     capabilities: capabilitiesOf(model.capabilities),
     source: model.source ?? undefined,
+    ...(spadeChecksOf(model.probes) ? { checks: spadeChecksOf(model.probes) } : {}),
+    ...(spadeKnownGoodOf(model.known_good)
+      ? { knownGood: spadeKnownGoodOf(model.known_good) }
+      : {}),
   };
 }
 
@@ -126,6 +147,7 @@ const endpointShape = z.object({
   session_header: optionalText,
   header_names: z.array(z.string()).catch([]).default([]),
   needs_key: z.boolean().catch(false).default(false),
+  local: z.boolean().catch(false).default(false),
   // Null while the keychain hasn't answered; missing (an older Spade) reads as no key.
   key_set: z.boolean().nullable().catch(false).default(false),
   key_source: optionalText,
@@ -146,6 +168,7 @@ export function parseSpadeEndpointValue(raw: unknown): SpadeEndpoint | undefined
     sessionHeader: endpoint.session_header || undefined,
     headerNames: endpoint.header_names,
     needsKey: endpoint.needs_key,
+    local: endpoint.local,
     keySet: endpoint.key_set ?? undefined,
     keySource:
       endpoint.key_source === "keychain" || endpoint.key_source === "environment"
@@ -201,6 +224,10 @@ export function parseSpadeModels(body: string): SpadeModels | undefined {
       typeof record.transcription_model === "string" && record.transcription_model
         ? record.transcription_model
         : undefined,
+    speechModel:
+      typeof record.speech_model === "string" && record.speech_model
+        ? record.speech_model
+        : undefined,
     newBotModel:
       typeof record.new_bot_model === "string" && record.new_bot_model
         ? record.new_bot_model
@@ -234,13 +261,17 @@ export function mergeSpadeModels(
   const listed = (live ?? []).map((model): SpadeModelInfo => {
     const mine = byId.get(model.id);
     if (!mine) return model;
-    return {
+    const merged: SpadeModelInfo = {
       id: model.id,
       name: mine.name !== mine.id ? mine.name : model.name,
       context: mine.context ?? model.context,
       capabilities: mine.capabilities.length ? mine.capabilities : model.capabilities,
       source: mine.source,
     };
+    // What Spade measured about it on this computer is the saved model's (ADR 0205 §3).
+    if (mine.checks) merged.checks = mine.checks;
+    if (mine.knownGood) merged.knownGood = mine.knownGood;
+    return merged;
   });
   const seen = new Set(listed.map((model) => model.id));
   const rest = saved.filter((model) => !seen.has(model.id));
@@ -265,14 +296,23 @@ function tokens(count: number): string {
 const trim = (value: number) => String(Math.round(value * 10) / 10);
 
 /**
+ * The person's endpoints in the order Spade offers them: those `local` says run on this computer
+ * first, the rest after, each in the person's order (ADR 0205 §1).
+ */
+export function spadeLocalFirst<T>(items: readonly T[], local: (item: T) => boolean): T[] {
+  return [...items.filter((each) => local(each)), ...items.filter((each) => !local(each))];
+}
+
+/**
  * The model Spade gives a new bot when the person chose none: the first model of the first
- * endpoint that can be used now, as `endpoint/model`. Undefined when there is none: Spade then
- * gives no model rather than one the person hasn't set up.
+ * endpoint that can be used now, local ones first, as `endpoint/model`. Undefined when there is
+ * none: Spade then gives no model rather than one the person hasn't set up. Never a subscription.
  */
 export function spadeFirstUsableModel(endpoints: readonly SpadeEndpoint[]): string | undefined {
-  for (const endpoint of endpoints) {
+  for (const endpoint of spadeLocalFirst(endpoints, (each) => each.local)) {
     if (endpoint.needsKey && !endpoint.keySet) continue;
-    const model = endpoint.models[0];
+    // Only a model that can run a bot: one whose checks found it calls tools (ADR 0205 §3).
+    const model = endpoint.models.find((each) => !spadeCantRunBots(each));
     if (model) return `${endpoint.id}/${model.id}`;
   }
   return undefined;

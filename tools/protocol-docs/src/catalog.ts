@@ -17,6 +17,8 @@ import * as history from "@ace/protocol/history";
 import * as pi from "@ace/protocol/pi";
 import * as accounts from "@ace/protocol/accounts";
 import * as aceAccount from "@ace/protocol/ace-account";
+import * as aceOrg from "@ace/protocol/ace-org";
+import * as aceClient from "@ace/protocol/ace-client";
 import * as queue from "@ace/protocol/queue";
 import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
@@ -85,6 +87,8 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./history", history],
   ["./accounts", accounts],
   ["./ace-account", aceAccount],
+  ["./ace-org", aceOrg],
+  ["./ace-client", aceClient],
   ["./agent-control", agentControl],
   ["./devices", appDevices],
   ["./thread-transitions", transitions],

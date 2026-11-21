@@ -114,8 +114,25 @@ pub const PER_BOT_SETTINGS: &[&str] = &[
     "digests:",
     "model_roles:",
     "bot_recipe:",
+    // Its package link and installed version, and an update held for its next still moment
+    // (ADR 0200 §3.8): the target fetches the pinned bytes by hash itself.
+    "bot_package:",
+    "bot_package_held:",
+    // Which page each of its panels shows (ADR 0200 §5.2); the pages themselves go by their
+    // hash beside its images.
+    "bot_panels:",
+    // The ceiling its maker's package held it to, when a packaged bot made it (ADR 0200 §3.4).
+    "package_ceiling:",
+    // The accent the person chose for it, over its package's (ADR 0200 §5.3).
+    "bot_style:",
+    // The person turned calls to its contracts from their other bots off (ADR 0200 §7): a
+    // move never turns them back on.
+    "contracts_incoming_off:",
     "security:",
     "knowledge_bytes.",
+    // A shared bot's organization and access list (ADR 0206 §2.3): where it arrives, only a
+    // host of the same organization takes it.
+    "org_bot:",
 ];
 
 const IN_CONVERSATIONS: &str = "conversation_id IN (SELECT value FROM json_each(:conversations))";
@@ -152,6 +169,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("created_ms"),
             int("updated_ms"),
             opt_int("pinned_ms"),
+            opt_text("personality"),
         ],
         owner: Owner::Agent,
         key: "rowid",
@@ -229,6 +247,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             opt_int("used_ms"),
             int("uses"),
             int("suggested"),
+            opt_text("origin"),
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
@@ -253,6 +272,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("updated_ms"),
             opt_int("used_ms"),
             int("uses"),
+            opt_text("origin"),
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
@@ -285,6 +305,23 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("cost_micros"),
             int("started_ms"),
             int("closed_ms"),
+        ],
+        owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
+        pk: "id",
+        unique: true,
+    },
+    // Runs the person kept as tests (ADR 0204): they go where the bot goes.
+    MoveTable {
+        name: "cases",
+        filter: IN_AGENTS,
+        columns: &[
+            text("id"),
+            text("agent_id"),
+            text("reply"),
+            opt_text("mark"),
+            text("body"),
+            int("made_ms"),
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",

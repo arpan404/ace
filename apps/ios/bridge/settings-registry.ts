@@ -1,5 +1,9 @@
 import type { ClientCore } from "@ace/client";
-import type { ProviderInstallProgress, RegistryAgent } from "@ace/protocol";
+import {
+  RegistryPendingUpdate,
+  type ProviderInstallProgress,
+  type RegistryAgent,
+} from "@ace/protocol";
 import {
   latestInstallation,
   planFacts,
@@ -8,10 +12,13 @@ import {
   registryPublisher,
   registrySetup,
   registryStanding,
+  registryUpdateSentence,
   searchRegistry,
   type PlanFact,
 } from "@ace/ui-core/acp-registry";
+import { providerDisplayName } from "@ace/ui-core";
 import {
+  approveAgentUpdate,
   planInstall,
   readRegistry,
   refreshRegistry,
@@ -41,6 +48,11 @@ export const RegistryScreenRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("acp.registry.progress"), session }),
   z.object({ type: z.literal("acp.registry.cancel"), session }),
   z.object({ type: z.literal("acp.manual") }),
+  /**
+   * The person approves the update the row showed (ADR 0044 amendment): its `approval` key, as
+   * the screen gave it, so an update that changed since is refused, never approved unseen.
+   */
+  z.object({ type: z.literal("acp.registry.approve-update"), approval: z.string().max(4096) }),
 ]);
 export type RegistryScreenRequest = z.infer<typeof RegistryScreenRequest>;
 
@@ -57,7 +69,20 @@ export interface RegistryRow {
   unavailable: boolean;
 }
 
+/** An agent that changed since the person approved it, waiting for them to approve its update. */
+export interface RegistryUpdateRow {
+  installationId: string;
+  /** Exactly this update (its files, what it replaces, its generation); Approve sends it back. */
+  approval: string;
+  /** "Gemini CLI changed". */
+  title: string;
+  /** What changed, and that ace won't run it until they approve. */
+  detail: string;
+}
+
 export interface RegistryScreen {
+  /** Agents waiting for approval, shown above the registry with Approve update. */
+  updates: RegistryUpdateRow[];
   rows: RegistryRow[];
   /** "Updated 5m ago", or that this is the saved list. */
   age: string;
@@ -97,6 +122,16 @@ function row(agent: RegistryAgent, view: RegistryView): RegistryRow {
   };
 }
 
+/** The update a row showed, from its `approval` key; undefined when the key isn't one. */
+function shownUpdate(approval: string): RegistryPendingUpdate | undefined {
+  try {
+    const parsed = RegistryPendingUpdate.safeParse(JSON.parse(approval));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The registry for one search: matches by name first, what can't install here last. */
 export function registryScreen(view: RegistryView, query: string, now: number): RegistryScreen {
   const rows = searchRegistry(view.agents, query).map((agent) => row(agent, view));
@@ -109,6 +144,15 @@ export function registryScreen(view: RegistryView, query: string, now: number): 
         ? `No agents match “${query.trim()}”.`
         : null;
   return {
+    updates: view.updates.map((update) => ({
+      installationId: update.installationId,
+      approval: JSON.stringify(update),
+      title: `${
+        view.agents.find((agent) => agent.acpAgentId === update.acpAgentId)?.name ??
+        providerDisplayName("acp", update.acpAgentId)
+      } changed`,
+      detail: registryUpdateSentence(update),
+    })),
     rows: [...rows.filter((entry) => !entry.unavailable), ...rows.filter((e) => e.unavailable)],
     age:
       view.refreshFailed && view.agents.length > 0
@@ -306,6 +350,13 @@ export async function answerRegistryScreen(
         return await install(owner, request, signal);
       case "acp.manual":
         return { ok: true, manual: manualScreen() };
+      case "acp.registry.approve-update": {
+        // What the row showed, not what the daemon lists now: the daemon refuses it if it moved.
+        const update = shownUpdate(request.approval);
+        if (!update) return { ok: false, problem: registryFailure("") };
+        await approveAgentUpdate(owner, update);
+        return { ok: true, screen: registryScreen(await readRegistry(owner, signal), "", now) };
+      }
     }
   } catch (error) {
     return failed(error);

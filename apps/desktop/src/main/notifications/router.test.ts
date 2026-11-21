@@ -214,3 +214,51 @@ describe("notification actions", () => {
     expect(actionCommand(daemonAlert({ actions: [] }), "approve")).toBeUndefined();
   });
 });
+
+const spade = (id: string, request?: string) =>
+  daemonAlert({
+    id,
+    threadId: "spade-host",
+    title: "Booker",
+    status: "spade",
+    message: "Asks: Window or aisle?",
+    interactionId: undefined,
+    preview: undefined,
+    actions: [],
+    spade: {
+      agent: "a1",
+      conversation: "c1",
+      category: "needs_you",
+      ...(request ? { request } : {}),
+    },
+  });
+
+describe("Spade notices", () => {
+  it("a bot's question opens its request, and the bot's next notice replaces it", () => {
+    const { router: routing, clock } = router();
+    const first = routing.route(spade("spade:event:c1:7", "q2"));
+    expect(first).toMatchObject({
+      kind: "show",
+      notification: {
+        title: "Booker",
+        body: "Asks: Window or aisle?",
+        link: { kind: "spade", agent: "a1", request: "q2" },
+        actions: [],
+        reply: false,
+        tag: "spade:a1",
+      },
+    });
+    clock.now += 60_000;
+    const next = routing.route(spade("spade:event:c1:9"));
+    expect(next).toMatchObject({ kind: "show", notification: { tag: "spade:a1" } });
+    expect(routing.route(spade("spade:event:c1:9"))).toEqual({ kind: "drop", reason: "duplicate" });
+  });
+
+  it("nothing shows while ace is in front, or with Spade's notifications off", () => {
+    const { router: routing } = router();
+    routing.setFocus({ windowFocused: true, threadId: undefined });
+    expect(routing.route(spade("spade:a"))).toEqual({ kind: "drop", reason: "focused" });
+    const off = router({ categories: { spade: false } }).router;
+    expect(off.route(spade("spade:b"))).toEqual({ kind: "drop", reason: "category" });
+  });
+});

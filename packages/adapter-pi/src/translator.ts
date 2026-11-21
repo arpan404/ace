@@ -3,7 +3,7 @@ import type { Translator, Frame } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import { Dialog, Envelope, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { dialogRequest } from "./dialogs.ts";
-import { toolDetail, resultSuffix } from "./tools.ts";
+import { toolDetail, editResultDetail, resultSuffix } from "./tools.ts";
 import { piTurnBoundary } from "./turn-boundary.ts";
 import { piContextSample } from "./context-usage.ts";
 import { messageFacts } from "./messages.ts";
@@ -28,7 +28,10 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
     for (const value of dialogs.values())
       if (value !== undefined && (deadline === undefined || value < deadline)) deadline = value;
   };
-  const tools = new Map<string, { name: string; length: number; surviving: boolean }>();
+  const tools = new Map<
+    string,
+    { name: string; args: unknown; length: number; surviving: boolean }
+  >();
   const dialogs = new Map<string, number | undefined>();
 
   const notice = (
@@ -212,7 +215,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         const id = str(e.toolCallId),
           name = str(e.toolName);
         if (!id) return [notice(frame, "Pi tool omitted identity", "warning")];
-        tools.set(id, { name, length: 0, surviving: false });
+        tools.set(id, { name, args: e.args, length: 0, surviving: false });
         const detail = toolDetail(name, e.args);
         return [
           ...start(),
@@ -264,6 +267,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
             e.isError === true ||
             obj(obj(obj(e.result).details).aceMcp).isError === true ||
             obj(e.result).isError === true;
+          const edited = failed ? undefined : editResultDetail(tool.name, tool.args, e.result);
           facts.push({
             type: "item.upsert",
             agent,
@@ -273,6 +277,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
               complete: true,
               call: {
                 status: failed ? "failed" : "succeeded",
+                ...(edited ? { detail: edited } : {}),
                 endedAt: now,
                 raw: raw(frame.data),
               },

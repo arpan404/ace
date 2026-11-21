@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
-import { appendFileSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { openApiDocument, requiredRoutes } from "../contract.ts";
 const args = process.argv.slice(2);
@@ -104,6 +104,23 @@ const publish = (type, data, directory = "/one", extra = {}) => {
   for (const stream of streams) stream.write(`data: ${JSON.stringify(e)}\n\n`);
   return e;
 };
+/**
+ * `hold-turn`: the session's execution stays running until the file ACE_TEST_TURN_RELEASE names
+ * exists, as a real one does while its agent's tool call waits; then it succeeds. An interrupt
+ * ends the hold first.
+ */
+const heldTurns = new Map();
+function holdTurn(id, directory) {
+  const file = process.env.ACE_TEST_TURN_RELEASE;
+  if (!file) return;
+  const poll = setInterval(() => {
+    if (!existsSync(file)) return;
+    clearInterval(poll);
+    heldTurns.delete(id);
+    publish("session.execution.succeeded", { sessionID: id }, directory);
+  }, 10);
+  heldTurns.set(id, poll);
+}
 const nativeMcp = new Map();
 let toolCatalog = [];
 let readinessRequested = false;
@@ -769,12 +786,18 @@ const server = createServer(async (req, res) => {
         { sessionID: id, inboxID: item.id },
         sessions.get(id)?.location.directory,
       );
-      if (process.env.ACE_TEST_COMPLETE_INPUT === "1") {
+      // A message that arrives while a held turn runs joins it, and the turn keeps running.
+      if (process.env.ACE_TEST_COMPLETE_INPUT === "1" && heldTurns.has(id)) {
+        inbox.set(id, []);
+        const directory = sessions.get(id)?.location.directory;
+        publish("session.inbox.delivered", { sessionID: id, inboxID: item.id }, directory);
+      } else if (process.env.ACE_TEST_COMPLETE_INPUT === "1") {
         const directory = sessions.get(id)?.location.directory;
         inbox.set(id, []);
         publish("session.inbox.delivered", { sessionID: id, inboxID: item.id }, directory);
         publish("session.execution.started", { sessionID: id }, directory);
-        if (process.env.ACE_TEST_DELEGATION_RESULT === "1")
+        if (body.text === "hold-turn") holdTurn(id, directory);
+        else if (process.env.ACE_TEST_DELEGATION_RESULT === "1")
           publish(
             "session.text.ended",
             {
@@ -785,7 +808,8 @@ const server = createServer(async (req, res) => {
             },
             directory,
           );
-        publish("session.execution.succeeded", { sessionID: id }, directory);
+        if (body.text !== "hold-turn")
+          publish("session.execution.succeeded", { sessionID: id }, directory);
       }
       // The prompt was stored, then the server failed while answering.
       if (fault.promptServerError) {
@@ -809,6 +833,8 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (suffix === "/interrupt") {
+      clearInterval(heldTurns.get(id));
+      heldTurns.delete(id);
       if (fault.interruptFailure) {
         res
           .writeHead(500, { "content-type": "application/json" })
@@ -908,6 +934,10 @@ const server = createServer(async (req, res) => {
 });
 server.listen(0, "127.0.0.1", () => {
   console.error(`password=${process.env.OPENCODE_PASSWORD}`);
+  // ACE_TEST_STDERR_LINE_BYTES: one stderr line this long before readiness, as a chatty MCP
+  // server's passed-through log would be.
+  const stderrLine = Number(process.env.ACE_TEST_STDERR_LINE_BYTES ?? 0);
+  if (stderrLine) process.stderr.write(`${"x".repeat(stderrLine)}\n`);
   console.log(JSON.stringify({ url: `http://127.0.0.1:${server.address().port}` }));
 });
 process.stdin.resume();

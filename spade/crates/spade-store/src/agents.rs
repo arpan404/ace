@@ -5,7 +5,7 @@
 use rusqlite::{OptionalExtension, Row, Transaction, params};
 use serde_json::json;
 use spade_core::Event;
-use spade_core::event::Known;
+use spade_core::event::{Known, TaskChange};
 use spade_core::face;
 
 use crate::gate::ARRIVING_AGENTS;
@@ -34,6 +34,35 @@ pub fn recipe_key(agent: &str) -> String {
     format!("{BOT_RECIPE}:{agent}")
 }
 
+/// The settings key prefix for a bot linked to an agent package (ADR 0200 §3.9): the package and
+/// version, the manifest as installed, the person's effect switches, as JSON the server shapes.
+pub const BOT_PACKAGE: &str = "bot_package";
+
+/// One bot's package settings key.
+pub fn package_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE}:{agent}")
+}
+
+/// The setting a bot a packaged bot made keeps its maker's ceiling under (ADR 0200 §3.4).
+pub fn made_under_key(agent: &str) -> String {
+    format!("package_ceiling:{agent}")
+}
+
+/// The settings key for the accent the person chose for a bot (ADR 0200 §5.3), over its
+/// package's: `{"accent": "#rrggbb"}`, or `{"accent": null}` for its face's colour.
+pub fn style_key(agent: &str) -> String {
+    format!("bot_style:{agent}")
+}
+
+/// The settings key prefix for an update the person accepted while its bot was working, held
+/// for its next still moment (ADR 0200 §6.1).
+pub const BOT_PACKAGE_HELD: &str = "bot_package_held";
+
+/// One bot's held-update settings key.
+pub fn package_held_key(agent: &str) -> String {
+    format!("{BOT_PACKAGE_HELD}:{agent}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub id: String,
@@ -52,6 +81,8 @@ pub struct Agent {
     pub last_activity_ms: i64,
     /// When the person pinned it to the top of their list; `None` when it isn't pinned.
     pub pinned_ms: Option<i64>,
+    /// How it talks, when set; `None` leaves it to the bot.
+    pub personality: Option<spade_core::personality::Personality>,
 }
 
 /// What creating an agent needs.
@@ -67,7 +98,12 @@ pub struct NewAgent<'a> {
 }
 
 const COLUMNS: &str = "a.id, a.kind, a.name, a.task, a.avatar, a.model, a.conversation_id,
-    a.created_ms, a.updated_ms, c.updated_ms, a.pinned_ms";
+    a.created_ms, a.updated_ms, c.updated_ms, a.pinned_ms, a.personality";
+
+/// A stored personality; one this build can't read counts as none.
+fn personality(text: Option<String>) -> Option<spade_core::personality::Personality> {
+    text.and_then(|text| serde_json::from_str(&text).ok())
+}
 
 fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
     Ok(Agent {
@@ -82,6 +118,7 @@ fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
         updated_ms: row.get(8)?,
         last_activity_ms: row.get(9)?,
         pinned_ms: row.get(10)?,
+        personality: personality(row.get(11)?),
     })
 }
 
@@ -91,35 +128,47 @@ impl Store {
     pub fn create_agent(&self, new: NewAgent<'_>, first: &[Event], now_ms: i64) -> Result<()> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
-             VALUES (?1, NULL, ?2, ?2)",
-            params![new.conversation, now_ms],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::Exists(new.conversation.to_owned()));
-        }
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO agents
-             (id, kind, name, task, avatar, model, conversation_id, created_ms, updated_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-            params![
-                new.id,
-                new.kind,
-                new.name,
-                new.task,
-                new.avatar,
-                new.model,
-                new.conversation,
-                now_ms
-            ],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::Exists(new.id.to_owned()));
-        }
-        append_in(&tx, new.conversation, first, now_ms)?;
+        create_agent_in(&tx, &new, first, now_ms)?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// [`Store::create_agent`] with `settings` (key and value) stored in the same transaction:
+    /// a bot that must never exist without them (a package's ceiling) has them from its start.
+    pub fn create_agent_with(
+        &self,
+        new: NewAgent<'_>,
+        first: &[Event],
+        settings: &[(&str, &str)],
+        now_ms: i64,
+    ) -> Result<()> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        create_agent_in(&tx, &new, first, now_ms)?;
+        put_settings(&tx, settings)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// [`Store::create_agent`] for a bot another bot made, in one transaction with `settings`
+    /// (who made it, and what its maker's package lets it do) and `note` appended to its maker's
+    /// conversation `maker`: all of it is stored, or none. Answers the maker's stored note.
+    pub fn create_made_agent(
+        &self,
+        new: NewAgent<'_>,
+        first: &[Event],
+        settings: &[(&str, &str)],
+        maker: &str,
+        note: &Event,
+        now_ms: i64,
+    ) -> Result<Vec<StoredEvent>> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        create_agent_in(&tx, &new, first, now_ms)?;
+        put_settings(&tx, settings)?;
+        let stored = append_in(&tx, maker, std::slice::from_ref(note), now_ms)?;
+        tx.commit()?;
+        Ok(stored)
     }
 
     /// Every agent: the main one first, then by latest activity. A main bot another machine's
@@ -200,37 +249,92 @@ impl Store {
         Ok(changed > 0)
     }
 
-    /// Changes the task and model: the row and an `agent_configured` event, together.
+    /// Changes the task and model: the row and an `agent_configured` event, together. The
+    /// personality stays as it is, and the event carries it so turns keep reading it.
     pub fn configure_agent(
         &self,
         id: &str,
         task: &str,
         model: &str,
+        change: Option<Box<TaskChange>>,
+        now_ms: i64,
+    ) -> Result<StoredEvent> {
+        self.configure(id, Some((task, model)), None, change, now_ms)
+    }
+
+    /// Sets how the agent talks (`None`: left to the bot): the row and an `agent_configured`
+    /// event with its task and model as they are, together.
+    pub fn set_agent_personality(
+        &self,
+        id: &str,
+        personality: Option<spade_core::personality::Personality>,
+        now_ms: i64,
+    ) -> Result<StoredEvent> {
+        self.configure(id, None, Some(personality), None, now_ms)
+    }
+
+    fn configure(
+        &self,
+        id: &str,
+        work: Option<(&str, &str)>,
+        voice: Option<Option<spade_core::personality::Personality>>,
+        change: Option<Box<TaskChange>>,
         now_ms: i64,
     ) -> Result<StoredEvent> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
-        let conversation: Option<String> = tx
+        let row: Option<(String, String, String, Option<String>)> = tx
             .query_row(
-                &format!("SELECT conversation_id FROM agents WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"),
+                &format!("SELECT conversation_id, task, model, personality FROM agents WHERE id = ?1 AND id NOT IN {ARRIVING_AGENTS}"),
                 params![id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
-        let Some(conversation) = conversation else {
+        let Some((conversation, old_task, old_model, old_voice)) = row else {
             return Err(StoreError::NoConversation(id.to_owned()));
         };
+        let (task, model) = work.unwrap_or((&old_task, &old_model));
+        let personality = voice.unwrap_or_else(|| self::personality(old_voice));
+        let stored_voice = personality.and_then(|p| serde_json::to_string(&p).ok());
         tx.execute(
-            "UPDATE agents SET task = ?2, model = ?3, updated_ms = ?4 WHERE id = ?1",
-            params![id, task, model, now_ms],
+            "UPDATE agents SET task = ?2, model = ?3, personality = ?4, updated_ms = ?5
+             WHERE id = ?1",
+            params![id, task, model, stored_voice, now_ms],
         )?;
         let event = Event::Known(Known::AgentConfigured {
             task: task.to_owned(),
             model: model.to_owned(),
+            personality,
+            change,
         });
         let mut stored = append_in(&tx, &conversation, &[event], now_ms)?;
         tx.commit()?;
         stored.pop().ok_or(StoreError::NoConversation(conversation))
+    }
+
+    /// The conversation's `agent_configured` events, oldest first, with their numbers and times:
+    /// what a task's history is read from. Only those rows' bodies are decoded.
+    pub fn task_events(&self, conversation: &str) -> Result<Vec<StoredEvent>> {
+        let connection = self.lock()?;
+        if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
+            return Ok(Vec::new());
+        }
+        let mut statement = connection.prepare(
+            "SELECT seq, at_ms, body FROM events
+             WHERE conversation_id = ?1 AND substr(body, 1, 26) = '{\"type\":\"agent_configured\"'
+             ORDER BY seq",
+        )?;
+        let rows = statement.query_map(params![conversation], |row| {
+            let body: String = row.get(2)?;
+            Ok(StoredEvent {
+                seq: row.get(0)?,
+                at_ms: row.get(1)?,
+                event: Event::from_json(
+                    serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
+                ),
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     /// Sets the model of agents that have none (migrated ones whose conversation never replied).
@@ -247,6 +351,16 @@ impl Store {
     /// Deletes the agent, its conversation and the conversation's events. Spending stays in the
     /// ledger, so the day's spend still shows it. Returns whether the agent existed.
     pub fn delete_agent(&self, id: &str) -> Result<bool> {
+        self.delete_agent_audited(id, &[])
+    }
+
+    /// [`Store::delete_agent`] with `entries` appended to the audit chain in the same
+    /// transaction (a shared bot's `bot.deleted`, ADR 0206 §4.1): both happen, or neither.
+    pub fn delete_agent_audited(
+        &self,
+        id: &str,
+        entries: &[spade_core::org::audit::Entry],
+    ) -> Result<bool> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let conversation: Option<String> = tx
@@ -259,6 +373,11 @@ impl Store {
         let Some(conversation) = conversation else {
             return Ok(false);
         };
+        // Its package link goes: what its watch records, recorded first, while the bot is named.
+        crate::watch::changing_in(&tx, &self.watching, &package_key(id), None)?;
+        if let Some(at) = entries.iter().map(|entry| entry.occurred_at).max() {
+            crate::org_audit::audit_in(&tx, entries, at)?;
+        }
         tx.execute("DELETE FROM agents WHERE id = ?1", params![id])?;
         // Its helpers' hidden conversations go with it (ADR 0152).
         crate::helpers::delete_of(&tx, &conversation)?;
@@ -281,6 +400,20 @@ impl Store {
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",
             params![recipe_key(id)],
+        )?;
+        // The package it is linked to, and the ceiling its maker's package held it to (ADR 0200).
+        // Which pages its panels show; a page no bot shows any more is collected later.
+        for key in [
+            package_key(id),
+            made_under_key(id),
+            style_key(id),
+            crate::panels::panels_key(id),
+        ] {
+            tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        }
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![package_held_key(id)],
         )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",
@@ -379,5 +512,53 @@ pub(crate) fn character_faces(tx: &Transaction<'_>) -> rusqlite::Result<()> {
         )?;
         taken.extend(made.get("pair"));
     }
+    Ok(())
+}
+
+/// Inserts the agent and its conversation with `first` as its first events, in `tx`.
+fn put_settings(tx: &Transaction<'_>, settings: &[(&str, &str)]) -> Result<()> {
+    for (key, value) in settings {
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+    }
+    Ok(())
+}
+
+fn create_agent_in(
+    tx: &Transaction<'_>,
+    new: &NewAgent<'_>,
+    first: &[Event],
+    now_ms: i64,
+) -> Result<()> {
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
+         VALUES (?1, NULL, ?2, ?2)",
+        params![new.conversation, now_ms],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::Exists(new.conversation.to_owned()));
+    }
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO agents
+         (id, kind, name, task, avatar, model, conversation_id, created_ms, updated_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        params![
+            new.id,
+            new.kind,
+            new.name,
+            new.task,
+            new.avatar,
+            new.model,
+            new.conversation,
+            now_ms
+        ],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::Exists(new.id.to_owned()));
+    }
+    append_in(tx, new.conversation, first, now_ms)?;
     Ok(())
 }

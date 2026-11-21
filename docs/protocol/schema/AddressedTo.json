@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/AddressedTo.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "detail": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/AddressedState.json"
+    },
+    "to": {
+      "$ref": "https://ace.local/protocol/v1/Addressee.json"
+    }
+  },
+  "required": [
+    "to",
+    "state"
+  ],
+  "type": "object"
+}

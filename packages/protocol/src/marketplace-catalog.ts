@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { packageFields } from "./marketplace-package.ts";
 import { ContainedPath } from "./contained-path.ts";
 import {
   MarketCategory,
@@ -281,12 +282,26 @@ const RecipeRoutine = z.strictObject({
   instruction: trimmedText(1, 4000),
   /** A phrase or cron expression Spade's routines read (`weekdays at 8:00`). */
   schedule: trimmedText(1, 200),
+  /** A package's schedule trigger: each run opens a goal and ends in the check of done (ADR 0204 §3). */
+  verify: z.boolean().optional(),
 });
 
-/** A bot recipe: ADR 0132's bot file at version 2, which asks rather than grants (0168 §5). */
-export const Recipe = z.object({
+/** How a Spade bot talks: its tone, and humour and emoji (both off unless chosen). */
+export const SpadePersonality = z.strictObject({
+  tone: z.enum(["concise", "warm", "formal", "playful"]).optional(),
+  humour: z.boolean().default(false),
+  emoji: z.boolean().default(false),
+});
+export type SpadePersonality = z.infer<typeof SpadePersonality>;
+
+/**
+ * A bot recipe as read: ADR 0132's bot file at version 2, which asks rather than grants (0168 §5),
+ * or an agent package at version 3 (ADR 0200 §3). `routines` holds its schedule triggers (version
+ * 2's routines); `triggers` the other kinds. A version 2 recipe has none of version 3's fields.
+ */
+const recipeObject = z.object({
   format: z.literal("spade-bot"),
-  version: z.literal(2),
+  version: z.union([z.literal(2), z.literal(3)]),
   name: trimmedText(1, 80),
   blurb: z.string().max(300).default(""),
   task: z.string().max(recipeTaskChars).default(""),
@@ -304,8 +319,16 @@ export const Recipe = z.object({
     })
     .default({ connectors: [] }),
   notes: z.array(z.string().max(2000)).max(recipeLimits.notes).default([]),
+  /** How the bot talks from its first turn: a section of its own in its standing instructions. */
+  personality: SpadePersonality.optional(),
+  ...packageFields,
 });
-export type Recipe = z.infer<typeof Recipe> & { extra?: Record<string, unknown> };
+// Named rather than inferred: a recipe rides in wire messages, whose inferred type would otherwise
+// grow past what the compiler writes out.
+export type Recipe = z.output<typeof recipeObject> & { extra?: Record<string, unknown> };
+/** A recipe as written, before its defaults. */
+export type RecipeInput = z.input<typeof recipeObject>;
+export const Recipe: z.ZodType<Recipe, RecipeInput> = recipeObject;
 
 /** Version 1 (ADR 0132), as an export between a person's own machines wrote it. */
 export const BotFileV1 = z.object({

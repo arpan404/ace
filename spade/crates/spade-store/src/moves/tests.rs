@@ -530,7 +530,7 @@ fn a_page_holds_its_rows_or_its_bytes_whichever_comes_first() {
 /// store's gate.
 fn raw_count(dir: &std::path::Path, table: &str, column: &str, value: &str) -> i64 {
     let connection =
-        rusqlite::Connection::open(dir.join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
+        crate::Store::connect(dir.join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
     connection
         .query_row(
             &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1"),
@@ -953,8 +953,8 @@ fn an_event_number_out_of_range_is_refused_and_none_wraps_past_the_last() {
     assert!(refused.is_err_and(|why| why.contains("out of range")));
     // A conversation at the last number takes no more, and says so: nothing wraps.
     let (dir, to) = target();
-    let raw = rusqlite::Connection::open(dir.path().join("spade.sqlite"))
-        .unwrap_or_else(|e| panic!("{e}"));
+    let raw =
+        crate::Store::connect(dir.path().join("spade.sqlite")).unwrap_or_else(|e| panic!("{e}"));
     raw.execute(
         "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES ('c_a_9', ?1, 1, '{}')",
         [crate::MOST_SEQ],
@@ -1121,4 +1121,56 @@ fn imported_events_count_in_this_machines_own_numbers_and_what_points_at_them_fo
         to.append("c_a_1", &Event::user_message("Hi"), 9)
             .is_ok_and(|e| e.seq == 5)
     );
+}
+
+#[test]
+fn a_bots_kept_cases_move_with_it_and_leave_the_machine_it_left() {
+    let (_a, from) = source();
+    let kept = crate::StoredCase {
+        id: "case_1".into(),
+        agent: "a_1".into(),
+        reply: "r_1".into(),
+        mark: Some("wrong".into()),
+        body: r#"{"id":"case_1","why":"It picked a stop-over"}"#.into(),
+        made_ms: 4,
+    };
+    from.save_case(&kept).unwrap_or_else(|e| panic!("{e}"));
+    let (rows, sums) = export(&from);
+    let (_b, to) = target();
+    to.save_case(&crate::StoredCase {
+        id: "case_9".into(),
+        agent: "a_9".into(),
+        ..kept.clone()
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(import(&to, rows, &sums), Ok(()));
+    assert_eq!(to.cases("a_1", 10).unwrap_or_default(), vec![kept]);
+    assert_eq!(
+        to.cases("a_9", 10).unwrap_or_default().len(),
+        1,
+        "its own bot's untouched"
+    );
+    let selection = from
+        .move_selection(&["a_1".to_owned()])
+        .unwrap_or_else(|e| panic!("{e}"));
+    from.move_forget(&selection)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(from.cases("a_1", 10).unwrap_or_default().is_empty());
+}
+
+#[test]
+fn a_case_naming_another_bot_is_refused_and_nothing_kept() {
+    let (_a, from) = source();
+    let (mut rows, sums) = export(&from);
+    rows.push((
+        "cases".into(),
+        vec![row(
+            json!({ "id": "case_x", "agent_id": "a_9", "reply": "r_1", "mark": null,
+            "body": "{}", "made_ms": 1 }),
+        )],
+    ));
+    let (_b, to) = target();
+    assert!(import(&to, rows, &sums).is_err());
+    untouched(&to);
+    assert!(to.case("a_9", "case_x").ok().flatten().is_none());
 }

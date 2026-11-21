@@ -168,8 +168,7 @@ Example:
     },
     "snoozedUntil": 2,
     "status": {
-      "interactions": 9,
-      "state": "needs_you"
+      "state": "new"
     },
     "switch": {
       "at": 1,
@@ -220,6 +219,7 @@ Example:
 
 ```json
 {
+  "archivedAt": 6,
   "effectiveCapabilities": {
     "backgroundTaskControl": true,
     "backgroundVisibility": "partial",
@@ -238,16 +238,14 @@ Example:
     "subagentTranscripts": true,
     "tokenUsage": true
   },
-  "goal": {
-    "checks": 5,
-    "lastReason": "example",
-    "objective": "example",
-    "setAt": 3,
-    "status": "budget_limited"
-  },
   "startedBy": "example",
   "status": {
-    "state": "unresponsive"
+    "state": "moved",
+    "to": {
+      "hostId": "example",
+      "name": "example",
+      "threadId": "example"
+    }
   },
   "switch": {
     "at": 2,
@@ -424,15 +422,14 @@ Example:
 {
   "run": {
     "agentId": "example",
-    "endedAt": 4,
     "error": {
       "kind": "process_exit",
       "message": "example"
     },
     "id": "example",
     "ordinal": 1,
-    "startedAt": 7,
-    "state": "interrupted",
+    "startedAt": 2,
+    "state": "failed",
     "threadId": "example",
     "trigger": "queue",
     "turn": 9
@@ -526,7 +523,7 @@ Example:
     "agentId": "example",
     "childThreadId": "example",
     "createdAt": 5,
-    "generation": 4,
+    "generation": 8,
     "id": "example",
     "model": "example",
     "origin": "ace",
@@ -536,11 +533,12 @@ Example:
     "role": "example",
     "runId": "example",
     "status": {
-      "state": "failed"
+      "interactions": 5,
+      "state": "needs_you"
     },
     "title": "example",
     "type": "delegation.started",
-    "updatedAt": 0
+    "updatedAt": 3
   },
   "type": "item.updated"
 }

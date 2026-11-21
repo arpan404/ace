@@ -372,32 +372,17 @@ async fn a_deferred_tool_is_found_with_tool_search_and_run_through_call_tool() -
                 .collect()
         })
         .unwrap_or_default();
-    assert_eq!(
-        offered,
-        vec![
-            "ask_user",
-            "bot_message",
-            "bots_list",
-            "episode_search",
-            "group_ask",
-            "helper",
-            "history_read",
-            "history_search",
-            "knowledge_search",
-            "knowledge_write",
-            "memory_forget",
-            "memory_save",
-            "memory_search",
-            "memory_update",
-            "routine_delete",
-            "routine_save",
-            "routines_list",
-            "sleep_until",
-            "wait_for",
-            "tool_search",
-            "call_tool"
-        ],
-        "deferred tools are not sent"
+    // Only what the behaviour needs: the built-in list grows with every new tool, so it is not
+    // spelled out here.
+    assert!(
+        !offered.iter().any(|name| name == "thread_start"),
+        "deferred tools are not sent: {offered:?}"
+    );
+    assert!(
+        ["tool_search", "call_tool"]
+            .iter()
+            .all(|name| offered.iter().any(|o| o == name)),
+        "the model can find and run them: {offered:?}"
     );
     let later: Vec<String> = spade.fake.seen()[2].body["tools"]
         .as_array()

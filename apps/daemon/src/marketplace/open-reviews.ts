@@ -1,6 +1,12 @@
 import type { WithdrawalTarget } from "@ace/marketplace";
 import type { ScanContext } from "@ace/marketplace/scan";
-import type { MarketKeySet, MarketPublisher, MarketResult } from "@ace/protocol/marketplace";
+import type {
+  MarketBotReplay,
+  MarketBotUpdate,
+  MarketKeySet,
+  MarketPublisher,
+  MarketResult,
+} from "@ace/protocol/marketplace";
 import { blockedEntry } from "./blocklist.ts";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
@@ -13,12 +19,14 @@ import {
 } from "./install.ts";
 import { learnWithdrawn, readWithdrawn, withdrawalOf, type WithdrawnState } from "./listings.ts";
 import { marketError as error } from "./market-error.ts";
-import { prepareWithBrings, Refused } from "./prepare.ts";
+import { prepareEntry, prepareWithBrings, Refused, type PreparePorts } from "./prepare.ts";
 import { publicInstall } from "./browse.ts";
 import { contentOnlyReview } from "./content-only.ts";
 import { reauthSentence } from "./fresh-sign-in.ts";
-import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
-import { verifiedKey, type MarketStore } from "./store.ts";
+import { buildReview, reviewPage, type PreparedEntry, type PreparedReview } from "./review.ts";
+import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
+import { bytesJson, packageAsksMore } from "./package-diff.ts";
+import { checkFiles, panelPageTexts } from "@ace/marketplace/checks";
 import { badgesOf, type Trust } from "./trust.ts";
 
 /*
@@ -28,6 +36,8 @@ import { badgesOf, type Trust } from "./trust.ts";
  */
 
 const reviewLifetimeMs = 30 * 60_000;
+/** The longest an update review waits on the free replay of the bot's kept runs. */
+const replayBoundMs = 20_000;
 const maxPending = 32;
 
 interface Pending {
@@ -78,32 +88,104 @@ export class OpenReviews {
     type: string,
     name: string,
     version: string | undefined,
+    /** An update of this linked bot (ADR 0200 §6.1). */
+    bot?: string,
   ): Promise<MarketResult> {
     const { store } = this.#ports;
     const source = store.source(sourceId);
     if (!source || !source.enabled) return error("not_found", "That source isn't on");
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
+    const ports = await this.#preparePorts(source.id);
+    const { entry, brings } = await prepareWithBrings(
+      ports,
+      store,
+      source,
+      type,
+      name,
+      version,
+      bot,
+    );
+    // Each manifest prepare verified names its publisher: list rows may now show its marks.
+    for (const prepared of [entry, ...brings])
+      if (prepared.source === "market" && prepared.signed && prepared.publisher)
+        store.saveVerifiedPublisher(verifiedKey(prepared), prepared.publisher.id);
+    return this.#open(entry, brings, bot ? { bot, rollback: false } : undefined);
+  }
+
+  /** What fetching a version for review uses: the same checks for a review and a fetch. */
+  async #preparePorts(sourceId: string): Promise<PreparePorts> {
+    const { store } = this.#ports;
     const plugins = this.#ports.plugins();
-    const scanContext = await this.#scanContext();
-    const ports = {
+    return {
       badges: badgesOf(this.#ports.trust.current()),
-      scanContext,
+      scanContext: await this.#scanContext(),
       http: this.#ports.http(),
       git: this.#ports.git,
       keys: this.#ports.keys,
+      spade: this.#ports.spade.version(),
       withdrawal: (target: WithdrawalTarget) =>
-        withdrawalOf(readWithdrawn(store), source.id, target),
+        withdrawalOf(readWithdrawn(store), sourceId, target),
       preparePlugin: (input: Parameters<PluginPort["prepareFiles"]>[0]) => {
         if (!plugins) throw new Refused("Plugins aren't ready", { code: "unavailable" });
         return plugins.prepareFiles(input);
       },
     };
-    const { entry, brings } = await prepareWithBrings(ports, store, source, type, name, version);
-    // Each manifest prepare verified names its publisher: list rows may now show its marks.
-    for (const prepared of [entry, ...brings])
-      if (prepared.source === "market" && prepared.signed && prepared.publisher)
-        store.saveVerifiedPublisher(verifiedKey(prepared), prepared.publisher.id);
+  }
+
+  /**
+   * One version of a bot package fetched from its source and checked as a review checks it
+   * (signature, hash, withdrawn list, ace's checks, the device's scan), without a review: what a
+   * moved bot's pinned bytes are fetched by (ADR 0200 §3.8). Throws when the source refuses.
+   */
+  async fetchVersion(sourceId: string, name: string, version: string): Promise<PreparedEntry> {
+    const source = this.#ports.store.source(sourceId);
+    if (!source || !source.enabled) throw new Refused("That source isn't on");
+    return prepareEntry(await this.#preparePorts(source.id), source, "spade-bot", name, version);
+  }
+
+  /**
+   * A review of the version a linked bot had before (ADR 0200 §6.1), from the bytes pinned here:
+   * checked again, and needing no network. Installing it is the person's, as an update is.
+   */
+  async prepareRollback(install: StoredInstall): Promise<MarketResult> {
+    const { store } = this.#ports;
+    if (install.type !== "spade-bot" || !install.linked || !install.target)
+      return error("invalid", "Only a bot from a version 3 package rolls back");
+    if (!install.previous) return error("not_found", "There is no earlier version to go back to");
+    if (this.#pending.size >= maxPending)
+      return error("busy", "Too many reviews are open; finish or cancel one");
+    const files = await store.pinned(install.previous.hash, "spade-bot");
+    const checked = checkFiles("spade-bot", install.name, files, {
+      spade: this.#ports.spade.version(),
+    });
+    if (checked.problems.length > 0 || checked.hash !== install.previous.hash)
+      return error("refused", "The earlier version no longer passes ace's checks");
+    const current = await store.pinned(install.hash, "spade-bot").catch(() => []);
+    const entry: PreparedEntry = {
+      source: install.source,
+      type: "spade-bot",
+      name: install.name,
+      title: install.title,
+      version: install.previous.version,
+      hash: install.previous.hash,
+      signed: install.signed ?? false,
+      ...(install.previousSignedManifest === undefined
+        ? {}
+        : { signedManifest: install.previousSignedManifest }),
+      reviewed: false,
+      byAce: false,
+      checked,
+      previous: { version: install.version, files: current },
+    };
+    return this.#open(entry, [], { bot: install.target, rollback: true });
+  }
+
+  async #open(
+    entry: PreparedEntry,
+    brings: PreparedEntry[],
+    moving: { bot: string; rollback: boolean } | undefined,
+  ): Promise<MarketResult> {
     const review: PreparedReview = {
       ...entry,
       id: this.#ports
@@ -114,9 +196,86 @@ export class OpenReviews {
       brings,
       spadeReady: entry.type === "spade-bot" ? this.#ports.spade.ready() : true,
     };
+    review.modelWarning = await this.#modelWarning(entry);
+    if (moving) {
+      const updating = await this.#plan(review, moving);
+      if ("op" in updating) return updating;
+      review.updating = updating;
+    }
     const built = buildReview(review);
     this.#pending.set(review.id, { review, items: built.items });
     return { op: "review", review: built.review };
+  }
+
+  /**
+   * Why a bot that uses apps or agents may not be able to act (ADR 0205 §3): none of the models
+   * it would think with calls tools. Nothing when it uses neither, or Spade can't say.
+   */
+  async #modelWarning(entry: PreparedEntry): Promise<string | undefined> {
+    const inspection = entry.checked.inspection;
+    if (inspection?.type !== "spade-bot" || inspection.recipe.version !== 3) return undefined;
+    const uses = inspection.recipe.uses ?? [];
+    if (!uses.includes("apps") && !uses.includes("agents")) return undefined;
+    if (!this.#ports.spade.ready()) return undefined;
+    const tools = await this.#ports.spade.packageTools().catch(() => undefined);
+    if (!tools || tools[inspection.recipe.model]) return undefined;
+    return "This bot works with apps and other agents, which takes a model that can call tools, and none of the models it would run on can. Add one in Settings › Spade › Models, or it won't be able to act.";
+  }
+
+  /** What moving the bot to the review's version does, by Spade's plan and the two manifests. */
+  async #plan(
+    review: PreparedReview,
+    moving: { bot: string; rollback: boolean },
+  ): Promise<MarketBotUpdate | MarketResult> {
+    const next = review.checked.inspection;
+    if (next?.type !== "spade-bot" || next.recipe.version !== 3)
+      return error("invalid", "Only a bot from a version 3 package updates");
+    if (!this.#ports.spade.ready())
+      return error("unavailable", "Spade isn't running. Start Spade to update this bot.");
+    const manifest = bytesJson(review.checked.files);
+    const plan = await this.#ports.spade.planUpdate(moving.bot, manifest);
+    const before = review.previous
+      ? checkFiles("spade-bot", review.name, [...review.previous.files]).inspection
+      : undefined;
+    const asksMore =
+      before?.type === "spade-bot" ? packageAsksMore(before.recipe, next.recipe) : [];
+    const replay = await this.#replay(moving.bot, manifest, review);
+    return {
+      bot: moving.bot,
+      rollback: moving.rollback,
+      plan,
+      asksMore,
+      ...(replay ? { replay } : {}),
+    };
+  }
+
+  /**
+   * The bot's kept runs replayed free on the review's version (ADR 0204 §2), within a bound: a
+   * replay that fails or takes too long leaves the review without its line, never holds it up.
+   */
+  async #replay(
+    bot: string,
+    manifest: unknown,
+    review: PreparedReview,
+  ): Promise<MarketBotReplay | undefined> {
+    const replay = this.#ports.spade.replayUpdate;
+    if (!replay) return undefined;
+    const next = review.checked.inspection;
+    const surfaces = next?.type === "spade-bot" ? next.recipe.surfaces : undefined;
+    const pages = panelPageTexts(surfaces, review.checked.files);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>((done) => {
+      timer = setTimeout(() => done(undefined), replayBoundMs);
+    });
+    try {
+      const replayed = await Promise.race([
+        replay.call(this.#ports.spade, bot, manifest, pages).catch(() => undefined),
+        late,
+      ]);
+      return replayed && replayed.cases.length > 0 ? replayed : undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** What the device's scan compares against: every listed entry, the signed lists. */

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { notificationOutbox } from "./link/notification-outbox.ts";
 import { dirname, join } from "node:path";
-import type { BaseWindow, BrowserWindow } from "electron";
+import type { BaseWindow, BrowserWindow, Rectangle } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import type { BackendConnection } from "./browser/connection.ts";
 import type { EmbeddedViews, PlacementHost } from "./browser/views.ts";
@@ -32,6 +32,9 @@ export interface BackgroundOptions {
   quitAll(): void;
   /** Quit and stop the daemon too (the tray's "Quit ace completely"). */
   quitCompletely(): void;
+  /** macOS: opens or closes the menu-bar popover under the icon (`TrayActions.popover`). */
+  popover?: ((icon: Rectangle) => boolean) | undefined;
+  hidePopover?(): void;
   log(message: string): void;
   /** Whether the desktop shows tray icons (`linuxTrayHost`); absent where it always does. */
   trayHost?: (() => Promise<boolean>) | undefined;
@@ -96,6 +99,7 @@ export class Background {
           void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
         quitAll: options.quitAll,
         quitCompletely: options.quitCompletely,
+        ...(options.popover ? { popover: options.popover } : {}),
       },
       options.trayIcon,
     );
@@ -129,6 +133,10 @@ export class Background {
       this.options.log,
     );
     this.links.start();
+  }
+
+  trayLink(): DesktopLink | undefined {
+    return this.link;
   }
 
   private get link(): DesktopLink | undefined {
@@ -170,6 +178,7 @@ export class Background {
         this.work = summary;
         this.reviewLifetime();
       },
+      onAppsInUse: (threads) => this.tray.update({ usingApps: threads > 0 }),
     });
   }
 
@@ -295,7 +304,10 @@ export class Background {
       work: this.work,
     });
     if (lifetime.tray) this.tray.show();
-    else this.tray.hide();
+    else {
+      this.tray.hide();
+      this.options.hidePopover?.();
+    }
     if (lifetime.tray && !lifetime.quit && this.hadWindow && !this.hasWindow()) this.tellUnseen();
     // An app started hidden (in the background) has never had a window to close.
     if (lifetime.quit && this.hadWindow) this.options.quitAll();
@@ -397,6 +409,7 @@ export class Background {
    */
   async stop(): Promise<void> {
     this.stopped = true;
+    this.options.hidePopover?.();
     const views = this.browser?.connection.close() ?? Promise.resolve();
     this.browser?.video?.close();
     // A link stuck mid-handshake or a view slow to close never holds up Quit for long.

@@ -63,6 +63,10 @@ export function SpadeAgentScreen(props: {
   files?: string | undefined;
   /** With `files`, a file in it opened. */
   file?: string | undefined;
+  /** An approval or question to bring forward, by call id. */
+  request?: string | undefined;
+  /** One of its package's panels open beside it. */
+  panel?: string | undefined;
 }) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
@@ -149,6 +153,8 @@ export function SpadeAgentScreen(props: {
         profile={profile}
         computer={computer}
         files={{ folder, file: props.file }}
+        request={props.request}
+        panel={profile === undefined ? props.panel : undefined}
       />
     </SpadeMachineScope>
   );

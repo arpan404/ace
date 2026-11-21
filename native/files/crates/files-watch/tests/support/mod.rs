@@ -27,6 +27,8 @@ pub struct Session {
     _watcher: Watcher,
     dir: tempfile::TempDir,
     batches: Arc<Mutex<Vec<Batch>>>,
+    /// When the sink received each batch in `batches`, in the same order.
+    arrivals: Arc<Mutex<Vec<Instant>>>,
     debounce: Duration,
     // Last, so the OS watch is closed before the next test takes the lock.
     _serial: MutexGuard<'static, ()>,
@@ -44,15 +46,20 @@ impl Session {
         let root = Root::open(dir.path()).unwrap();
         let batches = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&batches);
+        let arrivals = Arc::new(Mutex::new(Vec::new()));
+        let arrived = Arc::clone(&arrivals);
         let debounce = options.debounce;
         let watcher = Watcher::start(
             root,
             options,
             Box::new(move |batch| {
-                recorded
+                // One lock for both, so a reader never sees a batch without its time.
+                let mut recorded = recorded.lock().unwrap_or_else(PoisonError::into_inner);
+                arrived
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .push(batch);
+                    .push(Instant::now());
+                recorded.push(batch);
             }),
         )
         .unwrap();
@@ -60,6 +67,7 @@ impl Session {
             _watcher: watcher,
             dir,
             batches,
+            arrivals,
             debounce,
             _serial: serial,
         }
@@ -143,6 +151,34 @@ impl Session {
                 );
             }
             std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// Waits for one change and returns the batch that carried it with the moment the sink
+    /// received it, so a latency is measured to the delivery and not to the test's next poll.
+    pub fn wait_for_delivery(&self, path: &str, kind: ChangeKind) -> (Vec<Change>, Instant) {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            {
+                let batches = self.batches.lock().unwrap_or_else(PoisonError::into_inner);
+                let arrivals = self.arrivals.lock().unwrap_or_else(PoisonError::into_inner);
+                for (batch, at) in batches.iter().zip(arrivals.iter()) {
+                    if let Batch::Changes(changes) = batch
+                        && changes
+                            .iter()
+                            .any(|change| change.path == path && change.kind == kind)
+                    {
+                        return (changes.clone(), *at);
+                    }
+                }
+            }
+            if Instant::now() >= deadline {
+                panic!(
+                    "no {kind:?} for {path} within {WAIT:?}; saw {:?}",
+                    self.seen()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 

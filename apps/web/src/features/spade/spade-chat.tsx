@@ -1,3 +1,5 @@
+import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
+import { SpadeNoticeRow } from "./spade-notice-row.tsx";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import {
   type SpadeTaskLine,
@@ -7,8 +9,10 @@ import {
   spadePlainText,
   type SpadeChatRow,
   withProposals,
+  type SpadeAgentStyle,
   type SpadeAvatar,
   type SpadeChatItem,
+  type SpadeStartedWorker,
   type SpadeProposal,
   type SpadeView,
   spadeQuietLine,
@@ -22,6 +26,7 @@ import {
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
+import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
@@ -29,26 +34,39 @@ import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
+import { SpadeContractLine } from "./spade-contract-line.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
+import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
+import { SpadeDelegation } from "./spade-delegation.tsx";
+import { SpadeWaitingWorkers } from "./spade-waiting-workers.tsx";
+import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { SpadeRecalledLine } from "./spade-recalled-line.tsx";
 import { SpadeStepsLine } from "./spade-steps-line.tsx";
+import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
+import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
+import type { RosterBot } from "./use-spade-roster.ts";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
   id: string;
   name: string;
   avatar: SpadeAvatar;
+  /** Its accent (ADR 0200 §5.3), for its cards' title rule. */
+  style?: SpadeAgentStyle | undefined;
   /** Other bots by id, for the faces of messages they send here. */
   others: ReadonlyMap<string, SpadeAvatar>;
   /** Every bot's name by id, for a request to message one. */
   names: ReadonlyMap<string, string>;
+  /** Its task as it stands, for a request to change it. */
+  task?: string | undefined;
 }
 
 /**
@@ -89,6 +107,10 @@ export function SpadeChat(props: {
   onAnswerOutside?(id: string, answer: RequestAnswer): Promise<boolean>;
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
+  /** Press a choice on a card the bot showed (ADR 0200 §5.1); resolves with why when refused. */
+  onCardChoice?: SpadeCardChoose | undefined;
+  /** A card's `open` that names one of the bot's panels (ADR 0200 §5.2): open it beside the chat. */
+  onOpenPanel?: ((panel: string) => void) | undefined;
   /** A file chip: open that file of the bot's workspace. */
   onOpenFile(path: string): void;
   proposals?: readonly SpadeProposal[];
@@ -109,6 +131,10 @@ export function SpadeChat(props: {
   onOpenWork?(): void;
   /** What shows before anything is said: who the bot is. */
   start?: ReactNode;
+  /** The bot as the roster has it: its own task and name lines change it in place. */
+  profile?: RosterBot | undefined;
+  /** Opened to answer what its workers wait on: that shows at the end, brought into view. */
+  revealWorkers?: boolean | undefined;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
@@ -133,6 +159,7 @@ export function SpadeChat(props: {
     [view, proposals, digests, now],
   );
   const from = useNewestFirst(rows.length);
+  const started = useMemo(() => startedWorkers(rows), [rows]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
     view.resting &&
@@ -162,19 +189,26 @@ export function SpadeChat(props: {
   const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
   const task = props.task;
   const lined = working || task !== undefined;
+  // The finished reply being kept as a test (ADR 0204): its review is open.
+  const [keeping, setKeeping] = useState<string>();
   const handlers: Handlers = {
     endpointName: props.endpointName,
     onProposal: props.onProposal,
     onAnswer: props.onAnswer,
     onAnswerOutside: props.onAnswerOutside,
     onQuestion: props.onQuestion,
+    onCardChoice: props.onCardChoice,
+    onOpenPanel: props.onOpenPanel,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
     onSetUpModel: props.onSetUpModel,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
+    onKeep: setKeeping,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
     keep,
+    profile: props.profile,
+    listed: (id) => bot.names.has(id),
   };
   return (
     <div
@@ -183,6 +217,11 @@ export function SpadeChat(props: {
       aria-busy={view.busy}
       className="flex flex-col"
     >
+      <KeepCaseDialog
+        bot={{ id: bot.id, name: bot.name }}
+        reply={keeping}
+        onDone={() => setKeeping(undefined)}
+      />
       {rows.length === 0 && !lined && !rest && props.start}
       {rows.slice(from).map((row, index) => (
         <Row
@@ -193,6 +232,11 @@ export function SpadeChat(props: {
           handlers={handlers}
         />
       ))}
+      <SpadeWaitingWorkers
+        workers={started}
+        reveal={props.revealWorkers === true}
+        handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
+      />
       {rest && !props.paused && onWake ? (
         <RestingLine
           avatar={bot.avatar}
@@ -263,6 +307,18 @@ function useNewestFirst(count: number): number {
   return Math.min(from, count);
 }
 
+/** Every worker the chat's cards started, in the order they started. */
+function startedWorkers(rows: readonly SpadeChatRow[]): SpadeStartedWorker[] {
+  const workers: SpadeStartedWorker[] = [];
+  const add = (item: SpadeChatItem) => {
+    if (item.kind === "workers") workers.push(...item.workers);
+  };
+  for (const row of rows)
+    if (row.kind === "run") row.items.forEach(add);
+    else if (row.kind === "item") add(row.item);
+  return workers;
+}
+
 /** The reply still open, the last one in the conversation. */
 function openReply(entries: readonly SpadeEntry[]) {
   for (let at = entries.length - 1; at >= 0; at--) {
@@ -279,15 +335,22 @@ interface Handlers {
   onAnswerOutside: ((id: string, answer: RequestAnswer) => Promise<boolean>) | undefined;
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
+  onCardChoice: SpadeCardChoose | undefined;
+  onOpenPanel: ((panel: string) => void) | undefined;
   onOpenFile(path: string): void;
   onRetry: ((reply: string) => Promise<boolean>) | undefined;
   onSetUpModel: (() => void) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
+  /** Keep a finished reply as a test, by its id: opens the review before anything is kept. */
+  onKeep(reply: string): void;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
   face(id: string): SpadeAvatar;
   /** Where its finished bubbles stay drawn: this Spade connection and conversation. */
   keep: { owner: object; conversation: string };
+  profile: RosterBot | undefined;
+  /** Whether a bot is still in the person's list. */
+  listed(id: string): boolean;
 }
 
 /**
@@ -305,12 +368,22 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
         ? "mt-(--chat-run-gap)"
         : "mt-(--chat-turn-gap)";
     case "helper":
+    case "contract":
     case "quiet":
+    case "task-changed":
+    case "named":
+    case "made":
+    case "club-added":
       // A helper line reads under the reply that started it; quiet lines
       // stack under the words they follow.
       return previous.kind === "run" ||
         previous.item.kind === "helper" ||
-        previous.item.kind === "quiet"
+        previous.item.kind === "contract" ||
+        previous.item.kind === "quiet" ||
+        previous.item.kind === "task-changed" ||
+        previous.item.kind === "named" ||
+        previous.item.kind === "made" ||
+        previous.item.kind === "club-added"
         ? "mt-1"
         : "mt-(--chat-turn-gap)";
     default:
@@ -401,6 +474,7 @@ function RunItem(props: {
               when={props.when}
               copy={said && spadePlainText(said)}
               speak={said}
+              onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
             >
               <div
                 {...part(
@@ -464,7 +538,16 @@ function RunItem(props: {
         </BubbleFrame>
       );
     case "steps":
-      return <SpadeStepsLine summary={item.summary} steps={item.steps} />;
+      return (
+        <SpadeStepsLine
+          summary={item.summary}
+          steps={item.steps}
+          undo={item.undo}
+          bot={{ id: bot.id, name: bot.name }}
+        />
+      );
+    case "recalled":
+      return <SpadeRecalledLine notes={item.notes} bot={bot.id} />;
     case "files":
       return (
         <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>
@@ -473,12 +556,36 @@ function RunItem(props: {
       );
     case "question":
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
+    case "notice":
+      return <SpadeNoticeRow item={item} botName={bot.name} />;
+    case "workers":
+      return (
+        <SpadeDelegation
+          workers={item.workers}
+          at={item.at}
+          handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
+        />
+      );
+    case "card":
+      return (
+        <SpadeAgentCard
+          item={item}
+          avatar={bot.avatar}
+          style={bot.style}
+          botName={bot.name}
+          onChoose={
+            handlers.onCardChoice ?? (() => Promise.resolve("Choices work in the bot's own chat."))
+          }
+          onOpenPanel={handlers.onOpenPanel}
+        />
+      );
     case "ask":
       return (
         <SpadeRequestBubble
           item={item}
           botId={bot.id}
           botName={bot.name}
+          task={bot.task}
           nameOf={(id) => bot.names.get(id)}
           onAnswer={handlers.onAnswer}
         />
@@ -493,6 +600,19 @@ function RunItem(props: {
       );
     }
     case "digest":
+      // The morning brief and a spend alert sit where digests do (ADR 0195).
+      if (item.digest.kind === "brief")
+        return <SpadeBriefBubble digest={item.digest} when={props.when} />;
+      if (item.digest.kind === "spend")
+        return (
+          <QuietLine
+            line={{
+              lead: { kind: "none" },
+              words: [{ text: "Spending fast: ", strong: true }, { text: item.digest.text }],
+              label: `Spending fast: ${item.digest.text}`,
+            }}
+          />
+        );
       return <SpadeDigestBubble digest={item.digest} when={props.when} face={handlers.face} />;
     case "skill": {
       const answer = handlers.onProposal;
@@ -531,6 +651,7 @@ function Single(props: {
             space,
           )}
         >
+          {item.fromThread && <FromThreadLine thread={item.fromThread} />}
           {item.images.length > 0 && <Pictures images={item.images} side="person" />}
           {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
           {item.text && (
@@ -588,10 +709,7 @@ function Single(props: {
       const quiet = item.quiet;
       // A bot worker's line opens its chat, a goal's or a check's opens Work; an ace worker's
       // is a note where it happened.
-      const worker =
-        (quiet.kind === "worker-started" || quiet.kind === "worker-reported") && !quiet.ace
-          ? quiet.worker
-          : undefined;
+      const worker = quiet.kind === "worker-reported" && !quiet.ace ? quiet.worker : undefined;
       const onOpen =
         quiet.kind === "goal" || quiet.kind === "checked"
           ? onOpenWork
@@ -604,6 +722,34 @@ function Single(props: {
         </div>
       );
     }
+    case "task-changed":
+      return props.handlers.profile ? (
+        <div className={space}>
+          <TaskChangedLine item={item} bot={props.handlers.profile} />
+        </div>
+      ) : null;
+    case "made":
+      return (
+        <div className={space}>
+          <MadeLine
+            item={item}
+            listed={props.handlers.listed(item.bot)}
+            onOpen={props.handlers.onOpenBot}
+          />
+        </div>
+      );
+    case "club-added":
+      return (
+        <div className={space}>
+          <ClubAddedLine item={item} />
+        </div>
+      );
+    case "named":
+      return props.handlers.profile ? (
+        <div className={space}>
+          <NamedLine item={item} bot={props.handlers.profile} />
+        </div>
+      ) : null;
     case "helper": {
       return (
         <div className={space}>
@@ -611,6 +757,17 @@ function Single(props: {
         </div>
       );
     }
+    case "contract":
+      return (
+        <div className={space}>
+          <SpadeContractLine
+            text={item.text}
+            result={item.result}
+            open={item.open}
+            since={item.at}
+          />
+        </div>
+      );
     default:
       return null;
   }

@@ -85,7 +85,9 @@ pub fn next_step(events: &[Event]) -> Next {
                     }) if call_id == &call.id => Some(*allowed),
                     _ => None,
                 });
-            let question = turn.iter().position(|event| {
+            // The latest card the call asked: a call held on a Reconnect card that fails again
+            // after reconnecting asks again.
+            let question = turn.iter().rposition(|event| {
                 matches!(event, Event::Known(Known::QuestionAsked { call_id, .. }) if call_id == &call.id)
             });
             if let Some(at) = question {
@@ -220,6 +222,10 @@ pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
             }
             _ => {}
         }
+    }
+    // A contract call a restart cut off is still owed its answer (ADR 0200 §7).
+    if !crate::contract::open(events).is_empty() {
+        return true;
     }
     let from = prompted.max(stopped);
     events.iter().skip(from).any(|event| match event {
@@ -388,6 +394,7 @@ mod tests {
             call_id: "c1".into(),
             allowed: true,
             always: false,
+            by: None,
         }));
         assert_eq!(
             statuses(&next_step(&events)),
@@ -417,6 +424,7 @@ mod tests {
             call_id: "c2".into(),
             allowed: false,
             always: false,
+            by: None,
         }));
         events.push(Event::Known(Known::ToolStarted {
             reply: "r1".into(),
@@ -424,6 +432,7 @@ mod tests {
             name: "send_email".into(),
             risk: None,
             background: false,
+            effect: None,
         }));
         assert_eq!(
             statuses(&next_step(&events)),

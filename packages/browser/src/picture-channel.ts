@@ -6,6 +6,7 @@ import type { LinkRateLimits } from "./link-rate.ts";
 import type { FollowedLink } from "./link-follow.ts";
 
 export { PictureViewer, pictureKeyframeGapMs, type CapturedPicture } from "./picture-viewer.ts";
+export { SetupPictures } from "./setup-pictures.ts";
 export { LinkFollow, linkCapped, pictureLinkLimits, type FollowedLink } from "./link-follow.ts";
 
 /**

@@ -10,6 +10,7 @@ import {
   type WindowsJobFactory,
 } from "./process-containment.ts";
 import { toWindowsCommand } from "./process-owner.ts";
+import { markedEnv } from "./process-marker.ts";
 
 export { terminateDirectoryProcesses } from "./directory-processes.ts";
 
@@ -59,7 +60,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     : { command: options.command, args: [...options.args], verbatim: false };
   const child = spawn(target.command, target.args, {
     cwd: options.cwd,
-    env: options.env,
+    env: markedEnv(options.env),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["ignore", "pipe", "pipe"],

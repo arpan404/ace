@@ -1,3 +1,4 @@
+import { FakeSpadeTasks } from "./spade-self-edit.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
@@ -8,10 +9,16 @@ import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
+import { contractsRoute, packageRoute } from "./spade-packages.ts";
+import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { FakeSpadeA2aAgents } from "./spade-a2a-agents.ts";
+import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
+import { FakeSpadeCases } from "./spade-cases.ts";
+import { FakeSpadeRunning } from "./spade-running.ts";
 import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
@@ -47,6 +54,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
   newBotModel: string | null = null;
   /** `endpoint/model` for voice messages (ADR 0134). */
   transcriptionModel: string | null = null;
+  /** `endpoint/model` that reads replies aloud. */
+  speechModel: string | null = null;
+  /** The words each `POST /v1/speech` asked to hear, in order. */
+  spoken: string[] = [];
   /** Stored images by hash with their media type; any other hash answers 404. */
   images = new Map<string, string>();
   /** What `POST /v1/transcriptions` answers. */
@@ -125,6 +136,24 @@ export class FakeSpadeApi implements FakeSpadeServer {
   skillStore: { skills: Json[]; ace: boolean } = { skills: [], ace: false };
   /** What the bots remember, their own and the shared ones (ADR 0128). */
   readonly notes: FakeSpadeNotes;
+  /** First run, as Spade keeps it (`GET /v1/onboarding`), finished unless a test asks again. */
+  readonly onboarding: Record<string, string | null> = { about_you: "done", starters: "done" };
+  /** Where each note or page came from, by its id, as `GET …/provenance` answers. */
+  readonly provenance = new Map<string, Json>();
+  /** The sources each bot learned from, as `GET /v1/agents/{id}/learned` answers. */
+  readonly learned = new Map<string, Json[]>();
+  /** Each `POST …/learned/forget`, by bot, its source key. */
+  readonly forgotSources: { agent: string; source: string }[] = [];
+  /** Model servers on this computer, as `GET /v1/endpoints/local` answers (`{id, name, …}`). */
+  localServers: Json[] = [];
+  /**
+   * How a local model added now does in Spade's tool check (ADR 0205 §3), by model id: `passed`
+   * unless named. Its checks read as running until the next listing.
+   */
+  localChecks = new Map<string, "passed" | "failed">();
+  private checking: Json[] = [];
+  /** Models whose running checks a listing already showed. */
+  private readonly checkShown = new WeakSet<Json>();
   /** Each bot's knowledge pages and past work (ADR 0164). */
   readonly knowledge: FakeSpadeKnowledge;
   /** Each bot's services (ADR 0160). */
@@ -143,6 +172,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly search = new FakeSpadeSearch();
   /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
   readonly wakes: FakeSpadeWakes;
+  /** Each bot's runs kept as tests (ADR 0204). */
+  readonly cases: FakeSpadeCases;
+  /** How Spade reaches the person (ADR 0195). */
+  readonly reach = new FakeSpadeReach();
+  readonly a2aAgents = new FakeSpadeA2aAgents();
+  /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
+  readonly running: FakeSpadeRunning;
+  /** Packaged bots' panels (ADR 0200 §5.2). */
+  readonly panels: FakeSpadePanels;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -153,11 +191,16 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly teams: FakeSpadeTeams;
   /** Each bot's goal and plan, and its tree of workers (ADR 0159, 0161). */
   readonly work = new FakeSpadeWork(() => this.agents);
+  /** Made bots that have acted outside themselves: Undo archives them (ADR 0161, amendment 1). */
+  readonly madeActed = new Set<string>();
+  /** Each bot's task versions and its own renames. */
+  readonly tasks: FakeSpadeTasks;
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
     this.notes = new FakeSpadeNotes(now);
+    this.tasks = new FakeSpadeTasks((conversation, event) => this.store(conversation, event), now);
     this.knowledge = new FakeSpadeKnowledge(now);
     this.routines = new FakeSpadeRoutines(now);
     this.security = new FakeSpadeSecurity(now);
@@ -200,8 +243,22 @@ export class FakeSpadeApi implements FakeSpadeServer {
       },
       exists: (agent) => this.agents.some((candidate) => candidate.id === agent),
     });
+    this.running = new FakeSpadeRunning({
+      agents: () => this.agents,
+      status: (agent, state, status) => this.status(agent, state, status),
+      now,
+    });
     this.wakes = new FakeSpadeWakes({
       conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      store: (conversation, event) => this.store(conversation, event),
+    });
+    this.cases = new FakeSpadeCases({
+      conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      now,
+    });
+    this.panels = new FakeSpadePanels({
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
       store: (conversation, event) => this.store(conversation, event),
     });
@@ -241,6 +298,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
   store(conversation: string, event: Json): void {
     const stored = this.keep(conversation, event);
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** Words of an open reply as they stream: sent live, never stored. */
+  delta(conversation: string, replyId: string, text: string): void {
+    this.spade.emit(`/v1/conversations/${conversation}/live`, "delta", { reply: replyId, text });
   }
 
   /** Stores an event without sending it live, as a stream that fell behind would miss it. */
@@ -404,6 +466,18 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.status(agent, "waiting", null);
   }
 
+  /** A card the bot shows (ADR 0200 §5.1), as `card_show` stores it: its own row, by version. */
+  showCard(agent: FakeSpadeAgent, card: string, version: number, data: Json): void {
+    this.store(agent.conversation, {
+      type: "card_shown",
+      reply: `r${++this.sequence}`,
+      call_id: `show-${card}-${version}`,
+      card,
+      version,
+      data,
+    });
+  }
+
   /** The answer the next card reply gets instead of 202: a status and Spade's error words. */
   refuseQuestion: { status: number; error: string } | undefined;
 
@@ -463,6 +537,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "running" && !id) return this.running.route(request.method, undefined, undefined);
+    if (root === "panels" && id === "pages" && sub) return this.panels.page(sub);
+    if (
+      root === "agents" &&
+      id &&
+      (sub === "pause" || sub === "resume" || sub === "stop" || sub === "unarchive") &&
+      !subId
+    )
+      return this.running.route(request.method, id, sub);
     if (root === "agents" && id && (sub === "computer" || sub === "terminal" || sub === "files"))
       return this.computer.route(
         request.method,
@@ -509,8 +592,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
         new URLSearchParams(query),
         body,
       );
+    if (root === "agents" && id && sub === "contracts")
+      return contractsRoute(
+        request.method,
+        this.agents.find((candidate) => candidate.id === id),
+        body,
+      );
+    if (root === "agents" && id && sub === "package")
+      return packageRoute(
+        request.method,
+        this.agents.find((candidate) => candidate.id === id),
+        parts.slice(3),
+        body,
+      );
+    if (root === "agents" && id && sub === "cases")
+      return this.cases.route(request.method, id, subId, body);
     if (root === "agents" && id && sub === "wakes")
       return this.wakes.route(request.method, id, subId, parts[4]);
+    if (root === "reach" && !id) return this.reach.route(request.method, body);
+    if (root === "a2a-agents") return this.a2aAgents.route(request.method, id, body);
+    if (root === "agents" && id && sub === "reach")
+      return this.reach.agentRoute(request.method, id, body);
     if (root === "digests" && request.method === "GET")
       return this.wakes.list(new URLSearchParams(query));
     if (root === "agents" && id && (sub === "oversight" || sub === "activity")) {
@@ -537,6 +639,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!agent) return problem(404, "No such agent.");
       return this.roles.agentRoute(request.method, id, agent.model, this.fastModel, body);
     }
+    if ((root === "notes" || root === "knowledge") && id && sub === "provenance") {
+      const shown = this.provenance.get(id);
+      return shown === undefined ? problem(404, "there is no such note") : reply(shown);
+    }
+    if (root === "agents" && id && sub === "learned") {
+      if (subId === "forget" && request.method === "POST") {
+        const source = String((body as { source?: unknown }).source ?? "");
+        this.forgotSources.push({ agent: id, source });
+        this.learned.set(
+          id,
+          (this.learned.get(id) ?? []).filter((s) => (s as { key?: unknown }).key !== source),
+        );
+        return reply({ notes: 1, entries: 0 });
+      }
+      return reply({ sources: this.learned.get(id) ?? [] });
+    }
+    if (root === "onboarding" && request.method === "GET") return reply(this.onboarding);
+    if (root === "onboarding" && request.method === "PUT") {
+      Object.assign(this.onboarding, body);
+      return reply(this.onboarding);
+    }
     const searched = new URLSearchParams(query).get("q") ?? "";
     if (root === "notes") return this.notes.route(request.method, null, id, body, sub, searched);
     if (root === "agents" && id && sub === "notes")
@@ -552,6 +675,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
+    if (root === "agents" && id && sub === "undo-made" && request.method === "POST") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      if (!agent.made_by) return problem(409, "only a bot another bot made can be undone");
+      // As Spade: a bot that acted is archived; one that didn't is removed.
+      if (!this.madeActed.has(id)) {
+        this.agents = this.agents.filter((candidate) => candidate !== agent);
+        return reply({ undone: "removed" });
+      }
+      agent.archived = true;
+      return reply({ undone: "archived" });
+    }
+    if (root === "agents" && id && sub === "task" && subId === "history") {
+      if (!this.agents.some((candidate) => candidate.id === id))
+        return problem(404, "No such agent.");
+      return reply(this.tasks.history(id));
+    }
     if (root === "agents" && id && (sub === "task" || sub === "tree")) {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
@@ -610,6 +750,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
       return this.connectors.route(request.method, id, sub, body, this.roster());
+    if (root === "models" && request.method === "GET") this.endChecks();
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.keysPending
@@ -621,10 +762,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
         fast_model: this.fastModel,
         new_bot_model: this.newBotModel,
         transcription_model: this.transcriptionModel,
+        speech_model: this.speechModel,
         keychain: this.keychain,
       });
     if (root === "subscriptions" && request.method === "GET")
       return reply({ providers: this.subscriptions, error: null });
+    // The person ticked Use it for a provider's subscription (ADR 0205 §1).
+    if (root === "subscriptions" && id && sub === "terms" && request.method === "PUT") {
+      const found = this.subscriptions.find((each) => each.provider === id);
+      const terms = found?.terms as Json | undefined;
+      if (!found || terms?.status === "refused") return problem(400, "That isn't offered.");
+      found.terms = { ...terms, acknowledged: true };
+      return reply({ terms: found.terms });
+    }
+    if (root === "endpoints" && id === "local" && request.method === "GET")
+      return reply({ servers: this.localServers });
+    if (root === "endpoints" && id === "local" && sub && request.method === "POST")
+      return this.useLocalModel(sub, String(body.model ?? ""));
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
     if (root === "search") return this.search.route(request.method, id, body, this.keychain);
@@ -641,6 +795,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
         if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
           return problem(400, "The transcription model must be on one of your endpoints.");
         this.transcriptionModel = model;
+      }
+      if ("speech_model" in body) {
+        const model = typeof body.speech_model === "string" ? body.speech_model : null;
+        const [endpoint, ...rest] = model?.split("/") ?? [];
+        if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
+          return problem(400, "The speech model must be on one of your endpoints.");
+        this.speechModel = model;
       }
       return { status: 204 };
     }
@@ -669,7 +830,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return { status: 204 };
     }
     if (root === "conversations" && id)
-      return this.conversationRoute(request, id, sub, subId, query);
+      return this.conversationRoute(request, id, sub, subId, query, parts[4]);
     if (root === "images") {
       const type = id ? this.images.get(id) : undefined;
       return type
@@ -680,6 +841,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.transcriptionModel
         ? reply({ text: this.transcript })
         : problem(409, "No transcription model is set.");
+    // As Spade: the audio the speech model reads, here a few bytes named by the words.
+    if (root === "speech" && request.method === "POST") {
+      if (!this.speechModel) return problem(409, "No speech model is set.");
+      const text = typeof body.text === "string" ? body.text : "";
+      this.spoken.push(text);
+      return { status: 200, body: `audio of ${text}`, contentType: "audio/mpeg" };
+    }
     // A stored document or recording: its bytes, as text here.
     if ((root === "documents" || root === "audio") && id && request.method === "GET")
       return {
@@ -740,8 +908,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return problem(400, "access must be auto_review.");
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
+      // As Spade: a bot made from one message is "New bot" until it names itself.
+      const named = typeof body.name === "string" && body.name.trim() !== "";
       const agent = this.addAgent({
-        name: String(body.name ?? ""),
+        name: named || body.naming !== true ? String(body.name ?? "") : "New bot",
         task: String(body.task ?? ""),
         // As Spade: a new bot with no model named starts on the model for new bots.
         model: String(body.model ?? this.newBotModel ?? ""),
@@ -752,6 +922,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
             ? { avatar: storedBotFace(repairFace(avatar)) as Json }
             : {}),
       });
+      this.tasks.made(agent);
       // As Spade: a first message goes with the bot it makes (the new-bot conversation).
       const first = body.first_message as Json | undefined;
       if (first && typeof first === "object") this.takeMessage(agent.conversation, agent, first);
@@ -762,13 +933,43 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (method === "PATCH") {
       if (agent.kind === "main" && ("name" in body || "avatar" in body))
         return problem(400, "Spade's name and face can't change.");
-      for (const key of ["name", "task", "model"] as const)
+      for (const key of ["name", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      // As Spade: another model ends a hold its subscription's terms put on it (ADR 0205).
+      if (typeof body.model === "string" && agent.terms_hold) {
+        agent.terms_hold = null;
+        agent.problem = null;
+      }
+      // As Spade: whether it may make bots (ADR 0161, amendment 1).
+      if (
+        body.may_create_bots === "yes" ||
+        body.may_create_bots === "ask" ||
+        body.may_create_bots === "no"
+      )
+        agent.may_create_bots = body.may_create_bots;
+      // As Spade: the person's accent (ADR 0200 §5.3), one colour or its face's.
+      if (body.style && typeof body.style === "object") {
+        if (agent.kind === "main") return problem(409, "Spade has no accent of its own.");
+        const accent = (body.style as Json).accent;
+        if (accent !== null && !(typeof accent === "string" && /^#[0-9a-f]{6}$/i.test(accent)))
+          return problem(400, "style.accent is one colour, like #2f7bea");
+        agent.style = { accent: accent === null ? null : accent.toLowerCase(), chosen: true };
+      }
+      // As Spade: a task change is kept with who made it and why.
+      if (typeof body.task === "string")
+        this.tasks.change(
+          agent,
+          body.task,
+          "person",
+          typeof body.task_why === "string" ? body.task_why : "",
+        );
       if (body.avatar && typeof body.avatar === "object") {
         const avatar = body.avatar as Json;
         agent.avatar =
           avatar.kind === "character" ? (storedBotFace(repairFace(avatar)) as Json) : avatar;
       }
+      if (typeof body.name === "string" || body.avatar)
+        this.tasks.renamed(agent, "person", Boolean(body.avatar));
       return reply({ agent });
     }
     if (method === "DELETE") {
@@ -865,6 +1066,62 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return reply({ proposal });
   }
 
+  /** As Spade: the local server added as a keyless endpoint the first time, the model saved on it. */
+  /** Checks a listing already showed running end now, as `localChecks` says. */
+  private endChecks(): void {
+    const shown = this.checking.filter((model) => this.checkShown.has(model));
+    for (const model of this.checking) this.checkShown.add(model);
+    this.checking = this.checking.filter((model) => !shown.includes(model));
+    for (const model of shown) {
+      const tools = this.localChecks.get(String(model.id)) ?? "passed";
+      model.capabilities = tools === "passed" ? ["tools"] : [];
+      model.probes = {
+        state: "checked",
+        plain: "passed",
+        tools,
+        structured: "passed",
+        why:
+          tools === "passed"
+            ? null
+            : "This model didn't call tools in Spade's check, so it can't run a bot.",
+      };
+    }
+  }
+
+  private useLocalModel(server: string, model: string): FakeSpadeAnswer {
+    const local = this.localServers.find((candidate) => candidate.id === server);
+    if (!local || !model.trim()) return problem(404, "No such model server.");
+    let endpoint = this.endpoints.find((candidate) => candidate.base_url === local.base_url);
+    if (!endpoint) {
+      endpoint = {
+        id: server,
+        name: local.name,
+        format: "openai-chat",
+        base_url: local.base_url,
+        header_names: [],
+        session_header: null,
+        needs_key: false,
+        key_set: false,
+        key_source: null,
+        models: [],
+      };
+      this.endpoints.push(endpoint);
+      local.endpoint = server;
+    }
+    const models = endpoint.models as Json[];
+    if (!models.some((saved) => saved.id === model)) {
+      const added: Json = {
+        id: model,
+        source: "typed",
+        capabilities: [],
+        probes: { state: "checking" },
+      };
+      models.push(added);
+      this.checking.push(added);
+    }
+    return reply({ endpoint, value: `${String(endpoint.id)}/${model.trim()}` });
+  }
+
   private endpointRoute(
     method: string,
     id: string | undefined,
@@ -872,6 +1129,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     body: Json,
     query: string,
   ): FakeSpadeAnswer {
+    if (id && sub === "probe" && method === "POST") {
+      const endpoint = this.endpoints.find((candidate) => candidate.id === id);
+      const model = (endpoint?.models as Json[] | undefined)?.find((each) => each.id === body.id);
+      if (!endpoint || !model) return problem(404, "no such model");
+      model.probes = { state: "checking" };
+      this.checking.push(model);
+      return reply({ probes: model.probes }, 202);
+    }
     if (!id && method === "POST") {
       const endpoint = {
         id: String(body.name ?? "endpoint")
@@ -966,11 +1231,20 @@ export class FakeSpadeApi implements FakeSpadeServer {
     sub: string | undefined,
     subId: string | undefined,
     query: string,
+    tail?: string,
   ): FakeSpadeAnswer {
     const list = this.events.get(id);
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
     if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
+    if (sub === "panels")
+      return this.panels.conversationRoute(
+        request.method,
+        agent,
+        subId,
+        tail,
+        request.body ? (JSON.parse(request.body) as unknown) : {},
+      );
     if (sub === "events") {
       const after = Number(new URLSearchParams(query).get("after") ?? 0);
       return reply(list.filter((stored) => stored.seq > after));
@@ -979,6 +1253,33 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
       this.takeMessage(id, agent, body);
       return reply({ seq: list.length }, 202);
+    }
+    // The person connected the app a connect card asks for (ADR 0131, amendment 1): the bot that
+    // asked may use it now, and the card is answered.
+    if (sub === "questions" && subId && tail === "connected" && request.method === "POST") {
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const connector = this.connectors.connectors.find((each) => each.id === body.connector);
+      if (!connector || connector.state !== "connected")
+        return problem(400, "That app isn't connected.");
+      const bots = body.everyone === true ? this.agents : agent ? [agent] : [];
+      for (const bot of bots) {
+        const allowed = this.connectors.access.get(bot.id) ?? {
+          all: bot.kind === "main",
+          connectors: [],
+        };
+        if (!allowed.all && !allowed.connectors.includes(String(connector.id)))
+          this.connectors.access.set(bot.id, {
+            all: false,
+            connectors: [...allowed.connectors, String(connector.id)],
+          });
+      }
+      this.store(id, {
+        type: "question_answered",
+        call_id: subId,
+        answers: [{ connector: connector.id, account: connector.account ?? undefined }],
+      });
+      if (agent?.waiting_for === "question") this.status(agent, "idle", null);
+      return reply({}, 202);
     }
     if (sub === "questions" && subId && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
@@ -1032,6 +1333,42 @@ export class FakeSpadeApi implements FakeSpadeServer {
       };
       if (this.heldSettles) this.heldSettles.push(settle);
       else settle();
+      return reply({}, 202);
+    }
+    // A choice pressed on a card: once per version, and only on the latest one, as Spade does.
+    if (sub === "cards" && subId && tail === "actions" && request.method === "POST") {
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const shown = list.findLast(
+        (stored) => stored.event.type === "card_shown" && stored.event.card === subId,
+      );
+      if (!shown) return problem(404, "no such card");
+      if (shown.event.version !== body.version)
+        return problem(409, "The card changed. Choose on the new one.");
+      const chosen = list.some(
+        (stored) =>
+          stored.event.type === "card_action" &&
+          stored.event.card === subId &&
+          stored.event.version === body.version,
+      );
+      if (chosen) return problem(409, "That card's choice was already made.");
+      const records = (value: unknown): Json[] =>
+        Array.isArray(value)
+          ? value.filter((item): item is Json => typeof item === "object" && item !== null)
+          : [];
+      const data = shown.event.data;
+      const blocks =
+        typeof data === "object" && data !== null ? records((data as Json).blocks) : [];
+      const label = blocks
+        .flatMap((block) => records(block.actions))
+        .find((action) => action.kind === "choose" && action.id === body.action)?.label;
+      if (typeof label !== "string") return problem(409, "The card has no such choice.");
+      this.store(id, {
+        type: "card_action",
+        card: subId,
+        version: body.version,
+        action: body.action,
+        label,
+      });
       return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {

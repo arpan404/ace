@@ -38,6 +38,29 @@ fn finds_literal_across_files() -> TestResult {
 }
 
 #[test]
+fn a_search_over_many_folders_finds_every_match_however_many_threads_run() -> TestResult {
+    // On macOS most walker threads start out waiting their turn, each holding the entry the walk
+    // gave it, which may be a folder no other thread will see: none of them may be lost.
+    let temp = tempfile::tempdir()?;
+    for folder in 0..60 {
+        for file in 0..10 {
+            write(
+                temp.path(),
+                &format!("d{folder}/sub/f{file}.txt"),
+                "a needle here\n",
+            )?;
+        }
+    }
+    let root = Root::open(temp.path())?;
+    for _ in 0..3 {
+        let (files, summary) = run(&root, &query("needle"))?;
+        assert_eq!(files.len(), 600);
+        assert_eq!(summary.matches, 600);
+    }
+    Ok(())
+}
+
+#[test]
 fn regex_with_groups() -> TestResult {
     let temp = tempfile::tempdir()?;
     write(temp.path(), "main.rs", "fn main() {\n    run();\n}\n")?;

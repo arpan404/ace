@@ -1,105 +1,16 @@
-import { afterEach, expect, test } from "vitest";
-import { ClientCore } from "@ace/client";
-import { FakeDaemon, FakeSpadeApi, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, HostId } from "@ace/protocol";
+import { faceForId } from "@ace/ui-core/bot-face";
+import { expect, test } from "vitest";
+import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { until } from "./test-host.ts";
-import { NativeSpade } from "./spade.ts";
-import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
-import type { SpadeBubbleRow, SpadeListRow } from "./spade-rows.ts";
+import { quick, setUp } from "./spade-test-host.ts";
+import type { NativeSpadeRequest } from "./spade-requests.ts";
+import type { SpadeBubbleRow } from "./spade-rows.ts";
 
 /*
  * Spade on the iPhone over the real SDK and an in-process fake daemon with a fake Spade behind
  * `spade.*`: whether the tab shows, the bots in the list's order and words, and one
  * conversation live, sending, answering and stopping as Swift asks.
  */
-
-const stops: (() => Promise<void> | void)[] = [];
-afterEach(async () => {
-  for (const stop of stops.splice(0).toReversed()) await stop();
-});
-
-/** What Swift holds: each key's latest patch. */
-class Patches {
-  readonly held = new Map<string, Record<string, unknown>>();
-  put(key: string, read: () => Record<string, unknown> | undefined) {
-    const value = read();
-    if (value) this.held.set(key, value);
-    else this.held.delete(key);
-  }
-  clear(prefix: string) {
-    for (const key of this.held.keys()) if (key.startsWith(prefix)) this.held.delete(key);
-  }
-  get state() {
-    return this.held.get("spade:state") as
-      | {
-          shown: boolean | null;
-          line: { sentence: string; ready: boolean; canTurnOn: boolean };
-          list: { rows: SpadeListRow[] | null; failed: boolean };
-        }
-      | undefined;
-  }
-  /** The open conversation's bubbles, in their order. */
-  get bubbles(): SpadeBubbleRow[] {
-    const order = (this.held.get("spade:order")?.order ?? []) as string[];
-    return order.flatMap((key) => {
-      const row = this.held.get(`spade:row:${key}`)?.row;
-      return row ? [row as SpadeBubbleRow] : [];
-    });
-  }
-  get head() {
-    return this.held.get("spade:conversation");
-  }
-}
-
-async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}, wait: typeof later = later) {
-  const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
-  daemon.services.settings.write("beta.spade", true);
-  daemon.services.settings.write("spade.enabled", true);
-  daemon.spade.status = { state: "ready", version: "0.6.0" };
-  const api = new FakeSpadeApi(daemon.spade, () => Date.now());
-  seed(api);
-  const owner = new ClientCore({
-    deviceId: DeviceId.parse("ios-spade-test"),
-    expectedHostId: HostId.parse("ios-test-host"),
-    transport: () => fakeTransport(daemon),
-    credential: async () => ({ token: "t" }),
-    storage: { load: async () => null, save: async () => {} },
-    scheduler: { set: later },
-    id: () => crypto.randomUUID(),
-    random: () => 0.5,
-    now: () => Date.now(),
-  });
-  stops.push(() => owner.close());
-  await owner.start();
-  await until(() => owner.state === "ready");
-  const patches = new Patches();
-  const spade = new NativeSpade(owner, patches, {
-    now: () => Date.now(),
-    id: () => crypto.randomUUID(),
-    later: wait,
-  });
-  stops.push(() => spade.stop());
-  spade.start();
-  const ask = (request: NativeSpadeRequest) =>
-    answerSpade(
-      owner,
-      spade,
-      request,
-      { id: () => crypto.randomUUID() },
-      new AbortController().signal,
-    );
-  return { daemon, api, spade, patches, ask };
-}
-
-/** A hundred times faster than the phone's clock: the away pace is seconds, not milliseconds. */
-function quick(delay: number, callback: () => void) {
-  return later(delay / 100, callback);
-}
-
-function later(delay: number, callback: () => void) {
-  const timer = setTimeout(callback, delay);
-  return () => clearTimeout(timer);
-}
 
 test("the Spade tab shows while Beta's switch is on, and goes the moment it is turned off", async () => {
   const { daemon, patches } = await setUp();
@@ -205,14 +116,27 @@ test("an open conversation shows its history, then a reply's words as they strea
     text: "Thinking it",
   });
 
-  await until(() => patches.bubbles.at(-1)?.kind === "bot" && patches.bubbles.length === 3);
+  await until(
+    () =>
+      patches.bubbles.at(-1)?.kind === "bot" &&
+      patches.bubbles.length === 3 &&
+      (patches.head?.working as { face?: unknown } | null)?.face != null,
+  );
   expect(patches.bubbles.at(-1)).toEqual({
     kind: "bot",
     text: "Thinking it",
     live: true,
     end: null,
   });
-  expect(patches.head).toMatchObject({ answering: true, loaded: true, problem: null });
+  expect(patches.head).toMatchObject({
+    answering: true,
+    loaded: true,
+    problem: null,
+    working: {
+      moving: true,
+      face: { main: false, initial: "H", away: false, character: faceForId(bot.id) },
+    },
+  });
 });
 
 test("a sent message shows at once, and stays once Spade has stored it", async () => {

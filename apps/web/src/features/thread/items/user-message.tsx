@@ -14,6 +14,7 @@ import {
 } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { QuotesCard } from "@/features/quotes/index.ts";
+import { namedChips, useAskedLine, ViaLine } from "../mentions/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@ace/icons";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -84,7 +85,7 @@ function localFiles(send: PendingSend): readonly LocalAttachment[] | undefined {
 
 /** What a bubble shows of a message's parts: its words, its files, its annotations. */
 function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: string }[]) {
-  const { parts, text, readable, annotations, quotes } = bubbleContent(input);
+  const { parts, text, readable, annotations, code, quotes } = bubbleContent(input);
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...attached.filter((file) => file.mimeType.startsWith("image/")),
     ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),
@@ -94,7 +95,7 @@ function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: 
     attached.length || parts.some((part) => part.type === "file" || part.type === "image")
       ? { images }
       : undefined;
-  return { parts, text, files, readable, annotations, quotes };
+  return { parts, text, files, readable, annotations, code, quotes };
 }
 
 /** A message another thread's agent sent: the line naming who sent it, and its words. */
@@ -119,18 +120,22 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
   const { copied, copy } = useCopy();
   const item = useItem(leasable(props.threadId), props.itemId);
   const message = item?.type === "message" ? item : undefined;
+  const named = namedChips(useAskedLine(props.threadId, message?.origin?.commandId));
   if (!message) return null;
   const shown = bubbleOf(message.parts, message.attachments ?? []);
-  const { files, annotations, quotes } = shown;
+  const { files, annotations, code, quotes } = shown;
   const sent = props.sent;
   const text = sent ? sent.text : shown.text;
   const parts = sent ? undefined : shown.parts;
   const readable = sent ? !!sent.text.trim() : shown.readable;
-  if (!readable && !files && !quotes) return null;
+  if (!readable && !files && !quotes && !annotations && !code) return null;
+  const via = message.origin?.via;
   return (
     <div className="group/bubble flex flex-col items-end [[data-layout-messages=flat]_&]:items-start">
       {sent ? (
         sent.line
+      ) : via ? (
+        <ViaLine via={via} />
       ) : (
         <Eyebrow
           kind={messageOrigin(message)?.kind}
@@ -163,6 +168,7 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
                 parts={parts}
                 ref={content}
                 fold={sent ? sentFold : undefined}
+                decorate={sent ? undefined : named}
               />
             )}
           </div>
@@ -192,9 +198,9 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
           )}
         </div>
       </div>
-      {annotations && (
+      {(annotations || code) && (
         <div className="mt-1 max-w-[80%]">
-          <AnnotationsCard annotations={annotations} />
+          <AnnotationsCard annotations={annotations} code={code} />
         </div>
       )}
     </div>
@@ -211,11 +217,11 @@ export function StartingMessage(props: { threadId: string; commandId: string }) 
   const send = usePendingSends(props.threadId).find((entry) => entry.commandId === props.commandId);
   if (!send) return null;
   const local = localFiles(send);
-  const { parts, text, files, readable, annotations, quotes } = bubbleOf(
+  const { parts, text, files, readable, annotations, code, quotes } = bubbleOf(
     send.payload.input,
     local ?? [],
   );
-  if (!readable && !files && !quotes) return null;
+  if (!readable && !files && !quotes && !annotations && !code) return null;
   return (
     <div className="flex flex-col items-end [[data-layout-messages=flat]_&]:items-start">
       {files && (
@@ -239,9 +245,9 @@ export function StartingMessage(props: { threadId: string; commandId: string }) 
           {readable && <BubbleText text={text} parts={parts} />}
         </div>
       )}
-      {annotations && (
+      {(annotations || code) && (
         <div className="mt-1 max-w-[80%]">
-          <AnnotationsCard annotations={annotations} />
+          <AnnotationsCard annotations={annotations} code={code} />
         </div>
       )}
       {send.state !== "delivered" && (

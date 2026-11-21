@@ -72,7 +72,9 @@
       "enum": [
         "idle",
         "working",
-        "waiting"
+        "waiting",
+        "paused",
+        "updating"
       ],
       "type": "string"
     },
@@ -88,7 +90,9 @@
     "waitingFor": {
       "enum": [
         "approval",
-        "question"
+        "question",
+        "worker",
+        "callee"
       ],
       "type": "string"
     }

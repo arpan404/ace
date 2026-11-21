@@ -706,7 +706,11 @@ export class WorkspaceRuntime {
       const root = this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
       const origin = await this.origins.transferOrigin(root).catch(() => undefined);
-      return wrap({ kind: "origin", url: origin?.url ?? null });
+      return wrap({
+        kind: "origin",
+        url: origin?.url ?? null,
+        ...(origin ? { key: origin.normalized } : {}),
+      });
     }
     if (op.op === "workspaces.match") {
       // Every registration, most recently used first: one past the 64th, or a second checkout
@@ -728,7 +732,7 @@ export class WorkspaceRuntime {
         normalizeRemoteUrl(op.url),
         op.subpath ?? "",
       );
-      return wrap({ kind: "match", workspaceId: match ?? null });
+      return wrap({ kind: "match", workspaceId: match ?? null, keyVersion: 2 });
     }
     if (op.op === "workspace.checkout") {
       const root = this.store.getWorkspacePath(op.workspaceId);

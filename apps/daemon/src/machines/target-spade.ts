@@ -17,11 +17,13 @@ export const maxStampedName = 100;
 const inboxTimeoutMs = 30_000;
 
 /**
- * Whether an inbox request only reads (ADR 0132): listing bots and reading an answer read; an
- * ask, a stop or anything this build doesn't know acts.
+ * Whether an inbox request only reads (ADR 0132): listing bots and reading an answer (a bot's,
+ * or a thread ask's, ADR 0198) read; an ask, a stop or anything this build doesn't know acts.
  */
 export function inboxRisk(request: SpadeInboxRequest): Risk {
-  return request.op === "bots" || request.op === "answer" ? "read" : "operate";
+  return request.op === "bots" || request.op === "answer" || request.op === "thread_answer"
+    ? "read"
+    : "operate";
 }
 
 /**

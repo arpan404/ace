@@ -5,15 +5,27 @@ import {
 } from "@ace/ui-core/spade-chat";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import { formatElapsed } from "@ace/ui-core/time";
-import { CheckIcon, CopyIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
+import { CheckIcon, CopyIcon, DotsThreeIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { bubbleWidth } from "./spade-bubble-style.ts";
 import { SpadeFace } from "./spade-face.tsx";
-import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
+import {
+  canSpeakWith,
+  readAloud,
+  stopReading,
+  stopReadingOf,
+  useReading,
+  type SpeechVoice,
+} from "./spade-speech.ts";
+import { useBotVoiceContext } from "./use-spoken-replies.ts";
+
+/** Where no bot sets one (a club, a digest): the system's own default voice. */
+const systemVoice: SpeechVoice = { engine: "system", voice: undefined };
 
 /* What a chat's bubbles carry besides their words: a failure's line, their actions (time, Copy,
  * Read aloud), file chips, a reply's steps and a speaker's name; and the working line. */
@@ -147,7 +159,8 @@ const holdFor = 450;
  * A bubble with its actions: the exact time, Copy and (for the bot's words, where the system can
  * speak) Read aloud, in a small pill at its foot. They come up on hover and on focus, and on a
  * long press on touch, which a tap elsewhere puts away. Read aloud becomes Stop reading while it
- * speaks, and leaving the chat stops it: the reading belongs to this bubble.
+ * speaks, in the bot's own voice, and leaving the chat stops it: the reading belongs to this
+ * bubble.
  */
 export function BubbleFrame(props: {
   /** The words Copy takes, without their marks; undefined for none. */
@@ -156,6 +169,8 @@ export function BubbleFrame(props: {
   speak: string | undefined;
   /** "Today 9:00 AM"; undefined when unknown. */
   when: string | undefined;
+  /** The More menu's Keep as a test, on a finished reply's last words (ADR 0204). */
+  onKeep?: (() => void) | undefined;
   side: "bot" | "mine";
   children: ReactNode;
 }) {
@@ -175,9 +190,13 @@ export function BubbleFrame(props: {
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, [held]);
-  const speak = props.speak !== undefined && canReadAloud() ? props.speak : undefined;
+  const voice = useBotVoiceContext() ?? systemVoice;
+  const speak = props.speak !== undefined && canSpeakWith(voice) ? props.speak : undefined;
   const copy = props.copy;
-  const any = copy !== undefined || speak !== undefined || props.when !== undefined;
+  const onKeep = props.onKeep;
+  const [menu, setMenu] = useState(false);
+  const any =
+    copy !== undefined || speak !== undefined || props.when !== undefined || onKeep !== undefined;
   const release = () => clearTimeout(timer.current);
   return (
     <div
@@ -205,7 +224,7 @@ export function BubbleFrame(props: {
       {props.children}
       {any && (
         <div
-          data-held={held || reading || undefined}
+          data-held={held || reading || menu || undefined}
           className={cn(
             "absolute -bottom-4.5 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
             props.side === "bot" ? "right-2.5" : "left-2.5",
@@ -237,8 +256,25 @@ export function BubbleFrame(props: {
               label={reading ? "Stop reading" : "Read aloud"}
               size="sm"
               className="rounded-full"
-              onClick={() => (reading ? stopReading() : readAloud(key, speak))}
+              onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}
             />
+          )}
+          {onKeep && (
+            <Menu open={menu} onOpenChange={setMenu}>
+              <MenuTrigger
+                render={
+                  <IconButton
+                    icon={DotsThreeIcon}
+                    label="More"
+                    size="sm"
+                    className="rounded-full"
+                  />
+                }
+              />
+              <MenuContent align="end">
+                <MenuItem onClick={onKeep}>Keep as a test</MenuItem>
+              </MenuContent>
+            </Menu>
           )}
         </div>
       )}

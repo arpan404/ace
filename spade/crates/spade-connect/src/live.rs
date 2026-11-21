@@ -6,7 +6,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use spade_mcp::{McpClient, McpConfig, McpTool, McpToolResult, Secret, ToolsError};
+use serde_json::Map;
+use spade_mcp::{Asker, McpClient, McpConfig, McpTool, McpToolResult, Secret, ToolsError};
 use tokio::sync::Notify;
 
 use crate::oauth::{self, OauthError};
@@ -46,9 +47,7 @@ pub enum CallError {
     #[error("{0}")]
     MaybeRan(String),
     /// The sign-in expired and could not be renewed: the person must reconnect.
-    #[error(
-        "the sign-in to {0} expired; ask the person to reconnect it in Settings, Spade, Connectors"
-    )]
+    #[error("the sign-in to {0} expired or was revoked, and only the person can reconnect it")]
     NeedsReconnect(String),
     /// The server refused the request (an unknown tool, bad arguments).
     #[error("{0}")]
@@ -65,7 +64,9 @@ pub(crate) struct Credentials {
 
 impl Credentials {
     pub(crate) fn config(self, url: String, timeout: Duration) -> McpConfig {
-        let mut config = McpConfig::new(url, timeout);
+        // A connector's server may ask the person mid-call; its calls carry the asker that shows
+        // them (ADR 0202 §2). Sampling is never offered.
+        let mut config = McpConfig::new(url, timeout).eliciting();
         if let Some(access) = self.access {
             config = config.bearer(Secret::new(access));
         }
@@ -95,7 +96,8 @@ impl Connectors {
             let Some(session) = live.get(&record.id) else {
                 continue;
             };
-            for tool in &session.tools {
+            // A tool only an app's page may call is never offered to a bot (MCP Apps).
+            for tool in session.tools.iter().filter(|tool| tool.for_model) {
                 tools.push(ConnectorTool {
                     connector: record.id.clone(),
                     connector_name: record.name.clone(),
@@ -116,12 +118,59 @@ impl Connectors {
         self.tools_where(|id| access.allows(id))
     }
 
+    /// Every tool `connector` lists, those offered only to its pages included: what an app's
+    /// page may ask for (ADR 0202 §4).
+    pub fn page_tools(&self, connector: &str) -> Vec<McpTool> {
+        let live = self.live.read().unwrap_or_else(|p| p.into_inner());
+        live.get(connector)
+            .map(|session| session.tools.clone())
+            .unwrap_or_default()
+    }
+
+    /// Reads resource `uri` from `connector` (`resources/read`): an app's `ui://` page. Reading
+    /// changes nothing, so any failure is as good as not sent.
+    pub async fn read_resource(
+        self: &Arc<Self>,
+        connector: &str,
+        uri: &str,
+    ) -> Result<serde_json::Value, CallError> {
+        let record = self
+            .record(connector)
+            .ok_or_else(|| CallError::NotRun(format!("{connector} is not connected")))?;
+        if record.needs_reconnect {
+            return Err(CallError::NeedsReconnect(record.name));
+        }
+        let (client, _) = match self.client(&record).await {
+            Ok(ready) => ready,
+            Err(Unready::NeedsReconnect) => return Err(CallError::NeedsReconnect(record.name)),
+            Err(Unready::Other(why)) => {
+                return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
+            }
+        };
+        client.read_resource(uri).await.map_err(|error| {
+            CallError::NotRun(format!("{} could not be read: {error}", record.name))
+        })
+    }
+
     /// Runs `tool` (the server's own name) on `connector`.
     pub async fn call(
         self: &Arc<Self>,
         connector: &str,
         tool: &str,
         arguments: serde_json::Value,
+    ) -> Result<McpToolResult, CallError> {
+        self.call_asking(connector, tool, arguments, None).await
+    }
+
+    /// [`Connectors::call`], where a form the app's server sends during the call goes to `asker`
+    /// for the person (MCP elicitation), and the call's timeout waits while they decide. Without
+    /// an asker, a form is declined.
+    pub async fn call_asking(
+        self: &Arc<Self>,
+        connector: &str,
+        tool: &str,
+        arguments: serde_json::Value,
+        asker: Option<Arc<dyn Asker>>,
     ) -> Result<McpToolResult, CallError> {
         let record = self
             .record(connector)
@@ -139,20 +188,45 @@ impl Connectors {
                 return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
             }
         };
-        match client.call(tool, arguments).await {
-            Ok(result) => Ok(result),
-            // Refused before it ran: renew the sign-in for the next try, never resend this one.
-            Err(ToolsError::Refused) => match self.renew(&record, generation).await {
-                Ok(()) => Err(CallError::NotRun(format!(
-                    "the sign-in to {} had expired and is now renewed",
-                    record.name
-                ))),
+        let mut answer = client
+            .call_asking(tool, arguments.clone(), Map::new(), asker.clone())
+            .await;
+        // Refused before it ran: the sign-in expired. Renewed, the call is sent once more on the
+        // new sign-in, which is safe since the first never ran; the bot never hears of it.
+        if matches!(answer, Err(ToolsError::Refused)) {
+            match self.renew(&record, generation).await {
+                Ok(()) => match self.client(&record).await {
+                    Ok((renewed, _)) => {
+                        answer = renewed
+                            .call_asking(tool, arguments, Map::new(), asker)
+                            .await;
+                    }
+                    Err(_) => {
+                        return Err(CallError::NotRun(format!(
+                            "the sign-in to {} had expired and is now renewed",
+                            record.name
+                        )));
+                    }
+                },
                 Err(Unready::NeedsReconnect) => {
                     self.expire(&record);
-                    Err(CallError::NeedsReconnect(record.name))
+                    return Err(CallError::NeedsReconnect(record.name));
                 }
-                Err(Unready::Other(why)) => Err(CallError::NotRun(self.scrubbed(&record.id, why))),
-            },
+                Err(Unready::Other(why)) => {
+                    return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
+                }
+            }
+        }
+        if answer.is_ok() {
+            self.touch(&record.id);
+        }
+        match answer {
+            Ok(result) => Ok(result),
+            // Refused again on a fresh sign-in: the account itself no longer lets Spade in.
+            Err(ToolsError::Refused) => {
+                self.expire(&record);
+                Err(CallError::NeedsReconnect(record.name))
+            }
             Err(ToolsError::NotRun(why) | ToolsError::Unavailable(why)) => Err(CallError::NotRun(
                 format!("{} could not be reached: {why}", record.name),
             )),

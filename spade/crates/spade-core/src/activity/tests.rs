@@ -34,6 +34,7 @@ fn started(call_id: &str, name: &str) -> Event {
         name: name.into(),
         risk: None,
         background: false,
+        effect: None,
     })
 }
 
@@ -70,6 +71,7 @@ fn day() -> Vec<Event> {
                 untrusted: false,
             })),
             from_group: None,
+            from_thread: None,
         }),
         k(Known::UserMessage {
             text: "Here are the numbers".into(),
@@ -82,9 +84,11 @@ fn day() -> Vec<Event> {
                 name: "Research".into(),
                 depth: 1,
                 machine: None,
+                contract: None,
             }),
             from_routine: None,
             from_group: None,
+            from_thread: None,
         }),
         Event::reply_started("r1", "fake/m"),
         step(
@@ -126,6 +130,7 @@ fn day() -> Vec<Event> {
             bound: None,
             acts_in: None,
             launch: None,
+            raised: None,
         }),
         k(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -147,6 +152,7 @@ fn day() -> Vec<Event> {
             call_id: "c1".into(),
             allowed: false,
             always: false,
+            by: None,
         }),
         finished("c1", "shell", true),
         started("c2", "linear__create_issue"),

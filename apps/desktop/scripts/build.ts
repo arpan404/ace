@@ -15,6 +15,7 @@ import {
 import { stageBunRuntime } from "@ace/release/daemon-runtime";
 import { stageAceMedia } from "@ace/release/ace-media";
 import { stageAceFiles } from "@ace/release/ace-files";
+import { stageAceHistory } from "@ace/release/ace-history";
 import { stageSpade } from "@ace/release/spade";
 import { ReleaseTarget } from "@ace/protocol";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
@@ -42,7 +43,8 @@ import { verifyNatives } from "./verify-natives.ts";
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
  * - `spade/`: Spade's binary (`spade`), always (Settings › Beta hides it at run time);
- * - `media/` and `files/`: the daemon's Rust helpers, ace-media and ace-files;
+ * - `media/`, `files/` and `history/`: the daemon's Rust helpers, ace-media, ace-files and
+ *   ace-history;
  * - `runtime/`: the pinned Bun runtime the daemon runs on.
  * Native code is built for the host, so a build targets the host's OS and architecture
  * (`--arch` must match it; release CI builds each architecture on its own runner). Before it
@@ -148,8 +150,18 @@ await stageAceFiles({
   env: process.env,
 });
 
+log("ace-history");
+await stageAceHistory({
+  repo,
+  root: dist,
+  target: ReleaseTarget.parse(`${process.platform}-${arch}`),
+  env: process.env,
+});
+
 log("ripgrep");
 await stageRipgrep(join(dist, "bin"));
+if (process.platform === "darwin")
+  run("sh", [join(repo, "native/tray/build.sh"), join(dist, "bin/ace-tray")]);
 
 log("screen helper");
 await stageScreenHelper(join(dist, "helpers"));

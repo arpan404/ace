@@ -172,7 +172,7 @@ export function openDaemonModels(
 }
 export type ModelRequest = Extract<
   ClientMessage,
-  { type: "models.list" | "models.refresh" | "models.resolve" }
+  { type: "models.list" | "models.refresh" | "models.load" | "models.resolve" }
 >;
 export async function handleModelRequest(
   catalog: ModelCatalogApi,
@@ -197,6 +197,16 @@ export async function handleModelRequest(
           instance: cursorInstanceId(request.roleSpec.instance),
         }),
       };
+    case "models.load": {
+      const instance = cursorInstanceId(request.instance) ?? request.instance;
+      // An embedded catalog without `load` refreshes the row, which starts no ACP agent.
+      await (catalog.load ? catalog.load(instance) : catalog.refresh({ instance }));
+      return {
+        type: "models.result",
+        requestId: request.requestId,
+        result: catalog.list({ instance }),
+      };
+    }
     case "models.refresh":
       const filter = { ...request.filter, instance: cursorInstanceId(request.filter.instance) };
       await catalog.refresh(filter);
