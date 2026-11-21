@@ -8,9 +8,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { AgentMark } from "@/features/editor/change-bars.tsx";
+import type { AgentMark } from "@/features/editor";
 import type { TextBuffer } from "@/features/editor-workbench/index.ts";
-import { requestReveal } from "@/lib/workspace/editor-reveal.ts";
+import { requestReveal } from "@/lib/workspace/index.ts";
 import { useChangeMarks } from "../files/use-change-marks.ts";
 import { blockWords } from "./agent-lines.ts";
 import { liveGutterFor } from "./gutter-store.ts";

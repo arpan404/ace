@@ -1,7 +1,11 @@
 import type { LineMark } from "@ace/ui-core";
 import type { ReactNode } from "react";
-import type { EditorLayer, EditorStatus, EditorStatusActions } from "@/features/editor";
-import type { AgentMark } from "@/features/editor/change-bars.tsx";
+import type {
+  AgentMark,
+  EditorLayer,
+  EditorStatus,
+  EditorStatusActions,
+} from "@/features/editor";
 import type { TextBuffer } from "../buffers/index.ts";
 import type { EditorBuffers } from "./editor-buffers.ts";
 

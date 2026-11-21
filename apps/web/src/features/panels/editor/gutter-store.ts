@@ -6,7 +6,7 @@ import {
   type TextBuffer,
 } from "@/features/editor-workbench/index.ts";
 import { providerOf } from "./agent-changes.ts";
-import type { AgentWho } from "./agent-lines.ts";
+import type { AgentBlock, AgentWho } from "./agent-lines.ts";
 import { authorOf } from "./editor-registry.ts";
 import { LiveGutter } from "./live-gutter.ts";
 
@@ -49,4 +49,13 @@ export function liveGutterFor(buffer: TextBuffer): LiveGutter {
   });
   gutters.set(buffer, gutter);
   return gutter;
+}
+
+/** The agents' blocks in an open file, for Next change. */
+export function agentBlocksOf(
+  buffers: { buffer(path: string): TextBuffer | undefined },
+  path: string,
+): readonly AgentBlock[] {
+  const buffer = buffers.buffer(path);
+  return buffer ? (gutters.get(buffer)?.state().agent ?? []) : [];
 }

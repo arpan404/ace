@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   changeNotice,
   editCallsOf,
+  stepAgentChange,
   keepOpen,
   nextChange,
   noChanges,
@@ -148,5 +149,37 @@ describe("explorer rows' marks", () => {
   it("ignores edits outside this checkout", () => {
     const marks = treeMarks({ ...base, calls: [call("/elsewhere/src/a.ts", 99 * minute)] });
     expect(marks.size).toBe(0);
+  });
+});
+
+describe("Next change through the agents' blocks", () => {
+  const blocks: Record<string, { start: number }[]> = {
+    "a.ts": [{ start: 4 }, { start: 20 }],
+    "b.ts": [],
+    "c.ts": [{ start: 2 }],
+  };
+  const open = ["a.ts", "b.ts", "c.ts"];
+  const of = (path: string) => blocks[path] ?? [];
+
+  it("goes to the next block in the shown file, then on to the next file", () => {
+    expect(stepAgentChange(open, of, { path: "a.ts", line: -1 })).toEqual({ path: "a.ts", line: 4 });
+    expect(stepAgentChange(open, of, { path: "a.ts", line: 4 })).toEqual({ path: "a.ts", line: 20 });
+    expect(stepAgentChange(open, of, { path: "a.ts", line: 20 })).toEqual({ path: "c.ts", line: 2 });
+  });
+
+  it("wraps from the last block to the first, and back", () => {
+    expect(stepAgentChange(open, of, { path: "c.ts", line: 2 })).toEqual({ path: "a.ts", line: 4 });
+    expect(stepAgentChange(open, of, { path: "a.ts", line: 4 }, -1)).toEqual({
+      path: "c.ts",
+      line: 2,
+    });
+  });
+
+  it("from a file without blocks goes to the next file that has one", () => {
+    expect(stepAgentChange(open, of, { path: "b.ts", line: -1 })).toEqual({ path: "c.ts", line: 2 });
+  });
+
+  it("finds nothing when no open file has an agent's block", () => {
+    expect(stepAgentChange(open, () => [], { path: "a.ts", line: 0 })).toBeUndefined();
   });
 });

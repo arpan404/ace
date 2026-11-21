@@ -43,6 +43,7 @@ import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import {
+  requestReveal,
   settleReveal,
   useReveal,
   useWorkspaceActions,
@@ -55,7 +56,15 @@ import { openInEditorPanel, type OpenInEditorPanelOptions } from "../files/open-
 import { useRecentFilesStore } from "../files/files-state.ts";
 import { MentionSelection } from "../files/mention-selection.tsx";
 import { quickOpen } from "../files/quick-open-store.ts";
-import { changeNotice, nextChange, providerOf, type TreeMark } from "./agent-changes.ts";
+import {
+  changeNotice,
+  nextChange,
+  providerOf,
+  stepAgentChange,
+  type ChangeStop,
+  type TreeMark,
+} from "./agent-changes.ts";
+import { agentBlocksOf, liveGutterFor } from "./gutter-store.ts";
 import type { RowMark } from "../files/file-tree-row.tsx";
 import {
   allTabs,
@@ -80,6 +89,7 @@ import { editorRegistry, importDrafts } from "./editor-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
 import { useChangeGutter } from "./use-change-gutter.tsx";
+import { useTurnReview } from "./use-turn-review.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
 
 /*
@@ -253,6 +263,9 @@ export function EditorPanel(props: TabViewProps) {
             ? { text: "Offline. Edits are kept on this device." }
             : undefined;
 
+  // Where Next change last stopped, so the next press moves on from it.
+  const lastStop = useRef<ChangeStop | undefined>(undefined);
+
   // ⌃Tab's list, while ⌃ is held.
   const [recent, setRecent] = useState<number | undefined>(undefined);
   const recentTabs = mruTabs(focused);
@@ -306,7 +319,28 @@ export function EditorPanel(props: TabViewProps) {
       }
       case "nextChange":
       case "previousChange": {
-        const path = nextChange(changes, openPaths(now), active, command === "nextChange" ? 1 : -1);
+        const direction = command === "nextChange" ? 1 : -1;
+        // Through the agents' blocks, line by line across open files (spec 45).
+        const from = lastStop.current?.path === active ? lastStop.current : undefined;
+        const stop = stepAgentChange(
+          openPaths(now),
+          (path) => agentBlocksOf(buffers, path),
+          { path: active, line: from?.line ?? -1 },
+          direction,
+        );
+        if (stop) {
+          lastStop.current = stop;
+          const next = showPath(now, stop.path);
+          change(next);
+          requestReveal(threadId, {
+            path: stop.path,
+            group: focusedGroup(next).id,
+            line: stop.line + 1,
+            focus: true,
+          });
+          return;
+        }
+        const path = nextChange(changes, openPaths(now), active, direction);
         if (path) change(showPath(now, path));
         return;
       }
@@ -547,6 +581,16 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
     buffer,
     save: () => void saving?.save(path),
   });
+  // A turn under review shows its hunks inline, to keep, revert or comment on (Review in editor).
+  const review = useTurnReview({
+    threadId,
+    path,
+    group: editor.group,
+    buffer,
+    gutter: liveGutterFor(buffer),
+    layer,
+    save: () => void saving?.save(path),
+  });
   const { edited } = gutter;
   const onEdited = useCallback(() => {
     edited();
@@ -563,18 +607,18 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
         role="presentation"
         className="flex min-h-0 flex-1 flex-col"
         onKeyDown={(event) => {
-          if (gutter.onKey(event)) event.preventDefault();
+          if (review?.onKey(event) || gutter.onKey(event)) event.preventDefault();
         }}
       >
         <BufferEditor
           {...editor}
           reveal={reveal}
           marks={gutter.marks}
-          agentMarks={gutter.agentMarks}
+          agentMarks={review ? [...gutter.agentMarks, ...review.agentMarks] : gutter.agentMarks}
           layer={layer}
           look={look}
           onMarkClick={gutter.onMarkClick}
-          peek={gutter.peek}
+          peek={review?.peek ?? gutter.peek}
           onEdited={onEdited}
           onBlurred={onBlurred}
           onRevealed={onRevealed}

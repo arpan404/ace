@@ -172,3 +172,34 @@ export function treeMarks(input: {
   }
   return marks;
 }
+
+/** A place Next change goes: an agent's block in an open file. */
+export interface ChangeStop {
+  path: string;
+  /** 0-based line the block starts on. */
+  line: number;
+}
+
+/**
+ * Next change (⌥F5) through the agents' blocks across open files, in open order then line order,
+ * from `at` (the last stop, or the shown file's top); ⇧ goes back. Wraps; undefined with none.
+ */
+export function stepAgentChange(
+  open: readonly string[],
+  blocksOf: (path: string) => readonly { start: number }[],
+  at: { path: string | undefined; line: number },
+  direction: 1 | -1 = 1,
+): ChangeStop | undefined {
+  const stops: ChangeStop[] = [];
+  for (const path of open)
+    for (const start of new Set(blocksOf(path).map((block) => block.start)))
+      stops.push({ path, line: start });
+  if (stops.length === 0) return undefined;
+  const order = (stop: ChangeStop) => [open.indexOf(stop.path), stop.line] as const;
+  const here = [at.path === undefined ? -1 : open.indexOf(at.path), at.line] as const;
+  const compare = (a: readonly [number, number], b: readonly [number, number]) =>
+    a[0] - b[0] || a[1] - b[1];
+  const sorted = stops.toSorted((a, b) => compare(order(a), order(b)));
+  if (direction === 1) return sorted.find((stop) => compare(order(stop), here) > 0) ?? sorted[0];
+  return sorted.findLast((stop) => compare(order(stop), here) < 0) ?? sorted.at(-1);
+}

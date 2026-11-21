@@ -24,3 +24,4 @@ export {
 } from "./editor-status.ts";
 export { useEditorAnnotations, type EditorAnnotationsOptions } from "./annotate.tsx";
 export type { EditorLayer, EditorLayerView } from "./layer.ts";
+export type { AgentMark } from "./change-bars.tsx";
