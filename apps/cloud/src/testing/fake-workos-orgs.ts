@@ -347,6 +347,11 @@ export function fakeWorkosOrgs(clientId: string) {
       const membership = membershipOf(user, org);
       if (membership) changeMembership(membership, { status: "inactive" });
     },
+    /** The directory restores a deactivated member, with the role WorkOS kept. */
+    reactivate(user: string, org: string) {
+      const membership = membershipOf(user, org);
+      if (membership) changeMembership(membership, { status: "active" });
+    },
     refuseOrg: (org: string, code: string | undefined) =>
       code ? refusals.set(org, code) : refusals.delete(org),
     membership: membershipOf,

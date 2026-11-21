@@ -31,6 +31,8 @@ export interface Env {
   WORKOS_API_KEY?: string;
   /** WorkOS API origin; tests point it at a local fake. Defaults to https://api.workos.com. */
   WORKOS_API_URL?: string;
+  /** The WorkOS webhook endpoint's signing secret (ADR 0206 §6), for `/v1/workos/webhook`. */
+  WORKOS_WEBHOOK_SECRET?: string;
   ACE_ACCOUNT_ENCRYPTION_KEY?: string;
   ACE_GRANT_KEY?: string;
   /** The replaced key's `/v1/keys` entry, `<id>:<public key>`, during a rotation. */

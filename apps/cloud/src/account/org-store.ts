@@ -27,6 +27,34 @@ const MemberRow = z.object({
   seq: z.number(),
 });
 export type MemberRow = z.infer<typeof MemberRow>;
+/** A mirror row's state and the WorkOS time it reflects: what the events feed compares against. */
+const MemberState = z.object({
+  org_id: z.string(),
+  membership_id: z.string(),
+  role: z.string(),
+  status: z.string(),
+  directory_managed: z.number(),
+  version: z.string(),
+});
+export type MemberState = {
+  org: string;
+  membership: string;
+  role: string;
+  status: string;
+  directoryManaged: boolean;
+  version: string;
+};
+const memberState = (raw: unknown): MemberState => {
+  const row = MemberState.parse(raw);
+  return {
+    org: row.org_id,
+    membership: row.membership_id,
+    role: row.role,
+    status: row.status,
+    directoryManaged: row.directory_managed === 1,
+    version: row.version,
+  };
+};
 const memberStatus = (status: string): AceOrgMember["status"] =>
   status === "active" || status === "pending" || status === "inactive" ? status : "removed";
 const SpaceRow = z.object({
@@ -152,6 +180,26 @@ export function orgStore(db: D1Database) {
         .bind(org, account)
         .first();
       return raw ? MemberRow.parse(raw) : undefined;
+    },
+    /** The membership's mirror row as the events feed compares against it. */
+    async memberState(org: string, account: string): Promise<MemberState | undefined> {
+      const raw = await db
+        .prepare(
+          "SELECT org_id, membership_id, role, status, directory_managed, version FROM org_members WHERE org_id = ? AND account_id = ?",
+        )
+        .bind(org, account)
+        .first();
+      return raw ? memberState(raw) : undefined;
+    },
+    /** Every membership of the account the mirror still holds, in any organization. */
+    async accountMemberships(account: string): Promise<MemberState[]> {
+      const { results } = await db
+        .prepare(
+          "SELECT org_id, membership_id, role, status, directory_managed, version FROM org_members WHERE account_id = ? AND status != 'removed' LIMIT 1000",
+        )
+        .bind(account)
+        .all();
+      return results.map(memberState);
     },
     /** The account's spaces: every organization it is an active member of. */
     async spaces(account: string): Promise<AceOrgSpace[]> {

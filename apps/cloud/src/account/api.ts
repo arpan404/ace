@@ -20,6 +20,7 @@ import { sessionStore } from "./sessions.ts";
 import { workos } from "./workos.ts";
 import { workosOrgs } from "./workos-orgs.ts";
 import { workosTokenVerifier } from "./workos-jwt.ts";
+import { workosWebhookRoute } from "./workos-webhook-route.ts";
 import { orgAccess } from "./org-access.ts";
 import { orgAudit } from "./org-audit.ts";
 import { orgChecker } from "./org-check.ts";
@@ -141,7 +142,8 @@ export function accountApi(
     now,
     newEnrollment: newId,
   });
-  const events = orgEvents({ orgs, workos: workosOrg, portal, now });
+  const events = orgEvents({ orgs, workos: workosOrg, portal, audit, now });
+  const webhook = workosWebhookRoute({ secret: config.webhookSecret, events, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
     return loginRoutes({
@@ -198,6 +200,7 @@ export function accountApi(
       const space = url.searchParams.get("space");
       return space === null ? directory.list(request) : hostApi.machines(request, space);
     }
+    if (pathname === "/v1/workos/webhook" && method === "POST") return webhook(request);
     if (pathname === "/v1/orgs" && method === "GET") return orgApi.list(request);
     if (pathname === "/v1/orgs" && method === "POST") return orgApi.create(request);
     if (pathname === joinPath && method === "GET") return orgApi.joinPage(url);

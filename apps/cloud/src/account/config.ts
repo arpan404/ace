@@ -44,6 +44,11 @@ export const AccountConfig = z.object({
   grantKey: GrantKey,
   previousGrantKey: PreviousGrantKey.optional(),
   allowedOrigins: z.array(Origin).min(1),
+  /**
+   * The secret WorkOS signs webhook deliveries with (ADR 0206 §6). Without it the webhook
+   * route answers 404 and the members mirror follows the minute's Events API run alone.
+   */
+  webhookSecret: z.string().trim().min(16).optional(),
 });
 export type AccountConfig = z.infer<typeof AccountConfig>;
 
@@ -73,6 +78,7 @@ export type AccountEnv = {
       | "WORKOS_API_URL"
       | "ACE_GRANT_PREVIOUS_KEY"
       | "ACE_ACCOUNT_PUBLIC_ORIGINS"
+      | "WORKOS_WEBHOOK_SECRET"
   ]?: string;
 };
 
@@ -88,6 +94,7 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
     encryptionKey: env.ACE_ACCOUNT_ENCRYPTION_KEY,
     grantKey: env.ACE_GRANT_KEY,
     previousGrantKey: env.ACE_GRANT_PREVIOUS_KEY || undefined,
+    webhookSecret: env.WORKOS_WEBHOOK_SECRET || undefined,
     allowedOrigins:
       typeof allowed === "string"
         ? allowed

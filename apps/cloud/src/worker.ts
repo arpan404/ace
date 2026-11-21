@@ -167,9 +167,14 @@ export default {
         now: Date.now(),
       });
       if (!admission.admitted) return new Response(null, { status: admission.status });
-      // A member grant opens only a host its organization holds (ADR 0206 §2.2).
+      // A member grant opens only a host its organization holds (ADR 0206 §2.2), and only
+      // while the member is still active: a grant minted before a deprovisioning is refused
+      // here at once, not when it expires (§6).
       if (admission.org !== undefined) {
-        if ((await orgStore(env.ACCOUNTS).hostOrg(hostId.data)) !== admission.org)
+        const orgs = orgStore(env.ACCOUNTS);
+        if ((await orgs.hostOrg(hostId.data)) !== admission.org)
+          return new Response(null, { status: 403 });
+        if ((await orgs.member(admission.org, admission.account))?.status !== "active")
           return new Response(null, { status: 403 });
         headers.set(ORG_HEADER, admission.org);
       }
