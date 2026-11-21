@@ -71,13 +71,15 @@ final class FrameIntake: @unchecked Sendable {
     func opened(_ thread: String, epoch: Int) {
         lock.withLock { if !closed { open = (thread, epoch) } }
     }
-    /// The runtime retired: nothing more is queued or answered.
-    func close() {
+    /// The runtime retired: nothing more is queued or answered. Returns, in order, the queued
+    /// frames already acknowledged, which the bridge counts as shown and the caller still applies;
+    /// the rest were never answered and are dropped with the runtime, in the same step that closes
+    /// the intake, so none decoded meanwhile slips in between.
+    func close() -> [Frame] {
         lock.withLock {
             closed = true
             open = nil
-            frames = []
-            answeredBytes = 0
+            return takeLocked().filter(\.answered)
         }
     }
     private func takeLocked() -> [Frame] {

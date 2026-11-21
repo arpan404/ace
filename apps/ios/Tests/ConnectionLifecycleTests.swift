@@ -110,6 +110,30 @@ import Testing
         await model.disconnectAndWait()
     }
 
+    /// Retiring a runtime applies only what it already acknowledged: the bridge counts those as
+    /// shown. A frame still waiting for the main thread, such as a relay saying it is
+    /// reconnecting just as a direct route replaces it, is the retired runtime's last word and is
+    /// dropped: read after the switch, it would make the new route look as if it had failed.
+    @Test func retiringARuntimeAppliesOnlyTheFramesItAlreadyAcknowledged() async throws {
+        let (model, session) = try await connected()
+        model.open("t")
+        let epoch = try #require(model.thread?.epoch)
+        session.send([item(epoch, "a", "Shown", index: 0)])
+        session.emit("reconnecting")
+        // Both decode while the main thread is busy; only the open thread's row is answered.
+        busy(until: { session.acks.count >= 1 }, for: 2)
+        busy(until: { false }, for: 0.3)
+        #expect(session.acks == [true])
+        let shown = try #require(model.thread)
+        model.disconnect()
+        await drain()
+        #expect(shown.items["a"]?.row.text == "Shown")
+        #expect(model.connection == "ready")
+        #expect(session.acks == [true])
+        session.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
     /// Acknowledging early must not let a busy main thread fall behind without bound: past the
     /// cap, frames wait for the main thread to take what is held, then flow again.
     @Test func earlyAcknowledgementsStopAtTheCapAndResumeAsTheMainThreadDrains() async throws {

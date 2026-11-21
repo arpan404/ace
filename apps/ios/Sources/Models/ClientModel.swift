@@ -1000,10 +1000,13 @@ import QuartzCore
         }
     }
     private func retireRuntime() -> Task<Void, Never>? {
-        // What the old runtime was told is shown applies first; nothing of it applies after: its
+        // What the old runtime was told is shown applies first; nothing else of it applies, now or
+        // after: a frame it sent that was never answered is dropped with it (a relay reporting
+        // that it reconnects, read after a direct route replaced it, would fail that route). Its
         // intake closes, and the next runtime brings its own.
-        fenceFrames()
-        intake.close()
+        taken.removeAll { !$0.answered }
+        takeFrames(intake.close())
+        flushFrames()
         intake = FrameIntake()
         batch.reset()
         invalidateConfirmations()
