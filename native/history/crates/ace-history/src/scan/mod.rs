@@ -183,6 +183,7 @@ impl Scan<'_> {
             self.report()?;
         }
         let info = std::fs::symlink_metadata(path).map_err(|e| io_at(e, path))?;
+        crate::hooks::at_path("scan-stat", &name);
         let fp = if stored {
             crate::opencode::storage::fingerprint(home, path, self.cancel)?
         } else {

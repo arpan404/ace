@@ -53,6 +53,7 @@ pub fn read_head_tail(home: &Path, path: &Path, cancel: &Cancel) -> Result<Sampl
     let tail_start = (head.len() as u64).max(size.saturating_sub(WINDOW));
     let mut tail = vec![0u8; (size - tail_start) as usize];
     read_at(&file, &mut head, 0)?;
+    crate::hooks::at_path("sample-read", &path.to_string_lossy());
     if !tail.is_empty() {
         read_at(&file, &mut tail, tail_start)?;
     }

@@ -11,6 +11,8 @@
 //!   `dir/continue`;
 //! - `failRequests` answers every request but `close` with this error, as a broken reader would;
 //! - `clockShiftMs` moves the reader's clock forward, past the crash ledger's waits;
+//! - `append: { at, match, marker, line }` appends `line` to the file being read at a point, once
+//!   the test arms it by creating `marker` (which it removes), as a provider writing then would;
 //! - `startLog` appends each reader process's pid as it starts;
 //! - `readLog` appends each transcript opened for content to a file;
 //! - `snapshotLog` appends each private database snapshot staged;
@@ -85,6 +87,17 @@ mod enabled {
         {
             let ms = delay.get("ms").and_then(Value::as_u64).unwrap_or(0);
             std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
+        if let Some(append) = config.get("append")
+            && matches(append, point, subject)
+            && let (Some(marker), Some(line)) = (
+                append.get("marker").and_then(Value::as_str),
+                append.get("line").and_then(Value::as_str),
+            )
+            && std::fs::remove_file(marker).is_ok()
+            && let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(subject)
+        {
+            let _ = writeln!(file, "{line}");
         }
         static PAUSED: AtomicBool = AtomicBool::new(false);
         if let Some(pause) = config.get("pause")
