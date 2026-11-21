@@ -211,6 +211,10 @@ export class LiveVideo {
     const pictures = this.capture?.handle.pictures;
     return pictures ? { width: pictures.width, height: pictures.height } : undefined;
   }
+  /** The tab's privacy epoch changed, for a capture fed by pictures. */
+  privacy(epoch: number, followsPrivate: boolean): void {
+    this.capture?.handle.pictures?.epoch?.(epoch, followsPrivate);
+  }
   /** One screencast frame for a capture fed by pictures, and the privacy epoch it was captured in. */
   picture(base64: string, epoch: number): void {
     this.capture?.handle.pictures?.push(base64, epoch);

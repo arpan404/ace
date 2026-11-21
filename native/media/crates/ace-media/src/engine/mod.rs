@@ -345,9 +345,11 @@ impl Engine {
                 seq,
                 epoch,
                 follows_private,
-            } => self
-                .sources
-                .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out),
+            } => {
+                self.stills.epoch(source.get(), epoch, follows_private);
+                self.sources
+                    .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out);
+            }
             ToMedia::RecordEpochs {
                 source,
                 recording,

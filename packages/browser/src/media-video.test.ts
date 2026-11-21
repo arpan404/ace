@@ -61,6 +61,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
     encodes: unknown[];
     codecs: string[][];
     keys: number[];
+    epochs: [number, boolean][];
     reconnects: number;
     closed: boolean;
   }[] = [];
@@ -71,6 +72,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         encodes: [],
         codecs: [],
         keys: [],
+        epochs: [],
         reconnects: 0,
         closed: false,
       } as (typeof added)[number];
@@ -80,6 +82,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         encodes: (encodes) => void record.encodes.push(encodes),
         codecs: (codecs) => void record.codecs.push([...codecs]),
         key: (encode) => void record.keys.push(encode),
+        epoch: (epoch, followsPrivate) => void record.epochs.push([epoch, followsPrivate]),
         reconnect: () => void record.reconnects++,
         close: () => {
           record.closed = true;
@@ -335,6 +338,40 @@ describe("live video routed through ace-media", () => {
       // The source in ace-media was told nothing more: its control lane carried no picture.
       expect(JSON.stringify([sent?.encodes, sent?.codecs, sent?.keys])).toBe(before);
       expect(handle.pictures?.dropped?.()).toBe(0);
+    },
+  );
+
+  it.each(["tab-pictures", "user-tab"] as const)(
+    "a %s capture tells ace-media its privacy epochs, opens in the current one, and a waiting private picture is never sent",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true });
+      const ingest = await ingestServer();
+      onTestFinished(ingest.close);
+      const handle = await mediaVideoHost(fakeHost(kind, false).host, media, () => ({})).open(
+        page,
+        640,
+        400,
+        events().sink,
+      );
+      handle.pictures?.epoch?.(1, false);
+      // A reopen opens in the epoch the tab is in.
+      expect(added[0]?.producer.epoch()).toBe(1);
+      await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+      await until(ingest.connected);
+      ingest.pause();
+      // Past the writer's budget, the newest private picture waits for room...
+      for (let n = 1; n <= 12; n++)
+        handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"), 1);
+      // ...and the tab stops being private before it goes: it never does.
+      handle.pictures?.epoch?.(2, true);
+      handle.pictures?.push(Buffer.alloc(1024, 99).toString("base64"), 2);
+      ingest.resume();
+      await until(() => ingest.received.some((f) => f.kind === 3 && f.payload[0] === 99));
+      expect(ingest.received.some((f) => f.kind === 3 && f.payload[0] === 12)).toBe(false);
+      expect(added[0]?.epochs).toEqual([
+        [1, false],
+        [2, true],
+      ]);
     },
   );
 

@@ -88,6 +88,8 @@ export interface VideoCaptureHandle {
     height: number;
     push(base64: string, epoch: number): void;
     dropped?(): number;
+    /** The tab's privacy epoch from now on; `followsPrivate`: the one it replaces was private. */
+    epoch?(epoch: number, followsPrivate: boolean): void;
   };
   /**
    * Present on an encoder of its own (a tab capture): its chunks go to `target` from the moment

@@ -216,6 +216,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         slot.source?.encodes(encodes);
       },
       key: (encode) => slot.source?.key(encode),
+      epoch: (epoch, followsPrivate) => slot.source?.epoch?.(epoch, followsPrivate),
       close: () => {
         waiting.delete(producer);
         slot.source?.close();

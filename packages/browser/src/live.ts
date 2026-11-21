@@ -1,3 +1,4 @@
+import { readGapMs } from "@ace/media/epochs";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import type { BrowserFrame } from "@ace/protocol";
@@ -25,6 +26,19 @@ const picturesLongSide = 1920;
  * agent works it (its clicks and hit tests wait on frames). Chrome encodes every screencast
  * frame, so it runs only while a recording or an agent needs it.
  */
+/** The shown tab's privacy (`TabAccess`): its epoch, when it last changed, and whether it is private now. */
+export type Privacy = { epoch: number; since: number; private?: boolean };
+
+/**
+ * The epoch a picture captured at `at` (ms) belongs to: the current one, except within the
+ * read gap after the tab stopped being private, when it is the private one before it.
+ */
+export function capturedEpoch(privacy: Privacy, at: number): number {
+  return privacy.private !== true && privacy.epoch > 0 && at < privacy.since + readGapMs
+    ? privacy.epoch - 1
+    : privacy.epoch;
+}
+
 export class LiveCapture {
   readonly video: LiveVideo;
   private sinks = new Map<string, ViewerSink>();
@@ -32,7 +46,9 @@ export class LiveCapture {
   private cdp: BrowserCdp;
   private now: () => number;
   private onFrame: (frame: BrowserFrame, epoch: number) => void;
-  private privacy: () => { epoch: number; since: number };
+  private privacy: () => Privacy;
+  /** The privacy epoch the video last heard (M8); -1 before the first. */
+  private announced = -1;
   private videoTimer: ReturnType<typeof setInterval> | undefined;
   private sequence = 0;
   private lastFrame = -Infinity;
@@ -57,7 +73,7 @@ export class LiveCapture {
     cdp: BrowserCdp,
     now: () => number,
     onFrame: (frame: BrowserFrame, epoch: number) => void,
-    privacy: () => { epoch: number; since: number } = () => ({ epoch: 0, since: -Infinity }),
+    privacy: () => Privacy = () => ({ epoch: 0, since: -Infinity, private: false }),
     viewport: () => { width: number; height: number } = () => ({ width: 1280, height: 720 }),
     tab: () => string | undefined = () => undefined,
     /**
@@ -277,8 +293,12 @@ export class LiveCapture {
     // recording). Missing provenance after a change is fail-closed.
     if (privacy.epoch !== 0 && (capturedAt === undefined || capturedAt * 1000 <= privacy.since))
       return;
+    this.privacyChanged();
     // The epoch the picture was captured in goes with it, for ace-media's stills and encodes.
-    this.video.picture(parsed.data.data, privacy.epoch);
+    // One captured within the read gap after the tab stopped being private keeps the private
+    // epoch, as a video producer's stamper does: the page may still show what it hid.
+    const epoch = capturedEpoch(privacy, (capturedAt ?? 0) * 1000);
+    this.video.picture(parsed.data.data, epoch);
     const timestamp = this.now();
     if (timestamp - this.lastFrame < 1000 / this.settings.fps) return;
     this.lastFrame = timestamp;
@@ -292,7 +312,22 @@ export class LiveCapture {
       height: Math.round(parsed.data.metadata.deviceHeight / scale),
       ...this.tabField(),
     };
-    this.onFrame(frame, privacy.epoch);
+    this.onFrame(frame, epoch);
+  }
+  /**
+   * The tab's privacy may have changed: the video hears its epoch once (M8), with whether the
+   * one it replaces was private, so ace-media stamps and keeps pictures as it does video.
+   */
+  privacyChanged(): void {
+    const privacy = this.privacy();
+    if (privacy.epoch === this.announced) return;
+    // Epochs move on every change and start public (0), so a jump of two or more passed
+    // through a private one.
+    const from = Math.max(0, this.announced);
+    const followsPrivate =
+      privacy.epoch > 0 && (privacy.private !== true || privacy.epoch - from >= 2);
+    this.announced = privacy.epoch;
+    this.video.privacy(privacy.epoch, followsPrivate);
   }
   /**
    * Attach to the page and seed its first frame, so every viewer that joins gets pixels at

@@ -33,7 +33,7 @@ export const mediaMissing = "ace-media isn't available on this computer";
 /** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
 export type BrowserMediaSource = Pick<
   IngestSource,
-  "streaming" | "codecs" | "encodes" | "key" | "reconnect" | "close"
+  "streaming" | "codecs" | "encodes" | "key" | "epoch" | "reconnect" | "close"
 >;
 
 /** What the browser needs of the daemon's ace-media. */
@@ -423,6 +423,8 @@ function pictureCapture(options: {
   let writer: IngestWriter | undefined;
   /** Pictures too large for ace-media, dropped rather than sent. */
   let dropped = 0;
+  /** The tab's privacy epoch now, as the capture announced it (M8). */
+  let privacyEpoch = 0;
   const pointAt = (address: IngestAddress | undefined) => {
     // Every picture the old connection holds goes before its end; a new one starts afresh.
     writer?.finish();
@@ -457,7 +459,7 @@ function pictureCapture(options: {
     kind: options.kind,
     origin: { kind: options.kind },
     ...options.ids,
-    epoch: () => 0,
+    epoch: () => privacyEpoch,
     consumers: consumers((unit) => {
       const chunk = chunkOf(unit, encodeIds);
       if (open && chunk) events.chunk(chunk);
@@ -513,6 +515,13 @@ function pictureCapture(options: {
         else dropped++;
       },
       dropped: () => dropped,
+      // The tab's privacy changed: ace-media hears the epoch as a video producer's stamper
+      // applies it, and a picture still waiting for room from a private epoch is never sent.
+      epoch: (epoch, followsPrivate) => {
+        privacyEpoch = epoch;
+        if (followsPrivate) writer?.discardWaiting();
+        opened.epoch?.(epoch, followsPrivate);
+      },
     },
     close: () => {
       if (!open) return;

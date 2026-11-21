@@ -161,7 +161,11 @@ export class BrowserSession {
       },
       () => {
         const access = this.tabs.viewed()?.access;
-        return { epoch: access?.epoch ?? 0, since: access?.since ?? -Infinity };
+        return {
+          epoch: access?.epoch ?? 0,
+          since: access?.since ?? -Infinity,
+          private: access?.private ?? false,
+        };
       },
       () => this.viewedPage().viewport(),
       () => (this.options.backend.tabs ? this.captured : undefined),
@@ -316,6 +320,7 @@ export class BrowserSession {
       state: () => this.state,
       emit: () => this.emit(),
       privacyChanged: () => {
+        this.live.privacyChanged();
         this.options.backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
         this.persist();
       },

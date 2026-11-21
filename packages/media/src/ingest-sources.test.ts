@@ -302,6 +302,24 @@ describe("IngestSources", () => {
     expect(l.ended.at(-1)).toEqual(["s1", false]);
   });
 
+  it("a JPEG source's privacy epochs reach its open in ace-media, in order, and none before it is open", () => {
+    const w = world();
+    const l = producer("tab-pictures");
+    w.state.up = false;
+    const source = w.sources.add(l.p);
+    source.epoch?.(1, false);
+    w.state.up = true;
+    w.sources.replay();
+    source.epoch?.(2, true);
+    source.epoch?.(3, false);
+    expect(
+      w.sent.flatMap(({ message }) => (message.type === "source.epoch" ? [message] : [])),
+    ).toEqual([
+      { type: "source.epoch", source: "s1", seq: 0, epoch: 2, followsPrivate: true },
+      { type: "source.epoch", source: "s1", seq: 1, epoch: 3, followsPrivate: false },
+    ]);
+  });
+
   it("an ace-media too old to encode pictures off the ingest leaves only JPEG sources off, saying why, until a newer one runs", () => {
     const w = world();
     w.state.features = ["source.ingest", "source.sync"];

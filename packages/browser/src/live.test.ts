@@ -132,6 +132,71 @@ it("a screencast picture captured before the tab's privacy changed never reaches
   await live.close();
 });
 
+it("after the tab stops being private, ace-media hears the epoch once, and pictures in the read gap keep the private epoch", async () => {
+  const page = fakePage();
+  let frame: ((raw: unknown) => void) | undefined;
+  page.cdp.on = (event: string, listener: (raw: unknown) => void) => {
+    if (event === "Page.screencastFrame") frame = listener;
+  };
+  const pushed: { data: string; epoch: number }[] = [];
+  const announced: [number, boolean][] = [];
+  let opened = false;
+  const host: VideoHost = {
+    ...picturesHost,
+    open: async (_page, width, height) => (
+      (opened = true),
+      {
+        encodes: () => {},
+        keyframe: () => {},
+        close: () => {},
+        pictures: {
+          width,
+          height,
+          push: (data, epoch) => void pushed.push({ data, epoch }),
+          epoch: (epoch, followsPrivate) => void announced.push([epoch, followsPrivate]),
+        },
+      }
+    ),
+  };
+  // Private from 10 s (epoch 1).
+  const privacy = { epoch: 1, since: 10_000, private: true };
+  const recorded: number[] = [];
+  const live = new LiveCapture(
+    page.cdp,
+    () => 30_000,
+    (_frame, epoch) => void recorded.push(epoch),
+    () => privacy,
+    () => ({ width: 800, height: 600 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host, page: page.cdp }),
+  );
+  await live.start();
+  live.subscribe("phone", { video: { send: () => true } }, viewer(false));
+  await until(() => frame !== undefined && opened);
+  const screencast = (data: string, timestamp: number) =>
+    frame?.({ data, sessionId: 1, metadata: { deviceWidth: 800, deviceHeight: 600, timestamp } });
+  screencast("private", 11);
+  // Public again at 20 s (epoch 2): ace-media hears it at once, following a private epoch.
+  Object.assign(privacy, { epoch: 2, since: 20_000, private: false });
+  live.privacyChanged();
+  live.privacyChanged();
+  // 50 ms after: inside the read gap, the private epoch. 150 ms after: the public one.
+  screencast("gap", 20.05);
+  screencast("public", 20.15);
+  await until(() => pushed.length === 3);
+  expect(announced).toEqual([
+    [1, false],
+    [2, true],
+  ]);
+  expect(pushed).toEqual([
+    { data: "private", epoch: 1 },
+    { data: "gap", epoch: 1 },
+    { data: "public", epoch: 2 },
+  ]);
+  await live.close();
+});
+
 async function until(condition: () => boolean): Promise<void> {
   const end = performance.now() + 5_000;
   while (!condition()) {

@@ -370,6 +370,63 @@ fn a_picture_captured_before_a_privacy_change_and_delivered_after_is_never_the_s
 }
 
 #[test]
+fn a_picture_from_a_private_epoch_is_never_the_still_once_the_source_left_it_even_in_the_read_gap()
+{
+    for kind in ["tab-pictures", "user-tab"] {
+        let (mut engine, maker) = with_maker();
+        send(
+            &mut engine,
+            json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": 1,
+                    "origin": { "kind": kind } }),
+            &[9; 32],
+            NOW,
+        );
+        assert!(engine.ingest_hello(1, &[9; 32]));
+        let screencast = |engine: &mut Engine, bytes: Vec<u8>, epoch: u32, now: Now| {
+            let mut frame = frame(3, 1, epoch, bytes);
+            frame.codec = 7;
+            ingest(engine, 1, frame, now)
+        };
+        // Epoch 1 is private: its picture is the still while the tab stays private (the
+        // person's own requests are the daemon's grant).
+        screencast(&mut engine, jpeg(1200, 600), 1, at(1_000));
+        assert!(matches!(
+            shot(&mut engine, &maker, "q1", 400).as_slice(),
+            [Answer::Still { .. }]
+        ));
+        // The tab stops being private: epoch 2 follows a private one.
+        send(
+            &mut engine,
+            json!({ "type": "source.epoch", "source": "s1", "seq": 1, "epoch": 2, "followsPrivate": true }),
+            &[],
+            at(2_000),
+        );
+        assert_eq!(
+            shot(&mut engine, &maker, "q2", 400),
+            [failed("q2", "no-picture")]
+        );
+        // Read 50 ms later, inside the read gap: it takes the private epoch, so it isn't kept.
+        screencast(&mut engine, jpeg(800, 800), 2, at(2_050));
+        assert_eq!(
+            shot(&mut engine, &maker, "q3", 400),
+            [failed("q3", "no-picture")]
+        );
+        // After the gap, the public picture is the still.
+        let public = jpeg(1200, 600);
+        screencast(&mut engine, public.clone(), 2, at(2_200));
+        assert_eq!(
+            shot(&mut engine, &maker, "q4", 400),
+            [Answer::Still {
+                request: "q4".into(),
+                picture: public,
+                size: (400, 200)
+            }],
+            "{kind}"
+        );
+    }
+}
+
+#[test]
 fn each_still_shows_the_latest_picture_of_the_stream() {
     let (mut engine, maker) = with_maker();
     producing(&mut engine);

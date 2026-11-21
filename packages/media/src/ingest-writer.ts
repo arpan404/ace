@@ -153,6 +153,14 @@ export class IngestWriter {
     return this.#state.kind === kind;
   }
 
+  /**
+   * Drops the unit waiting for room, if one is: it is never written. What the socket already
+   * holds still goes. For a producer whose waiting picture became private (M8).
+   */
+  discardWaiting(): void {
+    this.#pending = undefined;
+  }
+
   /** At once, dropping what is queued: ace-media sees that path cut. Not reported. */
   close(): void {
     if (!this.#move({ kind: "cut" })) return;

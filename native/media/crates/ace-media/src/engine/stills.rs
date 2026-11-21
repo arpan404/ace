@@ -131,6 +131,9 @@ struct Entry {
     /// The privacy epochs the current picture's content came from: a JPEG's own, or every unit
     /// of the video group since its keyframe (a delta carries earlier content forward).
     epochs: Option<(u32, u32)>,
+    /// Epochs below this one were private (M8: the source applied it with `followsPrivate`):
+    /// nothing from them is the still, whoever asks.
+    private_before: u32,
 }
 
 enum Current {
@@ -210,6 +213,23 @@ impl Stills {
         }
     }
 
+    /// `source.epoch` (M8): applied with `followsPrivate`, every epoch before `epoch` was
+    /// private. A still made of one is dropped now, and none is kept from one again: a picture
+    /// read in the private epoch's read gap is stamped with it, so it never becomes the still.
+    pub fn epoch(&mut self, source: &str, epoch: u32, follows_private: bool) {
+        let Some(entry) = self.current.get_mut(source) else {
+            return;
+        };
+        if !follows_private || epoch <= entry.private_before {
+            return;
+        }
+        entry.private_before = epoch;
+        if entry.epochs.is_none_or(|(_, high)| high < epoch) {
+            entry.current = Current::Nothing;
+            entry.epochs = None;
+        }
+    }
+
     /// `record.epochs`'s discarded ranges for `source`: a poster in the making from one of them
     /// fails `private` when it finishes, and none is made from them again.
     pub fn discard(&mut self, source: &str, ranges: &[(u32, u32)]) {
@@ -258,6 +278,7 @@ impl Stills {
             config: None,
             current: Current::Nothing,
             epochs: None,
+            private_before: 0,
         };
         self.current.insert(source.to_owned(), entry);
     }
@@ -293,6 +314,12 @@ impl Stills {
         let Some(entry) = self.current.get_mut(source) else {
             return;
         };
+        // Content from a private epoch, after the source left it: never the still.
+        if frame.epoch < entry.private_before {
+            entry.current = Current::Nothing;
+            entry.epochs = None;
+            return;
+        }
         let key = frame.flags & FLAG_KEYFRAME != 0;
         let config = Config {
             encode: frame.encode,

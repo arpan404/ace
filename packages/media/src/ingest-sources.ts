@@ -234,6 +234,12 @@ export type IngestSource = {
   encodes(encodes: EncodeSpec[]): void;
   /** For a JPEG source: the encode's next unit is a keyframe. */
   key(encode: number): void;
+  /**
+   * The source's privacy epoch from now on (M8), for a producer whose frames ace-media stamps
+   * as it reads them (a JPEG source's pictures): `followsPrivate` says the one it replaces was
+   * private, so pictures read in the next 100 ms keep that one and nothing from it is a still.
+   */
+  epoch?(epoch: number, followsPrivate: boolean): void;
   close(): void;
 };
 
@@ -241,6 +247,8 @@ export class IngestSources {
   readonly #options: IngestSourcesOptions;
   readonly #entries = new Set<Entry>();
   readonly #paths = new Map<string, Path>();
+  /** `source.epoch`'s sequence, for its `epoch.applied` answer. */
+  #epochs = 0;
 
   constructor(options: IngestSourcesOptions) {
     this.#options = options;
@@ -281,6 +289,17 @@ export class IngestSources {
       key: (encode) => {
         const live = entry.live;
         if (live) this.#send({ type: "source.key", source: live.id, encode });
+      },
+      epoch: (epoch, followsPrivate) => {
+        const live = entry.live;
+        if (live)
+          this.#send({
+            type: "source.epoch",
+            source: live.id,
+            seq: this.#epochs++,
+            epoch,
+            followsPrivate,
+          });
       },
       close: () => this.#close(entry),
     };
