@@ -13,6 +13,7 @@ mod helpers;
 mod knowledge;
 mod moves;
 mod notes;
+mod org_audit;
 mod outside;
 mod oversight;
 mod panels;
@@ -41,6 +42,7 @@ pub use moves::{
     StoredMove, TableSum, arrival_state, move_table, open_state,
 };
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
+pub use org_audit::AuditHead;
 pub use outside::OUTSIDE_HOSTS;
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use panels::{BOT_PANELS, Collected, PANEL_PAGE, page_key, panels_key};
@@ -201,6 +203,7 @@ impl Store {
             "skill_uses",
             "helpers",
             "cases",
+            "org_audit",
         ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {

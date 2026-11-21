@@ -9,7 +9,8 @@ import type {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { market, marketKey, type PersonGrant } from "./market-api.ts";
-import { useAceAccountStore } from "@/features/ace-account/index.ts";
+import { isStandingRefusal } from "@/boot/person-standing.ts";
+import { useAceAccountStore, useConfirmPersonNotice } from "@/features/ace-account/index.ts";
 import { browserInstallId } from "@/boot/install-id.ts";
 import { MarketFailure } from "./market-model.ts";
 
@@ -123,11 +124,26 @@ export function usePublishAction() {
   const client = useClient();
   const cache = useQueryClient();
   const personGrant = usePersonGrant();
-  return useMutation({
+  const confirm = useConfirmPersonNotice();
+  const mutation = useMutation({
     mutationFn: async (request: MarketPublishAction) =>
       (await market(client, { op: "publish", request }, "publish", undefined, personGrant)).answer,
     onSettled: () => void cache.invalidateQueries({ queryKey: publishKey }),
   });
+  const mutate: typeof mutation.mutate = (request, options) =>
+    mutation.mutate(request, {
+      ...options,
+      onError: (error, ...rest) => {
+        if (
+          error instanceof MarketFailure &&
+          error.code === "reauth" &&
+          confirm(client, () => mutation.mutate(request, options), !isStandingRefusal(error.detail))
+        )
+          return;
+        options?.onError?.(error, ...rest);
+      },
+    });
+  return { ...mutation, mutate };
 }
 
 /** Sends one publish action and answers it, for flows that step through several. */

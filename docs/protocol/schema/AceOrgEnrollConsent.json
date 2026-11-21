@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgEnrollConsent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "expiresAt": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "hostId": {
+      "pattern": "^[A-Z2-7]{52}$",
+      "type": "string"
+    },
+    "hostKey": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    },
+    "nonce": {
+      "pattern": "^[A-Za-z0-9_-]{22,64}$",
+      "type": "string"
+    },
+    "org": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgId.json"
+    },
+    "proof": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hostId",
+    "hostKey",
+    "org",
+    "account",
+    "nonce",
+    "expiresAt",
+    "proof"
+  ],
+  "type": "object"
+}

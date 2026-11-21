@@ -160,6 +160,7 @@ fn replacing_a_card_makes_its_next_version_and_an_unknown_one_is_refused() {
     let show = read(
         &events,
         &json!({ "data": { "title": "Fare now 170" }, "replaces": "card_1" }),
+        &[],
     )
     .sure();
     let next = shown(&events, "r2", "c2", "card_2", show, true);
@@ -168,7 +169,12 @@ fn replacing_a_card_makes_its_next_version_and_an_unknown_one_is_refused() {
         ("card_1", 2, true)
     );
 
-    let fresh = read(&events, &json!({ "data": { "title": "Another trip" } })).sure();
+    let fresh = read(
+        &events,
+        &json!({ "data": { "title": "Another trip" } }),
+        &[],
+    )
+    .sure();
     assert_eq!(
         shown(&events, "r2", "c3", "card_3", fresh, false).card,
         "card_3"
@@ -177,17 +183,57 @@ fn replacing_a_card_makes_its_next_version_and_an_unknown_one_is_refused() {
     let refused = read(
         &events,
         &json!({ "data": { "title": "x" }, "replaces": "card_9" }),
+        &[],
     )
     .refused();
     assert_eq!(refused[0].at, "replaces");
-    // A card a package ships comes with packages; until then the data carries the card.
+    // A card names a surface only of the bot's own package; the data carries the card either way.
     let surface = read(
         &events,
         &json!({ "surface": "fare-drop", "data": { "title": "x" } }),
+        &["fare-rise".to_owned()],
     )
     .refused();
     assert_eq!(surface[0].at, "surface");
     assert!(refusal(&surface).starts_with("Not shown: the card doesn't fit."));
+    let named = read(
+        &events,
+        &json!({ "surface": "fare-drop", "data": { "title": "x" } }),
+        &["fare-drop".to_owned()],
+    )
+    .sure();
+    assert_eq!(named.surface.as_deref(), Some("fare-drop"));
+}
+
+#[test]
+fn a_package_card_that_misses_its_checks_goes_back_twice_then_isnt_shown_in_that_reply() {
+    let misses = vec!["fare-has-link: data.link: is missing".to_owned()];
+    let first = check_refusal("fare-drop", &misses, 1);
+    assert!(first.contains("2 more tries"), "{first}");
+    assert!(check_refusal("fare-drop", &misses, 2).contains("1 more try"));
+    let last = check_refusal("fare-drop", &misses, 3);
+    assert!(last.contains("won't be shown in this reply"), "{last}");
+    let refused = |reply: &str, content: String| {
+        Event::Known(Known::ToolFinished {
+            reply: reply.to_owned(),
+            call_id: "c".to_owned(),
+            name: CARD_SHOW.to_owned(),
+            content,
+            is_error: true,
+            uncertain: false,
+            images: Vec::new(),
+            untrusted: false,
+        })
+    };
+    let events = vec![
+        refused("r1", first.clone()),
+        refused("r1", check_refusal("fare-drop", &misses, 2)),
+        refused("r2", first),
+        refused("r1", "Not shown: the card doesn't fit.".to_owned()),
+    ];
+    assert_eq!(check_misses(&events, "r1", "fare-drop"), 2);
+    assert_eq!(check_misses(&events, "r2", "fare-drop"), 1);
+    assert_eq!(check_misses(&events, "r1", "fare-rise"), 0);
 }
 
 #[test]

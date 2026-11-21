@@ -56,7 +56,8 @@ export function accountGrantHttp(options: AccountGrantHttpOptions) {
 export function machineGrantSource(account: MachineAccount, dataDir: string): SpadeAccountGrant {
   return async (signal) => {
     const signedIn = account.account();
-    if (!signedIn) return undefined;
+    // An organization's credential gets no Spade Cloud grant (ADR 0206 §2.1).
+    if (!signedIn || account.signedInAsOrg()) return undefined;
     const keys = await loadOrCreateHostKeys(join(dataDir, "relay"));
     const token = await account.cloudGrant(hostId(keys.publicKey), signal);
     return { token, account: signedIn.id };

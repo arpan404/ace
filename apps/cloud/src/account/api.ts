@@ -42,6 +42,8 @@ const orgPath =
   /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/(members|invitations|portal|policy|hosts|audit)(?:\/([A-Za-z0-9_-]{1,128}))?$/;
 const loginClaim = /^\/v1\/account\/login\/([A-Za-z0-9_-]{43})$/;
 const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
+const orgHostCredentialPath =
+  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/hosts\/([A-Z2-7]{52})\/credential$/;
 
 /**
  * The account HTTP API. One instance per isolate: it holds the in-flight session refreshes
@@ -129,8 +131,10 @@ export function accountApi(
     principals,
     access,
     orgs,
+    credentials,
     audit,
     signingKey: config.grantKey,
+    exchangeKey,
     now,
     newEnrollment: newId,
   });
@@ -185,6 +189,9 @@ export function accountApi(
     if (pathname === "/v1/orgs" && method === "GET") return orgApi.list(request);
     if (pathname === "/v1/orgs" && method === "POST") return orgApi.create(request);
     if (pathname === joinPath && method === "GET") return orgApi.joinPage(url);
+    const hostCredential = pathname.match(orgHostCredentialPath);
+    if (hostCredential && method === "POST")
+      return hostApi.credential(request, hostCredential[1] ?? "", hostCredential[2] ?? "");
     const scoped = pathname.match(orgPath);
     if (scoped) {
       const [, org = "", area, item] = scoped;

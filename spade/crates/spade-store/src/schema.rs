@@ -200,6 +200,11 @@ const MIGRATIONS: &[Migration] = &[
         backfill: None,
     },
     Migration {
+        // ADR 0206 §4.2: an org host's hash-chained audit log and its signed checkpoints.
+        sql: crate::org_audit::SCHEMA,
+        backfill: None,
+    },
+    Migration {
         // ADR 0202 amendment 2: how each outside call ended, kept apart from the inbox's cleanup.
         sql: crate::outside::SCHEMA,
         backfill: None,

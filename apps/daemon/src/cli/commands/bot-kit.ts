@@ -84,12 +84,43 @@ export const botKitCommands: readonly CommandSpec[] = [
     words: ["bot", "test"],
     summary: "Run the package's scenario tests on Spade's engine with a scripted model, offline",
     description:
-      "Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN.",
+      "Each scenario in tests/ runs on a throwaway Spade with spade-testkit's fake model: no network, no real model, nothing of yours. Needs Spade's program: the one this ace ships, or ACE_SPADE_BIN. With --cases, one of your bots' kept runs (Keep as a test) replay instead, on the version in PATH or the one the bot runs, through your Spade: free on the recorded steps, every outside call answered from the recording. --model replays them on one of your models, at your cost, said first.",
     group: "spade-market",
     offline: true,
     args: [pathArg],
+    flags: [
+      {
+        name: "cases",
+        value: "BOT",
+        summary: "Replay this bot's kept runs (by name or id) instead of the scenarios",
+      },
+      {
+        name: "model",
+        value: "ROLE",
+        summary:
+          "With --cases: replay on a model (current, a role like review, or endpoint/model), at your cost",
+      },
+      {
+        name: "spade",
+        value: "DIR",
+        summary:
+          "With --cases: a development Spade's data folder, reached directly instead of through ace",
+      },
+    ],
     output: "bot.test",
-    exits: [{ code: 1, when: "a scenario failed, or the package or a scenario didn't read" }],
+    examples: [
+      {
+        command: 'ace bot test --cases "Fare watcher" .',
+        summary: "Does this folder's version still do what Fare watcher's kept runs did?",
+      },
+    ],
+    exits: [
+      {
+        code: 1,
+        when: "a scenario or a kept run failed, or the package or a scenario didn't read",
+      },
+      { code: 2, when: "a model replay needs your yes" },
+    ],
     seeAlso: ["bot check"],
   },
   {

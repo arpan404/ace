@@ -40,6 +40,7 @@ mod learned;
 mod ledger;
 mod local;
 mod outside_admit;
+mod replays;
 pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
 mod made;
@@ -49,6 +50,7 @@ mod memory;
 mod moves;
 mod notify;
 pub mod onboarding;
+mod org;
 mod outbox;
 mod oversight;
 pub(crate) mod packages;
@@ -116,6 +118,7 @@ pub use outside_admit::{
 };
 pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
+pub use replays::{ReplayError, ReplayInput};
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 pub use suggest::{MarketBots, MarketFuture};
 pub use thread_asks::FROM_ACE;
@@ -124,6 +127,7 @@ const IMAGE_LOCKS: usize = 16;
 
 pub use made::Undone;
 pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
+pub use org::{MEMBER_BY, MEMBER_ONLY, OrgError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,

@@ -237,7 +237,7 @@ impl Engine {
         }
     }
 
-    /// Answers an approval the open turn is waiting on.
+    /// Answers an approval the open turn is waiting on, as the person.
     pub fn answer(
         &self,
         id: &str,
@@ -245,12 +245,45 @@ impl Engine {
         allowed: bool,
         always: bool,
     ) -> Result<(), AnswerError> {
+        self.answer_by(id, call_id, allowed, always, None)
+    }
+
+    /// Answers an approval the open turn is waiting on, as `by` when a member's stamp named one.
+    /// A shared bot's request takes only an answer of one of its approvers, recorded with it and
+    /// on the host's audit log in the same write (ADR 0206 §2.3, §4.1).
+    pub fn answer_by(
+        &self,
+        id: &str,
+        call_id: &str,
+        allowed: bool,
+        always: bool,
+        by: Option<&spade_core::org::Member>,
+    ) -> Result<(), AnswerError> {
         if !self.reachable(id)? {
             return Err(AnswerError::NotFound);
         }
         // Check and answer under one lock, so two answers to one approval cannot both land.
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         let events = self.load(id)?;
+        let shared = self.shared_over(id);
+        let by = match (&shared, by) {
+            (Some((_, access)), Some(member)) => {
+                if !access.may(member, spade_core::org::Right::Approve) {
+                    return Err(AnswerError::ApproverOnly(super::org::NOT_APPROVER));
+                }
+                // Letting a command run outside the sandbox follows the policy's rule for it.
+                if allowed
+                    && asks_outside(&events, call_id)
+                    && !self.org_policy().may_let_outside(member.role(), true)
+                {
+                    return Err(AnswerError::ApproverOnly(super::org::OUTSIDE_NOT_YOURS));
+                }
+                Some(member)
+            }
+            (Some(_), None) => return Err(AnswerError::ApproverOnly(super::org::NOT_APPROVER)),
+            (None, _) => None,
+        };
+        let entry = by.and_then(|member| self.answer_entry(id, call_id, allowed, always, member));
         let transcript = Transcript::fold(events.iter());
         let awaited = transcript.awaiting.iter().any(|c| c == call_id)
             || transcript.helper_awaiting.iter().any(|(c, _)| c == call_id);
@@ -279,7 +312,7 @@ impl Engine {
         let always = always && !asked_for_a_reason(&events, call_id);
         if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
             // A helper's call (ADR 0152): the answer reaches the helper.
-            self.answer_for_helper(id, &events, call_id, allowed, always)?;
+            self.answer_for_helper(id, &events, call_id, allowed, always, by)?;
             drop(_order);
             self.announce(id);
             return Ok(());
@@ -291,14 +324,16 @@ impl Engine {
             .open_reply()
             .and_then(|m| m.reply.clone())
             .unwrap_or_default();
-        self.append(
+        self.append_audited(
             id,
-            &Event::Known(Known::ApprovalAnswered {
+            &[Event::Known(Known::ApprovalAnswered {
                 reply,
                 call_id: call_id.to_owned(),
                 allowed,
                 always,
-            }),
+                by: by.cloned().map(Box::new),
+            })],
+            &entry.into_iter().collect::<Vec<_>>(),
         )?;
         self.live(id).wake.notify_one();
         Ok(())

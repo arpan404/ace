@@ -779,11 +779,15 @@ Example:
     "kind": "remoteStatus",
     "status": {
       "account": {
+        "login": {
+          "expiresAt": 2,
+          "url": "https://example.invalid/"
+        },
         "machineCode": {
           "set": false
         },
         "owner": {
-          "account": "example"
+          "org": "org_b9Sqk1YLdnmhPwM7BGgVQpMfXeFB2qtKE4MZDkgUk98A2O6Ss0QcQWKAX"
         },
         "signedIn": false
       },
@@ -4457,13 +4461,13 @@ Example:
 }
 ```
 
-### account.standing.result
+### account.owner.enroll.result
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| type | yes | `"account.standing.result"` |  |
+| type | yes | `"account.owner.enroll.result"` |  |
 | requestId | yes | string |  |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"until":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["ok","until"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"consent":{"$ref":"https://ace.local/protocol/v1/AceOrgEnrollConsent.json"}},"required":["ok","consent"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
 
 Example:
 
@@ -4471,8 +4475,56 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": true,
-    "until": 9
+    "consent": {
+      "account": "example",
+      "expiresAt": 4,
+      "hostId": "SBG37XPUNWALYTJ6PK3BK3SUXLGUUM5CCD7OTREGMIXA7N7ZLQ74",
+      "hostKey": "dRi7RAR2wFnxcw_AprreKULUROqdwdm1Ta9BnsMwovL",
+      "nonce": "0idzM8yN1bLufrM9Ih44vhsjr0FHsBCIWaMfTAjm361mqYzoVMZrnVVXT",
+      "org": "org_PZkpGulvTo2NaBCyvxL9E6UaBCitLWYLPjo4tC0fn",
+      "proof": "k0rfFcUtcetWmvFBVeMkYNHtlS2ctSYH5R89ZvCXdpW"
+    },
+    "ok": true
+  },
+  "type": "account.owner.enroll.result"
+}
+```
+
+### account.owner.enroll.confirm.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.owner.enroll.confirm.result"` |  |
+| requestId | yes | string |  |
+| ok | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "example",
+  "type": "account.owner.enroll.confirm.result"
+}
+```
+
+### account.standing.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.standing.result"` |  |
+| requestId | yes | string |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"until":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"member":{"type":"object","properties":{"org":{"$ref":"https://ace.local/protocol/v1/AceOrgId.json"},"role":{"$ref":"https://ace.local/protocol/v1/AceOrgRole.json"}},"required":["org","role"]}},"required":["ok","until"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "code": "example",
+    "message": "example",
+    "ok": false
   },
   "type": "account.standing.result"
 }
@@ -4492,9 +4544,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "code": "example",
-    "message": "example",
-    "ok": false
+    "grantTtlMs": 8,
+    "ok": true
   },
   "type": "account.grant.refresh.result"
 }

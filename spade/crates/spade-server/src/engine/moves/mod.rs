@@ -271,15 +271,30 @@ impl Engine {
         accept: &AcceptFor,
         stamp: Option<&str>,
     ) -> Result<(), MoveError> {
+        self.accept_move_by(id, accept, stamp, None)
+    }
+
+    /// [`Engine::accept_move`] on an org host, where no person stands: an admin of its
+    /// organization accepts, with their member stamp (ADR 0206 §2.3, `move` is admins').
+    pub fn accept_move_by(
+        &self,
+        id: &str,
+        accept: &AcceptFor,
+        stamp: Option<&str>,
+        member: Option<&spade_core::org::Member>,
+    ) -> Result<(), MoveError> {
         paths::moves_here().map_err(MoveError::Refused)?;
         if !paths::plain_id(id) || !accept.plain() {
             return Err(MoveError::Invalid(
                 "a move names plain ids, its manifest's hash and what it replaces".to_owned(),
             ));
         }
-        let says = self.security().is_some_and(|security| {
-            security.person_says(stamp, &format!("move:{id}"), &accept.stamped())
-        });
+        let says = match self.org_binding() {
+            Some(_) => member.is_some_and(|member| member.role().admin()),
+            None => self.security().is_some_and(|security| {
+                security.person_says(stamp, &format!("move:{id}"), &accept.stamped())
+            }),
+        };
         if !says {
             return Err(MoveError::PersonOnly(ACCEPT_PERSON_ONLY));
         }
@@ -482,6 +497,15 @@ impl Engine {
         };
         if !target.online {
             return release(MoveError::Refused(format!("{} is offline.", target.name)));
+        }
+        // A shared bot moves only between its organization's hosts (ADR 0206 §2.3).
+        let there = spade_core::org::Space::of(target.org.as_deref());
+        if let Some(why) = spade_core::org::crossing(
+            &self.agent_space(&agent.id),
+            &there,
+            spade_core::org::Crossing::Move,
+        ) {
+            return release(MoveError::Refused(why.to_owned()));
         }
         self.store
             .set_move_peer(id, &target.host_id, &target.name)?;

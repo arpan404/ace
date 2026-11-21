@@ -136,6 +136,13 @@ pub fn bot() -> Value {
             "code",
             list(code::MOST_COMPONENTS, json!({ "$ref": "#/$defs/code" })),
         ),
+        (
+            "checks",
+            list(
+                crate::package::checks::MOST_CHECKS,
+                json!({ "type": "object", "required": ["name", "on", "kind"] }),
+            ),
+        ),
     ];
     for (field, schema) in pairs {
         properties.insert(field.to_owned(), schema);
@@ -212,7 +219,7 @@ fn trigger() -> Value {
     json!({
         "type": "object",
         "required": ["kind"],
-        "properties": { "kind": { "type": "string" } },
+        "properties": { "kind": { "type": "string" }, "verify": { "type": "boolean" } },
         "allOf": [
             { "if": { "properties": { "kind": { "enum": ["schedule", "event", "webhook"] } } }, "then": routine },
             { "if": { "properties": { "kind": { "const": "schedule" } } }, "then": { "required": ["schedule"] } },
