@@ -21,7 +21,7 @@ describe("a task that carries on", () => {
       task_state: { status: "working", note: "Checking easyJet" },
       continuing: true,
     });
-    expect(spadeTaskLine("Flights", bot?.progress)).toEqual({
+    expect(spadeTaskLine("Flights", bot?.progress, undefined, false)).toEqual({
       sentence: "Flights is working on it",
       step: "Checking easyJet",
       tone: "working",
@@ -30,12 +30,24 @@ describe("a task that carries on", () => {
 
   test("the step comes from the object form or the live status when the field has none", () => {
     const bot = agent({ task_state: { status: "working" }, continuing: true });
-    expect(spadeTaskLine("Flights", bot?.progress, "Reading fares")?.step).toBe("Reading fares");
+    expect(spadeTaskLine("Flights", bot?.progress, "Reading fares", false)?.step).toBe(
+      "Reading fares",
+    );
   });
 
-  test("a task waiting on the person says the bot needs you", () => {
-    const bot = agent({ task_state: { status: "blocked_on_person" } });
-    expect(spadeTaskLine("Flights", bot?.progress)?.sentence).toBe("Flights needs you");
+  test("a task waiting on the person says the bot needs you while Spade has it waiting", () => {
+    const bot = agent({ task_state: { status: "blocked_on_person" }, state: "waiting" });
+    expect(
+      spadeTaskLine("Flights", bot?.progress, undefined, bot?.state === "waiting")?.sentence,
+    ).toBe("Flights needs you");
+  });
+
+  test("a bot's own blocked_on_person with nothing open on the person says nothing", () => {
+    // Its last task_status outlives the request it asked, a cancelled worker or a restart.
+    const bot = agent({ task_state: { status: "blocked_on_person" }, state: "idle" });
+    expect(
+      spadeTaskLine("Flights", bot?.progress, undefined, bot?.state === "waiting"),
+    ).toBeUndefined();
   });
 
   test("a done task, a bot only answering a message, and an older Spade show nothing", () => {
@@ -43,12 +55,19 @@ describe("a task that carries on", () => {
       spadeTaskLine(
         "Flights",
         agent({ task_state: { status: "done" }, continuing: true })?.progress,
+        undefined,
+        false,
       ),
     ).toBe(undefined);
     expect(
-      spadeTaskLine("Flights", agent({ task_state: { status: "working" } })?.progress),
+      spadeTaskLine(
+        "Flights",
+        agent({ task_state: { status: "working" } })?.progress,
+        undefined,
+        false,
+      ),
     ).toBeUndefined();
-    expect(spadeTaskLine("Flights", agent({})?.progress)).toBeUndefined();
+    expect(spadeTaskLine("Flights", agent({})?.progress, undefined, false)).toBeUndefined();
   });
 });
 
@@ -138,6 +157,7 @@ const waitingLine = (continuing: boolean) =>
     agent({ task_state: { status: "waiting", note: "Waiting on the fare alert" }, continuing })
       ?.progress,
     "Thinking",
+    false,
   );
 
 test("a task waiting on something else says the bot is waiting, with its note", () => {

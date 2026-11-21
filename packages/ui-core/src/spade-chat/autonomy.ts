@@ -50,16 +50,25 @@ export interface SpadeTaskLine {
  * something else (a job, a reply from another bot, its next step's time), "Flights needs you"
  * while it waits on the person, and nothing once it is done or while it only answers the
  * person's message.
+ *
+ * `blocked_on_person` is the bot's own last word: it outlives the request it asked about, a
+ * cancelled worker and a restart. Only Spade's `state` says a request or a worker waits on the
+ * person now, so the task reads "needs you" only while that state is `waiting` (AGENTS.md
+ * priority 1), and says nothing otherwise.
  */
 export function spadeTaskLine(
   name: string,
   task: SpadeTaskProgress | undefined,
   /** The step's words when the task carries none: the agent's live status. */
-  status?: string | undefined,
+  status: string | undefined,
+  /** Spade reads the bot `waiting`: a request or a worker of it waits on the person now. */
+  waitsOnPerson: boolean,
 ): SpadeTaskLine | undefined {
   if (!task) return undefined;
   if (task.state === "blocked_on_person")
-    return { sentence: `${name} needs you`, step: undefined, tone: "needs-you" };
+    return waitsOnPerson
+      ? { sentence: `${name} needs you`, step: undefined, tone: "needs-you" }
+      : undefined;
   if (task.state === "waiting")
     return { sentence: `${name} is waiting`, step: task.step, tone: "waiting" };
   if (task.continuing && task.state !== "done")
