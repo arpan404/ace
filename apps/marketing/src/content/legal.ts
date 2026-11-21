@@ -163,7 +163,7 @@ export const privacyPolicy: LegalDocument = {
             "Your account and its machines: until you delete them.",
             "Sessions: until you sign out or they expire.",
             "Sign-ins in progress: up to an hour.",
-            "A record that you deleted your account, holding only its account id and when the deletion started and finished: 30 days after it finishes, so we can finish the deletion if a step fails, check that it completed, and refuse sign-ins begun before it.",
+            "A record that you deleted your account: 30 days after the deletion finishes, so we can finish it if a step fails, check that it completed, and refuse sign-ins begun before it. Until the deletion finishes, the record also holds a digest of the session that asked for it, and we keep that session so the app can retry; once it finishes, the record holds only the account id and when the deletion started and finished.",
             "Relay connections and notifications: nothing is kept after delivery.",
           ],
         },
