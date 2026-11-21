@@ -203,7 +203,7 @@
       "started": "2026-11-20",
       "order": 30,
       "minutes": 20,
-      "blocked_on": "App Spade (AAHOGFmMfvY) is created, but Canva only enables Outside Canva and MCP once the owner turns on multi-factor sign-in for their Canva account, which needs a password and an authenticator",
+      "blocked_on": "Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it",
       "apps": ["canva"],
       "redirects": ["https://cloud.acehq.dev/v1/oauth/callback/canva"],
       "scopes": [
@@ -228,6 +228,8 @@
       "console": "https://www.canva.com/developers/apps",
       "where": "Canva Developer Portal > Your apps > Create an app > Outside Canva, then Configuration > Integration methods > Canva MCP on.",
       "notes": [
+        "App Spade (AAHOGFmMfvY, client OC-AaH_D1pj-XbU) set up on 2026-11-21: Canva MCP and REST APIs on, the broker redirect added, and every scope above that Canva's REST list offers ticked. brandkit:read and help:answers:* aren't in that list; Canva MCP grants its own tools.",
+        "Worker secrets: the client ID and secret are in the owner's macOS keychain (service SPADE_CLOUD_CANVA_CLIENT_ID / _CLIENT_SECRET, account spade-cloud).",
         "Public integrations are reviewed by Canva; private ones are only for Enterprise teams (https://www.canva.dev/docs/connect/creating-integrations/)."
       ]
     },

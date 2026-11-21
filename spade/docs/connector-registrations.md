@@ -19,7 +19,7 @@ Slack can: `bun run docs:connectors slack --yes` creates the app from its manife
 | Pipedrive | maker approval | Submitted | 15 |  |
 | Ramp | maker approval | Submitted | 10 |  |
 | Typeform | maker approval | Submitted | 10 |  |
-| Canva | ace cloud app | Blocked | 20 | App Spade (AAHOGFmMfvY) is created, but Canva only enables Outside Canva and MCP once the owner turns on multi-factor sign-in for their Canva account, which needs a password and an authenticator |
+| Canva | ace cloud app | Blocked | 20 | Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it |
 | Slack | ace cloud app | Blocked | 10 | Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it |
 | Box | ace cloud app | Blocked | 15 | Box offers only a paid trial, no free account; the owner chose free accounts only |
 | Zoom | ace cloud app | Blocked | 25 | Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it |
@@ -157,7 +157,7 @@ Notes:
 
 Kind: ace cloud app. Status: blocked. Started 2026-11-20. About 20 minutes.
 
-**Blocked on:** App Spade (AAHOGFmMfvY) is created, but Canva only enables Outside Canva and MCP once the owner turns on multi-factor sign-in for their Canva account, which needs a password and an authenticator.
+**Blocked on:** Worker secrets not set: wrangler needs a login to the Cloudflare account that runs ace-relay, and the owner's gmail account doesn't hold it.
 
 Where: Canva Developer Portal > Your apps > Create an app > Outside Canva, then Configuration > Integration methods > Canva MCP on.
 
@@ -209,6 +209,8 @@ XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put SPADE_CLOUD_CANVA_CLI
 
 Notes:
 
+- App Spade (AAHOGFmMfvY, client OC-AaH_D1pj-XbU) set up on 2026-11-21: Canva MCP and REST APIs on, the broker redirect added, and every scope above that Canva's REST list offers ticked. brandkit:read and help:answers:* aren't in that list; Canva MCP grants its own tools.
+- Worker secrets: the client ID and secret are in the owner's macOS keychain (service SPADE_CLOUD_CANVA_CLIENT_ID / _CLIENT_SECRET, account spade-cloud).
 - Public integrations are reviewed by Canva; private ones are only for Enterprise teams (https://www.canva.dev/docs/connect/creating-integrations/).
 
 ## 7. Slack
