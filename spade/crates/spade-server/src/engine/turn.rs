@@ -285,6 +285,11 @@ async fn drive(
                 if !helper && engine.offer_person_activity(id) {
                     continue;
                 }
+                // A shared bot thinks only with models its organization allows, and never on a
+                // member's coding subscription (ADR 0206 §3).
+                if let Some(why) = engine.org_model_refusal(id, &model) {
+                    return Ended::Failed(String::new(), why.to_owned());
+                }
                 if cli {
                     let step =
                         super::brain::step(engine, id, &reply, &events, &model, &mut stop, pause)

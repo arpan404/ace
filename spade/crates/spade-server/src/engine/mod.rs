@@ -47,6 +47,7 @@ mod memory;
 mod moves;
 mod notify;
 pub mod onboarding;
+mod org;
 mod outbox;
 mod oversight;
 pub(crate) mod packages;
@@ -113,6 +114,7 @@ const IMAGE_LOCKS: usize = 16;
 
 pub use made::Undone;
 pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
+pub use org::{MEMBER_BY, MEMBER_ONLY, OrgError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,

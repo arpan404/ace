@@ -281,6 +281,16 @@ impl Engine {
             Ok(bots) => bots.into_iter().find(|b| b.id == to),
             Err(error) => return refuse(500, &error),
         };
+        // A shared bot takes calls only from its organization's bots on this host (ADR 0206).
+        if let Some(agent) = &agent
+            && let Some(why) = spade_core::org::crossing(
+                &spade_core::org::Space::Personal,
+                &self.agent_space(&agent.id),
+                spade_core::org::Crossing::Contract,
+            )
+        {
+            return refuse(403, why);
+        }
         let Some(agent) = agent else {
             if let Some((host, name)) = self.moved_away(to) {
                 return (

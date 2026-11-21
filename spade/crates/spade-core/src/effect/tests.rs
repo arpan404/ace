@@ -459,6 +459,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             call_id: call.into(),
             allowed,
             always: false,
+            by: None,
         })
     };
     let key = "a_1|plugin:files@h1/fs:delete#s1";
@@ -983,6 +984,7 @@ fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered
             call_id: call.into(),
             allowed: true,
             always,
+            by: None,
         })
     };
     let arrived = Event::Known(Known::Arrived {

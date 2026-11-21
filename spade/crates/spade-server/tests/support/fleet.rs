@@ -44,6 +44,8 @@ pub struct Fleet {
     /// host id → (Spade's address, machine name).
     pub spades: Mutex<Vec<(String, String, String)>>,
     pub offline: Mutex<HashSet<String>>,
+    /// host id → the organization that owns it, for org hosts (ADR 0206).
+    pub orgs: Mutex<std::collections::HashMap<String, String>>,
     /// Listed online, but every call is lost before it arrives.
     pub unreachable: AtomicBool,
     /// Drops one note row from the next notes part on the way.
@@ -121,6 +123,7 @@ impl Remote for Link {
                     host_id: host.clone(),
                     name: name.clone(),
                     online: !offline.contains(host),
+                    org: lock(&self.fleet.orgs).get(host).cloned(),
                 })
                 .collect())
         })

@@ -40,6 +40,13 @@ impl Engine {
         allowed: bool,
         always: bool,
     ) -> Result<(), super::AnswerError> {
+        // A plugin is the person's, read from their ace: a shared bot's never runs outside the
+        // sandbox on anyone's answer (ADR 0206 §2.3).
+        if allowed && self.shared_over(conversation).is_some() {
+            return Err(super::AnswerError::ApproverOnly(
+                super::org::NO_PLUGIN_OUTSIDE,
+            ));
+        }
         if !self.reachable(conversation)? {
             return Err(super::AnswerError::NotFound);
         }

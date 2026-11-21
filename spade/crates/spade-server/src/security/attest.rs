@@ -109,7 +109,7 @@ impl Attestor {
     }
 
     /// The key, read now (the daemon may write it after Spade starts): hex, at least 32 bytes.
-    fn key(&self) -> Option<Vec<u8>> {
+    pub(crate) fn key(&self) -> Option<Vec<u8>> {
         let text = std::fs::read_to_string(self.key.as_ref()?).ok()?;
         let text = text.trim();
         if text.len() < 64 || text.len() % 2 != 0 {

@@ -17,6 +17,8 @@ mod knowledge;
 mod media;
 mod memory;
 mod moves;
+mod org;
+mod org_guard;
 mod oversight;
 mod packages;
 mod panels;
@@ -113,6 +115,15 @@ pub fn router(state: AppState) -> Router {
             put(goals::set).delete(goals::clear),
         )
         .route("/main", get(moves::main_state).put(agents::set_main))
+        // Spade on an org host (ADR 0206).
+        .route("/org", get(org::view).put(org::bind).delete(org::unbind))
+        .route("/org/policy", put(org::policy))
+        .route("/org/bots", post(org::create))
+        .route("/org/audit", post(org::record))
+        .route("/org/audit/outbox", get(org::outbox))
+        .route("/org/audit/forwarded", post(org::forwarded))
+        .route("/org/audit/export", get(org::export))
+        .route("/agents/{id}/access", get(org::access).put(org::set_access))
         .route("/endpoints", post(endpoints::create))
         .route("/endpoints/local", get(endpoints::local))
         .route("/endpoints/local/{server}", post(endpoints::use_local))
@@ -211,6 +222,12 @@ pub fn router(state: AppState) -> Router {
         .merge(reach::routes())
         .merge(running::routes())
         .merge(cases::routes())
+        // A shared bot changes only on a member's stamp (ADR 0206 §2.3), checked once the
+        // token is.
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            org_guard::guard,
+        ))
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
@@ -484,13 +501,23 @@ struct Approval {
 async fn approve(
     State(state): State<AppState>,
     Path((id, call_id)): Path<(String, String)>,
-    Json(body): Json<Approval>,
+    method: axum::http::Method,
+    uri: axum::extract::OriginalUri,
+    headers: axum::http::HeaderMap,
+    raw: axum::body::Bytes,
 ) -> Response {
+    let body: Approval = match serde_json::from_slice(&raw) {
+        Ok(body) => body,
+        Err(error) => return problem(StatusCode::BAD_REQUEST, &error.to_string()),
+    };
+    // A shared bot's approver answers with their stamp (ADR 0206 §2.3).
+    let member = org::stamped(&state, &method, &uri, &headers, &raw);
     match state
         .engine
-        .answer(&id, &call_id, body.allowed, body.always)
+        .answer_by(&id, &call_id, body.allowed, body.always, member.as_ref())
     {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(AnswerError::ApproverOnly(why)) => problem(StatusCode::FORBIDDEN, why),
         Err(AnswerError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(AnswerError::NotAwaiting) => problem(
             StatusCode::CONFLICT,
@@ -514,6 +541,7 @@ async fn answer_outside(
         .answer_outside(&id, &ask_id, body.allowed, body.always)
     {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(AnswerError::ApproverOnly(why)) => problem(StatusCode::FORBIDDEN, why),
         Err(AnswerError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(AnswerError::NotAwaiting) => problem(
             StatusCode::CONFLICT,

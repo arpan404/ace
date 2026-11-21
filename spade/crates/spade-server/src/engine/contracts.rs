@@ -183,6 +183,17 @@ impl Engine {
             ));
         }
         let machine = text("machine");
+        // Contracts stay inside one space (ADR 0206 §2.3): another machine's bot is the
+        // person's, never a shared bot's to call.
+        if !machine.is_empty()
+            && let Some(why) = spade_core::org::crossing(
+                &self.org_space(caller),
+                &spade_core::org::Space::Personal,
+                spade_core::org::Crossing::Contract,
+            )
+        {
+            return refused(why);
+        }
         if !machine.is_empty() {
             let asked = super::contracts_remote::Asked {
                 me: &me,
@@ -199,6 +210,13 @@ impl Engine {
             Ok(target) => target,
             Err(why) => return refused(why),
         };
+        if let Some(why) = spade_core::org::crossing(
+            &self.org_space(caller),
+            &self.agent_space(&target.id),
+            spade_core::org::Crossing::Contract,
+        ) {
+            return refused(why);
+        }
         let contract = match self.callable(&target, &name, &input) {
             Ok(contract) => contract,
             Err(why) => return refused(why),
