@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgMember.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "directoryManaged": {
+      "type": "boolean"
+    },
+    "email": {
+      "maxLength": 320,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "role": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgRole.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgMemberStatus.json"
+    }
+  },
+  "required": [
+    "account",
+    "role",
+    "status",
+    "directoryManaged"
+  ],
+  "type": "object"
+}

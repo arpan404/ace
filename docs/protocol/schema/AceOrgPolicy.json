@@ -1,0 +1,200 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgPolicy.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "audit": {
+      "properties": {
+        "content": {
+          "enum": [
+            "digests",
+            "targets"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "commands_outside_sandbox": {
+      "enum": [
+        "never",
+        "admins",
+        "approvers"
+      ],
+      "type": "string"
+    },
+    "effects": {
+      "properties": {
+        "change_access": {
+          "enum": [
+            "off",
+            "admins",
+            "approvers"
+          ],
+          "type": "string"
+        },
+        "network_without_hosts": {
+          "enum": [
+            "off",
+            "admins",
+            "approvers"
+          ],
+          "type": "string"
+        },
+        "pay": {
+          "enum": [
+            "off",
+            "admins",
+            "approvers"
+          ],
+          "type": "string"
+        },
+        "publish": {
+          "enum": [
+            "off",
+            "admins",
+            "approvers"
+          ],
+          "type": "string"
+        },
+        "send_as_person": {
+          "enum": [
+            "off",
+            "admins",
+            "approvers"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "full_access": {
+      "enum": [
+        "never",
+        "admins",
+        "approvers"
+      ],
+      "type": "string"
+    },
+    "members_create_bots": {
+      "type": "boolean"
+    },
+    "models": {
+      "properties": {
+        "endpoints": {
+          "items": {
+            "maxLength": 253,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "local": {
+          "type": "boolean"
+        },
+        "subscriptions": {
+          "const": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "packages": {
+      "properties": {
+        "allow": {
+          "items": {
+            "properties": {
+              "name": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "source": {
+                "enum": [
+                  "market",
+                  "registry",
+                  "git"
+                ],
+                "type": "string"
+              },
+              "versions": {
+                "items": {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "source",
+              "name"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "block": {
+          "items": {
+            "anyOf": [
+              {
+                "properties": {
+                  "hash": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "hash"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "name": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "allowlist",
+            "open"
+          ],
+          "type": "string"
+        },
+        "sources": {
+          "properties": {
+            "git": {
+              "type": "boolean"
+            },
+            "market": {
+              "type": "boolean"
+            },
+            "registry": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "type": "object"
+}

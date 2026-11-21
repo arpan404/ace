@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgHostEnrollRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "auditKey": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    },
+    "hostId": {
+      "pattern": "^[A-Z2-7]{52}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hostId"
+  ],
+  "type": "object"
+}

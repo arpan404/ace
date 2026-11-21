@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgPolicySetRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "policy": {
+      "$ref": "https://ace.local/protocol/v1/AceOrgPolicy.json"
+    }
+  },
+  "required": [
+    "policy"
+  ],
+  "type": "object"
+}

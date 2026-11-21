@@ -9,6 +9,10 @@
       ],
       "type": "string"
     },
+    "org": {
+      "pattern": "^org_[A-Za-z0-9]{1,64}$",
+      "type": "string"
+    },
     "returnTo": {
       "examples": [
         "ace://account/signed-in",
