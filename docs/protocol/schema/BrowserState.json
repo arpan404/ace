@@ -97,6 +97,10 @@
       ],
       "type": "object"
     },
+    "recordingNotice": {
+      "maxLength": 256,
+      "type": "string"
+    },
     "status": {
       "enum": [
         "ready",

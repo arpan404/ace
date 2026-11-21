@@ -19,6 +19,8 @@ export interface SessionCursor {
   name?(agentId: string | undefined): string | undefined;
 }
 export interface SessionOptions {
+  /** ace-media's image work (ADR 0208): the measurement filmstrip. */
+  images?: import("@ace/media/images").ImageWork;
   threadId: ThreadId;
   backend: BrowserBackendSession;
   backendKind: BrowserBackend["kind"];
@@ -26,8 +28,9 @@ export interface SessionOptions {
   now: () => number;
   id: () => string;
   navigationClock: NavigationClock;
-  ffmpeg?: string;
   spawn?: ProcessSpawner;
+  /** ace-media's recorder (X1); omitted, every recording refuses, saying why. */
+  recorder?: import("@ace/media/tee-recordings").MediaRecorder;
   cancelPolicy: () => void;
   /** How people and agents share tabs; omitted, `collaborationTiming`. */
   collaboration?: import("./collaboration.ts").CollaborationTiming;

@@ -1,15 +1,14 @@
 /**
  * One source's units while its producer moves between two paths (docs/media/plan.md, "Path
- * merge"): the daemon's own (CDP binding, backend socket, helper socket) and ace-media's
- * egress. A producer sends each unit one way only, but the two paths race, so a new path's
- * first keyframe can overtake the old path's last deltas, which would then reach the decoder
- * out of order and break its references.
+ * merge"): two ace-media paths, as when its source is opened again or a new ace-media takes it,
+ * both coming back on egress. A producer sends each unit one way only, but the two paths race,
+ * so a new path's first keyframe can overtake the old path's last deltas, which would then reach
+ * the decoder out of order and break its references.
  *
  * The merge hands units on in path order. After `switching(to)`, the new path's units wait
- * until the old path's ordered end arrives (`ended`): ace-media's egress end marker, or the
- * producer's own word on the daemon's path that it moved. A clean end releases them all; an
- * interrupted end, or no end within `holdMs`, releases each stream from its next keyframe and
- * drops whatever the old path still sends. A sequence boundary (the screen helper's) maps to
+ * until the old path's ordered end arrives (`ended`): ace-media's egress end marker. A clean
+ * end releases them all; an interrupted end, or no end within `holdMs`, releases each stream
+ * from its next keyframe and drops whatever the old path still sends. A sequence boundary (the screen helper's) maps to
  * `ended` once its last unit has been delivered. Pure: time is the injected scheduler's.
  */
 

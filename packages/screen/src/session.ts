@@ -3,7 +3,8 @@ import { FrameHub, type Frame } from "./frames.ts";
 import type { Helper } from "./helper.ts";
 import { helperSession, type HelperPort } from "./helper-session.ts";
 import { Pixels } from "./pixels.ts";
-import type { Recording } from "./recording.ts";
+import type { ScreenRecording } from "./recording.ts";
+import type { ScreenPictureSource } from "./picture-source.ts";
 import type { ScreenMediaSource } from "./media-source.ts";
 export interface ControllerBinding {
   /** The external controller authority must still be live at input dispatch. */
@@ -25,8 +26,8 @@ export type Session = {
   pointerDown: boolean;
   pointerCleanup?: Promise<void>;
   controllerBinding: ControllerBinding | undefined;
-  recording: Recording | undefined;
-  completedRecording: Recording | undefined;
+  recording: ScreenRecording | undefined;
+  completedRecording: ScreenRecording | undefined;
   actionTail: Promise<void>;
   queuedActions: number;
   recordingStarting: boolean;
@@ -42,8 +43,11 @@ export type Session = {
   captureStopped: { promise: Promise<void>; resolve(): void };
   pixels: Pixels;
   recordingLease: { release(): void } | undefined;
-  /** Present while the session can stream into ace-media (a Mac helper and `options.media`). */
-  media?: ScreenMediaSource;
+  /**
+   * The session's way into ace-media while there is one (`options.media`): its helper's own
+   * encoder streaming there, or, for a JPEG-only helper, its pictures for ace-media to encode.
+   */
+  media?: ScreenMediaSource | ScreenPictureSource;
 };
 export function createSession(
   helper: Helper,

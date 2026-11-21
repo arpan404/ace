@@ -17,7 +17,9 @@
     "busy",
     "failed",
     "person_only",
-    "person_grant"
+    "person_grant",
+    "not_member",
+    "registry_trust"
   ],
   "type": "string"
 }

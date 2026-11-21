@@ -74,6 +74,8 @@ pub struct Media {
     pub listen_port: u32,
     /// The binary's capability list: `ready`'s, replaced by each `capabilities.changed`.
     pub capabilities: Vec<Capability>,
+    /// The optional features `ready` agreed to.
+    pub features: Option<Vec<String>>,
 }
 
 impl Drop for Media {
@@ -85,14 +87,32 @@ impl Drop for Media {
 }
 
 impl Media {
+    /// ace-media as this daemon starts it: offered the optional features it speaks.
     pub fn spawn(name: &str) -> Self {
+        Self::spawn_offering(
+            name,
+            Some("source.ingest,source.sync,picture-ingest,privacy-open"),
+        )
+    }
+
+    /// ace-media as an older daemon starts it: offered nothing.
+    pub fn spawn_unoffered(name: &str) -> Self {
+        Self::spawn_offering(name, None)
+    }
+
+    pub fn spawn_offering(name: &str, offer: Option<&str>) -> Self {
         let dir = std::env::temp_dir().join(format!("am-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(error) = std::fs::create_dir_all(&dir) {
             panic!("runtime dir: {error}");
         }
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-        let child = Command::new(env!("CARGO_BIN_EXE_ace-media"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_ace-media"));
+        match offer {
+            Some(offer) => command.env("ACE_MEDIA_FEATURES", offer),
+            None => command.env_remove("ACE_MEDIA_FEATURES"),
+        };
+        let child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -109,6 +129,7 @@ impl Media {
             stdout,
             dir,
             listen_port: 0,
+            features: None,
             capabilities: Vec::new(),
         }
     }
@@ -219,8 +240,7 @@ impl Media {
     /// Sends `init` and returns the control socket, the ingest socket and the WebSocket port.
     pub fn start(&mut self) -> (String, String, u32) {
         let init = json!({ "type": "init", "protocol": 1, "version": "0.0.0-test",
-            "runtimeDir": self.dir.to_string_lossy(), "dataDir": self.dir.to_string_lossy(),
-            "settings": { "recordings": "legacy", "stills": "auto", "encode": "legacy", "delivery": "legacy" } });
+            "runtimeDir": self.dir.to_string_lossy(), "dataDir": self.dir.to_string_lossy() });
         self.send(init, &SECRET);
         match self.read() {
             FromMedia::Ready {
@@ -230,9 +250,11 @@ impl Media {
                 control,
                 ingest,
                 listen,
+                features,
                 ..
             } => {
                 self.listen_port = listen.loopback_port;
+                self.features = features;
                 assert_eq!(pid, self.child.id());
                 assert_eq!(version, env!("CARGO_PKG_VERSION"));
                 assert!(!capabilities.is_empty(), "the CPU path is always reported");
@@ -403,6 +425,62 @@ pub fn media_frame(kind: u8, flags: u32, payload: Vec<u8>) -> Vec<u8> {
     match frame.encode() {
         Ok(bytes) => bytes,
         Err(_) => panic!("frame did not encode"),
+    }
+}
+
+/// A producer's ingest connection, after its hello with the source's token: JPEG pictures go on
+/// it as still-picture frames (kind 3, codec JPEG), as the daemon's picture sources send them.
+#[cfg(unix)]
+pub struct PictureProducer(std::os::unix::net::UnixStream);
+
+#[cfg(unix)]
+impl PictureProducer {
+    pub fn connect(ingest: &str, token: u8) -> Self {
+        use std::io::Write;
+        let mut socket = match std::os::unix::net::UnixStream::connect(ingest) {
+            Ok(socket) => socket,
+            Err(error) => panic!("ingest socket: {error}"),
+        };
+        if let Err(error) = socket.write_all(&media_frame(5, 0, vec![token; 32])) {
+            panic!("ingest hello: {error}");
+        }
+        Self(socket)
+    }
+
+    pub fn picture(&mut self, jpeg: &[u8], width: u16, height: u16) {
+        use std::io::Write;
+        let frame = MediaFrame {
+            kind: 3,
+            flags: 1,
+            age_us: 0,
+            width,
+            height,
+            display_width: width,
+            display_height: height,
+            scale: 1000,
+            rotation: 0,
+            codec: 7,
+            encode: 0,
+            epoch: 1,
+            codec_string: String::new(),
+            description: Vec::new(),
+            extension: Vec::new(),
+            payload: jpeg.to_vec(),
+        };
+        let Ok(bytes) = frame.encode() else {
+            panic!("picture did not encode");
+        };
+        if let Err(error) = self.0.write_all(&bytes) {
+            panic!("ingest picture: {error}");
+        }
+    }
+}
+
+/// The source a `source.ingest` names: ace-media bound a producer's hello to it.
+pub fn ingest_of(message: FromMedia) -> String {
+    match message {
+        FromMedia::SourceIngest { source } => source.get().to_owned(),
+        other => panic!("expected source.ingest, got {other:?}"),
     }
 }
 

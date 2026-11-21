@@ -1,10 +1,12 @@
 import { expect, it } from "vitest";
-import { manager, ready } from "./testing/support.ts";
+import { fakeScreenMedia, manager, ready } from "./testing/support.ts";
 
 it("a suspended H264 capture resumes before a screenshot requests its JPEG pixels", async () => {
-  const f = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  const ace = fakeScreenMedia();
+  const f = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" }, { media: ace.media });
   try {
     const state = await ready(f.screen);
+    await ace.stream(state.sessionId);
     await f.screen.configureStream(state.sessionId, {
       codec: "h264",
       maxWidth: 320,
@@ -16,6 +18,8 @@ it("a suspended H264 capture resumes before a screenshot requests its JPEG pixel
     const stop = await f.screen.subscribe(state.sessionId, async (frame) => {
       if (frame.header.codec === "h264") first.resolve();
     });
+    // Video comes back from ace-media's egress, never from the helper's own socket.
+    ace.unit(state.sessionId, 1, true);
     await first.promise;
     stop();
     const idle = await f.screen.targets();
@@ -65,9 +69,11 @@ it("a failed native release blocks new input and is retried on the next takeover
 });
 
 it("live video a viewer asked for goes back to stills once the last viewer leaves", async () => {
-  const f = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  const ace = fakeScreenMedia();
+  const f = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" }, { media: ace.media });
   try {
     const state = await ready(f.screen);
+    await ace.stream(state.sessionId);
     const helperCodec = async () =>
       /codec:(\w+)/.exec((await f.screen.targets()).windows[0]?.title ?? "")?.[1];
     const stop = f.screen.subscribe(state.sessionId, async () => {});

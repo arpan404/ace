@@ -5,8 +5,7 @@
   "properties": {
     "body": {},
     "signature": {
-      "pattern": "^[A-Za-z0-9_-]{86}$",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/MarketSignature.json"
     }
   },
   "required": [

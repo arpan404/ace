@@ -183,7 +183,6 @@ it("delegation without a thread fails without creating an unusable controller", 
     send: (message) => {
       result = message;
     },
-    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   onTestFinished(() => connection.close());
   await connection.request({

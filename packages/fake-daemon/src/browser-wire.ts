@@ -1,6 +1,7 @@
 import { BrowserOriginError } from "@ace/browser/policy";
 import { encodeDownloadChunk } from "@ace/browser/stream";
 import { moveEngine, type EnginePreferencePort } from "@ace/browser/engine-move";
+import { z } from "zod";
 import {
   BrowserOpen,
   BrowserState,
@@ -11,11 +12,20 @@ import type { FakeBrowser } from "./browser.ts";
 import { fakeScreenshotSet } from "./browser-captures.ts";
 import { fakeVideoChunk, fakeVideoCodec } from "./browser-video.ts";
 import type { FakeServiceContext } from "./service-context.ts";
+import type { FakeMediaConnections } from "./media-connections.ts";
 
 /**
- * The fixture emits data URLs for its synthetic SVG frames, with the same ACK lifetime: as JSON
- * frames, or as video chunks to a viewer that asked for video on a socket with binary messages.
+ * The fixture's synthetic SVG frames, as video chunks on the viewer's media connection (X3: only
+ * ace-media delivers live views), paced by the acks there. A subscribe naming no live media
+ * connection gets no pictures, and its reply says why.
  */
+/** A viewer's ack on its media connection (`media-stream.ts`'s `browser.ack`). */
+const BrowserAckOnMedia = z.object({
+  type: z.literal("browser.ack"),
+  threadId: z.string(),
+  sequence: z.number(),
+});
+
 export function fakeBrowserSession(
   browser: FakeBrowser,
   host: FakeServiceContext,
@@ -30,8 +40,11 @@ export function fakeBrowserSession(
     backendPreference?: (threadId: string) => "auto" | "embedded" | "headless";
     /** Where the thread's engine is kept for an engine move. Omitted: moves are refused. */
     engine?: EnginePreferencePort;
+    /** ace-media's media connections; omitted: no live view gets pictures. */
+    media?: FakeMediaConnections;
   } = {},
 ) {
+  const media = options.media;
   const recording = new Set<string>();
   let streamIds = 0;
   const stopAnnotations = browser.annotations.connect(connectionId, send);
@@ -44,12 +57,25 @@ export function fakeBrowserSession(
       generation: number;
       /** The codec of a viewer that takes video. */
       video?: string;
+      /** The media connection its pictures go to. */
+      connection?: string;
       sent?: number;
       ack?: number;
     }
   >();
+  // Acks come on the media connection, for the thread's subscription here.
+  const stopAcks = media?.onAck((message) => {
+    const ack = BrowserAckOnMedia.safeParse(message);
+    if (!ack.success) return;
+    const subscription = subscriptions.get(ack.data.threadId);
+    if (subscription?.sent === ack.data.sequence) {
+      subscription.ack = ack.data.sequence;
+      subscription.pump();
+    }
+  });
   return {
     close() {
+      stopAcks?.();
       for (const entry of subscriptions.values()) entry.stop();
       subscriptions.clear();
       browser.disconnect(connectionId);
@@ -77,20 +103,29 @@ export function fakeBrowserSession(
     },
     async serve(message: BrowserClientMessage) {
       const id = message.type === "browser.open" ? message.options.threadId : message.threadId;
-      if (message.type === "browser.ack") {
-        const subscription = subscriptions.get(id);
-        if (subscription?.sent === message.sequence) {
-          subscription.ack = message.sequence;
-          subscription.pump();
-        }
-        return;
-      }
+      // Acks go on the media connection: the main socket carries no video to ack.
+      if (message.type === "browser.ack") return;
       const result = await this.run(message);
+      const delivered =
+        message.type === "browser.subscribe" ? subscriptions.get(id)?.connection : undefined;
       send({
         type: "browser.result",
         requestId: message.requestId,
         ok: true,
         ...(result === undefined ? {} : { result }),
+        ...(message.type !== "browser.subscribe"
+          ? {}
+          : delivered
+            ? { media: { connection: delivered } }
+            : {
+                undelivered: message.media
+                  ? { code: "unavailable", reason: "Live video isn't available now." }
+                  : {
+                      code: "update",
+                      reason:
+                        "Update this app to see live video. This computer now sends it a newer way.",
+                    },
+              }),
       });
     },
     /** One request's result, as the daemon's bridge answers it. */
@@ -336,7 +371,10 @@ export function fakeBrowserSession(
         case "browser.subscribe": {
           if (!browser.view(id) || browser.view(id)?.closed) throw new Error("browser_not_open");
           const subscriber = message.subscriberId ?? "legacy";
-          const video = binary ? fakeVideoCodec(message.video) : undefined;
+          const video = fakeVideoCodec(message.video);
+          const connection = media?.live(message.media?.connection)
+            ? message.media?.connection
+            : undefined;
           const existing = subscriptions.get(id);
           if (existing) {
             if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
@@ -344,6 +382,8 @@ export function fakeBrowserSession(
             existing.subscribers.add(subscriber);
             if (video) existing.video = video;
             else delete existing.video;
+            if (connection) existing.connection = connection;
+            else delete existing.connection;
             delete existing.sent;
             delete existing.ack;
             existing.pump();
@@ -356,12 +396,14 @@ export function fakeBrowserSession(
             subscribers: Set<string>;
             generation: number;
             video?: string;
+            connection?: string;
             sent?: number;
             ack?: number;
           } = {
             subscribers: new Set([subscriber]),
             generation: browser.generation(id),
             ...(video ? { video } : {}),
+            ...(connection ? { connection } : {}),
             stop: noop,
             pump() {
               if (!host.thread(id)) {
@@ -377,34 +419,19 @@ export function fakeBrowserSession(
               const view = browser.view(id);
               if (view) send({ type: "browser.state", state: BrowserState.parse(view) });
               const frame = browser.frame(id);
+              // Only ace-media delivers: pictures go on the media connection, never here.
               if (
                 frame &&
+                entry.video &&
+                entry.connection &&
                 frame.sequence !== entry.sent &&
                 (entry.sent === undefined || entry.sent === entry.ack)
               ) {
                 entry.sent = frame.sequence;
-                if (entry.video && binary) {
-                  for (const piece of fakeVideoChunk(
-                    ++streamIds,
-                    id,
-                    frame,
-                    entry.video,
-                    host.now(),
-                  ))
-                    binary(piece);
-                  return;
-                }
-                send({
-                  type: "browser.frame",
-                  threadId: id,
-                  frame: {
-                    sequence: frame.sequence,
-                    timestamp: host.now(),
-                    width: frame.width,
-                    height: frame.height,
-                    data: frame.src,
-                  },
-                });
+                media?.send(
+                  entry.connection,
+                  fakeVideoChunk(++streamIds, id, frame, entry.video, host.now()),
+                );
               }
             },
           };

@@ -173,7 +173,7 @@ export class BrowserBackend {
   constructor(host: ViewHost, options: BackendOptions) {
     this.host = host;
     this.options = options;
-    options.video?.onEvent(videoRelay(options.video, () => this.link));
+    options.video?.onEvent(videoRelay(() => this.link));
   }
 
   /** The daemon accepted this app's registration on a new connection. */

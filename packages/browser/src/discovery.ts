@@ -52,21 +52,6 @@ export async function detectChromium(
   return undefined;
 }
 
-export async function detectFfmpeg(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<string | undefined> {
-  for (const root of (env.PATH ?? "").split(delimiter)) {
-    const path = join(root, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-    try {
-      await access(path, constants.X_OK);
-      return path;
-    } catch {
-      /* Continue through PATH. */
-    }
-  }
-  return undefined;
-}
-
 /** Explicit install uses the same pinned acquisition as lazy headless startup. */
 export async function installChromium(
   dataDir: string,

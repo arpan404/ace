@@ -31,7 +31,6 @@ it("a resubscribe that fails keeps the view the daemon regranted, and acks follo
       results.push(message);
       void events?.message(message);
     },
-    media: { write: async (piece) => void events?.message(piece), bufferedBytes: () => 0 },
     delivery: { owner: () => phoneOwner, port: () => delivery.port },
     acceleration: {
       for: () => {

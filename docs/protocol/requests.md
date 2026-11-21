@@ -1491,18 +1491,17 @@ Example:
 | operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
 | thread | no | [ThreadId.json](schema/ThreadId.json) |  |
 | personGrant | no | string | {"minLength":1,"maxLength":4096} |
+| orgGrant | no | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "name": "o",
-    "op": "prepareUpdate",
-    "type": "spade-bot"
+    "op": "installed"
   },
+  "orgGrant": "example",
   "requestId": "example",
-  "thread": "example",
   "type": "marketplace.request"
 }
 ```
@@ -1595,14 +1594,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"settings.get"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| key | yes | [SettingsKey.json](schema/SettingsKey.json) |  |
+| key | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
 
 ```json
 {
-  "key": "browser.profile",
+  "key": "threads.unresponsiveAfter",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -1683,7 +1682,7 @@ Example:
 | type | yes | `"settings.subscribe"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
-| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"}} |
+| keys | yes | array | {"minItems":1,"maxItems":32,"items":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/SettingsKey.json"},{"$ref":"https://ace.local/protocol/v1/RetiredSettingsKey.json"}]}} |
 | scope | yes | [SettingsScope.json](schema/SettingsScope.json) |  |
 
 Example:
@@ -1691,7 +1690,7 @@ Example:
 ```json
 {
   "keys": [
-    "threads.keepSettledFor"
+    "media.recordings"
   ],
   "requestId": "example",
   "scope": {},
@@ -3338,6 +3337,8 @@ Example:
 | viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
 | video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
+| mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 
 Example:
 
@@ -3346,6 +3347,7 @@ Example:
   "media": {
     "connection": "mc_QsuC6YfNWdcmYxcM7krwm7u1aWcoH3xvY7YwirZ_KlGn"
   },
+  "mediaClient": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",

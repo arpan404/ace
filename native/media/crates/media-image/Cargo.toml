@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "media-image"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+media-codec = { path = "../media-codec" }
+media-wire = { path = "../media-wire" }
+zune-jpeg = "0.5"
+zune-core = "0.5"
+png = "0.18"
+image-webp = "0.2"
+gif = { version = "0.14", default-features = false, features = ["std"] }
+resvg = { version = "0.50", default-features = false }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[example]]
+name = "image"
+path = "bench/image.rs"

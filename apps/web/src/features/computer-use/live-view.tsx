@@ -1,6 +1,7 @@
 import type { SourcePicture } from "@ace/client/screen-stream";
 import { deviceVideoSupported, screenStreamProfile } from "@ace/client/devices";
-import type { AgentPointer, ScreenInput } from "@ace/protocol";
+import type { AgentPointer, LiveVideoStatus, ScreenInput } from "@ace/protocol";
+import { liveVideoSentence } from "@ace/ui-core";
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
@@ -37,6 +38,8 @@ export function LiveView(props: {
   onInput?: ((input: ScreenInput) => void) | undefined;
   /** The agent sharing the window: its pointer (in picture pixels) drawn where it last acted. */
   agent?: { name: string; pointer: AgentPointer | undefined; mark: ReactNode } | undefined;
+  /** Why the session's video can't play now, from its state: the pane says so, never blank. */
+  video?: LiveVideoStatus | undefined;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   /** The newest picture's size and scale, to turn a page point into a window point. */
@@ -51,6 +54,8 @@ export function LiveView(props: {
   }>(undefined);
   /** Why there is no picture: live views are video only, never a slideshow of stills. */
   const [noVideo, setNoVideo] = useState<string>();
+  /** Why ace-media delivers no pictures to this view, when it doesn't (X3). */
+  const [undelivered, setUndelivered] = useState<string>();
   /** The picture's size, kept only when it changes (never a render per frame), for the pointer. */
   const [size, setSize] = useState<{ width: number; height: number }>();
   const { session, sessionId } = props;
@@ -161,6 +166,10 @@ export function LiveView(props: {
     };
     const stopPoster = session.subscribe(showPoster);
     showPoster();
+    const stopDeliveries = session.watchDeliveries((state) => {
+      if (state.source === sessionId && !disposed) setUndelivered(state.undelivered?.reason);
+    });
+    setUndelivered(session.undelivered(sessionId));
     void deviceVideoSupported().then((supported) => {
       decodes = supported;
       if (!supported && !disposed) setNoVideo("This browser can't decode video");
@@ -199,6 +208,7 @@ export function LiveView(props: {
       document.removeEventListener("visibilitychange", onVisibility);
       unwatch?.();
       stopPoster();
+      stopDeliveries();
       renderer.close();
       release();
     };
@@ -286,12 +296,12 @@ export function LiveView(props: {
           mark={props.agent.mark}
         />
       )}
-      {noVideo && (
+      {(liveVideoSentence(props.video) ?? noVideo ?? undelivered) && (
         <p
           role="status"
           className="absolute inset-0 grid place-items-center p-4 text-center text-xs text-muted-foreground"
         >
-          {noVideo}
+          {liveVideoSentence(props.video) ?? noVideo ?? undelivered}
         </p>
       )}
     </>

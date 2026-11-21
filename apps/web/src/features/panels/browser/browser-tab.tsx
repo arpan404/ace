@@ -44,13 +44,14 @@ import {
   CertificateWarning,
   Disconnected,
   LoadFailed,
+  NoLiveVideo,
   NoVideo,
   Offline,
   Opening,
   StartPage,
 } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
-import { RecordingIndicator } from "./recording-indicator.tsx";
+import { RecordingIndicator, RecordingNotice } from "./recording-indicator.tsx";
 import { useCursorStyle } from "./use-cursor-style.ts";
 import { usePageCursor } from "./use-page-state.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
@@ -315,14 +316,23 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         cursor={pageCursor}
         onDropFiles={(files, at) => void browser.dropFiles(shown.tabId, files, at)}
         menu={chrome.menu}
-        dimmed={!online || live.status === "paused"}
+        dimmed={!online || live.status === "paused" || page.undelivered !== undefined}
+        notice={native.shown ? undefined : page.undelivered}
       />
     );
   else if (!online) content = <Offline />;
   else if (page.loading || unopened) content = <Opening download={page.download} />;
   else if (live && shown && !blank)
-    // No picture yet: the first keyframe is on its way, unless this client can't decode any.
-    content = page.decodesVideo === false ? <NoVideo /> : <Opening download={page.download} />;
+    // No picture yet: the first keyframe is on its way, unless this client can't decode any or
+    // nothing will deliver it (the view says why).
+    content =
+      page.decodesVideo === false ? (
+        <NoVideo />
+      ) : page.undelivered ? (
+        <NoLiveVideo reason={page.undelivered} />
+      ) : (
+        <Opening download={page.download} />
+      );
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
   return (
@@ -461,6 +471,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         progress={page.loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
       {tools.toolbar && <DeviceToolbar tools={tools} />}
+      {live && !live.closed && <RecordingNotice view={live} className="truncate px-3 py-1" />}
       {live && !live.closed && (
         <DegradedLine acceleration={live.acceleration} className="truncate px-3 py-1" />
       )}

@@ -46,12 +46,11 @@ export const MediaConnectRequest = z.object({
 });
 export type MediaConnectRequest = z.infer<typeof MediaConnectRequest>;
 
-/** Why a media connection wasn't made. The client keeps legacy delivery on its main socket. */
+/** Why a media connection wasn't made. The client's live views get no pictures and say why. */
 export const MediaConnectFailure = z.object({
   ok: z.literal(false),
   /**
-   * `unavailable` (ace-media isn't serving viewers: `media.delivery` is `legacy`, or it isn't
-   * healthy), `limit` (too many connections), `refused` (this session may not view). An open
+   * `unavailable` (ace-media isn't serving viewers: it isn't running or isn't healthy), `limit` (too many connections), `refused` (this session may not view). An open
    * string, so a later code still parses.
    */
   code: z.string().min(1).max(64),
@@ -106,3 +105,17 @@ export const MediaSubscribed = z.object({
   poster: MediaPoster.optional(),
 });
 export type MediaSubscribed = z.infer<typeof MediaSubscribed>;
+
+/**
+ * On the reply to a subscribe whose pictures won't come (X3: only ace-media delivers live
+ * views, on the client's media connection), why, for the live view to say instead of showing a
+ * blank pane. `update`: the subscribe named no media connection, so the client is older than
+ * this daemon; `unavailable`: ace-media can't serve this view now (it is starting, it keeps
+ * failing, or this computer can't stream the source). An open string, so a later code still
+ * parses. The subscription itself stands: state and controls work as before.
+ */
+export const MediaUndelivered = z.object({
+  code: z.string().min(1).max(64),
+  reason: z.string().min(1).max(512),
+});
+export type MediaUndelivered = z.infer<typeof MediaUndelivered>;

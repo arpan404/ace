@@ -12,12 +12,7 @@ import { EgressRouter, type EgressUnit, type LegacyConsumers } from "./egress.ts
 import { encodeMediaFrame } from "./frame.ts";
 import { RouteWatch } from "./route-watch.ts";
 import type { MediaRoutes, RouteCapabilities } from "./routes.ts";
-import {
-  MediaSupervisor,
-  nodeMediaHost,
-  systemMediaClock,
-  type MediaSettings,
-} from "./supervisor.ts";
+import { MediaSupervisor, nodeMediaHost, systemMediaClock } from "./supervisor.ts";
 
 // One route end to end on the real binary: `encode` on auto with every consumer legacy, so a
 // producer streams into ace-media and the egress lane carries its units back to the daemon's
@@ -92,36 +87,20 @@ function produce(socketPath: string, token: Uint8Array, mark: number): void {
 }
 
 function legacy() {
-  const got: Record<"deliver" | "record" | "still", EgressUnit[]> = {
-    deliver: [],
-    record: [],
-    still: [],
-  };
-  const sinks: LegacyConsumers = {
-    deliver: (unit) => void got.deliver.push(unit),
-    record: (unit) => void got.record.push(unit),
-    still: (unit) => void got.still.push(unit),
-  };
+  const got: Record<"deliver", EgressUnit[]> = { deliver: [] };
+  const sinks: LegacyConsumers = { deliver: (unit) => void got.deliver.push(unit) };
   return { got, sinks };
 }
 
 it.runIf(real)(
-  "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route returns to the daemon when ace-media dies",
+  "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route stops the producer when ace-media dies",
   async () => {
     // Share one condition-wait budget, leaving room for cleanup within the process tier.
     const deadline = performance.now() + processBudgetMs - cleanupBudgetMs;
     const binary = real ?? "";
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-egress-"));
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "legacy",
-      recordings: "legacy",
-      stills: "legacy",
-    };
     const capabilities: RouteCapabilities = {
       ingest: ["tab"],
-      recordings: false,
-      stills: false,
       delivery: false,
     };
     const router = new EgressRouter((kind) => watch.routes()[kind]);
@@ -138,7 +117,6 @@ it.runIf(real)(
       binary,
       runtimeDir,
       dataDir: runtimeDir,
-      settings: () => settings,
       // Every lane through a transparent relay, as a squatting pipe instance could place
       // itself: it passes the hello and every byte, and must learn nothing of the media.
       host: relay.host,
@@ -179,7 +157,6 @@ it.runIf(real)(
       log: () => {},
     });
     const watch: RouteWatch = new RouteWatch({
-      settings: () => settings,
       health: () => supervisor.health(),
       capabilities: () => capabilities,
       onChange: (routes) => void changes.push({ at: performance.now(), routes }),
@@ -190,8 +167,8 @@ it.runIf(real)(
       await removeWhenFree(runtimeDir, cleanupBudgetMs - 1_000);
     });
 
-    // Before ace-media is up the producer streams to the daemon.
-    expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
+    // Before ace-media is up the producer streams nowhere.
+    expect(watch.routes().tab).toMatchObject({ producer: "none", egress: false });
     supervisor.need();
     await until(
       () => supervisor.health() === "healthy" && starting.has("a") && starting.has("b"),
@@ -201,9 +178,7 @@ it.runIf(real)(
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",
       egress: true,
-      deliverer: "legacy",
-      recorder: "legacy",
-      stills: "legacy",
+      deliverer: "none",
     });
 
     // Local handles only mean source.open was queued on stdin. Ingest is a separate socket:
@@ -212,21 +187,20 @@ it.runIf(real)(
     produce(ingest, tokens.get("a") ?? new Uint8Array(0), 0xa);
     produce(ingest, tokens.get("b") ?? new Uint8Array(0), 0xb);
     await until(
-      () => sources.a.got.still.length >= 5 && sources.b.got.still.length >= 5,
+      () => sources.a.got.deliver.length >= 5 && sources.b.got.deliver.length >= 5,
       deadline,
       "five frames from each source",
     );
     for (const [id, mark] of [
       ["a", 0xa],
       ["b", 0xb],
-    ] as const)
-      for (const kind of ["deliver", "record", "still"] as const) {
-        const units = sources[id].got[kind];
-        expect(units.length).toBeGreaterThanOrEqual(5);
-        expect(units.every((unit) => unit.source === id && unit.frame.payload[0] === mark)).toBe(
-          true,
-        );
-      }
+    ] as const) {
+      const units = sources[id].got.deliver;
+      expect(units.length).toBeGreaterThanOrEqual(5);
+      expect(units.every((unit) => unit.source === id && unit.frame.payload[0] === mark)).toBe(
+        true,
+      );
+    }
 
     // The daemon closes "a" before ace-media hears of it: its frames still in flight are dropped.
     router.close(handles.get("a") ?? 0);
@@ -243,18 +217,18 @@ it.runIf(real)(
     supervisor.send({ type: "source.close", source: "a" });
     expect(router.drops().unknown).toBe(0);
 
-    // ace-media dies: the route goes back to the daemon within 2 s.
+    // ace-media dies: the route stops the tab's producer within 2 s.
     const pid = supervisor.snapshot().pid ?? 0;
     const killed = performance.now();
     process.kill(pid, "SIGKILL");
     await until(
-      () => changes.some((c) => c.at > killed && c.routes.tab.producer === "daemon"),
+      () => changes.some((c) => c.at > killed && c.routes.tab.producer === "none"),
       deadline,
       "route fallback after process death",
     );
-    const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "daemon");
+    const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "none");
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
-    expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "legacy" });
+    expect(back?.routes.tab).toMatchObject({ egress: false, deliverer: "none" });
   },
   processBudgetMs,
 );

@@ -1,14 +1,13 @@
-import { FrameDecoder } from "@ace/screen";
 import { z } from "zod";
-import type { DaemonUnit, Switched } from "./media-paths.ts";
+import type { Switched } from "./media-paths.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
 
 /**
  * The screen helper's `--encode-frames` process: it encodes the newest picture in a shared RGBA
- * file with the Mac's hardware encoder. Its units come on stdout in the capture's own framing,
- * or go to ace-media's ingest while it has been given an address; each switch is answered on
- * stderr with the last sequence the previous path took.
+ * file with the Mac's hardware encoder, and writes its units only to ace-media's ingest while it
+ * has been given an address (nowhere otherwise); each switch is answered on stderr with the last
+ * sequence the previous ingest took.
  */
 
 export interface FrameEncoder {
@@ -17,8 +16,8 @@ export interface FrameEncoder {
   bitrate(bitrate: number): void;
   keyframe(): void;
   /**
-   * Sends units to ace-media's ingest (`socket` with its base64 `token`), or back to stdout.
-   * Resolves once it has switched, with where it sends now and the previous path's boundary.
+   * Sends units to ace-media's ingest (`socket` with its base64 `token`), or (undefined)
+   * nowhere. Resolves once it has switched, with where it sends now and the previous boundary.
    */
   ingest(address: { socket: string; token: string } | undefined): Promise<Switched>;
   stop(): Promise<void>;
@@ -38,14 +37,11 @@ export function startFrameEncoder(options: {
   file: string;
   runtime: Pick<DeviceRuntime, "spawn">;
   env: NodeJS.ProcessEnv;
-  /** A unit off stdout, with its sequence. */
-  unit(unit: DaemonUnit): void;
   failed(error: unknown): void;
-  /** The ingest connection failed: units come on stdout again. */
+  /** The ingest connection failed: units stop until a new address. */
   ingestClosed?(): void;
 }): FrameEncoder {
   let stopped = false;
-  let codec = "avc1.640033";
   const encoder = options.runtime.spawn({
     command: options.encoder,
     args: ["--encode-frames", options.file],
@@ -64,8 +60,8 @@ export function startFrameEncoder(options: {
     if (event.state === "closed") options.ingestClosed?.();
     else switching.shift()?.({ ingest: event.state, boundary: event.boundary });
   };
-  // stdout carries binary packets, so the process is spawned raw: stderr is split here, and a
-  // line longer than any event is dropped rather than buffered.
+  // The process is spawned raw: stderr is split here, and a line longer than any event is
+  // dropped rather than buffered. Nothing it writes on stdout is read.
   let partial = "";
   encoder.stderr.on("data", (chunk: Buffer) => {
     const lines = (partial + chunk.toString("utf8")).split("\n");
@@ -77,27 +73,7 @@ export function startFrameEncoder(options: {
     if (!stopped && encoder.stdin.writable) encoder.stdin.write(`${JSON.stringify(value)}\n`);
   };
   encoder.stdin.on("error", () => {});
-  const decoder = new FrameDecoder((frame) => {
-    const header = frame.header;
-    if (header.codec !== "h264" || stopped) return;
-    if (header.videoCodec) codec = header.videoCodec;
-    options.unit({
-      sequence: header.sequence,
-      payload: frame.payload,
-      keyframe: header.keyframe === true,
-      videoCodec: codec,
-      width: header.width,
-      height: header.height,
-      pts: BigInt(Math.round(header.timestamp * 1000)),
-    });
-  });
-  encoder.stdout.on("data", (chunk: Buffer) => {
-    try {
-      decoder.push(chunk);
-    } catch (error) {
-      if (!stopped) options.failed(error);
-    }
-  });
+  encoder.stdout.resume();
   // `exited` reports the encoder's exit and does not reject.
   void encoder.exited
     .then(() => {

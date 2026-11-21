@@ -22,7 +22,7 @@ it.skipIf(!executablePath)(
     try {
       // The fake desktop hosts the page; ace's real Chromium takes it when the screen locks.
       const f = await backendFixture(
-        { ...(executablePath ? { executablePath } : {}), tabLifecycle: false, ffmpeg: "" },
+        { ...(executablePath ? { executablePath } : {}), tabLifecycle: false },
         { realHeadless: true },
       );
       const url = `http://localhost:${address.port}/account`;

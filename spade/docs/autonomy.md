@@ -85,27 +85,27 @@ Every tool declares its effect once (ADR 0171 and its amendment 1):
 
 In order, first match wins:
 
-| Facts                                                                             | Goes to                                                                               |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`                                      |
-| `pay`, `change_access`, `unknown`                                                 | the person, unless allowed always                                                     |
-| `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
-| a switch of the bot's Permissions that covers it is off                          | refused, saying where to turn it on, before any Always allow, grant or review         |
-| `drive` with its switch on, in an app on the never-use list                       | refused                                                                               |
+| Facts                                                                              | Goes to                                                                               |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| its arguments name a credential place (not for a sandboxed call), or `credential`  | refused: `Not run: Spade never lets a bot read…`                                      |
+| `pay`, `change_access`, `unknown`                                                  | the person, unless allowed always                                                     |
+| `send_as_person`                                                                   | the person, unless allowed always or a typed grant covers it                          |
+| a switch of the bot's Permissions that covers it is off                            | refused, saying where to turn it on, before any Always allow, grant or review         |
+| `drive` with its switch on, in an app on the never-use list                        | refused                                                                               |
 | `drive` with its switch on, where it must be held and Spade can't place or hold it | refused, so the bot looks again                                                       |
-| `drive` with its switch on                                                        | runs, held to where it acts: no reviewer, classifier or request (below)               |
-| a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
-| a connector's or plugin's tool that can reach the network, in the sandbox         | decided as on the host, below (ADR 0171, amendment 4)                                 |
-| it declares nothing, in the sandbox                                               | runs                                                                                  |
-| it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
-| in a sandbox that holds files and network (a plugin's only when sealed)           | runs                                                                                  |
-| in the sandbox, but its checkpoint couldn't be taken                              | the reviewer, told so                                                                 |
-| a command asking to run outside (`outside_sandbox: true`)                         | the person (`ask: outside_sandbox`)                                                   |
-| a routine set up under untrusted content                                          | the reviewer, with that concern                                                       |
-| `read`                                                                            | runs                                                                                  |
-| `write_local`                                                                     | runs; a file write with no checkpoint, or a note under untrusted content, is reviewed |
-| `network`                                                                         | runs on a `tool` grant or Always allow; otherwise the reviewer                        |
-| `publish`                                                                         | the reviewer, unless allowed always                                                   |
+| `drive` with its switch on                                                         | runs, held to where it acts: no reviewer, classifier or request (below)               |
+| a command outside the sandbox, or on a machine with none                           | the classifier and ADR 0163's route (below)                                           |
+| a connector's or plugin's tool that can reach the network, in the sandbox          | decided as on the host, below (ADR 0171, amendment 4)                                 |
+| it declares nothing, in the sandbox                                                | runs                                                                                  |
+| it declares nothing                                                                | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
+| in a sandbox that holds files and network (a plugin's only when sealed)            | runs                                                                                  |
+| in the sandbox, but its checkpoint couldn't be taken                               | the reviewer, told so                                                                 |
+| a command asking to run outside (`outside_sandbox: true`)                          | the person (`ask: outside_sandbox`)                                                   |
+| a routine set up under untrusted content                                           | the reviewer, with that concern                                                       |
+| `read`                                                                             | runs                                                                                  |
+| `write_local`                                                                      | runs; a file write with no checkpoint, or a note under untrusted content, is reviewed |
+| `network`                                                                          | runs on a `tool` grant or Always allow; otherwise the reviewer                        |
+| `publish`                                                                          | the reviewer, unless allowed always                                                   |
 
 A `tool` grant covers only a tool that declares `read`, `write_local`, `network` or `publish`.
 An undeclared tool's answer is kept under the bot and the tool's identity: its server (a

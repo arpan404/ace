@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import sharp from "sharp";
 import { expect, test } from "vitest";
 import { uploads, hash, thread, attachment } from "./test-support.ts";
 
@@ -30,11 +29,8 @@ for (const [extension, mime] of [
       const stored = await readFile(
         (await f.store.attachment("device", thread, result.sha256)).path,
       );
-      expect(hash(stored)).toBe(hash(bytes));
-      const decoded = await sharp(stored).raw().toBuffer({ resolveWithObject: true });
-      expect(decoded.info).toMatchObject({ width: 320, height: 240 });
-      expect(decoded.data).toEqual(await sharp(bytes).raw().toBuffer());
-      expect((await sharp(stored).metadata()).icc).toEqual((await sharp(bytes).metadata()).icc);
+      // Byte for byte the same file: its pixels, colour profile and size with it.
+      expect(stored.equals(bytes)).toBe(true);
     } finally {
       await f.close();
     }

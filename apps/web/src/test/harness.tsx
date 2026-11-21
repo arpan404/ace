@@ -3,7 +3,8 @@ import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
-import { FakeDaemon, ScenarioPlayer, type Scenario } from "@ace/fake-daemon";
+import { FakeDaemon, ScenarioPlayer, fakeMediaInstance, type Scenario } from "@ace/fake-daemon";
+import { useFakeMediaSockets } from "@/lib/video/media.ts";
 import { fakeClient } from "./fake-client.ts";
 export { fakeClient } from "./fake-client.ts";
 import { createMemoryHistory, type RouterHistory } from "@tanstack/react-router";
@@ -153,6 +154,13 @@ export function harness(
     { id: "zed", name: "Zed", command: "zed" },
   ]);
   if (options.onboarding !== "pending") daemon.services.providerLogin.dismiss("test-device");
+  // Live views get pictures only from ace-media (X3): these daemons' media connections open here.
+  const byInstance = new Map([daemon, ...others].map((one) => [one.media.instance, one]));
+  useFakeMediaSockets((url, events) => {
+    const owner = byInstance.get(fakeMediaInstance(url) ?? "");
+    if (!owner) throw new Error(`No fake daemon for ${url}`);
+    return owner.media.socket(url, events);
+  });
   const client = options.client
     ? options.client(daemon)
     : options.throughWorker

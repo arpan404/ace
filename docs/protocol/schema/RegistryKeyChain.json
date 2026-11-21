@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryKeyChain.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "keys": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/RegistryKeyLink.json"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "org": {
+      "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+    },
+    "publisher": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+    }
+  },
+  "required": [
+    "org",
+    "publisher",
+    "keys"
+  ],
+  "type": "object"
+}

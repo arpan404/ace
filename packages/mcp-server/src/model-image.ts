@@ -28,71 +28,43 @@ export async function modelImage(
     frame.payload.length <= maxModelImageBytes
   )
     return { ...frame, scale };
-  const command = await runtime.encoder();
-  if (!command)
-    throw new ModelImageError("Large screenshot requires ffmpeg to fit the model image limit");
-  signal.throwIfAborted();
   const timeout = new AbortController();
   const cancelTimeout = runtime.after(10_000, () => timeout.abort());
   const lifetime = AbortSignal.any([signal, timeout.signal]);
-  let payload: Buffer;
+  let fitted: { bytes: Buffer; width: number; height: number } | undefined;
   try {
-    payload = await new Promise<Buffer>((resolve, reject) => {
-      const child = runtime.spawn(command, [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-threads",
-        "1",
-        "-filter_threads",
-        "1",
-        "-i",
-        "pipe:0",
-        "-vf",
-        `scale=${width}:${height}`,
-        "-frames:v",
-        "1",
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "-q:v",
-        "5",
-        "pipe:1",
-      ]);
-      const chunks: Buffer[] = [];
-      let bytes = 0;
-      let failure: Error | undefined;
-      const abort = () => {
-        failure = new ModelImageError("Screenshot resize cancelled or timed out");
-        child.kill("SIGKILL");
-      };
-      lifetime.addEventListener("abort", abort, { once: true });
-      child.stdout.on("data", (chunk: Buffer) => {
-        bytes += chunk.length;
-        if (bytes > maxModelImageBytes) {
-          failure = new ModelImageError("Resized screenshot exceeds 1 MiB");
-          child.kill("SIGKILL");
-        } else chunks.push(chunk);
-      });
-      // Drain diagnostics without exposing image/tool data or accumulating stderr.
-      child.stderr.resume();
-      child.stdin.on("error", () => {});
-      child.once("error", () => {
-        failure = new ModelImageError("Screenshot encoder could not start");
-      });
-      child.once("close", (code) => {
-        lifetime.removeEventListener("abort", abort);
-        if (failure || code !== 0 || !bytes)
-          reject(failure ?? new ModelImageError("Screenshot encoder rejected the image"));
-        else resolve(Buffer.concat(chunks));
-      });
-      if (lifetime.aborted) abort();
-      else child.stdin.end(frame.payload);
-    });
+    // Lower qualities only when a busy screen doesn't fit the model's byte budget.
+    for (const quality of qualities) {
+      fitted = await abortable(runtime.fit(frame.payload, { width, height }, quality), lifetime);
+      if (fitted.bytes.length <= maxModelImageBytes) break;
+    }
+  } catch (error) {
+    signal.throwIfAborted();
+    if (error instanceof ModelImageError) throw error;
+    throw new ModelImageError("Screenshot resize failed");
   } finally {
     cancelTimeout();
   }
+  if (!fitted || fitted.bytes.length > maxModelImageBytes)
+    throw new ModelImageError("Resized screenshot exceeds 1 MiB");
   signal.throwIfAborted();
-  return { payload, width, height, scale };
+  // The resize keeps the image's shape; its own size is what the agent's points map to.
+  return {
+    payload: fitted.bytes,
+    width: fitted.width,
+    height: fitted.height,
+    scale: fitted.width === width ? scale : (scale * fitted.width) / width,
+  };
+}
+
+const qualities = [85, 60, 40];
+
+/** `work`, or a `ModelImageError` as soon as `signal` aborts (the caller's, or the deadline). */
+function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new ModelImageError("Screenshot resize cancelled"));
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new ModelImageError("Screenshot resize cancelled or timed out"));
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
 }

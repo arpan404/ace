@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
-import { MediaBinding, MediaCodec, MediaSubscribed } from "./media-connection.ts";
+import { MediaBinding, MediaCodec, MediaSubscribed, MediaUndelivered } from "./media-connection.ts";
 import {
   BrowserTabList,
   BrowserDownload,
@@ -435,6 +435,11 @@ export const BrowserState = z.object({
    */
   recording: z.object({ by: BrowserTabActor }).optional(),
   /**
+   * What the person should know about the last recording: it stopped on its own because it
+   * couldn't be written, or its end may be incomplete. Cleared when the next one starts.
+   */
+  recordingNotice: z.string().max(256).optional(),
+  /**
    * Optional page features this daemon supports, such as `annotate`; `page-cursor`: agents'
    * cursors are drawn in the page itself, so clients draw none over frames. `engines`: the
    * daemon reports which engines can open now, and `embedded-engine` is there while the desktop
@@ -589,6 +594,17 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
      * `browser.result` carries `media`, with a poster when the tab already has a picture.
      */
     media: MediaBinding.optional(),
+    /**
+     * This client takes live pictures only from its media connection (X3), so a subscribe naming
+     * none is a client still connecting one, not an older build. Absent: an older client, whose
+     * views are told, in fields it already shows, to update.
+     */
+    mediaClient: z.literal(true).optional(),
+    /**
+     * This client reads `*.delivery` pushes: whether its bound view gets pictures now. Absent,
+     * none is sent: an older client's decoder would refuse a message type it doesn't know.
+     */
+    deliveryStatus: z.literal(true).optional(),
   }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
@@ -661,8 +677,20 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
     blocked: BrowserOriginBlock.optional(),
     /** A `browser.subscribe` that named a media connection: where its pictures go. */
     media: MediaSubscribed.optional(),
+    /** A `browser.subscribe` whose pictures won't come, and why (`MediaUndelivered`). */
+    undelivered: MediaUndelivered.optional(),
   }),
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
+  /**
+   * After a subscribe that named a media connection: whether its view is getting pictures now.
+   * `undelivered` while its source isn't streaming into ace-media (starting, or it failed),
+   * absent once it is. Sent only to a client that takes media (`mediaClient`), on every change.
+   */
+  z.object({
+    type: z.literal("browser.delivery"),
+    threadId: ThreadId,
+    undelivered: MediaUndelivered.optional(),
+  }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),
   BrowserAnnotationMessage,
   BrowserPageMessage,

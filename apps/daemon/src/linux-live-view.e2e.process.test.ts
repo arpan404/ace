@@ -1,8 +1,8 @@
 /*
  * Linux live view end to end: a person watching a real desktop app. The real Linux screen
- * helper sends JPEG pictures, the daemon re-encodes them to H.264 with the browser service's
- * encoder-only Chrome (ace's pinned build), and a viewer on the daemon WebSocket receives the
- * video exactly as the web and iOS clients do. ffmpeg decodes what arrived, so the assertions
+ * helper encodes its picture into ace-media's ingest (the daemon's development ace-media build),
+ * egress brings it back, and a viewer on the daemon WebSocket receives the video exactly as the
+ * web and iOS clients do. ffmpeg decodes what arrived, so the assertions
  * are about pictures, not messages. No provider CLI or model runs.
  * Opt-in only: `apps/daemon/scripts/linux-e2e/run.sh` starts a throwaway desktop and sets
  * `ACE_LINUX_DESKTOP_E2E` (wayland or hyprland; KDE sessions set
@@ -77,7 +77,6 @@ const shareCalculator = (ace: EvalWorld, viewer: LiveViewer) =>
 describe.skipIf(!enabled)(`Linux live view (${session ?? "off"}${kde ? ", KDE" : ""})`, () => {
   it("a person watching Calculator gets decodable H.264 of its window that changes when the app does", async () => {
     const ace = await world();
-    expect(ace.browser, "ace's pinned Chrome (ACE_CHROMIUM_PATH) encodes the video").toBe(true);
     const viewer = await viewerOf(ace);
     const shared = await shareCalculator(ace, viewer);
     const state = ScreenState.parse(await startShared(viewer, shared));

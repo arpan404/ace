@@ -1,3 +1,4 @@
+import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
 import { z } from "zod";
 import { EventEmitter, once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -21,6 +22,31 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
+/**
+ * The smallest JPEG whose size can be read (`imageSize`): its height is `mark`, so a test can
+ * tell which picture a recorder took.
+ */
+export function markedJpeg(mark: number): Buffer {
+  return Buffer.from([
+    0xff,
+    0xd8,
+    0xff,
+    0xc0,
+    0x00,
+    0x0b,
+    0x08,
+    0x00,
+    mark,
+    0x00,
+    0x10,
+    0x01,
+    0x01,
+    0x11,
+    0x00,
+    0xff,
+    0xd9,
+  ]);
+}
 export class FakePage {
   url = "about:blank";
   text = "";
@@ -214,6 +240,7 @@ export async function backendFixture(
     dataDir: home,
     ...(fixture.realHeadless ? {} : { headlessBackend: headless }),
     desktopReadoptionGraceMs: 0,
+    recorder: new FakeMediaRecorder(),
     ...options,
   });
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0, maxPayload: 1024 * 1024 });

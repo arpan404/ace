@@ -5,6 +5,7 @@
     "source": "source-1",
     "handle": 1,
     "epoch": 1,
+    "private": true,
     "origin": {
       "kind": "tab-pictures"
     }

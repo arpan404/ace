@@ -12,17 +12,16 @@ import { base64Bytes, IngestSink, videoCodec, type IngestTarget } from "./ingest
 /*
  * The video extension's offscreen document (ADR 0088): opens a tab capture and encodes it with
  * WebCodecs, once per encode the daemon asks for, and its sound as Opus while asked (`audio.ts`).
- * The daemon drives it over CDP (`Runtime.evaluate` on this document) and receives every chunk
- * through the CDP binding `aceVideoEvent`: a JSON line, then for a chunk its bytes in base64.
- * The desktop app loads the same code in its own encoder page and receives events through
- * `aceVideoEmit` instead (`apps/desktop/src/main/browser/video-encoder.ts`).
- * Every chunk says how long ago (`age`, ms) its picture or sound was captured, so the daemon
- * stamps video and audio on one clock.
+ * The daemon drives it over CDP (`Runtime.evaluate` on this document) and hears its events
+ * (`failed`, `ended`) through the CDP binding `aceVideoEvent`, as JSON lines. The desktop app
+ * loads the same code in its own encoder page and receives events through `aceVideoEmit`
+ * instead (`apps/desktop/src/main/browser/video-encoder.ts`).
  *
- * Given an ingest target (`aceVideo.ingest`, docs/media/plan.md "Ingest framing"), a capture
- * sends its chunks to ace-media instead, as binary `MediaFrame`s over a loopback WebSocket
- * (`ingest.ts`), stamped with the privacy epoch it holds (`aceVideo.epoch`). Each chunk goes
- * one way only, and every switch asks each encode for a keyframe.
+ * Chunks go only to ace-media's ingest (`aceVideo.ingest`, docs/media/plan.md "Ingest
+ * framing"), as binary `MediaFrame`s over a loopback WebSocket (`ingest.ts`), stamped with the
+ * privacy epoch the capture holds (`aceVideo.epoch`) and with how long ago (`age`, ms) their
+ * picture or sound was captured. Without an open socket nothing is encoded; a new socket asks
+ * each encode for a keyframe.
  */
 
 interface EncodeSpec {
@@ -56,7 +55,6 @@ interface Encoder {
   active: VideoEncoderConfig | undefined;
   /** ace's own rate control, while the encoder runs in `quantizer` mode. */
   quantizer: QuantizerControl | undefined;
-  description: string | undefined;
   descriptionBytes: Uint8Array | undefined;
   /** The last keyframe's size in bits: what a whole picture costs at this rate. */
   keyBits: number | undefined;
@@ -68,23 +66,19 @@ interface Encoder {
 
 interface Capture {
   id: string;
-  /** A tab capture's track and its frames; absent for a capture fed pushed pictures. */
-  track: MediaStreamTrack | undefined;
-  reader: FrameReader | undefined;
-  /** A tab capture's watch for its first picture; absent for pushed pictures. */
-  first: FirstPicture | undefined;
+  track: MediaStreamTrack;
+  reader: FrameReader;
+  /** The capture's watch for its first picture. */
+  first: FirstPicture;
   /** Ends the extra sink asking for a picture (`refreshPicture`) while one is open. */
   probe: (() => void) | undefined;
-  /** Pushed pictures: one decodes at a time, and only the newest waiting one is kept. */
-  decoding: boolean;
-  waiting: Uint8Array<ArrayBuffer> | undefined;
   last: VideoFrame | undefined;
   lastAt: number;
   encoders: Map<string, Encoder>;
   /** The tab's sound; absent when the capture has no audio track. */
   audio: TabAudio | undefined;
   stopped: boolean;
-  /** Where chunks go instead of the daemon, while a target is given and its socket is open. */
+  /** Where chunks go, while a target is given and its socket is open; none are sent otherwise. */
   ingest: IngestSink | undefined;
   /** The privacy epoch each chunk is stamped with, at the time it is read. */
   stamper: ReadStamper;
@@ -93,25 +87,16 @@ interface Capture {
 const captures = new Map<string, Capture>();
 const now = () => performance.now();
 
-function emit(event: Record<string, unknown>, bytes?: Uint8Array): void {
-  // The desktop's encoder page (ADR 0088, embedded backend) takes the event and the chunk's
-  // bytes as they are, with no base64 step; the extension has only the CDP binding.
+function emit(event: Record<string, unknown>): void {
+  // The desktop's encoder page (ADR 0088, embedded backend) takes the event as it is; the
+  // extension has only the CDP binding.
   const direct: unknown = Reflect.get(globalThis, "aceVideoEmit");
   if (typeof direct === "function") {
-    Reflect.apply(direct, globalThis, bytes ? [event, bytes] : [event]);
+    Reflect.apply(direct, globalThis, [event]);
     return;
   }
   const send: unknown = Reflect.get(globalThis, "aceVideoEvent");
-  if (typeof send !== "function") return;
-  const line = JSON.stringify(event);
-  Reflect.apply(send, globalThis, [bytes ? `${line}\n${base64(bytes)}` : line]);
-}
-
-function base64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 0x8000)
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  return btoa(binary);
+  if (typeof send === "function") Reflect.apply(send, globalThis, [JSON.stringify(event)]);
 }
 
 function configsFor(spec: EncodeSpec): VideoEncoderConfig[] {
@@ -189,33 +174,14 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
             ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
             : new Uint8Array(description);
           entry.descriptionBytes = copied.slice();
-          entry.description = base64(copied);
         }
         const bytes = new Uint8Array(chunk.byteLength);
         chunk.copyTo(bytes);
         const key = chunk.type === "key";
         if (key) entry.keyBits = bytes.length * 8;
         entry.quantizer?.observe(bytes.length, key);
-        const age = Math.max(0, now() - chunk.timestamp / 1000);
-        if (toIngest(capture, entry, key, bytes, age)) return;
-        emit(
-          {
-            t: "chunk",
-            capture: capture.id,
-            encode: entry.spec.key,
-            key,
-            codec: entry.spec.codec,
-            // The picture's size is the size the encoder was configured with. A decoder config's
-            // coded size may include padding: Linux's software H.264 reports 1280 × 802 for an
-            // 800-row picture, and viewers size their canvas from this.
-            codedWidth: entry.spec.width,
-            codedHeight: entry.spec.height,
-            // Frames are stamped with `now()` as they go in (`encode`).
-            age,
-            ...(key && entry.description ? { description: entry.description } : {}),
-          },
-          bytes,
-        );
+        // Frames are stamped with `now()` as they go in (`encode`).
+        toIngest(capture, entry, key, bytes, Math.max(0, now() - chunk.timestamp / 1000));
       },
       error: (error) => {
         if (generation !== entry.generation) return;
@@ -239,8 +205,10 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
 }
 
 /**
- * Sends one chunk to ace-media when the capture streams there; false when it goes to the
- * daemon. A backed-up socket drops deltas and asks for a keyframe.
+ * Sends one chunk to ace-media; one with nowhere to go is dropped. A backed-up socket drops
+ * deltas and asks for a keyframe. The picture's size is the size the encoder was configured
+ * with: a decoder config's coded size may include padding (Linux's software H.264 reports
+ * 1280 × 802 for an 800-row picture), and viewers size their canvas from it.
  */
 function toIngest(
   capture: Capture,
@@ -248,12 +216,12 @@ function toIngest(
   key: boolean,
   bytes: Uint8Array,
   age: number,
-): boolean {
+): void {
   const sink = capture.ingest;
-  if (!sink?.open() || videoCodec(entry.spec.codec) === 0) return false;
+  if (!sink?.open() || videoCodec(entry.spec.codec) === 0) return;
   if (!key && sink.behind()) {
     entry.pacer.requestKeyframe();
-    return true;
+    return;
   }
   sink.video({
     encode: entry.spec.id ?? 0,
@@ -266,10 +234,9 @@ function toIngest(
     description: entry.descriptionBytes,
     bytes,
   });
-  return true;
 }
 
-/** The capture's sound, to ace-media when it streams there, else to the daemon. */
+/** The capture's sound, to ace-media while it streams there; dropped otherwise. */
 function deliverAudio(capture: Capture, event: Record<string, unknown>, bytes: Uint8Array): void {
   const sink = capture.ingest;
   const { sampleRate, channels, age } = event;
@@ -278,11 +245,8 @@ function deliverAudio(capture: Capture, event: Record<string, unknown>, bytes: U
     typeof sampleRate === "number" &&
     typeof channels === "number" &&
     typeof age === "number"
-  ) {
+  )
     sink.audio({ sampleRate, channels, ageMs: age, epoch: capture.stamper.stamp(now()), bytes });
-    return;
-  }
-  emit({ ...event, capture: capture.id }, bytes);
 }
 
 /** Every encode of the capture owes a keyframe: its stream just moved. */
@@ -291,23 +255,12 @@ function keyframes(capture: Capture): void {
 }
 
 /**
- * The capture's word on the daemon's path that its chunks move: sent there in order with its
- * chunks, so the daemon hands on everything before it first (`PathMerge`).
+ * Points the capture's chunks at ace-media's ingest, or (no target) stops sending them. A new
+ * socket starts each encode at a keyframe once it opens.
  */
-function moved(capture: Capture, to: "ingest" | "daemon"): void {
-  emit({ t: "moved", capture: capture.id, to });
-}
-
-/** Points the capture's chunks at ace-media's ingest, or (no target) back at the daemon. */
 function ingest(capture: Capture, target: IngestTarget | undefined): void {
-  const old = capture.ingest;
+  capture.ingest?.close();
   capture.ingest = undefined;
-  if (old) {
-    old.close();
-    // Chunks come to the daemon again from here; an old socket that never opened sent none.
-    moved(capture, "daemon");
-    keyframes(capture);
-  }
   if (!target) return;
   capture.stamper = new ReadStamper(target.epoch);
   let sink: IngestSink;
@@ -315,21 +268,14 @@ function ingest(capture: Capture, target: IngestTarget | undefined): void {
     sink = new IngestSink(
       target,
       () => {
-        if (capture.ingest !== sink) return;
-        // The last thing on the daemon's path before the chunks go to ace-media.
-        moved(capture, "ingest");
-        keyframes(capture);
+        if (capture.ingest === sink) keyframes(capture);
       },
       () => {
-        if (capture.ingest !== sink) return;
-        // ace-media went away or refused the token: back to the daemon until it gives another.
-        capture.ingest = undefined;
-        moved(capture, "daemon");
-        keyframes(capture);
+        // ace-media went away or refused the token: nothing is sent until it gives another.
+        if (capture.ingest === sink) capture.ingest = undefined;
       },
     );
   } catch {
-    moved(capture, "daemon");
     return;
   }
   capture.ingest = sink;
@@ -379,12 +325,16 @@ function submit(entry: Encoder, frame: VideoFrame, options: VideoEncoderEncodeOp
 
 const busy = (entry: Encoder) => (entry.encoder?.encodeQueueSize ?? 0) > 2;
 
-/** A new captured frame: each encode takes it as its pacer says. The capture keeps it. */
+/**
+ * A new captured frame: each encode takes it as its pacer says, while ace-media takes its chunks.
+ * The capture keeps it.
+ */
 function feed(capture: Capture, frame: VideoFrame): void {
-  capture.first?.arrived();
+  capture.first.arrived();
   capture.last?.close();
   capture.last = frame;
   capture.lastAt = now();
+  if (!capture.ingest?.open()) return;
   for (const entry of capture.encoders.values()) {
     const decision = entry.pacer.frame(capture.lastAt, busy(entry));
     if (decision !== "skip") encode(entry, frame, decision === "key");
@@ -393,7 +343,6 @@ function feed(capture: Capture, frame: VideoFrame): void {
 
 async function pump(capture: Capture): Promise<void> {
   const reader = capture.reader;
-  if (!reader) return;
   for (;;) {
     const { done, value } = await reader.read();
     if (done || !value) break;
@@ -422,9 +371,8 @@ function stop(id: string): void {
   // The probe's clone holds the tab as much as the track does: a capture opened next on the
   // same tab would be refused while it lives.
   capture.probe?.();
-  void capture.reader?.cancel().catch(() => {});
-  capture.track?.stop();
-  capture.waiting = undefined;
+  void capture.reader.cancel().catch(() => {});
+  capture.track.stop();
   capture.audio?.stop();
   capture.last?.close();
   capture.last = undefined;
@@ -470,42 +418,21 @@ function refreshPicture(capture: Capture, track: MediaStreamTrack): void {
     });
 }
 
-/** Decodes a pushed-picture capture's newest waiting picture until none waits. */
-async function decodePictures(capture: Capture): Promise<void> {
-  capture.decoding = true;
-  try {
-    for (let bytes = capture.waiting; bytes && !capture.stopped; bytes = capture.waiting) {
-      capture.waiting = undefined;
-      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" })).catch(
-        () => undefined,
-      );
-      if (!bitmap) continue;
-      if (capture.stopped) {
-        bitmap.close();
-        break;
-      }
-      const frame = new VideoFrame(bitmap, { timestamp: Math.round(now() * 1000) });
-      bitmap.close();
-      feed(capture, frame);
-    }
-  } finally {
-    capture.decoding = false;
-  }
-}
-
 // A tab capture still owed its first picture, owed keyframes on a still page, its sharper last
 // picture, and encoders that stopped answering.
 setInterval(() => {
   const at = now();
   for (const capture of captures.values()) {
-    const step = capture.first?.step(at);
-    if (step === "refresh" && capture.track) refreshPicture(capture, capture.track);
+    const step = capture.first.step(at);
+    if (step === "refresh") refreshPicture(capture, capture.track);
     if (step === "failed") {
       // Not a picture in all that time: the daemon opens another capture.
       stop(capture.id);
       emit({ t: "ended", capture: capture.id, reason: "The tab capture sent no picture" });
       continue;
     }
+    // Nothing is encoded while ace-media isn't taking the chunks.
+    if (!capture.ingest?.open()) continue;
     for (const entry of capture.encoders.values()) {
       if (entry.watchdog.stalled(at)) {
         void configure(capture, entry, "The encoder stopped producing output").catch(() =>
@@ -594,8 +521,6 @@ Object.assign(globalThis, {
         reader: new MediaStreamTrackProcessor({ track }).readable.getReader(),
         first: new FirstPicture(now()),
         probe: undefined,
-        decoding: false,
-        waiting: undefined,
         last: undefined,
         lastAt: 0,
         encoders: new Map(),
@@ -616,37 +541,6 @@ Object.assign(globalThis, {
         stop(id);
         emit({ t: "ended", capture: id, reason: String(error) });
       });
-    },
-    /**
-     * Opens capture `id` fed by pushed pictures (a page's JPEG screencast) instead of a tab
-     * capture: for tabs this extension can't capture, such as a private browser context.
-     */
-    startPictures(id: string): void {
-      stop(id);
-      captures.set(id, {
-        id,
-        track: undefined,
-        reader: undefined,
-        first: undefined,
-        probe: undefined,
-        decoding: false,
-        waiting: undefined,
-        last: undefined,
-        lastAt: 0,
-        encoders: new Map(),
-        audio: undefined,
-        stopped: false,
-        ingest: undefined,
-        stamper: new ReadStamper(0),
-      });
-    },
-    /** One pushed picture (a base64 JPEG) for capture `id`. */
-    picture(id: string, jpeg: string): void {
-      const capture = captures.get(id);
-      if (!capture || capture.track) return;
-      capture.waiting = Uint8Array.from(atob(jpeg), (char) => char.charCodeAt(0));
-      // A picture that fails to decode is skipped; the next pushed picture tries again.
-      if (!capture.decoding) void decodePictures(capture).catch(() => {});
     },
     /**
      * The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop, and a
@@ -676,7 +570,6 @@ Object.assign(globalThis, {
           configs: configsFor(spec),
           active: undefined,
           quantizer: undefined,
-          description: undefined,
           descriptionBytes: undefined,
           keyBits: undefined,
           sharpKey: false,
@@ -689,9 +582,8 @@ Object.assign(globalThis, {
       }
     },
     /**
-     * Stream capture `id` into ace-media's ingest from now on, or (`null`) back to the daemon.
-     * Its chunks switch once the socket is open; until then, and if it fails, they go to the
-     * daemon.
+     * Stream capture `id` into ace-media's ingest from now on, or (`null`) stop sending. Nothing
+     * is encoded until the socket is open, nor after it fails.
      */
     ingest(id: string, target: { url: string; token: string; epoch: number } | null): void {
       const capture = captures.get(id);

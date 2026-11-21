@@ -2201,8 +2201,16 @@
         "binaryFrames": {
           "type": "boolean"
         },
+        "deliveryStatus": {
+          "const": true,
+          "type": "boolean"
+        },
         "media": {
           "$ref": "https://ace.local/protocol/v1/MediaBinding.json"
+        },
+        "mediaClient": {
+          "const": true,
+          "type": "boolean"
         },
         "requestId": {
           "maxLength": 256,

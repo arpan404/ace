@@ -27,6 +27,7 @@ import { commandCatalog, listCommands } from "./services/commands.ts";
 import { FakeFilesWire } from "./files-wire.ts";
 import { FakeBrowser } from "./browser.ts";
 import { FakeComputerUsing } from "./computer-using.ts";
+import type { FakeMediaConnections } from "./media-connections.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
 import { fakeHealth } from "./health.ts";
@@ -113,14 +114,18 @@ export class FakeServicesWire {
   private plugins = new FakePluginsWire();
   readonly marketplace = new FakeMarketplaceWire(() => this.host.now());
   private connectionSequence = 0;
+  /** ace-media's media connections (X3: the only way live views get pictures). */
+  readonly media: FakeMediaConnections;
   private host: FakeServiceContext;
   private settings: FakeSettings;
   constructor(
+    media: FakeMediaConnections,
     context: FakeServiceContext,
     settings: FakeSettings,
     providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[],
   ) {
     this.storage = new FakeStorageWire(context, settings);
+    this.media = media;
     this.outside = new FakeOutside(() => context.now());
     this.machineUpdate = new FakeMachineUpdate(() => context.now());
     this.host = context;
@@ -201,6 +206,7 @@ export class FakeServicesWire {
       `fake-browser-${++this.connectionSequence}`,
       binary,
       {
+        media: this.media,
         backendPreference: (threadId) => {
           const preference = this.settings.resolve("browser.backend", {
             threadId: ThreadId.parse(threadId),
@@ -272,6 +278,14 @@ export class FakeServicesWire {
         terminalStreams.clear();
       },
       handle: async (message, device) => {
+        if (message.type === "media.connect") {
+          emit({
+            type: "media.connect.result",
+            requestId: message.requestId,
+            result: this.media.grant(),
+          });
+          return;
+        }
         if (message.type === "browser.browsing.watch") {
           stopBrowsing ??= this.browser.subscribe(() => reportBrowsing(false));
           reportBrowsing(true);

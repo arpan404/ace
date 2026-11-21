@@ -11,7 +11,6 @@ import { removeWhenFree } from "./supervisor-test-support.ts";
 import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
 import { authenticateLane, connectLane } from "./lanes.ts";
 import {
-  legacyMediaSettings,
   MediaSupervisor,
   nodeMediaHost,
   systemMediaClock,
@@ -83,7 +82,6 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
     binary: target.binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => ({ ...legacyMediaSettings, stills: "auto" }),
     host: remember(
       (hooks.host ?? ((host) => host))(nodeMediaHost({ ...process.env, ...env }, target.launch)),
     ),
@@ -307,11 +305,12 @@ it("answers revocations well inside the deadline while the normal lane is satura
   await until(
     () => supervisor.health() === "healthy" && (real !== undefined || state.egress >= 64),
   );
-  const picture = { type: "source.picture", source: "s1", ageMs: 0, epoch: 0 } as const;
+  // Relay frames for a stream ace-media never dialed: it drops them, after reading them.
+  const bulk = { type: "relay.out", stream: "none" } as const;
   const latencies: number[] = [];
   for (let i = 0; i < 40; i++) {
-    // Keep 8 MiB of pictures ahead of every revocation on the normal lane.
-    for (let j = 0; j < 8; j++) supervisor.send(picture, new Uint8Array(1024 * 1024));
+    // Keep 8 MiB of relay frames ahead of every revocation on the normal lane.
+    for (let j = 0; j < 8; j++) supervisor.send(bulk, new Uint8Array(1024 * 1024));
     const started = performance.now();
     expect(await supervisor.revoke({ type: "revoke", id: `r${i}`, issued: i, device: "d1" })).toBe(
       "answered",

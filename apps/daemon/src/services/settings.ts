@@ -59,7 +59,6 @@ export function createSettingsSession(context: SocketContext): SocketService {
             (context.local === true && authorize("admin"))) &&
           (key !== "providers.configuration" || authorize("admin")) &&
           (!key.startsWith("storage.") || authorize("admin")) &&
-          (!key.startsWith("media.") || authorize("admin")) &&
           (!key.startsWith("beta.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
           ((key !== "computer.blockedApps" &&
@@ -152,8 +151,6 @@ function allowedWrite(key: string, layer: string, authorize: SocketContext["auth
     key === "providers.claude.chrome" ||
     key.startsWith("host.") ||
     key.startsWith("remote.") ||
-    // How this machine encodes and delivers screens and video (the Beta media pipeline).
-    key.startsWith("media.") ||
     // Which beta features this machine shows (Spade, the marketplace).
     key.startsWith("beta.");
   if (!adminOnly) return authorize("operate");

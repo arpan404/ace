@@ -28,6 +28,63 @@ const frame = (kind: number, flags: number, payload: Uint8Array) =>
   });
 
 export function tabProducer(threadId: string): IngestProducer & { stop(): void } {
+  return producer({ source: "tab", kind: "tab", origin: { kind: "tab" }, threadId });
+}
+
+/** An Android device's scrcpy stream into ace-media, an H.264 picture every 16 ms. */
+export function deviceProducer(deviceId: string): IngestProducer & { stop(): void } {
+  return producer({
+    source: `device:${deviceId}`,
+    kind: "scrcpy",
+    origin: { kind: "scrcpy", host: "127.0.0.1", port: 0 },
+    deviceId,
+  });
+}
+
+/**
+ * An Android device whose screen doesn't change: its encoder makes a keyframe as its stream
+ * starts and then only when asked (scrcpy's video reset); `asked` counts the requests.
+ */
+export function stillDeviceProducer(
+  deviceId: string,
+): IngestProducer & { stop(): void; asked(): number } {
+  let socket: Socket | undefined;
+  let asked = 0;
+  let n = 0;
+  const key = () => socket?.write(frame(1, 1, new Uint8Array([0, 0, 0, 1, 0x65, n++ & 0xff])));
+  const stop = () => {
+    socket?.destroy();
+    socket = undefined;
+  };
+  return {
+    source: `device:${deviceId}`,
+    kind: "scrcpy",
+    origin: { kind: "scrcpy", host: "127.0.0.1", port: 0 },
+    deviceId,
+    epoch: () => 0,
+    consumers: { deliver: () => {} },
+    keyframe: () => {
+      asked++;
+      key();
+    },
+    stop,
+    asked: () => asked,
+    point: (address) => {
+      stop();
+      if (!address) return Promise.resolve();
+      const connection = createConnection(address.socket);
+      socket = connection;
+      connection.on("error", () => {});
+      connection.write(frame(5, 0, address.token.slice()));
+      key();
+      return Promise.resolve();
+    },
+  };
+}
+
+function producer(
+  ids: Pick<IngestProducer, "source" | "kind" | "origin" | "threadId" | "deviceId">,
+): IngestProducer & { stop(): void } {
   let socket: Socket | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const stop = () => {
@@ -36,12 +93,9 @@ export function tabProducer(threadId: string): IngestProducer & { stop(): void }
     socket = undefined;
   };
   return {
-    source: "tab",
-    kind: "tab",
-    origin: { kind: "tab" },
-    threadId,
+    ...ids,
     epoch: () => 0,
-    consumers: { deliver: () => {}, record: () => {}, still: () => {} },
+    consumers: { deliver: () => {} },
     keyframe: () => {},
     stop,
     point: (address) => {

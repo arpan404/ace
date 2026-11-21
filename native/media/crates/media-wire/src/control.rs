@@ -1,13 +1,10 @@
 pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step, TrialState};
 pub use crate::link::LinkHint;
 use serde::{Deserialize, Serialize};
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Setting {
-    #[serde(rename = "auto")]
-    Auto,
-    #[serde(rename = "legacy")]
-    Legacy,
-}
+/// The init this binary takes, reported by `ace-media --init-level` so a daemon checks it before
+/// sending one. Level 2: init carries no media settings (ADR 0208). A daemon refuses a binary
+/// below its own level instead of starting it.
+pub const INIT_LEVEL: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Status {
     #[serde(rename = "starting")]
@@ -50,6 +47,9 @@ pub enum Refusal {
     Expired,
     #[serde(rename = "unknown-connection")]
     UnknownConnection,
+    /// ace-media holds as many viewers as it may (`MAX_VIEWERS`): the view isn't opened.
+    #[serde(rename = "limit")]
+    Limit,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Level {
@@ -113,6 +113,13 @@ pub enum Origin {
         #[serde(rename = "platform")]
         platform: String,
     },
+    /// A screen whose helper sends only JPEG pictures (on the control lane, as a private tab's
+    /// are): ace-media encodes them itself.
+    #[serde(rename = "screen-pictures")]
+    ScreenPictures {
+        #[serde(rename = "platform")]
+        platform: String,
+    },
     #[serde(rename = "simulator")]
     Simulator {
         #[serde(rename = "streamUrl")]
@@ -148,18 +155,6 @@ pub struct Owner {
     pub device: Id,
     #[serde(rename = "admission")]
     pub admission: Admission,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Settings {
-    #[serde(rename = "recordings")]
-    pub recordings: Setting,
-    #[serde(rename = "stills")]
-    pub stills: Setting,
-    #[serde(rename = "encode")]
-    pub encode: Setting,
-    #[serde(rename = "delivery")]
-    pub delivery: Setting,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -312,8 +307,10 @@ pub enum ToMedia {
         runtime_dir: String,
         #[serde(rename = "dataDir")]
         data_dir: String,
-        #[serde(rename = "settings")]
-        settings: Settings,
+        /// The media settings an older daemon still sends (ADR 0208): there are none any more,
+        /// so whatever it holds is read and dropped, never refused and never sent.
+        #[serde(rename = "settings", default, skip_serializing)]
+        older_settings: Option<serde::de::IgnoredAny>,
     },
     #[serde(rename = "ping")]
     Ping {
@@ -373,6 +370,15 @@ pub enum ToMedia {
         device_id: Option<Id>,
         #[serde(rename = "epoch")]
         epoch: u32,
+        /// Whether `epoch` is private (M8), for a JPEG source: the next `source.epoch` then
+        /// follows a private one, whatever reaches ace-media first.
+        #[serde(
+            rename = "private",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        private: Option<bool>,
         #[serde(rename = "origin")]
         origin: Origin,
     },
@@ -393,15 +399,6 @@ pub enum ToMedia {
         source: Id,
         #[serde(rename = "codecs")]
         codecs: Vec<String>,
-    },
-    #[serde(rename = "source.picture")]
-    SourcePicture {
-        #[serde(rename = "source")]
-        source: Id,
-        #[serde(rename = "ageMs")]
-        age_ms: u32,
-        #[serde(rename = "epoch")]
-        epoch: u32,
     },
     #[serde(rename = "source.epoch")]
     SourceEpoch {
@@ -434,6 +431,20 @@ pub enum ToMedia {
     SourceClose {
         #[serde(rename = "source")]
         source: Id,
+    },
+    /// An ingest barrier (X1): answered by `source.synced` once ace-media has taken `frames`
+    /// frames from the source's producer connection since its hello, and its recording, if any,
+    /// has decided epoch `decided`, so a `record.stop` after it finds every frame in place.
+    #[serde(rename = "source.sync")]
+    SourceSync {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "seq")]
+        seq: Sequence,
+        #[serde(rename = "frames")]
+        frames: Sequence,
+        #[serde(rename = "decided")]
+        decided: u32,
     },
     /// Whether ace-media sends this source's frames back on the egress lane (G1). Off until
     /// the daemon turns it on.
@@ -654,6 +665,25 @@ pub enum ToMedia {
         quality: u32,
         #[serde(rename = "deadlineMs")]
         deadline_ms: u32,
+        /// The newest public epoch the daemon announced for the source (M8): the still comes
+        /// only from a picture of that epoch or later, whatever ace-media has applied yet.
+        #[serde(
+            rename = "minEpoch",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        min_epoch: Option<u32>,
+        /// The still comes only from a picture that reaches ace-media after this request, never
+        /// one it already had (an agent's still right after its input). One that doesn't arrive
+        /// by the deadline fails, and the daemon takes the source's own capture.
+        #[serde(
+            rename = "fresh",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        fresh: Option<bool>,
     },
     /// A poster for a subscribe reply (ADR 0149, D1): the source's current picture fitted to
     /// `width` × `height` at 10–20 KB. Answered like `still.take`, with `still.done` (the JPEG
@@ -676,6 +706,25 @@ pub enum ToMedia {
         #[serde(rename = "clear")]
         clear: Vec<EpochRange>,
     },
+    /// One-shot image work (ADR 0208), answered once with `image.done` or `image.failed`.
+    /// The payload holds the `bytes` and `rgba` inputs back to back, in order.
+    #[serde(rename = "image.job")]
+    ImageJob {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "deadlineMs")]
+        deadline_ms: u32,
+        #[serde(rename = "inputs")]
+        inputs: Vec<crate::image::ImageInput>,
+        #[serde(rename = "op")]
+        op: crate::image::ImageOp,
+    },
+    /// The daemon no longer wants the job's result.
+    #[serde(rename = "image.cancel")]
+    ImageCancel {
+        #[serde(rename = "request")]
+        request: Id,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -697,6 +746,15 @@ pub enum FromMedia {
         control: Control,
         #[serde(rename = "listen")]
         listen: Listen,
+        /// The optional features the daemon offered at spawn (`ACE_MEDIA_FEATURES`) that this
+        /// build speaks; absent when none were offered, so an older daemon never sees it.
+        #[serde(
+            rename = "features",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        features: Option<Vec<String>>,
     },
     /// The whole list again, after a trial finished late or a backend changed.
     #[serde(rename = "capabilities.changed")]
@@ -740,6 +798,20 @@ pub enum FromMedia {
         written: Sequence,
         #[serde(rename = "dropped")]
         dropped: Sequence,
+    },
+    /// A producer's ingest connection presented the source's token and was bound to it.
+    #[serde(rename = "source.ingest")]
+    SourceIngest {
+        #[serde(rename = "source")]
+        source: Id,
+    },
+    /// The barrier `source.sync` asked for holds.
+    #[serde(rename = "source.synced")]
+    SourceSynced {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "seq")]
+        seq: Sequence,
     },
     #[serde(rename = "source.status")]
     SourceStatus {
@@ -903,6 +975,30 @@ pub enum FromMedia {
         #[serde(rename = "reason")]
         reason: String,
     },
+    /// An image job's result; the payload is the output (none for `probe`).
+    #[serde(rename = "image.done")]
+    ImageDone {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "width")]
+        width: u32,
+        #[serde(rename = "height")]
+        height: u32,
+        #[serde(rename = "format")]
+        format: crate::image::DoneFormat,
+        #[serde(rename = "source")]
+        source: crate::image::SourceImage,
+    },
+    #[serde(rename = "image.failed")]
+    ImageFailed {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "reason")]
+        reason: crate::image::ImageFailure,
+        /// A sentence the daemon may show.
+        #[serde(rename = "message")]
+        message: String,
+    },
     #[serde(rename = "log")]
     Log {
         #[serde(rename = "level")]
@@ -928,6 +1024,35 @@ pub fn lane(kind: &str) -> Lane {
 }
 #[derive(Debug, PartialEq)]
 pub struct InvalidControl;
+
+/// The optional features this build speaks when a daemon offers them (`ready.features`):
+/// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers;
+/// `picture-ingest` encodes a JPEG source's still pictures (kind 3) off its ingest (X2), so a
+/// daemon sends them there only to a build that says so; `privacy-open` reads
+/// `source.open.private` and `still.take.minEpoch` (M8), which a stricter build would refuse;
+/// `still-fresh` reads `still.take.fresh`; `sync-drain`: a `source.sync` on a picture source
+/// drains its encoder before it holds, so a daemon need not wait for the encode itself.
+pub const FEATURES: [&str; 6] = [
+    "source.ingest",
+    "source.sync",
+    "picture-ingest",
+    "privacy-open",
+    "still-fresh",
+    "sync-drain",
+];
+
+/// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own
+/// order; `None` when nothing was offered.
+pub fn agreed_features(offered: Option<&str>) -> Option<Vec<String>> {
+    let offered: Vec<&str> = offered?.split(',').map(str::trim).collect();
+    Some(
+        FEATURES
+            .iter()
+            .filter(|feature| offered.contains(feature))
+            .map(|feature| (*feature).to_owned())
+            .collect(),
+    )
+}
 pub struct ControlFrame<M> {
     pub message: M,
     pub payload: zeroize::Zeroizing<Vec<u8>>,
@@ -955,7 +1080,16 @@ fn validate<M: Message>(message: &M, payload: &[u8], expected: Lane) -> Result<(
             value["remote"]["certificateBytes"].as_u64().unwrap_or(0)
                 + value["remote"]["keyBytes"].as_u64().unwrap_or(0)
         }
-        "source.picture" | "relay.out" | "relay.in" | "still.done" => return Ok(()),
+        "image.job" => value["inputs"].as_array().map_or(0, |inputs| {
+            inputs
+                .iter()
+                .filter(|input| input["kind"] != "file")
+                .map(|input| input["bytes"].as_u64().unwrap_or(0))
+                .sum()
+        }),
+        "relay.out" | "relay.in" | "still.done" | "image.done" => {
+            return Ok(());
+        }
         _ => 0,
     };
     if payload.len() as u64 != length {
@@ -981,6 +1115,31 @@ impl<M: Message> ControlFrame<M> {
         b.extend_from_slice(&(json.len() as u32).to_be_bytes());
         b.extend(json);
         Ok(b)
+    }
+    /// Whether a frame `decode` refused is a well-formed message of a type this build doesn't
+    /// know: a newer peer's. Such a frame is skipped, never fatal (decode leniently); a known
+    /// type that is malformed still is.
+    pub fn unknown_type(b: &[u8]) -> bool
+    where
+        M: serde::de::DeserializeOwned,
+    {
+        let Some(json) = b
+            .get(4..8)
+            .map(|j| u32::from_be_bytes([j[0], j[1], j[2], j[3]]) as usize)
+            .and_then(|j| b.get(8..8 + j))
+        else {
+            return false;
+        };
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(json) else {
+            return false;
+        };
+        if !value.get("type").is_some_and(serde_json::Value::is_string) {
+            return false;
+        }
+        match serde_json::from_value::<M>(value) {
+            Ok(_) => false,
+            Err(error) => error.to_string().starts_with("unknown variant"),
+        }
     }
     pub fn decode(b: &[u8], lane: Lane) -> Result<Self, InvalidControl> {
         if b.len() < 8 {

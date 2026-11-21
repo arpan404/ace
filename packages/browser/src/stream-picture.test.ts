@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeStreamMessage,
-  encodeBrowserVideo,
-  encodePicture,
   StreamAssembler,
   StreamEnvelopeError,
   streamPieceBytes,
   type PictureChunk,
   type StreamMessage,
 } from "./stream.ts";
+import { encodeBrowserVideo, encodePicture } from "./stream-encode.ts";
 import { encodeStream, streamKinds } from "./stream-envelope.ts";
 
 const encodeDeviceFrame = (

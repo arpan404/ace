@@ -7,7 +7,8 @@ import type { OpenMediaSocket } from "./media-connection.ts";
 export {
   MediaConnection,
   mediaHello,
-  mediaLegacyRetryMs,
+  mediaUnavailableRetryMs,
+  unavailableReason,
   mediaAdmissionMs,
   mediaPingMs,
   mediaRetryMs,

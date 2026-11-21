@@ -14,7 +14,6 @@ mod video;
 use crate::{
     codec::Request,
     errors::{Code, Error, Result},
-    mailbox::Queued,
     media::{
         capability::Trial,
         config::StreamCodec,
@@ -268,11 +267,10 @@ impl DesktopHost {
             shell: shell.clone(),
         }
     }
-    /// The session's route. Units on the daemon's path become frame packets there; a cut
-    /// ingest connection is told to the daemon as a `stream.ingest` event.
+    /// The session's route: video goes only to ace-media's ingest; a cut ingest connection is
+    /// told to the daemon as a `stream.ingest` event.
     fn ingest_shell(&self, stream: &Arc<Mutex<Stream>>) -> IngestShell {
-        let (legacy_stream, keyframe_stream, writer) =
-            (stream.clone(), stream.clone(), self.writer.clone());
+        let keyframe_stream = stream.clone();
         let closed_stream = stream.clone();
         let session = stream
             .lock()
@@ -283,21 +281,8 @@ impl DesktopHost {
         IngestShell::new(
             Box::new(ingest_pipe::dial),
             Sinks {
-                legacy: Box::new(move |unit| {
-                    let (packet, generation) = {
-                        let stream = legacy_stream.lock().unwrap_or_else(|e| e.into_inner());
-                        (stream.video_packet(unit), stream.capture_generation())
-                    };
-                    let Ok(packet) = packet else { return };
-                    if writer.publish_video(generation, packet, unit.key) == Queued::WantKeyframe {
-                        legacy_stream
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .request_keyframe();
-                    }
-                }),
                 closed: Box::new(move |boundary| {
-                    // Back on the daemon's pipe after a cut: that path starts at a keyframe.
+                    // Video stops after a cut: the next ingest starts at a keyframe.
                     closed_stream
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())

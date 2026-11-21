@@ -11,7 +11,6 @@ export type { DeviceRuntime } from "./runtime.ts";
 
 export type { AppDevice as Device } from "@ace/protocol/devices";
 
-export { renderDeviceVideo } from "./video.ts";
 export { startCapture, type DeviceCapture } from "./capture.ts";
 
 export { DeviceStreamControl, commonDeviceStream } from "./stream-control.ts";
@@ -19,7 +18,8 @@ export { DeviceStreamControl, commonDeviceStream } from "./stream-control.ts";
 export { watchDeviceLease } from "./lease-expiry.ts";
 
 export { deviceControlDelivery } from "./control-delivery.ts";
-export { consumeDeviceRecording } from "./recording-artifact.ts";
+export { publishDeviceRecording, type PublishedPart } from "./recording-artifact.ts";
+export type { DeviceRecordingArtifact, PublishedRecording } from "./recording.ts";
 export {
   callSimTool,
   simFailure,

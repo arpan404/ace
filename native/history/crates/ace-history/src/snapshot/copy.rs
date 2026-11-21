@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use super::scratch::SnapshotScratch;
 use crate::cancel::Cancel;
 use crate::error::{Error, Result, io_at};
-use crate::fsread::stat::{fingerprint_at, fingerprint_of};
+use crate::fsread::stat::{fingerprint_at, fingerprint_of, same_entry};
 use crate::fsread::{read_at, safe_open};
 
 const CHUNK: usize = 64 * 1024;
@@ -63,17 +63,6 @@ fn digest(source: &File, length: u64, cancel: &Cancel) -> Result<String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
-#[cfg(unix)]
-fn same_file(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    a.dev() == b.dev() && a.ino() == b.ino()
-}
-
-#[cfg(not(unix))]
-fn same_file(_a: &std::fs::Metadata, _b: &std::fs::Metadata) -> bool {
-    true
-}
-
 pub fn copy_snapshot(
     scratch: &SnapshotScratch,
     home: &Path,
@@ -109,9 +98,8 @@ pub fn copy_snapshot(
         let copied = stream(&journal, &wal_target, size, cancel)?;
         // Compare only the copied bytes: later commits need not stop the scan.
         let check = digest(&journal, size, cancel)?;
-        let after = std::fs::symlink_metadata(wal).map_err(|e| io_at(e, wal))?;
         let now = journal.metadata()?;
-        if !same_file(&after, &now) || now.len() < size || copied != check {
+        if !same_entry(wal, &journal)? || now.len() < size || copied != check {
             return Err(Error::message(super::CHANGED));
         }
     }

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeStreamMessage,
-  encodeBrowserAudio,
   StreamAssembler,
   StreamEnvelopeError,
   type StreamMessage,
 } from "./stream.ts";
+import { encodeBrowserAudio } from "./stream-encode.ts";
 import { encodeStream, streamKinds } from "./stream-envelope.ts";
 
 const header = { sequence: 7, timestamp: 1_700_000_000_250.5, sampleRate: 48_000, channels: 2 };

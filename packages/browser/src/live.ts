@@ -1,3 +1,4 @@
+import { readGapMs } from "@ace/media/epochs";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import type { BrowserFrame } from "@ace/protocol";
@@ -25,14 +26,34 @@ const picturesLongSide = 1920;
  * agent works it (its clicks and hit tests wait on frames). Chrome encodes every screencast
  * frame, so it runs only while a recording or an agent needs it.
  */
+/** The shown tab's privacy (`TabAccess`): its epoch, when it last changed, and whether it is private now. */
+export type Privacy = { epoch: number; since: number; private?: boolean };
+
+/**
+ * The epoch a picture captured at `at` (ms) belongs to: the current one, except within the
+ * read gap after the tab stopped being private, when it is the private one before it.
+ */
+export function capturedEpoch(privacy: Privacy, at: number): number {
+  return privacy.private !== true && privacy.epoch > 0 && at < privacy.since + readGapMs
+    ? privacy.epoch - 1
+    : privacy.epoch;
+}
+
+/**
+ * What a capture shows: one tab's page and that tab's id, taken together. Its pictures are that
+ * tab's, fenced on that tab's privacy, whatever is viewed by the time they arrive.
+ */
+export type CaptureTarget = { readonly cdp: BrowserCdp; readonly tabId: string | undefined };
+
 export class LiveCapture {
   readonly video: LiveVideo;
   private sinks = new Map<string, ViewerSink>();
   private videoSource: () => LiveVideoSource | undefined;
   private cdp: BrowserCdp;
   private now: () => number;
-  private onFrame: (frame: BrowserFrame, epoch: number) => void;
-  private privacy: () => { epoch: number; since: number };
+  private onFrame: (frame: BrowserFrame, epoch: number, capturedAt: number) => void;
+  /** The privacy of a tab by id (undefined: the one page a backend without tabs shows). */
+  private privacy: (tabId: string | undefined) => Privacy;
   private videoTimer: ReturnType<typeof setInterval> | undefined;
   private sequence = 0;
   private lastFrame = -Infinity;
@@ -56,8 +77,13 @@ export class LiveCapture {
   constructor(
     cdp: BrowserCdp,
     now: () => number,
-    onFrame: (frame: BrowserFrame, epoch: number) => void,
-    privacy: () => { epoch: number; since: number } = () => ({ epoch: 0, since: -Infinity }),
+    /** A picture of the captured tab, with the epoch and the time it was captured in. */
+    onFrame: (frame: BrowserFrame, epoch: number, capturedAt: number) => void,
+    privacy: (tabId: string | undefined) => Privacy = () => ({
+      epoch: 0,
+      since: -Infinity,
+      private: false,
+    }),
     viewport: () => { width: number; height: number } = () => ({ width: 1280, height: 720 }),
     tab: () => string | undefined = () => undefined,
     /**
@@ -69,7 +95,7 @@ export class LiveCapture {
     videoSource: () => LiveVideoSource | undefined = () => undefined,
   ) {
     this.videoSource = videoSource;
-    this.video = new LiveVideo({ now, playing: () => {}, statusChanged: () => this.videoStatus() });
+    this.video = new LiveVideo({ now, statusChanged: () => this.videoStatus() });
     this.tab = tab;
     this.scale = scale;
     this.cdp = cdp;
@@ -198,10 +224,6 @@ export class LiveCapture {
     const sink = this.sinks.get(id);
     if (sink) this.viewersChange(() => this.configureVideo(id, sink, capture));
   }
-  /** A viewer that joined again starts over at a keyframe. */
-  replay(id: string): void {
-    this.video.keyframe(id);
-  }
   /** The live video runs its own clock while anyone watches, screencast or not. */
   private tickVideo(): void {
     const run = this.attached && !this.closed && this.sinks.size > 0;
@@ -254,10 +276,8 @@ export class LiveCapture {
     this.demand();
   }
   private configureVideo(id: string, sink: ViewerSink, capture: CaptureViewer): void {
-    if (sink.video && capture.video) {
-      if (this.video.has(id)) this.video.configure(id, capture);
-      else this.video.add(id, sink.video, capture, sink.audio, { local: sink.local === true });
-    } else this.video.remove(id);
+    if (this.video.has(id)) this.video.configure(id, capture);
+    else this.video.add(id, capture, { local: sink.local === true });
   }
   private receive: (raw: unknown) => void = () => {};
   /** The tab this capture shows, fixed when the capture starts on its page. */
@@ -265,12 +285,38 @@ export class LiveCapture {
   private tabField(): { tabId?: string } {
     return this.capturing ? { tabId: this.capturing } : {};
   }
+  /**
+   * The privacy of the tab this capture shows: its pictures carry that tab's content, whichever
+   * tab is viewed by the time they arrive.
+   */
+  private tabPrivacy(): Privacy {
+    return this.privacy(this.capturing);
+  }
+  /**
+   * The person moved to another tab: this capture's pictures are the old tab's from now on, and
+   * none of them goes anywhere. Called as the view changes, before the capture moves.
+   */
+  retarget(): void {
+    this.generation++;
+  }
   private captureFrame(raw: unknown, cdp: BrowserCdp, generation: number): void {
     const ack = Ack.safeParse(raw);
     if (ack.success) void cdp.send("Page.screencastFrameAck", ack.data).catch(() => {});
     const parsed = Screencast.safeParse(raw);
     if (!parsed.success || this.closed || generation !== this.generation) return;
-    this.video.picture(parsed.data.data);
+    const privacy = this.tabPrivacy(),
+      capturedAt = parsed.data.metadata.timestamp;
+    // CDP timestamps identify capture time, not delivery time: a picture captured before the
+    // tab's last privacy change is dropped before it goes anywhere (the video, a still, a
+    // recording). Missing provenance after a change is fail-closed.
+    if (privacy.epoch !== 0 && (capturedAt === undefined || capturedAt * 1000 <= privacy.since))
+      return;
+    this.privacyChanged();
+    // The epoch the picture was captured in goes with it, for ace-media's stills and encodes.
+    // One captured within the read gap after the tab stopped being private keeps the private
+    // epoch, as a video producer's stamper does: the page may still show what it hid.
+    const epoch = capturedEpoch(privacy, (capturedAt ?? 0) * 1000);
+    this.video.picture(parsed.data.data, epoch);
     const timestamp = this.now();
     if (timestamp - this.lastFrame < 1000 / this.settings.fps) return;
     this.lastFrame = timestamp;
@@ -284,23 +330,33 @@ export class LiveCapture {
       height: Math.round(parsed.data.metadata.deviceHeight / scale),
       ...this.tabField(),
     };
-    const privacy = this.privacy(),
-      capturedAt = parsed.data.metadata.timestamp;
-    // CDP timestamps identify capture time, not delivery time. Missing provenance after
-    // a private transition is fail-closed for recording.
-    if (privacy.epoch === 0 || (capturedAt !== undefined && capturedAt * 1000 > privacy.since))
-      this.onFrame(frame, privacy.epoch);
+    this.onFrame(frame, epoch, (capturedAt ?? 0) * 1000);
+  }
+  /**
+   * The tab's privacy may have changed: the video hears its epoch once (M8), with whether the
+   * one it replaces was private, so ace-media stamps and keeps pictures as it does video.
+   */
+  privacyChanged(): void {
+    const privacy = this.tabPrivacy();
+    this.video.privacy({ epoch: privacy.epoch, private: privacy.private === true });
   }
   /**
    * Attach to the page and seed its first frame, so every viewer that joins gets pixels at
    * once. Chrome's screencast itself runs only while frames are wanted (`demand`).
    */
   async start(): Promise<void> {
+    return this.attachTo({ cdp: this.cdp, tabId: this.tab() });
+  }
+  /** Attaches to `target`: its page and its tab id are set together, before anything awaits. */
+  private async attachTo(target: CaptureTarget): Promise<void> {
     if (this.closed) throw new Error("Browser capture closed");
-    this.capturing = this.tab();
-    const cdp = this.cdp,
+    this.cdp = target.cdp;
+    this.capturing = target.tabId;
+    const cdp = target.cdp,
       generation = this.generation;
     this.receive = (raw) => this.captureFrame(raw, cdp, generation);
+    // The video knows the tab's privacy before its first capture opens, so it opens in it.
+    this.privacyChanged();
     cdp.on("Page.screencastFrame", this.receive);
     this.attached = true;
     this.starting = true;
@@ -323,7 +379,7 @@ export class LiveCapture {
     generation: number,
   ): Promise<{ viewport: { width: number; height: number }; dpr: number }> {
     const sequence = this.sequence,
-      epoch = this.privacy().epoch;
+      privacy = this.tabPrivacy();
     const viewport = this.viewport();
     const ratio = DevicePixelRatio.safeParse(
       await this.cdp.send("Runtime.evaluate", {
@@ -333,6 +389,8 @@ export class LiveCapture {
     );
     const dpr = ratio.success ? ratio.data.result.value : 1;
     const recording = this.needed();
+    // The screenshot may show the page as it was when it was asked for: its capture time.
+    const capturedAt = this.now();
     const initial = InitialFrame.parse(
       await this.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
@@ -352,7 +410,15 @@ export class LiveCapture {
       }),
     );
     if (this.closed || generation !== this.generation) throw new Error("Browser capture closed");
-    if (recording && this.sequence === sequence && epoch === this.privacy().epoch)
+    // A recording's first frame, fenced as every picture is: never from before the tab's last
+    // privacy change, and within the read gap after it stopped being private it keeps the
+    // private epoch, which nothing records.
+    if (
+      recording &&
+      this.sequence === sequence &&
+      privacy.epoch === this.tabPrivacy().epoch &&
+      (privacy.epoch === 0 || capturedAt > privacy.since)
+    )
       this.onFrame(
         {
           sequence: ++this.sequence,
@@ -361,7 +427,8 @@ export class LiveCapture {
           ...viewport,
           ...this.tabField(),
         },
-        epoch,
+        capturedEpoch(privacy, capturedAt),
+        capturedAt,
       );
     return { viewport, dpr };
   }
@@ -394,17 +461,23 @@ export class LiveCapture {
     this.cdp.off("Page.screencastFrame", this.receive);
     this.video.detach();
   }
-  async replace(cdp: BrowserCdp): Promise<void> {
+  /**
+   * Moves the capture to `target`. A move `superseded` while the old screencast stops (the
+   * person went on to another tab) never starts: the newer move attaches instead. Resolves
+   * whether this one attached.
+   */
+  async replace(target: CaptureTarget, superseded: () => boolean = () => false): Promise<boolean> {
     const previous = this.cdp;
     this.detach();
     await previous.send("Page.stopScreencast").catch(() => {});
-    this.cdp = cdp;
+    if (superseded()) return false;
     this.closed = false;
     // Another page (another tab, or a reopened browser's): nothing is being restored on it.
     this.video.resume();
     this.lastFrame = -Infinity;
     this.settings = screencastSettings;
-    await this.start();
+    await this.attachTo(target);
+    return true;
   }
   async close(): Promise<void> {
     this.closed = true;

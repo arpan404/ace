@@ -2,24 +2,32 @@ import { MediaAccelerationStore } from "./acceleration.ts";
 import { EgressRouter } from "./egress.ts";
 import { pictureCodecs, pictureEncoders } from "./picture-codecs.ts";
 import { RouteWatch } from "./route-watch.ts";
-import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
-import { IngestSources } from "./ingest-sources.ts";
+import {
+  builtRouteCapabilities,
+  sourceKinds,
+  undeliveredReason,
+  type RouteCapabilities,
+} from "./routes.ts";
+import { IngestSources, restartingReason } from "./ingest-sources.ts";
 import { MediaConnections, MediaIssue } from "./media-connections.ts";
 import { MediaViewers, type MediaDeliveryPort } from "./media-viewers.ts";
 import { SessionLinks, pumpSessionLinks } from "./session-link.ts";
+import { MediaStills } from "./stills.ts";
+import { nodeIngestConnect, type IngestSocket } from "./tee.ts";
+import { TeeRecordings } from "./tee-recordings.ts";
 import {
   MediaSupervisor,
   secureRandomBytes,
   systemWallClock,
   type MediaExit,
+  type MediaSnapshot,
   type MediaSupervisorOptions,
 } from "./supervisor.ts";
 import type { FromMedia } from "./wire.ts";
 
 /**
  * The daemon's ace-media, put together: the supervisor, the live route table, the egress
- * router and the sources whose producers stream into it. One per daemon. Settings are read
- * live; call `settingsChanged()` when one changes.
+ * router and the sources whose producers stream into it. One per daemon.
  */
 
 export type MediaRuntimeOptions = Omit<
@@ -38,6 +46,8 @@ export type MediaRuntimeOptions = Omit<
   platform?: string;
   /** The store to keep what ace-media runs on in; one of its own unless given. */
   acceleration?: MediaAccelerationStore;
+  /** How a recording's tee reaches ace-media's ingest; `node:net` unless a test says. */
+  connect?: (path: string) => IngestSocket;
 };
 
 export class MediaRuntime {
@@ -53,21 +63,30 @@ export class MediaRuntime {
   readonly #stopLinks: () => void;
   /** What ace-media runs on: its probe's list and each source's steps. */
   readonly acceleration: MediaAccelerationStore;
+  /** Recordings, which ace-media makes of frames the daemon tees into it (X1). */
+  readonly recordings: TeeRecordings;
+  /** Agent stills of sources ace-media has. */
+  readonly stills: MediaStills;
 
   readonly #encoders: readonly string[];
+  readonly #capabilities: RouteCapabilities;
 
   constructor(options: MediaRuntimeOptions) {
     this.#encoders = options.platform === undefined ? [] : pictureEncoders(options.platform);
     this.acceleration = options.acceleration ?? new MediaAccelerationStore();
     const capabilities = options.capabilities ?? builtRouteCapabilities;
+    this.#capabilities = capabilities;
     this.supervisor = new MediaSupervisor({
       ...options,
       replay: () => {
         this.routes.update();
         this.sources.replay();
+        this.recordings.replay();
       },
       onMessage: (message, payload) => {
         this.acceleration.message(message);
+        this.recordings.message(message);
+        this.stills.message(message, payload);
         this.sources.message(message);
         this.connections.received(message);
         this.viewers.received(message, payload);
@@ -76,18 +95,19 @@ export class MediaRuntime {
       },
       onEgress: (frame) => this.egress.push(frame),
       onExit: (exit) => {
-        // Producers go back to the daemon first, with nothing left to drain.
+        // Producers stop first, with nothing left to drain.
         this.sources.exited();
         this.connections.exited();
         this.viewers.exited();
         this.links.restarted();
         this.acceleration.exited();
+        this.recordings.exited();
+        this.stills.lost();
         this.routes.update();
         options.onExit?.(exit);
       },
     });
     this.routes = new RouteWatch({
-      settings: options.settings,
       health: () => this.supervisor.health(),
       capabilities: () => capabilities,
       onChange: (_routes, changed) => this.sources.routesChanged(changed),
@@ -102,18 +122,42 @@ export class MediaRuntime {
           return ingest && { ...ingest, ...(pid ? { pid } : {}) };
         },
         need: () => this.supervisor.need(),
+        speaks: (feature) => this.supervisor.speaks(feature),
       },
       router: this.egress,
       routes: () => this.routes.routes(),
-      settings: options.settings,
       capabilities: () => capabilities,
       randomBytes: options.randomBytes ?? secureRandomBytes,
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
       onLive: (producer, path) => this.viewers.live(producer, path),
+      why: () => mediaDownReason(this.supervisor.snapshot()),
+      // Made just below; a still is only ever asked for after construction.
+      stills: { take: (request, capture, adopt) => this.stills.take(request, capture, adopt) },
       acceleration: (subject, acceleration) => this.acceleration.report(subject, acceleration),
     });
     const randomBytes = options.randomBytes ?? secureRandomBytes;
+    this.recordings = new TeeRecordings({
+      send: (message, payload) => this.supervisor.send(message, payload),
+      ingest: () => this.supervisor.ingest()?.socket,
+      need: () => this.supervisor.need(),
+      health: () => this.supervisor.health(),
+      reason: () => this.supervisor.snapshot().unavailableReason,
+      speaks: (feature) => this.supervisor.speaks(feature),
+      pictureCodecs: () => this.pictureCodecs(),
+      connect: options.connect ?? nodeIngestConnect,
+      handle: () => this.egress.reserve(),
+      randomBytes,
+      id: options.id,
+      clock: options.clock,
+    });
+    this.stills = new MediaStills({
+      health: () => this.supervisor.health(),
+      send: (message) => this.supervisor.send(message),
+      clock: options.clock,
+      nextId: options.id,
+      speaks: (feature) => this.supervisor.speaks(feature),
+    });
     this.connections = new MediaConnections({
       port: {
         send: (message, payload) => this.supervisor.send(message, payload),
@@ -149,12 +193,13 @@ export class MediaRuntime {
   delivery(): MediaDeliveryPort {
     return {
       // Frames must be in ace-media for it to deliver them: the producer streams there.
-      serves: (kind) => {
-        const route = this.routes.routes()[kind];
-        return route.deliverer === "ace-media" && route.producer === "ace-media";
-      },
+      serves: (kind) => this.routes.routes()[kind].deliverer === "ace-media",
+      unserved: (kind) => undeliveredReason(kind, this.supervisor.health(), this.#capabilities),
+      sourceKinds: (shows) => this.sources.kinds(shows),
+      sourceState: (shows) => this.sources.state(shows),
       bind: (intent) => this.viewers.bind(intent),
       granted: (viewer) => this.viewers.granted(viewer),
+      why: (viewer) => this.viewers.why(viewer),
       poster: (viewer) => this.viewers.poster(viewer),
       configure: (viewer, viewport, audio) => this.viewers.configure(viewer, viewport, audio),
       pause: (viewer, paused) => this.viewers.pause(viewer, paused),
@@ -163,8 +208,8 @@ export class MediaRuntime {
     };
   }
 
-  /** A media setting changed: routes move, and sources follow. */
-  settingsChanged(): void {
+  /** Routes are worked out again and every source follows: after sources are added at start. */
+  reroute(): void {
     this.routes.update();
     this.sources.routesChanged(sourceKinds);
   }
@@ -173,4 +218,18 @@ export class MediaRuntime {
     this.#stopLinks();
     this.supervisor.dispose();
   }
+}
+
+/**
+ * Why sources can't stream, as their live views say it: ace-media is unavailable (with its
+ * reason) or restarting after a failure. Undefined while it is up or only starting.
+ */
+export function mediaDownReason(snapshot: MediaSnapshot): string | undefined {
+  if (snapshot.phase === "unavailable")
+    return snapshot.unavailableReason
+      ? `ace-media is unavailable: ${snapshot.unavailableReason}`
+      : "ace-media is unavailable";
+  if (snapshot.phase === "running") return undefined;
+  const failed = snapshot.lastExit !== undefined && snapshot.lastExit.cause !== "idle";
+  return snapshot.phase === "backoff" || failed ? restartingReason : undefined;
 }

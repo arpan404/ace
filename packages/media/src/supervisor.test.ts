@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeEgress, encodeEgress } from "./frame.ts";
-import {
-  legacyMediaSettings,
-  mediaBinaryPath,
-  MediaSupervisor,
-  restartDelay,
-} from "./supervisor.ts";
+import { mediaBinaryPath, MediaSupervisor, restartDelay } from "./supervisor.ts";
 import { harness } from "./supervisor-test-support.ts";
 import type { ToMedia } from "./wire.ts";
 
@@ -50,7 +45,8 @@ function egressUnit(payloadBytes: number): Uint8Array {
     payload: new Uint8Array(payloadBytes),
   });
 }
-const picture = (): ToMedia => ({ type: "source.picture", source: "source-1", ageMs: 0, epoch: 0 });
+/** A large normal-lane message as real code sends it: a relay stream's frame. */
+const bulk = (): ToMedia => ({ type: "relay.out", stream: "stream-1" });
 
 async function running(overrides: Parameters<typeof harness>[0] = {}) {
   const h = harness(overrides);
@@ -60,17 +56,18 @@ async function running(overrides: Parameters<typeof harness>[0] = {}) {
   return { ...h, supervisor, release };
 }
 
-describe("MediaSupervisor", () => {
-  it("never starts ace-media while every media setting is legacy", async () => {
-    const h = harness({ settings: () => legacyMediaSettings });
-    const supervisor = new MediaSupervisor(h.options);
-    supervisor.need();
-    await h.clock.advance(120_000);
-    expect(h.host.children).toHaveLength(0);
-    expect(supervisor.snapshot().phase).toBe("disabled");
-    expect(supervisor.health()).toBe("unavailable");
-  });
+/** A control frame of `json` with no payload, as any peer writes it. */
+function rawControl(json: string): Uint8Array {
+  const body = new TextEncoder().encode(json);
+  const bytes = new Uint8Array(8 + body.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 4 + body.length);
+  view.setUint32(4, body.length);
+  bytes.set(body, 8);
+  return bytes;
+}
 
+describe("MediaSupervisor", () => {
   it("starts on first need, authenticates both lanes with init's secret, then listens and replays", async () => {
     const h = harness();
     const supervisor = new MediaSupervisor(h.options);
@@ -96,6 +93,18 @@ describe("MediaSupervisor", () => {
     expect(h.events.replays).toBe(1);
     expect(supervisor.health()).toBe("healthy");
     expect(supervisor.capabilities()?.[0]?.codec).toBe("avc1.640028");
+  });
+
+  it("skips a newer ace-media's message type instead of killing it, and still kills on a malformed known one", async () => {
+    const { host, events, clock } = await running();
+    host.last.stdout.emit(rawControl(JSON.stringify({ type: "source.someday", source: "s1" })));
+    await clock.advance(0);
+    expect(host.last.killed).toBe(false);
+    expect(events.messages).toEqual([]);
+    host.last.stdout.emit(rawControl(JSON.stringify({ type: "source.status", source: "s1" })));
+    await clock.advance(0);
+    expect(host.last.killed).toBe(true);
+    expect(events.exits[0]).toMatchObject({ cause: "protocol" });
   });
 
   it("treats capabilities.changed before ready as a protocol failure and never forwards it", async () => {
@@ -220,7 +229,7 @@ describe("MediaSupervisor", () => {
     const h = await running();
     const stdin = h.host.last.stdin;
     stdin.blocked = true;
-    for (let i = 0; i < 5; i++) h.supervisor.send(picture(), new Uint8Array(1024 * 1024));
+    for (let i = 0; i < 5; i++) h.supervisor.send(bulk(), new Uint8Array(1024 * 1024));
     await h.clock.advance(30_000);
     expect(h.host.last.killed).toBe(false);
     stdin.unblock();
@@ -232,7 +241,7 @@ describe("MediaSupervisor", () => {
   it("kills a child whose normal lane completes no write across six ping intervals", async () => {
     const h = await running();
     h.host.last.stdin.blocked = true;
-    h.supervisor.send(picture(), new Uint8Array(1024));
+    h.supervisor.send(bulk(), new Uint8Array(1024));
     // The 5 s tick first sees the stuck write; six intervals later, at 35 s, it is hung.
     await h.clock.advance(34_999);
     expect(h.host.last.killed).toBe(false);
@@ -350,7 +359,7 @@ describe("MediaSupervisor", () => {
     await h.clock.advance(60_000);
     expect(h.supervisor.snapshot().phase).toBe("stopping");
     h.supervisor.need();
-    expect(h.supervisor.send(picture(), new Uint8Array(1))).toBe(false);
+    expect(h.supervisor.send(bulk(), new Uint8Array(1))).toBe(false);
     expect(h.supervisor.health()).toBe("restarting");
     h.host.last.exit(0, null);
     await h.clock.advance(0);
@@ -404,14 +413,14 @@ describe("MediaSupervisor", () => {
     const h = await running();
     const stdin = h.host.last.stdin;
     stdin.blocked = true;
-    for (let i = 0; i < 20; i++) h.supervisor.send(picture(), new Uint8Array(1024 * 1024));
+    for (let i = 0; i < 20; i++) h.supervisor.send(bulk(), new Uint8Array(1024 * 1024));
     // The egress lane is full too: 4 MiB of frames arriving while the revocation goes out.
     const egress = h.host.last.lane("egress");
     const unit = egressUnit(64 * 1024);
     for (let i = 0; i < 64; i++) egress.source.emit(unit);
     const result = await h.supervisor.revoke({ type: "revoke", id: "r1", issued: 1, device: "d1" });
     expect(result).toBe("answered");
-    expect(stdin.types("normal").filter((t) => t === "source.picture")).toHaveLength(1);
+    expect(stdin.types("normal").filter((t) => t === "relay.out")).toHaveLength(1);
     expect(h.events.egress).toHaveLength(64);
   });
 
@@ -419,7 +428,7 @@ describe("MediaSupervisor", () => {
     const h = await running();
     const stdin = h.host.last.stdin;
     stdin.blocked = true;
-    h.supervisor.send(picture(), new Uint8Array(1024));
+    h.supervisor.send(bulk(), new Uint8Array(1024));
     const keys = new Uint8Array(120).fill(0xaa);
     h.supervisor.send(viewerOpen("v1", owner("d1"), 5));
     h.supervisor.send(
@@ -555,7 +564,7 @@ describe("MediaSupervisor", () => {
       sources: ["s1"],
       recordings: ["rec-1"],
     });
-    expect(h.supervisor.send(picture(), new Uint8Array(1))).toBe(false);
+    expect(h.supervisor.send(bulk(), new Uint8Array(1))).toBe(false);
   });
 });
 

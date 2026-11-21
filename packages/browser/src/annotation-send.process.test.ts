@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { decodedPixels } from "./media-image-test-support.ts";
 import { BrowserAnnotationCapture } from "@ace/protocol";
 import { designTokens } from "@ace/design-tokens";
 import { sharedAnnotationFixture, executablePath, isColour } from "./annotation-test-support.ts";
@@ -17,9 +18,10 @@ async function sendButton(
 ): Promise<{ x: number; y: number }> {
   const width = Number(await person.evaluate("innerWidth"));
   const height = Number(await person.evaluate("innerHeight"));
-  const { default: sharp } = await import("sharp");
   const shot = Buffer.from(await f.service.screenshot("thread"));
-  const { data, info } = await sharp(shot).raw().toBuffer({ resolveWithObject: true });
+  const decoded = await decodedPixels(shot);
+  const { data } = decoded;
+  const info = { width: decoded.width, channels: 4 };
   const scale = info.width / width;
   // The bar sits 16 px above the bottom and is 42 px tall: its middle row. Send is 30 px tall
   // and its 16 px icons and 13 px label leave the row 10 px above the middle clear.

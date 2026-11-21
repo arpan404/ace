@@ -1,7 +1,8 @@
 import { FrameHub, framePacket } from "@ace/screen";
 import { DeviceLogs } from "../src/index.ts";
 import { performance } from "node:perf_hooks";
-import { encodePicture, StreamAssembler, streamKinds } from "@ace/browser/stream";
+import { StreamAssembler, streamKinds } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import { framePicture } from "@ace/screen";
 import { JpegDecoder } from "../src/jpeg.ts";
 const payload = Buffer.alloc(128 * 1024);

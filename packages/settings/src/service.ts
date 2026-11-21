@@ -22,8 +22,6 @@ import { fileIO, scheduler, type FileIO, type Scheduler } from "./io.ts";
  */
 const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
   "computer.lockedUse",
-  "media.encode",
-  "media.delivery",
   "spade.enabled",
   "beta.spade",
   "beta.marketplace",

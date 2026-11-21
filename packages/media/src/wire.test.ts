@@ -3,12 +3,14 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import {
   ToMedia,
+  unknownFromMedia,
   FromMedia,
   controlLane,
   encodeControl,
   decodeToMedia,
   decodeFromMedia,
 } from "@ace/media/wire";
+import { imagePayloadBytes } from "@ace/media/image-wire";
 const directory = new URL("../../../native/media/vectors/control/", import.meta.url);
 const Fixture = z.strictObject({
   direction: z.enum(["ToMedia", "FromMedia"]),
@@ -31,9 +33,11 @@ test("every control variant has a shared fixture and survives its binary lane", 
         ? 32
         : message.type === "relay.keys"
           ? 120
-          : message.type === "listen" && message.remote
-            ? message.remote.certificateBytes + message.remote.keyBytes
-            : 0,
+          : message.type === "image.job"
+            ? imagePayloadBytes(message.inputs)
+            : message.type === "listen" && message.remote
+              ? message.remote.certificateBytes + message.remote.keyBytes
+              : 0,
     );
     const lane = controlLane(message.type),
       parts = encodeControl(message, payload, lane);
@@ -49,6 +53,30 @@ test("every control variant has a shared fixture and survives its binary lane", 
   expect(seen.FromMedia).toEqual(
     new Set(FromMedia.options.map((option) => option.shape.type.value)),
   );
+});
+/** A control frame of `json` with no payload, as any peer writes it. */
+function rawControl(json: string): Uint8Array {
+  const body = new TextEncoder().encode(json);
+  const bytes = new Uint8Array(8 + body.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 4 + body.length);
+  view.setUint32(4, body.length);
+  bytes.set(body, 8);
+  return bytes;
+}
+
+test("a newer ace-media's message type is recognised as unknown; a malformed known one isn't", () => {
+  expect(
+    unknownFromMedia(
+      rawControl(JSON.stringify({ type: "source.someday", source: "s1" })),
+      "normal",
+    ),
+  ).toBe(true);
+  expect(
+    unknownFromMedia(rawControl(JSON.stringify({ type: "source.status", source: "s1" })), "normal"),
+  ).toBe(false);
+  expect(unknownFromMedia(rawControl(JSON.stringify({ source: "s1" })), "normal")).toBe(false);
+  expect(unknownFromMedia(new Uint8Array(3), "normal")).toBe(false);
 });
 test("control boundaries reject malformed grants while opaque metadata retains unknown fields", () => {
   const metadata = {

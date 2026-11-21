@@ -7,7 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MediaRuntime } from "@ace/media/runtime";
-import { legacyMediaSettings, nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import type { FromMedia, ToMedia } from "@ace/media/wire";
 import { DeviceId, type ClientMessage } from "@ace/protocol";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
@@ -16,7 +16,7 @@ import { startFilesRelay } from "../files-relay.ts";
 import { RemoteAuth } from "../remote-auth.ts";
 import { Store } from "../store.ts";
 import { MediaRelayStreams } from "./streams.ts";
-import { tabProducer } from "./testing-producer.ts";
+import { deviceProducer, stillDeviceProducer, tabProducer } from "./testing-producer.ts";
 import { StreamAssembler, decodeStreamMessage } from "@ace/browser/stream";
 
 export const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
@@ -105,8 +105,7 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
     binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => ({ ...legacyMediaSettings, encode: "auto", delivery: "auto" }),
-    capabilities: { ingest: ["tab"], recordings: false, stills: false, delivery: true },
+    capabilities: { ingest: ["tab", "scrcpy"], delivery: true },
     host: nodeMediaHost(
       { ...process.env, ...(tls ? { SSL_CERT_FILE: tls.trust } : {}) },
       (path) => ({ command: path, args: [] }),
@@ -226,8 +225,40 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
       },
     };
   }
+  /**
+   * An Android device producing into ace-media (`still`: one whose screen doesn't change), and a
+   * view of it bound to a relay connection.
+   */
+  function androidDevice(deviceId: string, still = false) {
+    const stillOne = still ? stillDeviceProducer(deviceId) : undefined;
+    const producer = stillOne ?? deviceProducer(deviceId);
+    cleanups.push(() => producer.stop());
+    const source = runtime.sources.add(producer);
+    return {
+      source,
+      /** The keyframes ace-media asked a still device for. */
+      asked: () => stillOne?.asked() ?? 0,
+      bind(connection: string): string | undefined {
+        return runtime.viewers.bind({
+          requester: {
+            session: "s1",
+            device: phone.deviceId,
+            admission: { kind: "pairing", generation: "g1" },
+          },
+          connection,
+          target: { kind: "device", deviceId },
+          codecs: ["avc1.42E033"],
+          viewport: { width: 390, height: 844, dpr: 3, scale: 1 },
+          local: false,
+          audio: false,
+          shows: (p) => p.deviceId === deviceId,
+        });
+      },
+    };
+  }
   return {
     tab,
+    device: androidDevice,
     firstChunk,
     runtime,
     supervisor,

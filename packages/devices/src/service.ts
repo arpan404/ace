@@ -36,6 +36,7 @@ import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
 import { SimAgentState } from "./sim-state.ts";
 import { oneOffFrame } from "./one-off-screenshot.ts";
+import { StillTooLarge } from "./simulator-frames.ts";
 import { deviceTouch } from "./touch-support.ts";
 
 /** Expected refusals a person can act on; anything else is a fault worth a warning. */
@@ -141,7 +142,6 @@ export class DevicesService {
         !session.startup &&
         !session.stopping &&
         !session.recording &&
-        !session.recordingOpening &&
         !session.recordingClosing &&
         !session.completed &&
         !session.logs.running &&
@@ -203,6 +203,7 @@ export class DevicesService {
       error: session.error,
       activity: session.activity,
       posture: session.posture,
+      video: session.video,
     });
   }
   /** Reads a foldable device's posture again; viewers hear when it changed. */
@@ -813,6 +814,12 @@ export class DevicesService {
       // ace-media asks for the stream its views need: one more owner of the device's common
       // stream budget, as each viewer is.
       // Set and removed through the stream control, which applies them in order.
+      videoStatus: (session, video) => {
+        if (JSON.stringify(session.video) === JSON.stringify(video)) return;
+        if (video) session.video = video;
+        else delete session.video;
+        this.emit(session);
+      },
       mediaWant: (session, settings) => {
         const update: Promise<unknown> = settings
           ? this.watchWith(session, "ace-media", settings)
@@ -830,6 +837,10 @@ export class DevicesService {
   }
   private stop(session: DeviceSession): Promise<void> {
     return stopDevice(session, this.lifecycleOwner());
+  }
+  /** How an agent's screenshot is fitted to the model (ADR 0208). */
+  modelImages(): import("@ace/mcp-server").ModelImageRuntime {
+    return this.options.platform.modelImages();
   }
   async screenshot(id: string, actor: Actor): Promise<Frame> {
     const session = await this.session(id);
@@ -850,18 +861,39 @@ export class DevicesService {
       this.authorize(session, actor);
       return oneOffFrame(shot, this.options.runtime);
     }
-    if (session.latest.header.codec === "h264") {
-      // Someone is watching: the live view stays video, and the still comes from the device.
-      const shot = await this.options.platform.screenshot(session.device, () =>
-        this.authorize(session, actor),
-      );
+    if (session.latest.header.codec === "h264" || session.liveVideo) {
+      // Someone is watching: the live view stays video. ace-media has its stream and makes the
+      // still, fenced and scaled there; when it can't (it isn't reading the device now, or its
+      // decoder isn't on this platform), the device's own screenshot. The capture's own stills
+      // stopped when video took it, so the last one may be stale.
+      const shot =
+        (await session.capture?.mediaStill?.()) ??
+        (await this.options.platform.screenshot(session.device, () =>
+          this.authorize(session, actor),
+        ));
       this.authorize(session, actor);
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
       return oneOffFrame(shot, this.options.runtime);
     }
     if (session.capture?.still) {
       // Stills come on demand while nobody watches: make one of the screen as it is now.
-      await session.capture.still();
+      const fits = await session.capture.still().then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof StillTooLarge) return false;
+          throw error;
+        },
+      );
+      if (!fits) {
+        // The picture is over the frame's bounds and nothing here scales it: the device's own
+        // screenshot, fitted on the model-image path.
+        const shot = await this.options.platform.screenshot(session.device, () =>
+          this.authorize(session, actor),
+        );
+        this.authorize(session, actor);
+        if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
+        return oneOffFrame(shot, this.options.runtime);
+      }
       this.authorize(session, actor);
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
     }
@@ -886,7 +918,17 @@ export class DevicesService {
       async (settings) => {
         this.authorize(session, { kind: "human", owner: "capture" });
         if (session.lifecycle !== "live") throw new Error("Device stream stopped");
-        return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
+        // Live video comes only from ace-media: without it a view that asks is told why.
+        if (settings.codec === "h264" && !this.options.media && !session.video) {
+          session.video = {
+            status: "unavailable",
+            reason: "ace-media isn't available on this computer",
+          };
+          this.emit(session);
+        }
+        const result = (await session.capture?.configure?.(settings)) ?? { codec: "jpeg" as const };
+        session.liveVideo = result.codec === "h264";
+        return result;
       },
       () => (session.capture?.still ? deviceStillStream : deviceImageStream),
     );
