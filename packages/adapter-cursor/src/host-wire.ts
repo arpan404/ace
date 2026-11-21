@@ -115,26 +115,33 @@ export function hostWire(
     await writer.send(line, Buffer.byteLength(line));
   };
   let outbound = 0;
-  const acknowledgements = new Map<
-    string,
-    { resolve(): void; reject(reason: string): void; timer: ReturnType<typeof setTimeout> }
-  >();
-  const confirmed = async (method: string, params: unknown, timeoutMs = 300_000) => {
+  const acknowledgements = new Map<string, { resolve(): void; reject(reason: string): void }>();
+  /**
+   * `remaining` says how long ace may still take to store this frame. It is asked again at least
+   * once a second, so a shorter deadline that starts later (a cancel) still bounds the wait.
+   */
+  const confirmed = async (method: string, params: unknown, remaining: () => number) => {
     if (acknowledgements.size >= 32) throw new Error("SDK storage acknowledgements exceed budget");
     const id = `host:${++outbound}`;
     const completion = Promise.withResolvers<void>();
     void completion.promise.catch(() => {});
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const left = remaining();
+      if (left > 0) {
+        timer = setTimeout(arm, Math.min(left, 1000));
+        return;
+      }
       acknowledgements.delete(id);
       completion.reject(
         new Error("ace took too long to store a Cursor SDK frame (acknowledgement expired)"),
       );
-    }, timeoutMs);
+    };
     acknowledgements.set(id, {
       resolve: () => completion.resolve(),
       reject: (reason) => completion.reject(new Error(reason)),
-      timer,
     });
+    arm();
     try {
       await send({ jsonrpc: "2.0", id, method, params });
       await completion.promise;

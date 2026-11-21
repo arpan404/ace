@@ -38,7 +38,6 @@ export class HostRuntime {
   private openingDone: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
   private sending = false;
-  private cancelling = false;
   private options: OpenOptions | undefined;
   private sendOptions: SendOptions | undefined;
   private callbacks = 0;
@@ -53,15 +52,24 @@ export class HostRuntime {
   private scrub = createRedactor({});
   private sdk: RuntimeSdkBoundary;
   private env: NodeJS.ProcessEnv;
-  private emit: (frame: CursorEnvelope) => Promise<void>;
+  private emit: (frame: CursorEnvelope, remaining: () => number) => Promise<void>;
   private home: () => string;
+  private now: () => number;
+  /** When each request in flight stops being waited for, on `now`'s clock. */
+  private deadlines: number[] = [];
+  /**
+   * `emit` stores one frame; `remaining` says how long ace may still take to store it before
+   * the host fences the turn.
+   */
   constructor(
     sdk: RuntimeSdkBoundary,
-    emit: (frame: CursorEnvelope) => Promise<void>,
+    emit: (frame: CursorEnvelope, remaining: () => number) => Promise<void>,
     home = homedir,
     env: NodeJS.ProcessEnv = process.env,
+    now: () => number = () => performance.now(),
   ) {
     this.home = home;
+    this.now = now;
     this.env = env;
     this.sdk = sdk;
     this.emit = emit;
@@ -73,20 +81,22 @@ export class HostRuntime {
       ACE_MCP_BEARER: this.options?.mcp?.bearer,
     });
   }
+  /** A request's deadline, counted from when it arrived; the returned call ends it. */
+  private within(ms: number): () => void {
+    const deadline = this.now() + ms;
+    this.deadlines.push(deadline);
+    return () => {
+      this.deadlines.splice(this.deadlines.indexOf(deadline), 1);
+    };
+  }
   /**
-   * How long ace may take to store one frame. A frame stored inside a request never waits past
-   * that request's own deadline, after which ace has already stopped waiting for it.
+   * The storage budget of one frame: ackTimeoutMs from now, never past the deadline of any
+   * request in flight, including one that starts while the frame waits (ace has stopped waiting
+   * by then).
    */
-  get acknowledgementTimeoutMs(): number | undefined {
-    const limits = this.options?.limits;
-    if (!limits) return undefined;
-    const request =
-      this.opening || this.cancelling || this.closing
-        ? limits.timeoutMs
-        : this.sending
-          ? limits.sendTimeoutMs
-          : Infinity;
-    return Math.min(limits.ackTimeoutMs, request);
+  private acknowledgementBudget(): () => number {
+    const own = this.now() + (this.options?.limits.ackTimeoutMs ?? 300_000);
+    return () => Math.min(own, ...this.deadlines) - this.now();
   }
   private async frame(
     kind: CursorEnvelope["kind"],
@@ -143,7 +153,10 @@ export class HostRuntime {
         body: safe,
         ...(prepared.raw ? { raw: prepared.raw } : {}),
       };
-      await this.emit(this.journal ? await this.journal.append(envelope) : envelope);
+      await this.emit(
+        this.journal ? await this.journal.append(envelope) : envelope,
+        this.acknowledgementBudget(),
+      );
     } catch (error) {
       await this.overflow(scope, error);
       throw error;
@@ -157,26 +170,31 @@ export class HostRuntime {
     this.transportFenced = true;
     // A failed journal/oversized callback cannot carry its own failure. This small
     // emergency frame fences the parent, which owns cancellation and process exit.
-    await this.emit({
-      schemaVersion: 1,
-      generation: this.options.generation,
-      operationId: scope?.operationId ?? "open",
-      segment: scope?.segment ?? 0,
-      kind: "error",
-      body: {
-        code: "boundary_overflow",
-        message: `SDK boundary failed: ${this.errorMessage(error).slice(0, 512)}. Execution is fenced; checkpoint retained. Inspect delivery before sending again.`,
+    await this.emit(
+      {
+        schemaVersion: 1,
+        generation: this.options.generation,
+        operationId: scope?.operationId ?? "open",
+        segment: scope?.segment ?? 0,
+        kind: "error",
+        body: {
+          code: "boundary_overflow",
+          message: `SDK boundary failed: ${this.errorMessage(error).slice(0, 512)}. Execution is fenced; checkpoint retained. Inspect delivery before sending again.`,
+        },
       },
-    });
+      this.acknowledgementBudget(),
+    );
   }
   async open(value: unknown): Promise<{ agentId: string }> {
     if (this.opening || this.agent || this.closing) throw new Error("Host already open or closing");
     this.opening = true;
     const opened = Promise.withResolvers<void>();
     this.openingDone = opened.promise;
+    let leave: (() => void) | undefined;
     try {
       const options = Open.parse(value);
       this.options = options;
+      leave = this.within(options.limits.timeoutMs);
       this.shellStreams = new ShellStreams(options.limits.maxIdentities);
 
       if (this.env.CURSOR_API_KEY === "")
@@ -220,7 +238,9 @@ export class HostRuntime {
           quota,
         },
       );
-      await journal.recover(options.afterFrameOffset, (frame) => this.emit(frame));
+      await journal.recover(options.afterFrameOffset, (frame) =>
+        this.emit(frame, this.acknowledgementBudget()),
+      );
       this.journal = journal;
       let recoveryBytes = 0;
       this.scrub = createRedactor(
@@ -321,6 +341,7 @@ export class HostRuntime {
             ...recovery,
             body,
           }),
+          this.acknowledgementBudget(),
         );
       }
       return { agentId: this.agent.agentId };
@@ -340,6 +361,7 @@ export class HostRuntime {
       }
       throw new Error("SDK setup failed", { cause: error });
     } finally {
+      leave?.();
       this.opening = false;
       this.openingDone = undefined;
       opened.resolve();
@@ -380,6 +402,7 @@ export class HostRuntime {
     }
     this.sending = true;
     this.sendOptions = input;
+    const leave = this.within(this.options.limits.sendTimeoutMs);
     try {
       await checkCheckpointBudget(this.root, this.options.limits.maxCheckpointBytes);
       await this.frame("send", { input: input.input });
@@ -414,6 +437,7 @@ export class HostRuntime {
       });
       throw new Error("SDK send uncertain", { cause: error });
     } finally {
+      leave();
       this.sending = false;
     }
   }
@@ -462,14 +486,14 @@ export class HostRuntime {
   }
   async cancel(): Promise<void> {
     if (this.sending) throw new Error("Cannot prove cancellation during SDK admission");
-    if (!this.run) return;
-    this.cancelling = true;
+    if (!this.run || !this.options) return;
+    const leave = this.within(this.options.limits.timeoutMs);
     try {
       await this.run.cancel();
       await this.completion;
       await this.frame("cancel", { settled: true });
     } finally {
-      this.cancelling = false;
+      leave();
     }
   }
   close(): Promise<void> {
@@ -489,6 +513,8 @@ export class HostRuntime {
   }
   private async dispose(): Promise<void> {
     await this.openingDone;
+    // ace waits graceMs for a close before it stops the host.
+    const leave = this.options ? this.within(this.options.limits.graceMs) : () => {};
     try {
       try {
         if (this.run) await this.cancel();
@@ -513,6 +539,7 @@ export class HostRuntime {
       }
       this.storeOwner = undefined;
       this.agent = undefined;
+      leave();
     }
   }
 }

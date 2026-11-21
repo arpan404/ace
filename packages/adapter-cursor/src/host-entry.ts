@@ -118,7 +118,7 @@ const wire = hostWire(async (method, params) => {
           process.platform === "linux" ? () => explainSandboxRefusal() : undefined,
         ),
     },
-    (frame) => wire.confirmed("frame", frame, runtime?.acknowledgementTimeoutMs),
+    (frame, remaining) => wire.confirmed("frame", frame, remaining),
   );
   if (method === "open") return runtime.open(params);
   if (method === "configure") return runtime.configure(params);
