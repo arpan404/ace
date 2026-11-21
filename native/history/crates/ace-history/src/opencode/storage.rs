@@ -20,7 +20,7 @@ use crate::import::source::{Native, Raw, Records};
 use crate::json::{field, object, string, timestamp};
 use crate::options::Home;
 use crate::paths::{basename, text};
-use crate::snapshot::SnapshotScratch;
+use crate::snapshot::{SnapshotScratch, WorkDir};
 
 const INVENTORY: usize = 100_000;
 const UNREADABLE: &str = "A saved OpenCode message is too large or unreadable. Open this conversation in OpenCode to recover its history.";
@@ -93,47 +93,120 @@ struct Header {
     bytes: u64,
 }
 
-/// `orderedMessages`: every message file's record into a private SQLite file, then out in
-/// `(time.created, file name)` order.
-fn sort_messages(home: &Home, root: &Path, db: &Connection, cancel: &Cancel) -> Result<()> {
+/// Messages held in memory before they spill to a private SQLite file: most sessions have a few,
+/// and a file per session costs more than reading it. Both sort by `(time.created, file name)`,
+/// ties in walk order, as `orderedMessages` did.
+const SPILL_COUNT: usize = 256;
+const SPILL_BYTES: u64 = 1024 * 1024;
+
+/// A session's messages, sorted in memory or on disk.
+enum Sorted {
+    Memory(Vec<(i64, String, Header)>),
+    Disk(Connection, WorkDir),
+}
+
+fn spill(
+    scratch: &SnapshotScratch,
+    held: Vec<(i64, String, Header)>,
+) -> Result<(Connection, WorkDir)> {
+    let stage = scratch.work_dir("storage-order")?;
+    let db = Connection::open(stage.path().join("order.sqlite"))?;
     db.execute_batch(
         "PRAGMA cache_size=-2048;CREATE TABLE entries(at INTEGER NOT NULL,id TEXT NOT NULL,path TEXT PRIMARY KEY,value TEXT NOT NULL,bytes INTEGER NOT NULL);BEGIN",
     )?;
-    {
-        let mut insert = db.prepare("INSERT INTO entries VALUES(?1,?2,?3,?4,?5)")?;
-        let mut count = 0;
-        walk_files(root, cancel, &mut Budget::default(), &mut |path| {
-            cancel.check()?;
-            let sample = read_head_tail(&home.home_dir, path, cancel)?;
-            if !sample.exact || sample.records.len() != 1 {
-                return Err(Error::message(UNREADABLE));
-            }
-            count += 1;
-            if count > INVENTORY {
-                return Err(Error::message("Legacy storage inventory limit exceeded"));
-            }
-            let record = &sample.records[0];
-            let at =
-                timestamp(field(object(field(object(record), "time")), "created")).unwrap_or(0);
-            insert.execute(params![
-                at,
-                basename(path, ""),
-                text(path),
-                record.to_string(),
-                sample.bytes as i64
-            ])?;
-            Ok(())
-        })?;
+    for (at, name, header) in held {
+        insert(&db, at, &name, &header)?;
     }
-    db.execute_batch("COMMIT;CREATE INDEX entry_order ON entries(at,id)")?;
+    Ok((db, stage))
+}
+
+fn insert(db: &Connection, at: i64, name: &str, header: &Header) -> Result<()> {
+    db.prepare_cached("INSERT INTO entries VALUES(?1,?2,?3,?4,?5)")?
+        .execute(params![
+            at,
+            name,
+            text(&header.path),
+            header.value.to_string(),
+            header.bytes as i64
+        ])?;
     Ok(())
 }
 
+/// `orderedMessages`: every message file's single record, in `(time.created, file name)` order.
+fn sort_messages(
+    home: &Home,
+    root: &Path,
+    scratch: &SnapshotScratch,
+    cancel: &Cancel,
+) -> Result<Sorted> {
+    let mut held: Vec<(i64, String, Header)> = Vec::new();
+    let mut held_bytes = 0u64;
+    let mut disk: Option<(Connection, WorkDir)> = None;
+    let mut count = 0;
+    walk_files(root, cancel, &mut Budget::default(), &mut |path| {
+        cancel.check()?;
+        let sample = read_head_tail(&home.home_dir, path, cancel)?;
+        if !sample.exact || sample.records.len() != 1 {
+            return Err(Error::message(UNREADABLE));
+        }
+        count += 1;
+        if count > INVENTORY {
+            return Err(Error::message("Legacy storage inventory limit exceeded"));
+        }
+        let mut records = sample.records;
+        let value = records.pop().unwrap_or_default();
+        let at = timestamp(field(object(field(object(&value), "time")), "created")).unwrap_or(0);
+        let header = Header {
+            path: path.to_owned(),
+            value,
+            bytes: sample.bytes,
+        };
+        let name = basename(path, "");
+        match &disk {
+            Some((db, _)) => insert(db, at, &name, &header)?,
+            None => {
+                held_bytes += header.bytes;
+                held.push((at, name, header));
+                if held.len() > SPILL_COUNT || held_bytes > SPILL_BYTES {
+                    disk = Some(spill(scratch, std::mem::take(&mut held))?);
+                }
+            }
+        }
+        Ok(())
+    })?;
+    Ok(match disk {
+        Some((db, stage)) => {
+            db.execute_batch("COMMIT;CREATE INDEX entry_order ON entries(at,id)")?;
+            Sorted::Disk(db, stage)
+        }
+        None => {
+            // Stable: equal keys keep walk order, as SQLite's index kept insertion order.
+            held.sort_by(|a, b| {
+                a.0.cmp(&b.0)
+                    .then_with(|| a.1.as_bytes().cmp(b.1.as_bytes()))
+            });
+            Sorted::Memory(held)
+        }
+    })
+}
+
 fn each_message(
-    db: &Connection,
+    sorted: Sorted,
     cancel: &Cancel,
     each: &mut dyn FnMut(Header) -> bool,
 ) -> Result<()> {
+    let (db, _stage) = match sorted {
+        Sorted::Memory(held) => {
+            for (_, _, header) in held {
+                cancel.check()?;
+                if !each(header) {
+                    break;
+                }
+            }
+            return Ok(());
+        }
+        Sorted::Disk(db, stage) => (db, stage),
+    };
     let mut rows = db.prepare("SELECT path,value,bytes FROM entries ORDER BY at,id")?;
     let mut rows = rows.query([])?;
     while let Some(row) = rows.next()? {
@@ -205,15 +278,13 @@ pub fn records<'a>(
     cancel: &Cancel,
     limit: usize,
 ) -> Result<Records<'a>> {
-    let stage = scratch.work_dir("storage-order")?;
-    let (home, cancel) = (home.clone(), cancel.clone());
+    let (home, cancel, scratch) = (home.clone(), cancel.clone(), scratch.clone());
     let root = home.home_dir.join("storage/message").join(native_id);
     let produced: Threaded = threaded(move |emit| {
         let mut run = || -> Result<()> {
-            let db = Connection::open(stage.path().join("order.sqlite"))?;
-            sort_messages(&home, &root, &db, &cancel)?;
+            let sorted = sort_messages(&home, &root, &scratch, &cancel)?;
             let mut failed = None;
-            each_message(&db, &cancel, &mut |header| {
+            each_message(sorted, &cancel, &mut |header| {
                 let native = Native {
                     bytes: header.bytes,
                     kind: RecordKind::Value(header.value.clone()),
@@ -238,7 +309,6 @@ pub fn records<'a>(
         if let Err(error) = run() {
             emit(Err(error));
         }
-        drop(stage);
     });
     Ok(Box::new(produced))
 }

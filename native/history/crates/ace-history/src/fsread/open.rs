@@ -78,8 +78,11 @@ pub fn safe_open(home: &Path, path: &Path) -> Result<File> {
     let rel = relative(home, path)?;
     crate::hooks::at_path("safe-open", &rel);
     let root = root(home)?;
-    let parent = root
-        .open_parent_unlinked(&rel)
+    // The folder above the leaf, walked from the home's handle refusing any link. Our paths come
+    // from our own walks, so their spelling is the stored one and none is looked up again.
+    let (folder, leaf) = rel.rsplit_once('/').unwrap_or(("", rel.as_str()));
+    let dir = root
+        .open_dir_unlinked(folder)
         .map_err(|e| refused(e, path))?;
     let mut options = cap_std::fs::OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
@@ -89,7 +92,7 @@ pub fn safe_open(home: &Path, path: &Path) -> Result<File> {
         use cap_std::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK);
     }
-    let file = match parent.dir.open_with(&parent.name, &options) {
+    let file = match dir.open_with(leaf, &options) {
         Ok(file) => file.into_std(),
         // ELOOP: the leaf itself is a link.
         #[cfg(unix)]

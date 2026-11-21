@@ -82,6 +82,7 @@ fn owner(name: &str) -> Option<i32> {
     pid.parse().ok()
 }
 
+#[derive(Clone)]
 pub struct SnapshotScratch {
     pub root: PathBuf,
     policy: Policy,
