@@ -1,27 +1,34 @@
 # 0209: Members of an organization work in projects and threads on one shared org host
 
 Status: proposed. Date: 2026-11-21. Asked for by the owner (2026-11-21: build ADR 0206 §2.4's
-phase 3, coding threads on org hosts). Nothing here is built until the owner approves it; the
-decisions that need the owner are listed at the end, each with a recommendation.
+phase 3, coding threads on org hosts). Revised the same day after a security review of #2511.
+Nothing here is built until the owner approves it; the decisions that need the owner are listed
+at the end, each with a recommendation.
 
 Amends:
 
 - [ADR 0206](0206-organizations-on-workos.md) §2.2 (what a member may do on an org host), §2.4
-  (made concrete; private threads wait for the member boundary, §5), §3 (four narrowing policy
-  keys) and §6 (a former member's private threads are never transferred).
+  (made concrete: private threads wait for the member boundary, §9), §3 (one narrowing policy
+  block) and §6 (a former member's private threads are never transferred; stopping their work is
+  bounded by execution leases, not by socket expiry).
 - [ADR 0190](0190-a-machine-keeps-a-machine-credential.md): on an org host the threat model's
-  "out of scope" list (writing `ACE_HOME`, replacing the daemon) is in scope for every member
-  but its owners, because members' agents run on the same machine. §2 says what holds that line.
+  out-of-scope attacker (writing `ACE_HOME`, replacing the daemon) is any member who can run code
+  there. §1 says which guarantees survive that, and in which phase.
 - [ADR 0079](0079-shared-provider-processes.md): on an org host the provider process pool is also
   keyed by the thread's owner.
+- [ADR 0155](0155-relay-connect-in-one-round-trip.md)'s early reads: on an org host they answer nothing for
+  a member admission.
+- [ADR 0115](0115-one-device-one-machine.md), [ADR 0101](0101-work-on-another-machine.md) and
+  [ADR 0192](0192-transfers-over-every-machine-route.md): pairing, fleet links and transfers are
+  refused between an org host and anything outside its organization, at both ends.
 
 Builds on [ADR 0002](0002-local-cli-providers.md) (providers only through installed, logged-in
-CLIs), [ADR 0018](0018-accounts-and-session-portability.md) (provider account homes),
-[ADR 0111](0111-account-machine-access.md) (grants, machine codes),
-[ADR 0167](0167-spade-security-boundaries.md) and [ADR 0171](0171-spade-decides-on-effects.md)
-amendment 7 (Permissions switches), [ADR 0170](0170-daemon-never-blocks-on-history-sized-work.md)
-(no history-sized work at open), [ADR 0182](0182-agents-send-data-to-each-other.md) (data along
-the agent tree), [ADR 0186](0186-the-daemon-outlives-the-app.md) and
+CLIs; ace never proxies provider credentials), [ADR 0018](0018-accounts-and-session-portability.md)
+(provider account homes, portable handoff), [ADR 0111](0111-account-machine-access.md) (grants,
+machine codes), [ADR 0167](0167-spade-security-boundaries.md) and
+[ADR 0171](0171-spade-decides-on-effects.md) (decision 2's typed push; amendment 7's Permissions),
+[ADR 0170](0170-daemon-never-blocks-on-history-sized-work.md),
+[ADR 0182](0182-agents-send-data-to-each-other.md) (parcels) and
 [ADR 0198](0198-address-bots-clubs-and-agents-from-a-thread.md) (`@` bots from a thread).
 
 ## Context
@@ -36,186 +43,355 @@ member grant, proves its standing the way a person's does (`provenMemberStanding
 `apps/daemon/src/account-access/member-grant.ts`), and then reaches Spade and nothing else: the
 actor is `spadeOnly` with `read` and `operate` (`relay-hello.ts` `accountDeviceActor`). Owners of
 the organization hold the host as an account device does, and its shell (terminal, `files.*`)
-needs their proven `host:shell` (`org-socket.ts` `hostShellMessage`). Shared bots carry their own
-access lists inside Spade, and an answer for one carries a member stamp.
+needs their proven `host:shell` (`org-socket.ts` `hostShellMessage`).
 
 Coding threads are different in kind. A thread's agent runs a provider CLI that executes commands
-on the host as the host's operating-system user, reads files, holds a provider login, pushes with
-whatever git credentials the host has, opens browsers and terminals, and asks for approvals. Two
-members' threads on one daemon make the daemon multi-user, and the honest starting fact is this:
+on the host, reads files, holds a provider login, pushes with whatever git credentials it can
+reach, opens browsers and terminals, and asks for approvals. Two facts decide the design:
 
-**On a shared host, every member's agent is the host's OS user.** Whatever access mode a thread
-runs in, its provider CLI and the commands it runs can at least read most of the disk. That
-includes `ACE_HOME` (the host token, so the daemon's whole local authority), every other
-member's worktree, every provider login and every forge sign-in on the machine. ADR 0190 can call
-that reader out of scope because on a personal machine it is the person. On an org host it is
-any member's agent, steered by anything the agent read. Nothing ace checks over a socket closes
-that. Only an OS boundary between members does.
+1. **On a shared host, every member's agent is the host's OS user** unless ace starts it as
+   someone else. Whatever access mode a thread runs in, its provider CLI and its commands can at
+   least read most of the disk.
+2. **The host's OS user controls the daemon.** It reads `ACE_HOME`, so it holds the host token
+   and the daemon's whole local authority. It can write the daemon's database (access rows,
+   approvals, the audit outbox), its settings and its code. Every check ace makes on the host is
+   made by a process that user can change.
 
-So the design has two parts that can ship apart:
-
-- **Who is acting**, and what each of them may do through ace, enforced on the host. This is
-  needed whatever the OS does.
-- **The member boundary**: an OS-level separation between members' processes, without which
-  "private" would be a word, not a fact.
+So any member whose agent runs as the host's user can take over the host, and nothing ace checks
+over a socket changes that. Only an OS boundary between members' processes and the daemon does.
+The design states which guarantees hold without that boundary (phase 1) and which need it
+(phase 2), and never claims the second set for the first.
 
 ## Decision
 
-### 1. Who is acting
+### 1. Two kinds of guarantee, and which phase holds which
 
-Every socket and every request on an org host resolves to one **principal**, decided once per
-message by one pure function (`apps/daemon/src/org-threads/principal.ts`) from what the socket
-proved:
+| Against                                                                          | Phase 1: dedicated host, trusted team                                                                                                                                                                  | Phase 2: member boundary on                                                                                               |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Honest members and intact clients making mistakes (wrong thread, stale tab, bug) | Identity, visibility, owner-only writes, approvals and audit of mediated operations hold (§3–§6)                                                                                                       | Same                                                                                                                      |
+| A hostile member who can't run code on the host (read-only in phase 1)           | Holds: everything they reach goes through the one access policy (§4)                                                                                                                                   | Holds                                                                                                                     |
+| A hostile member who can run code on the host (a trusted member in phase 1)      | **Nothing on the host holds.** Only what lives elsewhere does: audit checkpoints already sent to WorkOS, other hosts, members' personal machines, the backend, and scopes set at the credential issuer | Identity, reads of others' threads, approvals and audit of mediated operations hold: their code runs as their own OS user |
+| The machine's administrators (root), and owners holding `host:shell`             | Never                                                                                                                                                                                                  | Never                                                                                                                     |
 
-| Principal  | How it is proved                                                                                                                                                     | What it is                                                                                                         |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `member`   | A member grant at hello **and** a proven member standing on this socket (`account.standing`, ADR 0206 §2.2), current, under the owner generation it was proven under | That member's account, role and the host's trust list entry (§4). The only principal that owns or acts on threads. |
-| `host`     | The daemon's token file on loopback (`hostCredential()` in `server.ts`)                                                                                              | The host's OS user: runs, updates and triages the daemon. Never a member, owns nothing, answers nothing.           |
-| `agent`    | An ace MCP bearer the daemon minted for one thread's agent                                                                                                           | That thread, acting for its owner with at most the owner's rights, never `act` on another member's tree (§3.5).    |
-| `machine`  | A machine grant or a fleet link (ADR 0105)                                                                                                                           | Another machine. On an org host, only another host of the same organization, for its own delegated children.       |
-| `admitted` | A member grant at hello, standing not yet proven or lapsed                                                                                                           | Nothing member-scoped: the welcome, `account.standing`, Spade's main channel as today.                             |
+**Phase 1's identity, approval and audit guarantees hold only against intact endpoints, never
+against a hostile trusted member.** A guarantee that must survive a hostile member belongs to
+phase 2.
 
-- **Admission is not identity.** A member grant is a five-minute bearer token; ADR 0190 already
-  refused standing from bearer tokens because anyone relaying a socket can replay one. Every
-  thread-scoped action needs the proven standing, and its account must equal the admitted one
-  (`server.ts` checks this for the member branch of `account.standing` today).
-- **Standing lapses close the door, not just the socket.** When a member socket's standing runs
-  out without a fresh proof, the daemon drops every thread subscription that socket holds and
-  sends `thread.access.lost {threadId, reason: "standing"}`; ADR 0111's grace then closes it.
-  A client proves again every few minutes, as today, so this is silent in normal use.
-- **The host token is an operator, not a member.** On an org host it may run the daemon, change
-  host Settings that its owners may change, update and triage. It gets thread metadata (§3.4),
-  never a member thread's content, and never answers an approval, question, plan or browser-help
-  request. It can read the disk, and §6 says so; ace's own surfaces still never hand member
-  content to it, so the app open on the host's own desktop shows a member's threads only after
-  that window proves a member's standing like any other client.
-- **Paired devices on an org host** carry no member. Pairing links on org hosts are refused,
-  and devices paired before enrollment lost their standing when the owner changed (ADR 0190 §3a);
-  they keep machine-level access only. The iPhone joins an org host through the account route
-  (ADR 0206 §1.5).
-- **Personal machines are unchanged.** On a machine whose owner is a person, `principal` returns
-  today's actor and every rule below answers "allowed" for it, so nothing on the personal path
-  moves.
+### 2. Phase 1 is a dedicated, clean host for a trusted team
 
-**Member A can never act as member B** because the only principal that acts is `member`, and
-its account comes from a grant naming A's account, A's device key and this host, signed over this
-socket's nonce and channel binding. B's grant, replayed, fails the proof. B's answers need B's
-proof. A's agent holds a bearer that names A's thread, and §3.5 keeps it inside A's trees.
+#### 2.1 What a trusted member's agent can do
 
-### 2. Deny by default on member sockets
+Said in these words on the host's trusted list page, the guide and this ADR. A trusted member's
+agent, or anything that steers it, can:
 
-Today a member socket reaches Spade only. Widening it to threads is done by an allowlist, not by
-removing the `spadeOnly` check:
+- read the host token and act as the host's operator on every surface;
+- change the daemon's database, settings and code, and so: answer or skip any thread's approvals,
+  write messages and access rows that look like any member's, and read any thread on the host;
+- read every member's worktrees, browser profiles and cookies, and the host's provider, forge and
+  MCP sign-ins;
+- edit or drop audit entries not yet checkpointed, and, where the OS releases the host's
+  keychain to its user (Linux Secret Service, ADR 0190), sign new checkpoints with the audit key.
+  Checkpoints already sent to WorkOS can't be changed.
 
-- `apps/daemon/src/org-threads/member-messages.ts` lists each client message type a member
-  socket may send on an org host, with **how its thread is found** (`threadOf(message)`:
-  `message.threadId`, a turn's thread, a subscription scope's thread, a project for listing) and
-  **the right it needs** (`read`, `act`, `share`, `start`, `stop`).
-- A message type not on the list is refused on a member socket with `forbidden`, whatever it is.
-  A new message type is therefore closed to members until someone classifies it.
-- One check in `server.ts`'s dispatch, beside today's `hostShellMessage` check, runs the
-  principal and the list before any service sees the message. Services keep their
-  `canReadThread` checks; on an org host `canReadThread` is this rule's `read`.
+#### 2.2 Requirements before members can code
 
-### 3. Threads
+The host refuses to turn on member coding unless:
 
-#### 3.1 Ownership and visibility
+- **It was enrolled fresh** (ADR 0206 §2.1, "Recommended setup"): no thread, project, browser
+  profile or provider, forge or MCP sign-in from before enrollment (`before` in `ace-owner.json`
+  owns no tree). A host given to the organization from a person's daily machine can share bots,
+  never coding.
+- **A machine code is set** (ADR 0111), so a backend-minted grant alone doesn't open it.
+- **An org owner confirms the credentials checklist**, recorded as `host.coding_enabled` in the
+  audit log: every sign-in on the host is an organization service account, scoped at its issuer;
+  the forge token reaches only the organization's repositories, with no admin scope; provider
+  accounts are team or API accounts with spending limits; no person's own account, mail or chat.
+  ace can check the first two requirements; this one is the owner's word, and the page says so.
+
+#### 2.3 The trusted list
+
+Kept on the host, changed only from an org owner's proven socket, and audited
+(`host.trust_changed`). Owners of the organization are on it implicitly. Its page says:
+
+> Trusted members can take over this host. Their agents can read and change everything on it,
+> including ace itself, other members' threads, its sign-ins and its recent audit entries. Trust
+> only people you would give this machine's administrator password.
+
+Members who aren't trusted read `org` threads and nothing more. Everything they reach goes
+through the access policy (§4), and phase 1 protects them fully.
+
+Phase 1 ships anyway because a team that would already share one box loses nothing true, and the
+rules it builds (§3–§6) are the ones phase 2 relies on.
+
+### 3. Who is acting
+
+Every request on an org host, on every transport (§4), resolves to one **principal**, decided by
+one pure function (`apps/daemon/src/org-access/principal.ts`) from what the caller proved:
+
+| Principal  | How it is proved                                                                                                                                                | What it is                                                                                                                                |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `member`   | A member grant at admission **and** a member standing proven on this socket or request (ADR 0206 §2.2), current, under the owner generation it was proven under | That member's account and role, their trust entry and their execution lease (§7). The only principal that owns trees or writes into them. |
+| `host`     | The daemon's token, on a socket or as an HTTP bearer                                                                                                            | The host's operator: runs, updates and triages the daemon. Thread metadata only; owns nothing; answers nothing.                           |
+| `agent`    | An ace MCP bearer minted for one tree, bound to that tree and its owner                                                                                         | That tree, for its owner, with at most the owner's rights, and writes only into the owner's own trees (§6).                               |
+| `peer`     | A fleet call from another host of the same organization, carrying a child capability (§6.2)                                                                     | Exactly one child of one tree of one owner.                                                                                               |
+| `admitted` | A member grant, standing not yet proven or lapsed                                                                                                               | Nothing member-scoped.                                                                                                                    |
+
+- **Admission is not identity.** A member grant is a five-minute bearer token, and anyone
+  relaying a socket can replay one (ADR 0190). Every thread-scoped action needs the proven
+  standing, and its account must equal the admitted one.
+- **The host's operator gets no member content** on any transport, including the app open on the
+  host's own desktop until that window proves a member. It can read the disk anyway (§1); ace's
+  own surfaces still never hand content to it.
+- **Personal machines are unchanged.** There, `principal` returns today's actor and the policy
+  allows what today allows.
+
+Member A can't act as member B through ace: B's grant replayed fails the proof, which names this
+socket's nonce and channel binding, and every write needs the owner's proof (§5.2). In phase 1
+that holds only for intact endpoints (§1).
+
+### 4. One access policy for every transport
+
+#### 4.1 The entry points, as they are on origin/main (read 2026-11-21)
+
+| Entry point                    | Where                                                                                                                                  | How it is checked today                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| JSON socket messages           | `server.ts` `receive`: `hostShellMessage`, then each service's `handle`                                                                | Scopes, `canReadThread(device, …)`; members `spadeOnly`                                                                                     |
+| Binary frames                  | `server.ts` `receive` hands them to each service's `binary` (`services/browser.ts`, `services/files.ts`, `services/machine-tunnel.ts`) | **Before** the JSON checks; only "is there a device"                                                                                        |
+| NK early reads                 | `relay-nk/early-reads.ts` `answerEarly`, called during hello (`server.ts`)                                                             | `canRead` on a thread, **before** confirmation and before any standing can be proven                                                        |
+| Dedicated channels             | hello `channel` (tunnel, files, browser)                                                                                               | Refused to non-owner members                                                                                                                |
+| Fan-out                        | broadcasts and subscriptions (`receiveBroadcasts`), notices, push                                                                      | Per device                                                                                                                                  |
+| Attachments and uploads (HTTP) | `attachments-http.ts`, `attachments-upload.ts`                                                                                         | Own bearer (`auth.deviceBearer`, `auth.localBearer`) and `canReadThread(device.id, …)`, keyed by device: the host's bearer reads any thread |
+| Previews (HTTP)                | `preview-http.ts`, `html-preview.ts`                                                                                                   | Own bearer                                                                                                                                  |
+| ace MCP                        | `mcp.ts`: per-thread leases and `addAuthenticator`                                                                                     | Lease names a thread                                                                                                                        |
+| Outside MCP clients            | `external-mcp/` (ADR 0122)                                                                                                             | Own principals, grants and OAuth                                                                                                            |
+| Machine calls                  | fleet links and the machine tunnel (`machine-tunnel/`), parcels (`parcels/`), transfers (`transfers/`, incl. `http.ts`)                | ADR 0105 grants, `TargetThreads.owns` per calling device                                                                                    |
+| Spade                          | `spade.http` proxy, `POST /v1/thread-asks`                                                                                             | Member stamp, daemon signature                                                                                                              |
+| Pairing                        | `fleet.request pairing`, `POST /v1/pairings`, redemption; old paired credentials in `devices`                                          | Person bit per link; old devices keep machine-level scopes                                                                                  |
+
+#### 4.2 The rule
+
+- **One policy, deny by default.** `apps/daemon/src/org-access/` holds
+  `decide(principal, operation, resource)`. On an org host every entry point above resolves its
+  caller through `principal.ts` and asks `decide` before it reads or acts. An entry point that
+  can't name a principal, an operation `decide` doesn't know, or a resource it can't place is
+  denied. A new message type, HTTP route, channel or MCP tool is closed to members until someone
+  classifies it.
+- **Order.** On an org host the decision runs before any service's `handle` or `binary`. A binary
+  frame is taken only on a channel whose opening request `decide` allowed, and only for the
+  resource that opening named.
+- **Early reads.** On an org host `answerEarly` answers nothing for a member admission; its
+  subscribes wait for confirmation and a proven standing.
+- **HTTP.** The bearer resolves to a principal like a socket does. The host's bearer is `host`,
+  so it gets no member attachment, upload or preview. A member's HTTP request carries a proof for
+  that request (ADR 0190 §6's intent proof shape, over method, path and body digest), since HTTP
+  has no socket to have proven on.
+- **Bound to a canonical tree.** Every handle is bound at creation to one tree's root id, fixed
+  then and never re-derived from a later path or id: file streams and uploads, terminals,
+  browser sessions, pages and profiles, MCP bearers, preview tokens, parcels, provider sessions,
+  automation runs and fleet child capabilities. `decide` checks the handle's root, not what a
+  later request says.
+- **Access loss invalidates live handles.** A narrowed visibility, a lapsed standing, a revoked
+  member, a transfer or a stop ends every live handle of that principal on that tree:
+  subscriptions dropped (`thread.access.lost`), streams aborted, terminals closed, browser
+  sessions detached, MCP leases and preview tokens revoked.
+- **Queued effects are rechecked when they run.** A queued message or steer, a scheduled
+  automation run, an approval answer in flight, a delegated child's start, an outbox send: each
+  records the principal that queued it and is checked against current access and that owner's
+  execution lease (§7) right before it runs. One that fails is dropped with a notice to its owner.
+- **Pairing and moves are refused at both ends.**
+  - An org host makes no pairing links and redeems none.
+  - Turning member coding on revokes every paired device credential on the host (ADR 0115
+    revocation, not only standing), so no older bearer reads members' threads.
+  - Fleet links and transfers between an org host and a machine outside its organization are
+    refused by the org host as issuer and as receiver. A personal machine refuses a link or
+    transfer whose peer's signed owner is an organization. An older personal daemon doesn't
+    check, so the org host's refusal is what holds, and a test covers that mix.
+- **One test table** (§Tests) runs every entry point against every principal on another member's
+  resource.
+
+### 5. Threads
+
+#### 5.1 Ownership and visibility
 
 A thread tree has one **owner**, the member whose proven socket started it, and one
-**visibility**. Both belong to the root and are inherited by every descendant: a child never
-differs from its root, so a tree's status (working, waiting, done) is always read whole by
-whoever reads it, and AGENTS.md priority 1 holds for every reader.
+**visibility**. Both belong to the root and are inherited by every descendant, so a tree's status
+(working, waiting, done) is always read whole by whoever reads it, and AGENTS.md priority 1 holds
+for every reader.
 
-| Visibility          | Who reads it through ace                | Who acts in it (message, steer, stop, answer, queue) |
-| ------------------- | --------------------------------------- | ---------------------------------------------------- |
-| `org`               | every member with standing on this host | the owner, and members the owner names with `act`    |
-| `members` (phase 2) | the owner and the members named         | the owner, and named members given `act`             |
-| `private` (phase 2) | the owner only                          | the owner only                                       |
+| Visibility          | Who reads it through ace                |
+| ------------------- | --------------------------------------- |
+| `org`               | every member with standing on this host |
+| `members` (phase 2) | the owner and the members named         |
+| `private` (phase 2) | the owner only                          |
 
-- **No role reads more.** Admins and owners of the organization read a thread only by
-  visibility, like anyone else. ADR 0206 §2.4 stands.
-- **Default.** `org` in phase 1, the only visibility it offers. From phase 2 the default is
-  `private` (ADR 0206 §2.4), and the organization's policy may set it to `org` (§3.6).
-- **Who may share.** Only the owner, from a proven socket. Each change is stored and audited
-  (§3.3).
-- **Narrowing is immediate.** When visibility narrows or a member's `act` is removed, the daemon
-  ends that member's subscriptions to the tree at once (`thread.access.lost`) and stops their
-  pending writes. What they already received stays on their device: ace can't unsend it, and the
-  share menu says so ("They keep what they've already seen").
-- **Threads from before enrollment** keep their person (ADR 0206 §2.1: "they stay theirs"). The
-  enrollment writes the previous owner's account into `ace-owner.json`
-  (`{kind: "org", org, generation, before}`). A tree with no access row is read as owned by
-  `before`, `private`, with no rewrite of any thread (ADR 0170). Until phase 2 those trees are
-  readable by their person only, and only once that person proves a member's standing on the host;
-  if `before` isn't a member, nobody reads them through ace.
+- **No role reads more.** Admins and owners of the organization read by visibility, like anyone.
+- **Default.** `org` in phase 1, the only visibility it offers. From phase 2, `private`, unless
+  the organization's policy sets `org`.
+- **Sharing** is the owner's, from a proven socket; each change is stored and audited (§5.4).
+  Narrowing ends access at once (§4.2). What was already received stays on the reader's device;
+  the share menu says so ("They keep what they've already seen").
 
-#### 3.2 Where it is kept
+#### 5.2 Only the owner writes into a tree
 
-- A daemon table, `thread_access (root_id PRIMARY KEY, owner, visibility, readers, actors,
-  changed_at, changed_by)`, written from an event, `thread.access.changed`, in the same
-  transaction, so a restart reads what was decided and an event replay rebuilds it. The migration
-  is additive: a new table, no default to fill, no index on an existing table.
-- **Enforced on the host, offline.** Every decision reads this table and the socket's proven
-  grant, both local; the backend is never asked. While the backend is unreachable, members whose
-  grants are current keep working and the rules still hold. New sockets can't open once grants
-  run out (minting a grant needs the backend), which is availability, not access. Running work
-  never stops for that.
-- **The rights function** is pure and small: `threadRights(principal, access, membership)` in
-  `apps/daemon/src/org-threads/rights.ts` returns `{read, act, share, stop}`. Every surface in §4
-  calls it; nothing else decides.
+Anything that can change what a tree executes is the owner's alone, in both phases: messages,
+steers and queued messages, answers to approvals, questions, plans and browser help, access mode
+and model, terminals, edits to its worktree's files, input to its browser pages, its MCP and
+automation settings. A tree's processes run as its owner (as the owner's OS user in phase 2,
+§9.2). No `act` right exists: in phase 2 it would let B make A's processes run B's commands as A.
 
-#### 3.3 The audit log
+Others still help:
 
-The daemon writes its rows through Spade's loopback API into the host's signed, chained log
-(ADR 0206 §4.2), and from there to WorkOS. Because the daemon and Spade are separate stores, the
-daemon writes each audit entry into an outbox in its own transaction with the change, and
-forwards it in order until Spade confirms; a restart resends what was not confirmed, and Spade
-deduplicates by the entry's id.
+- **Work on this.** A reader starts their own tree from a shared one. It is owned by them, runs as
+  them on their credentials (phase 2: their OS user), and gets only that tree's data: a clone of
+  its branch at a commit the reader picks, and ace's portable context of the shared transcript
+  (ADR 0018). Its visibility starts no wider than the source's. The source tree's page lists it.
+- **Stop.** The owner, and owners of the organization (§5.5), may stop a tree. A stop changes
+  nothing a tree runs next; it halts it.
+- **Approvals while the owner is away** wait for the owner. A tree waiting on its owner says so
+  to its readers, and stays waiting, never done.
 
-| Action                                                   | Actor               | Targets               | Metadata (never titles, messages or file names)     |
-| -------------------------------------------------------- | ------------------- | --------------------- | --------------------------------------------------- |
-| `thread.started`                                         | member              | thread, project, host | visibility, provider account id (§5.2), access mode |
-| `thread.shared`, `thread.unshared`, `thread.act_changed` | member (the owner)  | thread, members       | visibility before and after                         |
-| `thread.transferred`                                     | admin               | thread, from, to      | reason (`owner_left`)                               |
-| `thread.stopped_by_owner`                                | org owner           | thread                |                                                     |
-| `thread.deleted`                                         | member or org owner | thread                | visibility, whether its owner had left              |
-| `host.trust_changed`                                     | org owner           | member, host          | before and after (§4.1)                             |
-| `thread.full_access_raised`                              | member              | thread                | right used                                          |
-| `forge.action`                                           | member              | repo, number          | action (`pr_create`, `merge`, `review_comment`)     |
+#### 5.3 Where it is kept
 
-A title is content: a private thread's title in an audit log the admins read would break §3.1,
-so no thread entry carries one.
+- A daemon table, `thread_access (root_id PRIMARY KEY, owner, visibility, readers, changed_at,
+  changed_by)`, written from an event, `thread.access.changed`, in the same transaction. Additive:
+  a new table, nothing to fill, no index on an existing table (ADR 0170).
+- **Threads from before enrollment** keep their person (ADR 0206 §2.1). Enrollment writes the
+  previous owner's account into `ace-owner.json` (`{kind: "org", org, generation, before}`). A
+  tree with no access row is read as owned by `before`, `private`, with no rewrite. A host with
+  such trees can't turn member coding on (§2.2).
+- **Enforced on the host, offline.** Decisions read this table, the caller's proof and the
+  member roster (§7.2), all local. The backend is never asked per decision. New sockets need
+  grants, which need the backend; that is availability, not access.
 
-#### 3.4 What others may know about a thread they can't read
+#### 5.4 The audit log, for what ace mediates
 
-Running agents share one machine's CPU, memory, disk and provider quota, so the host's admins
-need to see load without seeing work:
+The daemon writes each entry into an outbox in the same transaction as the change, and forwards
+it in order into Spade's signed, chained host log (ADR 0206 §4.2) and on to WorkOS; a restart
+resends what wasn't confirmed, and Spade deduplicates by the entry's id.
+
+**Coverage is what ace mediates**: operations that go through ace's own surfaces. A command an
+agent runs itself (a raw `git push`, a `curl`, a provider's own tool) isn't seen. In phase 1 a
+trusted member can also forge or drop entries before the next checkpoint (§2.1).
+
+| Action                                       | Actor              | Targets               | Metadata (never titles, messages or file names)       |
+| -------------------------------------------- | ------------------ | --------------------- | ----------------------------------------------------- |
+| `thread.started`                             | member             | thread, project, host | visibility, provider account id, access mode          |
+| `thread.shared`, `thread.unshared`           | member (the owner) | thread, members       | visibility before and after                           |
+| `thread.forked`                              | member             | thread, source        | source commit                                         |
+| `thread.transferred`                         | admin              | thread, from, to      | reason (`owner_left`)                                 |
+| `thread.stopped_by_owner`                    | org owner          | thread                |                                                       |
+| `thread.deleted`                             | member, org owner  | thread                | visibility, whether its owner had left                |
+| `thread.full_access_raised`                  | member             | thread                |                                                       |
+| `host.coding_enabled`, `host.trust_changed`  | org owner          | host, member          | before and after                                      |
+| `member.revoked_seen`, `member.work_stopped` | host               | member                | roster version, what was stopped                      |
+| `forge.action`                               | member             | repo, ref or number   | `push` (§9.3), `pr_create`, `merge`, `review_comment` |
+
+A title is content: a private thread's title in a log the admins read would break §5.1.
+
+#### 5.5 What others may know about a tree they can't read
 
 - Admins and owners of the organization see, per member, **counts**: trees running, waiting and
-  idle; their processes' CPU and memory; disk used by their worktrees. No titles, projects of
-  private threads, branch names or provider output.
-- Owners of the organization may **stop** any running tree from that view, without reading it
-  (`thread.stopped_by_owner`, audited, and the thread's owner is told who stopped it). They hold
-  the host's shell and could kill the processes anyway; this way the stop is clean and recorded.
-- Search, `threads_find`, notifications, the Inbox, unread counts and push all pass through
-  `read`. A push for a private thread goes only to its owner's devices.
+  idle; their processes' CPU and memory; disk used. No titles, projects of private trees,
+  branches or output.
+- Owners of the organization may **stop** any running tree from that view without reading it
+  (`thread.stopped_by_owner`; the tree's owner is told who stopped it).
+- Search, `threads_find`, notifications, the Inbox, unread counts and push all go through `read`.
 
-#### 3.5 Agents and other threads
+### 6. Agents and children
 
-- An agent's ace MCP calls run as principal `agent` for its thread. Reading another thread
-  (`thread_read`, `threads_find`, `handoff_read`, parcels of ADR 0182) needs its owner's `read`
-  on that thread. Acting on another tree (`agent_message`, `thread_control`, `queue_edit`) is
-  allowed only within the owner's own trees, whatever `act` the owner holds elsewhere, so a
-  prompt in A's thread can't steer B's agent through A's rights.
-- `delegate` makes children in the same tree (inherited owner and visibility). A child on another
-  machine is allowed only on another host of the same organization; on a personal machine it is
-  refused (cross-space, ADR 0206 §8). Delegating from a personal machine to an org host is refused
-  in these phases.
-- `@` a bot from an org thread (ADR 0198) reaches the shared bots the owner may `talk` to and
-  nothing else; the context pack is built only from the thread itself.
-- **Agents never answer approvals** (AGENTS.md) holds unchanged.
+#### 6.1 On the host
 
-#### 3.6 Policy keys
+- An agent's ace MCP calls run as `agent` for its tree. Reading another tree (`thread_read`,
+  `threads_find`, `handoff_read`, parcels) needs its owner's `read`. Writing into a tree
+  (`agent_message`, `thread_control`, `queue_edit`) is allowed only into the owner's own trees.
+- `delegate` makes children in the same tree, with its owner and visibility.
+- `@` a bot from an org thread (ADR 0198) reaches only the shared bots the owner may `talk` to.
+- Agents never answer approvals (AGENTS.md), unchanged.
+
+#### 6.2 On another host of the organization
+
+A child on another machine is allowed only on another host of the same organization; on a
+personal machine it is refused. Its authority is a **child capability**:
+
+```
+{ v: 1, kind: "org-child", org, from, to, root, owner, child, iat, exp, nonce }
+```
+
+- Signed by the parent host's **fleet key**, an Ed25519 key in its keychain, registered with the
+  backend at enrollment beside the audit key (`org_hosts.fleet_key`) and served in the roster
+  (§7.2), so the destination verifies it offline.
+- It names one child of one tree of one owner, and expires in ten minutes. The parent host renews
+  it only while that owner's execution lease (§7.1) is live.
+- The destination accepts a call (start, status, message, parcel, cancel) only with a capability
+  that names itself, its organization, that child and an owner active in its own roster, and runs
+  the child as that owner (phase 2: the owner's OS user there). Cancel needs the capability too,
+  so no other tree's parent can cancel it.
+- An expired capability, or an owner the destination's roster shows revoked, stops the child
+  there on the destination's own clock (§7), whether or not the parent host is reachable.
+
+### 7. Execution leases and stopping work
+
+#### 7.1 Leases
+
+Every running tree, terminal, automation run and remote child holds an **execution lease** for its
+owner, kept on the host, lasting 15 minutes. The host renews it only on a roster (§7.2) at most
+two minutes old that shows the owner active. A tree whose lease runs out is stopped (§7.3),
+marked "Stopped · couldn't confirm Arpan is still in Acme", and resumes when the owner next sends
+from a proven socket.
+
+**The outage trade-off.** A host that can't reach the backend can't renew. The policy's
+`threads.offline_minutes` (default 60, at most 1,440) lets it renew on the last roster it holds
+for that long after the roster's time; then work stops. Lower is stricter, so the key only
+narrows. A longer allowance keeps work running through outages; a shorter one stops a removed
+member's work sooner while the host is cut off.
+
+#### 7.2 The roster and durable revocation
+
+- **The roster** is the organization's member list as the backend signs it for this host:
+  `{v: 1, kind: "org-roster", org, host, version, at, members: [{account, status, role}],
+  hosts: [{id, fleet_key}]}`, signed with the grant key, `version` increasing. The host fetches
+  it with its organization credential every 60 seconds and on a relay nudge
+  (`GET /v1/orgs/{org}/hosts/{hostId}/roster`). It never takes a lower version, so an old one
+  can't be replayed to bring a removed member back. It also carries names and verified emails
+  for display and git authorship (§9.3).
+- **Revocation is durable.** When a roster shows a member not `active`, the host writes
+  `member_revocations (account, version, seen_at)` in one transaction with an audit entry, then
+  stops their work. Only a later roster showing them active clears it.
+- **Reconciliation.** On start, after every roster and every 60 seconds, the host stops anything
+  running whose owner is revoked or whose lease ran out: trees, terminals, browser sessions,
+  automation runs, process groups and remote children. A missed nudge or a restart only delays
+  that to the next pass.
+
+#### 7.3 Containment
+
+A provider's interrupt isn't enough: a process of the same user can leave its process group and
+outlive it.
+
+- **Linux:** each tree runs in its own systemd scope, made by the system manager without
+  delegation, so its processes can't move out of its cgroup. Stopping kills the cgroup.
+- **Phase 2, every OS:** each member's processes run as their OS user, so stopping all of a
+  member's work is killing that user's processes, which no process of theirs can escape.
+- **Phase 1 on macOS:** best effort (process group, session and descendant tracking). The host
+  page says so.
+- **Not contained, and not promised:** what has already left the host (pushes, comments, messages
+  sent), and work a provider runs on its own servers.
+
+#### 7.4 The clock
+
+T0 is when WorkOS deactivates or deletes the membership (ace's Remove does it at once; for a
+directory, when WorkOS applies the directory's change, which ace doesn't control).
+
+| Bound                        | When, from T0                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| No new member grant          | ≤ 60 s: the backend's org check is reused for 60 s, and WorkOS refuses the next refresh (ADR 0206 §1.4)                                    |
+| The host sees the revocation | ≤ about 3 min while online: the events consumer's minute plus the host's 60 s roster poll                                                  |
+| Contained work stopped       | At the revocation pass that sees it, so ≤ about 3 min online; offline, by lease expiry: ≤ `offline_minutes` + 15 min after the last roster |
+| Open sockets closed          | ≤ 60 s + 5 min + 30 s: the last grant's lifetime plus ADR 0111's grace, which starts at that grant's expiry                                |
+
+The promise is scoped to what §7.3 contains and to a host whose daemon is intact; in phase 1 a
+trusted member can stop the host from enforcing it (§1).
+
+### 8. Policy keys
 
 The organization's policy (ADR 0206 §3), which only narrows, gains one block:
 
@@ -224,349 +400,344 @@ The organization's policy (ADR 0206 §3), which only narrows, gains one block:
   "enabled": true,
   "default_visibility": "private",
   "full_access": "trusted",
+  "offline_minutes": 60,
   "personal_provider_accounts": false
 }
 ```
 
-`enabled: false` refuses new coding threads on the organization's hosts. `full_access` is
-`never`, `owners`, `trusted` (owners and the host's trusted members, §4.1) or `members` (phase 2
-only). `personal_provider_accounts` is phase 2 (§5.2). A host applies the lower of the policy and
-its own setting.
+`enabled: false` refuses new coding threads on the organization's hosts. `full_access` is `never`,
+`owners`, `trusted` (phase 1: owners and the trusted list) or `members` (phase 2 only).
+`personal_provider_accounts` is phase 2 (§9.1). A host applies the lower of the policy and its
+own setting.
 
-### 4. Surfaces
+### 9. Providers, git and the member boundary
 
-#### 4.1 Who may start a coding thread on a host
+#### 9.1 Whose account runs a member's thread
 
-Starting a thread needs `code:use`, a new permission in the `member` role (and every role above
-it), and one of:
+A provider CLI keeps its login in its home on disk or in the OS keychain, and ace never touches
+it (ADR 0002, ADR 0018). ADR 0002 also forbids ace proxying a provider credential, so ace can't
+hold an organization's key and lend it to a member's process. A third way, the CLI on the
+member's machine with its tools on the host, isn't something the CLIs do.
 
-- the host has the **member boundary** (§5) on, or
-- the member is an owner of the organization, or
-- an org owner put the member on the host's **trusted list**.
+- **Phase 1: the host's own provider accounts.** An org owner signs the host in through each
+  CLI's own login, ideally a team or API account with a spending limit (§2.2; a personal
+  subscription shared by a team is what ADR 0205's terms record warns about). Members pick among
+  the accounts an owner marks for members; usage per member is shown to admins as counts and
+  quota. Since every trusted member can read these logins (§2.1), they are scoped at the issuer.
+- **Phase 2: a login inside the member's OS user.** The host's own accounts stay the host
+  user's, unreadable to members' processes, and aren't used by members' threads, since lending
+  them would mean copying them into a member's reach or proxying them. A member signs a provider
+  CLI in from their own terminal on the host, inside their OS user's home (mode 0700): their seat
+  on the organization's team plan (recommended), or their own personal login if the policy's
+  `personal_provider_accounts` allows. The account page says: "Your login is kept on Acme's host.
+  This machine's administrators can read it. Sign out here when you're done."
 
-The trusted list is kept on the host, set only from an org owner's proven socket, and audited
-(`host.trust_changed`). It exists because without the boundary a member's agent can do whatever
-the host's shell can: the list's page says it in those words ("Trusted members' agents can read
-and change everything on this host, including other members' work and the host's sign-ins"). It
-makes visible a trust that would otherwise be given without anyone saying so.
+#### 9.2 The member boundary
 
-`code:use` is separate from `bots:use`, so an organization can share bots without sharing a
-coding host. ADR 0206 §2.4 said `bots:use`; this ADR replaces that.
+Each member gets an OS user on the host, and everything started for that member runs as it: the
+provider CLI and every command its agent runs, the tree's terminals, the member's browser
+profile, their worktrees and their logins. `ACE_HOME`, the host's own sign-ins and the daemon
+stay the host user's, mode 0700.
 
-#### 4.2 Per member, shared, or refused
+- **The helper.** `ace-member-host`, installed once by the machine's administrator (as Locked use
+  installs its helper), does only this on the daemon's request: make or lock a member user, start
+  a process as one with a fixed argv, environment and working folder, and stop a member user's
+  processes. Requests come over a Unix socket only the daemon's user may open.
+- **Collision-free users.** The helper keeps `account → uid` in its own table, allocating from a
+  reserved range after checking the system's users and groups. A uid is never reused, even after
+  the member leaves, since their files may remain. Each member user has its own primary group and
+  no other.
+- **Dropping privilege, verified.** Before running a member's program the helper clears its
+  supplementary groups, sets the gid and then the uid, sets no-new-privileges, and checks that
+  real, effective and saved ids and the group list are the member's and can't be regained. It
+  closes every descriptor but the three it passes (`close_range`), builds the environment from an
+  allowlist and starts in the member's tree. Any check that fails starts nothing.
+- **No privileged reads of member paths.** A member controls their worktree, so a path inside it
+  can be a link to the host's files. The daemon never opens a member's path with its own rights.
+  It reads and writes member files through a reader process started as that member (diffs, file
+  views, uploads, previews), which opens with traversal-safe calls (Linux `openat2` with
+  `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`; macOS `O_NOFOLLOW_ANY`) under the tree's root. The
+  helper resolves a working folder the same way before using it.
+- **Linux first, then macOS** (`dscl`, `posix_spawn` after the checks above), **Windows later**
+  with its own ADR. Provider CLIs must be installed where member users can run them; the host's
+  setup page checks.
 
-| Surface                                      | Phase 1 (no member boundary)                                                                                                                             | Phase 2 (member boundary on)                                                                             |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Provider session (the agent)                 | Per thread, on the host's own provider accounts (§5.2); one provider process never serves two members (§4.3)                                             | Per member, as the member's OS user, on the host's accounts or (if policy allows) the member's own login |
-| Approvals, questions, plans, browser help    | Answered only by the thread's owner or a member with `act`, from a proven socket (`answer-gate.ts` gains the principal); the host token and agents never | Same                                                                                                     |
-| Transcript, diff, worktree files of a thread | `read` to view, `act` to edit                                                                                                                            | Same                                                                                                     |
-| Terminal in a thread                         | Trusted members and owners, for threads they `act` in (it is the host's shell)                                                                           | Any member with `act`, running as the thread owner's OS user                                             |
-| Host files and terminal outside threads      | Org owners' `host:shell` only, as today                                                                                                                  | Same                                                                                                     |
-| Browser pages (ADR 0199)                     | One browser profile per member; a member's cookies and sign-ins never reach another member's threads; browser help goes only to the owner                | Same, the profile owned by the member's OS user                                                          |
-| MCP servers                                  | The host's configured servers, shared, with their sign-ins (said in the project's page); ace's own MCP tools scoped as §3.5                              | Per member configuration added beside the host's                                                         |
-| Forge (PRs, reviews, merges through ace)     | The host's forge sign-in; ace's own forge actions need `act` and are audited (`forge.action`)                                                            | The member's own forge sign-in if they add one, else the host's                                          |
-| Attachments and uploads                      | `read` to fetch, `act` to add                                                                                                                            | Same                                                                                                     |
-| Automations                                  | Owned by the member who made them; their runs are threads owned by that member; paused when the member leaves                                            | Same                                                                                                     |
-| Computer use (`screen_*`) and simulators     | **Refused** on org hosts for coding threads                                                                                                              | **Refused**                                                                                              |
-| Full access                                  | Owners and trusted members, as policy allows (`full_access`); each raise audited                                                                         | As policy allows, up to `members`, since it runs inside the member's OS user                             |
-| Moving a thread off the host (ADR 0101/0192) | **Refused**                                                                                                                                              | **Refused**; a policy key later                                                                          |
-| Pairing links                                | **Refused**                                                                                                                                              | **Refused**                                                                                              |
+**A same-user sandbox is not the boundary.** Processes of one user still see each other:
+`/proc/<pid>/environ` holds each agent's ace MCP bearer, signals and debugging cross on Linux
+kernels before Landlock's scoping, macOS hands the login keychain (where provider CLIs keep
+tokens) to the user's processes, and macOS refuses a sandbox inside the sandbox providers apply.
+A separate user closes these with what every OS already enforces.
+
+#### 9.3 Git identity and pushing
+
+- **Authorship is a default.** A tree's processes get `GIT_AUTHOR_*` and `GIT_COMMITTER_*` from the
+  owner's name and verified email in the roster. An agent can change them, and a commit can name
+  anyone; author fields prove nothing, and ace never treats them as who did something.
+- **Phase 1** pushes with the host's forge sign-in, the team service account. A trusted member's
+  agent can read that token and push anything it allows, so its scope is set at the forge
+  (§2.2). Pushes ace makes for a member go through ace's forge actions and are audited; raw pushes
+  aren't seen (§5.4).
+- **Phase 2:** the host's forge token stays the host user's. A member's tree pushes through a
+  **scoped operation**, the typed push of ADR 0171 decision 2: the tree's commits are fetched
+  into a clean repository the host user owns and pushed from there, hooks and configuration left
+  out, only to the project's remotes and only to branches under the tree's own prefix
+  (`ace/<member>/…`), never forced. Each one is a `forge.action` audit entry with the member and
+  the commits. A member may add their own forge sign-in inside their OS user; pushes with it are
+  theirs and ace doesn't see them.
+- Shared MCP servers with sign-ins follow the same rule: phase 1 shares them, named on the
+  project page; phase 2 offers members only those exposed through scoped tools, plus their own.
+
+#### 9.4 Projects and worktrees
+
+- **A project on an org host is shared**: its checkout, remotes and settings are visible to
+  every member (ADR 0206 §2.4). Admins (`hosts:manage`) add and remove projects.
+- **Every member tree runs in its own worktree.** Working in the project checkout itself is
+  refused to members' trees.
+- **Phase 1**: `git worktree`s of the project's repository under `worktrees/<member>/<id>`; their
+  commits sit in the shared object store, which is fine while every tree is `org`.
+- **Phase 2**: each member's worktrees are their own clones, owned by their OS user, made by a
+  process as that user from the project repository (read-only to members) with `--reference`, so
+  objects aren't copied twice and unpushed commits are theirs.
+
+#### 9.5 Transfers drain and rebind
+
+An admin's transfer of a departed member's `org` or `members` tree (§11):
+
+1. stops the tree and its remote children, revokes every handle, lease, MCP bearer and child
+   capability bound to it (§4.2);
+2. has a process as the old owner commit any uncommitted changes to a transfer commit and write
+   a git bundle;
+3. makes the new owner's clone from that bundle, as the new owner;
+4. continues on the new owner's provider account through ace's portable context handoff, since a
+   provider-native session lives in the old owner's home and doesn't move (ADR 0018), and says
+   what was lost;
+5. writes `thread.transferred`.
+
+Nothing is changed in place, so no file the old owner controlled is opened with the new owner's
+or the host's rights.
+
+### 10. Surfaces
+
+| Surface                                      | Phase 1                                                                                                                     | Phase 2                                           |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Provider session                             | Per tree, as the host's user, on the host's accounts; one provider process serves one member (ADR 0079 pool keyed by owner) | As the owner's OS user, on their own login (§9.1) |
+| Approvals, questions, plans, browser help    | The owner only, from a proven socket (`answer-gate.ts` takes the principal); never the host or an agent                     | Same                                              |
+| Transcript, diff, worktree files             | `read` to view; the owner to edit                                                                                           | Same, through the member's reader (§9.2)          |
+| Terminal in a tree                           | Its owner, if trusted (it is the host's shell)                                                                              | Its owner, as their OS user                       |
+| Host files and terminal outside trees        | Org owners' `host:shell` only, as today                                                                                     | Same                                              |
+| Browser pages (ADR 0199)                     | One profile per member, bound to their trees; help goes to the owner                                                        | Same, owned by the member's OS user               |
+| MCP servers                                  | The host's, shared, named on the project page; ace's own tools as §6                                                        | Scoped tools plus the member's own                |
+| Forge through ace                            | The host's sign-in; the owner only; audited                                                                                 | Scoped push and actions (§9.3); audited           |
+| Attachments, uploads, previews               | Through §4: `read` to fetch, the owner to add                                                                               | Same                                              |
+| Automations                                  | Owned by their maker; runs are their trees, under their lease                                                               | Same                                              |
+| Computer use (`screen_*`) and simulators     | **Refused** for coding trees                                                                                                | **Refused**                                       |
+| Full access                                  | As policy allows, up to `trusted`; each raise audited                                                                       | Up to `members`, inside the member's OS user      |
+| Moving trees off the host, cross-space links | **Refused** at both ends (§4.2)                                                                                             | **Refused**                                       |
+| Pairing                                      | **Refused**; old paired credentials revoked                                                                                 | **Refused**                                       |
 
 **Computer use is refused** because an org host has one screen, one input queue and one desktop
-session for everyone: a member's agent driving it sees and steers whatever other members' work
-has open, and the never-use list and Permissions switches (ADR 0171 amendment 7) are a person's
-settings with no member in them. Spade's shared bots keep their own rules (ADR 0206 §2.3); this
-refusal is about coding threads.
+session: an agent driving it sees and steers whatever other members' work has open, and ADR 0171
+amendment 7's switches and never-use list are a person's settings with no member in them. Shared
+bots keep ADR 0206 §2.3's rules.
 
-**Approvals and switches per member.** Provider approvals are the provider's own (each thread's
-access mode, answered in the composer); the only change is who may answer, above. The Permissions
-switches of ADR 0171 amendment 7 belong to Spade bots: on an org host they are the shared bots'
-and stay as ADR 0206 §2.3 has them, set by an owner or admin. Coding threads have no switch of
-their own beyond their access mode and the policy ceiling.
+**Approvals and switches.** Provider approvals are the provider's own, answered in the composer;
+the change is who may answer. ADR 0171 amendment 7's Permissions belong to Spade bots and stay as
+ADR 0206 §2.3 has them. Coding trees have their access mode under the policy ceiling.
 
-#### 4.3 Shared provider processes
+**Who may start a tree.** `code:use`, a new permission in the `member` role and above, plus, in
+phase 1, being on the host's trusted list (owners always are); in phase 2, the member boundary on
+the host. `code:use` is separate from `bots:use` (ADR 0206 §2.4 said `bots:use`), so an
+organization can share bots without sharing a coding host.
 
-ADR 0079 shares one provider process across an account's threads, and its frame router falls back
-to "every channel receives the frame" when it can't read a frame's ancestry. On an org host two
-members' threads on one process would make that fallback a leak. **On an org host the pool key
-includes the thread's owner**, so a process serves one member's threads only. It costs a process
-per active member per account, which is the price of the rule.
+### 11. Members leaving
 
-### 5. Providers, git and the member boundary
+| What                                 | What happens                                                                                                                                                                                                                                    |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Their work on the host               | Stopped by §7: trees, terminals, automations, browser sessions and remote children, marked "Stopped · owner left Acme". Nothing shows done.                                                                                                     |
+| Their sockets                        | Close by §7.4's bound.                                                                                                                                                                                                                          |
+| Their queued effects                 | Dropped at their recheck (§4.2).                                                                                                                                                                                                                |
+| Their `org` and `members` trees      | Kept. An admin may transfer one (§9.5).                                                                                                                                                                                                         |
+| Their `private` trees (phase 2)      | Kept, unreadable through ace. Org owners may delete one. **Never transferred**: a transfer to oneself would be an owner reading a private tree.                                                                                                 |
+| Their OS user (phase 2)              | Locked, its processes killed. The home is kept until an org owner deletes it (audited); ace deletes nothing on its own.                                                                                                                         |
+| Their logins on the host (phase 2)   | ace runs each CLI's own sign-out for their homes, best effort: some CLIs only delete the local file, and only the provider can revoke a token. The departure notice tells the member and the admins to revoke it at the provider and the forge. |
+| The host's shared sign-ins (phase 1) | A departed trusted member could have copied them. The notice lists them for the owners to rotate.                                                                                                                                               |
+| Reactivation                         | A newer roster lifts the revocation; trees stay stopped until the owner resumes them.                                                                                                                                                           |
 
-This is the hard part, so it starts with what can't be done.
+### 12. What ace can't promise, and how it says so
 
-#### 5.1 Why a member's own provider login can't simply run there
-
-A provider CLI keeps its login in its home on disk (or the OS keychain), and ace never touches it
-(ADR 0002, ADR 0018). Running member A's own login on the host means A's provider token sits on a
-machine that:
-
-- every other member's agent can read, since they are the same OS user (phase 1);
-- the host's administrators can read, whatever ace does (always).
-
-The first makes a member's subscription every member's. The second is the same as ADR 0206 §2.4's
-disk warning. A third option, running the CLI on A's own machine while its tools act on the
-host's files, isn't something the CLIs do: they run their tools where they run.
-
-#### 5.2 Whose account runs a member's thread
-
-- **Phase 1: the host's own provider accounts only.** An org owner signs the host in to each
-  provider through the CLI's own login, as ADR 0018 accounts on the host, ideally the provider's
-  team or API plan (the setup page says why: a personal subscription shared by a team is the case
-  ADR 0205's terms record warns about). ADR 0002 holds as written: ace drives installed, logged-in
-  CLIs and holds no credential; the party logged in is the organization. Members pick among the
-  accounts an owner marks for members. Usage per member is shown to admins (counts and quota, not
-  content), so a member draining a shared account is visible.
-- **Phase 2: the member's own login, opt-in, inside their OS user.** With the member boundary on
-  and `personal_provider_accounts` allowed by policy, a member may sign in a provider CLI on the
-  host from their thread's terminal. Its home lives in their OS user's home, mode 0700, which
-  other members' agents and the host's own user can't read. The account page says plainly:
-  "Your login is kept on Acme's host. Its administrators can read it. Sign out here when you're
-  done; ace signs it out when you leave Acme." ace never moves, copies or reads it.
-
-#### 5.3 Git identity and whose token pushes
-
-- **Authorship is the member's.** A thread's processes get `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
-  `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` from the member's name and verified email in the
-  host's member directory (below). That is attribution, not security: an agent can override it,
-  and forges show the pusher separately.
-- **Pushing is the host's sign-in in phase 1**, the team service account ADR 0206 §2.1 recommends,
-  as shared bots already do. The project page says "Pushes from this host use acme-bot".
-- **Phase 2:** a member may add their own forge sign-in inside their OS user, used for their
-  threads only, under the same warning as §5.2.
-- **The member directory** is a cache on the host of the organization's members (account, name,
-  verified email, status), fetched with the host's organization credential
-  (`GET /v1/orgs/{org}/hosts/{hostId}/members`, a new backend route) on connect and on a relay
-  nudge when the mirror changes. It is for display, attribution and noticing a departure (§7). It
-  never authorizes: that is always the socket's proven grant.
-
-#### 5.4 Projects and worktrees
-
-- **A project on an org host is shared**: its checkout, its remotes and its project settings are
-  visible to every member (ADR 0206 §2.4). Admins (`hosts:manage`) add and remove projects; a
-  member can't, so what the host clones with its sign-ins is the organization's choice.
-- **Every member thread runs in its own worktree.** Working in the project checkout itself is
-  refused to members' threads on an org host: two members' agents in one working tree overwrite
-  each other, and every reader of the project would see either one's files.
-- **Phase 1** worktrees are `git worktree`s of the project's repository, under
-  `worktrees/<member>/<id>`. Their commits and branches live in the shared object store, so any
-  member's agent can read them; that is fine while every thread is `org`.
-- **Phase 2** a member's worktrees are their own clones (`git clone --reference` the project's
-  repository, read-only to members, so objects aren't copied twice), owned by their OS user, so
-  their unpushed commits are theirs. The daemon reads them through a group it shares with each
-  member user, which is the same as the host's shell reading them (§6).
-
-#### 5.5 The member boundary
-
-**Each member gets an OS user on the host** (`ace-m-<8 hex of the account>`), and everything
-started for that member runs as it: the provider CLI and every command its agent runs, the thread
-terminal, the member's browser profile and their worktrees. `ACE_HOME`, the host's provider homes
-and its forge sign-ins stay the host user's, mode 0700. Then:
-
-- a member's agent can't read another member's work, the host token or the host's sign-ins, even
-  in full access;
-- a private thread is private from every other member and every member's agent. The host's own
-  user (who holds `host:shell`) and the machine's administrators can still read it, as §6 says.
-
-How it is built:
-
-- A small privileged helper, `ace-member-host`, installed once by an administrator of the machine
-  (the way Locked use installs its helper), does only three things on the daemon's request: make
-  or lock a member user, start a process as one with a fixed argv, environment and working
-  folder, and stop a member user's processes. Its requests come over a Unix socket only the
-  daemon's user may open, and it checks that a working folder lies under that member's tree.
-- **Linux first** (always-on team boxes are mostly Linux): users made with `useradd --system`,
-  processes started under a systemd scope per member, so stopping a member stops all of theirs.
-  **macOS** next: users through `dscl`, processes through the helper's `posix_spawn` after
-  `setuid`. **Windows** later, with its own ADR.
-- Provider CLIs must be installed where member users can run them; the host's setup page checks
-  and says which aren't.
-
-**A same-user sandbox was considered and is not the boundary.** Running each member's agent in
-ADR 0167's sandbox as the host's user would deny file reads, but processes of one user still see
-each other: `/proc/<pid>/environ` (which holds each agent's ace MCP bearer), signals and debugging
-on Linux kernels before Landlock's scoping, the login keychain on macOS (where provider CLIs keep
-tokens), and macOS refuses a sandbox inside a sandbox, which providers' own sandboxes need. A
-separate user closes all of these with what every OS already enforces.
-
-### 6. What ace can't promise, and how it says so
-
-- **The host's shell and the host's administrators read everything on its disk.** Org owners hold
-  `host:shell`, the host's OS user and the machine's administrators hold more. "Private" means
-  private through ace and from other members, never from them. The share menu says, under
-  Private: "Only you, through ace. Acme's owners and this machine's administrators can still read
-  its disk." Setup, the host page and the guide say private work that must stay private belongs on
-  members' own machines.
-- **Without the member boundary, members' agents read each other's work.** Phase 1 offers no
-  private visibility for that reason, and the composer on such a host says once, above the first
-  message: "Everyone in Acme can read threads on this host."
+- **The host's administrators and `host:shell` read everything on its disk.** "Private" means
+  private through ace and from other members, never from them. Under Private the share menu says:
+  "Only you, through ace. Acme's owners and this machine's administrators can still read its
+  disk."
+- **In phase 1, trusted members can take over the host** (§2.3's words). The composer on such a
+  host says once: "Everyone in Acme can read threads here, and trusted members can change
+  anything on this host."
 - **What was seen stays seen.** Unsharing ends access to what comes next.
-- **Pushed work is the forge's.** Visibility in ace says nothing about who reads a pushed branch.
-- **A compromised backend can mint a member's grant** for any account, as it can mint a person's
-  (ADR 0111). A machine code on the host stops a grant alone; it is recommended for every org host
-  and the enroll page asks for one.
-- **Shared sign-ins are shared.** The host's provider accounts, forge sign-in and MCP servers'
-  sign-ins act for whoever's thread uses them; the project and account pages name them.
+- **Pushed work and sent messages are outside ace.** Visibility says nothing about who reads a
+  pushed branch, and stopping a member can't undo what already left.
+- **Audit covers what ace mediates** (§5.4), and authorship is a default (§9.3).
+- **Signing out isn't revoking** (§11).
+- **A compromised backend can mint a member's grant and sign a roster** (ADR 0111's consequence);
+  a machine code stops a grant alone, and a roster only narrows what a host runs or names who it
+  stops, except that it can mark someone active.
 
-### 7. Members leaving
+### 13. Clients
 
-When the host learns a member is gone (their grants stop; the member directory, nudged by the
-backend's events consumer, shows them removed, `inactive` or deprovisioned by the directory):
+- On an org host every cache key holding thread data includes the space and the proven member's
+  account, so a browser used by two members in turn never draws one's threads for the other.
+- The threads list: the member's own trees first, then trees shared with them, with the owner's
+  face. A tree the member doesn't own shows "Only Arpan can write here." and **Work on this**.
+- The share control in the thread header (Private, Some members, Everyone in Acme), each with
+  §12's sentence.
+- iPhone: reading, answering in owned trees, the share control and Work on this; trusted lists
+  and per-member load stay on desktop and web.
 
-| What                            | What happens                                                                                                                                                                                                                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Their sockets                   | Close when their standing lapses (ADR 0206 §6: at most five minutes plus 30 s).                                                                                                                                                                                    |
-| Their running trees             | Interrupted, as a user stop does (ADR 0079: the tree first, never its neighbours), and marked "Stopped · owner left Acme". Nothing is shown as done.                                                                                                               |
-| Approvals they owned            | Withdrawn with the stop. Requests in trees where they were only an `act` member stay open for the others.                                                                                                                                                          |
-| Their `org` and `members` trees | Kept. An admin may transfer one to another member (`thread.transferred`), who can then resume it.                                                                                                                                                                  |
-| Their `private` trees (phase 2) | Kept, unreadable through ace. Org owners may delete one (`thread.deleted`). **Never transferred**: a transfer to oneself would be an owner reading a private thread, which §3.1 forbids.                                                                           |
-| Their automations               | Paused, kept; an admin may transfer them with the trees they make.                                                                                                                                                                                                 |
-| Their OS user (phase 2)         | Locked and its processes stopped. Each provider CLI's and forge CLI's own sign-out runs for their homes, so their tokens are revoked by the tool that holds them. The home itself is kept until an org owner deletes it (audited); ace deletes nothing on its own. |
-| Reactivation                    | Undoes the lock; trees stay stopped until the member resumes them.                                                                                                                                                                                                 |
+### 14. Threats
 
-This changes ADR 0206 §6's line for phase 3 ("an owner may transfer them") to the table above.
-
-### 8. Clients
-
-- The space switcher (ADR 0206 §1.5) is unchanged. On an org host, every cache key that holds
-  thread data includes the space **and the proven member's account**, so a browser used by two
-  members in turn never draws one's threads for the other.
-- Threads list on an org host: the member's own trees first, then trees shared with them, each
-  row with its owner's face for others' trees. The share control sits in the thread's header:
-  Private, Some members, Everyone in Acme, with the sentence from §6 under each.
-- The thread owner's face and "Shared by …" appear on trees a member reads but doesn't own;
-  without `act`, the composer is replaced by one line: "Only Arpan can write here."
-- iPhone: reading, answering in owned and `act` trees, and the share control; host trust and
-  per-member load stay on desktop and web.
-
-### 9. Threats
-
-| Threat                                                    | What holds                                                                                                                                                                                                        |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A acts as B over ace** (replayed grant, relayed socket) | Thread actions need proven member standing: B's grant with A's proof fails, and a proof names this socket's nonce and Noise handshake hash (ADR 0190 §3).                                                         |
-| **A answers B's approval**                                | `answer-gate.ts` takes the principal: only the owner or an `act` member, from a proven socket. Agents and the host token never.                                                                                   |
-| **A reads B's private thread through ace**                | `read` on every surface through one rights function; unclassified message types refused on member sockets (§2); fan-out, search, push and notices filtered by `read`.                                             |
-| **A's agent reads B's work or the host token from disk**  | Phase 1: possible, so no private threads exist and only owners and trusted members code (§4.1). Phase 2: separate OS users; `ACE_HOME` and host sign-ins 0700 to the host user.                                   |
-| **A's agent steers B's agent**                            | Agent principals act only within their owner's own trees (§3.5).                                                                                                                                                  |
-| **Two members on one provider process**                   | Pool keyed by owner on org hosts (§4.3).                                                                                                                                                                          |
-| **An admin or org owner reads a private thread**          | No role adds `read`; transfer of private trees refused; the load view carries counts only; audit entries carry no titles.                                                                                         |
-| **The host token, or the app on the host's own desktop**  | Operator only: metadata, never content or answers, until that window proves a member.                                                                                                                             |
-| **Prompt injection in an `org` thread**                   | As on any machine: the provider's access mode and approvals. Full access is policy-limited, and in phase 1 only owners and trusted members have it, who hold the shell anyway.                                    |
-| **Cross-member browser sign-ins**                         | One browser profile per member; browser help only to the owner.                                                                                                                                                   |
-| **Shared MCP server sign-ins**                            | Shared by design in phase 1 and named on the project page; per-member configuration in phase 2.                                                                                                                   |
-| **A departed member's agents keep pushing**               | Their trees are interrupted on departure; their OS user locked in phase 2.                                                                                                                                        |
-| **A departed member's tokens left on the host**           | Phase 1 has none (host accounts only). Phase 2 runs each CLI's sign-out and locks the user.                                                                                                                       |
-| **Backend unreachable**                                   | Rules read only local state and the proven grant; running work continues; new sockets wait for grants.                                                                                                            |
-| **Backend compromised**                                   | Can mint member grants (ADR 0111's consequence); a machine code stops a grant alone; it can push a policy, which only narrows.                                                                                    |
-| **The `ace-member-host` helper misused**                  | Socket open only to the daemon's user; fixed operations; working folders checked against the member's tree; a reader of `ACE_HOME` is already the host user, who could start processes as itself, not as members. |
-| **Root or the host's administrators**                     | Out of scope: they read and change everything. Said in §6.                                                                                                                                                        |
+| Threat                                                       | What holds                                                                                                                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **A trusted member, hostile, in phase 1**                    | Nothing on the host (§1, §2.1). Bounded by: a dedicated clean host, issuer-scoped credentials, checkpoints already in WorkOS, other hosts' own rosters and leases. |
+| **A acts as B over ace** (replayed grant, relayed socket)    | Proven standing on every transport; HTTP requests carry a per-request proof (§4.2).                                                                                |
+| **A answers B's approval, or steers B's agent**              | Writes are the owner's alone (§5.2); agent principals write only into their owner's trees (§6.1).                                                                  |
+| **B uses a shared tree to run code as A** (phase 2)          | No `act`; Work on this runs as B on B's credentials with only that tree's data.                                                                                    |
+| **A reads B's thread through a side door**                   | One policy over every entry point of §4.1, binary frames and early reads included; handles bound to their tree; host bearer gets no content.                       |
+| **Access lost, handle kept**                                 | Live handles invalidated; queued effects rechecked when they run.                                                                                                  |
+| **A's agent reads B's work or the host from disk** (phase 2) | Separate OS users; `ACE_HOME` and host sign-ins 0700; no privileged reads of member paths; traversal-safe opens.                                                   |
+| **The helper misused**                                       | Socket only the daemon's user opens; fixed operations; collision-free uids; verified privilege drop; descriptors closed; folders resolved under the member's tree. |
+| **A forged or replayed fleet call**                          | Child capabilities: one child, one owner, ten minutes, checked against the destination's own roster, needed for cancel too.                                        |
+| **Pairing or a move as a way out**                           | Refused at issuer and receiver; old paired credentials revoked.                                                                                                    |
+| **Two members on one provider process**                      | Pool keyed by owner.                                                                                                                                               |
+| **An admin or org owner reads a private tree**               | No role adds `read`; no transfer of private trees; counts-only load view; titles never audited.                                                                    |
+| **A removed member's work keeps running**                    | Durable revocation, reconciliation, expiring leases, cgroup or per-user containment (§7); bound stated with its outage trade-off.                                  |
+| **A removed member's tokens left on the host**               | Best-effort CLI sign-out plus a notice to revoke at the provider; in phase 1, shared sign-ins listed for rotation.                                                 |
+| **Faked authorship**                                         | Author fields are a default only; audit names the member only for operations ace mediated.                                                                         |
+| **Backend unreachable**                                      | Decisions are local; work runs on the offline allowance, then stops.                                                                                               |
+| **Backend compromised**                                      | Can mint grants and mark someone active; machine codes stop a grant alone; it can't sign packages, rewrite checkpoints or reach personal machines.                 |
+| **Root or the machine's administrators**                     | Out of scope; said (§12).                                                                                                                                          |
 
 ## Phases
 
-1. **Org-visible threads for a trusted team.** Principals and the member allowlist (§1, §2);
-   `thread_access`, ownership, `org` visibility, `act` lists, audit (§3); `code:use` and the host's
-   trusted list (§4.1); answers by owner and `act` only; per-member browser profiles; the pool
-   split by owner; host provider accounts and host forge sign-in with member authorship (§5);
-   worktree per thread; departures (§7, first five rows); the policy block without
-   `personal_provider_accounts`; clients (§8). No private or `members` visibility, no member
-   boundary. **Done when:** three members on a staging org host each run threads in one project
-   for a week; none can open, subscribe to, answer in or search another's tree beyond its
-   visibility; every share, transfer and stop has a verified audit entry; a removed member's
-   trees stop and sockets close within six minutes.
-2. **The member boundary and private threads.** `ace-member-host` on Linux, then macOS; per-member
-   clones, terminals, browser profiles and processes as the member's OS user; `private` and
-   `members` visibility, with `private` the default; per-member provider and forge sign-ins under
-   policy; departures' phase 2 rows. **Done when:** on a Linux org host, an agent in full access
-   in A's thread can't read B's worktree, B's provider home, `ACE_HOME` or B's processes'
-   environment, checked by a process test with real users; and the same on macOS.
+1. **A dedicated host for a trusted team, `org` trees only.** §2's requirements and trusted list;
+   principals and the one access policy over every entry point (§3, §4); `thread_access`,
+   owner-only writes, Work on this, audit of mediated operations (§5); agents and child
+   capabilities (§6); rosters, leases, revocation and Linux cgroup containment (§7); the policy
+   block without `personal_provider_accounts`; host accounts and host forge sign-in; per-member
+   browser profiles; the pool keyed by owner; departures; clients. **Done when:** three members on
+   a staging org host run trees in one project for a week; an untrusted member can't open,
+   subscribe to, fetch, write into or search a tree beyond its visibility on any entry point;
+   every share, fork, transfer and stop has a verified audit entry; a removed member's contained
+   work stops within §7.4's online bound and their sockets close within its socket bound.
+2. **The member boundary and private trees.** `ace-member-host` on Linux, then macOS; per-member
+   clones, readers, terminals, browser profiles and processes as the member's OS user; scoped
+   push; logins inside the member's user; `private` and `members` visibility, `private` the
+   default; departures' phase 2 rows. **Done when:** on a Linux org host, a full-access agent in
+   A's tree can't read B's worktree, B's provider home, `ACE_HOME` or B's processes' environment,
+   can't signal B's processes, can't push outside its prefix and can't make the daemon read a
+   linked path, checked by process tests with real users; and the same on macOS.
 3. **Later.** Windows member users (own ADR); FGA if per-project rights are asked for (ADR 0206
-   §2.6); moving a thread between a member's own machine and an org host under policy; delegation
+   §2.6); moving trees between a member's own machine and an org host under policy; delegation
    across spaces.
-
-The smallest safe slice is phase 1 because it promises only what one OS user can keep: everyone
-on the host reads everything, and ace makes sure everyone knows who is acting and who allowed it.
 
 ## Tests
 
 Behaviour through public surfaces, at the right tier.
 
-- **Pure (fast tier):** `threadRights` over a table of principals (owner, reader, `act` member,
-  admin, org owner, host token, agent of the same and of another owner, former member,
-  `admitted` without standing) and visibilities, including the tree with no access row read as
-  `before`'s; the member allowlist refuses a message type it doesn't list; `answer-gate`'s new
-  cases; the start rule (`code:use` with and without boundary, trusted list, owner); the policy
-  block's narrowing (a host never loosens past it).
-- **Daemon (process, one file for the wiring):** a real daemon as an org host, a local backend
-  Worker minting member grants, two member clients with their own device keys. B's client can't
-  subscribe to, read, attach to, answer in or search A's tree; A's `org` tree appears for B and
-  its composer refuses B's message until A gives B `act`; narrowing ends B's subscription with
-  `thread.access.lost`; a lapsed standing drops subscriptions; the host token gets metadata only
-  and its answer is refused; A's agent's `agent_message` to B's tree is refused; a restart keeps
-  every access decision; two members' threads never share a provider process (fake provider
-  CLI); a departure interrupts the tree and nothing shows done; audit rows survive a crash
-  between the daemon's commit and Spade's confirmation and appear once.
-- **Member boundary (process, Linux, in a container with real users; macOS on the Mac):** an
-  agent command run as A's member user can't read B's worktree, B's provider home, `ACE_HOME`,
-  or B's processes' environment, and can't signal B's processes; stopping A stops all of A's
-  processes; a working folder outside A's tree is refused by the helper.
-- **Clients (jsdom):** two members in turn in one browser never see each other's cached
-  threads; the share menu's sentences are the ones that match what the daemon enforces; a tree
-  without `act` shows the read-only line.
-- **On WorkOS staging, by hand, before each phase ships:** a removed member's threads stop and
-  their sockets close within six minutes.
+- **Pure (fast tier):** `decide` over a table of principals (owner, reader, admin, org owner,
+  host, agent of the same owner and of another, peer with a good, expired or other-child
+  capability, former member, `admitted`) and operations, including the tree read as `before`'s;
+  an unclassified operation is denied; `answer-gate`'s new cases; the start rule; the policy
+  block only narrows; lease renewal and the offline allowance; a lower roster version is ignored;
+  a capability for one child refuses another.
+- **Daemon, entry points (process; one table-driven file):** a real daemon as an org host, a local
+  backend Worker minting grants and rosters, two member clients with their own device keys, the
+  host token, an agent bearer. Each of §4.1's entry points is tried by each principal against
+  another member's tree: JSON messages, a binary frame on a channel opened for another tree, an
+  NK early read before proof, a dedicated channel, fan-out, attachment and upload with the host
+  bearer, a preview, ace MCP, an outside MCP client, a parcel, a transfer, a thread ask, a pairing
+  request and an old paired device. All refused.
+- **Daemon, lifecycle (process):** narrowing ends a subscription and a terminal and an open file
+  stream; a queued message from a member revoked before it runs is dropped; a restart keeps every
+  access decision and every revocation; a roster that drops a member stops their tree, a process
+  that left its process group inside the tree's cgroup included (Linux), and nothing shows done;
+  an offline host stops work at the allowance; two members never share a provider process; audit
+  rows survive a crash between the daemon's commit and Spade's confirmation and appear once.
+- **Two hosts (process):** a child runs on a capability; a parent from another tree can't cancel
+  it; it stops on its own host when the capability lapses or the destination's roster revokes the
+  owner, with the parent host unreachable.
+- **Member boundary (process, Linux in a container with real users; macOS on the Mac):** the
+  helper's privilege drop (ids, groups, no-new-privileges, descriptors); A's command can't read
+  B's worktree, B's provider home, `ACE_HOME` or B's `environ`, or signal B; a symlink in A's
+  worktree to a host file isn't followed by a diff, a file view, an upload or a preview; a folder
+  outside A's tree is refused; a scoped push outside the prefix or forced is refused; a transfer
+  opens nothing of the old owner's with another user's rights.
+- **Clients (jsdom):** two members in turn in one browser never see each other's cached threads;
+  the share menu's and trusted list's sentences are the ones §12 and §2.3 give; a tree the member
+  doesn't own shows the read-only line and Work on this.
+- **On WorkOS staging, by hand, before each phase ships:** §7.4's bounds measured from a removal.
 
 ## Options considered
 
-- **Private threads in phase 1 without the boundary.** Rejected: any member's agent could read
-  them from disk, so the label would be false.
-- **Members' coding threads only after the boundary.** Possible, and simpler to explain; rejected
-  as the first slice because teams that already trust each other with one box lose nothing true
-  under phase 1, and the per-socket rules it builds are needed either way.
-- **A same-user sandbox as the boundary.** Rejected as the boundary (§5.5); still used for what
-  it already does in ADR 0167.
-- **One daemon per member on the host.** Each member's own daemon under their own OS user, the
-  host's daemon only routing. Rejected: shared projects, shared bots, one audit log and one relay
-  registration per host would each be rebuilt across daemons, and the member boundary gets the
-  same OS separation with one daemon.
-- **Members' own provider logins in phase 1.** Rejected (§5.1).
-- **The provider CLI on the member's own machine, tools on the host.** Not something the CLIs do.
-- **Admins read private threads for compliance.** Rejected by ADR 0206 §2.4. An organization that
-  needs that sets `default_visibility: "org"` and doesn't offer private.
-- **FGA for thread rights.** Rejected for now: rights must hold with the backend unreachable, and
-  they live where the threads are (ADR 0206 §2.6).
+- **Private trees in phase 1 without the boundary.** Rejected: any trusted member's agent could
+  read them from disk.
+- **No member coding until phase 2.** Simpler to explain; rejected as the first slice only because
+  phase 1 now promises nothing a hostile trusted member could break, and the rules it builds are
+  needed either way. This is owner decision 1.
+- **An `act` right for collaborators.** Rejected: in phase 2 it would let B run commands as A
+  (§5.2).
+- **A same-user sandbox as the boundary.** Rejected (§9.2).
+- **Lending the host's provider accounts to members' isolated processes.** Rejected: it means
+  copying a credential into a member's reach or ace proxying it, which ADR 0002 forbids.
+- **One daemon per member on the host.** Rejected: shared projects, shared bots, one audit log and
+  one relay registration per host would each be rebuilt across daemons, and the member boundary
+  gives the same OS separation with one daemon.
+- **Socket expiry as the stop for a removed member.** Rejected: sockets aren't the work. Leases,
+  rosters and containment are.
+- **The provider CLI on the member's machine, tools on the host.** Not something the CLIs do.
+- **Admins read private trees for compliance.** Rejected by ADR 0206 §2.4; an organization that
+  needs that sets `default_visibility: "org"`.
+- **FGA for thread rights.** Rejected for now: rights must hold with the backend unreachable
+  (ADR 0206 §2.6).
 
 ## Consequences
 
-- An org host becomes multi-user. Every new client message type must be classified for member
-  sockets or it is closed to them.
-- The daemon gains `thread_access`, an audit outbox and a member directory cache, all additive.
-- The backend gains one route (the host's member directory) and the `code:use` permission in
+- An org host becomes multi-user. Every new entry point, message type, route or MCP tool must be
+  classified in `decide` or it is closed to members.
+- The daemon gains `thread_access`, `member_revocations`, leases, an audit outbox and a roster
+  cache, all additive.
+- The backend gains the roster route, `org_hosts.fleet_key` and the `code:use` permission in
   ace's role table.
-- Phase 2 adds a privileged helper installed by a machine administrator, the first ace component
-  that starts processes as other users.
-- Org hosts with members cost more processes (one provider process per member per account) and
-  more disk in phase 2 (one clone per member, objects shared).
+- Phase 1 org hosts must be fresh, dedicated machines with issuer-scoped credentials; a person's
+  daily machine given to an organization can share bots, never coding.
+- Phase 2 adds a privileged helper installed by the machine's administrator, the first ace
+  component that starts processes as other users.
+- Org hosts with members cost more processes (one provider process per member per account) and,
+  in phase 2, more disk (a clone per member, objects shared).
 
 ## For the owner
 
-1. **Phase 1 without the member boundary, as "a trusted team".** Recommended: yes. Members code
-   only if an org owner puts them on the host's trusted list, which says their agents can read the
-   whole host; everything is org-visible. The alternative is no member coding until phase 2.
+1. **Phase 1: a dedicated, clean host for a trusted team.** Recommended: yes. Only owners and
+   members on the host's trusted list code; the list says they can take over the host; every tree
+   is `org`; the host must be enrolled fresh, have a machine code and run on issuer-scoped
+   service accounts. Its identity, approval and audit guarantees hold only against intact
+   endpoints. The alternative is no member coding until phase 2.
 2. **The member boundary is one OS user per member,** through a small privileged helper, Linux
-   first. Recommended: yes, rather than a same-user sandbox, which leaks between processes of one
-   user.
-3. **Providers on org hosts: the organization's accounts only in phase 1; members' own logins
-   opt-in in phase 2,** inside their OS user, with "this machine's administrators can read it".
-   Recommended: yes. The stricter alternative is never allowing personal logins on org hosts.
-4. **Admins see per-member load (counts, CPU, memory, disk) and org owners may stop any thread
-   without reading it.** Recommended: yes, with no titles anywhere.
-5. **A former member's private threads are never transferred, only kept or deleted.** Recommended:
-   yes. This changes ADR 0206 §6, which let owners transfer them.
-6. **Computer use stays refused for coding threads on org hosts.** Recommended: yes, in every
-   phase, until a host has a desktop per member.
-7. **Pushes use the host's forge sign-in, with the member as author.** Recommended: yes for phase
-   1; members' own forge sign-ins in phase 2 alongside provider logins.
+   first. Recommended: yes, rather than a same-user sandbox.
+3. **Provider accounts: the host's own in phase 1; in phase 2, a login inside each member's OS
+   user**, ideally their seat on the organization's team plan, with personal logins only if
+   the policy allows. The host's own accounts aren't lent to members' isolated processes in phase 2. Recommended: yes.
+4. **Admins see per-member load, and org owners may stop any tree without reading it.**
+   Recommended: yes, with no titles anywhere.
+5. **A former member's private trees are never transferred, only kept or deleted.** Recommended:
+   yes. This changes ADR 0206 §6.
+6. **Computer use stays refused for coding trees on org hosts.** Recommended: yes, in every phase.
+7. **Pushing: the host's issuer-scoped forge sign-in in phase 1; in phase 2 a scoped push from a
+   clean repository, to the tree's own branch prefix, never forced,** plus optional personal forge
+   sign-ins. Authorship is a default, never proof. Recommended: yes.
+8. **Only a tree's owner writes into it; others start their own tree from it.** Recommended: yes.
+   It replaces the `act` right of the first draft.
+9. **When the host can't reach the backend, members' work keeps running for
+   `threads.offline_minutes` (default 60) on the last roster, then stops.** Recommended: yes, 60
+   minutes; an organization may lower it.
 
 ## Verification
 
