@@ -16,6 +16,7 @@ import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
 import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
+import { FakeSpadeCases } from "./spade-cases.ts";
 import { FakeSpadeRunning } from "./spade-running.ts";
 import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
@@ -162,6 +163,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly search = new FakeSpadeSearch();
   /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
   readonly wakes: FakeSpadeWakes;
+  /** Each bot's runs kept as tests (ADR 0204). */
+  readonly cases: FakeSpadeCases;
   /** How Spade reaches the person (ADR 0195). */
   readonly reach = new FakeSpadeReach();
   /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
@@ -239,6 +242,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
       conversationOf,
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
       store: (conversation, event) => this.store(conversation, event),
+    });
+    this.cases = new FakeSpadeCases({
+      conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      now,
     });
     this.panels = new FakeSpadePanels({
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
@@ -587,6 +595,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         parts.slice(3),
         body,
       );
+    if (root === "agents" && id && sub === "cases")
+      return this.cases.route(request.method, id, subId, body);
     if (root === "agents" && id && sub === "wakes")
       return this.wakes.route(request.method, id, subId, parts[4]);
     if (root === "reach" && !id) return this.reach.route(request.method, body);

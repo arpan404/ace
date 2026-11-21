@@ -54,21 +54,23 @@ describe("Keep as a test on the chat", () => {
 
 describe("a bot's cases", () => {
   test("read from the list, a row that doesn't read left out", () => {
-    const cases = parseSpadeCases({
-      cases: [
-        {
-          id: "case_1",
-          reply: "r1",
-          mark: "wrong",
-          why: "It picked a stop-over",
-          trigger: { kind: "routine", name: "Morning fares" },
-          given: "Check the fares.",
-          outcome: "Nothing new.",
-          made_at: 5,
-        },
-        { reply: "no id" },
-      ],
-    });
+    const cases = parseSpadeCases(
+      JSON.stringify({
+        cases: [
+          {
+            id: "case_1",
+            reply: "r1",
+            mark: "wrong",
+            why: "It picked a stop-over",
+            trigger: { kind: "routine", name: "Morning fares" },
+            given: "Check the fares.",
+            outcome: "Nothing new.",
+            made_at: 5,
+          },
+          { reply: "no id" },
+        ],
+      }),
+    );
     expect(cases).toEqual([
       {
         id: "case_1",
@@ -81,7 +83,8 @@ describe("a bot's cases", () => {
         madeAt: 5,
       },
     ]);
-    expect(parseSpadeCases({ nope: [] })).toBeUndefined();
+    expect(parseSpadeCases(JSON.stringify({ nope: [] }))).toBeUndefined();
+    expect(parseSpadeCases("not json")).toBeUndefined();
   });
 
   test("their marks and triggers in words", () => {
@@ -97,16 +100,18 @@ describe("a bot's cases", () => {
   });
 
   test("the review lists what it was asked, each outside answer and its answer", () => {
-    const lines = parseSpadeCaseReview({
-      case: {
-        given: { messages: ["Where is my order?"] },
-        tool_results: [
-          { tool: "lookup", content: "Order ••• ships Friday" },
-          { tool: "mail", content: "timed out", is_error: true },
-        ],
-        outcome: { text: "It ships Friday." },
-      },
-    });
+    const lines = parseSpadeCaseReview(
+      JSON.stringify({
+        case: {
+          given: { messages: ["Where is my order?"] },
+          tool_results: [
+            { tool: "lookup", content: "Order ••• ships Friday" },
+            { tool: "mail", content: "timed out", is_error: true },
+          ],
+          outcome: { text: "It ships Friday." },
+        },
+      }),
+    );
     expect(lines?.map((l) => `${l.label}: ${l.text}`)).toEqual([
       "Asked: Where is my order?",
       "lookup: Order ••• ships Friday",

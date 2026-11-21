@@ -35,6 +35,7 @@ import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spa
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeContractLine } from "./spade-contract-line.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
+import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
@@ -182,6 +183,8 @@ export function SpadeChat(props: {
   const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
   const task = props.task;
   const lined = working || task !== undefined;
+  // The finished reply being kept as a test (ADR 0204): its review is open.
+  const [keeping, setKeeping] = useState<string>();
   const handlers: Handlers = {
     endpointName: props.endpointName,
     onProposal: props.onProposal,
@@ -195,6 +198,7 @@ export function SpadeChat(props: {
     onSetUpModel: props.onSetUpModel,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
+    onKeep: setKeeping,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
     keep,
     profile: props.profile,
@@ -207,6 +211,11 @@ export function SpadeChat(props: {
       aria-busy={view.busy}
       className="flex flex-col"
     >
+      <KeepCaseDialog
+        bot={{ id: bot.id, name: bot.name }}
+        reply={keeping}
+        onDone={() => setKeeping(undefined)}
+      />
       {rows.length === 0 && !lined && !rest && props.start}
       {rows.slice(from).map((row, index) => (
         <Row
@@ -310,6 +319,8 @@ interface Handlers {
   onSetUpModel: (() => void) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
+  /** Keep a finished reply as a test, by its id: opens the review before anything is kept. */
+  onKeep(reply: string): void;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
   face(id: string): SpadeAvatar;
   /** Where its finished bubbles stay drawn: this Spade connection and conversation. */
@@ -440,6 +451,7 @@ function RunItem(props: {
               when={props.when}
               copy={said && spadePlainText(said)}
               speak={said}
+              onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
             >
               <div
                 {...part(

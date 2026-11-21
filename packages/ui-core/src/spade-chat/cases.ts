@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { spadeJson } from "./json.ts";
 
 /*
  * Cases (ADR 0204 §1): finished runs the person kept as tests, on the bot's own machine. The
@@ -10,21 +11,24 @@ import { z } from "zod";
 export type SpadeCaseMark = "right" | "wrong";
 
 const words = z.string().catch("").default("");
-const mark = z.enum(["right", "wrong"]).nullish().catch(undefined);
-const trigger = z
+const markShape = z.enum(["right", "wrong"]).nullish().catch(undefined);
+const triggerShape = z
   .object({ kind: words, name: z.string().nullish().catch(undefined) })
   .catch({ kind: "message", name: undefined });
 
 const summary = z.object({
   id: z.string(),
   reply: words,
-  mark,
+  mark: markShape,
   why: z.string().nullish().catch(undefined),
-  trigger,
+  trigger: triggerShape,
   given: words,
   outcome: words,
   made_at: z.number().catch(0),
 });
+
+const listShape = z.object({ cases: z.array(z.unknown()) });
+const keptShape = z.object({ summary });
 
 export interface SpadeCaseSummary {
   id: string;
@@ -52,9 +56,9 @@ function toSummary(row: z.output<typeof summary>): SpadeCaseSummary {
   };
 }
 
-/** A bot's kept cases from `{cases}`, newest first; rows that don't read are left out. */
-export function parseSpadeCases(body: unknown): readonly SpadeCaseSummary[] | undefined {
-  const parsed = z.object({ cases: z.array(z.unknown()) }).safeParse(body);
+/** A bot's kept cases from Spade's `{cases}` text, newest first; rows that don't read are left out. */
+export function parseSpadeCases(body: string): readonly SpadeCaseSummary[] | undefined {
+  const parsed = listShape.safeParse(spadeJson(body));
   if (!parsed.success) return undefined;
   return parsed.data.cases.flatMap((row) => {
     const one = summary.safeParse(row);
@@ -63,8 +67,8 @@ export function parseSpadeCases(body: unknown): readonly SpadeCaseSummary[] | un
 }
 
 /** The kept case's summary from a keep's `{summary, case}`. */
-export function parseSpadeKeptCase(body: unknown): SpadeCaseSummary | undefined {
-  const parsed = z.object({ summary }).safeParse(body);
+export function parseSpadeKeptCase(body: string): SpadeCaseSummary | undefined {
+  const parsed = keptShape.safeParse(spadeJson(body));
   return parsed.success ? toSummary(parsed.data.summary) : undefined;
 }
 
@@ -95,8 +99,8 @@ export interface SpadeCaseReviewLine {
  * The review shown before a case is kept, from `POST …/cases/preview`: what it was given, each
  * outside answer by its tool, and the reply, as Spade will write them.
  */
-export function parseSpadeCaseReview(body: unknown): readonly SpadeCaseReviewLine[] | undefined {
-  const parsed = draft.safeParse(body);
+export function parseSpadeCaseReview(body: string): readonly SpadeCaseReviewLine[] | undefined {
+  const parsed = draft.safeParse(spadeJson(body));
   if (!parsed.success) return undefined;
   const { given, tool_results: results, outcome } = parsed.data.case;
   return [
