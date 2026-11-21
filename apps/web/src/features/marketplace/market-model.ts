@@ -17,6 +17,7 @@ export {
   missingNeedsSentence,
   needCatalogue,
   needDefaults,
+  offeredUpdate,
   readAtText,
   replacesLine,
   reviewAction,
