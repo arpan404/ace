@@ -1,6 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState, type UIEvent } from "react";
 import { Screen, ViewFrame } from "@/features/shell/index.ts";
-import { part } from "@/lib/suit-part.ts";
 import { useNow } from "@/lib/time.ts";
 import "./market-frame.css";
 import "./market-visuals.css";
