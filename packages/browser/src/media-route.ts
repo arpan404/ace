@@ -415,13 +415,13 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   }
   /**
    * The daemon's word on `source`'s bound view (`*.delivery`): why its source isn't streaming
-   * into ace-media now, or undefined once it is. Pictures that then come clear it too.
+   * into ace-media now. Its word that the view is granted clears nothing: a grant can come
+   * before the source streams, so only a picture on the current delivery clears the reason.
    */
   report(source: string, undelivered: MediaUndelivered | undefined): void {
     const delivery = this.#deliveries.get(source);
-    if (!delivery || delivery.via === nonePath) return;
-    if (undelivered) delivery.waiting = undelivered;
-    else delete delivery.waiting;
+    if (!delivery || delivery.via === nonePath || !undelivered) return;
+    delivery.waiting = undelivered;
     this.#emit(source);
   }
   /**

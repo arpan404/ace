@@ -398,9 +398,9 @@ describe("a bound view whose source isn't streaming", () => {
     const starting = { code: "starting", reason: "Live video is starting. It shows in a moment." };
     view.server({ type: "screen.delivery", sessionId: "app", undelivered: starting });
     expect(view.why()).toBe(starting.reason);
+    // The grant comes, but the source may not stream yet: no picture, so the reason stays.
     view.server({ type: "screen.delivery", sessionId: "app" });
-    expect(view.why()).toBeUndefined();
-    view.server({ type: "screen.delivery", sessionId: "app", undelivered: starting });
+    expect(view.why()).toBe(starting.reason);
     // The first picture on the delivery clears it.
     view.deliver(frame(1));
     await flush();
