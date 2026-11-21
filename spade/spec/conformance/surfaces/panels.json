@@ -1,0 +1,169 @@
+{
+  "license": "Apache-2.0",
+  "part": "surfaces",
+  "level": "surfaces",
+  "about": "The Surfaces level's cases over a runtime's HTTP API, in the shape Spade's speaks (`/v1/conversations/{id}/panels`, `/v1/panels/pages/{hash}`, `/panels/{surface}/actions`). Each case installs the base manifest with `with` merged over it, its `pages` beside it, then takes its steps: `page` (fetch the panel's page as a client would) and `act {action, value?, confirmed?}` (an action as the panel's page sends it, or as the person confirmed it outside the page). `expect`: `served_as_text` (the page comes back as text that can't run as a page of its own), `refused` (the action never reaches the bot), `taken` (it does). Scenario cases run through the scenario door as the runtime part's do, with `cards`: each card title the run showed. `id` names the case in reports and never changes.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "spec": "1.0",
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      },
+      {
+        "effect": "send_as_person",
+        "why": "Drafts a mail to your travel agent. You send it."
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    },
+    "surfaces": [
+      {
+        "id": "watchlist",
+        "kind": "panel",
+        "file": "panels/watchlist/index.html",
+        "title": "Watched trips",
+        "state": {
+          "type": "object",
+          "properties": {
+            "trips": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "string",
+                "maxLength": 40
+              }
+            }
+          },
+          "required": ["trips"]
+        },
+        "actions": [
+          {
+            "name": "check_now"
+          },
+          {
+            "name": "stop_watching",
+            "value": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "book_fare",
+            "label": "Book this fare",
+            "value": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "confirm": true
+          }
+        ]
+      }
+    ]
+  },
+  "pages": {
+    "panels/watchlist/index.html": "<!doctype html><title>Watched trips</title><p>Trips</p>"
+  },
+  "cases": [
+    {
+      "id": "surfaces/a-panel-page-is-served-as-text",
+      "name": "a panel's page is given to the client as text, never as a page of its own",
+      "steps": [
+        {
+          "page": {},
+          "expect": {
+            "served_as_text": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "surfaces/a-declared-action-from-the-page-is-taken",
+      "name": "an action the panel declares, from its page",
+      "steps": [
+        {
+          "act": {
+            "action": "stop_watching",
+            "value": "KTM-DEL"
+          },
+          "expect": {
+            "taken": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "surfaces/an-action-the-panel-doesnt-declare-is-refused",
+      "name": "an action the panel doesn't declare",
+      "steps": [
+        {
+          "act": {
+            "action": "delete_everything"
+          },
+          "expect": {
+            "refused": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "surfaces/an-actions-value-outside-its-schema-is-refused",
+      "name": "an action's value that doesn't fit its schema",
+      "steps": [
+        {
+          "act": {
+            "action": "stop_watching",
+            "value": {
+              "route": "KTM-DEL"
+            }
+          },
+          "expect": {
+            "refused": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "surfaces/a-confirm-action-from-the-page-is-refused",
+      "name": "a confirm action sent by the page, not confirmed by the person",
+      "steps": [
+        {
+          "act": {
+            "action": "book_fare",
+            "value": "KTM-DEL"
+          },
+          "expect": {
+            "refused": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "surfaces/a-confirm-action-the-person-confirmed-is-taken",
+      "name": "a confirm action the person confirmed outside the page",
+      "steps": [
+        {
+          "act": {
+            "action": "book_fare",
+            "value": "KTM-DEL",
+            "confirmed": true
+          },
+          "expect": {
+            "taken": true
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -152,6 +152,7 @@ fn day() -> Vec<Event> {
             call_id: "c1".into(),
             allowed: false,
             always: false,
+            by: None,
         }),
         finished("c1", "shell", true),
         started("c2", "linear__create_issue"),

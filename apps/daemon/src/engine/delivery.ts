@@ -200,10 +200,18 @@ export async function executeIntent(
       // the queue as the next message, as a steer that lost its turn does.
       // The adapter checks the same fence again after its own last await, right before writing.
       let fence: SteerFence | undefined;
-      // A fence is never dropped: the run it names having ended is itself a lost turn, whether
-      // or not another runs now, and the message goes back to the queue as the next one.
+      // The steer that cancelled its own target can start from idle. Every other fenced steer
+      // whose target ended is refused unread and returns to the queue.
       if (steering && p.type === "thread.send" && p.runId !== undefined) {
-        const runId = p.runId;
+        const yielded = actor.steerYield;
+        const runId =
+          session.steerViaCancel &&
+          yielded?.state === "pending" &&
+          yielded.intentId === intent.id &&
+          yielded.run === p.runId &&
+          !steerLostRun(repo, actor.id, null)
+            ? null
+            : p.runId;
         if (steerLostRun(repo, actor.id, runId)) throw new SteerTargetLost();
         fence = {
           turn: runId === null ? undefined : repo.requireState(actor.id).runs[runId]?.nativeId,

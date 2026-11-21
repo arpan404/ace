@@ -159,16 +159,3 @@ function ToolStage(props: {
     </div>
   );
 }
-
-/** An app's mark: its initial on its tile. */
-export function AppMark(props: { name: string; size?: number }) {
-  return (
-    <span
-      aria-hidden
-      className="mk-app-mark"
-      style={{ "--size": `${props.size ?? 40}px` } as CSSProperties}
-    >
-      {props.name.charAt(0).toUpperCase()}
-    </span>
-  );
-}

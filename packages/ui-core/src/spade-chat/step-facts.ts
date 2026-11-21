@@ -4,8 +4,7 @@ import { spadeRecord } from "./json.ts";
 /*
  * What a reply's step touched, read once from the call as the bot sent it: one line of it (the
  * command, a file's path, a page's address, a search's words) and whether it is the kind of step
- * the person must see without opening anything. This only decides what the conversation shows
- * first; it is never a gate (Spade decides on effects, ADR 0171).
+ * may have acted outside the workspace. Spade decides what can run (ADR 0171).
  */
 
 /**
@@ -32,7 +31,7 @@ const text = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
 /** One line: its first line, cut with an ellipsis past `longest`. */
-function oneLine(value: string): string {
+export function spadeStepLine(value: string): string {
   const lines = value.split("\n").filter((line) => line.trim());
   const first = (lines[0] ?? "").trim();
   const more = lines.length > 1 ? " …" : "";
@@ -77,7 +76,7 @@ export function spadeStepFacts(
     const risk = command ? commandRisk(command) : undefined;
     weight = risk?.level === "high" ? "destructive" : risk ? "outward" : undefined;
   } else if (outwardTools.has(base)) weight = "outward";
-  return { detail: detail === undefined ? undefined : oneLine(detail), weight };
+  return { detail: detail === undefined ? undefined : spadeStepLine(detail), weight };
 }
 
 /**

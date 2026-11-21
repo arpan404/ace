@@ -22,6 +22,11 @@ pub const KEY_FILE: &str = "spade-person.key";
 /// How far a stamp's time may be from Spade's clock.
 pub const WINDOW_MS: i64 = 60_000;
 
+/// What a change that loosens a bot's Permissions, refused for want of the person's say, tells
+/// the caller: the words ace's daemon uses, so a window offers Confirm it's you (ADR 0171,
+/// amendment 7).
+pub const CONFIRM: &str = "Confirm your identity to continue.";
+
 /// What a change refused for want of the person's say tells the caller.
 pub const PERSON_ONLY: &str =
     "Only the person can turn on Full access: do it in ace, on this computer or a paired device.";
@@ -109,7 +114,7 @@ impl Attestor {
     }
 
     /// The key, read now (the daemon may write it after Spade starts): hex, at least 32 bytes.
-    fn key(&self) -> Option<Vec<u8>> {
+    pub(crate) fn key(&self) -> Option<Vec<u8>> {
         let text = std::fs::read_to_string(self.key.as_ref()?).ok()?;
         let text = text.trim();
         if text.len() < 64 || text.len() % 2 != 0 {

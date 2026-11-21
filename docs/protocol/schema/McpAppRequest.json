@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpAppRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        }
+      ]
+    },
+    "jsonrpc": {
+      "const": "2.0",
+      "type": "string"
+    },
+    "method": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string"
+    },
+    "params": {}
+  },
+  "required": [
+    "jsonrpc",
+    "id",
+    "method"
+  ],
+  "type": "object"
+}

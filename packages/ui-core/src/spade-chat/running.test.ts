@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import { parseSpadeAgentValue, spadeBotRow } from "./index.ts";
 import {
   parseSpadeRunning,
+  parseSpadeRunningBot,
   spadeBytes,
+  spadeRunningCodeWords,
   spadeRunningNetworkWords,
   spadeRunningOrder,
   spadeRunningSpendWords,
@@ -193,5 +195,31 @@ describe("a row says what it uses in words", () => {
     [3_200_000_000, "3.2 GB"],
   ])("%d bytes read %s", (bytes, words) => {
     expect(spadeBytes(bytes)).toBe(words);
+  });
+
+  test("a bot's package code reads beside its spend, with each failing component", () => {
+    const row = parseSpadeRunningBot({
+      id: "a1",
+      code: {
+        calls: 12,
+        run_ms: 3_400,
+        fuel: 9,
+        peak_memory: 1,
+        cut_off: 3,
+        failing: [
+          { component: "fares", reason: "Its last 3 calls failed: it ran past its deadline." },
+        ],
+      },
+    });
+    expect(spadeRunningCodeWords(row?.code)).toBe(
+      "Code: 12 calls · 3.4 s · fares failing: Its last 3 calls failed: it ran past its deadline.",
+    );
+    // A bot that ran no code says nothing about it.
+    expect(spadeRunningCodeWords(parseSpadeRunningBot({ id: "a2" })?.code)).toBeUndefined();
+    expect(
+      spadeRunningCodeWords(
+        parseSpadeRunningBot({ id: "a3", code: { calls: 1, run_ms: 40 } })?.code,
+      ),
+    ).toBe("Code: 1 call · 40 ms");
   });
 });

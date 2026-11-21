@@ -133,7 +133,16 @@ export function TransferDialog(props: {
           title={`${verb(request)} on ${step.machine.name}`}
           machine={step.machine}
           onBack={() => setStep({ kind: "machines" })}
-          onAllowed={() => setStep({ kind: "options", machine: step.machine })}
+          onAllowed={() => {
+            const allowed = step.machine.hostId;
+            // An answer can land after the person went back and picked another machine: it
+            // moves on only from the step that asked, for the machine still chosen.
+            setStep((current) =>
+              current.kind === "allow" && current.machine.hostId === allowed
+                ? { kind: "options", machine: current.machine }
+                : current,
+            );
+          }}
           onClose={props.onClose}
         />
       ) : step.kind === "options" ? (

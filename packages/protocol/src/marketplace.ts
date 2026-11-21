@@ -18,6 +18,7 @@ import {
 import { marketPublishOperations, marketPublishResults } from "./marketplace-publish-ops.ts";
 import { SpadePersonality } from "./marketplace-catalog.ts";
 import {
+  PackageCodeImport,
   PackageEffectWord,
   PackageGrant,
   PackageLimits,
@@ -147,6 +148,38 @@ export const MarketEffectRow = z.strictObject({
 });
 export type MarketEffectRow = z.infer<typeof MarketEffectRow>;
 
+/** The free replay of the bot's kept runs on the version a review would move it to (ADR 0204 §2). */
+export const MarketBotReplay = z.object({
+  /** Spade's sentence: "18 of 20 kept runs replay the same. 2 don't: see why." */
+  summary: z.string().max(500),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  cases: z
+    .array(
+      z.object({
+        id: z.string().max(80),
+        given: z.string().max(300),
+        passed: z.boolean(),
+        lines: z.array(z.string().max(2000)).max(20),
+      }),
+    )
+    .max(200),
+});
+export type MarketBotReplay = z.infer<typeof MarketBotReplay>;
+
+/**
+ * One WebAssembly component a package ships, as a row on its review (ADR 0203 §5): "Runs its own
+ * code: fares. It can call Spade's tools as this bot." Its imports are the binary's: the signer
+ * read them from the bytes and refused a version whose manifest said otherwise.
+ */
+export const MarketCodeRow = z.strictObject({
+  name: z.string().min(1).max(24),
+  imports: z.array(PackageCodeImport).max(7),
+  why: z.string().max(500),
+  sentence: z.string().max(2000),
+});
+export type MarketCodeRow = z.infer<typeof MarketCodeRow>;
+
 /** What an update or rollback of a linked bot does, for its review (ADR 0200 §6.1). */
 export const MarketBotUpdate = z.strictObject({
   bot: z.string().min(1).max(80),
@@ -156,6 +189,8 @@ export const MarketBotUpdate = z.strictObject({
   plan: PackagePlan,
   /** What the new version asks for that the old one didn't, besides effects; it starts off. */
   asksMore: z.array(z.string().max(500)).max(64),
+  /** Its kept runs replayed free on the new version; absent with none, or when Spade couldn't. */
+  replay: MarketBotReplay.optional(),
 });
 export type MarketBotUpdate = z.infer<typeof MarketBotUpdate>;
 
@@ -175,6 +210,14 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     description: z.string().max(1024),
     files: z.number().int().nonnegative(),
     flagged: z.number().int().nonnegative(),
+    /** SKILL.md's `license`, shown as it says (ADR 0202 §1). */
+    license: z.string().max(200).optional(),
+    /** `compatibility`, shown; never a reason to refuse. */
+    compatibility: z.string().max(500).optional(),
+    /** `allowed-tools`: what the skill asks to run without asking. It grants nothing. */
+    allowedTools: z.array(z.string().max(120)).max(64).optional(),
+    /** Front matter fields this ace keeps but doesn't use. */
+    unused: z.array(z.string().max(120)).max(64).optional(),
   }),
   z.strictObject({
     type: z.literal("spade-plugin"),
@@ -209,6 +252,8 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     linked: z.boolean().optional(),
     /** Its declared effects, each a switch the person sets; nothing is granted before Install. */
     effects: z.array(MarketEffectRow).max(32).optional(),
+    /** Its own code, a row per component; every version with code was read by a maintainer. */
+    code: z.array(MarketCodeRow).max(4).optional(),
     /** Its triggers other than schedules, which `routines` lists. */
     triggers: z.array(PackageTrigger).max(40).optional(),
     limits: PackageLimits.optional(),
@@ -216,6 +261,11 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     unused: z.array(z.string().max(80)).max(64).optional(),
     /** For an update or a rollback of an installed bot. */
     update: MarketBotUpdate.optional(),
+    /**
+     * It uses apps or agents, which take a model that calls tools, and none of the models it
+     * would think with does (ADR 0205 §3). Installing still works; the bot can't act until then.
+     */
+    modelWarning: z.string().max(500).optional(),
   }),
 ]);
 export type MarketReviewBody = z.infer<typeof MarketReviewBodySchema>;

@@ -5,6 +5,7 @@ import {
   spadeQuietPersonality,
   type SpadePersonality,
   spadeFirstUsableModel,
+  spadeFreeName,
   type SpadeAgent,
   type SpadeTemplate,
 } from "@ace/ui-core/spade-chat";
@@ -157,15 +158,6 @@ export function ImportBot(props: {
   );
 }
 
-/** `name`, or "Research 2", "Research 3"… when a bot already has it. */
-function freeName(name: string, taken: readonly string[]): string {
-  const used = new Set(taken.map((each) => each.trim().toLowerCase()));
-  if (!used.has(name.trim().toLowerCase())) return name;
-  let count = 2;
-  while (used.has(`${name} ${count}`.toLowerCase())) count += 1;
-  return `${name} ${count}`;
-}
-
 /**
  * `/spade/new` (docs/design/spade.md §5): a new bot starts from one message. The page asks "What
  * should this bot do?" over the composer; what the person sends is the bot's task and its first
@@ -257,7 +249,7 @@ function NewBotConversation(props: {
       template
         ? {
             // A template brings its own name, face and task; the message is its first job.
-            name: freeName(template.name, props.names),
+            name: spadeFreeName(template.name, props.names),
             task: "",
             template: template.id,
             ...(template.routines.length ? { start_routines: startRoutines } : {}),

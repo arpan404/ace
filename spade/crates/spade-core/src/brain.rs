@@ -147,7 +147,10 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
 /// answer after `event`.
 fn still_asking(asking: bool, event: &Event) -> bool {
     match event {
-        Event::Known(Known::QuestionAsked { .. }) => true,
+        // An app's form is answered only on its card, never by a typed message.
+        Event::Known(Known::QuestionAsked { call_id, .. }) => {
+            crate::question::elicit::call_of(call_id).is_none() || asking
+        }
         Event::Known(
             Known::QuestionDeferred { .. }
             | Known::QuestionAnswered { late: false, .. }

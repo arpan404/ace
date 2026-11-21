@@ -6,7 +6,7 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -19,15 +19,78 @@ const PROTOCOL: &str = "2025-11-25";
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/subscriptions", get(subscriptions))
+        .route("/subscriptions/{provider}/terms", put(acknowledge))
+        .route("/subscriptions/notices", put(notices))
         .route("/agents/{id}/mcp", post(mcp))
 }
 
-/// `{"providers": [...]}` from ace, or none with `error` when ace can't say.
+/// `{"providers": [...]}` from ace, each with its maker's `terms` as Spade's record reads them
+/// (ADR 0205 §4), or none with `error` when ace can't say.
 async fn subscriptions(State(state): State<AppState>) -> Response {
     match state.engine.subscriptions().await {
-        Ok(providers) => Json(json!({ "providers": providers, "error": null })).into_response(),
+        Ok(providers) => {
+            let providers: Vec<Value> = providers
+                .into_iter()
+                .map(|provider| {
+                    let terms = state.engine.terms_view(&provider.provider);
+                    let mut shown = json!(provider);
+                    shown["terms"] = terms;
+                    shown
+                })
+                .collect();
+            Json(json!({ "providers": providers, "error": null })).into_response()
+        }
         Err(error) => Json(json!({ "providers": [], "error": error })).into_response(),
     }
+}
+
+/// The person ticked Use it for a provider's subscription (ADR 0205 §1): `{"use": true}`.
+#[derive(Deserialize)]
+struct Acknowledge {
+    #[serde(rename = "use")]
+    use_it: bool,
+}
+
+async fn acknowledge(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+    super::body::Body(body): super::body::Body<Acknowledge>,
+) -> Response {
+    if !body.use_it {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "tick Use it to choose this subscription",
+        );
+    }
+    super::off_thread(move || match state.engine.acknowledge_terms(&provider) {
+        Ok(terms) => Json(json!({ "terms": terms })).into_response(),
+        Err(error) => super::agents::agent_problem(&error),
+    })
+    .await
+}
+
+/// The market's signed terms notices, as the daemon read them (ADR 0205 §4): `{"signed": …}`.
+#[derive(Deserialize)]
+struct SignedNotices {
+    signed: Value,
+}
+
+/// `200 {"applied": true}` when the list is newer than Spade's and now in force, `false` when
+/// Spade has it or a newer one; `400` when no trusted market key signed it, changing nothing.
+async fn notices(
+    State(state): State<AppState>,
+    super::body::Body(body): super::body::Body<SignedNotices>,
+) -> Response {
+    super::off_thread(
+        move || match state.engine.take_terms_notices(&body.signed) {
+            Ok(applied) => Json(json!({
+                "applied": matches!(applied, crate::engine::Applied::Newer),
+            }))
+            .into_response(),
+            Err(error) => problem(StatusCode::BAD_REQUEST, &error),
+        },
+    )
+    .await
 }
 
 #[derive(Deserialize)]

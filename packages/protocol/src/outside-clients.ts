@@ -3,7 +3,8 @@ import { ThreadId, WorkspaceId } from "./ids.ts";
 
 /**
  * MCP clients outside ace (ADR 0122): what a grant lets one do on this machine. Each scope is
- * its own tick when the person approves; `threads:read` is always included.
+ * its own tick when the person approves; `threads:read` is always included. `spade-contracts`
+ * calls the contracts of the person's Spade bots, over MCP and A2A (ADR 0202 §3, §6).
  */
 export const OutsideScope = z.enum([
   "threads:read",
@@ -12,6 +13,7 @@ export const OutsideScope = z.enum([
   "threads:stop",
   "browser",
   "computer",
+  "spade-contracts",
 ]);
 export type OutsideScope = z.infer<typeof OutsideScope>;
 

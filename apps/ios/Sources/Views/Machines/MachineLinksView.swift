@@ -13,6 +13,7 @@ struct MachineLinksView: View {
     @State private var notice: String?
     @State private var revocation: FleetOverview.Link?
     @State private var busy = false
+    @State private var linkedNote: FleetAnswer.Words?
     @State private var changes = 0
 
     private var client: ClientModel? { inbox.client(hostId) }
@@ -58,6 +59,9 @@ struct MachineLinksView: View {
             if let revocation { Button("Try again") { Task { await revokeOther(revocation) } } }
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
+        .alert(linkedNote?.title ?? "", isPresented: Binding(get: { linkedNote != nil }, set: { if !$0 { linkedNote = nil } })) {
+            Button("OK") { linkedNote = nil }
+        } message: { Text(linkedNote?.words ?? "") }
     }
 
     @ViewBuilder private func linked(_ overview: FleetOverview) -> some View {
@@ -66,8 +70,14 @@ struct MachineLinksView: View {
                 Text("\(name) doesn't link to another machine yet.").foregroundStyle(AceDesign.Ink.muted)
             }
             ForEach(overview.links) { link in
-                RowWithActions(title: link.name, detail: link.line, actionsLabel: "Actions for \(link.name)",
+                RowWithActions(title: link.name, detail: detail(link), actionsLabel: "Actions for \(link.name)",
                                actionsId: "links.actions.\(link.profile)", canOperate: client?.canOperate == true && link.hostId != nil) {
+                    if let allowed = link.projects, reaches(link) {
+                        Button(allowed ? "Don't allow projects" : "Allow projects", ace: allowed ? .prohibit : .folderPlus) {
+                            Task { await setProjects(link, allowed: !allowed) }
+                        }
+                        .accessibilityIdentifier("links.projects.\(link.profile)")
+                    }
                     Button("Unlink…", ace: .link, role: .destructive) { unlinking = link }
                         .accessibilityIdentifier("links.unlink.\(link.profile)")
                 }
@@ -99,6 +109,34 @@ struct MachineLinksView: View {
         }
     }
 
+    /// The link's line, then whether work can move there from this machine (ADR 0101).
+    private func detail(_ link: FleetOverview.Link) -> String {
+        link.projectsLine.map { "\(link.line)\n\($0)" } ?? link.line
+    }
+
+    /// Projects are allowed on the other machine, so the phone changes them only while it reaches it.
+    private func reaches(_ link: FleetOverview.Link) -> Bool {
+        link.hostId.flatMap { inbox.client($0) }?.connection == "ready"
+    }
+
+    /// Changes this machine's link device on the other machine, through that machine's runtime,
+    /// only once that machine said this phone may (`LinkProjectsChange`).
+    private func setProjects(_ link: FleetOverview.Link, allowed: Bool) async {
+        guard let target = link.hostId, let other = inbox.client(target) else { return }
+        busy = true
+        defer { busy = false }
+        let there = inbox.name(target)
+        let offer = await other.allowProjectsOffer(deviceId: link.deviceId, sender: name, machine: there)
+        switch LinkProjectsChange.decide(offer: offer, allowed: allowed, machine: there) {
+        case .say(let words): notice = words; return
+        case .done: break
+        case .send:
+            let answer = await other.setLinkProjects(deviceId: link.deviceId, allowed: allowed, machine: there)
+            if answer.ok { changes += 1 } else { notice = answer.message }
+        }
+        await read()
+    }
+
     private func read() async {
         guard let client, client.connection == "ready" else { problem = "Can’t reach \(name)."; return }
         do { overview = try await client.fleetOverview(machine: name); problem = nil }
@@ -115,7 +153,11 @@ struct MachineLinksView: View {
         let issued = await target.client.fleet(["op": "issueLink", "access": access], machine: targetName)
         guard issued.ok, let url = issued.url else { notice = issued.message; return }
         let redeemed = await client.fleet(["op": "redeemLink", "pairingUrl": url, "hostId": target.hostId, "name": targetName], machine: name)
-        if redeemed.ok { changes += 1 } else { notice = redeemed.message }
+        if redeemed.ok {
+            changes += 1
+            // Linked, but this phone couldn't hand out Projects there: say how to allow them later.
+            if let without = issued.withoutProjects { linkedNote = without }
+        } else { notice = redeemed.message }
         await read()
     }
 

@@ -15,7 +15,8 @@ struct NewThreadSheet: View {
     /// The start was saved on this phone under this command id on this machine.
     /// The start is saved on this phone, with the draft as it was sent.
     let saved: (_ machineId: String, _ commandId: String, _ sent: NewThreadDraft) -> Void
-    var initialProject: String? = nil
+    /// The project to start on, as the machine the sheet opens on has it (ADR 0189).
+    var initialProject: (String) -> String? = { _ in nil }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     /// The machine started on last, each machine's last project and model, and each project's
@@ -118,7 +119,7 @@ struct NewThreadSheet: View {
                 else { drafts.edit { $0 = memory.load().open($0, on: machineId) } }
             }
             // New chat always starts a chat, whatever the last draft was in. A handoff keeps its own.
-            if let initial = opening.reach(draft, initialProject: initialProject) {
+            if let initial = opening.reach(draft, initialProject: initialProject(machineId)) {
                 drafts.edit { $0 = memory.load().chose(project: initial, in: $0) }
             }
             client.composeAction(["kind": "open"])

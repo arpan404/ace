@@ -159,6 +159,10 @@
       "minLength": 1,
       "type": "string"
     },
+    "unlinked": {
+      "const": true,
+      "type": "boolean"
+    },
     "updatedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

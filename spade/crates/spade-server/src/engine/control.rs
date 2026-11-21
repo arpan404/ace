@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use spade_core::contract::{Ending, StopReach, stop_reach};
 use spade_core::event::Known;
 use spade_core::turn::{stop_requested, unanswered_after};
 use spade_core::{Event, Transcript};
@@ -87,11 +88,27 @@ impl Engine {
         // sweep, ends too. One stored after the marker was refused (each is admitted under the
         // record lock), so once Stop returns none from the stopped work exists.
         let woke = self.stop_workers(id) | end_wakes(self, id) || woke;
-        // Then the workers are told.
+        let (turn, stopped_jobs) = self.halt(id, &live, reply.as_deref(), &jobs, stored.is_ok());
+        loaded?;
+        stored?;
+        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending || woke)
+    }
+
+    /// After a stop marker naming `reply` and `jobs` was stored (`stored`), or failed to be:
+    /// tells the turn's worker, stops those jobs and what they ran. Says whether a worker was
+    /// told, and how many jobs stopped.
+    fn halt(
+        self: &Arc<Self>,
+        id: &str,
+        live: &super::Live,
+        reply: Option<&str>,
+        jobs: &[String],
+        stored: bool,
+    ) -> (bool, usize) {
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
             match stop.as_ref() {
-                Some((driving, sender)) if Some(driving) == reply.as_ref() => {
+                Some((driving, sender)) if Some(driving.as_str()) == reply => {
                     let _ = sender.send(true);
                     true
                 }
@@ -100,18 +117,61 @@ impl Engine {
         };
         // Only what the stop names: another worker may have closed the reply and started a new
         // one, with jobs of its own, since the stop was stored.
-        let stopped_jobs = jobs::stop_named(self, id, reply.as_deref(), &jobs);
+        let stopped_jobs = jobs::stop_named(self, id, reply, jobs);
         // The callees of the contract calls those jobs made stop their turn for them (ADR 0200 §7).
-        self.stop_calls(id, &jobs);
+        self.stop_calls(id, jobs);
         // The helpers those jobs ran stop too, and no queued one starts (ADR 0152).
-        self.stop_helpers(id, reply.as_deref(), &jobs);
+        self.stop_helpers(id, reply, jobs);
         // A paused reply has no worker; one starts, sees the stored stop and closes it as stopped.
-        if !turn && reply.is_some() && stored.is_ok() {
+        if !turn && reply.is_some() && stored {
             self.spawn_turn(id);
         }
-        loaded?;
-        stored?;
-        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending || woke)
+        (turn, stopped_jobs)
+    }
+
+    /// A caller's Stop on its call `call` in `id` (ADR 0200 §7, ADR 0202 §3): it reaches only
+    /// what that call owns ([`stop_reach`]). The turn and the jobs it started stop when the turn
+    /// serves that call alone; when it serves others too (another caller's call, the person's
+    /// words) the call ends alone as stopped and the turn carries on for them. Decided and
+    /// stored under the record lock, so nothing can join the turn between the look and the stop.
+    pub(super) fn stop_call(self: &Arc<Self>, id: &str, call: &str) -> Result<(), StoreError> {
+        let live = self.live(id);
+        let (reply, jobs) = {
+            // The job list before the record lock, as `end_work` takes them.
+            let live_jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let mut running: Vec<String> = live_jobs.keys().cloned().collect();
+            drop(live_jobs);
+            let events = self.load(id)?;
+            for job in Transcript::fold(events.iter()).jobs {
+                if !running.contains(&job) {
+                    running.push(job);
+                }
+            }
+            match stop_reach(&events, call, &running) {
+                StopReach::Ended => return Ok(()),
+                StopReach::Call => {
+                    let ended = Event::Known(Known::ContractEnded {
+                        call: call.to_owned(),
+                        ending: Ending::Stopped {
+                            why: "Its caller stopped it before it answered.".to_owned(),
+                        },
+                    });
+                    self.append(id, &ended)?;
+                    return Ok(());
+                }
+                StopReach::Reply { reply, jobs } => {
+                    let marker = Event::Known(Known::StopRequested {
+                        reply: Some(reply.clone()),
+                        jobs: jobs.clone(),
+                    });
+                    self.append(id, &marker)?;
+                    (reply, jobs)
+                }
+            }
+        };
+        self.halt(id, &live, Some(&reply), &jobs, true);
+        Ok(())
     }
 
     /// Closes `reply` with `close` (stopped or failed). Anything that arrived for the model and
@@ -171,13 +231,16 @@ impl Engine {
         let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
             return;
         };
-        if let Err(error) = security.set_commands(&agent, Some(crate::security::Commands::Outside))
+        // The person's own answer to the bot's request is their say on this change.
+        let theirs = || true;
+        if let Err(error) =
+            security.set_commands(&agent, Some(crate::security::Commands::Outside), &theirs)
         {
             tracing::warn!(%error, %agent, "the bot's commands setting could not be changed");
         }
     }
 
-    /// Answers an approval the open turn is waiting on.
+    /// Answers an approval the open turn is waiting on, as the person.
     pub fn answer(
         &self,
         id: &str,
@@ -185,12 +248,45 @@ impl Engine {
         allowed: bool,
         always: bool,
     ) -> Result<(), AnswerError> {
+        self.answer_by(id, call_id, allowed, always, None)
+    }
+
+    /// Answers an approval the open turn is waiting on, as `by` when a member's stamp named one.
+    /// A shared bot's request takes only an answer of one of its approvers, recorded with it and
+    /// on the host's audit log in the same write (ADR 0206 §2.3, §4.1).
+    pub fn answer_by(
+        &self,
+        id: &str,
+        call_id: &str,
+        allowed: bool,
+        always: bool,
+        by: Option<&spade_core::org::Member>,
+    ) -> Result<(), AnswerError> {
         if !self.reachable(id)? {
             return Err(AnswerError::NotFound);
         }
         // Check and answer under one lock, so two answers to one approval cannot both land.
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         let events = self.load(id)?;
+        let shared = self.shared_over(id);
+        let by = match (&shared, by) {
+            (Some((_, access)), Some(member)) => {
+                if !access.may(member, spade_core::org::Right::Approve) {
+                    return Err(AnswerError::ApproverOnly(super::org::NOT_APPROVER));
+                }
+                // Letting a command run outside the sandbox follows the policy's rule for it.
+                if allowed
+                    && asks_outside(&events, call_id)
+                    && !self.org_policy().may_let_outside(member.role(), true)
+                {
+                    return Err(AnswerError::ApproverOnly(super::org::OUTSIDE_NOT_YOURS));
+                }
+                Some(member)
+            }
+            (Some(_), None) => return Err(AnswerError::ApproverOnly(super::org::NOT_APPROVER)),
+            (None, _) => None,
+        };
+        let entry = by.and_then(|member| self.answer_entry(id, call_id, allowed, always, member));
         let transcript = Transcript::fold(events.iter());
         let awaited = transcript.awaiting.iter().any(|c| c == call_id)
             || transcript.helper_awaiting.iter().any(|(c, _)| c == call_id);
@@ -219,7 +315,7 @@ impl Engine {
         let always = always && !asked_for_a_reason(&events, call_id);
         if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
             // A helper's call (ADR 0152): the answer reaches the helper.
-            self.answer_for_helper(id, &events, call_id, allowed, always)?;
+            self.answer_for_helper(id, &events, call_id, allowed, always, by)?;
             drop(_order);
             self.announce(id);
             return Ok(());
@@ -231,14 +327,16 @@ impl Engine {
             .open_reply()
             .and_then(|m| m.reply.clone())
             .unwrap_or_default();
-        self.append(
+        self.append_audited(
             id,
-            &Event::Known(Known::ApprovalAnswered {
+            &[Event::Known(Known::ApprovalAnswered {
                 reply,
                 call_id: call_id.to_owned(),
                 allowed,
                 always,
-            }),
+                by: by.cloned().map(Box::new),
+            })],
+            &entry.into_iter().collect::<Vec<_>>(),
         )?;
         self.live(id).wake.notify_one();
         Ok(())

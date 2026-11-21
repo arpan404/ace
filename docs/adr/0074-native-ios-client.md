@@ -315,6 +315,29 @@ TLS listener on loopback. Still owed: render FPS, hitches and input latency on a
 phone, a physical phone paired over Tailscale, and daemon-restart durability. Remote push and
 Live Activities remain deferred.
 
+## Opening a thread, 2026-11-20
+
+Two rules changed so that opening a long thread doesn't wait on the main thread or on the whole
+window (#2178).
+
+- **Acknowledgement.** A frame is still acknowledged before the next is sent. Native now
+  acknowledges a frame of the open thread's own rows on the decoding queue, as soon as it decodes,
+  when it is certain to apply (`FrameIntake.swift`): every patch in it belongs to the thread and
+  generation open now, it carries no streaming text edit (only the main thread can check one
+  against the text on screen), and the frames acknowledged this way and not yet taken by the main
+  thread stay under 1 MiB. Every other frame is acknowledged by the main thread once held, as
+  before. Opening, leaving or reloading a thread first takes every decoded frame and applies it
+  under the generation it was meant for, then moves on, so the bridge never records as shown a
+  frame native dropped. A retired runtime's intake is closed. Before this, each frame of an open
+  waited for the main thread, which is busy laying out the screen being pushed.
+- **The open tail.** The client asks for the full snapshot that replaces a thread's small tail
+  once the app says it has drawn the tail (`OpenTail.shown`), or 1.5 s after the tail landed.
+  Native says so (`thread.shown`, with its generation) when the opened feed is revealed, and the
+  bridge resolves the visit's wait (`ThreadVisit.firstScreen`). Asked at once, the full window
+  reached the bridge before the tail had gone to native and the first screen waited for all of
+  it. The fake daemon now cuts tails as the daemon does, so the fixture opens threads the way a
+  paired phone does.
+
 ## Primary references
 
 - [Apple JavaScriptCore VM thread behavior](https://developer.apple.com/documentation/javascriptcore/jsvirtualmachine)

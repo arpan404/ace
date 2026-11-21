@@ -47,6 +47,22 @@
         },
         {
           "properties": {
+            "kind": {
+              "const": "carriedOnHere",
+              "type": "string"
+            },
+            "transfer": {
+              "$ref": "https://ace.local/protocol/v1/Transfer.json"
+            }
+          },
+          "required": [
+            "kind",
+            "transfer"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "code": {
               "maxLength": 64,
               "minLength": 1,

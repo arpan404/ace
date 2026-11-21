@@ -245,6 +245,7 @@ export function legalMarkdown(path: string): string[] | undefined {
   return [
     `# ${document.headline}`,
     "",
+    ...(document.definition ? [`> ${document.definition}`, ""] : []),
     `Updated ${document.updated}.`,
     "",
     document.intro,

@@ -1,0 +1,244 @@
+{
+  "license": "Apache-2.0",
+  "part": "effects",
+  "about": "The effects part's cases: which effect words a package declares, the hosts and grants under them, and what is the person's alone. Each case is the base manifest with `with` merged over it at the top level, and `files` the package's other files by path (a contract's schema file is written into its contract before the manifest is read). A case without `rule` is accepted; with it, a reader refuses the manifest with a problem naming that rule (`rules.json`), whatever its words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    }
+  },
+  "cases": [
+    {
+      "id": "effects/read-and-write-local-declared-which-every-bot-has",
+      "name": "read and write_local declared, which every bot has",
+      "with": {
+        "effects": [
+          {
+            "effect": "read",
+            "why": "Reads its notes."
+          },
+          {
+            "effect": "write_local",
+            "why": "Keeps its watch list."
+          }
+        ]
+      }
+    },
+    {
+      "id": "effects/driving-one-site-under-network",
+      "name": "driving one site under network",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "drive_site",
+              "host": "book.example-air.com"
+            },
+            "why": "Checks a fare page."
+          }
+        ]
+      }
+    },
+    {
+      "id": "effects/declared-send-which-goes-to-the-person-each-time",
+      "name": "a declared send, which goes to the person each time",
+      "with": {
+        "effects": [
+          {
+            "effect": "send_as_person",
+            "why": "Drafts a mail."
+          }
+        ]
+      }
+    },
+    {
+      "id": "effects/network-grant-of-git-push",
+      "name": "a network grant of git_push",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "git_push"
+            },
+            "why": "Pushes."
+          }
+        ]
+      },
+      "rule": "effects.person-only"
+    },
+    {
+      "id": "effects/network-grant-of-send-message",
+      "name": "a network grant of send_message",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "send_message"
+            },
+            "why": "Sends."
+          }
+        ]
+      },
+      "rule": "effects.person-only"
+    },
+    {
+      "id": "effects/network-grant-of-issue-comment",
+      "name": "a network grant of issue_comment",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "issue_comment"
+            },
+            "why": "Comments."
+          }
+        ]
+      },
+      "rule": "effects.person-only"
+    },
+    {
+      "id": "effects/network-grant-of-pr-comment",
+      "name": "a network grant of pr_comment",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "tool",
+              "tool": "pr_comment"
+            },
+            "why": "Comments."
+          }
+        ]
+      },
+      "rule": "effects.person-only"
+    },
+    {
+      "id": "effects/push-grant",
+      "name": "a push grant",
+      "with": {
+        "effects": [
+          {
+            "effect": "network",
+            "grant": {
+              "kind": "git_push",
+              "repo": "a/b",
+              "branch": "x/*"
+            },
+            "why": "Pushes."
+          }
+        ]
+      },
+      "rule": "effects.person-only"
+    },
+    {
+      "id": "effects/grant-under-a-send",
+      "name": "a grant under a send",
+      "with": {
+        "effects": [
+          {
+            "effect": "send_as_person",
+            "grant": {
+              "kind": "drive_site",
+              "host": "mail.example.com"
+            },
+            "why": "Sends."
+          }
+        ]
+      },
+      "rule": "effects.never-granted"
+    },
+    {
+      "id": "effects/hosts-under-publish",
+      "name": "hosts under publish",
+      "with": {
+        "effects": [
+          {
+            "effect": "publish",
+            "hosts": ["api.example.com"],
+            "why": "Posts."
+          }
+        ]
+      },
+      "rule": "effects.hosts-only-network"
+    },
+    {
+      "id": "effects/credential",
+      "name": "credential",
+      "with": {
+        "effects": [
+          {
+            "effect": "credential",
+            "why": "Reads a key."
+          }
+        ]
+      },
+      "rule": "effects.credential"
+    },
+    {
+      "id": "effects/drive",
+      "name": "drive",
+      "with": {
+        "effects": [
+          {
+            "effect": "drive",
+            "why": "Clicks."
+          }
+        ]
+      },
+      "rule": "effects.drive"
+    },
+    {
+      "id": "effects/word-that-isnt-an-effect",
+      "name": "a word that isn't an effect",
+      "with": {
+        "effects": [
+          {
+            "effect": "teleport",
+            "why": "Moves."
+          }
+        ]
+      },
+      "rule": "effects.word"
+    },
+    {
+      "id": "effects/effects-as-an-object",
+      "name": "effects as an object",
+      "with": {
+        "effects": {}
+      },
+      "rule": "effects.list"
+    },
+    {
+      "id": "effects/effects-as-a-word",
+      "name": "effects as a word",
+      "with": {
+        "effects": "network"
+      },
+      "rule": "effects.list"
+    }
+  ]
+}

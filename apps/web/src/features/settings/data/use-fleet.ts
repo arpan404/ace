@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useMachines, type Machine } from "@/lib/machines.ts";
+import { linkedWithoutProjects } from "@ace/ui-core/transfers";
 import {
   fleetKeys,
   linkMachine,
@@ -104,11 +105,10 @@ export function useFleet() {
       }
       await refresh(wanted.flatMap((gap) => [gap.from, gap.to]));
       // Linked, but this window couldn't hand out Projects there: say how to allow them later.
-      for (const to of withoutProjects)
-        toast.add({
-          title: `Linked without Projects on ${to.name}`,
-          description: `This device can't grant Projects on ${to.name}, so work can't move there yet. Allow projects on ${to.name}'s page in Settings › Fleet.`,
-        });
+      for (const to of withoutProjects) {
+        const said = linkedWithoutProjects(to.name);
+        toast.add({ title: said.title, description: said.words });
+      }
       // An ace from before Link all could keep a link it holds: never asked, so never replaced.
       for (const from of outdated)
         toast.add({

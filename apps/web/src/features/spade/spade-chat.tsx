@@ -12,6 +12,7 @@ import {
   type SpadeAgentStyle,
   type SpadeAvatar,
   type SpadeChatItem,
+  type SpadeStartedWorker,
   type SpadeProposal,
   type SpadeView,
   spadeQuietLine,
@@ -35,12 +36,15 @@ import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spa
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeContractLine } from "./spade-contract-line.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
+import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
+import { SpadeDelegation } from "./spade-delegation.tsx";
+import { SpadeWaitingWorkers } from "./spade-waiting-workers.tsx";
 import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -129,6 +133,8 @@ export function SpadeChat(props: {
   start?: ReactNode;
   /** The bot as the roster has it: its own task and name lines change it in place. */
   profile?: RosterBot | undefined;
+  /** Opened to answer what its workers wait on: that shows at the end, brought into view. */
+  revealWorkers?: boolean | undefined;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
@@ -153,6 +159,7 @@ export function SpadeChat(props: {
     [view, proposals, digests, now],
   );
   const from = useNewestFirst(rows.length);
+  const started = useMemo(() => startedWorkers(rows), [rows]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
     view.resting &&
@@ -182,6 +189,8 @@ export function SpadeChat(props: {
   const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
   const task = props.task;
   const lined = working || task !== undefined;
+  // The finished reply being kept as a test (ADR 0204): its review is open.
+  const [keeping, setKeeping] = useState<string>();
   const handlers: Handlers = {
     endpointName: props.endpointName,
     onProposal: props.onProposal,
@@ -195,6 +204,7 @@ export function SpadeChat(props: {
     onSetUpModel: props.onSetUpModel,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
+    onKeep: setKeeping,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
     keep,
     profile: props.profile,
@@ -207,6 +217,11 @@ export function SpadeChat(props: {
       aria-busy={view.busy}
       className="flex flex-col"
     >
+      <KeepCaseDialog
+        bot={{ id: bot.id, name: bot.name }}
+        reply={keeping}
+        onDone={() => setKeeping(undefined)}
+      />
       {rows.length === 0 && !lined && !rest && props.start}
       {rows.slice(from).map((row, index) => (
         <Row
@@ -217,6 +232,11 @@ export function SpadeChat(props: {
           handlers={handlers}
         />
       ))}
+      <SpadeWaitingWorkers
+        workers={started}
+        reveal={props.revealWorkers === true}
+        handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
+      />
       {rest && !props.paused && onWake ? (
         <RestingLine
           avatar={bot.avatar}
@@ -287,6 +307,18 @@ function useNewestFirst(count: number): number {
   return Math.min(from, count);
 }
 
+/** Every worker the chat's cards started, in the order they started. */
+function startedWorkers(rows: readonly SpadeChatRow[]): SpadeStartedWorker[] {
+  const workers: SpadeStartedWorker[] = [];
+  const add = (item: SpadeChatItem) => {
+    if (item.kind === "workers") workers.push(...item.workers);
+  };
+  for (const row of rows)
+    if (row.kind === "run") row.items.forEach(add);
+    else if (row.kind === "item") add(row.item);
+  return workers;
+}
+
 /** The reply still open, the last one in the conversation. */
 function openReply(entries: readonly SpadeEntry[]) {
   for (let at = entries.length - 1; at >= 0; at--) {
@@ -310,6 +342,8 @@ interface Handlers {
   onSetUpModel: (() => void) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
+  /** Keep a finished reply as a test, by its id: opens the review before anything is kept. */
+  onKeep(reply: string): void;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
   face(id: string): SpadeAvatar;
   /** Where its finished bubbles stay drawn: this Spade connection and conversation. */
@@ -440,6 +474,7 @@ function RunItem(props: {
               when={props.when}
               copy={said && spadePlainText(said)}
               speak={said}
+              onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
             >
               <div
                 {...part(
@@ -523,6 +558,14 @@ function RunItem(props: {
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
     case "notice":
       return <SpadeNoticeRow item={item} botName={bot.name} />;
+    case "workers":
+      return (
+        <SpadeDelegation
+          workers={item.workers}
+          at={item.at}
+          handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
+        />
+      );
     case "card":
       return (
         <SpadeAgentCard
@@ -666,10 +709,7 @@ function Single(props: {
       const quiet = item.quiet;
       // A bot worker's line opens its chat, a goal's or a check's opens Work; an ace worker's
       // is a note where it happened.
-      const worker =
-        (quiet.kind === "worker-started" || quiet.kind === "worker-reported") && !quiet.ace
-          ? quiet.worker
-          : undefined;
+      const worker = quiet.kind === "worker-reported" && !quiet.ace ? quiet.worker : undefined;
       const onOpen =
         quiet.kind === "goal" || quiet.kind === "checked"
           ? onOpenWork

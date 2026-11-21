@@ -61,6 +61,7 @@ function surface() {
     after,
     fetchMetadata,
     machine: () => "Studio",
+    spade: async () => new Response(null, { status: 404 }),
   });
   const call = (base: OutsideBase, path: string, init?: RequestInit, peer?: string) =>
     serve(new Request(`${base.url}${path}`, init), base, mcp, peer);

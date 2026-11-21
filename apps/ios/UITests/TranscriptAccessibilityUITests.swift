@@ -55,7 +55,7 @@ import XCTest
         app.launchWithArguments()
         // Attached however the test ends, a hang or a failed wait included.
         addTeardownBlock { @MainActor in
-            let counts = XCTAttachment(string: app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+            let counts = XCTAttachment(string: app.probeText)
             counts.name = "perf counts"
             counts.lifetime = .keepAlways
             self.add(counts)
@@ -98,7 +98,7 @@ import XCTest
                                "--perf-probe", "--perf-log"]
         app.launchWithArguments()
         addTeardownBlock { @MainActor in
-            let counts = XCTAttachment(string: app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+            let counts = XCTAttachment(string: app.probeText)
             counts.name = "perf counts"
             counts.lifetime = .keepAlways
             self.add(counts)

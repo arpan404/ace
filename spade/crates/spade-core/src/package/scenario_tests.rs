@@ -322,3 +322,35 @@ fn a_given_call_must_name_a_contract_the_package_publishes_with_input_that_fits(
     });
     assert!(read_scenario(&both.to_string(), &[]).is_err());
 }
+
+#[test]
+fn a_scenario_fails_when_a_tools_answer_holds_another_value() {
+    let fares = scenario(json!({
+        "name": "Picks the cheapest fare",
+        "given": { "message": "Cheapest?" },
+        "model": [
+            { "calls": [{ "tool": "code_fares_cheapest", "arguments": {} }] },
+            { "say": "120." }
+        ],
+        "expect": { "results": { "code_fares_cheapest": { "fare": 120 } } }
+    }));
+    let answered = |answer: &str| Observed {
+        calls: vec![ran("code_fares_cheapest", Effect::Read)],
+        reply: "120.".to_owned(),
+        results: [("code_fares_cheapest".to_owned(), answer.to_owned())].into(),
+        ..Observed::default()
+    };
+    assert!(check(&fares, &answered(r#"{"fare":120,"airline":"X"}"#)).is_empty());
+    assert_eq!(
+        check(&fares, &answered(r#"{"fare":340}"#)),
+        vec!["code_fares_cheapest's answer has fare 340, not 120".to_owned()]
+    );
+    assert_eq!(check(&fares, &answered("not json")).len(), 1);
+    assert_eq!(
+        check(
+            &fares,
+            &run(vec![ran("code_fares_cheapest", Effect::Read)], "120.")
+        ),
+        vec!["code_fares_cheapest gave no answer, and expect.results names it".to_owned()]
+    );
+}

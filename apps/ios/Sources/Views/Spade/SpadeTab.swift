@@ -14,6 +14,8 @@ struct SpadeTab<Bar: View>: View {
     @State private var machine: String?
     @State private var path: [SpadeRoute] = []
     @State private var watch = SpadeWatch()
+    @State private var making = false
+    @State private var settings = false
 
     private var session: MachineSession? {
         let shown = inbox.spadeSessions
@@ -27,7 +29,20 @@ struct SpadeTab<Bar: View>: View {
             }
             .homeBar { bar() }
             .navigationTitle(HomeTabs.title(.spade))
-            .toolbar { if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarTrailing) { machineMenu } } }
+            .toolbar {
+                if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarLeading) { machineMenu } }
+                if session?.client.spade.shown == true {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button { settings = true } label: { AceIcon(.gear) }
+                            .accessibilityLabel("Spade settings")
+                            .accessibilityIdentifier("spade.openSettings")
+                        Button { making = true } label: { AceIcon(.notePencil) }
+                            .accessibilityLabel("New bot")
+                            .accessibilityIdentifier("spade.newBot")
+                            .disabled(session?.client.spade.line?.ready != true)
+                    }
+                }
+            }
             .navigationDestination(for: SpadeRoute.self) { route in
                 if let client = session?.client {
                     SpadeConversationView(client: client, conversation: route.conversation, group: route.group) {
@@ -42,6 +57,27 @@ struct SpadeTab<Bar: View>: View {
             let hold = watch.hold(session?.client, on: chosen, among: inbox.sessions.map(\.client))
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
             watch.release(hold)
+        }
+        .sheet(isPresented: $making) {
+            if let client = session?.client {
+                SpadeNewBotSheet(client: client) { conversation in
+                    path = [SpadeRoute(conversation: conversation, group: nil)]
+                }
+            }
+        }
+        .sheet(isPresented: $settings) {
+            if let client = session?.client {
+                NavigationStack {
+                    SpadeSettingsView(client: client)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { settings = false }.accessibilityIdentifier("spade.settings.done")
+                            }
+                        }
+                }
+                .tint(AceDesign.Ink.action)
+                .toggleStyle(.systemSwitch)
+            }
         }
         .modifier(HomeTabBar(relayout: "spade \(path.count)"))
         .onChange(of: session?.hostId) { path = [] }

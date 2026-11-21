@@ -81,6 +81,24 @@ pub fn hosts_on() -> Value {
 }
 
 pub async fn secure(spade: &Spade) -> Result {
+    secure_with(spade, None).await
+}
+
+/// [`secured`], with `key` as the person key ace's daemon shares with Spade: what member stamps
+/// on an org host are checked with.
+pub async fn secured_with_person(key: &[u8]) -> Result<Spade> {
+    let spade = Spade::start(vec![], vec![]).await?;
+    let file = spade
+        .dir
+        .path()
+        .join(spade_server::security::attest::KEY_FILE);
+    let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+    std::fs::write(&file, hex)?;
+    secure_with(&spade, Some(file)).await?;
+    Ok(spade)
+}
+
+async fn secure_with(spade: &Spade, person_key: Option<std::path::PathBuf>) -> Result {
     let bots = EngineHandle::default();
     bots.set(&spade.engine);
     let data = spade.dir.path().to_path_buf();
@@ -95,7 +113,9 @@ pub async fn secure(spade: &Spade) -> Result {
         clock: Arc::new(SystemClock),
         ids: Arc::new(CountingIds::default()),
         bots,
-        person_key: None,
+        // The person's key: the one a test names, else this server's own, which its client signs
+        // guarded changes with.
+        person_key: Some(person_key.unwrap_or_else(|| spade.person_key_path.clone())),
     })
     .await;
     spade.engine.set_security(security);

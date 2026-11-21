@@ -18,11 +18,9 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { shell } from "electron";
-import type { WebContents } from "electron";
 import type {
   AppInfo,
   DaemonConnection,
-  DeepLink,
   NativeAppearance,
   VisualizationWindow,
   WindowBackground,
@@ -123,13 +121,6 @@ export function createHandlers(options: {
   /** Pages the person opens on a remote machine's thread (ADR 0194). */
   deviceTabs: DeviceTabs;
   machineTunnels: MachineTunnels;
-  /** The menu-bar popover (os/tray-popover.ts); each call is refused from any other page. */
-  tray: {
-    open(link: DeepLink | undefined, sender: WebContents | undefined): void;
-    fit(height: number, sender: WebContents | undefined): void;
-    hide(sender: WebContents | undefined): void;
-    quit(completely: boolean, sender: WebContents | undefined): void;
-  };
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
@@ -186,22 +177,10 @@ export function createHandlers(options: {
       options.draftsFlushed?.(result?.kept ?? true);
       return undefined;
     },
-    "tray.open": (link, sender) => {
-      options.tray.open(link ?? undefined, sender);
-      return undefined;
-    },
-    "tray.fit": (height, sender) => {
-      options.tray.fit(height, sender);
-      return undefined;
-    },
-    "tray.hide": (_request, sender) => {
-      options.tray.hide(sender);
-      return undefined;
-    },
-    "tray.quit": ({ completely }, sender) => {
-      options.tray.quit(completely, sender);
-      return undefined;
-    },
+    "tray.open": () => undefined,
+    "tray.fit": () => undefined,
+    "tray.hide": () => undefined,
+    "tray.quit": () => undefined,
     "daemon.connection": () => options.connection(),
     "daemon.expected": (remembered) => runtime.expected(remembered ?? undefined),
     "daemon.authorize": (url) => {

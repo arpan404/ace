@@ -15,13 +15,12 @@ import {
   checkWords,
   digestLines,
   filesChangedWords,
-  foldWords,
   forestNow,
-  forestTally,
   joinNames,
   latestChecks,
   linkedChecks,
   mainAgentError,
+  modelLabel,
   nowLine,
   otherCommandFailures,
   planCount,
@@ -36,11 +35,12 @@ import {
   type ThreadWork,
 } from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
+import { summaryAgentsView, type SummaryAgentsView } from "./thread-summary-agents.ts";
 
 /*
  * The open thread's Summary as the phone draws it, worded by the web Summary tab's own rules
- * (`@ace/ui-core`): Now, Since you looked, the agent tree's count, Results (pull requests, files
- * changed and by whom, checks, failed commands) and the plan. Every section is left out when it
+ * (`@ace/ui-core`): Now, Since you looked, the agents (`thread-summary-agents.ts`), Results (pull
+ * requests, files changed and by whom, checks, failed commands) and the plan. Every section is left out when it
  * has nothing to say. Pure: the facts come in, the clock is `now`.
  */
 
@@ -60,12 +60,16 @@ export interface SummaryFacts {
   catchUp: ThreadCatchUpResponse | undefined;
   plans: readonly SummaryPlan[];
   showClosed: boolean;
+  /** The person opened the agents' "N done" fold. */
+  showDone: boolean;
   now: number;
   /** An agent's name as its tree row says it, in the thread it lives in. */
   name(threadId: string, agent: Agent): string;
   /** The open thread's agent and items, for the files' authors and the checks' steps. */
   agent(id: string): Agent | undefined;
   item(id: string): Item | undefined;
+  /** An item of any thread the tree shows, for each agent's step. */
+  threadItem(threadId: string, id: string): Item | undefined;
 }
 
 type Tone = "plain" | "needs-you" | "failed";
@@ -84,14 +88,23 @@ export interface SummaryView {
     speak: string;
     /** Open: the asking agent elsewhere in the tree, by name. */
     open: { threadId: string; agentId: string; childThreadId: string | null; name: string } | null;
+    /** The main agent's provider and model in words ("Opus 5.5"), empty when unknown. */
+    provider: string;
+    model: string;
+    /** Subagents finished out of all of them, once there are any. */
+    progress: SummaryAgentsView["progress"] | null;
+    /** The span counts on: `thread.summary.clock` says it from here, tick by tick. */
+    ticking: boolean;
   };
   catchUp: { text: string; tone: Tone }[];
-  /** The tree's count, once there is a tree beyond the main agent. */
-  agents: string | null;
+  /** Every agent but the main one, by what it needs; null while the main agent works alone. */
+  agents: SummaryAgentsView | null;
   prs: {
     id: string;
     title: string;
     line: string;
+    /** Its state dot: merged, open, draft, closed, or failing when its checks failed. */
+    dot: "merged" | "open" | "draft" | "closed" | "failing";
     url: string;
     number: number;
     repository: { forge: string; host: string; owner: string; name: string };
@@ -111,7 +124,12 @@ export interface SummaryView {
 const toolStatus = (item: Item | undefined): ToolStatus | undefined =>
   item?.type === "tool_call" ? item.call.status : undefined;
 
-function nowView(facts: SummaryFacts, prs: readonly LinkedPullRequest[], preview: Preview) {
+function nowView(
+  facts: SummaryFacts,
+  prs: readonly LinkedPullRequest[],
+  agents: SummaryAgentsView | null,
+  preview: Preview,
+) {
   const asker = summaryAsker(facts.threadId, facts.forest, facts.works);
   const name = asker ? facts.name(asker.node.threadId, asker.node.agent) : "";
   const line = nowLine({
@@ -143,8 +161,22 @@ function nowView(facts: SummaryFacts, prs: readonly LinkedPullRequest[], preview
           name: preview(name, 128),
         }
       : null,
+    ...mainModel(facts.forest, preview),
+    progress: agents?.progress ?? null,
+    ticking: line.span !== undefined && line.lead === "Working",
   };
 }
+
+/** The thread's main agent's provider and model, as the header's quiet line says them. */
+function mainModel(forest: AgentForest, preview: Preview) {
+  const main = forest.roots[0];
+  if (main?.kind !== "agent") return { provider: "", model: "" };
+  const id = main.agent.model ?? "";
+  return { provider: main.agent.native.provider, model: id ? preview(modelLabel(id), 64) : "" };
+}
+
+const dotOf = (pr: LinkedPullRequest): SummaryView["prs"][number]["dot"] =>
+  pr.state !== "merged" && pr.state !== "closed" && pr.checks === "failed" ? "failing" : pr.state;
 
 function filesView(facts: SummaryFacts, preview: Preview): SummaryView["files"] {
   const { turn } = facts;
@@ -195,24 +227,33 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
   const { turn } = facts;
   const checks = turn ? latestChecks(turn.digest.commands) : [];
   const others = otherCommandFailures(turn?.digest, checks);
-  const roots = facts.forest.roots;
-  // A main agent alone says nothing Now hasn't: the tree shows once there is a tree.
-  const tree = roots.some((root) => root.children.length > 0) || roots.length > 1;
+  const agents = summaryAgentsView(
+    {
+      threadId: facts.threadId,
+      forest: facts.forest,
+      works: facts.works,
+      name: facts.name,
+      item: facts.threadItem,
+      showDone: facts.showDone,
+    },
+    preview,
+  );
   return {
     workspaceId: facts.thread.workspaceId,
     workspacePath: facts.thread.details?.workspace?.path ?? null,
-    now: nowView(facts, prs, preview),
+    now: nowView(facts, prs, agents, preview),
     catchUp: facts.catchUp
       ? catchUpLines(facts.catchUp).map((line) => ({
           text: preview(line.text, 512),
           tone: line.tone ?? "plain",
         }))
       : [],
-    agents: tree ? foldWords(forestTally(roots)) || null : null,
+    agents,
     prs: rows.map((pr) => ({
       id: `${pr.repo.owner}/${pr.repo.name}#${pr.number}`,
       title: preview(pr.title ?? `#${pr.number}`, 256),
       line: summaryPrLine(pr, linkedChecks(pr)),
+      dot: dotOf(pr),
       url: pr.url,
       number: pr.number,
       repository: {

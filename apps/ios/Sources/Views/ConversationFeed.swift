@@ -612,6 +612,13 @@ struct ConversationFeed: View {
     private func appeared(proxy: ScrollViewProxy) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
         model.readingWillMove = { captureTop(); holdOlderPage() }
+        // The window the thread opened from a screenful of joins above it: held like an older page.
+        model.liveWindowWillGrow = {
+            guard revealed, reading.thread == nil else { return }
+            intent.olderPage = true
+            captureTop()
+            holdOlderPage()
+        }
         model.readingMoved = { reading.moved() }
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
         restoreSessionIfReady()
@@ -692,6 +699,7 @@ struct ConversationFeed: View {
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) { revealed = true }
+            model.threadShown(thread)
             TranscriptJumpHooks.revealed(after: CACurrentMediaTime() - started, capped: outcome == .capped)
             TranscriptJumpHooks.landed { Double(intent.metrics.bottom) }
         }

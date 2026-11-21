@@ -228,6 +228,15 @@ impl Engine {
         if main != (kept["replaces"] == "main") {
             return refuse(403, "this move replaces something the person didn't accept");
         }
+        // A shared bot arrives only on a host of its own organization, and a person's bot never
+        // on an org host (ADR 0206 §2.3).
+        let arriving = spade_core::org::Space::of(manifest["bot"]["org"].as_str());
+        let here = spade_core::org::Space::of(self.org_binding().as_ref().map(|b| b.org.as_str()));
+        if let Some(why) =
+            spade_core::org::crossing(&arriving, &here, spade_core::org::Crossing::Move)
+        {
+            return refuse(403, why);
+        }
         if let Some((status, problem)) = manifest_problem(manifest, &entry.agent_id) {
             return refuse(status, problem);
         }

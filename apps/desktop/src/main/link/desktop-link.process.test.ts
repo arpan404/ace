@@ -137,6 +137,19 @@ it("attaches notifications, badge and tray once a daemon is up, after the first 
       hostedWaiting: 0,
     }),
   );
+  const link = t.keeper.link();
+  if (!link) throw new Error("no desktop link");
+  const tray = () => link.traySnapshot("agents", Date.now(), AbortSignal.timeout(5_000));
+  await vi.waitFor(async () => {
+    expect(await tray()).toMatchObject({
+      working: 1,
+      threads: [{ id: thread.id, needsYou: false }],
+      pause: { paused: false },
+    });
+  });
+  await link.trayAction({ action: "pause", paused: true }, AbortSignal.timeout(5_000));
+  expect(await tray()).toMatchObject({ pause: { paused: true } });
+  await link.trayAction({ action: "pause", paused: false }, AbortSignal.timeout(5_000));
   daemon.store.appendEvents(
     thread.id,
     [{ type: "thread.updated", status: { state: "waiting", on: "rate_limit" } }],

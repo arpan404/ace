@@ -73,7 +73,7 @@ async function skillFolders(root: string): Promise<Set<string>> {
 }
 
 /** Each declared panel's page, as text by path: a save to one updates the bot (§5.2). */
-async function panelPages(root: string, surfaces: unknown): Promise<Record<string, string>> {
+export async function panelPages(root: string, surfaces: unknown): Promise<Record<string, string>> {
   const { panelFiles } = await import("@ace/marketplace");
   const pages: Record<string, string> = {};
   for (const path of panelFiles(surfaces).values()) {

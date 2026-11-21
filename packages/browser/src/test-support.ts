@@ -8,6 +8,9 @@ import { BrowserService, detectChromium, type BrowserServiceOptions } from "./in
 export { toolPort } from "./tool-port-test-support.ts";
 
 export const executablePath = await detectChromium();
+// Chrome keeps its singleton socket in the profile, so a long TMPDIR can exceed sun_path's
+// limit; /var/tmp is short and on disk.
+const temporaryRoot = process.platform === "win32" ? tmpdir() : "/var/tmp";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
@@ -169,7 +172,7 @@ async function openThread(service: BrowserService, home: string, url: string) {
 
 /** A browser service of its own, with `options`, and its thread browser open on a fixture site. */
 export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
-  const home = await mkdtemp(join(tmpdir(), "ace-browser-"));
+  const home = await mkdtemp(join(temporaryRoot, "ace-browser-"));
   const site = await startSite();
   const service = new BrowserService({
     dataDir: home,
@@ -206,7 +209,7 @@ afterAll(async () => {
  */
 export async function sharedFixture() {
   if (!shared) {
-    const home = await mkdtemp(join(tmpdir(), "ace-browser-"));
+    const home = await mkdtemp(join(temporaryRoot, "ace-browser-"));
     shared = {
       home,
       service: new BrowserService({

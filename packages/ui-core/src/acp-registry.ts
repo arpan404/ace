@@ -240,10 +240,7 @@ const failures: readonly [RegExp, string][] = [
     /already approved or replaced/,
     "This update changed since you looked. Check it and approve again.",
   ],
-  [
-    /^This is yours to do/,
-    "Approve agents in the ace app signed in as you, or on a device you paired from it.",
-  ],
+  [/^(This is yours to do|Confirm your identity to continue)/, "Confirm it's you to continue."],
   [/^Nothing changed since approval/, "This update is already approved."],
   [/^Native bridge CLI changed or unavailable/, "ace can't find the CLI this agent drives."],
   [/^Approved ACP installation unavailable/, "This agent isn't added on this computer anymore."],

@@ -18,8 +18,13 @@
     "kind": {
       "enum": [
         "machine",
-        "device"
+        "device",
+        "member"
       ],
+      "type": "string"
+    },
+    "org": {
+      "pattern": "^org_[A-Za-z0-9]{1,64}$",
       "type": "string"
     },
     "purpose": {

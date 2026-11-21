@@ -19,7 +19,7 @@ struct TransferSheet: View {
                 .insetGroupedList()
                 .navigationTitle(sheet.title).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    if case .options = sheet.step {
+                    if sheet.step.goesBack {
                         ToolbarItem(placement: .topBarLeading) {
                             Button { model.transfer(["kind": "back"]) } label: { Image(ace: .caretLeft).flipsForRightToLeftLayoutDirection(true) }
                                 .accessibilityLabel("Machines").accessibilityIdentifier("transfer.back")
@@ -55,6 +55,8 @@ struct TransferSheet: View {
             .insetRowBackground()
         case .options(let machine, let action, let ignoredByDefault):
             options(machine, action: action, ignoredByDefault: ignoredByDefault)
+        case .allow(let allow):
+            AllowProjectsStep(model: model, step: allow)
         case .status(_, let action, let line):
             Section {
                 TransferLineView(model: model, line: line) { model.transfer(["kind": "close"]) }
@@ -64,13 +66,20 @@ struct TransferSheet: View {
     }
     private var verb: String { sheet.kind == "thread" ? "Continue" : "Open" }
 
+    /// An offline machine is dimmed with no action; one that doesn't take projects yet opens how
+    /// to allow them.
     private func machineRow(_ machine: TransferMachineRow) -> some View {
-        Button { model.transfer(["kind": "choose", "hostId": machine.hostId]) } label: {
+        let offline = machine.reason == "Offline"
+        return Button {
+            var choose: [String: Any] = ["kind": "choose", "hostId": machine.hostId]
+            if let sender = model.hostId.flatMap(others.name) { choose["sender"] = sender }
+            model.transfer(choose)
+        } label: {
             InsetRow(machine.name, icon: .desktop, value: machine.reason)
-                .opacity(machine.reason == nil ? 1 : AceTheme.Opacity.disabled(scheme))
+                .opacity(offline ? AceTheme.Opacity.disabled(scheme) : 1)
         }
         .buttonStyle(.plain)
-        .disabled(machine.reason != nil)
+        .disabled(offline)
         .accessibilityIdentifier("transfer.machine.\(machine.hostId)")
     }
 
@@ -111,6 +120,16 @@ struct TransferSheet: View {
             .accessibilityIdentifier("transfer.folder")
         } else {
             InsetRow("Folder", icon: nil, value: shown).accessibilityIdentifier("transfer.folder")
+        }
+    }
+}
+
+extension TransferSheetState.Step {
+    /// The steps Back returns from, to the machines.
+    var goesBack: Bool {
+        switch self {
+        case .options, .allow: true
+        default: false
         }
     }
 }

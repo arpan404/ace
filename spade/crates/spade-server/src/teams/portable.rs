@@ -83,6 +83,9 @@ pub enum PortableError {
     Agent(#[from] AgentError),
     #[error("{0}")]
     Failed(String),
+    /// The organization's policy doesn't allow it on this host, in its own words.
+    #[error("{0}")]
+    Refused(String),
 }
 
 /// The bot `id` as a file.

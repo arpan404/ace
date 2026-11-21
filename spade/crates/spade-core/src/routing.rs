@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::brain::CliModel;
 
+pub mod fallback;
+
 /// What a model call is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,14 +52,55 @@ impl Role {
     pub fn routed(self) -> bool {
         self != Self::Main
     }
+
+    /// Whether the role's calls offer tools (ADR 0205 §3): every role but `title` and
+    /// `compact`, so only those two may run on a model that can't call them.
+    pub fn needs_tools(self) -> bool {
+        !matches!(self, Self::Title | Self::Compact)
+    }
+}
+
+/// The most models a role's route holds (ADR 0205 §2).
+pub const MOST_IN_ROUTE: usize = 4;
+
+/// A role's models in order (ADR 0205 §2): the first that can serve a call serves it. Read from
+/// a list or a single model (a list of one), so overrides stored by an older build still read.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Route(pub Vec<String>);
+
+impl<'de> Deserialize<'de> for Route {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Shape {
+            One(String),
+            Many(Vec<String>),
+        }
+        Ok(match Shape::deserialize(deserializer)? {
+            Shape::One(model) => Self(vec![model]),
+            Shape::Many(models) => Self(models),
+        })
+    }
+}
+
+impl Route {
+    pub fn one(model: &str) -> Self {
+        Self(vec![model.to_owned()])
+    }
+
+    pub fn first(&self) -> Option<&str> {
+        self.0.first().map(String::as_str)
+    }
 }
 
 /// The person's choices for one bot, or for every bot. Stored as JSON.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Overrides {
-    /// A model per role, `endpoint/model`.
+    /// A route per role, each model `endpoint/model`. `main`'s are the models the bot's own
+    /// model falls back to.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub roles: BTreeMap<Role, String>,
+    pub roles: BTreeMap<Role, Route>,
     /// The only models the bot may name per call besides its roles' (per bot only); `None`
     /// allows every model the person configured.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,6 +116,9 @@ pub trait Models {
     fn configured(&self, reference: &str) -> bool;
     /// The listed price, input plus output per million tokens; `None` when unpriced.
     fn strength(&self, reference: &str) -> Option<f64>;
+    /// Whether `reference` can call tools, as the person's endpoints list it (measured, for a
+    /// local model).
+    fn calls_tools(&self, reference: &str) -> bool;
 }
 
 /// The facts the defaults are drawn from.
@@ -128,6 +174,12 @@ impl<M: Models> Routing<'_, M> {
         !CliModel::is(reference) && self.models.configured(reference)
     }
 
+    /// Whether `role` can run on `reference`: usable, and able to call tools when the role's
+    /// calls offer them.
+    fn usable_for(&self, role: Role, reference: &str) -> bool {
+        self.usable(reference) && (!role.needs_tools() || self.models.calls_tools(reference))
+    }
+
     /// The model `role` uses: the bot's override, else the global one, else the default. An
     /// override whose model is gone is skipped.
     pub fn resolve(&self, role: Role) -> Choice {
@@ -139,8 +191,10 @@ impl<M: Models> Routing<'_, M> {
             return own();
         }
         for (overrides, source) in [(self.bot, Source::Bot), (self.global, Source::Global)] {
-            if let Some(model) = overrides.roles.get(&role)
-                && self.usable(model)
+            if let Some(model) = overrides
+                .roles
+                .get(&role)
+                .and_then(|route| route.0.iter().find(|m| self.usable_for(role, m)))
             {
                 return Choice {
                     model: model.clone(),
@@ -154,7 +208,7 @@ impl<M: Models> Routing<'_, M> {
                 .defaults
                 .fast
                 .clone()
-                .filter(|fast| fast != self.own && self.usable(fast)),
+                .filter(|fast| fast != self.own && self.usable_for(role, fast)),
         };
         match default {
             Some(model) => Choice {
@@ -165,13 +219,54 @@ impl<M: Models> Routing<'_, M> {
         }
     }
 
+    /// The models `role` tries in order (ADR 0205 §2), at most [`MOST_IN_ROUTE`]: for `main`, the
+    /// bot's own model, then the bot's `main` route, else the global one; for another role, its
+    /// override's usable models, else its one model. Gone models are skipped, and a route never
+    /// holds a subscription: a bot on one runs on it alone, never falling back to an endpoint.
+    pub fn route(&self, role: Role) -> Vec<String> {
+        if role == Role::Main && CliModel::is(self.own) {
+            return vec![self.own.to_owned()];
+        }
+        let usable_of = |overrides: &Overrides| -> Vec<String> {
+            overrides
+                .roles
+                .get(&role)
+                .map(|route| {
+                    route
+                        .0
+                        .iter()
+                        .filter(|m| self.usable_for(role, m))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let chosen = [self.bot, self.global]
+            .into_iter()
+            .map(usable_of)
+            .find(|list| !list.is_empty())
+            .unwrap_or_default();
+        let mut route: Vec<String> = Vec::new();
+        let head = match role {
+            Role::Main => Some(self.own.to_owned()),
+            _ if chosen.is_empty() => Some(self.resolve(role).model),
+            _ => None,
+        };
+        for model in head.into_iter().chain(chosen) {
+            if !model.is_empty() && !route.contains(&model) && route.len() < MOST_IN_ROUTE {
+                route.push(model);
+            }
+        }
+        route
+    }
+
     /// The strongest model the person already uses that lists at least the bot's own price and
     /// is not the bot's model.
     fn strongest_other(&self) -> Option<String> {
         let floor = self.models.strength(self.own)?;
         let mut best: Option<(f64, &String)> = None;
         for model in self.defaults.in_use.iter().chain(&self.defaults.fast) {
-            if model == self.own || !self.usable(model) {
+            if model == self.own || !self.usable_for(Role::Verify, model) {
                 continue;
             }
             let Some(strength) = self.models.strength(model) else {
@@ -213,7 +308,8 @@ impl<M: Models> Routing<'_, M> {
             .allowed
             .as_ref()
             .is_none_or(|list| list.iter().any(|m| m == wanted));
-        if self.usable(wanted) && allowed {
+        // A named model runs helper-level work, which calls tools.
+        if self.usable_for(Role::Helper, wanted) && allowed {
             return Ok(wanted.to_owned());
         }
         Err(self.refusal(wanted))
@@ -232,7 +328,7 @@ impl<M: Models> Routing<'_, M> {
         if let Some(list) = &self.bot.allowed {
             let usable: Vec<&str> = list
                 .iter()
-                .filter(|m| self.usable(m))
+                .filter(|m| self.usable_for(Role::Helper, m))
                 .map(String::as_str)
                 .collect();
             if !usable.is_empty() {

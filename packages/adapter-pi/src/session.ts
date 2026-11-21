@@ -21,7 +21,8 @@ import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import { readJsonLines } from "@ace/provider-kit/jsonl";
+import { droppedLineNotes } from "@ace/provider-kit/dropped-line-notes";
+import { lineReader } from "@ace/provider-kit/process";
 import { PiCommandRefused, PiRpc } from "./rpc.ts";
 import { runtime, type PiRuntime } from "./runtime.ts";
 import { Dialog, State, Cancelled, obj, str, list, isBlockingDialogMethod } from "./native.ts";
@@ -130,6 +131,11 @@ export async function openPiSession(
     if (lease) out = out.replaceAll(lease.bearer, "<ACE_LEASE>");
     return out;
   };
+  // At most one note a second however much stderr Pi floods; `emit` is ready before any drop.
+  const stderrDrops = droppedLineNotes({
+    note: (text) => emit("stderr", new ProviderPayload(JSON.stringify(text))),
+    schedule: io.schedule,
+  });
   let proc: ReturnType<PiRuntime["spawn"]>;
   try {
     proc = io.spawn({
@@ -139,6 +145,8 @@ export async function openPiSession(
       env,
       name: "ace-pi",
       maxLineBytes: 1024 * 1024,
+      // MCP servers' logs pass through stderr; a long one is noted, never fatal to the session.
+      onStderrLineDropped: (line) => stderrDrops.dropped(line),
       // Pi echoes every image in message_end/agent_end; their bytes never count toward a line.
       elideStdout: { holdBytes: 16 * 1024, textBytes: 1024 * 1024 },
     });
@@ -249,13 +257,13 @@ export async function openPiSession(
     redact,
     ctx.outputFlow,
   );
-  const detachStderr = readJsonLines(
-    proc.stderr,
-    1024 * 1024,
-    (line) => emit("stderr", new ProviderPayload(JSON.stringify(redact(line)))),
-    fatal,
-    ctx.outputFlow,
-  );
+  // Framed on CR and LF like the spawn's own line limit, so every line here is within it.
+  const stderrLines = lineReader(proc.stderr, 1024 * 1024, fatal, ctx.outputFlow);
+  const stderrLine = (line: string) => {
+    if (line) emit("stderr", new ProviderPayload(JSON.stringify(redact(line))));
+  };
+  stderrLines.on("line", stderrLine);
+  const detachStderr = () => stderrLines.off("line", stderrLine);
   const stderrEnded = finished(proc.stderr, { writable: false }).catch(() => {});
   /**
    * Once Pi exits, what it printed last (often why it stopped) is still in the pipe: read it to
@@ -302,6 +310,7 @@ export async function openPiSession(
     .catch(stopFailed);
   void drained
     .then((exit) => {
+      stderrDrops.flush();
       detachStderr();
       ctx.onExit({ deliberate, message: `Pi process ${exit.reason}, code ${exit.code}` });
     })

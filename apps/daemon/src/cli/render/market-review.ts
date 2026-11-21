@@ -1,5 +1,6 @@
 import type { MarketReview, MarketReviewItem } from "@ace/protocol/marketplace";
 import { findingSentence } from "@ace/marketplace/signer";
+import { allowedToolsSentence, unusedFieldsSentence } from "@ace/ui-core/spade-chat";
 
 /*
  * An install's review as sentences (ADR 0178 §11), the same facts the app's review shows: what
@@ -74,6 +75,12 @@ function bodyLines(review: MarketReview): string[] {
       return [
         `A Spade skill, ${body.skillName}: ${body.description}`,
         `${plural(body.files, "file")}${body.flagged ? `, ${plural(body.flagged, "script or binary", "scripts or binaries")}` : ""}.`,
+        ...(body.license ? [`Licence: ${body.license}.`] : []),
+        ...(body.compatibility ? [`It says it needs: ${body.compatibility}`] : []),
+        ...[
+          allowedToolsSentence(body.allowedTools ?? []),
+          unusedFieldsSentence(body.unused ?? []),
+        ].filter((line): line is string => line !== undefined),
       ];
     case "spade-plugin":
       return [

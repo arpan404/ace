@@ -8,6 +8,7 @@ import { build, Platform, type Configuration } from "electron-builder";
 import { smokeMedia } from "@ace/release/media-smoke";
 import { smokeFiles } from "@ace/release/files-smoke";
 import { aceFilesVersion } from "@ace/release/ace-files";
+import { smokeHistory } from "@ace/release/history-smoke";
 import { verifyDesktopNatives } from "@ace/release/native-smoke";
 import { readScreenHelperIdentity } from "@ace/release/screen-identity";
 import { ReleaseTarget } from "@ace/protocol";
@@ -115,7 +116,7 @@ await verifyNatives(arch);
 // Local packages may use the host's toolchain.
 if (full && process.platform === "linux")
   for (const known of await assertLinuxRuntimeFloor(
-    ["daemon", "bin", "helpers", "runtime", "spade", "media", "files"]
+    ["daemon", "bin", "helpers", "runtime", "spade", "media", "files", "history"]
       .map((d) => join(dist, d))
       .filter((path) => existsSync(path)),
   ))
@@ -161,6 +162,7 @@ const config: Configuration = {
     { from: join(dist, "spade"), to: "spade" },
     { from: join(dist, "media"), to: "media" },
     { from: join(dist, "files"), to: "files" },
+    { from: join(dist, "history"), to: "history" },
     // The tray images: macOS template and the Linux colour icon; app icons come from build/.
     {
       from: join(desktop, "resources"),
@@ -220,14 +222,20 @@ const config: Configuration = {
         ]
       : [{ target: "dmg", arch: [arch] }],
     hardenedRuntime: true,
-    binaries: ["Contents/Resources/media/ace-media", "Contents/Resources/files/ace-files"],
+    binaries: [
+      "Contents/Resources/media/ace-media",
+      "Contents/Resources/files/ace-files",
+      "Contents/Resources/history/ace-history",
+    ],
     // Keep Electron's JIT entitlements off the Rust natives in the same signing pass.
     sign: async (options) => {
       const original = options.optionsForFile;
       await signAsync({
         ...options,
         optionsForFile: (file: string) =>
-          file.endsWith("/media/ace-media") || file.endsWith("/files/ace-files")
+          file.endsWith("/media/ace-media") ||
+          file.endsWith("/files/ace-files") ||
+          file.endsWith("/history/ace-history")
             ? { hardenedRuntime: true, entitlements: [] }
             : (original?.(file) ?? {}),
       });
@@ -390,6 +398,7 @@ await smokeFiles(
   aceFilesVersion({ repo, target: nativeTarget }),
   runtime,
 );
+await smokeHistory(packedResources, nativeTarget, runtime);
 if (process.platform === "linux")
   outputs.push(
     await writeLinuxTarball({

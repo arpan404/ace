@@ -3,6 +3,7 @@ import type { ThreadActor } from "./actor.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
 import { isPersonSteer, rootRun, steerRoute, type SteerRoute } from "./steer-yield.ts";
+import { steerLostRun } from "./steer-selection.ts";
 
 interface Ports {
   repo: EngineRepository;
@@ -37,7 +38,7 @@ export class SteerLane {
     const person = repo.pending.personSteer(actor.id);
     const route = person && this.route(person);
     if (person && route === "native") return this.steerNow(actor, person);
-    if (route === "yield") return this.yieldTurn(actor);
+    if (person && route === "yield") return this.yieldTurn(actor, person);
     const next = repo.pending.steerMessage(actor.id);
     if (next && next.id !== person?.id && this.isSteer(next)) return this.deliver(actor, next);
   }
@@ -73,11 +74,15 @@ export class SteerLane {
    * Interrupts the root's running turn, once, so the waiting steer goes in as the next input.
    * Only the root turn stops: background commands and children keep running (no cascade).
    */
-  private async yieldTurn(actor: ThreadActor): Promise<void> {
-    const run = rootRun(this.ports.repo.requireState(actor.id));
+  private async yieldTurn(actor: ThreadActor, intent: IntentHeader): Promise<void> {
+    const { repo } = this.ports;
+    const run = rootRun(repo.requireState(actor.id));
     const session = actor.session;
     if (run === undefined || !session) return;
-    actor.steerYield = { run, state: "pending" };
+    const target = repo.pending.steerTarget(intent.id);
+    if (target !== undefined && steerLostRun(repo, actor.id, target))
+      return this.deliver(actor, intent);
+    actor.steerYield = { run, state: "pending", intentId: intent.id };
     try {
       await session.interrupt({ cascade: false });
     } catch (error) {
@@ -117,14 +122,10 @@ export class SteerLane {
       actor.effectiveCapabilities ??
       this.ports.registry.get(state.config.provider, repo.backend(intent.threadId)).capabilities;
     if (!capabilities.steer) return undefined;
-    if (actor.steerYield && actor.steerYield.run !== rootRun(state)) actor.steerYield = undefined;
+    const run = rootRun(state);
+    if (actor.steerYield && run !== undefined && actor.steerYield.run !== run)
+      actor.steerYield = undefined;
     const person = isPersonSteer(intent, repo.steerNotes.personChose(intent.id));
-    return steerRoute(
-      { person },
-      state,
-      capabilities,
-      actor.steerYield,
-      actor.session.backgroundTools !== undefined,
-    );
+    return steerRoute({ person }, state, capabilities, actor.steerYield, actor.session);
   }
 }

@@ -159,7 +159,25 @@ pub async fn world_installing(
     watcher_scripts: impl FnOnce(&str) -> Vec<Script>,
     tools: Vec<Arc<dyn Tool>>,
 ) -> Result<World> {
-    let spade = Spade::start_with(Vec::new(), tools, Options::default()).await?;
+    world_in(
+        Options::default(),
+        installed,
+        planner_scripts,
+        watcher_scripts,
+        tools,
+    )
+    .await
+}
+
+/// [`world_installing`] on a Spade started with `options`.
+pub async fn world_in(
+    options: Options,
+    installed: Value,
+    planner_scripts: Vec<Script>,
+    watcher_scripts: impl FnOnce(&str) -> Vec<Script>,
+    tools: Vec<Arc<dyn Tool>>,
+) -> Result<World> {
+    let spade = Spade::start_with(Vec::new(), tools, options).await?;
     if installed.get("envelope").is_some() {
         super::market::trust(&spade.engine);
     }

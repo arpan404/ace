@@ -101,6 +101,7 @@ fn installed() -> Link {
         withdrawn_hashes: Vec::new(),
         pending: None,
         installing: false,
+        code: Default::default(),
     }
 }
 
@@ -256,4 +257,65 @@ fn a_rollback_is_the_same_plan_towards_the_earlier_version() {
     // What only the newer version declared is taken back.
     assert_eq!(back.off, vec!["publish"]);
     assert!(back.asks_more.is_empty());
+}
+
+/// Version 1 with components: `fares` calls Spade's tools; `dates` reaches nothing.
+fn with_code(code: Value) -> Manifest {
+    read(
+        &json!({
+            "format": "spade-bot", "version": 3, "name": "Flight watcher", "task": "Watch fares.",
+            "triggers": [{ "kind": "message" }],
+            "effects": [{ "effect": "network", "hosts": ["api.example-fares.com"], "why": "Reads fares." }],
+            "code": code,
+        }),
+        BUILD,
+    )
+    .unwrap_or_else(|problems| panic!("refused: {problems:?}"))
+}
+
+fn component(name: &str, imports: &[&str]) -> Value {
+    json!({
+        "name": name, "file": format!("code/{name}.wasm"), "world": "spade:package/bot-tools@1.0.0",
+        "imports": imports, "why": "Does exact work."
+    })
+}
+
+#[test]
+fn an_update_that_adds_a_component_or_an_import_asks_for_more_and_starts_it_off() {
+    let mut link = installed();
+    link.manifest = with_code(json!([
+        component("fares", &["spade:package/tools"]),
+        component("dates", &[]),
+        component("old", &[]),
+    ]));
+    link.on.extend([
+        "code:fares".to_owned(),
+        "code:dates".to_owned(),
+        "code:old".to_owned(),
+    ]);
+    let next = with_code(json!([
+        // Now reaches the network too: more than the person allowed.
+        component("fares", &["spade:package/tools", "spade:package/http"]),
+        // Asks for less: stays on.
+        component("dates", &[]),
+        component("hotels", &[]),
+    ]));
+    let bot = untouched();
+    let planned = plan(&link, current(&bot), &next);
+    assert_eq!(planned.asks_more, vec!["code:fares", "code:hotels"]);
+    assert!(planned.on.contains("code:dates"));
+    assert!(!planned.on.contains("code:fares"));
+    assert!(!planned.on.contains("code:hotels"));
+    assert_eq!(planned.off, vec!["code:old"]);
+}
+
+#[test]
+fn a_component_the_person_turned_off_stays_off_through_an_update() {
+    let mut link = installed();
+    link.manifest = with_code(json!([component("dates", &[])]));
+    let next = with_code(json!([component("dates", &[])]));
+    let bot = untouched();
+    let planned = plan(&link, current(&bot), &next);
+    assert!(planned.asks_more.is_empty());
+    assert!(!planned.on.contains("code:dates"));
 }

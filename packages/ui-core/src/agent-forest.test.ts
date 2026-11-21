@@ -364,3 +364,65 @@ test("a remote child renders as an agent row with its provider, not a command", 
   expect(forest.reach).toEqual([]);
   expect(forest.confirmed).toBe(true);
 });
+
+test("a remote child whose stop it didn't confirm is never done, nor the idle parent above it", () => {
+  const remote = (id: string, contact: "lost" | "unconfirmed", parentId: string) =>
+    Agent.parse({
+      id,
+      parentId,
+      threadId: "t1",
+      childThreadId: `machine-${id}`,
+      machine: { machine: "build-box", name: "Build box", contact },
+      origin: "ace",
+      native: { provider: "codex" },
+      fidelity: "summary",
+      cwd: "",
+      status: idle,
+      createdAt: clock++,
+    });
+  const works = new Map([
+    [
+      "t1",
+      thread(
+        [
+          agent("t1", "root", idle),
+          agent("t1", "lead", idle, "root"),
+          remote("far", "unconfirmed", "lead"),
+          remote("lost", "lost", "root"),
+        ],
+        { state: "done" },
+      ),
+    ],
+  ]);
+  const forest = agentForest("t1", works);
+  const children = forest.roots[0]?.children ?? [];
+  // Neither the remote rows nor the lead above the unconfirmed one fold into done.
+  expect(foldFinished("t1/root", children).every((row) => row.kind === "node")).toBe(true);
+  expect(children.every((node) => node.unconfirmed)).toBe(true);
+  expect(forestTally(children).done).toBe(0);
+  expect(forest.confirmed).toBe(false);
+});
+
+test("a delegate whose thread the budget left out is never confirmed done", () => {
+  // Seven delegates, each to its own thread, with room to load only two of them.
+  const delegates = Array.from({ length: 7 }, (_, index) =>
+    agent("t1", `d${index}`, idle, "root", `c${index}`),
+  );
+  const works = new Map<string, ThreadWork>([
+    ["t1", thread([agent("t1", "root", idle), ...delegates], { state: "done" })],
+  ]);
+  for (let index = 0; index < 7; index++)
+    works.set(
+      `c${index}`,
+      thread([agent(`c${index}`, "root", working)], { state: "working", agents: 1 }),
+    );
+  const forest = agentForest("t1", works, { depth: 6, threads: 2 });
+  expect(forest.reach).toEqual(["c0", "c1"]);
+  const rows = forest.roots[0]?.children ?? [];
+  const skipped = rows.filter((node) => node.kind === "agent" && !node.childThread);
+  expect(skipped).toHaveLength(5);
+  // What they delegated to may be working: unsure, not done.
+  expect(skipped.every((node) => node.unconfirmed)).toBe(true);
+  expect(forestTally(rows).done).toBe(0);
+  expect(forest.confirmed).toBe(false);
+});

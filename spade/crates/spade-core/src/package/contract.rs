@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::effect::{self, Effect};
+use crate::rule::{self, Problem};
 use crate::schema::{self, Schema};
 
 /// The most contracts one package publishes, and examples one contract carries.
@@ -108,12 +109,15 @@ pub fn named(name: &str) -> bool {
 }
 
 /// Reads `contracts`; `declared` is every effect word the package declares. Problems go to `out`.
-pub fn read(value: Option<&Value>, declared: &[Effect], out: &mut Vec<String>) -> Vec<Contract> {
+pub fn read(value: Option<&Value>, declared: &[Effect], out: &mut Vec<Problem>) -> Vec<Contract> {
     let items = match value {
         None => return Vec::new(),
         Some(Value::Array(items)) if items.len() <= MOST_CONTRACTS => items,
         Some(_) => {
-            out.push(format!("contracts is a list of at most {MOST_CONTRACTS}"));
+            out.push(Problem::new(
+                rule::CONTRACTS,
+                format!("contracts is a list of at most {MOST_CONTRACTS}"),
+            ));
             return Vec::new();
         }
     };
@@ -122,7 +126,10 @@ pub fn read(value: Option<&Value>, declared: &[Effect], out: &mut Vec<String>) -
         let at = format!("contracts[{i}]");
         if let Some(one) = contract(item, &at, declared, out) {
             if contracts.iter().any(|c| c.name == one.name) {
-                out.push(format!("{at}: each contract has a name of its own"));
+                out.push(Problem::new(
+                    rule::CONTRACT_NAME_UNIQUE,
+                    format!("{at}: each contract has a name of its own"),
+                ));
             }
             contracts.push(one);
         }
@@ -130,28 +137,37 @@ pub fn read(value: Option<&Value>, declared: &[Effect], out: &mut Vec<String>) -
     contracts
 }
 
-const FIELDS: [&str; 6] = ["name", "summary", "input", "output", "effects", "examples"];
+pub(crate) const FIELDS: [&str; 6] = ["name", "summary", "input", "output", "effects", "examples"];
 
 fn contract(
     item: &Value,
     at: &str,
     declared: &[Effect],
-    out: &mut Vec<String>,
+    out: &mut Vec<Problem>,
 ) -> Option<Contract> {
     let Some(fields) = item.as_object() else {
-        out.push(format!("{at} is an object"));
+        out.push(Problem::new(
+            rule::CONTRACT_FIELD,
+            format!("{at} is an object"),
+        ));
         return None;
     };
     // A schema file is written in before the manifest is read (`contract_files`); one still
     // named here was never read with it.
     if let Some(path) = fields.get("file") {
         let path = path.as_str().unwrap_or("its schema file");
-        out.push(format!("{at}.file: {path} isn't in the package"));
+        out.push(Problem::new(
+            rule::CONTRACT_FILE_MISSING,
+            format!("{at}.file: {path} isn't in the package"),
+        ));
         return None;
     }
     for key in fields.keys() {
         if !FIELDS.contains(&key.as_str()) {
-            out.push(format!("{at}.{key} isn't a field of a contract"));
+            out.push(Problem::new(
+                rule::CONTRACT_FIELD,
+                format!("{at}.{key} isn't a field of a contract"),
+            ));
         }
     }
     let name = fields
@@ -159,8 +175,9 @@ fn contract(
         .and_then(Value::as_str)
         .unwrap_or_default();
     if !named(name) {
-        out.push(format!(
-            "{at}.name is lower-case words joined by _, like cheapest_fare"
+        out.push(Problem::new(
+            rule::CONTRACT_NAME,
+            format!("{at}.name is lower-case words joined by _, like cheapest_fare"),
         ));
     }
     let summary = fields
@@ -169,9 +186,9 @@ fn contract(
         .map(str::trim)
         .unwrap_or_default();
     if summary.is_empty() || summary.chars().count() > SUMMARY_CHARS {
-        out.push(format!(
+        out.push(Problem::new(rule::SUMMARY, format!(
             "{at}.summary says in one line of at most {SUMMARY_CHARS} characters what it answers"
-        ));
+        )));
     }
     let schemas = ["input", "output"].map(|side| {
         let value = fields.get(side).cloned().unwrap_or(Value::Null);
@@ -208,13 +225,16 @@ fn effects(
     value: Option<&Value>,
     at: &str,
     declared: &[Effect],
-    out: &mut Vec<String>,
+    out: &mut Vec<Problem>,
 ) -> Vec<Effect> {
     let Some(value) = value else {
         return Vec::new();
     };
     let Some(words) = value.as_array() else {
-        out.push(format!("{at}.effects lists effect words"));
+        out.push(Problem::new(
+            rule::CONTRACT_EFFECT,
+            format!("{at}.effects lists effect words"),
+        ));
         return Vec::new();
     };
     let mut effects = Vec::new();
@@ -229,14 +249,14 @@ fn effects(
                         effects.push(effect);
                     }
                 } else {
-                    out.push(format!(
+                    out.push(Problem::new(rule::CONTRACT_EFFECT_UNDECLARED, format!(
                         "{at}.effects: {text} isn't among the package's effects; a call can use only what the package declares"
-                    ));
+                    )));
                 }
             }
-            _ => out.push(format!(
+            _ => out.push(Problem::new(rule::CONTRACT_EFFECT, format!(
                 "{at}.effects: {text:?} isn't an effect a call may use (network, publish, send_as_person, pay or change_access)"
-            )),
+            ))),
         }
     }
     effects
@@ -247,7 +267,7 @@ fn examples(
     at: &str,
     input: &Schema,
     output: &Schema,
-    out: &mut Vec<String>,
+    out: &mut Vec<Problem>,
 ) -> Vec<Example> {
     let Some(value) = value else {
         return Vec::new();
@@ -256,8 +276,9 @@ fn examples(
         .as_array()
         .filter(|items| items.len() <= MOST_EXAMPLES)
     else {
-        out.push(format!(
-            "{at}.examples is a list of at most {MOST_EXAMPLES}"
+        out.push(Problem::new(
+            rule::EXAMPLE,
+            format!("{at}.examples is a list of at most {MOST_EXAMPLES}"),
         ));
         return Vec::new();
     };
@@ -265,7 +286,10 @@ fn examples(
     for (i, item) in items.iter().enumerate() {
         let here = format!("{at}.examples[{i}]");
         let (Some(given), Some(answer)) = (item.get("input"), item.get("output")) else {
-            out.push(format!("{here} has an input and the output it answers"));
+            out.push(Problem::new(
+                rule::EXAMPLE,
+                format!("{here} has an input and the output it answers"),
+            ));
             continue;
         };
         for misfit in input
@@ -273,7 +297,7 @@ fn examples(
             .into_iter()
             .chain(output.check(answer, &format!("{here}.output")))
         {
-            out.push(format!("{misfit}"));
+            out.push(Problem::new(rule::EXAMPLE, format!("{misfit}")));
         }
         examples.push(Example {
             input: given.clone(),

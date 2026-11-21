@@ -3,11 +3,13 @@ import {
   HtmlHeightMessage,
   type HtmlMode,
   type HtmlStyleKit,
+  type McpAppHostMessage,
   type PanelHostMessage,
 } from "@ace/protocol";
 import {
   heightFromTitle,
   inlineVisualizationUrl,
+  mcpAppPanelUrl,
   panelMessageFromTitle,
   panelTheme,
   panelUrl,
@@ -25,7 +27,12 @@ export interface PanelChannel {
   /** A message the page's outer document relayed, unread: the caller checks it. */
   onMessage(raw: unknown): void;
   /** The page loaded: how to send it a message, until it unloads (`undefined` then). */
-  onReady(send: ((message: PanelHostMessage) => void) | undefined): void;
+  onReady(send: ((message: PanelHostMessage | McpAppHostMessage) => void) | undefined): void;
+  /**
+   * The page is an MCP app's (ADR 0202 §4): the same sandbox, with MCP Apps' JSON-RPC in place
+   * of a package panel's messages.
+   */
+  mcpApp?: boolean;
 }
 
 interface SurfaceProps {
@@ -75,7 +82,7 @@ export function HtmlFrame(props: {
   // A new document only for new HTML, mode or fit; the theme then updates live. Inline, the
   // frame is sized to its page, so that document never shows a scrollbar (`inlineVisualizationUrl`).
   const build: typeof visualizationUrl = props.panel
-    ? (html, theme) => panelUrl(html, theme)
+    ? (html, theme) => (props.panel?.mcpApp ? mcpAppPanelUrl(html, theme) : panelUrl(html, theme))
     : props.fill
       ? visualizationUrl
       : inlineVisualizationUrl;

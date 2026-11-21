@@ -291,6 +291,9 @@ mod tests {
             annotated: true,
             open_world: None,
             meta: Map::new(),
+            page: None,
+            for_model: true,
+            for_app: true,
         }
     }
 

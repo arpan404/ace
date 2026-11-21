@@ -40,7 +40,7 @@ const kindOf = (reader: ThreadReader, id: string | undefined) =>
   id ? reader.interaction(id)?.request.kind : undefined;
 
 /** The first answerable open request in `threadId`, with what it asks for. */
-function useOpenRequest(threadId: string | undefined) {
+export function useOpenRequest(threadId: string | undefined) {
   const ids = useInteractions(threadId, answerable);
   const id = ids?.[0];
   const read = useCallback((reader: ThreadReader) => kindOf(reader, id), [id]);

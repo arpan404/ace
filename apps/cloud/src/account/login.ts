@@ -44,14 +44,22 @@ async function loginRequest(request: Request): Promise<AceLoginRequest | undefin
   }
 }
 
-/** The login id a continue form posts, if well formed. */
-async function formId(request: Request): Promise<string | undefined> {
+/** One field of a small form post, if present and matching `pattern`. */
+async function formField(
+  request: Request,
+  name: string,
+  pattern: RegExp,
+): Promise<string | undefined> {
   if (Number(request.headers.get("Content-Length") ?? "0") > 1024) return undefined;
   const text = await request.text();
   if (text.length > 1024) return undefined;
-  const id = new URLSearchParams(text).get("id") ?? "";
-  return loginId.test(id) ? id : undefined;
+  const value = new URLSearchParams(text).get(name) ?? "";
+  return pattern.test(value) ? value : undefined;
 }
+/** The login id a continue form posts, if well formed. */
+const formId = (request: Request) => formField(request, "id", loginId);
+/** A WorkOS invitation token, as the join page's form posts it. */
+export const invitationToken = /^[A-Za-z0-9_-]{1,256}$/;
 
 /**
  * The sign-in flow (ADR 0100): an app starts a login and keeps its private claim ticket, the
@@ -67,6 +75,8 @@ export function loginRoutes(deps: {
   provider: Pick<AccountProvider, "authorizeUrl" | "exchange">;
   now: () => number;
   random: RandomBytes;
+  /** A join page's sign-in accepted an invitation: mirror the membership it made. */
+  joined?: (account: string, org: string | undefined) => Promise<void>;
 }) {
   const { config, logins, sessions, provider, now, random } = deps;
   const secure = config.publicUrl.startsWith("https:") ? "; Secure" : "";
@@ -92,7 +102,14 @@ export function loginRoutes(deps: {
       // A daemon (`ace login`) signs in without a return address, and keeps its session on its
       // disk: that session never speaks for the person (ADR 0190).
       const holder = body.holder ?? (returnTo === null ? "machine" : "person");
-      await logins.create(await digest(id), await digest(secret), expiresAt, returnTo, holder);
+      await logins.create(
+        await digest(id),
+        await digest(secret),
+        expiresAt,
+        returnTo,
+        holder,
+        body.org ?? null,
+      );
       return json(201, {
         id,
         secret,
@@ -119,6 +136,7 @@ export function loginRoutes(deps: {
       if (!id) return expired();
       const auth = await pkce(random);
       const binding = opaqueToken(random);
+      const row = await logins.get(await digest(id), now());
       const opened = await logins.openBrowser(
         await digest(id),
         {
@@ -132,7 +150,49 @@ export function loginRoutes(deps: {
       return new Response(null, {
         status: 302,
         headers: {
-          Location: provider.authorizeUrl(auth.challenge, auth.state),
+          Location: provider.authorizeUrl(auth.challenge, auth.state, { org: row?.org }),
+          "Set-Cookie": bindingCookie(id, binding, LOGIN_LIFETIME_MS / 1000),
+        },
+      });
+    },
+
+    /**
+     * POST /v1/orgs/join — the join page's one button (ADR 0206 §1.3): a sign-in in this
+     * browser whose authorization URL carries the invitation, so signing in accepts it. No app
+     * waits for its session, so none is kept.
+     */
+    async join(request: Request): Promise<Response> {
+      const invitation = await formField(request, "invitation_token", invitationToken);
+      if (!invitation) return expired();
+      const time = now();
+      await logins.sweep(time);
+      if ((await logins.count(time)) >= MAX_PENDING_LOGINS)
+        return page(429, "ace is busy. Try again in a minute.");
+      const id = opaqueToken(random);
+      const hash = await digest(id);
+      await logins.create(
+        hash,
+        await digest(opaqueToken(random)),
+        time + LOGIN_LIFETIME_MS,
+        null,
+        "join",
+      );
+      const auth = await pkce(random);
+      const binding = opaqueToken(random);
+      const opened = await logins.openBrowser(
+        hash,
+        {
+          state: await digest(auth.state),
+          binding: await digest(binding),
+          verifier: auth.verifier,
+        },
+        now(),
+      );
+      if (!opened) return expired();
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: provider.authorizeUrl(auth.challenge, auth.state, { invitation }),
           "Set-Cookie": bindingCookie(id, binding, LOGIN_LIFETIME_MS / 1000),
         },
       });
@@ -181,10 +241,18 @@ export function loginRoutes(deps: {
           end("failed", page(502, "Sign-in could not finish. Start again in ace.")),
         );
       }
+      // The join page's sign-in only accepts the invitation: no app is waiting for a session.
+      if (row.holder === "join") {
+        await logins.remove(row.id);
+        await deps.joined?.(identity.account.id, identity.organizationId);
+        return withCookie(
+          page(200, "You've joined the organization. Return to ace. You can close this tab."),
+        );
+      }
       const token = opaqueToken(random);
       const hash = await digest(token);
       const expiresAt = now() + SESSION_LIFETIME_MS;
-      await sessions.put(
+      const created = await sessions.put(
         hash,
         identity.account,
         identity.refreshToken,
@@ -195,10 +263,19 @@ export function loginRoutes(deps: {
           : "exposed",
         identity.pictureUrl,
       );
+      // The account was deleted while this sign-in was at WorkOS: it gets no session.
+      if (!created) {
+        await logins.fail(row.id);
+        return withCookie(
+          end("failed", page(403, "This ace account was deleted. Start again in ace.")),
+        );
+      }
       const grant = AceAccountGrant.parse({ token, expiresAt, account: identity.account });
       // A cancellation or expiry while WorkOS answered wins: the new session is discarded.
+      // So does a deletion that removed the session first; the app then hears it failed.
       if (!(await logins.complete(row.id, hash, grant, now()))) {
         await sessions.remove(hash);
+        await logins.fail(row.id);
         return withCookie(end("expired", expired()));
       }
       return withCookie(

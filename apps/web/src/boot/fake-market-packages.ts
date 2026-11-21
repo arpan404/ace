@@ -94,6 +94,28 @@ const update: Partial<MarketReview> = {
         off: [],
       },
       asksMore: [],
+      // Fare watch's two kept runs (`fake-spade-cases.ts`), replayed free on 2.1.0 (ADR 0204 §2).
+      replay: {
+        summary: "1 of 2 kept runs replay the same. 1 doesn't: see why.",
+        passed: 1,
+        failed: 1,
+        cases: [
+          {
+            id: "case_1",
+            given: "Find me the cheapest way to Lisbon on Friday.",
+            passed: false,
+            lines: [
+              "card_show answered an error: Not shown: the fare-drop card doesn't pass the package's checks: fare-has-link: data.link: is missing",
+            ],
+          },
+          {
+            id: "case_2",
+            given: "Check the Porto to Lisbon fares for May.",
+            passed: true,
+            lines: [],
+          },
+        ],
+      },
     },
   },
 };

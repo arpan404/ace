@@ -125,6 +125,19 @@ test("Now names the agent four threads down that needs the person, and Open goes
   ).toBeTruthy();
 });
 
+test("a question an agent works on without waiting for doesn't read as asking the person", async () => {
+  const { app, work } = await openNested();
+  await agentRow(work, "Check daemon search limits");
+  // The great-grandchild keeps working; its question isn't blocking, so it isn't the person's yet.
+  act(() => app.daemon.apply(nestedDelegationIds.review, [nestedQuestion(false)]));
+  await waitFor(async () =>
+    expect(
+      (await agentRow(work, "Check daemon search limits")).getAttribute("aria-label"),
+    ).not.toMatch(/asks:/),
+  );
+  expect(await summaryStatus(work)).toMatch(/^Working/);
+});
+
 test("with reduced motion the live marks hold still", async () => {
   const { work } = await openNested();
   const limits = await agentRow(work, "Check daemon search limits");

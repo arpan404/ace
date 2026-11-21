@@ -55,6 +55,20 @@ pub enum ModelError {
     },
 }
 
+/// A definite sign that a model can't serve a call now, the only kind a route falls back on
+/// (ADR 0205 §2, ADR 0053). A slow answer, a bad answer or a refusal is never one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unserved {
+    /// The request never reached it: connection refused, DNS or TLS failure.
+    Unreachable,
+    /// `429` for a rate limit.
+    RateLimited,
+    /// The account's quota or credit is used up.
+    Quota,
+    /// `5xx`; a route moves on only once the usual tries with backoff are used up.
+    ServerError,
+}
+
 /// What a missing model says: that none is chosen yet, or that the chosen one is gone.
 fn unknown_model(reference: &str) -> String {
     if reference.trim().is_empty() {
@@ -93,6 +107,28 @@ impl ModelError {
             self,
             Self::Provider { .. } | Self::Empty { .. } | Self::Shape { .. }
         )
+    }
+
+    /// The definite sign this failure is, if it is one (see [`Unserved`]).
+    pub fn unserved(&self) -> Option<Unserved> {
+        let Self::Unanswered {
+            status,
+            transient,
+            message,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        match *status {
+            None => Some(Unserved::Unreachable),
+            Some(402) => Some(Unserved::Quota),
+            Some(_) if crate::failure::used_up(message) => Some(Unserved::Quota),
+            Some(429) if *transient => Some(Unserved::RateLimited),
+            Some(429) => Some(Unserved::Quota),
+            Some(500..=599) if *transient => Some(Unserved::ServerError),
+            Some(_) => None,
+        }
     }
 
     /// How long the endpoint asked to wait before sending again (`retry-after`).

@@ -175,6 +175,50 @@ a `spade` skill in ace's library for every agent, marks the row `added:<library 
 next mirror (run at once) drops the row once the library lists that id. A retry after a lost
 answer only waits for that drop and never creates twice.
 
+## Skills to and from the shared standard
+
+ADR 0202 §1. A skill folder made to the [Agent Skills specification](https://agentskills.io/specification)
+imports as a `spade` skill, and any skill the store keeps a folder for exports as one.
+`@ace/marketplace`'s `skill-md.ts` is the one reader: the market's skill check, `ace bot check` and
+both commands use it.
+
+**What is checked.** `SKILL.md` starts with YAML front matter. `name`: 1–64 lower-case letters
+and digits in runs joined by single hyphens, and the folder's own name. `description`: text, not
+empty, at most 1,024 characters. `license`: text. `compatibility`: text, at most 500 characters,
+shown and never a reason to refuse. `metadata`: keys with text values; `spade.` keys are Spade's
+own. `allowed-tools`: tool names separated by spaces. Each problem names its line. Any other field
+is kept and listed as "Not used by this Spade", never refused. The market's other skill checks
+(secrets, limits, the scanner on market uploads) run as before.
+
+**`allowed-tools` grants nothing.** The review and `ace bot check` say "It asks to run Bash and
+Read without asking. Spade still decides each call." Spade never reads the field: it stays in
+`SKILL.md`, and the gate reads every call a skill's instructions lead to as it reads any other.
+
+**Import.** `ace spade skill import FROM [--git] [--path FOLDER] [--replace]` reads a folder, or
+one folder of a git repository through the plugin fetcher (shallow bare fetch, isolated config,
+no hooks, links and submodules refused), leaves hidden files out, and runs the checks above. Then
+it sends `POST /v1/skills/import {name, description, manual, skill_md, files: [{path, executable,
+content}], source, replace}`, with content as base64. Spade holds the name and description rules
+again, a front matter start, `SKILL.md` at most 256 KiB, plain non-hidden paths inside the folder
+listed once each, and ADR 0103's limits (512 files, 4 MiB each, 16 MiB together). It keeps
+`SKILL.md` and every file byte for byte as a `spade` skill (`sks_` + 20 hex of the name), its
+source `imported:<path or address>`. A name the store already holds is refused (409), unless
+`replace` is set and the skill there was written in Spade. Imports are the person's alone
+(ADR 0178 §12.5), like installs.
+
+**Export.** `ace spade skill export SKILL [DIR]` reads `GET /v1/skills/{id}/export` (`{name,
+origin, source, files}`, any origin but `plugin`, whose skills export with their plugin) and
+writes `DIR/<name>/`, which must not exist. `SKILL.md` keeps the specification's fields and its
+body as they were. Fields the specification doesn't define, which its validator refuses at the
+top level, move under `metadata` as `spade.field.<name>` with their value as JSON. Two keys are
+added: `spade.version` (`1`, the version of this mapping) and `spade.source` (`spade`, the import's
+address, `market:<entry>` or `ace:<scope>`). Nothing else is added. The export is checked against
+the validator's rules before anything is written.
+
+**Round trip.** An import of an exported folder lifts `spade.field.*` back to the top level and
+takes `spade.version` and `spade.source` out, so it stores the skill that was exported. A folder
+with none of those keys is stored byte for byte.
+
 ## Loading a skill brings its files
 
 `skill_load` answers with SKILL.md, then, when the skill has other files, the folder they are in

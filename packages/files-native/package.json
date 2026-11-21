@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./wire": "./src/wire.ts",
+    "./frames": "./src/frames.ts",
     "./schemas": "./src/schemas.ts",
     "./binary": "./src/binary.ts",
     "./errors": "./src/errors.ts",

@@ -17,6 +17,8 @@ mod at;
 mod case;
 mod check;
 mod error;
+#[cfg(windows)]
+mod handle_facts;
 mod identity;
 mod look;
 mod names;
@@ -25,6 +27,8 @@ mod walk;
 mod windows;
 
 pub use crate::error::Error;
+#[cfg(windows)]
+pub use crate::handle_facts::handle_facts;
 pub use crate::identity::Identity;
 pub use crate::look::{Found, Readings};
 pub use crate::walk::{Parent, Stored};
