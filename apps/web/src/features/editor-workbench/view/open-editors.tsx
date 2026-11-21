@@ -9,7 +9,7 @@ import {
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
-import { fileName, folderOf } from "./paths.ts";
+import { fileName, folderEnds, folderOf } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
 /**
@@ -98,7 +98,7 @@ function OpenEditorRow(props: {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
-        "mx-1.5 flex h-6 items-center gap-1.5 rounded-sm pr-1 pl-6 text-ui",
+        "mx-1.5 flex h-7 items-center gap-1.5 rounded-sm pr-1 pl-6 text-ui",
         props.current ? "bg-active text-foreground" : "text-muted-foreground hover:bg-hover",
       )}
     >
@@ -114,9 +114,7 @@ function OpenEditorRow(props: {
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-ring-inset"
       >
         <span className={cn("shrink-0", tab.preview && "italic")}>{name}</span>
-        <span className="min-w-0 truncate text-xs text-subtle-foreground">
-          {folderOf(tab.path)}
-        </span>
+        <FolderHint folder={folderOf(tab.path)} />
       </button>
       <TabSlot
         shows={slotShows(unsaved, tab.pinned, hovered, hovered, mark !== undefined)}
@@ -126,6 +124,22 @@ function OpenEditorRow(props: {
         onClose={() => actions.close([tab.path])}
       />
     </li>
+  );
+}
+
+/**
+ * The row's folder in subtle ink, giving way in its middle: its start truncates and its nearest
+ * folder stays ("apps/web/…shell"). TODO: switch to `MiddleText` from
+ * panels/files/middle-name.tsx once #2519 is on main.
+ */
+function FolderHint(props: { folder: string }) {
+  const { head, tail } = folderEnds(props.folder);
+  if (!tail) return null;
+  return (
+    <span className="flex min-w-0 text-xs text-subtle-foreground">
+      {head && <span className="min-w-0 truncate">{head}</span>}
+      <span className="shrink-0">{tail}</span>
+    </span>
   );
 }
 

@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { closesExplorerOnPick, explorerPlace, roomAsk, showsExplorerToggle } from "./editor-room.ts";
+import {
+  closesExplorerOnPick,
+  explorerPlace,
+  roomAsk,
+  showsExplorerToggle,
+} from "./editor-room.ts";
 
 test.each([
   [
