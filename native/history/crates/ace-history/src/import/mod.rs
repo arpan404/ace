@@ -161,7 +161,9 @@ pub fn import_history(
         let plan = plan::prepare(home, &member.source, scratch, cancel)?;
         let mut seq = 0;
         let mut ordinal = 0;
-        for record in import_records(home, &member.source, scratch, cancel)? {
+        let records = import_records(home, &member.source, scratch, cancel)?;
+        crate::hooks::at_path("records-opened", &member.source.path);
+        for record in records {
             let record = record?;
             cancel.check()?;
             ordinal += 1;

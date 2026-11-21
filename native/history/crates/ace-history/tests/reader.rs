@@ -171,3 +171,65 @@ fn a_reader_that_dies_while_creating_a_fresh_index_leaves_one_the_next_start_ope
     let ready = reader.next().value;
     assert_eq!(ready, json!({ "id": 0, "value": "ready" }));
 }
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_transcript_replaced_after_it_was_opened_streams_its_raw_bytes_from_the_file_it_decoded() {
+    let root = tempfile::tempdir().unwrap();
+    // A first record over the inline limit, so its raw bytes travel as a blob.
+    let big = format!(
+        "{}\n",
+        json!({ "type": "user", "sessionId": "11111111-1111-4111-8111-111111111111", "cwd": "/w",
+            "message": { "role": "user", "content": format!("original {}", "o".repeat(80 * 1024)) } })
+    );
+    let home = claude_home(root.path(), &big);
+    let path = root
+        .path()
+        .join("claude/projects/p/11111111-1111-4111-8111-111111111111.jsonl");
+    let pause = root.path().join("pause");
+    std::fs::create_dir(&pause).unwrap();
+    let hooks = json!({ "pause": { "at": "records-opened", "dir": pause } });
+    let mut reader = Reader::start_with(options(root.path(), vec![home]), &hooks);
+    reader.next();
+    reader.call(1, json!({ "op": "scan" }));
+    let listed = reader.call(
+        2,
+        json!({ "op": "list", "request": { "type": "history.list", "cwd": "/w" } }),
+    );
+    let source = listed.value["value"]["sessions"][0]["id"].clone();
+    let init =
+        json!({ "sourceId": source, "threadId": "t", "agentId": "a", "workspaceId": "w", "at": 1 });
+    reader.call(3, json!({ "op": "import", "init": init }));
+    reader.send(&json!({ "id": 4, "request": { "op": "next" } }));
+    while !pause.join("paused").exists() {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // Renamed away and replaced by other content of the same size, after the reader opened it.
+    std::fs::rename(&path, root.path().join("moved.jsonl")).unwrap();
+    std::fs::write(&path, big.replace("original", "REPLACED")).unwrap();
+    std::fs::write(pause.join("continue"), "").unwrap();
+    let mut bodies = Vec::new();
+    let mut id = 4;
+    loop {
+        let message = reader.next();
+        if message.value.get("id") != Some(&json!(id)) {
+            continue;
+        }
+        bodies.extend(message.bodies);
+        if message.value.get("error").is_some() || message.value["value"]["done"] == json!(true) {
+            break;
+        }
+        id += 1;
+        reader.send(&json!({ "id": id, "request": { "op": "next" } }));
+    }
+    let raw: Vec<u8> = bodies.concat();
+    let raw = String::from_utf8_lossy(&raw);
+    assert!(
+        raw.contains("original"),
+        "the raw blob came from another file"
+    );
+    assert!(
+        !raw.contains("REPLACED"),
+        "the raw blob came from the replacement"
+    );
+}

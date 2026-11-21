@@ -5,6 +5,7 @@
 
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -42,7 +43,7 @@ pub fn decode(bytes: &[u8]) -> Option<Value> {
 
 /// The records of a JSONL file, one at a time. Exhausting it checks the file did not change.
 pub struct JsonLines {
-    file: File,
+    file: Arc<File>,
     size: u64,
     before: String,
     limit: usize,
@@ -62,7 +63,7 @@ impl JsonLines {
         if !(1..=RECORD_LIMIT).contains(&limit) {
             return Err(Error::message("Invalid native record limit"));
         }
-        let file = safe_open(home, path)?;
+        let file = Arc::new(safe_open(home, path)?);
         let meta = file.metadata()?;
         Ok(JsonLines {
             size: meta.len(),
@@ -79,6 +80,12 @@ impl JsonLines {
             held: Vec::new(),
             done: false,
         })
+    }
+
+    /// The open file the records are read from: their raw bytes are read from it too, never
+    /// from whatever the path names by then.
+    pub fn handle(&self) -> Arc<File> {
+        self.file.clone()
     }
 
     fn record(&mut self) -> Record {
@@ -167,22 +174,20 @@ impl Iterator for JsonLines {
     }
 }
 
-/// The bytes of one record, in chunks of at most 64 KiB.
+/// The bytes of one record from an open file, in chunks of at most 64 KiB.
 pub fn read_range(
-    home: &Path,
-    path: &Path,
+    file: &File,
     offset: u64,
     bytes: u64,
     cancel: &Cancel,
     chunk: &mut dyn FnMut(&[u8]) -> Result<()>,
 ) -> Result<()> {
-    let file = safe_open(home, path)?;
     let mut buffer = vec![0u8; BUFFER];
     let mut read = 0u64;
     while read < bytes {
         cancel.check()?;
         let want = (BUFFER as u64).min(bytes - read) as usize;
-        let got = super::read_once_public(&file, &mut buffer[..want], offset + read)?;
+        let got = super::read_once_public(file, &mut buffer[..want], offset + read)?;
         if got == 0 {
             return Err(Error::message("Source range disappeared"));
         }

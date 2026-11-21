@@ -3,11 +3,15 @@
 //! The native records of one source (`source-records.ts`): a JSONL transcript's lines, OpenCode's
 //! legacy storage files in their storage order, or an OpenCode database's rows.
 
+use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::cancel::Cancel;
-use crate::error::Result;
-use crate::fsread::{JsonLines, RECORD_LIMIT, RecordKind, read_range, stat::fingerprint};
+use crate::error::{CHANGED_DURING, Error, Result};
+use crate::fsread::{
+    JsonLines, RECORD_LIMIT, RecordKind, read_range, safe_open, stat::fingerprint,
+};
 use crate::opencode;
 use crate::options::Home;
 use crate::session::{Kind, Source};
@@ -16,8 +20,11 @@ use crate::snapshot::{SnapshotScratch, database_fingerprint};
 /// Where a record's own bytes are, for an import that keeps them as a raw blob.
 #[derive(Debug)]
 pub enum Raw {
-    /// A range of a file inside the home.
-    File { path: PathBuf, offset: u64 },
+    /// A range of the open file the record was decoded from.
+    Handle { file: Arc<File>, offset: u64 },
+    /// A whole file inside the home, read again by path: refused unless it is still the file
+    /// (by its fingerprint) the record was decoded from.
+    File { path: PathBuf, fingerprint: String },
     /// A database row, read whole (rows over the decode limit are refused, never read).
     Bytes(Vec<u8>),
 }
@@ -39,8 +46,16 @@ impl Native {
         chunk: &mut dyn FnMut(&[u8]) -> Result<()>,
     ) -> Result<()> {
         match &self.raw {
-            Raw::File { path, offset } => {
-                read_range(&home.home_dir, path, *offset, self.bytes, cancel, chunk)
+            Raw::Handle { file, offset } => read_range(file, *offset, self.bytes, cancel, chunk),
+            Raw::File {
+                path,
+                fingerprint: then,
+            } => {
+                let file = safe_open(&home.home_dir, path)?;
+                if fingerprint(&file.metadata()?) != *then {
+                    return Err(Error::message(CHANGED_DURING));
+                }
+                read_range(&file, 0, self.bytes, cancel, chunk)
             }
             Raw::Bytes(bytes) => {
                 for part in bytes.chunks(64 * 1024) {
@@ -57,19 +72,18 @@ pub type Records<'a> = Box<dyn Iterator<Item = Result<Native>> + 'a>;
 
 /// The lines of a JSONL file, as native records.
 pub fn lines<'a>(home: &Path, path: &Path, cancel: &Cancel, limit: usize) -> Result<Records<'a>> {
-    let path = path.to_owned();
-    Ok(Box::new(JsonLines::open(home, &path, cancel, limit)?.map(
-        move |record| {
-            record.map(|r| Native {
-                bytes: r.bytes,
-                kind: r.kind,
-                raw: Raw::File {
-                    path: path.clone(),
-                    offset: r.offset,
-                },
-            })
-        },
-    )))
+    let lines = JsonLines::open(home, path, cancel, limit)?;
+    let file = lines.handle();
+    Ok(Box::new(lines.map(move |record| {
+        record.map(|r| Native {
+            bytes: r.bytes,
+            kind: r.kind,
+            raw: Raw::Handle {
+                file: file.clone(),
+                offset: r.offset,
+            },
+        })
+    })))
 }
 
 /// The records of `source`; file records over `limit` are opaque. Database rows keep the decoder

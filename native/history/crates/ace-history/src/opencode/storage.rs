@@ -91,6 +91,8 @@ struct Header {
     path: PathBuf,
     value: Value,
     bytes: u64,
+    /// The file's fingerprint when it was sampled: its raw bytes are read only from that file.
+    fingerprint: String,
 }
 
 /// Messages held in memory before they spill to a private SQLite file: most sessions have a few,
@@ -112,7 +114,7 @@ fn spill(
     let stage = scratch.work_dir("storage-order")?;
     let db = Connection::open(stage.path().join("order.sqlite"))?;
     db.execute_batch(
-        "PRAGMA cache_size=-2048;CREATE TABLE entries(at INTEGER NOT NULL,id TEXT NOT NULL,path TEXT PRIMARY KEY,value TEXT NOT NULL,bytes INTEGER NOT NULL);BEGIN",
+        "PRAGMA cache_size=-2048;CREATE TABLE entries(at INTEGER NOT NULL,id TEXT NOT NULL,path TEXT PRIMARY KEY,value TEXT NOT NULL,bytes INTEGER NOT NULL,fingerprint TEXT NOT NULL);BEGIN",
     )?;
     for (at, name, header) in held {
         insert(&db, at, &name, &header)?;
@@ -121,13 +123,14 @@ fn spill(
 }
 
 fn insert(db: &Connection, at: i64, name: &str, header: &Header) -> Result<()> {
-    db.prepare_cached("INSERT INTO entries VALUES(?1,?2,?3,?4,?5)")?
+    db.prepare_cached("INSERT INTO entries VALUES(?1,?2,?3,?4,?5,?6)")?
         .execute(params![
             at,
             name,
             text(&header.path),
             header.value.to_string(),
-            header.bytes as i64
+            header.bytes as i64,
+            header.fingerprint
         ])?;
     Ok(())
 }
@@ -160,6 +163,7 @@ fn sort_messages(
             path: path.to_owned(),
             value,
             bytes: sample.bytes,
+            fingerprint: sample.fingerprint,
         };
         let name = basename(path, "");
         match &disk {
@@ -207,7 +211,7 @@ fn each_message(
         }
         Sorted::Disk(db, stage) => (db, stage),
     };
-    let mut rows = db.prepare("SELECT path,value,bytes FROM entries ORDER BY at,id")?;
+    let mut rows = db.prepare("SELECT path,value,bytes,fingerprint FROM entries ORDER BY at,id")?;
     let mut rows = rows.query([])?;
     while let Some(row) = rows.next()? {
         cancel.check()?;
@@ -216,6 +220,7 @@ fn each_message(
             path: PathBuf::from(row.get::<_, String>(0)?),
             value: crate::json::stored(&value)?,
             bytes: row.get::<_, i64>(2)? as u64,
+            fingerprint: row.get(3)?,
         };
         if !each(header) {
             break;
@@ -248,7 +253,9 @@ fn parts_of(
         .join("storage/part")
         .join(basename(&header.path, ".json"));
     for path in ordered_parts(&dir, cancel)? {
-        for record in JsonLines::open(&home.home_dir, &path, cancel, limit)? {
+        let lines = JsonLines::open(&home.home_dir, &path, cancel, limit)?;
+        let file = lines.handle();
+        for record in lines {
             let record = record?;
             let kind = match record.kind {
                 RecordKind::Value(value) => RecordKind::Value(part(&value, role.as_ref(), created)),
@@ -257,8 +264,8 @@ fn parts_of(
             let native = Native {
                 bytes: record.bytes,
                 kind,
-                raw: Raw::File {
-                    path: path.clone(),
+                raw: Raw::Handle {
+                    file: file.clone(),
                     offset: record.offset,
                 },
             };
@@ -290,7 +297,7 @@ pub fn records<'a>(
                     kind: RecordKind::Value(header.value.clone()),
                     raw: Raw::File {
                         path: header.path.clone(),
-                        offset: 0,
+                        fingerprint: header.fingerprint.clone(),
                     },
                 };
                 if !emit(Ok(native)) {
