@@ -128,6 +128,27 @@ describe("the routine list", () => {
     expect(last && spadeRunWords(last)).toBe("Skipped. The last run was still going.");
   });
 
+  test("a verified routine's run reads done only once its check says so", () => {
+    const read = (result: string) =>
+      parseSpadeRoutines(
+        JSON.stringify({
+          routines: [
+            {
+              id: "rt_1",
+              name: "Morning fares",
+              last_run: { id: "run_1", at: 1, cause: "schedule", result },
+            },
+          ],
+        }),
+      )?.[0]?.lastRun;
+    const words = (result: string) => {
+      const run = read(result);
+      return run && spadeRunWords(run);
+    };
+    expect(words("checking")).toBe("Checking the work");
+    expect(words("verified")).toBe("Done, checked");
+  });
+
   test("says when in the routine's zone, relative to today", () => {
     const now = Date.parse("2026-11-12T12:00:00Z");
     const when = (iso: string, zone = "UTC") => spadeWhen(Date.parse(iso), now, zone, "en-GB");
