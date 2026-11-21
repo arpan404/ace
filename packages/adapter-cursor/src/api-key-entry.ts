@@ -1,11 +1,15 @@
 import { homedir } from "node:os";
+import { silenceConsole } from "@ace/provider-kit/console-guard";
 import { validateCursorAuthHome } from "./auth-home.ts";
 import { discoverCursorSdk } from "./host.ts";
 import { saveCursorApiKey } from "./api-key.ts";
 
-// No SDK diagnostics may escape a credential worker, including during import or failure.
+// No SDK diagnostics may escape a credential worker, including during import or failure. The
+// daemon also fails the save once output passes its budget. Bun's console skips the write
+// patches, so it is silenced on its own, before the SDK is imported below.
 process.stdout.write = () => true;
 process.stderr.write = () => true;
+silenceConsole();
 process.on("uncaughtException", () => process.exit(1));
 process.on("unhandledRejection", () => process.exit(1));
 const key = Buffer.alloc(8193);
