@@ -81,6 +81,7 @@ tokio-util = "0.7"
 # tests.
 tokio-tungstenite = "0.30.0"
 tower = "0.5"
+wat = "=1.254.2"
 
 [lints]
 workspace = true

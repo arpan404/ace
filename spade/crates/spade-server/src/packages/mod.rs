@@ -8,6 +8,9 @@
 pub mod apply;
 mod busy;
 pub mod envelope;
+pub mod folder;
+#[cfg(test)]
+mod folder_tests;
 pub mod held;
 pub mod panels;
 pub mod proof;

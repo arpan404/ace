@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{Value, json};
+use spade_core::package::Manifest;
 use spade_core::package::scenario::{self, Observed, Scenario};
-use spade_core::package::{Manifest, contract_files, read};
 use spade_keys::Keys;
 use spade_models::{Catalog, Models};
 use spade_store::Store;
@@ -76,44 +76,18 @@ pub async fn run(folder: &Path) -> Report {
         problems: Vec::new(),
         scenarios: Vec::new(),
     };
-    let text = match std::fs::read_to_string(folder.join("bot.json")) {
-        Ok(text) => text,
-        Err(error) => {
-            report.problems.push(format!("bot.json: {error}"));
-            return report;
-        }
-    };
-    let recipe: Value = match serde_json::from_str(&text) {
-        Ok(value) => value,
-        Err(error) => {
-            report.problems.push(format!("bot.json: {error}"));
-            return report;
-        }
-    };
-    // Its contracts' schema files are written in, as the daemon sends a package's (ADR 0200 §7).
-    let read_file = |path: &str| {
-        contract_files::schema_path(path)
-            .then(|| std::fs::read_to_string(folder.join(path)).ok())
-            .flatten()
-    };
-    let recipe = match contract_files::inline(&recipe, read_file) {
-        Ok(recipe) => recipe,
+    let (recipe, manifest) = match crate::packages::folder::manifest(folder) {
+        Ok(read) => read,
         Err(problems) => {
-            report
-                .problems
-                .extend(problems.into_iter().map(|p| format!("bot.json: {p}")));
+            report.problems.extend(problems);
             return report;
         }
     };
-    let manifest = match read(&recipe, crate::packages::build()) {
-        Ok(manifest) => manifest,
-        Err(problems) => {
-            report
-                .problems
-                .extend(problems.into_iter().map(|p| format!("bot.json: {p}")));
-            return report;
-        }
-    };
+    // Its code is checked as the signer and an install check it (ADR 0203 §5).
+    if let Err(problems) = crate::packages::folder::code(folder, &manifest) {
+        report.problems.extend(problems);
+        return report;
+    }
     report.name = Some(manifest.name.clone());
     if manifest.tests.is_empty() {
         report

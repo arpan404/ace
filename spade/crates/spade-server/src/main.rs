@@ -119,6 +119,13 @@ fn main() -> std::process::ExitCode {
     {
         return spade_server::bot_test::main(&args[1..]);
     }
+    // A package's WebAssembly components checked against Spade's world (ADR 0203 §5), for the
+    // market's signer: the folder is only read.
+    if let Some(flag) = args.first()
+        && flag == "--code-check"
+    {
+        return spade_server::packages::folder::main(&args[1..]);
+    }
     // The server takes no arguments (it is configured by environment). Anything left over is a
     // help request or a mistake, and neither may start a server against the data folder.
     if let Some(flag) = args.first() {
@@ -142,6 +149,7 @@ usage: spade                              run the server (configured by SPADE_* 
        spade --schema-version             print the database schema version
        spade --check-migrations <path>    check that a copy of spade.sqlite can be migrated
        spade --bot-test <package folder>  run a package's scenario tests offline, as JSON
+       spade --code-check <package folder> check a package's WebAssembly components, as JSON
        spade --help                       print this help";
 
 /// `--help` and `-h` print the usage and exit 0; any other argument prints it on stderr and exits
