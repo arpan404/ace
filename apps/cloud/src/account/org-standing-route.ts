@@ -8,12 +8,19 @@ import { AceOrgStandingRequest } from "@ace/protocol/ace-org";
 import { digest, sameDigest } from "./crypto.ts";
 import type { OrgStore } from "./org-store.ts";
 import { bearer, boundedBody, fail, json } from "./respond.ts";
-import type { WorkosOrgs } from "./workos-orgs.ts";
+import { WorkosRefusal, type WorkosOrgs } from "./workos-orgs.ts";
 
 /** The largest body read: a grant is well under 2 KiB. */
 const MAX_BODY_BYTES = 16 * 1024;
 /** WorkOS lookups this isolate has waiting at once; past it a check is refused, not queued. */
 export const MAX_LOOKUPS_IN_FLIGHT = 4;
+
+/** Too many lookups now, here or at WorkOS: come back in a few seconds. */
+function busy(): Response {
+  const response = fail(503, "busy");
+  response.headers.set("Retry-After", "5");
+  return response;
+}
 
 /** The member, organization and role an org grant speaks for, if it is one this backend signed. */
 function grantMember(token: string, keys: GrantKeySet, now: number, issuer: string) {
@@ -103,12 +110,17 @@ export function orgStandingRoute(deps: {
     const before = await deps.orgs.memberState(member.org, member.account);
     if (before?.status !== "active" || before.role !== member.role)
       return json(200, { current: false });
-    if (inFlight >= MAX_LOOKUPS_IN_FLIGHT || (await deps.workosLimited())) return fail(503, "busy");
-    let found;
+    if (await deps.workosLimited()) return busy();
+    // Checked and taken in the same turn, after every await: two checks can't both take the
+    // last place.
+    if (inFlight >= MAX_LOOKUPS_IN_FLIGHT) return busy();
     inFlight++;
+    let found;
     try {
       found = await deps.workos.findMembership(member.account, member.org);
-    } catch {
+    } catch (error) {
+      // WorkOS's own rate limit is a refusal like any other, said as busy: never a yes.
+      if (error instanceof WorkosRefusal && error.status === 429) return busy();
       return fail(503, "unavailable");
     } finally {
       inFlight--;

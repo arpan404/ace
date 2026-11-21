@@ -771,6 +771,11 @@ membership changes for accounts that hold no live grant; it is tracked separatel
   limited per caller and member (`STANDING_REQUESTS`), overall (`STANDING_WORKOS`) and to four at
   once per isolate. After WorkOS answers, the mirror row is read again and must be unchanged. The
   market never follows a redirect from it.
+- **The overall cap is per Cloudflare location, not global.** Workers rate limits count where
+  the request lands, so `STANDING_WORKOS` bounds each location, and the true total can be a
+  multiple of it. That is acceptable without a Durable Object: going over WorkOS's own limit only
+  brings 429s, and the route takes a WorkOS 429 as `busy` (503, `Retry-After`), never a yes, so
+  the market refuses the read (404) and the host refuses the answer.
 - **Deletions are facts apart from rows.** A membership's deletion always leaves its tombstone,
   even when it arrives older than the row. A removal at the same time as the row wins only over
   the row's own membership, in the planner as in SQL.
