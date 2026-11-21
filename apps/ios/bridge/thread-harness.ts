@@ -1,6 +1,12 @@
 import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { native } from "./test-host.ts";
-import { ClientCore, type Lease, type ReadSnapshotStorage, type ThreadSource } from "@ace/client";
+import {
+  ClientCore,
+  type Lease,
+  type OpenTail,
+  type ReadSnapshotStorage,
+  type ThreadSource,
+} from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
@@ -47,6 +53,7 @@ export async function reset(): Promise<void> {
   // so none of it arrives as the next test's patches.
   await pump.drained();
   native.frames.length = 0;
+  native.batches.length = 0;
   slowSettings.ms = 0;
   refuseOnce.text = "Refuse this once";
   slowSaves.gate = undefined;
@@ -121,10 +128,13 @@ export function connect(
     items,
     readSnapshots,
     held,
+    tail,
   }: {
     items?: number;
     readSnapshots?: ReadSnapshotStorage;
     held?: Promise<void>;
+    /** The small first snapshot a thread opens from, as the app's bridge asks for it. */
+    tail?: OpenTail;
   } = {},
 ): ClientCore {
   let saved: string | null = null;
@@ -133,6 +143,7 @@ export function connect(
     deviceId: DeviceId.parse("ios-bridge-test"),
     expectedHostId: HostId.parse("ios-test-host"),
     ...(items ? { limits: { items } } : {}),
+    ...(tail ? { openTail: tail } : {}),
     transport: () => {
       const inner = fakeTransport(daemon);
       let deliver: ((text: string) => void) | undefined;

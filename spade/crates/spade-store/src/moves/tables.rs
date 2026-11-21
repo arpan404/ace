@@ -130,6 +130,9 @@ pub const PER_BOT_SETTINGS: &[&str] = &[
     "contracts_incoming_off:",
     "security:",
     "knowledge_bytes.",
+    // A shared bot's organization and access list (ADR 0206 §2.3): where it arrives, only a
+    // host of the same organization takes it.
+    "org_bot:",
 ];
 
 const IN_CONVERSATIONS: &str = "conversation_id IN (SELECT value FROM json_each(:conversations))";
@@ -302,6 +305,23 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("cost_micros"),
             int("started_ms"),
             int("closed_ms"),
+        ],
+        owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
+        pk: "id",
+        unique: true,
+    },
+    // Runs the person kept as tests (ADR 0204): they go where the bot goes.
+    MoveTable {
+        name: "cases",
+        filter: IN_AGENTS,
+        columns: &[
+            text("id"),
+            text("agent_id"),
+            text("reply"),
+            opt_text("mark"),
+            text("body"),
+            int("made_ms"),
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",

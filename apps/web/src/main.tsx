@@ -71,8 +71,7 @@ const environment = {
     idle: (task) => whenIdle(task),
     automated: navigator.webdriver === true,
   }),
-  windowBackground: (value: { mode: string; light: string; dark: string }) =>
-    setDesktopWindowBackground(value),
+  windowBackground: setDesktopWindowBackground,
   suitsOff: suitsOffForSession(location.search, session),
   // Another window's change to this origin's saved settings (its look among them).
   onStorage: (listener: (key: string | null) => void) => {

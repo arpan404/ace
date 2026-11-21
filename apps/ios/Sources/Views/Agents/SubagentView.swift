@@ -5,6 +5,8 @@ import SwiftUI
 struct SubagentRoute: Hashable, Identifiable {
     let agentId: String
     let title: String
+    /// The request the person chose to answer (the Summary's Answer or Review), shown first.
+    var requestId: String? = nil
     var id: String { agentId }
 }
 
@@ -27,9 +29,11 @@ struct SubagentView: View {
     @State private var showLog = false
     private var lane: LaneModel? { thread.screen.lane?.agentId == route.agentId ? thread.screen.lane : nil }
     private var info: SubagentInfo? { lane?.info }
-    /// The oldest request waiting on the person from this subagent or anything under it.
+    /// The request the person opened this page to answer while it waits; otherwise the oldest
+    /// request waiting on them from this subagent or anything under it.
     private var request: ApprovalRow? {
-        info?.requests.lazy.compactMap { thread.interactions[$0] }.first { $0.state == "pending" }
+        if let id = route.requestId, let chosen = thread.interactions[id], chosen.state == "pending" { return chosen }
+        return info?.requests.lazy.compactMap { thread.interactions[$0] }.first { $0.state == "pending" }
     }
 
     var body: some View {

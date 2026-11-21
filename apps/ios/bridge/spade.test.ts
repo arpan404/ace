@@ -1,3 +1,4 @@
+import { faceForId } from "@ace/ui-core/bot-face";
 import { expect, test } from "vitest";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { until } from "./test-host.ts";
@@ -115,14 +116,27 @@ test("an open conversation shows its history, then a reply's words as they strea
     text: "Thinking it",
   });
 
-  await until(() => patches.bubbles.at(-1)?.kind === "bot" && patches.bubbles.length === 3);
+  await until(
+    () =>
+      patches.bubbles.at(-1)?.kind === "bot" &&
+      patches.bubbles.length === 3 &&
+      (patches.head?.working as { face?: unknown } | null)?.face != null,
+  );
   expect(patches.bubbles.at(-1)).toEqual({
     kind: "bot",
     text: "Thinking it",
     live: true,
     end: null,
   });
-  expect(patches.head).toMatchObject({ answering: true, loaded: true, problem: null });
+  expect(patches.head).toMatchObject({
+    answering: true,
+    loaded: true,
+    problem: null,
+    working: {
+      moving: true,
+      face: { main: false, initial: "H", away: false, character: faceForId(bot.id) },
+    },
+  });
 });
 
 test("a sent message shows at once, and stays once Spade has stored it", async () => {

@@ -30,6 +30,9 @@ import QuartzCore
             link.add(to: .main, forMode: .common)
             self.link = link
             reset(at: CACurrentMediaTime())
+            // The running total exists from the first frame sampled, so a run without a late frame
+            // reads as none lost, never as missing.
+            PerfProbe.record(["frames.lostMsTotal": String(format: "%.1f", lostTotal * 1000)])
         } else {
             report(at: CACurrentMediaTime())
             link?.invalidate(); link = nil; last = nil

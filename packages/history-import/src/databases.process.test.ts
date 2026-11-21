@@ -409,3 +409,36 @@ test("commits during database pagination publish the consistent snapshot and ref
     )?.title,
   ).toBe("new title");
 });
+
+test("an OpenCode session streamed into the reader's own archive commits its items and its count together", async () => {
+  // The daemon's import into the private archive: packets are pulled and written back to the
+  // same reader, whose final count update rides in the archive's transaction.
+  const { start, home, db } = await database();
+  db.close();
+  const service = await start([{ id: "oc", provider: "opencode", homeDir: home }]);
+  await service.scan();
+  const root = (await service.list({ type: "history.list", cwd })).sessions.find(
+    (s) => s.nativeId === "session-root",
+  );
+  if (!root) throw new Error("missing root");
+  const imported = init(root.id, "archived");
+  await expect(service.importSession(imported, service.archiveSink())).resolves.toEqual({
+    messageCount: 2,
+    countAccuracy: "exact",
+  });
+  expect(await service.importedThread(imported.threadId)).toMatchObject({ id: "archived" });
+  expect((await service.itemsPage({ threadId: imported.threadId })).items.length).toBeGreaterThan(
+    0,
+  );
+  expect(await service.get(root.id)).toMatchObject({ messageCount: 2, countAccuracy: "exact" });
+});
+
+test("a request whose signal is already aborted is never sent to the reader", async () => {
+  const { start, home, db } = await database();
+  db.close();
+  const service = await start([{ id: "oc", provider: "opencode", homeDir: home }]);
+  const aborted = AbortSignal.abort();
+  await expect(service.scan(aborted)).rejects.toThrow();
+  // Nothing was scanned: the catalog is still empty.
+  expect((await service.list({ type: "history.list", cwd })).sessions).toEqual([]);
+});

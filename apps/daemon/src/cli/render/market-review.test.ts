@@ -151,3 +151,28 @@ it("a blocked review ends with why it can't be installed", () => {
   const lines = reviewLines(review({ blocked: "This Suit fails ace's checks." }), []);
   expect(lines.at(-1)).toBe("It can't be installed: This Suit fails ace's checks.");
 });
+
+it("shows a skill's licence and what its allowed-tools asks, saying Spade still decides", () => {
+  const lines = reviewLines(
+    review({
+      type: "spade-skill",
+      name: "triage-mail",
+      body: {
+        type: "spade-skill",
+        skillName: "triage-mail",
+        description: "Sorts mail.",
+        files: 1,
+        flagged: 0,
+        license: "MIT",
+        allowedTools: ["Bash", "Read"],
+        unused: ["model"],
+      },
+    }),
+    [],
+  );
+  expect(lines).toContain("Licence: MIT.");
+  expect(lines).toContain(
+    "It asks to run Bash and Read without asking. Spade still decides each call.",
+  );
+  expect(lines).toContain("Not used by this Spade: model.");
+});

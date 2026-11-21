@@ -300,8 +300,9 @@ extension AceDesign.Size {
     static let rowPebble: CGFloat = 16
     /// The agent cursor over a page, as the web's 22px.
     static let pageCursor: CGFloat = 22
-    /// The person's avatar inside its bar button: the system draws the 44pt glass around it.
-    static let barAvatar: CGFloat = 32
+    /// The person's avatar as its bar button: the photo or initials fill the 44pt button edge to
+    /// edge, in place of the system's glass.
+    static let barAvatar: CGFloat = 44
     /// The person's avatar at the top of Profile, as an iOS account page draws it.
     static let profileAvatar: CGFloat = 80
     /// A grouped list's row (More, Settings), its glyph, chevron and corners.

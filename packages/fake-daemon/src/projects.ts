@@ -11,6 +11,7 @@ import {
   ProjectsResult,
   WorkspaceId,
   ProjectMarker,
+  remoteKeyVersionPrefix,
   type ProjectCheckoutFacts,
   type CommandPayload,
   type CommandResult,
@@ -468,13 +469,20 @@ export class FakeProjects {
       ...(directory?.remote ? { origin: directory.remote } : {}),
     };
   }
+  /**
+   * Speak as a daemon from before versioned remote keys: an origin is matched by the older
+   * key, which reads an SSH path from a home and one from the root on a host as one, and
+   * answers say nothing of the key version.
+   */
+  olderRemoteKeys = false;
   /** The project here whose origin is the same repository as `origin`, as a transfer reuses. */
   withOrigin(origin: string): Project | undefined {
     this.seed();
-    const wanted = normalizeRemoteUrl(origin);
+    const key = this.olderRemoteKeys ? olderRemoteKey : normalizeRemoteUrl;
+    const wanted = key(origin);
     return [...this.projects.values()].find((project) => {
       const remote = this.directories.get(project.path)?.remote;
-      return remote !== undefined && normalizeRemoteUrl(remote) === wanted;
+      return remote !== undefined && key(remote) === wanted;
     });
   }
   /**
@@ -996,4 +1004,18 @@ function edited(
     else delete next.notes;
   }
   return next;
+}
+
+/** A remote's key as a daemon before versioned keys made it: no version, no home marker. */
+function olderRemoteKey(url: string): string {
+  const key = normalizeRemoteUrl(url);
+  if (!key.startsWith(remoteKeyVersionPrefix)) return key;
+  const bare = key.slice(remoteKeyVersionPrefix.length);
+  const slash = bare.indexOf("/");
+  if (slash < 0) return bare;
+  const rest = bare
+    .slice(slash + 1)
+    .replace(/^\/+/, "")
+    .replace(/^~[^/]*\/?/, "");
+  return `${bare.slice(0, slash)}/${rest}`;
 }

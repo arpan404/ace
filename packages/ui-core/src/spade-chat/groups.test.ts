@@ -12,6 +12,7 @@ import {
   parseSpadeTemplates,
   spadeTemplateRoutinesLine,
   spadeBotFileName,
+  spadeFreeName,
   spadeBubbles,
   spadeGroupLine,
   spadeGroupView,
@@ -344,4 +345,9 @@ test("a group's Library lists each file a member made, and leaves out one it can
     { agent: "research", path: "sources.md", at: 0 },
   ]);
   expect(parseSpadeGroupFiles(JSON.stringify({ error: "no such group" }))).toBeUndefined();
+});
+
+test("a template's name takes the next free number while a bot already has it, whatever its case", () => {
+  expect(spadeFreeName("Research", ["Notes"])).toBe("Research");
+  expect(spadeFreeName("Research", ["research", "Research 2"])).toBe("Research 3");
 });

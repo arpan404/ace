@@ -17,4 +17,19 @@ export {
   faceTier,
   type FaceTier,
 } from "./draw-face.ts";
+export { BODIES as botFaceBodies } from "./draw-bodies.ts";
+export {
+  EARS as botFaceEars,
+  MARKINGS as botFaceMarkings,
+  topMarkings as botFaceTopMarkings,
+  drawAccessory as botFaceAccessoryMarkup,
+  type AccessoryLayer,
+} from "./draw-parts.ts";
+export {
+  EYES as botFaceEyes,
+  LINE as botFaceLine,
+  RING as botFaceRing,
+  type BodyShape,
+  type EyeShape,
+} from "./draw-shared.ts";
 export * from "./editor.ts";

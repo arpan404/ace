@@ -48,9 +48,47 @@ pub fn same_origin(a: &str, b: &str) -> bool {
     matches!((origin(a), origin(b)), (Some(a), Some(b)) if a == b)
 }
 
+/// Whether `raw` points at this computer: a loopback address or `localhost`. Such an endpoint
+/// is a local model (ADR 0205), offered before any other.
+pub fn is_loopback(raw: &str) -> bool {
+    let Ok(url) = Url::parse(raw.trim()) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return ip.is_loopback();
+    }
+    let name = host.trim_end_matches('.').to_ascii_lowercase();
+    name == "localhost" || name.ends_with(".localhost")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_address_on_this_computer_is_local() {
+        for local in [
+            "http://127.0.0.1:11434/v1/",
+            "http://127.8.0.1/v1/",
+            "http://localhost:1234/v1/",
+            "http://LOCALHOST./v1/",
+            "http://[::1]:8080/v1/",
+        ] {
+            assert!(is_loopback(local), "{local}");
+        }
+        for remote in [
+            "https://api.anthropic.com/v1/",
+            "http://192.168.1.4:11434/v1/",
+            "http://localhost.example.com/v1/",
+            "not a url",
+        ] {
+            assert!(!is_loopback(remote), "{remote}");
+        }
+    }
 
     #[test]
     fn a_base_url_is_normalised_and_its_origin_compared_as_the_client_reads_it() {

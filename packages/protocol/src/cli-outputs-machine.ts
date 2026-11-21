@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AutomationResponse } from "./automations.ts";
+import { CliProblem } from "./cli-output.ts";
 import { DiagnosticCheck, DiagnosticRepair } from "./diagnostics.ts";
 import { JsonValue } from "./json.ts";
 import { SpadeStatus } from "./spade.ts";
@@ -9,6 +10,30 @@ import { StorageApply, StorageCompaction, StoragePlan, StorageUsage } from "./st
  * `--json` success values for This machine and Spade (ADR 0178 §7): the daemon, its service,
  * storage, settings, repair, Spade, Beta switches and automations. Keyed into `cliOutputs`.
  */
+
+/** `ace spade skill import`: the skill Spade now keeps, and what was left out. */
+export const CliSpadeSkillImport = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** Where it came from: the folder's path, or the git address and the folder in it. */
+  source: z.string(),
+  files: z.number().int().nonnegative(),
+  /** Hidden files, which aren't part of a skill. */
+  skipped: z.array(z.string()),
+  /** Fields kept but unused, and what `allowed-tools` means: it grants nothing. */
+  warnings: z.array(CliProblem),
+});
+export type CliSpadeSkillImport = z.infer<typeof CliSpadeSkillImport>;
+
+/** `ace spade skill export`: the folder written. */
+export const CliSpadeSkillExport = z.object({
+  name: z.string(),
+  path: z.string(),
+  files: z.number().int().nonnegative(),
+  /** What `metadata.spade.source` says. */
+  source: z.string(),
+});
+export type CliSpadeSkillExport = z.infer<typeof CliSpadeSkillExport>;
 
 /** One log record as the daemon writes it to `logs/ace.jsonl`. */
 export const CliLogRecord = z
@@ -86,7 +111,7 @@ export const CliSpadeBot = z.object({
    * is being applied (§6.2), which counts as working.
    */
   state: z.enum(["idle", "working", "waiting", "paused", "updating"]),
-  waitingFor: z.enum(["approval", "question"]).optional(),
+  waitingFor: z.enum(["approval", "question", "worker", "callee"]).optional(),
   status: z.string().optional(),
   problem: z.string().optional(),
   unseen: z.boolean(),
@@ -182,6 +207,8 @@ export const cliMachineOutputs = {
   "spade.bot.list": z.array(CliSpadeBot),
   "spade.bot.show": CliSpadeBot,
   "spade.chat": CliSpadeChat,
+  "spade.skill.import": CliSpadeSkillImport,
+  "spade.skill.export": CliSpadeSkillExport,
   "bot.running": z.array(CliRunningBot),
   "bot.action": CliBotAction,
   "spade.move": CliSpadeMove,

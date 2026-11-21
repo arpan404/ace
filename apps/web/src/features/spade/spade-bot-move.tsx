@@ -1,3 +1,5 @@
+import { isStandingRefusal } from "@/boot/person-standing.ts";
+import { useConfirmPersonNotice } from "@/features/ace-account/index.ts";
 import {
   spadeArrivalLine,
   spadeMoveLine,
@@ -67,6 +69,7 @@ function useMoveActions(bot: RosterBot) {
   const here = useClient();
   const machines = useMachines();
   const cache = useQueryClient();
+  const confirm = useConfirmPersonNotice();
   const [problem, setProblem] = useState<string>();
   const [busy, setBusy] = useState(false);
   const run = async (action: () => Promise<unknown>) => {
@@ -96,7 +99,14 @@ function useMoveActions(bot: RosterBot) {
         await startMove(client, bot.id, to, id);
         const packed = await untilPacked(() => readMove(client, bot.id));
         if (!packed) return;
-        await acceptMove(target, id, { bot: bot.id, to, ...packed });
+        const accept = () => acceptMove(target, id, { bot: bot.id, to, ...packed });
+        try {
+          await accept();
+        } catch (error) {
+          if (!isStandingRefusal(fault(error)) || !confirm(target, () => void run(accept))) {
+            throw error;
+          }
+        }
       }),
     cancel: () => run(() => cancelMove(client, bot.id)),
     check: () => run(() => checkMove(client, bot.id)),

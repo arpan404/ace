@@ -18,6 +18,10 @@ export type SpadeTrigger =
 export type SpadeRunResult =
   | "running"
   | "answered"
+  /** A run whose trigger says verify (ADR 0204 §3): its reply ended, its check hasn't said done. */
+  | "checking"
+  /** Its check said done. */
+  | "verified"
   | "quiet"
   | "failed"
   | "stopped"
@@ -69,7 +73,17 @@ const runShape = z.object({
   at: time.catch(0),
   cause: z.string().catch(""),
   result: z
-    .enum(["running", "answered", "quiet", "failed", "stopped", "interrupted", "skipped"])
+    .enum([
+      "running",
+      "answered",
+      "checking",
+      "verified",
+      "quiet",
+      "failed",
+      "stopped",
+      "interrupted",
+      "skipped",
+    ])
     .catch("running"),
   detail: z.string().nullish().catch(undefined),
 });
@@ -166,6 +180,10 @@ export function spadeRunWords(run: SpadeRun): string {
       return "Running";
     case "answered":
       return "Answered";
+    case "checking":
+      return "Checking the work";
+    case "verified":
+      return "Done, checked";
     case "quiet":
       return "Nothing to report";
     case "stopped":

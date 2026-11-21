@@ -61,6 +61,13 @@ extension ClientModel {
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
     func requestModels() { threadAction(["type": "models"]) }
+    /// The open thread's first screen is on show: the bridge may now ask for the rest of its
+    /// window, which would otherwise replace the screenful it opened from before it was drawn.
+    /// Only the generation still open counts.
+    func threadShown(_ shown: ThreadModel) {
+        guard let thread, thread === shown else { return }
+        action(["type": "thread.shown", "threadId": thread.id, "epoch": thread.epoch])
+    }
     /// Star or unstar a model by its picker key, where the web keeps stars.
     func favoriteModel(_ key: String) { threadAction(["type": "favorite", "key": key]) }
     /// Move the thread to a model on one account; `confirmed` once the person answered the row's

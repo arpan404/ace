@@ -20,6 +20,9 @@ import type { FakeWireSession } from "./services-wire.ts";
 import { CommandFlights } from "./command-status.ts";
 import { requestPage, summarizedOutgoing } from "./summarized-requests.ts";
 
+/** How a fake daemon answers a request a test injected a fault for. */
+export type FakeFault = "fail" | "hold" | { code: string } | { defer(answer: () => void): void };
+
 /** What a connection needs from the host. FakeDaemon implements it. */
 /** The daemon's default replay bound: further behind than this, a subscriber gets a snapshot. */
 const replayLimit = 5000;
@@ -44,7 +47,11 @@ export interface Host {
    */
   placeInput?(): PlaceInput | undefined;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;
-  snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
+  /** `tail`: a thread subscribe's small first snapshot, when the host cuts one. */
+  snapshot(
+    scope: SubscriptionScope,
+    tail?: { items: number; bytes: number },
+  ): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
   /** One thread's agents, runs, interactions or background tasks: one page before `before`. */
@@ -67,9 +74,10 @@ export interface Host {
   commandAsync?(command: Command, send?: (message: ServerMessage) => void): Promise<CommandResult>;
   /**
    * Fault injection: "fail" answers a correlated request with the daemon's `unavailable` error,
-   * "hold" never answers it (a read that hangs), undefined serves it normally.
+   * "hold" never answers it (a read that hangs), `defer` answers it once the test says, `code`
+   * refuses it, undefined serves it normally.
    */
-  fault?(type: ClientMessage["type"]): "fail" | "hold" | { code: string } | undefined;
+  fault?(type: ClientMessage["type"]): FakeFault | undefined;
   /** Catalog request/response services; false when the message isn't one of them. */
   service(message: ClientMessage, connection: Connection): boolean;
   /**
@@ -182,6 +190,10 @@ export class Connection {
     const fault =
       "requestId" in message && message.requestId ? this.host.fault?.(message.type) : undefined;
     if (fault === "hold") return;
+    if (typeof fault === "object" && "defer" in fault) {
+      fault.defer(() => this.handle(message));
+      return;
+    }
     if (fault && "requestId" in message && message.requestId) {
       this.send({
         type: "error",
@@ -217,7 +229,13 @@ export class Connection {
         this.send({ type: "pong" });
         return;
       case "subscribe":
-        this.subscribe(message.subscriptionId, message.scope, message.afterSeq, message.paced);
+        this.subscribe(
+          message.subscriptionId,
+          message.scope,
+          message.afterSeq,
+          message.paced,
+          message.tail,
+        );
         return;
       case "threads.page": {
         const subscription = this.subscriptions.get(message.subscriptionId);
@@ -363,6 +381,7 @@ export class Connection {
     scope: SubscriptionScope,
     afterSeq: number | undefined,
     paced = false,
+    tail?: { items: number; bytes: number },
   ): void {
     const head = this.host.head;
     if (scope.kind === "threads" && scope.window) {
@@ -404,7 +423,7 @@ export class Connection {
       this.subscriptions.set(id, { scope, cursor: head });
       this.deliver(id, afterSeq, head, replay);
     } else {
-      const view = this.host.snapshot(scope);
+      const view = this.host.snapshot(scope, tail);
       if (!view) {
         this.error("not_found", { subscriptionId: id });
         return;

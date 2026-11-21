@@ -16,7 +16,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
-import { mainOf, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
+import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
 import {
   spadeConversationHead,
   spadeConversationRows,
@@ -132,6 +132,8 @@ export class NativeSpade {
   private readonly deps: SpadeDeps;
   /** The machine's name, for a row whose Spade doesn't answer ("Off on Studio"). */
   private machine: string | undefined;
+  /** The machine's host id, so group members match local roster bots by machine and bot id. */
+  private hostId: string | undefined;
 
   constructor(owner: ClientCore, sink: PatchSink, deps: SpadeDeps) {
     this.owner = owner;
@@ -246,7 +248,9 @@ export class NativeSpade {
     const reply = await this.owner.request({ type: "host.identity" }).catch(() => undefined);
     if (!reply) return;
     this.machine = reply.identity.displayName;
+    this.hostId = reply.identity.hostId;
     this.put();
+    this.publishOpen();
   }
 
   private async readEnabled() {
@@ -352,6 +356,7 @@ export class NativeSpade {
                 this.groups ?? [],
                 this.machine ?? "its machine",
                 this.ready,
+                this.hostId,
               )
             : null,
         // The bots couldn't be read and none are known: the list says so, with Try again.
@@ -435,6 +440,27 @@ export class NativeSpade {
     this.put();
   }
 
+  /** Spade's state and whether the machine's setting runs it, as last read. */
+  get setting(): { status: SpadeStatus | undefined; enabled: boolean | undefined } {
+    return { status: this.status, enabled: this.enabled };
+  }
+
+  /** Why Spade can't answer now, in a sentence ("Spade is starting."). */
+  get placeSentence(): string {
+    return spadePlaceLine(this.status, this.enabled).sentence;
+  }
+
+  /** The setting as a change from this phone just left it, before the daemon says so. */
+  enabledNow(on: boolean): void {
+    this.enabled = on;
+    this.put();
+  }
+
+  /** Each bot's name by its id, as the list last read them. */
+  get names(): ReadonlyMap<string, string> {
+    return new Map((this.agents ?? []).map((agent) => [agent.id, agent.name]));
+  }
+
   /** The machine's name, for a profile's Runs on. */
   get machineName(): string {
     return this.machine ?? "This machine";
@@ -451,16 +477,20 @@ export class NativeSpade {
     if (!open) return;
     if (open.kind === "bot") {
       const { view, problem } = open.follow.get();
-      this.putRows(open.id, spadeConversationRows(view, this.botOf(open.id)?.name || "Spade"));
-      this.sink.put("spade:conversation", () => spadeConversationHead(open.id, view, problem));
+      const bot = this.botOf(open.id);
+      this.putRows(open.id, spadeConversationRows(view, bot?.name || "Spade"));
+      this.sink.put("spade:conversation", () =>
+        spadeConversationHead(open.id, view, problem, bot ? botFace(bot) : null),
+      );
       if (view.caughtUp) this.markSeen();
       return;
     }
     const { view, problem } = open.follow.get();
     const group = this.groups?.find((each) => each.id === open.group);
-    this.putRows(open.id, spadeGroupRows(view, group, mainOf(this.agents ?? [])));
+    const agents = this.agents ?? [];
+    this.putRows(open.id, spadeGroupRows(view, group, agents, this.hostId));
     this.sink.put("spade:conversation", () =>
-      spadeGroupHead(open.id, view, problem, group, this.agents ?? []),
+      spadeGroupHead(open.id, view, problem, group, agents, this.hostId),
     );
     if (view.live) this.markSeen();
   }

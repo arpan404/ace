@@ -1,3 +1,4 @@
+import { notDeleted } from "./tombstone.ts";
 import { z } from "zod";
 
 const Row = z.object({ session: z.string(), host_id: z.string(), account_id: z.string() });
@@ -18,9 +19,16 @@ export function enrollmentStore(db: D1Database) {
     ) {
       await db
         .prepare(
-          "INSERT INTO machine_enrollments (ticket, session, host_id, account_id, expires) VALUES (?, ?, ?, ?, ?)",
+          `INSERT INTO machine_enrollments (ticket, session, host_id, account_id, expires) SELECT ?, ?, ?, ?, ? WHERE ${notDeleted()}`,
         )
-        .bind(hash, ticket.session, ticket.hostId, ticket.accountId, ticket.expiresAt)
+        .bind(
+          hash,
+          ticket.session,
+          ticket.hostId,
+          ticket.accountId,
+          ticket.expiresAt,
+          ticket.accountId,
+        )
         .run();
     },
     async get(hash: string, now: number) {

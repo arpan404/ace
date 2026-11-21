@@ -117,6 +117,8 @@ everywhere.
   appeals | appeal ID --answer TEXT --approve|--keep
   verify|unverify HANDLE --reason TEXT
   official add|remove ACCOUNT
+  notice PROVIDER allowed|unclear|refused --note TEXT
+                                       a subscription's terms change; devices only tighten
 
 The old ace market VERB spellings still work for now.`,
   },

@@ -260,12 +260,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     quitCompletely: () => quitCompletely(),
+    hidePopover: () => popover?.hide(),
     popover:
       process.platform === "darwin"
         ? (icon) => {
             if (!popover) return false;
-            popover.toggle(icon);
-            return true;
+            return popover.toggle(icon);
           }
         : undefined,
     log: (message) => log("warn", message),
@@ -817,24 +817,6 @@ function main(target: DaemonTarget, crashDumps: string): void {
         bindings = next;
         installMenu();
       },
-      tray: {
-        open: (link, sender) => {
-          if (!popover?.owns(sender)) return;
-          popover.hide();
-          open(link);
-        },
-        fit: (height, sender) => {
-          if (popover?.owns(sender)) popover.fit(height);
-        },
-        hide: (sender) => {
-          if (popover?.owns(sender)) popover.hide();
-        },
-        quit: (completely, sender) => {
-          if (!popover?.owns(sender)) return;
-          if (completely) quitCompletely();
-          else app.quit();
-        },
-      },
     });
     const installMenu = () =>
       Menu.setApplicationMenu(
@@ -864,22 +846,41 @@ function main(target: DaemonTarget, crashDumps: string): void {
       );
     installMenu();
     if (process.platform === "darwin") {
-      const panel = new TrayPopover({
-        rendererUrl,
-        preload: paths.preload,
-        info: JSON.stringify(info),
+      popover = new TrayPopover({
+        executable: join(paths.binDirectory, "ace-tray"),
         now: Date.now,
-      });
-      popover = panel;
-      // With the tray icon up (Keep running in background), the popover loads once the daemon
-      // runs, so its first click opens it with its data.
-      void daemonRunning.then(() => {
-        if (settings.get().background) panel.prepare();
+        link: () => background.trayLink(),
+        appearance: () => {
+          const saved = backgrounds.get();
+          const dark =
+            saved?.mode === "dark" ||
+            ((saved?.mode ?? "system") === "system" && nativeTheme.shouldUseDarkColors);
+          const palette = saved?.tray?.[dark ? "dark" : "light"];
+          return palette
+            ? {
+                dark,
+                palette,
+                radius: saved?.tray?.radius,
+                border: saved?.tray?.border,
+                compact: saved?.tray?.compact,
+                font: saved?.tray?.font,
+              }
+            : undefined;
+        },
+        open,
+        tabFile: join(app.getPath("userData"), "native-tray-tab"),
+        usagePreferences: () => backgrounds.get()?.trayUsage,
+        quit: (completely) => {
+          popover?.hide();
+          if (completely) quitCompletely();
+          else app.quit();
+        },
+        log: (message) => log("warn", message),
       });
     }
     registerHandlers({
       rendererUrl,
-      isAppWindow: (sender) => sender === window?.webContents || (popover?.owns(sender) ?? false),
+      isAppWindow: (sender) => sender === window?.webContents,
       handlers,
       mark: operation.run,
     });

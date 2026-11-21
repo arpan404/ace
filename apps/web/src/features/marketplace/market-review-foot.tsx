@@ -1,7 +1,9 @@
-import { Link } from "@tanstack/react-router";
+import { isStandingRefusal } from "@/boot/person-standing.ts";
+import { ConfirmPerson } from "@/features/ace-account/index.ts";
+import { useMachineAccountAccess } from "@/features/settings/index.ts";
+import { usePrimaryMachine } from "@/lib/machines.ts";
 import type { ReactNode } from "react";
 import { failureSentence, MarketFailure } from "./market-model.ts";
-import { useFreshSignIn } from "./market-sign-in.ts";
 
 /*
  * A review's sticky foot: what stops Install, or what went wrong, in one sentence beside the
@@ -14,12 +16,14 @@ export interface ReviewFailure {
   sentence: string;
   /** The market wants a sign-in from the last ten minutes (ADR 0174 §2). */
   reauth: boolean;
+  standing: boolean;
 }
 
 export function reviewFailure(error: unknown): ReviewFailure {
   return {
     sentence: failureSentence(error, "install"),
     reauth: error instanceof MarketFailure && error.code === "reauth",
+    standing: error instanceof MarketFailure && isStandingRefusal(error.detail),
   };
 }
 
@@ -37,7 +41,7 @@ export function ReviewFoot(props: {
     <div className="mk-foot">
       <div className="mk-foot-inner">
         {failure?.reauth ? (
-          <SignInAgain onSignedIn={props.onSignedIn} />
+          <SignInAgain standing={failure.standing} onSignedIn={props.onSignedIn} />
         ) : (
           <span
             className="mk-grow"
@@ -53,25 +57,18 @@ export function ReviewFoot(props: {
   );
 }
 
-function SignInAgain(props: { onSignedIn(): void }) {
-  const signIn = useFreshSignIn();
-  const again = async () => {
-    if (await signIn.start()) props.onSignedIn();
-  };
+function SignInAgain(props: { standing: boolean; onSignedIn(): void }) {
+  const access = useMachineAccountAccess(usePrimaryMachine());
   return (
-    <span className="mk-grow" role="status">
-      {signIn.signing
-        ? "Finishing sign-in in your browser."
-        : (signIn.problem ?? "Installing needs a recent sign-in to your ace account.")}{" "}
-      {signIn.signing ? null : signIn.available ? (
-        <button type="button" className="mk-text-button" onClick={() => void again()}>
-          Sign in again
-        </button>
-      ) : (
-        <Link className="mk-text-button" to="/settings/profile">
-          Sign in
-        </Link>
-      )}
-    </span>
+    <ConfirmPerson
+      className="mk-grow"
+      freshSignIn={!props.standing}
+      freshSignInSentence="Installing needs a recent sign-in to your ace account."
+      beforeProof={async (origin, token) => {
+        const status = await access?.status().catch(() => undefined);
+        if (access && !status?.signedIn) await access.signIn(origin, token);
+      }}
+      onConfirmed={props.onSignedIn}
+    />
   );
 }

@@ -129,6 +129,8 @@ export class OutgoingTransfers {
   private progress = new Set<(transfer: Transfer) => void>();
   private settled = new Set<(record: OutgoingRecord) => void>();
   private lastBytes = new Map<string, number>();
+  /** Links that kept no host id, by profile id, and the host id each said it is. */
+  private probed = new Map<string, string>();
   constructor(deps: OutgoingDeps) {
     this.deps = deps;
     this.rows = new OutgoingRows(deps.store);
@@ -247,7 +249,7 @@ export class OutgoingTransfers {
     };
     this.rows.insert({
       transfer,
-      request: input.request,
+      request: { ...input.request, deviceId: profile.deviceId },
       plan: { source: input.source, name: input.name },
       delivered: !input.request.agent,
     });
@@ -311,7 +313,8 @@ export class OutgoingTransfers {
     this.running.get(transferId)?.abort();
     // Nothing more is sent while the target decides.
     await this.drives.get(transferId);
-    const profile = this.deps.profiles().find((entry) => entry.name === record.request.profile);
+    // Only the machine the transfer started on can answer for it: never another under its name.
+    const profile = await this.targetProfile(this.need(transferId)).catch(() => undefined);
     let there: IncomingTransfer | undefined;
     let refusal: string | undefined;
     if (profile)
@@ -329,8 +332,16 @@ export class OutgoingTransfers {
         phase: "failed",
         ...(there.error ? { error: there.error } : {}),
       });
-    // The target holds nothing of it: nothing can land there.
-    if (refusal === "not_found") return this.finish(record, { phase: "cancelled" });
+    // The target holds nothing of it, and could only ever have heard of it from this pairing,
+    // before the commit left: nothing can land there. Once the commit may have landed, or asked
+    // under another pairing (whose device made none of its rows), it says nothing of the rows.
+    if (
+      refusal === "not_found" &&
+      !this.need(transferId).plan?.committed &&
+      record.request.deviceId !== undefined &&
+      profile?.deviceId === record.request.deviceId
+    )
+      return this.finish(record, { phase: "cancelled" });
     // Unknown here: never assumed cancelled. Status says how it ends.
     this.run(transferId);
     const name = record.transfer.target.name;
@@ -398,6 +409,112 @@ export class OutgoingTransfers {
    * Retries calls that couldn't reach the target, or that it answered while starting or stopping,
    * until it has been gone too long.
    */
+  /**
+   * The link to the machine `record` started on, found by the host id it stored at start, never
+   * by the profile name: a name freed by an unlink can since name another machine. A link that
+   * kept no host id is used only once it says it is that machine. None: `offline`, so the
+   * transfer waits for that machine to be linked again, and says so (`unlinked`) until it is.
+   */
+  private async targetProfile(record: OutgoingRecord, signal?: AbortSignal) {
+    const hostId = record.request.hostId;
+    const profiles = this.deps.profiles();
+    let found = profiles.find((entry) => entry.hostId === hostId);
+    for (const entry of profiles) {
+      if (found || entry.hostId !== undefined || entry.name !== record.request.profile) continue;
+      let said = this.probed.get(entry.id);
+      if (said === undefined) {
+        const probe = await new TransferClient(this.deps.transport, entry)
+          .probe(signal)
+          .catch(() => undefined);
+        if (probe) this.probed.set(entry.id, (said = probe.hostId));
+      }
+      if (said === hostId) found = entry;
+    }
+    this.markUnlinked(record.transfer.transferId, !found);
+    if (found) return found;
+    throw new MachineFailure(
+      "offline",
+      undefined,
+      `${record.transfer.target.name} isn't linked to this machine now. Link it again to carry on.`,
+    );
+  }
+  private async clientFor(transferId: string, signal?: AbortSignal) {
+    return new TransferClient(
+      this.deps.transport,
+      await this.targetProfile(this.need(transferId), signal),
+    );
+  }
+  /** Records, and shows, whether the transfer's machine is linked now; only changes go out. */
+  private markUnlinked(transferId: string, unlinked: boolean): void {
+    const record = this.rows.get(transferId);
+    if (!record || terminal.has(record.transfer.phase)) return;
+    if (Boolean(record.transfer.unlinked) === unlinked) return;
+    const { unlinked: _was, ...rest } = record.transfer;
+    const transfer: Transfer = {
+      ...rest,
+      ...(unlinked ? { unlinked: true } : {}),
+      updatedAt: this.deps.now(),
+    };
+    this.rows.save(transfer);
+    if (record.transfer.live) this.deps.live?.waiting(record, unlinked);
+    this.deps.log(
+      unlinked
+        ? "Transfer waiting for its machine to be linked again"
+        : "Transfer's machine linked again",
+      { transferId, target: record.transfer.target.name },
+    );
+    this.publish(transfer);
+  }
+  /**
+   * The person's choice for a moving thread whose machine isn't linked now: it runs here again,
+   * warned that both may run if that machine already took it. Recorded on the transfer. Refused
+   * while the machine is linked: then its own answer settles the move.
+   */
+  async carryOnHere(transferId: string): Promise<Transfer> {
+    const record = this.rows.get(transferId);
+    if (!record) throw new TransferError("not_found", "No such transfer.");
+    if (terminal.has(record.transfer.phase)) return record.transfer;
+    const name = record.transfer.target.name;
+    if (!record.transfer.threadId || !record.transfer.live || !this.deps.live)
+      throw new TransferError("invalid", "Only a moving thread can be carried on here.");
+    // Asked again now: a link that came back settles it by that machine's answer instead.
+    await this.targetProfile(record).then(
+      () => {
+        throw new TransferError(
+          "machine_linked",
+          `${name} is linked again, so the move finishes or is undone by its answer.`,
+        );
+      },
+      (error: unknown) => {
+        if (!(error instanceof MachineFailure)) throw error;
+      },
+    );
+    this.running.get(transferId)?.abort();
+    await this.drives.get(transferId);
+    const current = this.need(transferId);
+    if (terminal.has(current.transfer.phase)) return current.transfer;
+    // Read before the ownership record changes: a handed-over move resumes as the target
+    // releasing it would, an earlier stage as a failure here.
+    const event: CutoverEvent =
+      this.liveStage(current) === "handing"
+        ? { type: "target_released" }
+        : { type: "failed", interrupted: current.plan?.interrupted === true };
+    const chosen = this.deps.store.atomic(() => {
+      this.deps.live?.carryOnHere(current);
+      return this.cutover(current, event);
+    });
+    this.deps.log("Moving thread carried on here by the person's choice", {
+      transferId,
+      target: name,
+    });
+    return this.finish(chosen, {
+      phase: "cancelled",
+      error: {
+        code: "carried_on_here",
+        message: `You carried on here while ${name} wasn't linked. If ${name} already took the thread, both may run.`,
+      },
+    });
+  }
   private async reach<T>(signal: AbortSignal, call: () => Promise<T>, patient = false): Promise<T> {
     const since = this.deps.now();
     for (let delay = 250; ; delay = Math.min(delay * 2, 30_000)) {
@@ -423,10 +540,15 @@ export class OutgoingTransfers {
   }
   private async drive(transferId: string, signal: AbortSignal): Promise<void> {
     let record = this.reconcileLive(this.need(transferId));
-    const profile = this.deps.profiles().find((entry) => entry.name === record.request.profile);
-    if (!profile)
-      throw new TransferError("machine_not_linked", "That machine isn't linked anymore.");
-    const client = new TransferClient(this.deps.transport, profile);
+    // Every attempt asks the machine it started on, by its host id, as linked at that moment:
+    // a pairing replaced meanwhile is used from the next attempt on. One unlinked waits like one
+    // offline, and a transfer never goes on to another machine linked since under its name.
+    const client = {
+      call: (call: Parameters<TransferClient["call"]>[0], abort?: AbortSignal) =>
+        this.clientFor(transferId, abort).then((linked) => linked.call(call, abort)),
+      chunk: (...args: Parameters<TransferClient["chunk"]>) =>
+        this.clientFor(transferId, args[3]).then((linked) => linked.chunk(...args)),
+    };
     let plan = record.plan ?? { source: "", name: "" };
     let method: TransferMethod;
     if (record.transfer.method) method = record.transfer.method;
@@ -607,6 +729,11 @@ export class OutgoingTransfers {
       const identity = status.identity
         ? this.deps.identities?.carried(record.transfer.workspaceId)
         : undefined;
+      // Recorded before it leaves: from here the target may hold the import.
+      if (!plan.committed) {
+        plan = { ...plan, committed: true };
+        record = this.update(this.need(transferId), {}, plan);
+      }
       status = await this.reach(signal, () =>
         client.call(
           {

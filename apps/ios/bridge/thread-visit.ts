@@ -50,6 +50,10 @@ export class ThreadVisit {
   #session: ThreadSession | undefined;
   #threadId: string | undefined;
   #epoch = 0;
+  /** Waiting for this visit's first screen (`firstScreen`); settled when it shows or the visit ends. */
+  #firstScreen: { epoch: number; shown: Promise<void>; settle: () => void } | undefined;
+  /** The generation whose first screen native has drawn, which may come before anyone waits. */
+  #shownEpoch: number | undefined;
 
   constructor(
     pump: PatchPump,
@@ -80,8 +84,32 @@ export class ThreadVisit {
     return this.#epoch;
   }
 
+  /**
+   * Resolves once native has drawn this visit's first screen of `threadId` (`shown`), or at once
+   * when another thread, or none, is open: the client then asks for the rest of the window.
+   * Leaving the visit resolves it too.
+   */
+  firstScreen(threadId: string): Promise<void> {
+    if (this.#threadId !== threadId || this.#shownEpoch === this.#epoch) return Promise.resolve();
+    const waiting = this.#firstScreen;
+    if (waiting?.epoch === this.#epoch) return waiting.shown;
+    waiting?.settle();
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.#firstScreen = { epoch: this.#epoch, shown: promise, settle: resolve };
+    return promise;
+  }
+
+  /** Native drew the first screen of `threadId` under its generation `epoch`. */
+  shown(threadId: string, epoch: number): void {
+    if (threadId !== this.#threadId || epoch !== this.#epoch) return;
+    this.#shownEpoch = epoch;
+    this.#firstScreen?.settle();
+  }
+
   /** Show `threadId` under the next generation, as native's `open` does. */
   open(client: ClientCore, threadId: string, warm: boolean, kept?: AttachmentTray): void {
+    this.#firstScreen?.settle();
+    this.#firstScreen = undefined;
     this.#hooks.leaving();
     this.#stop?.();
     // The new thread is held before the old one is let go, so neither drops its subscription in
@@ -164,6 +192,8 @@ export class ThreadVisit {
    * caller moves the generation.
    */
   #leave(linger = true): void {
+    this.#firstScreen?.settle();
+    this.#firstScreen = undefined;
     this.#hooks.leaving();
     this.#ledgers.trim();
     this.#session?.dispose();

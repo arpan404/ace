@@ -122,3 +122,39 @@ export function historyPage(
     itemsBefore: cursor(slice, older.length, creation),
   };
 }
+
+/**
+ * A subscribe's `tail`, as the daemon cuts it (`thread-reads.ts`): the newest items of the
+ * `limit`-item window, at most `tail.items` of them in at most `tail.bytes` (never fewer than
+ * one), with status whole. One holding less than the window says so (`partial`), so the client
+ * completes it from the full snapshot.
+ */
+export function tailSnapshot(
+  view: ThreadView,
+  creation: ReadonlyMap<string, number>,
+  tail: { items: number; bytes: number },
+  limit: number,
+  seq: number,
+): ThreadView {
+  const full = windowSnapshot(view, creation, limit, seq);
+  const kept: string[] = [];
+  let bytes = 0;
+  for (let index = full.itemOrder.length - 1; index >= 0 && kept.length < tail.items; index--) {
+    const id = full.itemOrder[index];
+    if (id === undefined) break;
+    const size = JSON.stringify(full.items[id]).length;
+    if (kept.length && bytes + size > tail.bytes) break;
+    bytes += size;
+    kept.unshift(id);
+  }
+  if (kept.length === full.itemOrder.length) return full;
+  const shown = new Set(kept);
+  return {
+    ...full,
+    items: Object.fromEntries(Object.entries(full.items).filter(([id]) => shown.has(id))),
+    itemOrder: kept,
+    itemSeqs: seqs(kept, creation),
+    itemsBefore: cursor(kept, full.itemOrder.length, creation),
+    partial: { previews: [] },
+  };
+}

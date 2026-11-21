@@ -13,6 +13,7 @@ const scopeWords: Record<OutsideScope, string> = {
   "threads:stop": "Stop threads",
   browser: "Use ace's browser",
   computer: "Use this computer's screen",
+  "spade-contracts": "Call your Spade bots' contracts",
 };
 export const waitRefreshSeconds = 2;
 

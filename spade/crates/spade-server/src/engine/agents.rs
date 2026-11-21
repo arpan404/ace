@@ -53,6 +53,8 @@ impl Engine {
     /// CLI is there).
     pub fn model_usable(&self, model: &str) -> bool {
         self.check_model(model).is_ok()
+            && self.check_terms(model).is_ok()
+            && self.check_runs_bots(model).is_ok()
     }
 
     /// A model reference the person may pick: `endpoint/model` on one of their endpoints, or a
@@ -147,6 +149,10 @@ impl Engine {
         };
         let task = task(&input.task)?;
         let model = self.check_model(&input.model)?;
+        // A subscription is the person's informed choice, never a default (ADR 0205 §1).
+        self.check_terms(&model)?;
+        // A model that can't call tools serves titles and summaries only (ADR 0205 §3).
+        self.check_runs_bots(&model)?;
         let id = self.ids.next("a");
         let avatar = self.avatar(&id, input.avatar)?;
         let conversation = self.ids.next("c");
@@ -234,6 +240,12 @@ impl Engine {
             .as_deref()
             .map(|m| self.check_model(m))
             .transpose()?;
+        if let Some(model) = new_model.as_deref()
+            && model != agent.model
+        {
+            self.check_terms(model)?;
+            self.check_runs_bots(model)?;
+        }
         let new_avatar = change
             .avatar
             .map(|a| self.avatar(id, Some(a)))
@@ -354,7 +366,10 @@ impl Engine {
         self.forget_wakes(&conversation);
         let deleted = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let deleted = self.store.delete_agent(id);
+            // A shared bot's deletion is on the host's log, in the same write (ADR 0206 §4.1).
+            let deleted = self
+                .store
+                .delete_agent_audited(id, &self.deleted_entries(id));
             self.forget_activity(&conversation);
             deleted
         };
@@ -364,6 +379,12 @@ impl Engine {
         {
             let (security, id) = (security.clone(), id.to_owned());
             let _ = tokio::task::spawn_blocking(move || security.forget(&id)).await;
+        }
+        // Its code worker ends, and its folder goes.
+        if matches!(deleted, Ok(true))
+            && let Some(code) = self.code()
+        {
+            code.retire(id);
         }
         self.live
             .lock()
@@ -417,6 +438,7 @@ impl Engine {
         let activity = self.activity(&agent.conversation)?;
         let status = self.status_for(&agent.conversation, &activity);
         let mut oversight = self.oversight_json(&agent)?;
+        let held = self.terms_hold(&agent);
         // Its task (ADR 0144), and its access level: one level since ADR 0163, still shown so a
         // client from before reads it rather than taking a missing one for `ask`.
         if let Some(shown) = oversight.as_object_mut() {
@@ -481,8 +503,18 @@ impl Engine {
             );
             // Its place in a tree (ADR 0161).
             self.tree_fields(&agent.conversation, &activity, shown);
+            // A subscription its maker's terms no longer allow: it waits for the person
+            // (ADR 0205 §4).
+            shown.insert(
+                "terms_hold".into(),
+                held.clone().unwrap_or(serde_json::Value::Null),
+            );
         }
         let seen = self.store.seen(&agent.conversation)?;
+        let problem = activity.problem.or_else(|| {
+            held.as_ref()
+                .and_then(|h| h["text"].as_str().map(str::to_owned))
+        });
         // While it moves its line says where to.
         let status = match self.moving_to(&agent.conversation) {
             Some((_, machine)) => Some(format!("Moving to {machine}")),
@@ -496,7 +528,7 @@ impl Engine {
             last_message: activity.last_message,
             waiting_for: activity.waiting_for,
             questions_for_later: activity.questions_for_later,
-            problem: activity.problem,
+            problem,
             agent,
         })
     }

@@ -16,7 +16,7 @@ import {
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import type { SpadeStatus } from "@ace/protocol";
-import { botFace, groupFaces, initialOf, mainOf, type SpadeFaceRow } from "./spade-group-rows.ts";
+import { botFace, groupFaces, initialOf, type SpadeFaceRow } from "./spade-group-rows.ts";
 import { spadeQuestionCardRow, type SpadeQuestionCardRow } from "./spade-question-rows.ts";
 
 /*
@@ -53,6 +53,7 @@ export function spadeListRows(
   groups: readonly SpadeGroup[],
   machine: string,
   answering: boolean,
+  hostId?: string,
 ): SpadeListRow[] {
   const place = {
     machine: { primary: false, name: machine },
@@ -87,7 +88,7 @@ export function spadeListRows(
       main: false,
       initial: initialOf(group.name),
       group: group.id,
-      faces: groupFaces(group, mainOf(agents)),
+      faces: groupFaces(group, agents, hostId),
       state: row.state,
       line: row.line,
       pinned: group.pinnedAt !== undefined,
@@ -216,6 +217,12 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
       return { kind: "note", text: bubble.text };
     case "quiet":
       return { kind: "note", text: spadeQuietLine(bubble.quiet).label };
+    // The workers a call started, by name, until the iPhone draws their cards.
+    case "workers":
+      return {
+        kind: "note",
+        text: `Started ${bubble.workers.map((worker) => worker.name).join(", ")}`,
+      };
     case "remembered":
       return { kind: "note", text: `Remembered: ${bubble.note.text}` };
     // The iPhone doesn't show which notes a reply had in mind yet.
@@ -242,7 +249,12 @@ export function spadeConversationRows(
 }
 
 /** The conversation around its bubbles: whether it has loaded, works, and why it can't follow. */
-export function spadeConversationHead(id: string, view: SpadeView, problem: string | undefined) {
+export function spadeConversationHead(
+  id: string,
+  view: SpadeView,
+  problem: string | undefined,
+  face: SpadeFaceRow | null = null,
+) {
   return {
     type: "spade.conversation",
     id,
@@ -255,7 +267,7 @@ export function spadeConversationHead(id: string, view: SpadeView, problem: stri
         ? { words: spadeForLaterWords(view.questionsForLater), callId: view.forLater[0] }
         : null,
     working: view.working
-      ? { label: view.status ?? view.working.label, moving: view.working.moving }
+      ? { label: view.status ?? view.working.label, moving: view.working.moving, face }
       : null,
   };
 }

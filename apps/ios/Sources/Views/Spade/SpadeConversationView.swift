@@ -55,8 +55,8 @@ struct SpadeConversationView: View {
             if let bot {
                 if bot.group != nil { SpadeGroupFaces(faces: bot.faces, size: AceDesign.Size.barIcon + AceDesign.Space.related) }
                 else if let face = bot.faces.first {
-                    SpadeFaceView(face: face, size: AceDesign.Size.barIcon + AceDesign.Space.related,
-                                  moving: head?.working?.moving == true)
+                    let titlePose: BotFacePose = head?.working.map { $0.moving ? .working : .needsYou } ?? .idle
+                    SpadeFaceView(face: face, size: AceDesign.Size.barIcon + AceDesign.Space.related, pose: titlePose)
                 }
             }
             Text(name).aceFont(AceDesign.TextRole.navTitle).foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
@@ -232,7 +232,11 @@ private struct SpadeWorkingLine: View {
         HStack(spacing: AceDesign.Space.related) {
             HStack(spacing: AceDesign.Space.related) {
                 if let face = working.face {
-                    SpadeFaceView(face: face, size: AceDesign.Size.barIcon + AceDesign.Space.tight, moving: working.moving)
+                    SpadeFaceView(
+                        face: face,
+                        size: AceDesign.Size.barIcon + AceDesign.Space.tight,
+                        pose: working.moving ? .working : .needsYou
+                    )
                 } else if working.moving { WorkingMark(label: working.label) } else {
                     StatusGlyph(.needsYou, tone: .needsYou, size: AceDesign.Size.icon)
                 }

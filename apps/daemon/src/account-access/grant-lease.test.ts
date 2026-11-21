@@ -62,3 +62,37 @@ describe("refreshing an account socket's grant", () => {
     );
   });
 });
+
+/** A member of `org_team` admitted with `role`. */
+const member = (role: string) => ({
+  admitted: true as const,
+  account: "user_m",
+  expiresAt: 50_000,
+  member: { org: "org_team", role, account: "user_m", generation: 1 },
+});
+
+describe("refreshing a member's socket on an organization's host", () => {
+  it.each([
+    { case: "the same role moves the expiry on", role: "member", kind: "extended" },
+    {
+      case: "a changed role is refused, so the client reconnects as it is now",
+      role: "admin",
+      kind: "refused",
+    },
+  ])("$case", ({ role, kind }) => {
+    expect(
+      grantRefreshOutcome({
+        admission: member(role),
+        account: "user_m",
+        heldUntil: 10_000,
+        member: { org: "org_team", role: "member" },
+      }).kind,
+    ).toBe(kind);
+  });
+  it("refuses a member grant on a socket admitted without one", () => {
+    expect(
+      grantRefreshOutcome({ admission: member("member"), account: "user_m", heldUntil: 10_000 })
+        .kind,
+    ).toBe("refused");
+  });
+});

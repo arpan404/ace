@@ -3,14 +3,14 @@
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::json;
 
 use super::{AppState, problem};
-use crate::skill_store::{AddError, PublishError};
+use crate::skill_store::{AddError, ImportError, ImportedSkill, PublishError};
 use crate::tools::WriteError;
 
 pub(super) fn routes() -> Router<AppState> {
@@ -18,7 +18,15 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/skills", get(list))
         .route("/skills/{id}/add-to-ace", post(add_to_ace))
         .route("/skills/{id}/files", get(files))
+        .route("/skills/{id}/export", get(export))
+        .route(
+            "/skills/import",
+            post(import).layer(DefaultBodyLimit::max(IMPORT_BODY)),
+        )
 }
+
+/// An import's body: a skill's 16 MiB of files at most, as base64, with room for the rest.
+const IMPORT_BODY: usize = 24 * 1024 * 1024;
 
 async fn list(State(state): State<AppState>) -> Response {
     let Some(store) = state.skill_store.clone() else {
@@ -84,6 +92,50 @@ async fn files(State(state): State<AppState>, Path(id): Path<String>) -> Respons
         return problem(StatusCode::NOT_FOUND, "no such skill");
     };
     match tokio::task::spawn_blocking(move || store.published(&id)).await {
+        Ok(Ok(skill)) => Json(skill).into_response(),
+        Ok(Err(error)) => {
+            let status = match &error {
+                PublishError::NotFound => StatusCode::NOT_FOUND,
+                PublishError::NotSpade | PublishError::Refused(_) => {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                }
+                PublishError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            problem(status, &error.to_string())
+        }
+        Err(_) => problem(StatusCode::INTERNAL_SERVER_ERROR, "the request stopped"),
+    }
+}
+
+/// `POST /v1/skills/import`: a `SKILL.md` folder ace read and checked against the Agent Skills
+/// specification, kept as a skill written in Spade (ADR 0202 §1).
+async fn import(State(state): State<AppState>, Json(skill): Json<ImportedSkill>) -> Response {
+    let Some(store) = state.skill_store.clone() else {
+        return problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "this Spade keeps no skills",
+        );
+    };
+    match store.import(skill).await {
+        Ok(id) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
+        Err(error) => {
+            let status = match &error {
+                ImportError::Refused(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                ImportError::Exists(_) => StatusCode::CONFLICT,
+                ImportError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            problem(status, &error.to_string())
+        }
+    }
+}
+
+/// `GET /v1/skills/{id}/export`: any skill the store keeps a folder for, with its files, origin
+/// and source, for ace to write as a folder other runtimes read (ADR 0202 §1).
+async fn export(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let Some(store) = state.skill_store.clone() else {
+        return problem(StatusCode::NOT_FOUND, "no such skill");
+    };
+    match tokio::task::spawn_blocking(move || store.exported(&id)).await {
         Ok(Ok(skill)) => Json(skill).into_response(),
         Ok(Err(error)) => {
             let status = match &error {

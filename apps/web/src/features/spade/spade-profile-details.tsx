@@ -17,6 +17,7 @@ import { ProfilePlugins } from "./spade-bot-plugins.tsx";
 import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
+import { ProfileCases } from "./spade-profile-cases.tsx";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
 import { ProfilePersonality } from "./spade-profile-personality.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
@@ -73,6 +74,7 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
           description={modelProblem && <span className="text-destructive">{modelProblem}</span>}
         >
           <SpadeModelPicker
+            subscriptions
             value={bot.model}
             onChange={(model) => {
               if (!/\/./.test(model) || model === bot.model) return;
@@ -90,6 +92,7 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
       </ProfileSection>
       <ProfileRoutines bot={bot} />
       <ProfileContracts bot={bot} />
+      <ProfileCases bot={bot} />
       <ProfileMakesBots bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />

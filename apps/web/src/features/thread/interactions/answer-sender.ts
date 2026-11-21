@@ -7,6 +7,8 @@ import type {
   Question,
 } from "@ace/protocol";
 import { wholeRequestNotRead, withoutSecrets } from "@ace/ui-core";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { proveAgain } from "@/boot/window-prover.ts";
 import { affirms } from "@ace/projection/interaction-summary";
 import { refusalMessage } from "@/lib/daemon-command.ts";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
@@ -116,15 +118,80 @@ export function useAnswerSender(target: AnswerTarget) {
   const live = useThreadFreshness(target.threadId);
   const { send, intent, error } = useIntentSender();
   const state = intent?.state;
-  const answer: Answer = (resolution) => void sendAnswer(client, send, target, resolution);
-  const failed =
-    state === "failed"
-      ? (failures[intent?.error ?? ""] ?? refusalMessage(intent?.error ?? "unknown"))
-      : error
-        ? "Couldn't send the answer. Check the connection and try again."
+  const last = useRef<{
+    resolution: Extract<InteractionResolution, { kind: "approval" }>;
+    target: AnswerTarget;
+    commandId: string | undefined;
+    retried: boolean;
+  }>(undefined);
+  const [confirming, setConfirming] = useState<string>();
+  const [retrying, setRetrying] = useState(false);
+  const submit = (resolution: InteractionResolution, retried: boolean) => {
+    const pick =
+      resolution.kind === "approval"
+        ? { resolution, target, retried, commandId: undefined as string | undefined }
         : undefined;
+    const result = sendAnswer(
+      client,
+      async (payload) => {
+        const id = await send(payload);
+        if (pick) pick.commandId = id;
+        return id;
+      },
+      target,
+      resolution,
+    );
+    if (result === "sent") {
+      last.current = pick;
+      setRetrying(retried);
+      setConfirming(undefined);
+    }
+  };
+  const answer: Answer = (resolution) => submit(resolution, false);
+  const reauth =
+    intent?.state === "failed" && intent.error === "reauth" ? intent.command.id : undefined;
+  const retry = () => {
+    const pick = last.current;
+    if (
+      pick &&
+      pick.commandId === reauth &&
+      !pick.retried &&
+      pick.target.interactionId === target.interactionId &&
+      pick.target.identity === target.identity &&
+      pick.target.readWhole === target.readWhole
+    )
+      submit(pick.resolution, true);
+  };
+  const retryAfterProof = useEffectEvent(retry);
+  useEffect(() => {
+    const pick = last.current;
+    if (!reauth || !pick || pick.commandId !== reauth || pick.retried) return;
+    let active = true;
+    void proveAgain(client).then((proved) => {
+      if (!active || last.current !== pick) return;
+      if (proved) retryAfterProof();
+      else setConfirming(reauth);
+    });
+    return () => {
+      active = false;
+    };
+  }, [client, reauth]);
+  const failed =
+    reauth && !retrying
+      ? undefined
+      : state === "failed"
+        ? (failures[intent?.error ?? ""] ?? refusalMessage(intent?.error ?? "unknown"))
+        : error
+          ? "Couldn't send the answer. Check the connection and try again."
+          : undefined;
   /** The refused answer's command and the daemon's code, when it refused one. */
   const refused =
     state === "failed" && intent ? { commandId: intent.command.id, code: intent.error } : undefined;
-  return { answer, failed, refused, held: !live.fresh };
+  return {
+    answer,
+    failed,
+    refused,
+    confirm: confirming === reauth && reauth ? retry : undefined,
+    held: !live.fresh,
+  };
 }

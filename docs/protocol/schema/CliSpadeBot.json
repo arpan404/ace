@@ -90,7 +90,9 @@
     "waitingFor": {
       "enum": [
         "approval",
-        "question"
+        "question",
+        "worker",
+        "callee"
       ],
       "type": "string"
     }

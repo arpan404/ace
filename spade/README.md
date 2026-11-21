@@ -47,6 +47,7 @@ crates/
   spade-ace/       ace's tools (MCP client of the daemon) and skill library (skills.request)
   spade-fetch/     web_fetch: one page as readable text, refusing local and private addresses
   spade-server/    local API and reply engine (in progress)
+  spade-wasm/      a package's WebAssembly components, run by a sandboxed worker (ADR 0203)
   spade-testkit/   test-only fake model endpoint (all three formats)
 config/
   models.json      presets, built into the binary

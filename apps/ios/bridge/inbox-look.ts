@@ -1,4 +1,11 @@
-import { cardDetails, rowStatusLook, rowStatusState, threadCard, threadGlyph } from "@ace/ui-core";
+import {
+  cardDetails,
+  movedWords,
+  rowStatusLook,
+  rowStatusState,
+  threadCard,
+  threadGlyph,
+} from "@ace/ui-core";
 import { inboxGroup, type InboxThread } from "@ace/ui-core/mobile";
 import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
 
@@ -43,7 +50,7 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
   // Back from a snooze, until read: the alarm alone, as the desktop row shows it; why it woke
   // is its meaning, for VoiceOver.
   const woke = card.woke;
-  return {
+  const look = {
     level,
     tone,
     muted,
@@ -71,5 +78,32 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     meaning: woke ? woke.sentence : status.meaning,
     /** Only a thread that needs the person sets its title in semibold. */
     strong: level === "needs-you",
+    /** Where its work went (ADR 0191), for the row's Open; null for every other row. */
+    moved: null as { hostId: string; name: string; threadId: string } | null,
+  };
+  return entry.status.state === "moved" ? movedLook(look, entry.status) : look;
+}
+
+/**
+ * A thread whose work moved to another machine runs nothing here, but it is never done or idle:
+ * its row says where the work went, in words, where an age would stand, and opens it there.
+ */
+function movedLook<Look>(
+  look: Look,
+  status: Extract<ThreadListEntry["status"], { state: "moved" }>,
+) {
+  const words = movedWords(status);
+  const { hostId, name, threadId } = status.to;
+  return {
+    ...look,
+    glyph: null,
+    icon: "background",
+    iconTone: "background",
+    count: null,
+    mode: "word",
+    word: words,
+    meaning: words,
+    state: "moved",
+    moved: { hostId, name, threadId },
   };
 }

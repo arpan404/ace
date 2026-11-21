@@ -4,6 +4,7 @@
 //! title and last update for the list. Keys are never stored here (ADR 0119).
 
 mod agents;
+mod cases;
 mod digests;
 mod endpoints;
 mod episodes;
@@ -12,6 +13,8 @@ mod helpers;
 mod knowledge;
 mod moves;
 mod notes;
+mod org_audit;
+mod outside;
 mod oversight;
 mod panels;
 mod routines;
@@ -21,12 +24,14 @@ mod skills;
 mod spend;
 mod teams;
 mod used;
+mod watch;
 mod workers;
 
 pub use agents::{
     Agent, BOT_PACKAGE, BOT_PACKAGE_HELD, BOT_RECIPE, NewAgent, made_under_key, package_held_key,
     package_key, recipe_key, style_key,
 };
+pub use cases::StoredCase;
 pub use digests::{BRIEF, DIGESTS, NewDigest, SPEND_ALERT, StoredDigest, digests_key};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use episodes::{NewEpisode, StoredEpisode};
@@ -38,12 +43,15 @@ pub use moves::{
     StoredMove, TableSum, arrival_state, move_table, open_state,
 };
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
+pub use org_audit::AuditHead;
+pub use outside::OUTSIDE_HOSTS;
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use panels::{BOT_PANELS, Collected, PANEL_PAGE, page_key, panels_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
 pub use skills::{SkillOrigin, SkillUse, StoredSkill};
 pub use spend::{MODEL_ROLES, roles_key};
 pub use teams::{Delivered, Delivery, InboxEntry, OutboxEntry, StoredGroup, StoredMember};
+pub use watch::{Watch, Watched};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -120,6 +128,8 @@ pub struct Conversation {
 
 pub struct Store {
     connection: Mutex<Connection>,
+    /// Settings whose changes write audit entries with them (`watch`).
+    watching: watch::Watching,
 }
 
 impl Store {
@@ -131,6 +141,7 @@ impl Store {
         gate::install(&connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            watching: watch::Watching::new(),
         })
     }
 
@@ -196,6 +207,8 @@ impl Store {
             "skills",
             "skill_uses",
             "helpers",
+            "cases",
+            "org_audit",
         ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {

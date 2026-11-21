@@ -34,6 +34,15 @@ import type { AgentScreenshot } from "./session-images.ts";
 import { defaultCursorStyle, type CursorStyle } from "@ace/browser-annotate";
 import type { ViewerSink } from "./viewer-sink.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
+import {
+  EngineMoves,
+  type BrowserEngine,
+  type EngineMove,
+  type EnginePreferencePort,
+  carriedTabs,
+  holdsTabs,
+  type RehostResult,
+} from "./engine-move.ts";
 
 /** How long an agent's cursor glides before its click lands: long enough to follow by eye. */
 const defaultGlideMs = 220;
@@ -86,6 +95,13 @@ export class BrowserService {
   private desktopCanDraw = true;
   /** Per `auto` session: move its pages from the desktop to ace's Chromium. */
   private handOffs = new Map<string, () => Promise<void>>();
+  private engineMoves = new EngineMoves(this);
+  /** A move's engine for its reopen, before the move commits it to the thread's setting. */
+  private engineOverrides = new Map<string, BrowserEngine>();
+  /** A move's tabs, handed straight to its reopen (the move journal keeps them across a restart). */
+  private handedTabs = new Map<string, BrowserTabRecord[]>();
+  /** Threads whose open is bringing back the tabs of a move that never settled. */
+  private recovered = new Set<string>();
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
@@ -208,8 +224,12 @@ export class BrowserService {
     const task = this.launch(options, scope);
     this.opening.set(options.threadId, task);
     try {
-      return (await task).state;
+      const { state } = await task;
+      // The tabs of a move that never settled are open again: the session keeps them now.
+      if (this.recovered.delete(options.threadId)) await this.settleIfHome(options);
+      return state;
     } finally {
+      this.recovered.delete(options.threadId);
       this.opening.delete(options.threadId);
       if (!this.sessions.has(options.threadId)) this.policyScopes.delete(options.threadId);
     }
@@ -222,7 +242,10 @@ export class BrowserService {
       profile:
         requested.profile ?? (await this.options.profilePreference?.(requested)) ?? "persistent",
     };
-    const preference = (await this.options.backendPreference?.(options)) ?? "auto";
+    const preference =
+      this.engineOverrides.get(options.threadId) ??
+      (await this.options.backendPreference?.(options)) ??
+      "auto";
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
     const embedded = this.embedded;
     // A desktop that can't draw (its screen locked) is no place for an `auto` page.
@@ -658,6 +681,14 @@ export class BrowserService {
    * unreadable store restores none.
    */
   private restoredTabs(threadId: string): BrowserTabRecord[] {
+    const handed = this.handedTabs.get(threadId);
+    if (handed) return handed;
+    // A move that never settled (the daemon stopped mid-move) left its own copy of the tabs.
+    const moved = this.journaled(threadId);
+    if (moved?.length) {
+      this.recovered.add(threadId);
+      return moved;
+    }
     try {
       const own = (this.options.tabStore?.load(threadId) ?? []).toSorted(
         (a, b) => a.position - b.position,
@@ -967,6 +998,139 @@ export class BrowserService {
   stopRecording(threadId: string, actor?: Actor): Promise<BrowserArtifact> {
     return this.get(threadId).stopRecording(actor);
   }
+  /**
+   * Moves the thread's browser to another engine for a person (ADR 0199), one move per thread at
+   * a time: `preference` is where the daemon keeps the thread's `browser.backend`.
+   */
+  moveEngine(move: EngineMove, preference: EnginePreferencePort) {
+    return this.engineMoves.run(move, preference);
+  }
+  /**
+   * Moves the thread's open browser to `engine` with its tabs (ADR 0199): it closes as a daemon
+   * shutdown does, its tabs kept in the move journal and the tab store, and opens on `engine`
+   * with them. When that open fails, the tabs open again on the engine the browser was on.
+   * Nothing here writes the thread's setting or settles the move, so a daemon that stops before
+   * `settleMove` reopens the journal's tabs where the setting says.
+   */
+  async rehost(
+    options: { threadId: string; workspaceId: string },
+    engine: BrowserEngine,
+  ): Promise<RehostResult> {
+    const { threadId } = options;
+    await this.recoveries.get(threadId);
+    const session = this.sessions.get(threadId) ?? (await this.opening.get(threadId));
+    const live = session && !session.state.closed ? session : undefined;
+    // Within a move (going back after its setting couldn't be kept), its own copy is carried.
+    const tabs =
+      this.journaled(threadId) ??
+      (live ? carriedTabs(live.tabRecords(), live.state, () => `tab-${this.id()}`) : []);
+    const was = live?.state.backend;
+    const shown = live?.state.activeTabId;
+    if (tabs.length)
+      try {
+        this.options.moveJournal?.begin(threadId, tabs);
+        this.options.tabStore?.save(threadId, tabs);
+      } catch (error) {
+        this.options.onError?.(error);
+      }
+    if (session) {
+      await session.close();
+      if (this.sessions.get(threadId) === session) this.sessions.delete(threadId);
+    }
+    try {
+      return { ok: true, state: await this.openWith(options, engine, tabs, shown) };
+    } catch (error) {
+      const back = was === "embedded" || was === "headless" ? was : undefined;
+      const restored = await this.openWith(options, back, tabs, shown).catch(() => undefined);
+      return { ok: false, error, restored };
+    }
+  }
+  /**
+   * The move is over (its setting kept, or its browser back where it was): its copy of the tabs
+   * goes, and the open session's own tab records are what a restart restores.
+   */
+  settleMove(threadId: string): void {
+    try {
+      this.options.moveJournal?.end(threadId);
+    } catch (error) {
+      this.options.onError?.(error);
+    }
+  }
+  /**
+   * Drops an engine move's journal entry only once the thread's browser runs on the engine its
+   * setting names now, read fresh, with every journaled tab (ADR 0199). True when the entry went
+   * or there was none; otherwise it stays for the next start.
+   */
+  async settleIfHome(options: { threadId: string; workspaceId: string }): Promise<boolean> {
+    const { threadId } = options;
+    const pending = this.journaled(threadId);
+    if (!pending) return true;
+    const session = this.sessions.get(threadId);
+    if (!session || session.state.closed) return false;
+    let named: "auto" | BrowserEngine;
+    try {
+      named = (await this.options.backendPreference?.(BrowserOpen.parse(options))) ?? "auto";
+    } catch (error) {
+      this.options.onError?.(error);
+      return false;
+    }
+    // `auto` names the engine a fresh open would take first.
+    const engine =
+      named === "auto" ? (this.embedded && this.desktopCanDraw ? "embedded" : "headless") : named;
+    const live = this.sessions.get(threadId);
+    if (live !== session || live.state.backend !== engine || !holdsTabs(pending, live.state))
+      return false;
+    this.settleMove(threadId);
+    return true;
+  }
+  /** The tabs of this thread's unsettled move; undefined when none or unreadable. */
+  private journaled(threadId: string): BrowserTabRecord[] | undefined {
+    try {
+      return this.options.moveJournal?.pending(threadId);
+    } catch (error) {
+      this.options.onError?.(error);
+      return undefined;
+    }
+  }
+  /**
+   * Opens the thread's browser on `engine` (its setting when undefined) with `tabs`, the tab
+   * that was shown shown again when it came back.
+   */
+  private async openWith(
+    options: { threadId: string; workspaceId: string },
+    engine: BrowserEngine | undefined,
+    tabs: BrowserTabRecord[],
+    shown: string | undefined,
+  ): Promise<BrowserState> {
+    const { threadId } = options;
+    if (engine) this.engineOverrides.set(threadId, engine);
+    if (tabs.length) this.handedTabs.set(threadId, tabs);
+    let state: BrowserState;
+    try {
+      state = await this.open(options);
+    } finally {
+      this.engineOverrides.delete(threadId);
+      this.handedTabs.delete(threadId);
+    }
+    // An engine with one page and no tabs takes the first page into its blank view.
+    const [first] = tabs;
+    if (!state.tabs && first && (state.url === "about:blank" || state.url === "")) {
+      await this.execute(
+        threadId,
+        { action: "navigate", url: first.url, timeout: 30_000 },
+        { kind: "human", connectionId: "" },
+      );
+      return this.state(threadId);
+    }
+    if (!shown || state.activeTabId === shown || !state.tabs?.some((tab) => tab.tabId === shown))
+      return state;
+    await this.execute(
+      threadId,
+      { action: "tabs", operation: "select", tabId: shown },
+      { kind: "human", connectionId: "" },
+    );
+    return this.state(threadId);
+  }
   async closeThread(threadId: string, actor?: Actor, signal?: AbortSignal): Promise<void> {
     // Agent closure must not revoke policies or start recovery cleanup before ownership is checked.
     const current = this.sessions.get(threadId);
@@ -974,6 +1138,7 @@ export class BrowserService {
       await current.closeBy(actor, signal);
       this.sessions.delete(threadId);
       this.options.tabStore?.clear(threadId);
+      this.settleMove(threadId);
       return;
     }
     signal?.throwIfAborted();
@@ -986,6 +1151,7 @@ export class BrowserService {
     }
     // A closed browser starts fresh next time; a daemon restart is not a close.
     this.options.tabStore?.clear(threadId);
+    this.settleMove(threadId);
   }
   close(): Promise<void> {
     this.closing ??= (async () => {

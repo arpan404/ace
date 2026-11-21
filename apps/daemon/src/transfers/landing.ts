@@ -1,3 +1,4 @@
+import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import { dirname } from "node:path";
 import type { TransferCommit, WorkspaceId } from "@ace/protocol";
 import type { IncomingRecord } from "./incoming-rows.ts";
@@ -106,10 +107,12 @@ async function land(
   };
   const { begin } = record;
   const key = `transfer:${record.transferId}:${deps.attempt}`;
-  // Chosen when the transfer began; used only while it is still registered here.
-  const reused = record.workspaceId
+  // Chosen when the transfer began; used only while it is still registered here, and, for a
+  // sender's origin, only while that project's origin is still the same repository.
+  const chosen = record.workspaceId
     ? deps.projects.list().find((project) => project.workspaceId === record.workspaceId)
     : undefined;
+  const reused = chosen && (await sameRepository(deps, chosen.path, record)) ? chosen : undefined;
   if (record.method === "archive") {
     if (!file) throw new TransferError("transfer_invalid", "The folder's copy is missing.");
     if (reused) {
@@ -224,6 +227,24 @@ async function land(
     { path, workspaceId, fresh, directory: made.handle },
     signal,
   );
+}
+
+/**
+ * Whether the project at `path` is the repository the sender's origin names, by this build's
+ * reading of both. A transfer begun before an upgrade may hold a project chosen with older rules
+ * (ones that put an SSH path from a home and one from the root under one key): it is checked
+ * again right before anything lands, so the work never goes into another repository's checkout.
+ * Without a sender's origin the project is the copy an earlier transfer of it made.
+ */
+async function sameRepository(
+  deps: LandingDeps,
+  path: string,
+  record: IncomingRecord,
+): Promise<boolean> {
+  const remote = record.begin.remote;
+  if (!remote) return true;
+  const origin = await deps.git.transferOrigin(path).catch(() => undefined);
+  return origin?.normalized === normalizeRemoteUrl(remote.url);
 }
 
 /** What the bulk bundle of a live move holds; for any other transfer, the commit itself. */

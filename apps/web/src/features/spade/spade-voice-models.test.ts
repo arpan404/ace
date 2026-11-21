@@ -22,6 +22,7 @@ const endpoint = (
   sessionHeader: undefined,
   headerNames: [],
   needsKey: true,
+  local: false,
   keySet: true,
   keySource: "keychain",
   models,

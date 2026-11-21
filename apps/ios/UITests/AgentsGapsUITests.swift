@@ -104,6 +104,50 @@ import XCTest
 
 
 
+    // MARK: The Summary's agents (fixture thread `ios-summary-tree`)
+
+    func testSummaryListsTheAgentThatWaitsOnYouFirstAndFoldsTheFinished() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-open", "ios-summary-tree"]
+        app.launchWithArguments()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        app.buttons["thread.menu"].tap()
+        app.threadMenuItem("thread.summary").tap()
+        XCTAssertTrue(app.descendants(matching: .any)["summary.page"].waitForExistence(timeout: 20), "the Summary opens")
+        let row = { (name: String) in
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'summary.agent.' AND NOT identifier ENDSWITH '.action' AND label BEGINSWITH %@", name)).firstMatch
+        }
+        let reviewer = row("Reviewer")
+        XCTAssertTrue(reviewer.waitForExistence(timeout: 30), "the asking agent is listed")
+        screenshot("summary-agents")
+        // Waiting on you first, then the working chain, then the failure; the finished fold last.
+        let order = [row("Reviewer"), row("Export lead"), row("Test runner"), row("Migrator"), app.buttons["summary.agents.done"]]
+        let tops = order.map { element -> CGFloat in
+            XCTAssertTrue(element.waitForExistence(timeout: 10), element.debugDescription)
+            return element.frame.minY
+        }
+        XCTAssertEqual(tops, tops.sorted(), "rows out of order: \(tops)")
+        let answer = app.buttons.matching(NSPredicate(format: "identifier ENDSWITH '.action' AND label == 'Answer Reviewer'")).firstMatch
+        XCTAssertTrue(answer.exists, "the asking agent offers Answer")
+        // Finished agents start folded under one line that opens in place.
+        let finished = row("Schema reader")
+        XCTAssertFalse(finished.exists, "finished agents start folded")
+        let fold = app.buttons["summary.agents.done"]
+        XCTAssertEqual(fold.label, "12 done")
+        XCTAssertTrue(reveal(fold, in: app))
+        fold.tap()
+        XCTAssertTrue(finished.waitForExistence(timeout: 10), "the fold opens in place")
+        screenshot("summary-agents-done-open")
+        fold.tap()
+        XCTAssertTrue(finished.waitForNonExistence(timeout: 10))
+        // A row opens its agent's page.
+        let lead = row("Export lead")
+        for _ in 0..<20 where !(lead.exists && lead.isHittable) { app.swipeDown(velocity: .slow) }
+        lead.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["subagent.state"].waitForExistence(timeout: 15))
+    }
+
     // MARK: Children ace delegated to other machines (fixture thread `ios-elsewhere`)
 
     func testAChildOnAMachineThePhoneHasOpensThereAndOneOnAnUnpairedMachineSaysWhy() {

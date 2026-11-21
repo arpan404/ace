@@ -11,6 +11,26 @@ import {
   spadeWhenInSentence,
 } from "./index.ts";
 
+/** The last run of one routine whose run ended with `result`, as Spade reports it. */
+const lastRunWith = (result: string) =>
+  parseSpadeRoutines(
+    JSON.stringify({
+      routines: [
+        {
+          id: "rt_1",
+          name: "Morning fares",
+          last_run: { id: "run_1", at: 1, cause: "schedule", result },
+        },
+      ],
+    }),
+  )?.[0]?.lastRun;
+
+/** What the app says for that run. */
+const words = (result: string) => {
+  const run = lastRunWith(result);
+  return run && spadeRunWords(run);
+};
+
 function conversation() {
   const state = emptySpadeConversation();
   let seq = 0;
@@ -126,6 +146,11 @@ describe("the routine list", () => {
     expect(routines?.map((r) => r.words)).toEqual(["Weekdays at 9:00"]);
     const last = routines?.[0]?.lastRun;
     expect(last && spadeRunWords(last)).toBe("Skipped. The last run was still going.");
+  });
+
+  test("a verified routine's run reads done only once its check says so", () => {
+    expect(words("checking")).toBe("Checking the work");
+    expect(words("verified")).toBe("Done, checked");
   });
 
   test("says when in the routine's zone, relative to today", () => {

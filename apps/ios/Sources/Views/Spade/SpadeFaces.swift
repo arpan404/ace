@@ -1,29 +1,26 @@
 import SwiftUI
 
-/// One face as the bridge put it: Spade's own mark for Spade, else the bot's initial on a quiet
-/// disc. An away member's face is dimmed. Decorative: the row or bubble beside it names the bot.
+/// One face as the bridge put it: Spade's own mark for Spade, else its character face. An away
+/// member's face is dimmed. Keeps the initial only as an accessibility label fallback when shown
+/// non-decoratively; by default decorative because the row or bubble beside it names the bot.
 struct SpadeFaceView: View {
     let face: SpadeModel.Face
     var size: CGFloat = AceDesign.Size.tap - AceDesign.Space.tight
-    /// Spade's eyes move while it works.
-    var moving = false
-    /// The initial's size against the disc's, as an account's avatar has it.
-    private static let letterScale: CGFloat = 0.42
+    /// What the face expresses (working moves the eyes; needs-you tilts and widens; etc.).
+    var pose: BotFacePose = .idle
+    var decorative = true
 
     var body: some View {
         Group {
             if face.main {
-                SpadeMark(size: size, moving: moving).foregroundStyle(AceDesign.Ink.primary)
+                SpadeMark(size: size, moving: pose.isMoving).foregroundStyle(AceDesign.Ink.primary)
             } else {
-                Text(face.initial)
-                    .font(.system(size: size * Self.letterScale, weight: AceDesign.Typeface.strong))
-                    .foregroundStyle(AceDesign.Ink.primary)
-                    .frame(width: size, height: size)
-                    .background(AceDesign.Surface.fill, in: Circle())
+                BotFaceView(face: face.character ?? .default, size: size, pose: pose)
             }
         }
         .opacity(face.away ? AceTheme.Opacity.disabled(.light) : 1)
-        .accessibilityHidden(true)
+        .accessibilityLabel(face.main ? "Spade" : face.initial)
+        .accessibilityHidden(decorative)
     }
 }
 
@@ -70,7 +67,7 @@ struct SpadeBotFace: View {
             if bot.group != nil {
                 SpadeGroupFaces(faces: bot.faces, size: Self.size)
             } else if let face = bot.faces.first {
-                SpadeFaceView(face: face, size: Self.size, moving: bot.state == "working")
+                SpadeFaceView(face: face, size: Self.size, pose: pose)
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -81,6 +78,16 @@ struct SpadeBotFace: View {
             }
         }
         .accessibilityHidden(true)
+    }
+
+    private var pose: BotFacePose {
+        switch bot.state {
+        case "needs-you": .needsYou
+        case "working": .working
+        case "failed": .blocked
+        case "unseen": .done
+        default: .idle
+        }
     }
 
     private var dot: Color? {

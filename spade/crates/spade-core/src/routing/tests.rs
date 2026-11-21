@@ -12,6 +12,10 @@ impl Models for Table {
     fn strength(&self, reference: &str) -> Option<f64> {
         self.0.get(reference).copied().flatten()
     }
+    /// `local/tiny` didn't call tools in Spade's check.
+    fn calls_tools(&self, reference: &str) -> bool {
+        reference != "local/tiny"
+    }
 }
 
 fn table() -> Table {
@@ -21,12 +25,13 @@ fn table() -> Table {
         ("a/fast", Some(1.5)),
         ("b/stronger", Some(90.0)),
         ("local/llama", None),
+        ("local/tiny", None),
     ]))
 }
 
 fn overrides(roles: &[(Role, &str)]) -> Overrides {
     Overrides {
-        roles: roles.iter().map(|(r, m)| (*r, (*m).to_owned())).collect(),
+        roles: roles.iter().map(|(r, m)| (*r, Route::one(m))).collect(),
         ..Overrides::default()
     }
 }
@@ -260,12 +265,154 @@ fn a_rerun_is_its_jobs_second_attempt_and_never_has_a_third() {
 #[test]
 fn overrides_round_trip_as_role_names() {
     let stored = Overrides {
-        roles: [(Role::Verify, "b/stronger".to_owned())].into(),
+        roles: [(Role::Verify, Route::one("b/stronger"))].into(),
         allowed: None,
         escalate: Some(true),
     };
     let text = serde_json::to_string(&stored).unwrap_or_default();
-    assert_eq!(text, r#"{"roles":{"verify":"b/stronger"},"escalate":true}"#);
+    assert_eq!(
+        text,
+        r#"{"roles":{"verify":["b/stronger"]},"escalate":true}"#
+    );
     let read: Overrides = serde_json::from_str(&text).unwrap_or_default();
     assert_eq!(read, stored);
+    // What an older build stored, one model per role, reads as a route of one.
+    let older: Overrides =
+        serde_json::from_str(r#"{"roles":{"verify":"b/stronger"},"escalate":true}"#)
+            .unwrap_or_default();
+    assert_eq!(older, stored);
+}
+
+fn route_of(own: &str, bot: &Overrides, global: &Overrides, role: Role) -> Vec<String> {
+    let models = table();
+    let defaults = with_fast();
+    Routing {
+        own,
+        bot,
+        global,
+        defaults: &defaults,
+        models: &models,
+    }
+    .route(role)
+}
+
+fn routes(roles: &[(Role, &[&str])]) -> Overrides {
+    Overrides {
+        roles: roles
+            .iter()
+            .map(|(role, list)| (*role, Route(list.iter().map(|m| (*m).to_owned()).collect())))
+            .collect(),
+        ..Overrides::default()
+    }
+}
+
+#[test]
+fn the_main_route_is_the_bots_own_model_then_its_fallbacks_in_order() {
+    let none = Overrides::default();
+    let global = routes(&[(Role::Main, &["local/llama", "a/mid"])]);
+    assert_eq!(
+        route_of("a/strong", &none, &global, Role::Main),
+        ["a/strong", "local/llama", "a/mid"]
+    );
+    // The bot's own route wins over the global one, and the bot's model is never listed twice.
+    let bot = routes(&[(Role::Main, &["a/strong", "b/stronger"])]);
+    assert_eq!(
+        route_of("a/strong", &bot, &global, Role::Main),
+        ["a/strong", "b/stronger"]
+    );
+    // With no route, the bot's model alone.
+    assert_eq!(route_of("a/strong", &none, &none, Role::Main), ["a/strong"]);
+}
+
+#[test]
+fn a_route_skips_gone_models_and_holds_at_most_four() {
+    let none = Overrides::default();
+    let long = routes(&[(
+        Role::Main,
+        &["gone/x", "a/mid", "a/fast", "b/stronger", "local/llama"],
+    )]);
+    assert_eq!(
+        route_of("a/strong", &long, &none, Role::Main),
+        ["a/strong", "a/mid", "a/fast", "b/stronger"]
+    );
+    let helper = routes(&[(Role::Helper, &["gone/x", "a/mid", "a/fast"])]);
+    assert_eq!(
+        route_of("a/strong", &helper, &none, Role::Helper),
+        ["a/mid", "a/fast"]
+    );
+    // A role with no route of its own tries its default alone.
+    assert_eq!(route_of("a/strong", &none, &none, Role::Helper), ["a/fast"]);
+}
+
+#[test]
+fn a_route_never_gains_a_subscription() {
+    let none = Overrides::default();
+    // A bot on a subscription runs on it alone, whatever routes the person set.
+    let global = routes(&[(Role::Main, &["a/mid", "local/llama"])]);
+    assert_eq!(
+        route_of("cli:codex/gpt-6.1-sol", &none, &global, Role::Main),
+        ["cli:codex/gpt-6.1-sol"]
+    );
+    // A subscription stored in a route (by hand, or an older build) is never tried.
+    let stored = routes(&[
+        (Role::Main, &["cli:claude/opus", "a/mid"]),
+        (Role::Helper, &["cli:codex/gpt-6.1-sol"]),
+    ]);
+    assert_eq!(
+        route_of("a/strong", &stored, &none, Role::Main),
+        ["a/strong", "a/mid"]
+    );
+    assert_eq!(
+        route_of("a/strong", &stored, &none, Role::Helper),
+        ["a/fast"]
+    );
+}
+
+#[test]
+fn a_model_that_cant_call_tools_serves_only_titles_and_summaries() {
+    let tiny = |roles: &[Role]| -> Overrides {
+        Overrides {
+            roles: roles
+                .iter()
+                .map(|r| (*r, Route(vec!["local/tiny".to_owned(), "a/mid".to_owned()])))
+                .collect(),
+            ..Overrides::default()
+        }
+    };
+    let global = tiny(&Role::ALL);
+    let defaults = Defaults {
+        fast: Some("local/tiny".to_owned()),
+        in_use: Vec::new(),
+    };
+    for role in [Role::Title, Role::Compact] {
+        assert_eq!(
+            choose("a/strong", &Overrides::default(), &global, &defaults, role),
+            ("local/tiny".to_owned(), Source::Global),
+            "{role:?}"
+        );
+    }
+    for role in [Role::Helper, Role::Verify, Role::Review] {
+        assert_eq!(
+            choose("a/strong", &Overrides::default(), &global, &defaults, role),
+            ("a/mid".to_owned(), Source::Global),
+            "{role:?} passes over it"
+        );
+    }
+    // Nor is it a fast default for helper work, a bot's fallback or a model it may name.
+    let none = Overrides::default();
+    assert_eq!(
+        choose("a/strong", &none, &none, &defaults, Role::Helper),
+        ("a/strong".to_owned(), Source::Own)
+    );
+    let models = table();
+    let routing = Routing {
+        own: "a/strong",
+        bot: &none,
+        global: &global,
+        defaults: &defaults,
+        models: &models,
+    };
+    assert_eq!(routing.route(Role::Main), vec!["a/strong", "a/mid"]);
+    assert_eq!(routing.route(Role::Title), vec!["local/tiny", "a/mid"]);
+    assert!(routing.pick("local/tiny").is_err());
 }

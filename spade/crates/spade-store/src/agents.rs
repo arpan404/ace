@@ -351,6 +351,16 @@ impl Store {
     /// Deletes the agent, its conversation and the conversation's events. Spending stays in the
     /// ledger, so the day's spend still shows it. Returns whether the agent existed.
     pub fn delete_agent(&self, id: &str) -> Result<bool> {
+        self.delete_agent_audited(id, &[])
+    }
+
+    /// [`Store::delete_agent`] with `entries` appended to the audit chain in the same
+    /// transaction (a shared bot's `bot.deleted`, ADR 0206 §4.1): both happen, or neither.
+    pub fn delete_agent_audited(
+        &self,
+        id: &str,
+        entries: &[spade_core::org::audit::Entry],
+    ) -> Result<bool> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let conversation: Option<String> = tx
@@ -363,6 +373,11 @@ impl Store {
         let Some(conversation) = conversation else {
             return Ok(false);
         };
+        // Its package link goes: what its watch records, recorded first, while the bot is named.
+        crate::watch::changing_in(&tx, &self.watching, &package_key(id), None)?;
+        if let Some(at) = entries.iter().map(|entry| entry.occurred_at).max() {
+            crate::org_audit::audit_in(&tx, entries, at)?;
+        }
         tx.execute("DELETE FROM agents WHERE id = ?1", params![id])?;
         // Its helpers' hidden conversations go with it (ADR 0152).
         crate::helpers::delete_of(&tx, &conversation)?;
