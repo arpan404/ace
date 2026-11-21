@@ -536,6 +536,13 @@ async fn run() -> Result<(), Failure> {
         // An app's form mid-call becomes a card from the bot (ADR 0202 §2).
         .with_forms(bots.clone()),
     ));
+    // The person's outside A2A agents (ADR 0202 §5): each skill a tool, every call theirs.
+    let outside_agents =
+        spade_server::a2a::OutsideAgents::open(Store::open(&home.database()).map_err(other)?);
+    tools = tools.with_source(Arc::new(spade_server::a2a::tools::OutsideAgentSource::new(
+        outside_agents.clone(),
+        Store::open(&home.database()).map_err(other)?,
+    )));
     // The person's plugins (ADR 0151), read from ace: rules, hooks and local MCP servers.
     let plugins = match &ace {
         Some(link) => {
@@ -603,6 +610,7 @@ async fn run() -> Result<(), Failure> {
     spade_server::code::collect_unused(&engine);
     // Workers get connectors only from their makers' (ADR 0161).
     engine.set_connector_grants(connectors.clone());
+    engine.set_outside_agents(outside_agents);
     if let Some(plugins) = &plugins {
         engine.set_plugins(plugins.clone());
         // Plugin agents are helper profiles of the bots allowed their plugins.

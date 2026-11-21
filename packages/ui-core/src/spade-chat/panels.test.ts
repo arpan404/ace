@@ -53,6 +53,7 @@ describe("a bot's panels", () => {
         actions: ["stop_watching", "book_fare"],
         confirm: [{ name: "book_fare", label: "Book this fare" }],
         state: null,
+        app: undefined,
       },
       {
         id: "broken",
@@ -61,9 +62,47 @@ describe("a bot's panels", () => {
         actions: [],
         confirm: [],
         state: undefined,
+        app: undefined,
       },
     ]);
     expect(readSpadePanels("nope")).toEqual([]);
+  });
+
+  test("an MCP app's page lists with its app, and one refused for the network has no page", () => {
+    const [drawn, refused] = readSpadePanels({
+      panels: [
+        {
+          id: "app.fake.0123456789ab",
+          title: "Fake",
+          page: sha,
+          actions: ["tools/call", "ui/message", "ui/update-model-context"],
+          confirm: [],
+          state: { input: {}, result: { content: [] } },
+          app: {
+            name: "Fake",
+            tool: "show_board",
+            refused: null,
+            tools: [{ name: "move_card", model: false, app: true }],
+            withheld: ["the camera"],
+          },
+        },
+        {
+          id: "app.fake.ba9876543210",
+          title: "Fake",
+          page: null,
+          app: { name: "Fake", tool: "show_map", refused: "This app's page needs the network." },
+        },
+      ],
+    });
+    expect(drawn?.app).toEqual({
+      name: "Fake",
+      tool: "show_board",
+      refused: undefined,
+      tools: [{ name: "move_card", app: true }],
+      withheld: ["the camera"],
+    });
+    expect(refused?.page).toBeUndefined();
+    expect(refused?.app?.refused).toBe("This app's page needs the network.");
   });
 
   test("show the latest state the bot set, live from its conversation", () => {
