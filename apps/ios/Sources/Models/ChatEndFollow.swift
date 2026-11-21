@@ -20,6 +20,9 @@ struct ChatEndFollow: Equatable, Sendable {
     private(set) var following = true
     /// A finger is on the scroll, or its fling hasn't come to rest.
     private var touching = false
+    /// Following stopped because something other than a drag scrolled away (VoiceOver, the
+    /// status bar): the same kind of scroll back to the end follows again.
+    private var leftByOtherScroll = false
 
     init(slack: Double) { self.slack = slack }
 
@@ -28,7 +31,7 @@ struct ChatEndFollow: Equatable, Sendable {
 
     /// The scroll moved while the person held or flung it.
     mutating func scrolled(towardOlder: Bool) {
-        if touching, towardOlder { following = false }
+        if touching, towardOlder { following = false; leftByOtherScroll = false }
     }
 
     /// The scroll came to rest, `fromEnd` above the end in a `viewport` this tall.
@@ -36,9 +39,15 @@ struct ChatEndFollow: Equatable, Sendable {
         if touching {
             following = fromEnd <= slack
             touching = false
+            leftByOtherScroll = false
+        } else if leftByOtherScroll, fromEnd <= slack {
+            // VoiceOver, which can't drag, brought the person back to the end.
+            following = true
+            leftByOtherScroll = false
         } else if TranscriptEndButton.leftByOtherScroll(following: following, fromEnd: fromEnd, viewport: viewport, settling: false) {
             // Moved a screen away by something other than a drag (the status bar, VoiceOver).
             following = false
+            leftByOtherScroll = true
         }
     }
 
@@ -46,10 +55,14 @@ struct ChatEndFollow: Equatable, Sendable {
     mutating func sent() {
         following = true
         touching = false
+        leftByOtherScroll = false
     }
 
     /// The feed jumped to a row the person asked for (a card for later).
-    mutating func jumped() { following = false }
+    mutating func jumped() {
+        following = false
+        leftByOtherScroll = false
+    }
 }
 
 /// Whether a drag has moved back toward older messages: by more than a point from the newest

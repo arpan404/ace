@@ -48,6 +48,23 @@ import Testing
         #expect(!follow.following)
     }
 
+    @Test func aScrollThePersonDidntDragBackToTheEndFollowsAgain() {
+        // VoiceOver scrolled a screen away, then back to the end, with no drag either way.
+        var follow = ChatEndFollow(slack: 24)
+        follow.rested(fromEnd: 3_000, viewport: 800)
+        follow.rested(fromEnd: 10, viewport: 800)
+        #expect(follow.following)
+    }
+
+    @Test func aScrollThePersonDidntDragToTheEndDoesntUndoTheirDragBack() {
+        var follow = ChatEndFollow(slack: 24)
+        follow.touched()
+        follow.scrolled(towardOlder: true)
+        follow.rested(fromEnd: 3_000, viewport: 800)
+        follow.rested(fromEnd: 10, viewport: 800)
+        #expect(!follow.following, "only their own scroll, or VoiceOver's after VoiceOver's, follows again")
+    }
+
     @Test func aSlowDragBackCountsOnceItHasMovedAPointInAll() {
         // Each geometry callback moves the content under a point.
         var travel = DragTravel()
