@@ -92,11 +92,30 @@ const missingRecorder: MediaRecorder = {
     Promise.resolve({ ok: false, reason: "ace-media isn't available to record on this daemon" }),
 };
 
-export async function recordDevice(
+/**
+ * Starts a recording. Its startup is owned work: a capture stop or a move to another thread
+ * waits for it (`closeDeviceRecording`), and a startup that finds the device moved on stops what
+ * it opened, so no recording outlives the cleanup.
+ */
+export function recordDevice(
   session: DeviceSession,
   options: LifecycleOptions,
   streams: DeviceStreamControl,
   changed: () => void = () => {},
+): Promise<void> {
+  const starting = startRecording(session, options, streams, changed);
+  const joined = starting.catch(() => {});
+  session.recordingStartup = joined;
+  return starting.finally(() => {
+    if (session.recordingStartup === joined) delete session.recordingStartup;
+  });
+}
+
+async function startRecording(
+  session: DeviceSession,
+  options: LifecycleOptions,
+  streams: DeviceStreamControl,
+  changed: () => void,
 ): Promise<void> {
   if (!session.threadId)
     throw new DeviceError(

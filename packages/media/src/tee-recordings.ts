@@ -202,6 +202,8 @@ export class TeeRecording implements ActiveRecording {
     this.#forget = forget;
     const id = port.id();
     const source = `recording:${id}`;
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => void port.clock.setTimeout(resolve, ms));
     this.#tee = new MediaTee(
       {
         source,
@@ -232,8 +234,6 @@ export class TeeRecording implements ActiveRecording {
       keyframe: () => spec.keyframe(),
       part: (part) => spec.part?.(part),
       drain: async () => {
-        const sleep = (ms: number) =>
-          new Promise<void>((resolve) => void port.clock.setTimeout(resolve, ms));
         await this.#tee.flushed(sleep, 1_000);
         // The last units have left the daemon; give ace-media a beat to read them.
         await sleep(epochIntervalMs);

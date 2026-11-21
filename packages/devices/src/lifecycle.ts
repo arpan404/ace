@@ -268,6 +268,8 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
 
 /** Ends any recording the device has open or is opening; the capture keeps running. */
 export async function closeDeviceRecording(session: DeviceSession): Promise<void> {
+  // A startup still waiting on ace-media finds the device moved on, and stops what it opened.
+  await session.recordingStartup;
   const recording = session.recording ?? session.completed;
   const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
   const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));

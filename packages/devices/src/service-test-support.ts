@@ -34,9 +34,15 @@ export class FakeRecorder implements MediaRecorder {
   /** Units of the running recording; each is the frame payload, as ace-media got it. */
   units: { keyframe: boolean; payload: Buffer }[] = [];
   spec: TeeRecordingSpec | undefined;
+  /** Recordings ace-media holds open now: started and not yet stopped. */
+  open = 0;
+  /** While set, a start waits on it, as one waiting for ace-media to come up does. */
+  startGate: Promise<void> | undefined;
   async start(spec: TeeRecordingSpec) {
+    await this.startGate;
     if (this.refuse) return { ok: false as const, reason: this.refuse };
     this.spec = spec;
+    this.open++;
     this.units = [];
     const units = this.units;
     return {
@@ -47,6 +53,7 @@ export class FakeRecorder implements MediaRecorder {
         privacy: () => {},
         parts: [],
         stop: async () => {
+          this.open--;
           await mkdir(spec.directory, { recursive: true, mode: 0o700 });
           const path = join(spec.directory, "part-0000.mp4");
           const bytes = Buffer.concat(units.map((unit) => unit.payload));

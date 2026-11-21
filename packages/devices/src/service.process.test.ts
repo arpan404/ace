@@ -184,6 +184,34 @@ describe("in-app device ownership", () => {
     await h.request({ op: "record.start", deviceId });
     expect(h.service.states()[0]).toMatchObject({ recording: true });
   });
+  it.each(["stop", "move"] as const)(
+    "a %s while a recording waits on ace-media returns only once that recording is closed",
+    async (change) => {
+      const h = await harness();
+      await bind(h);
+      await h.request({ op: "start", deviceId });
+      const gate = deferred<void>();
+      h.recorder.startGate = gate.promise;
+      const recording = h.request({ op: "record.start", deviceId });
+      // The device moved on under the startup: it fails rather than record for nobody.
+      const settled = expect(recording).rejects.toThrow();
+      let done = false;
+      const cleanup = (
+        change === "stop" ? h.request({ op: "stop", deviceId }) : delegateTo(h, "thread-2")
+      ).then(() => {
+        done = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // The cleanup waits for the startup it owns.
+      expect(done).toBe(false);
+      gate.resolve();
+      await cleanup;
+      await settled;
+      // ace-media opened the recording after all; the startup closed it before cleanup returned.
+      expect(h.recorder.open).toBe(0);
+      expect(h.service.states()[0]).toMatchObject({ recording: false });
+    },
+  );
   it("a recording's video downloads through the artifact API as registered", async () => {
     const h = await harness(true);
     await bind(h);

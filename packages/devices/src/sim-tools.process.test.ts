@@ -18,8 +18,8 @@ const Node: z.ZodType<Node> = z.lazy(() =>
 );
 const Tree = z.object({ nodes: z.array(Node) });
 
-async function setup() {
-  const fake = await fakeSimService();
+async function setup(options: Parameters<typeof fakeSimService>[0] = {}) {
+  const fake = await fakeSimService(options);
   onTestFinished(() => fake.close());
   const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
   devicesToolkit(fake.service).register(registry);
@@ -135,6 +135,24 @@ it("typing into a ref focuses that element first; long_press holds its centre", 
     code: "not_supported",
     detail: expect.stringContaining("supports focus, not scroll"),
   });
+});
+
+it("an Android device without live video is still the agent's for adb input, and sim_start says why", async () => {
+  const h = await setup({ androidVideo: false });
+  const button = fakeNode("b1", "android.widget.Button", "OK", { x: 0, y: 0, w: 100, h: 40 }, [
+    "press",
+  ]);
+  h.platform.screens.set(android, [button]);
+  const started = await h.call("sim_start", { simId: android });
+  expect(started.isError).toBe(false);
+  expect(started.json).toMatchObject({
+    simId: android,
+    liveView: "unavailable",
+    reason: expect.stringContaining("scrcpy-server"),
+  });
+  // The agent holds the device: input goes in through adb.
+  await h.call("sim_act", { simId: android, action: "tap", x: 10, y: 10 });
+  expect(h.platform.effects).toContain(`${android} input {"kind":"tap","x":10,"y":10}`);
 });
 
 it("a person taking the device refuses ref actions until it is handed back", async () => {

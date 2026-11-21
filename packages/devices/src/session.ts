@@ -45,6 +45,8 @@ export interface DeviceSession {
   startup?: { controller: AbortController; capture: Promise<DeviceCapture | undefined> };
   recordingRelease?: Promise<void>;
   recordingClosing?: Promise<PublishedRecording>;
+  /** A recording starting now; cleanup waits for it. Never rejects. */
+  recordingStartup?: Promise<void>;
   /** The recording running now, teeing the capture's video into ace-media. */
   recording?: DeviceRecording;
   /** A recording that ended on its own, published, waiting for its `record.stop`. */
