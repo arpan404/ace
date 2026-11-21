@@ -46,7 +46,7 @@ struct PairDeviceView: View {
         .navigationTitle("Pair a device").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button { done() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                Button { done() } label: { Image(ace: .x) }.accessibilityLabel("Close")
             }
             if made == nil {
                 ToolbarItem(placement: .confirmationAction) {
@@ -74,7 +74,7 @@ struct PairDeviceView: View {
                         }
                         Spacer(minLength: AceDesign.Space.related)
                         if access == choice.id {
-                            Image(systemName: "checkmark").fontWeight(AceDesign.Typeface.strong)
+                            AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .body)
                                 .foregroundStyle(AceDesign.Ink.action).accessibilityHidden(true)
                         }
                     }

@@ -68,7 +68,7 @@ struct MachineLinksView: View {
             ForEach(overview.links) { link in
                 RowWithActions(title: link.name, detail: link.line, actionsLabel: "Actions for \(link.name)",
                                actionsId: "links.actions.\(link.profile)", canOperate: client?.canOperate == true && link.hostId != nil) {
-                    Button("Unlink…", systemImage: "link", role: .destructive) { unlinking = link }
+                    Button("Unlink…", ace: .link, role: .destructive) { unlinking = link }
                         .accessibilityIdentifier("links.unlink.\(link.profile)")
                 }
             }

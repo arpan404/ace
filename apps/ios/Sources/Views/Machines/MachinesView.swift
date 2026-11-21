@@ -39,7 +39,7 @@ struct MachinesView: View {
                         // The card is the link; the system chevron would sit oddly beside a centred card.
                         NavigationLink(value: SettingsRoute.pair) { EmptyView() }.opacity(0)
                         VStack(spacing: AceDesign.Space.row) {
-                            Image(systemName: "qrcode.viewfinder").font(AceDesign.Typeface.largeTitle)
+                            AceIcon(.qrCode, size: AceDesign.Size.emptyIcon, relativeTo: .largeTitle)
                                 .foregroundStyle(AceDesign.Ink.muted)
                             Text("Scan the code from ace on your computer")
                                 .font(AceDesign.Typeface.title)
@@ -59,7 +59,7 @@ struct MachinesView: View {
         .toolbar {
             if machines != nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: SettingsRoute.pair) { Image(systemName: "plus") }
+                    NavigationLink(value: SettingsRoute.pair) { Image(ace: .plus) }
                         .accessibilityLabel("Pair a machine").accessibilityIdentifier("machines.add")
                 }
             }
@@ -96,7 +96,7 @@ struct MachineRow: View {
         let facts = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
         HStack(spacing: AceDesign.Space.row) {
             ConnectionDot(token: facts.connection.token, trying: facts.trying)
-            Image(systemName: facts.symbol).font(AceDesign.Typeface.title).foregroundStyle(AceDesign.Ink.primary)
+            AceIcon(facts.icon, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceDesign.Ink.primary)
                 .frame(width: AceDesign.Size.icon + AceDesign.Space.related).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(facts.name).font(AceDesign.Typeface.body)
@@ -137,7 +137,7 @@ struct ConnectionDot: View {
     let needsPairing: Bool
     /// The SDK is connecting or reconnecting to it right now.
     let trying: Bool
-    let symbol: String
+    let icon: AceIcon.Name
     /// New work is paused there ("Pause new work").
     let paused: Bool
     /// Turned off on this phone: no connection, its threads and notifications hidden.
@@ -161,7 +161,7 @@ struct ConnectionDot: View {
         let onRelay = entry?.accountHostId != nil && machines?.plans[hostId]?.current == .relay
         address = entry?.isAccountMachine == true || onRelay ? "Through your ace account"
             : entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
-        symbol = Self.symbol(entry?.icon?.kind)
+        icon = Self.icon(entry?.icon?.kind)
         paused = client?.admission?.paused == true
         working = client?.inbox.values.filter { $0.confirmed == true && $0.workingSince != nil }.count ?? 0
     }
@@ -184,16 +184,17 @@ struct ConnectionDot: View {
         return parts.joined(separator: " · ")
     }
     /// The person's machine mark (`MachineIconKind`); a laptop when there is none.
-    static func symbol(_ kind: String?) -> String {
+    /// As `machineIconGlyphs` (`@ace/ui-core`) draws each kind.
+    static func icon(_ kind: String?) -> AceIcon.Name {
         switch kind {
-        case "desktop": "desktopcomputer"
-        case "monitor": "display"
-        case "server": "server.rack"
-        case "cloud": "cloud"
-        case "cpu": "cpu"
-        case "terminal": "apple.terminal"
-        case "phone": "iphone"
-        default: "laptopcomputer"
+        case "desktop": .desktopTower
+        case "monitor": .desktop
+        case "server": .hardDrives
+        case "cloud": .cloud
+        case "cpu": .cpu
+        case "terminal": .terminalWindow
+        case "phone": .deviceMobile
+        default: .laptop
         }
     }
 }

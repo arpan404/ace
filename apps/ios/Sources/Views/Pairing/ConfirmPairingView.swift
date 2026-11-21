@@ -37,7 +37,7 @@ struct ConfirmPairingView: View {
                 TextField("My phone", text: $name).textInputAutocapitalization(.words)
                     .accessibilityIdentifier("pairing.name")
                 if let failure {
-                    Label(failure.message, systemImage: "exclamationmark.circle")
+                    Label(failure.message, ace: .warningCircle)
                         .font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.StatusText.failed)
                         .accessibilityIdentifier("pairing.error")
                 }
