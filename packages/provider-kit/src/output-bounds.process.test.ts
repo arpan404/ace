@@ -90,7 +90,8 @@ test("dropped stderr lines still count toward the total output budget", async ()
     maxLineBytes: 8,
     maxOutputBytes: 256,
     onStderrLineDropped(line) {
-      dropped.push(line.bytes);
+      // A line split across chunks reports "start" first; count each line once.
+      if (line.phase !== "start") dropped.push(line.bytes);
     },
   });
   onTestFinished(async () => {
@@ -100,4 +101,29 @@ test("dropped stderr lines still count toward the total output budget", async ()
   // The child never exits on its own, so only the total budget can end it. Each dropped line
   // is 65 bytes with its newline, so at most three fit; a single chunk may trip it before any.
   expect(dropped.length).toBeLessThanOrEqual(3);
+});
+
+test("stop returns promptly while a child floods oversized stderr behind a paused flow", async () => {
+  let drops = 0;
+  const child = spawnSupervised({
+    command: process.execPath,
+    args: ["-e", 'const x = "x".repeat(1 << 16) + "\\n"; for (;;) process.stderr.write(x);'],
+    env: {},
+    name: "stderr-drop-stop",
+    maxLineBytes: 8,
+    // The owner never regains room: nothing on this path may wait for it.
+    outputFlow: { paused: () => true, wait: () => new Promise<void>(() => {}) },
+    onStderrLineDropped() {
+      drops++;
+    },
+  });
+  onTestFinished(async () => {
+    await child.stop({ graceMs: 0 });
+  });
+  await expect.poll(() => drops, { timeout: 5000 }).toBeGreaterThan(0);
+  const stopped = child.stop({ graceMs: 0 });
+  const late = new Promise((resolve) => setTimeout(() => resolve("still stopping"), 3000));
+  await expect(Promise.race([stopped.then((exit) => exit.reason), late])).resolves.not.toBe(
+    "still stopping",
+  );
 });
