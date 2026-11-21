@@ -119,8 +119,8 @@ pub fn number(n: u64) -> String {
 /// A suite's cases as a table: each id, what it is, and what a reader MUST answer.
 pub fn cases(suite: &super::conformance::Suite) -> String {
     let rows = suite.cases().into_iter().map(|case| {
-        let expected = match case["refused"].as_str() {
-            Some(words) => format!("refuse: a problem says “{words}”"),
+        let expected = match case["rule"].as_str() {
+            Some(rule) => format!("refuse by `{rule}`"),
             None => "accept".to_owned(),
         };
         let name = case["name"].as_str().unwrap_or_default();
@@ -131,6 +131,25 @@ pub fn cases(suite: &super::conformance::Suite) -> String {
     format!(
         "From [`{file}`]({file}).\n\n{}",
         table(&["Case", "What it is", "A reader MUST"], rows)
+    )
+}
+
+/// A part's rules as a table: each id, what it refuses, and whether the part's JSON Schema alone
+/// decides it.
+pub fn rules(part: &str) -> String {
+    let rows = crate::rule::RULES
+        .iter()
+        .filter(|rule| rule.part == part)
+        .map(|rule| {
+            let schema = if rule.schema { "yes" } else { "no" };
+            vec![format!("`{}`", rule.id), cell(rule.says), schema.to_owned()]
+        });
+    format!(
+        "From [`conformance/rules.json`](conformance/rules.json).\n\n{}",
+        table(
+            &["Rule", "A reader MUST refuse", "The JSON Schema decides it"],
+            rows
+        )
     )
 }
 

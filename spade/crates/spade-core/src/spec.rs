@@ -13,6 +13,7 @@ mod index;
 mod markdown;
 mod package;
 mod runtime;
+pub mod schemas;
 mod surfaces;
 #[cfg(test)]
 mod tests;
@@ -111,4 +112,39 @@ pub fn files() -> Result<Vec<File>, Vec<String>> {
     } else {
         Err(problems)
     }
+}
+
+/// A file the data writes whole: its path under `spade/spec/` and its text.
+pub struct Whole {
+    pub path: String,
+    pub text: String,
+}
+
+/// Every file the data writes whole: the rule table and the JSON Schemas.
+pub fn wholes() -> Vec<Whole> {
+    let mut out = vec![Whole {
+        path: "conformance/rules.json".to_owned(),
+        text: pretty(&rules_json()),
+    }];
+    out.extend(schemas::all().into_iter().map(|(name, schema)| Whole {
+        path: format!("schemas/{name}"),
+        text: pretty(&schema),
+    }));
+    out
+}
+
+/// JSON as the spec keeps it: two spaces, one value a line, a newline at the end.
+fn pretty(value: &serde_json::Value) -> String {
+    let mut text = serde_json::to_string_pretty(value).unwrap_or_default();
+    text.push('\n');
+    text
+}
+
+fn rules_json() -> serde_json::Value {
+    serde_json::json!({
+        "license": "Apache-2.0",
+        "about": "Every rule a reader of the Spade Agent Format refuses a package by. A refusal names its rule's `id`, which never changes, so a conformance case matches a refusal by id and never by words. `schema` says whether the part's JSON Schema alone decides it. Written from spade_core::rule; don't edit by hand.",
+        "version": VERSION,
+        "rules": crate::rule::RULES,
+    })
 }

@@ -40,6 +40,7 @@ pub mod research;
 pub mod review;
 pub mod routine;
 pub mod routing;
+pub mod rule;
 pub mod running;
 pub mod schema;
 pub mod self_edit;

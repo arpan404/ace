@@ -95,6 +95,31 @@ client. It gives the page its theme and the latest state, and takes from it only
 
 A page that throws, or stops answering the client's pings, is stopped and offered again.
 
+## Rules
+
+Every refusal names its rule; a conformance case matches it by id, never by words.
+
+<!-- spec:begin rules -->
+From [`conformance/rules.json`](conformance/rules.json).
+
+| Rule | A reader MUST refuse | The JSON Schema decides it |
+| --- | --- | --- |
+| `surfaces.list` | `surfaces` isn't a list of at most 16. | yes |
+| `surfaces.field` | A surface isn't an object. | yes |
+| `surfaces.id` | A surface's id isn't lower-case letters, digits and dashes. | yes |
+| `surfaces.id-unique` | Two surfaces have one id. | no |
+| `surfaces.kind` | A surface's kind isn't `card` or `panel`. | yes |
+| `surfaces.card-file` | A card's file isn't `cards/<name>.json`. | yes |
+| `surfaces.panel-file` | A panel's page isn't `panels/<id>/index.html`, in its own folder. | no |
+| `surfaces.title` | A panel isn't named in a few words (`title`, at most 60 characters). | yes |
+| `surfaces.panels` | More than 8 panels. | no |
+| `surfaces.actions` | A panel's `actions` isn't a list of at most 16. | yes |
+| `surfaces.action-name` | An action's name isn't lower-case letters, digits and underscores. | yes |
+| `surfaces.action-name-unique` | Two actions of one panel have one name. | no |
+| `surfaces.action-label` | An action's label isn't a few words (at most 40 characters). | yes |
+| `surfaces.confirm` | An action's `confirm` isn't true or false. | yes |
+<!-- spec:end rules -->
+
 ## Conformance
 
 <!-- spec:begin cases -->
@@ -104,18 +129,18 @@ From [`conformance/surfaces/manifests.json`](conformance/surfaces/manifests.json
 | --- | --- | --- |
 | `surfaces/panel-with-its-state-and-actions` | a panel with its state and actions | accept |
 | `surfaces/card-and-a-panel-with-no-state-as-the-adrs-example-has-them` | a card and a panel with no state, as the ADR's example has them | accept |
-| `surfaces/surfaces-as-an-object` | surfaces as an object | refuse: a problem says “surfaces is a list” |
-| `surfaces/panels-page-outside-its-folder` | a panel's page outside its folder | refuse: a problem says “panels/watchlist/index.html” |
-| `surfaces/panel-with-no-title` | a panel with no title | refuse: a problem says “title names the panel” |
-| `surfaces/surface-id-in-capitals` | a surface id in capitals | refuse: a problem says “id is a short name” |
-| `surfaces/two-surfaces-with-one-id` | two surfaces with one id | refuse: a problem says “an id of its own” |
-| `surfaces/surface-kind-this-build-doesnt-have` | a surface kind this build doesn't have | refuse: a problem says “Needs a newer Spade” |
-| `surfaces/cards-file-outside-cards` | a card's file outside cards/ | refuse: a problem says “cards/<name>.json” |
-| `surfaces/state-with-a-keyword-this-build-doesnt-enforce` | state with a keyword this build doesn't enforce | refuse: a problem says “isn't in the schema subset” |
-| `surfaces/state-requiring-a-field-it-doesnt-have` | state requiring a field it doesn't have | refuse: a problem says “required names fields its properties have” |
-| `surfaces/state-nested-more-than-six-levels` | state nested more than six levels | refuse: a problem says “nests at most 6 levels” |
-| `surfaces/enum-of-no-words` | an enum of no words | refuse: a problem says “enum lists 1 to 64 words” |
-| `surfaces/two-actions-with-one-name` | two actions with one name | refuse: a problem says “a name of its own” |
-| `surfaces/action-named-with-a-dash` | an action named with a dash | refuse: a problem says “name is a short name” |
-| `surfaces/confirm-that-is-not-true-or-false` | a confirm that is not true or false | refuse: a problem says “confirm is true or false” |
+| `surfaces/surfaces-as-an-object` | surfaces as an object | refuse by `surfaces.list` |
+| `surfaces/panels-page-outside-its-folder` | a panel's page outside its folder | refuse by `surfaces.panel-file` |
+| `surfaces/panel-with-no-title` | a panel with no title | refuse by `surfaces.title` |
+| `surfaces/surface-id-in-capitals` | a surface id in capitals | refuse by `surfaces.id` |
+| `surfaces/two-surfaces-with-one-id` | two surfaces with one id | refuse by `surfaces.id-unique` |
+| `surfaces/surface-kind-this-build-doesnt-have` | a surface kind this build doesn't have | refuse by `surfaces.kind` |
+| `surfaces/cards-file-outside-cards` | a card's file outside cards/ | refuse by `surfaces.card-file` |
+| `surfaces/state-with-a-keyword-this-build-doesnt-enforce` | state with a keyword this build doesn't enforce | refuse by `schema.keyword` |
+| `surfaces/state-requiring-a-field-it-doesnt-have` | state requiring a field it doesn't have | refuse by `schema.required` |
+| `surfaces/state-nested-more-than-six-levels` | state nested more than six levels | refuse by `schema.depth` |
+| `surfaces/enum-of-no-words` | an enum of no words | refuse by `schema.enum` |
+| `surfaces/two-actions-with-one-name` | two actions with one name | refuse by `surfaces.action-name-unique` |
+| `surfaces/action-named-with-a-dash` | an action named with a dash | refuse by `surfaces.action-name` |
+| `surfaces/confirm-that-is-not-true-or-false` | a confirm that is not true or false | refuse by `surfaces.confirm` |
 <!-- spec:end cases -->

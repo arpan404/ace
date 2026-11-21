@@ -1,0 +1,415 @@
+{
+  "license": "Apache-2.0",
+  "about": "Every rule a reader of the Spade Agent Format refuses a package by. A refusal names its rule's `id`, which never changes, so a conformance case matches a refusal by id and never by words. `schema` says whether the part's JSON Schema alone decides it. Written from spade_core::rule; don't edit by hand.",
+  "version": "1.0",
+  "rules": [
+    {
+      "id": "package.secret",
+      "part": "package",
+      "says": "Something in the manifest is named or shaped like a key, token or secret.",
+      "schema": false
+    },
+    {
+      "id": "package.not-object",
+      "part": "package",
+      "says": "bot.json isn't a JSON object.",
+      "schema": true
+    },
+    {
+      "id": "package.format",
+      "part": "package",
+      "says": "`format` isn't `\"spade-bot\"`.",
+      "schema": true
+    },
+    {
+      "id": "package.version",
+      "part": "package",
+      "says": "`version` isn't the format's number this reader reads, or is a string.",
+      "schema": true
+    },
+    {
+      "id": "package.spec",
+      "part": "package",
+      "says": "`spec` isn't a version of the Spade Agent Format this reader serves (`1.<minor>`).",
+      "schema": true
+    },
+    {
+      "id": "package.identity",
+      "part": "package",
+      "says": "A field claims identity, which is the signed version manifest's alone.",
+      "schema": true
+    },
+    {
+      "id": "package.execution",
+      "part": "package",
+      "says": "A field carries executions (servers, hooks, commands), which are plugins'.",
+      "schema": true
+    },
+    {
+      "id": "package.runtime-type",
+      "part": "package",
+      "says": "`requires.runtime` isn't a string.",
+      "schema": true
+    },
+    {
+      "id": "package.runtime-unserved",
+      "part": "package",
+      "says": "`requires.runtime` names a major version of `runtime` the reader doesn't serve.",
+      "schema": true
+    },
+    {
+      "id": "package.spade-newer",
+      "part": "package",
+      "says": "`requires.spade` is newer than the runtime.",
+      "schema": false
+    },
+    {
+      "id": "package.uses",
+      "part": "package",
+      "says": "`uses` isn't a list of module names.",
+      "schema": true
+    },
+    {
+      "id": "package.module",
+      "part": "package",
+      "says": "`uses` names a module the runtime lacks.",
+      "schema": true
+    },
+    {
+      "id": "package.triggers",
+      "part": "package",
+      "says": "`triggers` isn't a list of at most 40.",
+      "schema": true
+    },
+    {
+      "id": "package.trigger",
+      "part": "package",
+      "says": "A trigger's fields aren't what its kind takes: places, a routine's name and instruction, a schedule the runtime reads, an event it names.",
+      "schema": false
+    },
+    {
+      "id": "package.routines",
+      "part": "package",
+      "says": "More than 32 routines, or two routines of one name.",
+      "schema": false
+    },
+    {
+      "id": "package.price",
+      "part": "package",
+      "says": "Any price but free.",
+      "schema": true
+    },
+    {
+      "id": "package.field",
+      "part": "package",
+      "says": "A field of the manifest isn't its shape, or is past its bound.",
+      "schema": false
+    },
+    {
+      "id": "effects.list",
+      "part": "effects",
+      "says": "`effects` isn't a list of at most 32.",
+      "schema": true
+    },
+    {
+      "id": "effects.credential",
+      "part": "effects",
+      "says": "The `credential` effect is declared.",
+      "schema": true
+    },
+    {
+      "id": "effects.drive",
+      "part": "effects",
+      "says": "`drive` is declared as an effect of its own, not as a `network` grant.",
+      "schema": true
+    },
+    {
+      "id": "effects.word",
+      "part": "effects",
+      "says": "An effect's word isn't an effect.",
+      "schema": true
+    },
+    {
+      "id": "effects.why",
+      "part": "effects",
+      "says": "An effect doesn't say why, in 1 to 500 characters.",
+      "schema": true
+    },
+    {
+      "id": "effects.hosts-only-network",
+      "part": "effects",
+      "says": "An effect other than `network` names hosts.",
+      "schema": true
+    },
+    {
+      "id": "effects.hosts",
+      "part": "effects",
+      "says": "`hosts` isn't 1 to 32 host names.",
+      "schema": false
+    },
+    {
+      "id": "effects.hosts-and-grant",
+      "part": "effects",
+      "says": "An effect asks for hosts and a grant both.",
+      "schema": true
+    },
+    {
+      "id": "effects.never-granted",
+      "part": "effects",
+      "says": "A grant under an effect other than `network` or `publish`, which go to the person.",
+      "schema": true
+    },
+    {
+      "id": "effects.grant",
+      "part": "effects",
+      "says": "A grant isn't a `drive_site`, `drive_app` or `tool` grant a package may ask for.",
+      "schema": false
+    },
+    {
+      "id": "effects.person-only",
+      "part": "effects",
+      "says": "A grant of what is the person's alone: a push, a comment, a folder, or a tool that sends in the person's name.",
+      "schema": true
+    },
+    {
+      "id": "effects.twice",
+      "part": "effects",
+      "says": "An effect is declared twice.",
+      "schema": false
+    },
+    {
+      "id": "contracts.list",
+      "part": "contracts",
+      "says": "`contracts` isn't a list of at most 16.",
+      "schema": true
+    },
+    {
+      "id": "contracts.field",
+      "part": "contracts",
+      "says": "A contract isn't an object, or holds a field contracts don't have.",
+      "schema": true
+    },
+    {
+      "id": "contracts.name",
+      "part": "contracts",
+      "says": "A contract's name isn't lower-case words joined by `_`.",
+      "schema": true
+    },
+    {
+      "id": "contracts.name-unique",
+      "part": "contracts",
+      "says": "Two contracts have one name.",
+      "schema": false
+    },
+    {
+      "id": "contracts.summary",
+      "part": "contracts",
+      "says": "A contract doesn't say in one line of at most 200 characters what it answers.",
+      "schema": true
+    },
+    {
+      "id": "contracts.effect",
+      "part": "contracts",
+      "says": "A contract's effects name a word a call may not use.",
+      "schema": true
+    },
+    {
+      "id": "contracts.effect-undeclared",
+      "part": "contracts",
+      "says": "A contract's effect isn't among the package's effects.",
+      "schema": false
+    },
+    {
+      "id": "contracts.example",
+      "part": "contracts",
+      "says": "A contract's example isn't an input and output that fit its schemas.",
+      "schema": false
+    },
+    {
+      "id": "contracts.file",
+      "part": "contracts",
+      "says": "A contract's schema file isn't `contracts/<name>.json`.",
+      "schema": true
+    },
+    {
+      "id": "contracts.file-missing",
+      "part": "contracts",
+      "says": "A contract's schema file isn't in the package.",
+      "schema": false
+    },
+    {
+      "id": "contracts.file-and-inline",
+      "part": "contracts",
+      "says": "A contract writes its schemas both in bot.json and in a file.",
+      "schema": true
+    },
+    {
+      "id": "contracts.file-content",
+      "part": "contracts",
+      "says": "A contract's schema file isn't a JSON object of only `input` and `output`, of at most 40 KiB.",
+      "schema": false
+    },
+    {
+      "id": "schema.size",
+      "part": "contracts",
+      "says": "A schema is longer than 16 KiB.",
+      "schema": false
+    },
+    {
+      "id": "schema.object",
+      "part": "contracts",
+      "says": "A schema isn't a JSON object.",
+      "schema": true
+    },
+    {
+      "id": "schema.keyword",
+      "part": "contracts",
+      "says": "A schema uses a keyword outside the bounded subset.",
+      "schema": true
+    },
+    {
+      "id": "schema.text",
+      "part": "contracts",
+      "says": "A schema's `description` or `title` isn't text of at most 500 characters.",
+      "schema": true
+    },
+    {
+      "id": "schema.type",
+      "part": "contracts",
+      "says": "A schema's `type` isn't object, string, number, integer, boolean or array.",
+      "schema": true
+    },
+    {
+      "id": "schema.depth",
+      "part": "contracts",
+      "says": "A schema nests more than 6 levels.",
+      "schema": false
+    },
+    {
+      "id": "schema.closed",
+      "part": "contracts",
+      "says": "An object's `additionalProperties` isn't false.",
+      "schema": true
+    },
+    {
+      "id": "schema.fields",
+      "part": "contracts",
+      "says": "An object names more than 64 fields, or a field name that isn't 1 to 64 letters, digits and `_`.",
+      "schema": false
+    },
+    {
+      "id": "schema.required",
+      "part": "contracts",
+      "says": "`required` names a field the object doesn't have.",
+      "schema": false
+    },
+    {
+      "id": "schema.max-length",
+      "part": "contracts",
+      "says": "A string doesn't say how long it may be (`maxLength`, 1 to 65,536).",
+      "schema": true
+    },
+    {
+      "id": "schema.max-items",
+      "part": "contracts",
+      "says": "A list doesn't say how long it may be (`maxItems`, 1 to 1,000), or what it holds.",
+      "schema": true
+    },
+    {
+      "id": "schema.enum",
+      "part": "contracts",
+      "says": "An enum isn't 1 to 64 words of at most 200 characters.",
+      "schema": true
+    },
+    {
+      "id": "schema.bound",
+      "part": "contracts",
+      "says": "A bound isn't a number, or a lower bound is past its upper one.",
+      "schema": false
+    },
+    {
+      "id": "surfaces.list",
+      "part": "surfaces",
+      "says": "`surfaces` isn't a list of at most 16.",
+      "schema": true
+    },
+    {
+      "id": "surfaces.field",
+      "part": "surfaces",
+      "says": "A surface isn't an object.",
+      "schema": true
+    },
+    {
+      "id": "surfaces.id",
+      "part": "surfaces",
+      "says": "A surface's id isn't lower-case letters, digits and dashes.",
+      "schema": true
+    },
+    {
+      "id": "surfaces.id-unique",
+      "part": "surfaces",
+      "says": "Two surfaces have one id.",
+      "schema": false
+    },
+    {
+      "id": "surfaces.kind",
+      "part": "surfaces",
+      "says": "A surface's kind isn't `card` or `panel`.",
+      "schema": true
+    },
+    {
+      "id": "surfaces.card-file",
+      "part": "surfaces",
+      "says": "A card's file isn't `cards/<name>.json`.",
+      "schema": true
+    },
+    {
+      "id": "surfaces.panel-file",
+      "part": "surfaces",
+      "says": "A panel's page isn't `panels/<id>/index.html`, in its own folder.",
+      "schema": false
+    },
+    {
+      "id": "surfaces.title",
+      "part": "surfaces",
+      "says": "A panel isn't named in a few words (`title`, at most 60 characters).",
+      "schema": true
+    },
+    {
+      "id": "surfaces.panels",
+      "part": "surfaces",
+      "says": "More than 8 panels.",
+      "schema": false
+    },
+    {
+      "id": "surfaces.actions",
+      "part": "surfaces",
+      "says": "A panel's `actions` isn't a list of at most 16.",
+      "schema": true
+    },
+    {
+      "id": "surfaces.action-name",
+      "part": "surfaces",
+      "says": "An action's name isn't lower-case letters, digits and underscores.",
+      "schema": true
+    },
+    {
+      "id": "surfaces.action-name-unique",
+      "part": "surfaces",
+      "says": "Two actions of one panel have one name.",
+      "schema": false
+    },
+    {
+      "id": "surfaces.action-label",
+      "part": "surfaces",
+      "says": "An action's label isn't a few words (at most 40 characters).",
+      "schema": true
+    },
+    {
+      "id": "surfaces.confirm",
+      "part": "surfaces",
+      "says": "An action's `confirm` isn't true or false.",
+      "schema": true
+    }
+  ]
+}

@@ -17,15 +17,21 @@ fails.
 - the manifest is `base` with `with`'s fields set over it, at the top level;
 - `files` are the package's other files by path, a contract's schema file among them, which a
   reader writes into its contract before it reads the manifest;
-- without `refused` a reader MUST accept the manifest; with it, a reader MUST refuse it, and one
-  of its problems contains `refused`'s words.
+- without `rule` a reader MUST accept the manifest; with it, a reader MUST refuse it with a
+  problem naming that rule. Words are each reader's own; a refusal is matched by its rule's id.
 
 ## Schema cases
 
 `contracts/schemas.json`: `{license, part, about, cases}`. Each case is
-`{id, name, schema, refused?, fits?, misfits?}`: a reader MUST refuse `schema` with a problem
-containing `refused`'s words, or read it and find every value in `fits` fits and every
-`misfits` entry's `value` misses at the place its `at` names.
+`{id, name, schema, rule?, fits?, misfits?}`: a reader MUST refuse `schema` with a problem
+naming `rule`, or read it and find every value in `fits` fits and every `misfits` entry's
+`value` misses at the place its `at` names.
+
+## Rules
+
+`rules.json` lists every rule a reader refuses a package by: `{id, part, says, schema}`. An id
+never changes. `schema` says whether the part's JSON Schema (`../schemas/`) alone decides the
+rule; a schema-only validator refuses those cases too. It is written from `spade_core::rule`.
 
 ## Adding a case
 

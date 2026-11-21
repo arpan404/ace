@@ -61,7 +61,8 @@ the module's name, never half installed.
 ## The conformance suite
 
 [`conformance/`](conformance/) holds the cases every reader MUST agree with: each an input and
-the expected result, `accept`, or a refusal whose problem says the case's words. Each case has
+the expected result, `accept`, or a refusal naming a rule of
+[`conformance/rules.json`](conformance/rules.json) by its id, never by its words. Each case has
 an `id` that never changes. Spade's two readers, `spade_core::package::read` and `readRecipe` in
 `@ace/marketplace`, both run every case from these files, so a case removed here is removed from
 both.
@@ -69,7 +70,7 @@ both.
 <!-- spec:begin suite -->
 | File | Part | Cases |
 | --- | --- | --- |
-| [`conformance/package/manifests.json`](conformance/package/manifests.json) | [`package`](package.md) | 9 |
+| [`conformance/package/manifests.json`](conformance/package/manifests.json) | [`package`](package.md) | 14 |
 | [`conformance/effects/manifests.json`](conformance/effects/manifests.json) | [`effects`](effects.md) | 15 |
 | [`conformance/contracts/manifests.json`](conformance/contracts/manifests.json) | [`contracts`](contracts.md) | 18 |
 | [`conformance/surfaces/manifests.json`](conformance/surfaces/manifests.json) | [`surfaces`](surfaces.md) | 16 |

@@ -15,7 +15,7 @@ const all = JSON.parse(
   cases: {
     id: string;
     schema: unknown;
-    refused?: string;
+    rule?: string;
     fits?: unknown[];
     misfits?: { value: unknown; at: string }[];
   }[];
@@ -24,8 +24,8 @@ const all = JSON.parse(
 describe("the schema subset both readers share", () => {
   it.each(all.cases.map((c) => [c.id, c] as const))("%s", (_name, c) => {
     const read = readSchema(c.schema, "input");
-    if (c.refused !== undefined) {
-      expect(read.problems.some((p) => p.includes(c.refused!))).toBe(true);
+    if (c.rule !== undefined) {
+      expect(read.problems.map((p) => p.rule)).toContain(c.rule);
       return;
     }
     expect(read.problems).toEqual([]);
