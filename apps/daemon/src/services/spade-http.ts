@@ -25,6 +25,7 @@ import {
   type PersonOnlyWrite,
 } from "../spade/person-stamp.ts";
 import { checkSpadePath, scopeFor } from "../spade/rules.ts";
+import { limitedRenders, renderSpadePreview, spadePreviewSource } from "../spade/image-preview.ts";
 import {
   answerRoute,
   answerWrite,
@@ -86,8 +87,11 @@ export function createSpadeHttp(context: {
    * bot).
    */
   requestStamp?(write: MemberRequest): Record<string, string> | undefined;
+  /** A picture's preview from its bytes (`spade/image-preview.ts`); Bun's decoder by default. */
+  preview?(bytes: Buffer): Promise<Buffer>;
 }) {
   const uploads = new Map<string, Upload>();
+  const preview = limitedRenders(context.preview ?? renderSpadePreview);
   /** Long answers' pieces, read one at a time so no reply outgrows the socket's frame cap. */
   const held = new Map<string, { pieces: string[]; timer: ReturnType<typeof setTimeout> }>();
   const release = (requestId: string) => {
@@ -222,21 +226,44 @@ export function createSpadeHttp(context: {
       ...(answered ? { [memberHeader]: answered.stamp } : {}),
       ...member,
     };
+    // A picture's preview is the daemon's: Spade is asked for the image itself.
+    const previewed = spadePreviewSource(message.method, admitted.path);
+    const path = previewed ?? admitted.path;
     const answer = await spadeRequest(
       admitted.connection,
       {
         method: message.method,
-        path: admitted.path,
+        path,
         body,
         ...(message.contentType ? { contentType: message.contentType } : {}),
         ...(Object.keys(headers).length ? { headers } : {}),
       },
       {
         signal: AbortSignal.timeout(requestTimeoutMs),
-        maxBytes: responseBodyLimit(message.method, admitted.path),
+        maxBytes: responseBodyLimit(message.method, path),
       },
     ).catch(() => undefined);
-    respond(message.requestId, answer);
+    respond(message.requestId, previewed ? await previewOf(answer) : answer);
+  }
+
+  /** Spade's image as its preview; Spade's own refusal as it is; 422 for bytes no picture. */
+  async function previewOf(answer: SpadeAnswer | undefined): Promise<SpadeAnswer | undefined> {
+    if (answer?.kind !== "response" || answer.status < 200 || answer.status > 299) return answer;
+    try {
+      return {
+        kind: "response",
+        status: 200,
+        body: await preview(answer.body),
+        contentType: "image/png",
+      };
+    } catch {
+      return {
+        kind: "response",
+        status: 422,
+        body: Buffer.from(JSON.stringify({ title: "This picture can't be previewed." })),
+        contentType: "application/json",
+      };
+    }
   }
 
   function open(message: SpadeHttpRequest) {
