@@ -20,16 +20,11 @@ afterAll(async () => {
 function rows(indexPath: string) {
   const db = new DatabaseSync(indexPath, { readOnly: true });
   try {
-    const all = (sql: string) =>
-      db
-        .prepare(sql)
-        .all()
-        .map((row) => ({ ...row }));
+    const all = (sql: string) => db.prepare(sql).all();
     return {
-      sources: all("SELECT * FROM sources ORDER BY id").map((row) => ({
-        ...row,
-        summary: JSON.parse(String(row.summary)),
-      })),
+      sources: all("SELECT * FROM sources ORDER BY id").map((row) =>
+        Object.assign(row, { summary: JSON.parse(String(row.summary)) }),
+      ),
       files: all("SELECT * FROM files ORDER BY instance,path"),
       titles: all("SELECT * FROM native_titles ORDER BY instance,native"),
       crashes: all("SELECT * FROM scan_crashes"),
