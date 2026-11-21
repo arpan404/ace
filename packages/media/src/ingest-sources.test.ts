@@ -302,6 +302,26 @@ describe("IngestSources", () => {
     expect(l.ended.at(-1)).toEqual(["s1", false]);
   });
 
+  it("epochs announced before ace-media answers a JPEG source's open go after it in order, none merged", () => {
+    const w = world();
+    const l = producer("tab-pictures");
+    const source = w.sources.add(l.p);
+    // Opened public in epoch 0; private 1 → public 2 → private 3 before ace-media answers.
+    source.epoch?.(1, false);
+    source.epoch?.(2, true);
+    source.epoch?.(3, false);
+    w.status("s1", "starting");
+    expect(
+      w.sent.flatMap(({ message }) =>
+        message.type === "source.epoch" ? [[message.epoch, message.followsPrivate]] : [],
+      ),
+    ).toEqual([
+      [1, false],
+      [2, true],
+      [3, false],
+    ]);
+  });
+
   it("a JPEG source opens with its privacy, and an epoch announced before ace-media answers the open is applied after it", () => {
     const w = world();
     const l = producer("tab-pictures");

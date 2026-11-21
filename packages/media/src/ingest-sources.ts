@@ -180,8 +180,11 @@ const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>(["simulator"]);
 
 type Entry = {
   producer: IngestProducer;
-  /** A privacy epoch the producer announced that its open in ace-media hasn't heard yet. */
-  privacy?: { epoch: number; followsPrivate: boolean } | undefined;
+  /**
+   * Privacy epochs the producer announced that its open in ace-media hasn't heard yet, oldest
+   * first. Each goes as it was: merging them would lose which epoch was the private one.
+   */
+  held: { epoch: number; followsPrivate: boolean }[];
   /** `off`: not streaming anywhere (ace-media isn't up, or the source failed there). */
   state: "off" | "opening" | "ingest";
   /** The open in the running ace-media, while there is one. */
@@ -274,6 +277,7 @@ export class IngestSources {
       failed: false,
       reopens: 0,
       closed: false,
+      held: [],
     };
     this.#entries.add(entry);
     this.#sync(entry);
@@ -301,11 +305,7 @@ export class IngestSources {
       epoch: (epoch, followsPrivate) => {
         // Held until the open is acknowledged: on the priority lane it could overtake the
         // open, and ace-media ignores an epoch for a source it doesn't have yet.
-        const held = entry.privacy;
-        entry.privacy = {
-          epoch,
-          followsPrivate: followsPrivate || (held !== undefined && held.followsPrivate),
-        };
+        entry.held.push({ epoch, followsPrivate });
         const live = entry.live;
         if (live?.acknowledged) this.#announce(entry, live);
       },
@@ -488,6 +488,8 @@ export class IngestSources {
     );
     const token = randomBytes(32);
     const epoch = producer.epoch();
+    // The open carries the state the producer is in now: what it announced before is old news.
+    entry.held = entry.held.filter((privacy) => privacy.epoch > epoch);
     const opened = port.send(
       {
         type: "source.open",
@@ -536,23 +538,23 @@ export class IngestSources {
     if (entry.encodes) this.#send({ type: "source.encodes", source: id, encodes: entry.encodes });
   }
 
-  /** ace-media has the source: hand the producer its address. */
-  /** The producer's newest privacy epoch, to its open once that is acknowledged (M8). */
+  /** The producer's held privacy epochs, in order, to its open once that is acknowledged (M8). */
   #announce(entry: Entry, path: Path): void {
-    const privacy = entry.privacy;
-    entry.privacy = undefined;
-    // The open carried the epoch the producer was in then: only a newer one is news.
-    if (!privacy || privacy.epoch <= path.epoch) return;
-    path.epoch = privacy.epoch;
-    this.#send({
-      type: "source.epoch",
-      source: path.id,
-      seq: this.#epochs++,
-      epoch: privacy.epoch,
-      followsPrivate: privacy.followsPrivate,
-    });
+    for (const privacy of entry.held.splice(0)) {
+      // The open carried the epoch the producer was in then: only a newer one is news.
+      if (privacy.epoch <= path.epoch) continue;
+      path.epoch = privacy.epoch;
+      this.#send({
+        type: "source.epoch",
+        source: path.id,
+        seq: this.#epochs++,
+        epoch: privacy.epoch,
+        followsPrivate: privacy.followsPrivate,
+      });
+    }
   }
 
+  /** ace-media has the source: hand the producer its address. */
   #started(entry: Entry, path: Path): void {
     const token = path.token;
     const ingest = this.#options.port.ingest();
