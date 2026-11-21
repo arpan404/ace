@@ -60,3 +60,31 @@ export function continuePage(id: string, returnOrigins: readonly string[]): Resp
     },
   );
 }
+
+/** Text from outside ace (an organization's or a person's name) made safe to show. */
+function escape(text: string): string {
+  return text.replace(
+    /[&<>"']/g,
+    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char,
+  );
+}
+
+/**
+ * GET of an invitation link (ADR 0206 §1.3): who invited the person to which organization, and
+ * one button, "Join <org>", that posts the invitation to `/v1/orgs/join`. Opening the link
+ * spends nothing. The form follows the redirect through WorkOS, as the sign-in page's does.
+ */
+export function joinPage(input: { org: string; inviter: string | undefined; token: string }) {
+  const org = escape(input.org);
+  const invited = input.inviter
+    ? `${escape(input.inviter)} invited you to join ${org} in ace.`
+    : `You're invited to join ${org} in ace.`;
+  return html(
+    200,
+    `<p>${invited}</p><p>Your own machines, bots and threads stay yours. If ${org} manages your email's domain or directory, it decides how you sign in to ace and can sign you out everywhere.</p><form method="post" action="/v1/orgs/join"><input type="hidden" name="invitation_token" value="${escape(input.token)}"><button type="submit">Join ${org}</button></form>`,
+    {
+      "Content-Security-Policy": `${basePolicy}; form-action 'self' https:`,
+      "Referrer-Policy": "same-origin",
+    },
+  );
+}

@@ -87,3 +87,7 @@ CREATE TABLE workos_events (
 -- An org host's directory row and machine credentials name the organization that owns it.
 ALTER TABLE machines ADD COLUMN org_id TEXT;
 ALTER TABLE machine_credentials ADD COLUMN org_id TEXT;
+
+-- A sign-in started to enter one organization (ADR 0206 §1.4) carries it to WorkOS's
+-- authorization URL as `organization_id`.
+ALTER TABLE logins ADD COLUMN org TEXT;

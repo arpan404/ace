@@ -5,11 +5,14 @@ import {
   signCloudGrant,
   signGrant,
   signMarketGrant,
+  signMemberGrant,
   signStandingGrant,
 } from "@ace/account-grant";
 import type { GrantKeySet, GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
 import type { machineStore } from "./machines.ts";
+import type { OrgChecker } from "./org-check.ts";
+import type { OrgStore } from "./org-store.ts";
 import { bearer, fail, json, jsonBody } from "./respond.ts";
 import type { Principal, PrincipalReader } from "./principal.ts";
 import type { SessionStanding, SessionStore } from "./sessions.ts";
@@ -40,6 +43,8 @@ export function directoryRoutes(deps: {
   now: () => number;
   /** The `iss` a market grant names: this backend's host. */
   issuer?: string;
+  /** Organizations (ADR 0206): member grants and market grants that act in an organization. */
+  orgs?: { checker: OrgChecker; store: OrgStore };
 }) {
   const { principals, machines, keys, signingKey, now } = deps;
   const issuer = deps.issuer ?? MARKET_GRANT_ISSUER;
@@ -51,6 +56,38 @@ export function directoryRoutes(deps: {
     const principal = token ? await principals.read(token) : undefined;
     return principal ? then(principal) : fail(401, "unauthenticated");
   }
+  function orgRefused(org: string, error: "not_member" | "org_sign_in_required" | "busy") {
+    if (error === "org_sign_in_required") return json(403, { error, org });
+    return error === "busy" ? fail(503, "busy") : fail(403, "not_member");
+  }
+
+  /**
+   * A member grant (ADR 0206 §2.2): only for the person's own session, with WorkOS's answer
+   * under 60 seconds old that the account is an active member, an active mirror row, and `host`
+   * one of that organization's hosts. It carries the organization's policy version.
+   */
+  async function member(principal: Principal, request: AceGrantRequest): Promise<Response> {
+    const { org, host, key, subject } = request;
+    if (!org || !host || !key) return fail(400, "invalid_request");
+    if (principal.kind !== "session" || !deps.orgs) return fail(403, "person_required");
+    if (!speaksForPerson(await deps.sessionStore.standingNow(principal.hash, now())))
+      return fail(403, "person_required");
+    const check = await deps.orgs.checker.check(principal, org);
+    if (!check.ok) return orgRefused(org, check.error);
+    const store = deps.orgs.store;
+    if ((await store.member(org, principal.account.id))?.status !== "active")
+      return fail(403, "not_member");
+    if ((await store.hostOrg(host)) !== org) return fail(403, "not_org_host");
+    const policy = (await store.policy(org))?.version ?? 0;
+    const iat = now();
+    const exp = iat + GRANT_LIFETIME_MS;
+    const token = signMemberGrant(
+      { org, role: check.role, account: principal.account.id, subject, host, key, policy, iat, exp },
+      signingKey,
+    );
+    return json(200, { token, expiresAt: exp });
+  }
+
   return {
     /** GET /v1/keys — public keys only. */
     keys: () => json(200, keys),
@@ -75,7 +112,9 @@ export function directoryRoutes(deps: {
         const { account, signedInAt } = principal;
         const parsed = AceGrantRequest.safeParse(await jsonBody(request, 4096));
         if (!parsed.success) return fail(400, "invalid_request");
-        const { kind, subject, purpose, host, key, action } = parsed.data;
+        const { kind, subject, purpose, host, key, action, org } = parsed.data;
+        if (kind === "member") return member(principal, parsed.data);
+        if (org !== undefined && purpose !== "market-publish") return fail(400, "invalid_request");
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");
         if (purpose === "spade-cloud" && kind !== "machine") return fail(400, "invalid_request");
@@ -101,6 +140,12 @@ export function directoryRoutes(deps: {
           return fail(403, "email_unverified");
         // Only the person's own session may name a sensitive market request.
         if (action !== undefined && !person) return fail(403, "person_required");
+        // Acting in an organization needs the person's session and WorkOS's answer, fresh.
+        if (org !== undefined) {
+          if (!person || !deps.orgs) return fail(403, "person_required");
+          const check = await deps.orgs.checker.check(principal, org);
+          if (!check.ok) return orgRefused(org, check.error);
+        }
         const exp = iat + GRANT_LIFETIME_MS;
         const claims = { kind, account: account.id, subject, iat, exp };
         if (purpose === "spade-cloud")
@@ -115,6 +160,7 @@ export function directoryRoutes(deps: {
               emailVerified: true,
               authAt: signedInAt,
               ...(action !== undefined ? { action } : {}),
+              ...(org !== undefined ? { org } : {}),
             },
             signingKey,
           );

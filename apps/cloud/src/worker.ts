@@ -15,6 +15,9 @@ import type { ForwardPath } from "./http-path.ts";
 export { SignInObject } from "./broker/sign-in-object.ts";
 export { RelayObject } from "./relay-object.ts";
 
+/** The hourly sweep's schedule in wrangler.jsonc; the other one runs the events cron. */
+const SWEEP_CRON = "17 * * * *";
+
 const endpoints = new Set(["/host", "/client", "/join", "/serve"]);
 
 function rateKey(request: Request): string {
@@ -164,7 +167,12 @@ export default {
     );
   },
 
-  async scheduled(_controller, env): Promise<void> {
-    await accounts(env).api.sweep();
+  /**
+   * Hourly: drop expired sign-ins, sessions and credentials. Every minute: bring the
+   * organization members mirror up to WorkOS's Events API (ADR 0206 §6: within a minute).
+   */
+  async scheduled(controller, env): Promise<void> {
+    if (controller.cron === SWEEP_CRON) await accounts(env).api.sweep();
+    else await accounts(env).api.events();
   },
 } satisfies ExportedHandler<Env>;
