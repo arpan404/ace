@@ -124,8 +124,8 @@ export class EgressRouter {
       open.consumers.end?.({ interrupted: end.interrupted || open.lost });
       return;
     }
-    // A route that moved the producer back to the daemon has no egress: frames ace-media sent
-    // before it heard `source.egress` off would reach the consumers twice.
+    // A route without egress keeps no consumer in the daemon: frames ace-media sent before it
+    // heard `source.egress` off are dropped, never delivered out of turn.
     const route = open.route?.() ?? this.#route(open.kind);
     if (!route.egress) {
       this.#drops.unrouted++;
