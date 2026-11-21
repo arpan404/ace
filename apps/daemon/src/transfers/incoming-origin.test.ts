@@ -89,3 +89,62 @@ it("lands every spelling of a public forge's repository in the one checkout of i
   expect(await here.landing("ssh://git@github.com/o/r", "github.com/o/r")).toBe(project);
   expect(await here.landing("https://github.com/o/r.git", "github.com/o/r")).toBe(project);
 });
+
+it("re-checks a project chosen before an upgrade, and never lands in one whose origin isn't the sender's", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-incoming-rechoose-")));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const store = new Store(join(root, "events.sqlite"));
+  cleanup.push(async () => store.close());
+  // The checkout here clones `team/app` from its home on the forge.
+  const path = join(root, "app");
+  const origin = "git@forge:team/app.git";
+  /** Every Git call, by the folder it was for. */
+  const touched: string[] = [];
+  const git = new Proxy({} as TransferGit, {
+    get: (_target, name) => async (at: unknown) => {
+      touched.push(`${String(name)} ${String(at)}`);
+      if (name === "transferOrigin")
+        return at === path ? { url: origin, normalized: normalizeRemoteUrl(origin) } : undefined;
+      return undefined;
+    },
+  });
+  const newFolders: string[] = [];
+  const incoming = new IncomingTransfers({
+    store,
+    directory: join(root, "incoming"),
+    git,
+    gitPolicy: { validateUrl: () => {} },
+    archive: {} as TransferArchive,
+    projects: {
+      list: () => [{ workspaceId: project, path }],
+      parent: async (requested: string | undefined) => {
+        newFolders.push(requested ?? root);
+        throw new Error("no room for a new folder in this test");
+      },
+      clone: unreached,
+    } as Partial<TargetProjects> as TargetProjects,
+    threads: {} as never,
+    now: () => 2,
+    log: () => {},
+  });
+  cleanup.push(() => incoming.close());
+  // Begun under an older build, which keyed `/team/app` from the root as the same repository
+  // and chose the checkout here for it.
+  const begin: TransferBegin = {
+    op: "begin",
+    transferId: "t-before",
+    origin: { hostId: HostId.parse("host-macbook"), hostName: "MacBook" },
+    method: "remote",
+    name: "app",
+    remote: { url: "ssh://git@forge/team/app.git", normalized: "forge/team/app" },
+  };
+  store
+    .statement(
+      "INSERT INTO transfer_incoming (transfer_id,device_id,state,method,has_origin,begin,workspace_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    )
+    .run("t-before", device.id, "receiving", "remote", 1, JSON.stringify(begin), project, 1, 1);
+  await incoming.call(device, { op: "commit", transferId: "t-before", head: "a".repeat(40) });
+  await expect.poll(() => newFolders.length).toBe(1);
+  // Its origin was read, and nothing else was done there: the work went for a new folder.
+  expect(touched.filter((call) => call.endsWith(` ${path}`))).toEqual([`transferOrigin ${path}`]);
+});
