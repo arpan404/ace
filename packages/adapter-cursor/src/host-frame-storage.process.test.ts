@@ -71,9 +71,9 @@ it("the session's MCP bearer in a Cursor error or message never reaches ace's st
   const settled = Promise.withResolvers<void>();
   await using fixture = await runtimeFixture(
     {},
-    async (frame) => {
-      stored.push(JSON.stringify(frame));
-      if (frame.kind === "result") settled.resolve();
+    async (envelope) => {
+      stored.push(JSON.stringify(envelope));
+      if (envelope.kind === "result") settled.resolve();
     },
     {
       message: {
