@@ -62,10 +62,16 @@ extension ClientModel {
         let id = admissions.nextId()
         approvalSubmissions[request.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = request.id
-        if !action(["type": "needs.answer", "threadId": threadId, "interactionId": request.id, "answer": answer, "requestId": id]) {
+        // A yes to a summarized request names the version the card showed (`ApprovalRow.seen`).
+        if !action(request.seen(["type": "needs.answer", "threadId": threadId, "interactionId": request.id, "answer": answer, "requestId": id])) {
             approvalSubmissions[request.id] = nil
             approvalRequests[id] = nil
         }
+    }
+    /// Read a summarized request in full (`needs.read`), or retry a failed read, as the open
+    /// thread's `readRequest` does.
+    func readNeed(_ request: ApprovalRow, in threadId: String, retry: Bool = false) {
+        action(["type": "needs.read", "threadId": threadId, "interactionId": request.id, "retry": retry])
     }
     /// The run opened a thread's page: read what its agent last said.
     func readNeedsWords(_ threadId: String) { action(["type": "needs.context", "threadId": threadId]) }
