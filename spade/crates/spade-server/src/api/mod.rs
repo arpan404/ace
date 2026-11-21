@@ -17,6 +17,7 @@ mod knowledge;
 mod media;
 mod memory;
 mod moves;
+mod outside;
 mod oversight;
 mod packages;
 mod panels;
@@ -216,6 +217,7 @@ pub fn router(state: AppState) -> Router {
         .merge(packages::routes())
         .merge(contracts::routes())
         .merge(thread_asks::routes())
+        .merge(outside::routes())
         .merge(moves::routes())
         .merge(wakes::routes())
         .merge(digests::routes())

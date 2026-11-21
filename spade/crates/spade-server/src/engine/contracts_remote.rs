@@ -322,6 +322,7 @@ impl Engine {
                 contract: name.to_owned(),
                 input,
                 effects: contract.effects.clone(),
+                outside: None,
             })),
         };
         let entry = InboxEntry {
@@ -357,7 +358,7 @@ impl Engine {
     }
 
     /// Whether the callee in `conversation` waits on the person while call `call` is open.
-    fn call_waiting(&self, conversation: &str, call: &str) -> bool {
+    pub(super) fn call_waiting(&self, conversation: &str, call: &str) -> bool {
         let open = self
             .load(conversation)
             .is_ok_and(|events| contract::open(&events).iter().any(|r| r.call == call));
