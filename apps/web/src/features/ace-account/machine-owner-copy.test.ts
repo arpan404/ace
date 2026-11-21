@@ -38,3 +38,10 @@ test("a machine nobody owns yet says so, and an older daemon's says nothing", ()
   expect(machineOwnerRow(status({ owner: null }), me)?.action).toBe("none");
   expect(machineOwnerRow(status({}), me)).toBeUndefined();
 });
+
+test("an organization's host says so, and offers nobody's personal release", () => {
+  expect(machineOwnerRow(status({ account: me, owner: { org: "org_team" } }), me)).toEqual({
+    sentence: "This machine is an organization's host: its owners can release it.",
+    action: "none",
+  });
+});

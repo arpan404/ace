@@ -20,6 +20,13 @@ export function machineOwnerRow(
         "No account owns this machine yet. It becomes yours the first time the ace app, signed in as you, connects.",
       action: "none",
     };
+  // An organization's host (ADR 0206 §2.1): its owners release it, from a connection where they
+  // proved they're one.
+  if ("org" in status.owner)
+    return {
+      sentence: "This machine is an organization's host: its owners can release it.",
+      action: "none",
+    };
   const { account } = status.owner;
   if (app?.id === account)
     return { sentence: `This machine belongs to you (${app.email}).`, action: "release" };
