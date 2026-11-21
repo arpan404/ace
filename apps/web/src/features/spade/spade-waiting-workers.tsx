@@ -54,7 +54,8 @@ function Waiting(props: {
       aria-label="Waiting for you"
       tabIndex={-1}
       data-request="workers"
-      className="mt-(--chat-turn-gap) flex w-full max-w-150 min-w-0 flex-col gap-3 focus-ring"
+      // Focused as the chat opens on it, for the keyboard: a target, not a control, so no ring.
+      className="mt-(--chat-turn-gap) flex w-full max-w-150 min-w-0 flex-col gap-3 outline-none"
     >
       {waiting.map((entry) =>
         entry.kind === "ace" && props.reachable ? (
