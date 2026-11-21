@@ -164,6 +164,10 @@ impl Engine {
             return Ok(Some(false));
         }
         let at_ms = self.now_ms();
+        // Pause ends its code worker (ADR 0203 §4).
+        if let Some(code) = self.code() {
+            code.retire(agent);
+        }
         // The services it runs now, stored with the pause: Resume starts them again, after a
         // restart too.
         let services = self.running_services(&found.conversation)?;

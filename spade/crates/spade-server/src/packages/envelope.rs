@@ -189,6 +189,22 @@ pub fn local(recipe: &Value, name: &str) -> PackageId {
     }
 }
 
+/// A local package's identity with its components in its hash, so a version whose code alone
+/// changed is another version. A market identity, or a package with no code, is as it was.
+pub fn with_code(package: PackageId, pins: &BTreeMap<String, String>) -> PackageId {
+    if !is_local(&package) || pins.is_empty() {
+        return package;
+    }
+    let mut lines = package.hash.clone();
+    for (name, sha) in pins {
+        lines.push_str(&format!("\n{name} {sha}"));
+    }
+    PackageId {
+        hash: hex(&Sha256::digest(lines.as_bytes())),
+        ..package
+    }
+}
+
 /// Whether `package` is a local package's identity.
 pub fn is_local(package: &PackageId) -> bool {
     package.source == LOCAL

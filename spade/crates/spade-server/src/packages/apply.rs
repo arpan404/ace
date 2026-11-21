@@ -345,5 +345,9 @@ fn run(
     // link in one transaction.
     let before = link.on.clone();
     switches::commit(engine, bot, &mut link, &before, planned.on).map_err(failed)?;
+    // Its worker ends; the next call starts one with the new version's components.
+    if let Some(code) = engine.code() {
+        code.retire(bot);
+    }
     Ok(link)
 }

@@ -144,16 +144,21 @@ impl Code {
 
     /// The bot moved to another version, was paused or was removed: its worker ends and its folder
     /// goes. The next call starts afresh from the link's pins.
-    pub async fn retire(&self, bot: &str) {
+    pub fn retire(&self, bot: &str) {
         let found = self
             .bots
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(bot);
-        if let Some(code) = found {
-            code.pause().await;
-        }
         let _ = std::fs::remove_dir_all(self.bot_folder(bot));
+        if let Some(code) = found {
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    handle.spawn(async move { code.pause().await });
+                }
+                Err(_) => drop(code),
+            }
+        }
     }
 
     /// Kept bytes no pin in `live` names go, with the folders of bots not in `bots` (an install a
