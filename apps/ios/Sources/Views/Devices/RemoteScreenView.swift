@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Computer use on a machine: the apps agents or people use, agent-held first with who has each
-/// in the web's words, setup problems as one sentence with one action, and Share an app window.
-/// An app opens its live screen. `threadId` puts a shared app with that thread.
+/// Computer use on a machine, grouped as the web's Settings › Computer use: Access (agents may
+/// use apps, locked use, Use my Chrome, the apps they can't use), the live sessions agent-held
+/// first, and every permission the screen helper needs. A read that fails says so with Try
+/// again. An app opens its live screen; `threadId` puts a shared app with that thread.
 struct RemoteScreenView: View {
     let model: ClientModel
     var threadId: String? = nil
@@ -15,12 +16,18 @@ struct RemoteScreenView: View {
         List {
             if model.connection != "ready" {
                 InboxConnectionBanner(connection: model.connection, retry: model.retry).listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
-            content
+            readState
+            access
+            if let status = screen.status {
+                if status.enabled || !screen.sessions.isEmpty { liveSessions }
+                Section {
+                    ForEach(ScreenPermissionRow.rows(status.permissions)) { row in permissionRow(row) }
+                } header: { InsetHeader("Permissions") }
+            }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(AceDesign.Surface.background.ignoresSafeArea())
+        .insetGroupedList()
         .threadTitle("Computer use", subtitle: subtitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -35,6 +42,7 @@ struct RemoteScreenView: View {
         .onDisappear { model.unfollowComputerAccess() }
         .onChange(of: screen.dialogPicks) { _, dialog in model.computerAccessMac(!dialog) }
         .animation(.default, value: model.computerAccess.state)
+        .animation(.default, value: screen.page)
         .task(id: model.connection) {
             if model.connection == "ready" { await screen.refresh(model); await screen.targets(model) } else { screen.disconnected() }
         }
@@ -62,84 +70,93 @@ struct RemoteScreenView: View {
         Task { if let id = await screen.startChoice(model, threadId: threadId) { opened = screen.session(id) } }
     }
 
+    private func retry() { Task { await screen.refresh(model) } }
+
     private var subtitle: String {
         guard screen.status?.enabled == true else { return "" }
         let live = screen.sessions.filter { $0.lifecycle == "live" }.count
         return live == 0 ? "No apps live" : "\(live) live"
     }
 
-    @ViewBuilder private var content: some View {
-        if let status = screen.status {
-            if !status.enabled {
-                DeviceNote(sentence: "Agents can't use apps on this machine.", action: model.canOperate ? "Turn on" : nil) {
-                    Task { _ = await screen.perform(model, ["op": "enable", "enabled": true]) }
-                }
-            } else {
-                if screen.sessions.isEmpty {
-                    Text("No apps in use.").font(AceDesign.Typeface.title)
-                        .foregroundStyle(AceDesign.Ink.muted).listRowSeparator(.hidden)
-                }
-                ForEach(screen.sessions) { session in
-                    Button { opened = session } label: { SessionRow(session: session) }
-                        .buttonStyle(.plain)
-                        .listRowBackground(AceDesign.Surface.background)
-                        .listRowSeparatorTint(AceTheme.Colours.separator)
-                        .listSectionSeparator(.hidden, edges: .top)
-                        .accessibilityIdentifier("screen.row")
-                }
+    /// The read under way, or what stopped it. A later read that fails sits over the rows the
+    /// last one found.
+    @ViewBuilder private var readState: some View {
+        switch screen.page {
+        case .reading:
+            SkeletonRows(count: 2, label: "Loading computer use", retry: retry)
+                .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
+        case .failed(let message):
+            ProblemRow("Couldn't read computer use on this machine", detail: message, id: "screen.problem",
+                       disabled: screen.reading, retry: retry)
+        case .shown:
+            if let problem = screen.problem {
+                ProblemRow(problem, id: "screen.problem", disabled: screen.reading || screen.busy, retry: retry)
             }
-            // Every permission, granted or not, as web's Permissions: reviewed here, granted on
-            // the machine (asking opens its System Settings there).
-            Section {
-                ForEach(ScreenPermissionRow.rows(status.permissions)) { row in permissionRow(row) }
-            } header: { InsetHeader("Permissions") }
-        } else if screen.problem == nil {
-            SkeletonRows(count: 2, label: "Loading computer use").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
         }
-        if let problem = screen.problem {
-            DeviceNote(sentence: problem, action: "Try again") { Task { await screen.refresh(model) } }
-        }
-        if let locked = model.computerAccess.state?.locked {
-            LockedUseRow(model: model, locked: locked, busy: model.computerAccess.state?.busy != nil)
-                .listRowBackground(AceDesign.Surface.background)
-                .listRowSeparator(.hidden)
-                .transition(.opacity)
-        }
+    }
+
+    @ViewBuilder private var access: some View {
+        Section {
+            if let status = screen.status {
+                InsetRow(icon: .aceComputerUse, title: "Let agents use apps",
+                         subtitle: status.enabled ? "Agents can see and use this machine's apps" : "Agents can't use apps here") {
+                    Toggle("Let agents use apps", isOn: Binding(get: { status.enabled }, set: { on in
+                        if on { Task { _ = await screen.perform(model, ["op": "enable", "enabled": true]) } } else { turningOff = true }
+                    }))
+                    .labelsHidden()
+                    .disabled(!model.canOperate || screen.busy)
+                    .accessibilityIdentifier("screen.enabled")
+                }
+                .insetRowBackground()
+            }
+            if let locked = model.computerAccess.state?.locked {
+                LockedUseRow(model: model, locked: locked, busy: model.computerAccess.state?.busy != nil)
+                    .insetRowBackground()
+                    .transition(.opacity)
+            }
+            NavigationLink { UseMyChromeView(model: model) } label: {
+                InsetRow(icon: .globe, title: "Use my Chrome") { InsetValue(text: chromeValue) }
+            }
+            .insetRowBackground()
+            .accessibilityIdentifier("computer.chrome")
+            NavigationLink { RemoteSettingsView(model: model, category: .computer) } label: {
+                InsetRow(icon: .prohibit, title: "App access", subtitle: "Apps agents can't use") { EmptyView() }
+            }
+            .insetRowBackground()
+            .accessibilityIdentifier("computer.appAccess")
+        } header: { InsetHeader("Access") }
         if let error = model.computerAccess.state?.error {
-            ServiceProblem(message: error).listRowBackground(AceDesign.Surface.background).listRowSeparator(.hidden)
+            ProblemRow(error, id: "computer.problem")
         }
-        NavigationLink { UseMyChromeView(model: model) } label: {
-            HStack {
-                Text("Use my Chrome").font(AceDesign.Typeface.title)
-                    .foregroundStyle(AceDesign.Ink.primary)
-                Spacer()
-                if !model.mayAdminister {
-                    Text("Owner only").font(AceDesign.Typeface.meta)
-                        .foregroundStyle(AceDesign.Ink.muted)
-                } else if let chrome = model.computerAccess.state?.chrome {
-                    Text(chrome.installed ? (chrome.connections.isEmpty ? "Installed" : "\(chrome.connections.count) connected") : "Not set up")
-                        .font(AceDesign.Typeface.meta)
-                        .foregroundStyle(AceDesign.Ink.muted)
-                }
+    }
+
+    private var chromeValue: String? {
+        guard model.mayAdminister else { return "Owner only" }
+        guard let chrome = model.computerAccess.state?.chrome else { return nil }
+        if !chrome.installed { return "Not set up" }
+        return chrome.connections.isEmpty ? "Installed" : "\(chrome.connections.count) connected"
+    }
+
+    private var liveSessions: some View {
+        Section {
+            if screen.sessions.isEmpty {
+                Text("No apps in use.").aceFont(AceDesign.TextRole.rowTitle)
+                    .foregroundStyle(AceDesign.Ink.muted).insetRowBackground()
             }
-            .frame(minHeight: AceDesign.Size.tap)
-        }
-        .listRowBackground(AceDesign.Surface.background)
-        .listRowSeparator(.hidden)
-        .accessibilityIdentifier("computer.chrome")
-        NavigationLink { RemoteSettingsView(model: model, category: .computer) } label: {
-            Text("App access").font(AceDesign.Typeface.title)
-                .foregroundStyle(AceDesign.Ink.muted)
-        }
-        .listRowBackground(AceDesign.Surface.background)
-        .listRowSeparator(.hidden)
+            ForEach(screen.sessions) { session in
+                Button { opened = session } label: { SessionRow(session: session) }
+                    .buttonStyle(.plain)
+                    .insetRowBackground()
+                    .accessibilityIdentifier("screen.row")
+            }
+        } header: { InsetHeader("Live sessions") }
     }
 
     private func permissionRow(_ row: ScreenPermissionRow) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.title).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
-                Text(row.detail).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                Text(row.title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                Text(row.detail).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                 if let action = row.action, let key = row.permission, model.canOperate {
                     Button(action) {
                         Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
@@ -154,18 +171,21 @@ struct RemoteScreenView: View {
             StateLabel(status: StatusDisplay(label: row.status, token: row.ready ? "done" : "neutral"))
         }
         .padding(.vertical, AceTheme.Spacing.xxs)
-        .listRowBackground(AceDesign.Surface.background)
+        .insetRowBackground()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("screen.permission.\(row.id)")
     }
 
+    /// ⋯ as every bar draws it: the plain glyph in the body ink, sized by iOS (the thread's ⋯).
     private var menu: some View {
         Menu {
-            Button("Refresh", ace: .arrowClockwise) { Task { await screen.refresh(model) } }
-            if model.canOperate, screen.status?.enabled == true {
-                Button("Turn off computer use…", ace: .prohibit, role: .destructive) { turningOff = true }
-            }
-        } label: { Label("Computer use options", ace: .dotsThree) }
+            Button("Refresh", ace: .arrowClockwise, action: retry)
+        } label: {
+            Image(bar: .dotsThree, weight: .bold).foregroundStyle(AceTheme.Colours.foreground)
+        }
+        .barGlyph()
+        .accessibilityLabel("Computer use options")
+        .accessibilityIdentifier("screen.menu")
     }
 }
 
@@ -211,7 +231,7 @@ private struct ScreenTargetPicker: View {
                 if screen.dialogPicks {
                     Section {
                         Button(action: chooseThere) {
-                            InsetRow(systemImage: "rectangle.on.rectangle", title: "Share a window or screen…",
+                            InsetRow(icon: .monitor, title: "Share a window or screen…",
                                      subtitle: "Chosen in the sharing dialog on that computer. Only you can control a shared screen.") { EmptyView() }
                         }
                         .buttonStyle(.plain).insetRowBackground().accessibilityIdentifier("screen.chooser")
