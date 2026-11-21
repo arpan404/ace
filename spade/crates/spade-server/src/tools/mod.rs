@@ -254,6 +254,16 @@ pub trait Tool: Send + Sync {
     }
 }
 
+/// `work`, a run of `tool`, with its result marked untrusted whenever the tool says its output is
+/// (`untrusted_output`), however it ended, an error included: what is stored with the result then
+/// keeps the taint even once the tool is no longer listed to vouch for it.
+pub fn marked(tool: &dyn Tool, work: ToolFuture) -> ToolFuture {
+    if !tool.def().untrusted_output {
+        return work;
+    }
+    Box::pin(async move { work.await.untrusted() })
+}
+
 /// A short hash of a tool's input schema, as the server sent it.
 pub fn schema_hash(schema: &Value) -> String {
     crate::workspace::trust::hash(schema.to_string().as_bytes())

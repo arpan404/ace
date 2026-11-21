@@ -16,6 +16,10 @@ export interface SpadeOutsideAgent {
   signature: string;
   /** Why it reads as not signed. */
   unsignedBecause: string | undefined;
+  /** The person added it as on their own machine or network. */
+  local: boolean;
+  /** Tasks Stop asked it to cancel that it never confirmed ended: they may still be running. */
+  unconfirmedStops: readonly string[];
   skills: readonly { id: string; name: string }[];
 }
 
@@ -27,6 +31,8 @@ const Agent = z
     signed: z.boolean().catch(false),
     signature: z.string().catch("Not signed"),
     unsigned_because: z.string().nullish().catch(undefined),
+    local: z.boolean().catch(false),
+    unconfirmed_stops: z.array(z.string()).catch([]),
     skills: z.array(z.object({ id: z.string(), name: z.string().catch("") })).catch([]),
   })
   .transform((agent): SpadeOutsideAgent => {
@@ -39,6 +45,8 @@ const Agent = z
       signed,
       signature: signed ? agent.signature : "Not signed",
       unsignedBecause: agent.unsigned_because ?? undefined,
+      local: agent.local,
+      unconfirmedStops: agent.unconfirmed_stops,
       skills: agent.skills.map((skill) => ({ id: skill.id, name: skill.name || skill.id })),
     };
   });

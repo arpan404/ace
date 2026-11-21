@@ -7,7 +7,9 @@ import { spadeApp, withEndpoint } from "@/test/spade.ts";
 /*
  * Settings › Spade › Apps, Outside agents (ADR 0202 §5): the person adds an A2A agent by its
  * address; the row says whether its card was signed by its publisher's key and that each call
- * asks them; an address Spade can't use is refused with Spade's words; Remove takes it away.
+ * asks them; an address Spade can't use is refused with Spade's words; Remove takes it away. An
+ * agent on the person's own machine or network is added so only when they say it is, and a task
+ * Stop couldn't confirm ended is named on its row.
  */
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -28,7 +30,18 @@ function seed(api: FakeSpadeApi) {
     skills: [{ id: "book", name: "Book" }],
   });
   api.a2aAgents.refusals.set("http://agents.example.com", "Spade reaches agents over https only.");
+  api.a2aAgents.cards.set(mine, {
+    id: "home-desk",
+    name: "Home desk",
+    address: `${mine}/.well-known/agent-card.json`,
+    signed: false,
+    signature: "Not signed",
+    unconfirmed_stops: ["task-1"],
+    skills: [{ id: "chat", name: "Chat" }],
+  });
 }
+
+const mine = "http://127.0.0.1:41241";
 
 const section = async () => within(await screen.findByRole("region", { name: "Outside agents" }));
 
@@ -54,4 +67,21 @@ test("an agent added by its address shows whether its card was signed, and Remov
   await userEvent.click(agents.getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(agents.queryByText("Travel desk")).toBeNull());
   expect(spade.sent("DELETE", "/v1/a2a-agents/travel-desk")).toHaveLength(1);
+});
+
+test("an agent on the person's own network is added as local only when they say so", async () => {
+  const { spade } = await spadeApp("/settings/spade/apps", seed);
+  const agents = await section();
+  await userEvent.click(agents.getByRole("button", { name: "Add an agent" }));
+  await userEvent.type(agents.getByLabelText("Agent address"), mine);
+  await userEvent.click(agents.getByRole("switch", { name: "On my own machine or network" }));
+  await userEvent.click(agents.getByRole("button", { name: "Add" }));
+  expect(await agents.findByText("Home desk")).toBeTruthy();
+  expect(
+    agents.getByText("Chat · Each call asks you first · On your machine or network"),
+  ).toBeTruthy();
+  expect(
+    agents.getByText("Spade couldn't confirm a stopped task ended; it may still be running"),
+  ).toBeTruthy();
+  expect(spade.sent("POST", "/v1/a2a-agents")).toEqual([{ address: mine, local: true }]);
 });

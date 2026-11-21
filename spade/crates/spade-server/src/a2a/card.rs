@@ -1,7 +1,7 @@
 //! An outside agent's Agent Card (A2A 1.0.1, ADR 0202 §5): what Spade reads of it, and whether
 //! its signature holds. A card's signature is a JWS (RFC 7515) over the card's RFC 8785 form with
 //! `signatures` left out; Spade checks ES256 signatures against the keys the publisher serves at
-//! the `jku` its protected header names, on the card's own origin. Everything the card says
+//! the `jku` its own protected header names, on the card's own origin. Everything the card says
 //! (its skills, their modes) is the other party's word: shown, never a reason to ask less.
 //! Pure: the caller fetches the card and the keys.
 
@@ -222,14 +222,26 @@ pub fn header(signature: &Value) -> Option<Map<String, Value>> {
     }
 }
 
-/// The `jku` the card's first signature names, where its publisher's keys are.
-pub fn key_set_address(card: &Value) -> Option<String> {
-    let first = card["signatures"].as_array()?.first()?;
-    header(first)?.get("jku")?.as_str().map(str::to_owned)
+/// The most signatures on a card Spade checks, each perhaps with its own key set to fetch.
+pub const MOST_SIGNATURES: usize = 4;
+
+/// The `jku` each of the card's signatures names (at most [`MOST_SIGNATURES`]), in order: where
+/// the publisher's keys for that one signature are.
+pub fn key_set_addresses(card: &Value) -> Vec<Option<String>> {
+    card["signatures"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(MOST_SIGNATURES)
+        .map(|signature| header(signature)?.get("jku")?.as_str().map(str::to_owned))
+        .collect()
 }
 
-/// Whether `card` carries a signature that holds with one of the keys in `keys` (a JWK set).
-pub fn verify(card: &Value, keys: &Value) -> Signed {
+/// Whether `card` carries a signature that holds. Each signature is checked only against its own
+/// key set, `keys[i]` for the `i`th (fetched from its own `jku`, as [`key_set_addresses`] lists
+/// them), or not at all when that is an `Err` with why it couldn't be had: one signature's keys
+/// never vouch for another.
+pub fn verify(card: &Value, keys: &[Result<Value, String>]) -> Signed {
     let Some(signatures) = card["signatures"].as_array().filter(|s| !s.is_empty()) else {
         return Signed::No("the card carries no signature".to_owned());
     };
@@ -239,7 +251,7 @@ pub fn verify(card: &Value, keys: &Value) -> Signed {
     }
     let body = URL_SAFE_NO_PAD.encode(canonical(&payload));
     let mut why = "no signature holds".to_owned();
-    for signature in signatures {
+    for (at, signature) in signatures.iter().take(MOST_SIGNATURES).enumerate() {
         let Some(header) = header(signature) else {
             why = "a signature's header isn't readable".to_owned();
             continue;
@@ -248,11 +260,22 @@ pub fn verify(card: &Value, keys: &Value) -> Signed {
             why = "it is signed with an algorithm Spade doesn't check".to_owned();
             continue;
         }
+        let own = match keys.get(at) {
+            Some(Ok(own)) => own,
+            Some(Err(no)) => {
+                why = no.clone();
+                continue;
+            }
+            None => {
+                why = "its signature names no keys".to_owned();
+                continue;
+            }
+        };
         let kid = header
             .get("kid")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let Some(point) = key_point(keys, kid) else {
+        let Some(point) = key_point(own, kid) else {
             why = "its publisher serves no key by that name".to_owned();
             continue;
         };

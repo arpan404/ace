@@ -5,7 +5,8 @@
 //! a proxy, so a second DNS answer can't swap them. A connector the person explicitly marked as
 //! local when adding it (a server on their own machine or network) may use local addresses too;
 //! nothing else may, and DNS never decides it: an answer naming any private or local address, even
-//! beside public ones, is refused.
+//! beside public ones, is refused. Outside A2A agents (`spade-server`'s `a2a`) reach their cards,
+//! key sets and endpoints through the same checks.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -98,13 +99,13 @@ impl Net {
         let url = wellknown::checked(address).map_err(OauthError::Unsupported)?;
         if !self.local && url.scheme() != "https" {
             return Err(OauthError::Unsupported(
-                "the sign-in server's address must use https".into(),
+                "the server's address must use https".into(),
             ));
         }
         let addresses = self.addresses.resolve(&url).await?;
         if !self.local && !self.addresses.all_public(&addresses).await? {
             return Err(OauthError::Unsupported(
-                "the sign-in server points at a private or local address, which Spade will not reach"
+                "the server's address points at a private or local address, which Spade will not reach"
                     .into(),
             ));
         }

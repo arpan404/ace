@@ -17,7 +17,9 @@ import { headless, listen, lookups, runElectron } from "./isolation-test-support
  * reaches none of them, whatever MCP Apps lets a host allow. Out of it comes only JSON-RPC, as
  * text within the panel bound: a tool call or message it posts with nobody using the page is
  * answered with an error by the outer document and never reaches the app, nor does one over the
- * bound; with the person pressing, its request reaches the host, which reads it as the page's.
+ * bound, nor an object posted straight to the outer document past the page bridge (it takes text
+ * only); with the person pressing, its request reaches the host, which reads it as the page's,
+ * and the answers reach a page that hears only its parent, as MCP Apps' transport does.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -69,8 +71,9 @@ app.whenReady().then(async () => {
   await page.executeJavaScript("parent.postMessage({ jsonrpc: '2.0', id: 1, method: 'ui/initialize', params: { protocolVersion: '2026-01-26' } }, '*'); parent.postMessage({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'move_card', arguments: { card: 1 } } }, '*'); parent.postMessage({ jsonrpc: '2.0', id: 3, method: 'ui/message', params: { role: 'user', content: { type: 'text', text: 'forged' } } }, '*'); parent.postMessage(JSON.stringify({ type: 'ace.panel.action', name: 'x', value: 'forged' }), '*'); parent.postMessage({ method: 'tools/call', id: 9 }, '*')");
   await settle(300);
   phase("pressed");
-  // The person is pressing in the page: a tool call and a link go; a message over the bound doesn't.
-  await page.executeJavaScript("parent.postMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'move_card', arguments: { card: 3 } } }, '*'); parent.postMessage({ jsonrpc: '2.0', id: 5, method: 'ui/open-link', params: { url: 'https://example.com/' } }, '*'); parent.postMessage({ jsonrpc: '2.0', id: 6, method: 'ui/message', params: { role: 'user', content: { type: 'text', text: '€'.repeat(6000) } } }, '*')", true);
+  // The person is pressing in the page: a tool call and a link go; a message over the bound
+  // doesn't, nor an object posted to the outer document itself rather than as text.
+  await page.executeJavaScript("parent.postMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'move_card', arguments: { card: 3 } } }, '*'); parent.postMessage({ jsonrpc: '2.0', id: 5, method: 'ui/open-link', params: { url: 'https://example.com/' } }, '*'); parent.postMessage({ jsonrpc: '2.0', id: 6, method: 'ui/message', params: { role: 'user', content: { type: 'text', text: '€'.repeat(6000) } } }, '*'); top.postMessage({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'move_card', arguments: { card: 8 } } }, '*')", true);
   await settle(300);
   phase("answers");
   await guest.executeJavaScript("postMessage({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } }, '*'); postMessage({ type: 'ace.panel.ping', n: 7 }, '*')");
@@ -104,7 +107,7 @@ function appPage(target: string, suffix: string): string {
 const got = [];
 addEventListener('message', (event) => {
   const data = event.data;
-  if (!data || data.jsonrpc !== '2.0' || data.id === undefined) return;
+  if (event.source !== parent || !data || data.jsonrpc !== '2.0' || data.id === undefined) return;
   got.push(data.id + ':' + (data.error ? 'error:' + data.error.message : 'result'));
   document.getElementById('got').textContent = got.join(' | ');
 });
@@ -188,7 +191,8 @@ it.skipIf(headless)(
     expect(texts.some((text) => text.includes("forged"))).toBe(false);
     const read = texts.map(readMcpAppMessage).filter((message) => message !== undefined);
     const ids = read.flatMap((message) => ("id" in message ? [message.id] : []));
-    // Unprompted, only the page's initialize went; pressed, its tool call and link went.
+    // Unprompted, only the page's initialize went; pressed, its tool call and link went (not the
+    // object posted past the page bridge).
     expect(ids).toEqual([1, 4, 5]);
     expect(read).toContainEqual({ type: "ace.panel.pong", n: 7 });
 
