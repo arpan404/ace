@@ -106,7 +106,7 @@ test("an open conversation shows its history, then a reply's words as they strea
 
   await until(() => patches.bubbles.length === 2);
   expect(patches.bubbles).toEqual([
-    { kind: "person", text: "Plan my week", sending: false, attached: null },
+    { kind: "person", text: "Plan my week", sending: false, attached: null, images: [] },
     { kind: "bot", text: "Here is a plan.", live: false, end: null },
   ]);
 
@@ -150,7 +150,7 @@ test("a sent message shows at once, and stays once Spade has stored it", async (
 
   const sending = ask({ type: "spade.send", conversationId: bot.conversation, text: "Hello" });
   expect(patches.bubbles).toEqual([
-    { kind: "person", text: "Hello", sending: true, attached: null },
+    { kind: "person", text: "Hello", sending: true, attached: null, images: [] },
   ]);
 
   expect(await sending).toEqual({ ok: true });
@@ -436,3 +436,46 @@ test("Answer later folds the card and the top bar counts it; Never mind then set
 function lastWords(text: string) {
   return { from: "agent" as const, text, at: 50, from_agent: null };
 }
+
+test("a person's attached image reaches the phone as a picture it can fetch by hash, not a count", async () => {
+  const hash = "a".repeat(64);
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { patches, spade, ask } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Helper" });
+    fake.images.set(hash, "image/jpeg");
+    fake.store(bot.conversation, {
+      type: "user_message",
+      text: "What is this?",
+      images: [{ sha256: hash, media_type: "image/jpeg", bytes: 2048 }],
+      documents: [{ sha256: "b".repeat(64), name: "notes.pdf", media_type: "application/pdf" }],
+    });
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.open", conversationId: bot.conversation });
+
+  const person = await until(() => patches.bubbles[0]);
+  expect(person).toMatchObject({
+    kind: "person",
+    text: "What is this?",
+    attached: "1 file",
+    images: [
+      {
+        kind: "image",
+        ref: hash,
+        mimeType: "image/jpeg",
+        bytes: 2048,
+        thumbnail: true,
+        opens: true,
+      },
+    ],
+  });
+
+  expect(await ask({ type: "spade.image", sha256: hash })).toEqual({
+    ok: true,
+    kind: "image",
+    name: "Image",
+    mimeType: "image/jpeg",
+    data: btoa(`bytes of ${hash}`),
+  });
+  expect(await ask({ type: "spade.image", sha256: "c".repeat(64) })).toMatchObject({ ok: false });
+});

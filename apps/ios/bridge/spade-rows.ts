@@ -18,6 +18,8 @@ import {
 import type { SpadeStatus } from "@ace/protocol";
 import { botFace, groupFaces, initialOf, type SpadeFaceRow } from "./spade-group-rows.ts";
 import { spadeQuestionCardRow, type SpadeQuestionCardRow } from "./spade-question-rows.ts";
+import { spadeImageLines } from "./spade-image.ts";
+import type { AttachmentLine } from "./thread-rows.ts";
 
 /*
  * Spade's list and one conversation as the iPhone draws them, from the rules every client shares
@@ -112,7 +114,15 @@ export function spadePlaceLine(status: SpadeStatus | undefined, enabled: boolean
 
 /** One bubble of a conversation, as the phone draws it. */
 export type SpadeBubbleRow =
-  | { kind: "person"; text: string; sending: boolean; attached: string | null }
+  | {
+      kind: "person";
+      text: string;
+      sending: boolean;
+      /** What it carries that isn't drawn as a picture: "1 file · Voice message". */
+      attached: string | null;
+      /** Its pictures, as a thread's message carries them, read by hash (`spade.image`). */
+      images: AttachmentLine[];
+    }
   | {
       kind: "bot";
       /** Its words, markdown. */
@@ -176,11 +186,8 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
         kind: "person",
         text: bubble.text,
         sending: bubble.sending,
-        attached: attachedLine(
-          bubble.images.length,
-          bubble.documents.length,
-          bubble.voice !== undefined,
-        ),
+        attached: attachedLine(0, bubble.documents.length, bubble.voice !== undefined),
+        images: spadeImageLines(bubble.images),
       };
     case "bot": {
       const end = bubble.end
