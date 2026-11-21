@@ -369,7 +369,7 @@ private struct InboxThreadCell: View {
             } else {
                 let look = InboxThreadRow.look(of: row)
                 InboxLineRow(row: row, end: .work,
-                             wake: snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil)
+                             wake: InboxRowLine.wake(row, look, snoozed: snoozed))
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(InboxThreadRow.spoken(row, look, snoozed: snoozed, need: need))
             }

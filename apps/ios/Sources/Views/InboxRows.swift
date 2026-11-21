@@ -68,7 +68,7 @@ struct InboxThreadRow: View {
         let pr = row.pr.map { "\($0.state) pull request #\($0.number)" }
         let work = row.work.map { "\($0.added) lines added, \($0.removed) lines removed" }
         // A snoozed row says when it wakes, as it shows it.
-        let wake = snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil
+        let wake = InboxRowLine.wake(row, look, snoozed: snoozed)
         return [row.title, meaning, wake, need?.spoken, row.project.isEmpty ? nil : row.project, row.pinned == true ? "Pinned" : nil,
                 row.startedBy, row.browsing, row.computerUse, branch, pr, work]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
@@ -102,7 +102,7 @@ struct InboxRowHead: View {
             if row.browsing != nil { BrowserUseMark().foregroundStyle(AceDesign.Status.working) }
             if row.computerUse != nil { PebbleMark() }
             Spacer(minLength: AceDesign.Space.related)
-            if let wake = snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil {
+            if let wake = InboxRowLine.wake(row, look, snoozed: snoozed) {
                 HStack(spacing: AceDesign.Space.tight) {
                     AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
                     Text(wake).lineLimit(1)
@@ -296,6 +296,11 @@ struct InboxRowLine: View {
             Spacer(minLength: AceTheme.Spacing.none)
         }
         .aceFont(InboxRowType.line, relativeTo: .footnote)
+    }
+    /// What a snoozed row shows of its wake where its status would stand: nil while it needs
+    /// the person, or when its work moved, since then the destination stands there.
+    static func wake(_ row: ThreadRow, _ look: RowLook, snoozed: Bool) -> String? {
+        snoozed && look.level != "needs-you" && look.moved == nil ? wake(row) : nil
     }
     /// What a snoozed row says it waits for: the event ("Until it needs you", "Until the PR
     /// changes") when it sleeps until one, else its time; nil when it isn't snoozed.
