@@ -346,7 +346,13 @@ export class ContextService {
             text,
           });
       }
-      prepared.push(...(await prepareFiles(lease.blobs, capabilities, this.options.images)));
+      prepared.push(
+        ...(await prepareFiles(
+          lease.blobs,
+          capabilities,
+          this.options.images && { work: this.options.images, now: this.options.now },
+        )),
+      );
       // Binary mentions take the attached-file route: images and PDFs reach providers natively.
       const budget = {
         remaining:

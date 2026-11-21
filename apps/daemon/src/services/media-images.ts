@@ -1,11 +1,8 @@
 import { ImageProcess } from "@ace/media/image-process";
 import { unavailableImages, type ImageWork } from "@ace/media/images";
-import {
-  nodeMediaHost,
-  systemMediaClock,
-  type MediaChild,
-  type MediaClock,
-} from "@ace/media/supervisor";
+import { nodeByteSink, nodeByteSource } from "@ace/media/lanes";
+import { systemMediaClock, type MediaChild, type MediaClock } from "@ace/media/supervisor";
+import { spawnRawSupervisedExactEnv } from "@ace/provider-kit/process";
 import type { MediaLog } from "@ace/media/supervisor";
 import { residentSampler, residentSamplingAvailable } from "@ace/provider-kit/resident-memory";
 import { findMediaBinary } from "./media.ts";
@@ -58,6 +55,44 @@ export function createDaemonImages(options: DaemonImagesOptions): ImageWork & { 
   return { run: (job) => images.run(job), dispose: () => images.dispose() };
 }
 
+/**
+ * The image worker's whole environment: none of the daemon's (its credentials, tokens and
+ * settings stay out), only what the OS needs to start a process on this platform.
+ */
+export function imageWorkerEnv(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  if (platform !== "win32") return {};
+  const kept = ["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP"];
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      ([key, value]) =>
+        value !== undefined && kept.some((name) => name.toLowerCase() === key.toLowerCase()),
+    ),
+  );
+}
+
+/** The image worker as an owned child with exactly `env`. */
+function spawnImageWorker(env: NodeJS.ProcessEnv) {
+  return (binary: string, args: readonly string[]): MediaChild => {
+    const child = spawnRawSupervisedExactEnv({
+      command: binary,
+      args: [...args],
+      env,
+      name: "ace-media-images",
+    });
+    return {
+      pid: child.pid,
+      stdin: nodeByteSink(child.stdin),
+      stdout: nodeByteSource(child.stdout),
+      stderr: nodeByteSource(child.stderr),
+      exited: child.exited.then(({ code, signal }) => ({ code, signal })),
+      kill: () => void child.stop({ graceMs: 0 }),
+    };
+  };
+}
+
 const started = new WeakMap<object, ImageWork>();
 
 /** The daemon's image work, made once per daemon. */
@@ -68,8 +103,7 @@ export function daemonImages(context: ServiceContext): ImageWork {
     binary: findMediaBinary(),
     root: context.config.dataDir,
     platform: process.platform,
-    spawn: (binary, args) =>
-      nodeMediaHost(process.env, (command) => ({ command, args: [...args] })).spawn(binary),
+    spawn: spawnImageWorker(imageWorkerEnv(process.env, process.platform)),
     clock: systemMediaClock,
     id: context.id,
     // Backoff jitter only.

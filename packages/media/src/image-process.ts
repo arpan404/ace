@@ -41,6 +41,8 @@ type Run = {
   stopping: boolean;
   stderr: string;
   startedAt: number;
+  /** Job requests whose frames aren't wholly written yet. */
+  unwritten: Set<string>;
 };
 
 export class ImageProcess implements ImageWork {
@@ -58,7 +60,8 @@ export class ImageProcess implements ImageWork {
   constructor(options: ImageProcessOptions) {
     this.#options = options;
     this.#images = new MediaImages({
-      send: (message, payload) => this.#send(message, payload),
+      send: (message, payload, written) => this.#send(message, payload, written),
+      withdraw: (request) => this.#withdraw(request),
       require: () => this.#require(),
       phase: () =>
         this.#unavailable
@@ -92,11 +95,30 @@ export class ImageProcess implements ImageWork {
     this.#stop();
   }
 
-  #send(message: ToMedia, payload: Uint8Array): boolean {
+  #send(message: ToMedia, payload: Uint8Array, written?: () => void): boolean {
     const run = this.#run;
     if (!run || run.stopping) return false;
-    run.writer.send(message, payload);
+    if (message.type === "image.job") {
+      const request = message.request;
+      run.unwritten.add(request);
+      run.writer.send(message, payload, () => {
+        run.unwritten.delete(request);
+        written?.();
+      });
+    } else run.writer.send(message, payload, written);
     return true;
+  }
+
+  /** A job's frame off the lane if none of it has been written yet. */
+  #withdraw(request: string) {
+    const run = this.#run;
+    if (!run || !run.unwritten.has(request)) return "written" as const;
+    const dropped = run.writer.drop(
+      (message) => message.type === "image.job" && message.request === request,
+    );
+    if (dropped.length === 0) return "pending" as const;
+    run.unwritten.delete(request);
+    return "dropped" as const;
   }
 
   #require(): () => void {
@@ -132,6 +154,7 @@ export class ImageProcess implements ImageWork {
       stopping: false,
       stderr: "",
       startedAt: this.#options.clock.now(),
+      unwritten: new Set(),
       writer: new LaneWriter("normal", child.stdin, () => child.kill()),
     };
     this.#run = run;
@@ -186,6 +209,8 @@ export class ImageProcess implements ImageWork {
     run.writer.close();
     if (run.stopping) {
       this.#images.exited();
+      // A job that came while it was stopping waits for a new one.
+      if (this.#needs > 0 && !this.#disposed) this.#start();
       return;
     }
     // A process that ran well before failing starts its backoff over.

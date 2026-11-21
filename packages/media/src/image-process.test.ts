@@ -9,7 +9,14 @@ import { FakeMedia, ManualClock, settle } from "./supervisor-test-support.ts";
  * unavailable after a crash loop, and the memory watchdog.
  */
 
-function harness(options: { memory?: number[] } = {}) {
+/** A child whose kill only asks: it exits when the test says, as a real process does later. */
+class SlowToExit extends FakeMedia {
+  override kill(): void {
+    this.killed = true;
+  }
+}
+
+function harness(options: { memory?: number[]; slowExit?: boolean } = {}) {
   const clock = new ManualClock();
   const children: { child: FakeMedia; args: readonly string[] }[] = [];
   const readings = [...(options.memory ?? [])];
@@ -18,7 +25,8 @@ function harness(options: { memory?: number[] } = {}) {
     binary: "/opt/ace/media/ace-media",
     root: "/home/me/.ace",
     spawn: (_binary, args) => {
-      const child = new FakeMedia(100 + children.length, {
+      const Child = options.slowExit ? SlowToExit : FakeMedia;
+      const child = new Child(100 + children.length, {
         version: "x",
         ready: false,
         answerPings: false,
@@ -94,6 +102,27 @@ test("an idle image process is stopped, and the next job starts a new one", asyn
   await expect(second).resolves.toMatchObject({ width: 2 });
 });
 
+test("a job that comes while an idle process is still exiting runs on a replacement", async () => {
+  const h = harness({ slowExit: true });
+  const first = h.images.run(probe());
+  await settle();
+  answer(h.last(), "i1");
+  await first;
+  await h.clock.advance(60_000);
+  const stopping = h.last();
+  expect(stopping?.killed).toBe(true);
+  // Asked to stop but not gone yet: the job waits for it, then goes to a new process.
+  const late = h.images.run(probe());
+  await settle();
+  expect(h.children).toHaveLength(1);
+  stopping?.exit(null, "SIGKILL");
+  await settle();
+  expect(h.children).toHaveLength(2);
+  expect(h.jobs()).toEqual(["i2"]);
+  answer(h.last(), "i2");
+  await expect(late).resolves.toMatchObject({ width: 2 });
+});
+
 test("a crash fails the job it held as exited, and the next job runs on a restarted process", async () => {
   const h = harness();
   const held = h.images.run(probe());
@@ -141,4 +170,32 @@ test("a disposed image process takes no more jobs", async () => {
   h.images.dispose();
   expect(await reason(h.images.run(probe()))).toBe("cancelled");
   expect(h.children).toEqual([]);
+});
+
+test("with the lane backed up, a timed-out job not yet written never reaches the process, one being written is cancelled after it", async () => {
+  const h = harness();
+  const warm = h.images.run(probe());
+  await settle();
+  answer(h.last(), "i1");
+  await warm;
+  const child = h.last();
+  if (!child) throw new Error("no child");
+  // The process stops reading: the next frame is on its way, the one after waits behind it.
+  child.stdin.blocked = true;
+  const writing = h.images.run(probe(1_000));
+  const waiting = h.images.run(probe(1_000));
+  await settle();
+  await h.clock.advance(1_000);
+  expect(await reason(writing)).toBe("deadline");
+  expect(await reason(waiting)).toBe("deadline");
+  child.stdin.unblock();
+  await settle();
+  const sent = child.stdin
+    .messages("normal")
+    .map(({ message }) =>
+      message.type === "image.job" || message.type === "image.cancel"
+        ? `${message.type} ${message.request}`
+        : message.type,
+    );
+  expect(sent).toEqual(["image.job i1", "image.job i2", "image.cancel i2"]);
 });

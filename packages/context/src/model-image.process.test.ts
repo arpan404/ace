@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ImageWork } from "@ace/media/images";
 import { binaryImages, imagePixels, testMediaBinary } from "@ace/media/testing/images";
 import { afterEach, expect, test } from "vitest";
 import { ContextService, type ProjectionCapabilities } from "./index.ts";
@@ -20,22 +21,39 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function composeWith(images: boolean, capabilities: ProjectionCapabilities) {
+async function composeWith(
+  images: boolean | ImageWork,
+  capabilities: ProjectionCapabilities,
+  options: { now?: () => number; photos?: Buffer[] } = {},
+) {
   const repo = await repository();
   let id = 0;
+  const work =
+    typeof images === "object" ? images : images && binary ? binaryImages(binary) : undefined;
   const service = await ContextService.open({
     root: join(repo.root, ".git", "ace-context"),
-    now: () => 1000,
+    now: options.now ?? (() => 1000),
     id: () => `upload-${++id}`,
     authorize: () => true,
     workspace: () => repo.root,
-    ...(images && binary ? { images: binaryImages(binary) } : {}),
+    ...(work ? { images: work } : {}),
   });
   cleanups.push(async () => {
     await service.close();
     await repo.close();
   });
-  const bytes = await readFile(photo);
+  const photos = options.photos ?? [await readFile(photo)];
+  const hashes: string[] = [];
+  for (const bytes of photos) hashes.push(await upload(service, bytes));
+  return service.compose(
+    "device",
+    thread,
+    { mentions: [], attachments: hashes.map((sha256) => ({ sha256 })) },
+    capabilities,
+  );
+}
+
+async function upload(service: ContextService, bytes: Buffer): Promise<string> {
   const begin = await service.handle("device", {
     type: "context.request",
     requestId: "begin",
@@ -65,12 +83,7 @@ async function composeWith(images: boolean, capabilities: ProjectionCapabilities
     requestId: "commit",
     operation: { op: "upload.commit", uploadId },
   });
-  return service.compose(
-    "device",
-    thread,
-    { mentions: [], attachments: [{ sha256: hash(bytes) }] },
-    capabilities,
-  );
+  return hash(bytes);
 }
 
 const claude = (maxInlineBytes: number): ProjectionCapabilities => ({
@@ -115,3 +128,38 @@ test("without ace-media an image over the budget still goes as its path, as it d
   const [part] = result.projection.input;
   expect(part).toMatchObject({ type: "text", text: expect.stringContaining("sent as file") });
 }, 30_000);
+
+test("oversized images share one preparation deadline; past it the rest go as paths", async () => {
+  // Each fit takes 10 s of the injected clock; the turn's preparation has 15 s in all.
+  let clock = 0;
+  const asked: number[] = [];
+  const small = await readFile(
+    new URL("../../../native/media/vectors/image/inputs/red-64x48.jpg", import.meta.url),
+  );
+  const slow: ImageWork = {
+    run: async (job) => {
+      asked.push(job.deadlineMs);
+      clock += 10_000;
+      return {
+        width: 64,
+        height: 48,
+        format: "jpeg",
+        source: { format: "jpeg", width: 1206, height: 2622, orientation: 1 },
+        bytes: small,
+      };
+    },
+  };
+  const original = await readFile(photo);
+  // Three different pictures, each over the budget: a comment segment after SOI tells them apart.
+  const photos = [1, 2, 3].map((n) =>
+    Buffer.concat([
+      original.subarray(0, 2),
+      Buffer.from([0xff, 0xfe, 0, 3, n]),
+      original.subarray(2),
+    ]),
+  );
+  const result = await composeWith(slow, claude(150_000), { now: () => clock, photos });
+  expect(result.projection.input.map((part) => part.type)).toEqual(["image", "image", "text"]);
+  // The second fit was given only what was left of the 15 s, and the third wasn't started.
+  expect(asked).toEqual([15_000, 5_000]);
+});

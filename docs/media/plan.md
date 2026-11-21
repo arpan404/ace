@@ -2500,9 +2500,12 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   stdin/stdout its only lane. `jobs` holds requests, deadlines and the one answer each;
   `pool` runs them on cores − 1 (1 to 4) threads sharing one queue (32 jobs, 64 MiB of inputs),
   where a cancelled or expired job leaves the queue at once or stops at its next step;
-  `budget` reserves each job's peak (`media_image::peak_bytes`, from headers) from 768 MiB
-  before decoding; `files` reads file inputs only inside `--root`, walking from its handle with
-  `O_NOFOLLOW`, opening `O_NONBLOCK`, regular files only, 32 MiB a file and 64 MiB a job;
+  `budget` reserves each job's peak (`media_image::peak_bytes`, from headers: an icon's largest
+  entry, the scaler's rows, the encoder's copies; checked against a counting allocator in
+  `media-image/tests/memory.rs`) from 768 MiB before decoding; `files` reads file inputs only
+  inside `--root`, whose handle is opened at start and kept, walking each from it with
+  `O_NOFOLLOW` (a per-name walk holding each folder on Windows), opening `O_NONBLOCK`, regular
+  files only, 32 MiB a file and 64 MiB a job;
   `output` writes answers behind a 48 MiB queue, past which an answer becomes `busy`. Linux caps
   its data at 1.5 GiB (`RLIMIT_DATA`). A job still in a step 10 s past its deadline exits the
   process (code 1). A panic in a decoder fails its job only.
@@ -2511,7 +2514,10 @@ color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
   start, 60 s idle stop, 0.5 s doubling backoff, unavailable for 10 minutes after five failures
   in two minutes, and a 1.5 GiB resident-memory watchdog (`watchMemory`). `MediaImages`
   (`images.ts`) settles each job once (done, failed, deadline, cancel, exit), holds at most 32
-  jobs and 32 MiB of inputs, and fails at once while the process is unavailable.
+  jobs and 32 MiB of inputs (a settled job's frame still being written stays charged until it
+  is, and one not yet written is taken off the lane), sends each frame with only the time its
+  job has left, and fails at once while the process is unavailable. The process gets an exact
+  environment (`spawnRawSupervisedExactEnv`): nothing of the daemon's.
   `apps/daemon/src/services/media-images.ts` gives it to attachments, devices, icons, projects,
   previews and the browser.
 - **Encoders.** JPEG through M5's encoder, kept per image thread so a repeated geometry reuses

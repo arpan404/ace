@@ -74,9 +74,17 @@ export const maxQueuedImages = 32;
  */
 export const maxHeldImageBytes = 32 * 1024 * 1024;
 
+/** Where a job's frame is on the lane: still queued (and now taken off), being written, or written. */
+export type Withdrawn = "dropped" | "pending" | "written";
+
 export type MediaImagesOptions = {
-  /** False when ace-media can't take the message now. */
-  send: (message: ToMedia, payload: Uint8Array) => boolean;
+  /**
+   * Queues a message on the image lane; false when it can't take one now. `written` runs once
+   * every byte of it has been handed to the process.
+   */
+  send: (message: ToMedia, payload: Uint8Array, written?: () => void) => boolean;
+  /** Takes a job's frame off the lane if no byte of it has gone yet. */
+  withdraw: (request: string) => Withdrawn;
   /** Takes a use of ace-media, starting it whatever the media settings; returns the release. */
   require: () => () => void;
   /** Where the supervisor is, and why it is unavailable when it is. */
@@ -88,17 +96,25 @@ export type MediaImagesOptions = {
 
 type Job = {
   id: string;
-  /** Its payload's size, held against `maxHeldImageBytes` until it settles. */
+  /**
+   * Its payload's size, held against `maxHeldImageBytes` until it settles and, if its frame was
+   * being written then, until the frame is written.
+   */
   size: number;
   message: Extract<ToMedia, { type: "image.job" }>;
   payload: Uint8Array;
+  /** The clock time it must be answered by: what a frame sent later says it has left. */
+  deadlineAt: number;
   sent: boolean;
+  written: boolean;
   settle: (result: ImageResult | ImageError) => void;
 };
 
 export class MediaImages implements ImageWork {
   readonly #options: MediaImagesOptions;
   readonly #jobs = new Map<string, Job>();
+  /** Settled jobs whose frames are still being written: their bytes, until they are. */
+  readonly #draining = new Map<string, number>();
   #held = 0;
 
   constructor(options: MediaImagesOptions) {
@@ -171,7 +187,9 @@ export class MediaImages implements ImageWork {
         size,
         message,
         payload,
+        deadlineAt: clock.now() + job.deadlineMs,
         sent: false,
+        written: false,
         settle: (result) => {
           cancelTimer();
           job.signal?.removeEventListener("abort", abort);
@@ -209,6 +227,9 @@ export class MediaImages implements ImageWork {
    * restart within their deadlines, unless it is now unavailable.
    */
   exited(): void {
+    // Frames still on their way went with the process.
+    for (const size of this.#draining.values()) this.#held -= size;
+    this.#draining.clear();
     const state = this.#options.phase();
     for (const job of this.#jobs.values()) {
       if (job.sent)
@@ -222,22 +243,55 @@ export class MediaImages implements ImageWork {
   }
 
   #flush(): void {
+    const now = this.#options.clock.now();
     for (const job of this.#jobs.values()) {
       if (job.sent) continue;
+      // Only the time it has left: a job that waited never reaches ace-media with a fresh one.
+      const message = { ...job.message, deadlineMs: Math.max(1, Math.ceil(job.deadlineAt - now)) };
       // The send owns the payload from here, so it gets a copy the job can't lose.
-      if (!this.#options.send(job.message, job.payload.slice())) return;
+      const sent = this.#options.send(message, job.payload.slice(), () => this.#written(job.id));
+      if (!sent) return;
       job.sent = true;
       job.payload = new Uint8Array(0);
     }
   }
 
-  #end(id: string, result: ImageResult | ImageError, tell = false): void {
+  #written(id: string): void {
+    const job = this.#jobs.get(id);
+    if (job) {
+      job.written = true;
+      return;
+    }
+    // Settled while its frame was on its way: now ace-media has it, cancel it there.
+    const size = this.#draining.get(id);
+    if (size === undefined) return;
+    this.#draining.delete(id);
+    this.#held -= size;
+    this.#options.send({ type: "image.cancel", request: id }, new Uint8Array(0));
+  }
+
+  /**
+   * Settles a job. `abandon`: the daemon gave up on it (deadline, cancel), so its frame is taken
+   * off the lane if none of it has gone, kept (and charged) until written if some has, and
+   * cancelled in ace-media once ace-media has it.
+   */
+  #end(id: string, result: ImageResult | ImageError, abandon = false): void {
     const job = this.#jobs.get(id);
     if (!job) return;
     this.#jobs.delete(id);
-    this.#held -= job.size;
-    if (tell && job.sent)
+    if (!abandon || !job.sent) this.#held -= job.size;
+    else if (job.written) {
+      this.#held -= job.size;
       this.#options.send({ type: "image.cancel", request: id }, new Uint8Array(0));
+    } else {
+      const where = this.#options.withdraw(id);
+      if (where === "pending") this.#draining.set(id, job.size);
+      else {
+        this.#held -= job.size;
+        if (where === "written")
+          this.#options.send({ type: "image.cancel", request: id }, new Uint8Array(0));
+      }
+    }
     job.settle(result);
   }
 }

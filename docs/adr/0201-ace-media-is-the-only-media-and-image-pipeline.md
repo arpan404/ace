@@ -69,18 +69,27 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
      48-megapixel phone photo is the largest picture ace is sent). Attachments are held to the
      40 million an upload may have, screenshots and frames to 16 Mi. Past its job's bound an
      input is refused (`too-large`) before its pixels are decoded, from its header.
-   - **Memory.** Each job reserves what it will hold at its peak, estimated from its inputs'
-     headers, from a 768 MiB budget shared by the threads, before it decodes anything; it waits
-     for room within its deadline. Decoders work in one buffer per picture. The process has a
-     1.5 GiB data limit (`RLIMIT_DATA`, on Linux), and the daemon kills it past 1.5 GiB resident
-     on every OS where it can read another process's memory. Either ends the image process only.
+   - **Memory.** Each job reserves what it will hold at its peak from a 768 MiB budget shared
+     by the threads, before it decodes anything, and waits for room within its deadline. The
+     estimate comes from headers alone: the decoded picture (an icon's largest entry, read from
+     each entry's own header and refused where it disagrees with the directory), the scaler's
+     rows and output, and the encoder's copies. A picture is scaled before it is turned upright,
+     so a turn copies only the small result. A test measures real peaks against the
+     reservation with a counting allocator. Codec buffers stay on a thread for the next job
+     only for pictures up to 4 Mi pixels (about 15 MiB a thread). The process has a 1.5 GiB data
+     limit (`RLIMIT_DATA`, on Linux), and the daemon kills it past 1.5 GiB resident on every OS
+     where it can read another process's memory. Either ends the image process only.
    - **Queues.** The process holds at most 64 jobs, 32 of them waiting with at most 64 MiB of
      inputs, and at most 48 MiB of answers waiting for the daemon to read them. The daemon holds
      at most 32 MiB of inputs for jobs not yet answered. Past any of these a job is refused
      `busy`, never queued without bound.
-   - **Files.** A file input is read only inside the root the daemon gave, walked one name at a
-     time from that directory's handle without following a link, opened without blocking and
-     read only if it is a regular file: at most 32 MiB a file and 64 MiB a job.
+   - **Files.** The root the daemon names is opened once, at start, and its handle kept. Every
+     file input is walked from that handle one name at a time without following a link
+     (`openat` with `O_NOFOLLOW`; on Windows each name opened without following a reparse point
+     and held against renames while the walk goes on), opened without blocking, and read only
+     if it is a regular file: at most 32 MiB a file and 64 MiB a job. Hard links are not
+     refused: inputs are files ace itself wrote under its data directory, and only ace writes
+     there, so that is the accepted limit.
    - **Containers.** A JPEG with more than one frame header is refused, and its decoder must read
      the size its header was checked at. A JPEG without its end marker or with its entropy data
      cut short, a PNG that ends before IEND (one that ends after IHDR included), a GIF that ends
@@ -101,10 +110,16 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
    - **Exited mid-job.** Every job it held fails `exited`, and is not retried: an input that
      crashed it must not crash the next process too. Jobs that hadn't reached it wait for the
      restart (0.5 s backoff, doubling) within their deadlines.
-   - **Deadlines and cancellation.** Each job carries `deadlineMs`, checked before every step,
-     including before reading a file, probing or the planar path. At the deadline, or when the
-     caller's `AbortSignal` fires, the daemon sends `image.cancel` and settles the job at once
-     (`deadline` or `cancelled`). A result that arrives after that is dropped.
+   - **Deadlines and cancellation.** A frame carries only the time its job has left when it
+     is sent, so a job that waited never reaches the process with a fresh deadline. The process
+     checks it before every step, including before reading a file, probing or the planar path.
+     At the deadline, or when the caller's `AbortSignal` fires, the job settles at once
+     (`deadline` or `cancelled`). Its frame is taken off the lane if none of it was written;
+     if part was, its bytes stay charged until it is written, and then `image.cancel` follows
+     it. A result that arrives after that is dropped.
+   - **Environment.** The image process gets none of the daemon's environment (its
+     credentials, tokens and settings): only what the OS needs to start it (`SystemRoot`,
+     `SystemDrive`, `windir`, `TEMP`, `TMP` on Windows; nothing elsewhere).
    - **What callers do.**
      - An attachment preview answers `unsupported` or `busy`, as an image it can't preview did.
      - An icon is "ask again later" (`later`) for any failure that may pass, and `none` for
@@ -112,7 +127,8 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
      - A device screenshot fails with a stated `DeviceError`. Device chrome falls back to the
        plain screen, and a filmstrip is left out of the measurement.
      - An oversized model attachment goes as a file path with the reason, as it did when it
-       couldn't be inlined.
+       couldn't be inlined. A turn's images share one 15 s fitting deadline; past it the rest
+       go as paths, so slow fits never hold a turn up.
 7. **Model attachments arrive within bounds.** An image attachment over an inline provider's
    remaining budget, or past the 8,000 px a side providers refuse, is fitted by ace-media (JPEG,
    at most 1,568 px a side, then smaller and coarser until it fits the remaining inline bytes)

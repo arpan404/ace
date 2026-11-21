@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, open } from "node:fs/promises";
 import type { ImageWork } from "@ace/media/images";
 import type { BlobLease } from "./blob-leases.ts";
-import { modelImageCopy, providerImageSide } from "./attachment-images.ts";
+import { modelImageCopy, modelImagesDeadlineMs, providerImageSide } from "./attachment-images.ts";
 import { providerImagePath } from "./attachment-bytes.ts";
 import { textEncoding, printableText } from "./file-kind.ts";
 import { ContextError, requireContext } from "./errors.ts";
@@ -35,8 +35,13 @@ async function prefix(path: string, length: number): Promise<Buffer> {
 export async function prepareFiles(
   blobs: BlobLease["blobs"],
   capabilities: ProjectionCapabilities,
-  images?: ImageWork,
+  /** ace-media's image work and the clock the turn's one fitting deadline is on. */
+  images?: { work: ImageWork; now: () => number },
 ): Promise<PreparedAttachment[]> {
+  const fitting = images && {
+    now: images.now,
+    deadlineAt: images.now() + modelImagesDeadlineMs,
+  };
   const result: PreparedAttachment[] = [];
   let nativeRemaining = capabilities.maxInlineBytes;
   let textRemaining = 64 * 1024;
@@ -90,7 +95,8 @@ export async function prepareFiles(
       capabilities.images.includes("image/jpeg") &&
       nativeRemaining > 0
     ) {
-      const copy = await modelImageCopy(images, blob.path, nativeRemaining);
+      const copy =
+        fitting && (await modelImageCopy(images.work, blob.path, nativeRemaining, fitting));
       if (copy) {
         attachment.base64 = copy.toString("base64");
         attachment.mimeType = "image/jpeg";

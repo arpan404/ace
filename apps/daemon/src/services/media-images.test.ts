@@ -2,7 +2,7 @@ import { ImageError } from "@ace/media/images";
 import type { MediaChild, MediaClock } from "@ace/media/supervisor";
 import { decodeToMedia, encodeControl, type FromMedia } from "@ace/media/wire";
 import { expect, test } from "vitest";
-import { createDaemonImages } from "./media-images.ts";
+import { createDaemonImages, imageWorkerEnv } from "./media-images.ts";
 
 /*
  * ADR 0201 §6: the daemon's image work is ace-media's image process on every OS. The media
@@ -103,4 +103,19 @@ test("without an ace-media binary every image job fails at once, saying so", asy
     "unavailable",
     expect.stringContaining("no ace-media binary"),
   ]);
+});
+
+test("the image worker sees none of the daemon's environment, only what its OS needs", () => {
+  const daemon = {
+    ANTHROPIC_API_KEY: "secret",
+    GITHUB_TOKEN: "secret",
+    HOME: "/home/me",
+    PATH: "/usr/bin",
+    ACE_HOME: "/home/me/.ace",
+    SystemRoot: "C:\\Windows",
+    TEMP: "C:\\Temp",
+  };
+  expect(imageWorkerEnv(daemon, "linux")).toEqual({});
+  expect(imageWorkerEnv(daemon, "darwin")).toEqual({});
+  expect(imageWorkerEnv(daemon, "win32")).toEqual({ SystemRoot: "C:\\Windows", TEMP: "C:\\Temp" });
 });

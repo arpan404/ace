@@ -42,14 +42,19 @@ export const modelImageSide = 1568;
 /** Past this a provider refuses an image outright. */
 export const providerImageSide = 8000;
 
+/** How long fitting a turn's images may take in all; past it the rest go as paths. */
+export const modelImagesDeadlineMs = 15_000;
+
 /**
  * A JPEG of the image within `budget` bytes and 1,568 px a side, for a provider whose inline
- * budget the original doesn't fit; undefined when no such copy can be made now.
+ * budget the original doesn't fit; undefined when no such copy can be made by `deadlineAt` (on
+ * `now`'s clock), which the turn's other images share.
  */
 export async function modelImageCopy(
   images: ImageWork,
   path: string,
   budget: number,
+  clock: { now: () => number; deadlineAt: number },
 ): Promise<Buffer | undefined> {
   // Smaller and coarser until it fits: the budget is the inline bound, not a quality target.
   for (const [side, quality] of [
@@ -57,6 +62,8 @@ export async function modelImageCopy(
     [1092, 70],
     [768, 60],
   ] as const) {
+    const left = clock.deadlineAt - clock.now();
+    if (left <= 0) return undefined;
     const copy = await images
       .run({
         inputs: [{ kind: "file", path, maxBytes: fileBound }],
@@ -68,7 +75,7 @@ export async function modelImageCopy(
           autoOrient: true,
           output: { format: "jpeg", quality, background: [255, 255, 255] },
         },
-        deadlineMs,
+        deadlineMs: left,
       })
       .catch((error: unknown) => {
         if (error instanceof ImageError) return undefined;

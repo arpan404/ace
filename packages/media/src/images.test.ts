@@ -22,11 +22,13 @@ function harness(start: { up: boolean; phase?: MediaPhase; reason?: string } = {
   const timers = new Set<{ at: number; run: () => void }>();
   let ids = 0;
   const images = new MediaImages({
-    send: (message) => {
+    send: (message, _payload, written) => {
       if (!state.up) return false;
       sent.push(message);
+      written?.();
       return true;
     },
+    withdraw: () => "written",
     require: () => {
       uses++;
       let released = false;
@@ -239,4 +241,106 @@ test("image bytes held past the bound are refused busy, and room comes back as j
   const again = h.images.run(big(1000));
   h.advance(1000);
   for (const job of [...rest, again]) expect((await failure(job)).reason).toBe("deadline");
+});
+
+/** ace-media up, with a lane whose writes the test finishes: frames wait, are written, or both. */
+function heldLane() {
+  type Frame = { message: ToMedia; state: "queued" | "writing" | "written"; written: () => void };
+  const frames: Frame[] = [];
+  let now = 0;
+  const timers = new Set<{ at: number; run: () => void }>();
+  let ids = 0;
+  const images = new MediaImages({
+    send: (message, _payload, written) => {
+      frames.push({ message, state: "queued", written: written ?? (() => {}) });
+      return true;
+    },
+    withdraw: (request) => {
+      const frame = frames.find(
+        (f) => f.message.type === "image.job" && f.message.request === request,
+      );
+      if (!frame) return "written";
+      if (frame.state === "queued") {
+        frames.splice(frames.indexOf(frame), 1);
+        return "dropped";
+      }
+      return frame.state === "writing" ? "pending" : "written";
+    },
+    require: () => () => {},
+    phase: () => ({ phase: "running" }),
+    clock: {
+      now: () => now,
+      setTimeout: (run, ms) => {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => timers.delete(timer);
+      },
+    },
+    nextId: () => `i${++ids}`,
+  });
+  const advance = (ms: number) => {
+    now += ms;
+    for (const timer of Array.from(timers))
+      if (timer.at <= now) {
+        timers.delete(timer);
+        timer.run();
+      }
+  };
+  /** The lane starts writing its next frame. */
+  const start = () => {
+    const frame = frames.find((f) => f.state === "queued");
+    if (frame) frame.state = "writing";
+  };
+  /** The frame being written is done. */
+  const finish = () => {
+    const frame = frames.find((f) => f.state === "writing");
+    if (!frame) return;
+    frame.state = "written";
+    frame.written();
+  };
+  const types = () => frames.map((f) => f.message.type);
+  return { images, frames, advance, start, finish, types };
+}
+
+test("a job settled before its frame is written is taken off the lane, its bytes freed and no cancel sent", async () => {
+  const h = heldLane();
+  const first = h.images.run(big(100));
+  h.advance(100);
+  expect((await failure(first)).reason).toBe("deadline");
+  expect(h.types()).toEqual([]);
+  // Its bytes are free: the cap takes as many big jobs as before.
+  const held = Math.floor(maxHeldImageBytes / maxImagePayload);
+  const rest = Array.from({ length: held }, () => h.images.run(big(1000)));
+  expect(h.types()).toHaveLength(held);
+  h.advance(1000);
+  for (const job of rest) await failure(job);
+});
+
+test("a frame partly written when its job settles stays charged until written, then is cancelled", async () => {
+  const h = heldLane();
+  const first = h.images.run(big(100));
+  h.start();
+  h.advance(100);
+  expect((await failure(first)).reason).toBe("deadline");
+  // Still on its way to ace-media: its bytes still count, and no cancel can overtake it.
+  const held = Math.floor(maxHeldImageBytes / maxImagePayload);
+  const others = Array.from({ length: held - 1 }, () => h.images.run(big(5000)));
+  expect((await failure(h.images.run(big(5000)))).reason).toBe("busy");
+  expect(h.types().filter((t) => t === "image.cancel")).toEqual([]);
+  h.finish();
+  expect(h.types().at(-1)).toBe("image.cancel");
+  const now = h.images.run(big(5000));
+  h.advance(5000);
+  for (const job of [...others, now]) expect((await failure(job)).reason).toBe("deadline");
+});
+
+test("a job that waited for ace-media carries only its remaining time, never a fresh deadline", async () => {
+  const h = harness({ up: false, phase: "starting" });
+  const result = h.images.run(probe(1000));
+  h.advance(400);
+  h.state.up = true;
+  h.images.ready();
+  expect(h.sent).toMatchObject([{ type: "image.job", deadlineMs: 600 }]);
+  h.advance(600);
+  expect((await failure(result)).reason).toBe("deadline");
 });
