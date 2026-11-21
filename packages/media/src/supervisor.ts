@@ -124,7 +124,17 @@ export class MediaSupervisor {
    * gate is closed this does nothing.
    */
   need(): () => void {
-    if (this.#disposed || !mediaWanted(this.#options.settings())) return () => {};
+    if (!mediaWanted(this.#options.settings())) return () => {};
+    return this.require();
+  }
+
+  /**
+   * Marks a use of ace-media that no media setting gates (a one-shot image job, ADR 0201) and
+   * starts it if needed. Otherwise as `need()`: returns the release, and 60 s after the last
+   * release ace-media is shut down.
+   */
+  require(): () => void {
+    if (this.#disposed) return () => {};
     this.#needs++;
     this.#idleTimer?.();
     this.#idleTimer = undefined;

@@ -1,0 +1,683 @@
+{
+  "cases": [
+    {
+      "name": "a JPEG's header gives its size",
+      "inputs": ["red-64x48.jpg"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 67108864
+      },
+      "done": {
+        "width": 64,
+        "height": 48,
+        "format": "none",
+        "source": {
+          "format": "jpeg",
+          "width": 64,
+          "height": 48,
+          "orientation": 1
+        }
+      }
+    },
+    {
+      "name": "an EXIF orientation is read from the header",
+      "inputs": ["exif-6.jpg"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 67108864
+      },
+      "done": {
+        "width": 30,
+        "height": 20,
+        "format": "none",
+        "source": {
+          "format": "jpeg",
+          "width": 30,
+          "height": 20,
+          "orientation": 6
+        }
+      }
+    },
+    {
+      "name": "auto-orient turns a JPEG upright before it is fitted",
+      "inputs": ["exif-6.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 100,
+        "height": 100,
+        "autoOrient": true,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 20,
+        "height": 30,
+        "format": "rgba",
+        "source": {
+          "format": "jpeg",
+          "width": 30,
+          "height": 20,
+          "orientation": 6
+        }
+      },
+      "pixels": [
+        [10, 2, [0, 0, 255, 255], 24],
+        [10, 27, [255, 255, 0, 255], 24]
+      ]
+    },
+    {
+      "name": "without auto-orient a JPEG keeps its stored layout",
+      "inputs": ["exif-6.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 100,
+        "height": 100,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 30,
+        "height": 20,
+        "format": "rgba"
+      },
+      "pixels": [
+        [2, 10, [0, 0, 255, 255], 24],
+        [27, 10, [255, 255, 0, 255], 24]
+      ]
+    },
+    {
+      "name": "a JPEG fits its box as JPEG",
+      "inputs": ["red-64x48.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "jpeg",
+          "quality": 80
+        }
+      },
+      "done": {
+        "width": 32,
+        "height": 24,
+        "format": "jpeg",
+        "source": {
+          "format": "jpeg",
+          "width": 64,
+          "height": 48,
+          "orientation": 1
+        }
+      },
+      "pixels": [[16, 12, [208, 32, 32, 255], 16]]
+    },
+    {
+      "name": "a progressive JPEG decodes",
+      "inputs": ["progressive-40x30.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 20,
+        "height": 20,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "done": {
+        "width": 20,
+        "height": 15,
+        "format": "png",
+        "source": {
+          "format": "jpeg",
+          "width": 40,
+          "height": 30,
+          "orientation": 1
+        }
+      }
+    },
+    {
+      "name": "a JPEG cut short is refused, never filled with grey",
+      "inputs": ["truncated.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "jpeg",
+          "quality": 80
+        }
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a JPEG cut short is refused by probe too",
+      "inputs": ["truncated.jpg"],
+      "op": {
+        "op": "probe",
+        "maxPixels": 67108864
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "an input over the job's pixel bound is refused before decode",
+      "inputs": ["red-64x48.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 1000,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "jpeg",
+          "quality": 80
+        }
+      },
+      "failed": "too-large"
+    },
+    {
+      "name": "a quality outside 1 to 100 is invalid",
+      "inputs": ["red-64x48.jpg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "jpeg",
+          "quality": 0
+        }
+      },
+      "failed": "invalid"
+    },
+    {
+      "name": "a PNG's alpha plane comes out byte for byte",
+      "inputs": ["alpha-32x32.png"],
+      "op": {
+        "op": "alpha",
+        "maxPixels": 4096
+      },
+      "done": {
+        "width": 32,
+        "height": 32,
+        "format": "alpha",
+        "source": {
+          "format": "png",
+          "width": 32,
+          "height": 32,
+          "orientation": 1
+        }
+      },
+      "alpha": [
+        [0, 0, 0],
+        [15, 31, 0],
+        [16, 0, 255],
+        [31, 31, 255]
+      ]
+    },
+    {
+      "name": "a PNG keeps its transparency when fitted",
+      "inputs": ["alpha-32x32.png"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 16,
+        "height": 16,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 16,
+        "height": 16,
+        "format": "rgba"
+      },
+      "pixels": [
+        [2, 8, [0, 0, 0, 0], 0],
+        [13, 8, [0, 192, 0, 255], 8]
+      ]
+    },
+    {
+      "name": "a 16-bit grey PNG decodes to 8-bit",
+      "inputs": ["gray16-16x16.png"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 16,
+        "height": 16,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 16,
+        "height": 16,
+        "format": "rgba",
+        "source": {
+          "format": "png",
+          "width": 16,
+          "height": 16,
+          "orientation": 1
+        }
+      },
+      "pixels": [
+        [8, 0, [0, 0, 0, 255], 8],
+        [8, 15, [255, 255, 255, 255], 8]
+      ]
+    },
+    {
+      "name": "a palette PNG decodes",
+      "inputs": ["palette-8x8.png"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 8,
+        "height": 8,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 8,
+        "height": 8,
+        "format": "rgba"
+      },
+      "pixels": [[4, 4, [255, 0, 255, 255], 0]]
+    },
+    {
+      "name": "a PNG cut short is refused",
+      "inputs": ["truncated.png"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 16,
+        "height": 16,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a lossless WebP decodes",
+      "inputs": ["lossless-24x24.webp"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 24,
+        "height": 24,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "done": {
+        "width": 24,
+        "height": 24,
+        "format": "png",
+        "source": {
+          "format": "webp",
+          "width": 24,
+          "height": 24,
+          "orientation": 1
+        }
+      }
+    },
+    {
+      "name": "a WebP keeps its alpha",
+      "inputs": ["alpha-24x24.webp"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 24,
+        "height": 24,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 24,
+        "height": 24,
+        "format": "rgba"
+      },
+      "pixels": [[12, 12, [255, 128, 0, 128], 16]]
+    },
+    {
+      "name": "a WebP cut short is refused",
+      "inputs": ["truncated.webp"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 24,
+        "height": 24,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "a GIF gives its first frame",
+      "inputs": ["two-frames-10x10.gif"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 10,
+        "height": 10,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 10,
+        "height": 10,
+        "format": "rgba",
+        "source": {
+          "format": "gif",
+          "width": 10,
+          "height": 10,
+          "orientation": 1
+        }
+      },
+      "pixels": [[5, 5, [255, 0, 0, 255], 0]]
+    },
+    {
+      "name": "a GIF cut short is refused",
+      "inputs": ["truncated.gif"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 10,
+        "height": 10,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "truncated"
+    },
+    {
+      "name": "an icon takes the entry closest to the box",
+      "inputs": ["icon.ico"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 32,
+        "height": 32,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 32,
+        "height": 32,
+        "format": "rgba",
+        "source": {
+          "format": "ico",
+          "width": 32,
+          "height": 32,
+          "orientation": 1
+        }
+      },
+      "pixels": [[16, 16, [255, 160, 0, 255], 0]]
+    },
+    {
+      "name": "an SVG is drawn at up to vectorScale pixels per unit",
+      "inputs": ["chrome-3x5.svg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 2400,
+        "height": 2400,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        },
+        "vectorScale": 3
+      },
+      "done": {
+        "width": 9,
+        "height": 15,
+        "format": "rgba",
+        "source": {
+          "format": "svg",
+          "width": 3,
+          "height": 5,
+          "orientation": 1
+        }
+      },
+      "pixels": [
+        [4, 7, [255, 255, 255, 255], 0],
+        [0, 0, [0, 0, 0, 0], 40]
+      ]
+    },
+    {
+      "name": "an SVG draws nothing from outside itself, no script and no text",
+      "inputs": ["outside.svg"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 8,
+        "height": 8,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 8,
+        "height": 8,
+        "format": "rgba",
+        "source": {
+          "format": "svg",
+          "width": 8,
+          "height": 8,
+          "orientation": 1
+        }
+      },
+      "pixels": [
+        [4, 4, [0, 0, 0, 0], 0],
+        [1, 7, [0, 0, 0, 0], 0]
+      ]
+    },
+    {
+      "name": "bytes that aren't an image are unsupported",
+      "inputs": ["text.txt"],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 8,
+        "height": 8,
+        "autoOrient": false,
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "unsupported"
+    },
+    {
+      "name": "raw RGBA comes in as pixels",
+      "inputs": [
+        {
+          "rgba": "square-2x2.rgba",
+          "width": 2,
+          "height": 2
+        }
+      ],
+      "op": {
+        "op": "fit",
+        "maxPixels": 67108864,
+        "width": 2,
+        "height": 2,
+        "autoOrient": false,
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 2,
+        "height": 2,
+        "format": "rgba",
+        "source": {
+          "format": "rgba",
+          "width": 2,
+          "height": 2,
+          "orientation": 1
+        }
+      },
+      "pixels": [
+        [0, 0, [255, 0, 0, 255], 0],
+        [1, 1, [0, 0, 0, 0], 0]
+      ]
+    },
+    {
+      "name": "a screenshot composited into its chrome keeps the mask",
+      "inputs": ["screen-20x40.png", "screen-mask-20x40.png", "chrome-28x48.png"],
+      "op": {
+        "op": "compose",
+        "width": 28,
+        "height": 48,
+        "background": [0, 0, 0, 0],
+        "maxPixels": 1048576,
+        "layers": [
+          {
+            "kind": "image",
+            "input": 0,
+            "left": 4,
+            "top": 4,
+            "width": 20,
+            "height": 40,
+            "fit": "fill",
+            "mask": 1
+          },
+          {
+            "kind": "image",
+            "input": 2,
+            "left": 0,
+            "top": 0,
+            "width": 28,
+            "height": 48,
+            "fit": "fill"
+          }
+        ],
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 28,
+        "height": 48,
+        "format": "rgba"
+      },
+      "pixels": [
+        [14, 24, [0, 0, 255, 255], 0],
+        [4, 4, [0, 0, 0, 0], 0],
+        [23, 43, [0, 0, 0, 0], 0],
+        [1, 1, [48, 48, 48, 255], 0]
+      ]
+    },
+    {
+      "name": "contain letterboxes a layer over the background, and text is drawn",
+      "inputs": ["red-64x48.jpg"],
+      "op": {
+        "op": "compose",
+        "width": 40,
+        "height": 20,
+        "background": [24, 24, 24, 255],
+        "maxPixels": 1048576,
+        "layers": [
+          {
+            "kind": "image",
+            "input": 0,
+            "left": 0,
+            "top": 0,
+            "width": 20,
+            "height": 20,
+            "fit": "contain"
+          },
+          {
+            "kind": "text",
+            "text": "-",
+            "left": 22,
+            "top": 2,
+            "size": 8,
+            "color": [255, 255, 255, 255]
+          }
+        ],
+        "output": {
+          "format": "rgba"
+        }
+      },
+      "done": {
+        "width": 40,
+        "height": 20,
+        "format": "rgba"
+      },
+      "pixels": [
+        [10, 0, [24, 24, 24, 255], 0],
+        [10, 10, [208, 32, 32, 255], 16],
+        [22, 5, [255, 255, 255, 255], 0],
+        [22, 4, [24, 24, 24, 255], 0]
+      ]
+    },
+    {
+      "name": "a layer naming a missing input is invalid",
+      "inputs": [],
+      "op": {
+        "op": "compose",
+        "width": 4,
+        "height": 4,
+        "background": [0, 0, 0, 0],
+        "maxPixels": 16,
+        "layers": [
+          {
+            "kind": "image",
+            "input": 3,
+            "left": 0,
+            "top": 0,
+            "width": 4,
+            "height": 4,
+            "fit": "fill"
+          }
+        ],
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "invalid"
+    },
+    {
+      "name": "a canvas over the pixel bound is refused",
+      "inputs": [],
+      "op": {
+        "op": "compose",
+        "width": 400,
+        "height": 400,
+        "background": [0, 0, 0, 0],
+        "maxPixels": 1000,
+        "layers": [],
+        "output": {
+          "format": "png"
+        }
+      },
+      "failed": "too-large"
+    }
+  ]
+}

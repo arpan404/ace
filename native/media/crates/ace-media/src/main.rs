@@ -12,6 +12,8 @@ fn main() {
             let _ = writeln!(io::stdout().lock(), "{VERSION}");
             return;
         }
+        // One image job, stdin to stdout (ADR 0201): no runtime, no sockets, no secrets.
+        Some("--image") => std::process::exit(ace_media::image_cli::run()),
         // The start probe on its own, for `ace doctor`: one JSON line, then exit.
         Some("--probe") => {
             let args: Vec<String> = std::env::args().skip(2).collect();

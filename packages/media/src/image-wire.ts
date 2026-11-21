@@ -33,6 +33,8 @@ export const ImageOutput = z.discriminatedUnion("format", [
     background: z.tuple([byte, byte, byte]).optional(),
   }),
   z.strictObject({ format: z.literal("png") }),
+  /** Straight RGBA, 4 bytes a pixel. */
+  z.strictObject({ format: z.literal("rgba") }),
 ]);
 export type ImageOutput = z.infer<typeof ImageOutput>;
 
@@ -124,7 +126,7 @@ export const ImageFromMedia = [
     request: id,
     width: u32,
     height: u32,
-    format: z.enum(["jpeg", "png", "alpha", "none"]),
+    format: z.enum(["jpeg", "png", "alpha", "rgba", "none"]),
     source: SourceImage,
   }),
   z.strictObject({

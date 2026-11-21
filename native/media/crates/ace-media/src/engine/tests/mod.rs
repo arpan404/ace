@@ -3,6 +3,7 @@
 mod delivery;
 mod egress;
 mod grants;
+mod images;
 mod pictures;
 mod relay_streams;
 mod sources;

@@ -62,6 +62,9 @@ pub enum ImageOutput {
     /// 8-bit RGBA PNG (RGB when every pixel is opaque).
     #[serde(rename = "png")]
     Png,
+    /// Straight RGBA, 4 bytes a pixel: pixels for a caller that reads them (tests, skins).
+    #[serde(rename = "rgba")]
+    Rgba,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,6 +194,8 @@ pub enum DoneFormat {
     Png,
     #[serde(rename = "alpha")]
     Alpha,
+    #[serde(rename = "rgba")]
+    Rgba,
     /// `probe`: no payload.
     #[serde(rename = "none")]
     None,

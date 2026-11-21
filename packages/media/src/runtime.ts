@@ -4,6 +4,7 @@ import { pictureCodecs, pictureEncoders } from "./picture-codecs.ts";
 import { RouteWatch } from "./route-watch.ts";
 import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
 import { IngestSources } from "./ingest-sources.ts";
+import { MediaImages } from "./images.ts";
 import { MediaConnections, MediaIssue } from "./media-connections.ts";
 import { MediaViewers, type MediaDeliveryPort } from "./media-viewers.ts";
 import { SessionLinks, pumpSessionLinks } from "./session-link.ts";
@@ -53,6 +54,8 @@ export class MediaRuntime {
   readonly #stopLinks: () => void;
   /** What ace-media runs on: its probe's list and each source's steps. */
   readonly acceleration: MediaAccelerationStore;
+  /** One-shot image jobs (ADR 0201): they start ace-media whatever the media settings. */
+  readonly images: MediaImages;
 
   readonly #encoders: readonly string[];
 
@@ -65,6 +68,7 @@ export class MediaRuntime {
       replay: () => {
         this.routes.update();
         this.sources.replay();
+        this.images.ready();
       },
       onMessage: (message, payload) => {
         this.acceleration.message(message);
@@ -72,6 +76,7 @@ export class MediaRuntime {
         this.connections.received(message);
         this.viewers.received(message, payload);
         this.links.received(message);
+        this.images.message(message, payload);
         options.onMessage?.(message, payload);
       },
       onEgress: (frame) => this.egress.push(frame),
@@ -82,9 +87,20 @@ export class MediaRuntime {
         this.viewers.exited();
         this.links.restarted();
         this.acceleration.exited();
+        this.images.exited();
         this.routes.update();
         options.onExit?.(exit);
       },
+    });
+    this.images = new MediaImages({
+      send: (message, payload) => this.supervisor.send(message, payload),
+      require: () => this.supervisor.require(),
+      phase: () => {
+        const snapshot = this.supervisor.snapshot();
+        return { phase: snapshot.phase, reason: snapshot.unavailableReason };
+      },
+      clock: options.clock,
+      nextId: options.id,
     });
     this.routes = new RouteWatch({
       settings: options.settings,

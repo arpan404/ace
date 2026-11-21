@@ -40,6 +40,8 @@ pub struct Outputs<'a> {
     pub media: &'a mut Outboxes,
     /// ace-media's monotonic milliseconds, for when encoder threads were closed.
     pub now_ms: u64,
+    /// One-shot image jobs (ADR 0201).
+    pub images: &'a crate::images::ImageThreads,
 }
 
 fn sequence(value: u64) -> Sequence {
@@ -195,6 +197,10 @@ fn apply_once(
                     MediaOut::Text(text) => outputs.media.text(&connection, text),
                     MediaOut::Close(code) => outputs.media.close(&connection, code),
                 }
+                Ok(())
+            }
+            Effect::Image(work) => {
+                outputs.images.submit(work);
                 Ok(())
             }
             Effect::Fatal(reason) => Err(reason),

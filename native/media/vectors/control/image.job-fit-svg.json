@@ -12,7 +12,7 @@
       "height": 2400,
       "autoOrient": true,
       "vectorScale": 2.5,
-      "output": { "format": "png" }
+      "output": { "format": "rgba" }
     }
   }
 }

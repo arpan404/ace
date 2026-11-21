@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="8" height="8"><script>alert(1)</script><image href="/etc/passwd" width="8" height="8"/><image xlink:href="file:///tmp/x.png" width="8" height="8"/><text x="0" y="8">hi</text></svg>
