@@ -23,6 +23,11 @@ async function opened(threadId: string, seed: Fact[]) {
   await until(() => lease.store.thread !== undefined, "thread snapshot");
   return { daemon, client, store: lease.store };
 }
+/** A subagent fact with the role its parent gave it. */
+function withRole(fact: Fact, role: string): Fact {
+  if (fact.type !== "agent.seen") throw new Error("not an agent fact");
+  return { ...fact, role };
+}
 function sheet(sink: RecordingSink): AgentSheet {
   const patch = sink.read("thread:agents");
   expect(patch?.type).toBe("agents.sheet");
@@ -382,11 +387,11 @@ describe("Agents sheet", () => {
     const { store } = await opened("roles", [
       facts.rootAgent("codex"),
       facts.turn("root"),
-      {
-        ...facts.subagent("codex", "fix", "Fix-2132-restart-rows-shimmer", "spawn-fix"),
-        role: "Fix-2132-restart-rows-shimmer",
-      },
-      { ...facts.subagent("codex", "rev", "Check insets", "spawn-rev"), role: "reviewer" },
+      withRole(
+        facts.subagent("codex", "fix", "Fix-2132-restart-rows-shimmer", "spawn-fix"),
+        "Fix-2132-restart-rows-shimmer",
+      ),
+      withRole(facts.subagent("codex", "rev", "Check insets", "spawn-rev"), "reviewer"),
     ]);
     const sink = new RecordingSink();
     followAgents(store, "roles", 1, sink, plainPreview);
