@@ -242,9 +242,9 @@ const suites = [
   "surfaces/manifests",
   "code/manifests",
   "package/checks",
-].map((file) => {
-  const url = new URL(`../../../spade/spec/conformance/${file}.json`, import.meta.url);
-  return [file, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
+].map((part) => {
+  const url = new URL(`../../../spade/spec/conformance/${part}.json`, import.meta.url);
+  return [part, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
 });
 
 describe.each(suites)("the conformance suite's %s manifests", (_part, suite) => {
