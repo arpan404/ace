@@ -639,3 +639,97 @@ test("a view refused at the viewer limit asks again when another view closes, an
     [true, undefined],
   ]);
 });
+
+/** Viewers over two streaming tabs, counting what goes to ace-media. */
+async function limitHarness() {
+  const h = harness();
+  let views = 0;
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => [
+      { producer: producer("t1"), path: "source-1" },
+      { producer: producer("t2"), path: "source-2" },
+      { producer: producer("t3"), path: "source-3" },
+    ],
+    send: (message) => {
+      h.sent.push({ message, payload: new Uint8Array(0) });
+      return true;
+    },
+    id: () => `${++views}`,
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const bind = (threadId: string) =>
+    viewers.bind({
+      requester: phone("a"),
+      connection: grant.connection,
+      target: { kind: "browser", threadId },
+      codecs: ["avc1.42E033"],
+      viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+      local: true,
+      audio: false,
+      shows: (p) => p.threadId === threadId,
+    }) ?? "";
+  const none = new Uint8Array(0);
+  return {
+    viewers,
+    bind,
+    opens: (viewer: string) =>
+      h.sent.filter(({ message }) => message.type === "viewer.open" && message.viewer === viewer)
+        .length,
+    plays: (viewer: string) =>
+      viewers.received({ type: "viewer.playing", viewer, playing: true }, none),
+    refuse: (viewer: string) =>
+      viewers.received(
+        { type: "grant.refused", kind: "viewer.open", id: viewer, reason: "limit" },
+        none,
+      ),
+  };
+}
+
+test("a view refused before a close ace-media then took asks again, though the close came first here", async () => {
+  const m = await limitHarness();
+  const playing = m.bind("t1");
+  m.plays(playing);
+  // At the limit: ace-media refuses B's open, then takes A's close. The daemon closes A before
+  // it reads B's refusal, so B still looked pending when A's slot freed.
+  const refused = m.bind("t2");
+  m.viewers.unbind(playing);
+  expect(m.opens(refused)).toBe(1);
+  m.refuse(refused);
+  // The slot A freed is B's: it asks again at once and plays.
+  expect(m.opens(refused)).toBe(2);
+  m.plays(refused);
+  expect(m.viewers.granted(refused)).toBe(true);
+});
+
+test("a refusal with no slot freed since its open waits for the next close", async () => {
+  const m = await limitHarness();
+  const playing = m.bind("t1");
+  m.plays(playing);
+  const refused = m.bind("t2");
+  m.refuse(refused);
+  expect(m.opens(refused)).toBe(1);
+  m.viewers.unbind(playing);
+  expect(m.opens(refused)).toBe(2);
+});
+
+test("a freed slot never reopens a view a newer subscribe of its target replaced, unless that one is undone", async () => {
+  const m = await limitHarness();
+  const other = m.bind("t3");
+  m.plays(other);
+  // The old view of t1 was refused at the limit; a resubscribe binds a new one, which plays.
+  const old = m.bind("t1");
+  m.refuse(old);
+  const newer = m.bind("t1");
+  m.plays(newer);
+  // A slot frees: reopening the old view would retire the newer one in ace-media (one view per
+  // connection and target), so it stays closed.
+  m.viewers.unbind(other);
+  expect(m.opens(old)).toBe(1);
+  expect(m.viewers.granted(newer)).toBe(true);
+  // The resubscribe is undone: the old view is the subscription's again, and asks again.
+  m.viewers.unbind(newer);
+  expect(m.opens(old)).toBe(2);
+});

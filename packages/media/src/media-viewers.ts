@@ -76,6 +76,8 @@ type Held = {
   why: string | undefined;
   /** The client hid the view (`viewer.pause`): ace-media stopping it then is the pause. */
   paused: boolean;
+  /** `MediaViewers.#closed` when its last `viewer.open` went: closes after it may be its slot. */
+  opened: number;
 };
 type Waiting = { done: (answer: MediaPosterBytes | "wait" | "gone") => void; cancel: () => void };
 /** Still failures that mean the source has no picture yet: worth asking again. */
@@ -85,6 +87,8 @@ export class MediaViewers {
   readonly #options: MediaViewersOptions;
   readonly #held = new Map<string, Held>();
   readonly #posters = new Map<string, Waiting>();
+  /** Granted views closed in ace-media so far (a close, a connection gone): slots freed. */
+  #closed = 0;
 
   constructor(options: MediaViewersOptions) {
     this.#options = options;
@@ -105,6 +109,7 @@ export class MediaViewers {
       admitted: false,
       why: undefined,
       paused: false,
+      opened: 0,
     };
     this.#held.set(intent.viewer, held);
     const live = this.#options.live().find((entry) => intent.shows(entry.producer));
@@ -142,6 +147,7 @@ export class MediaViewers {
       audio: intent.audio,
       ...(intent.link ? { link: intent.link } : {}),
     });
+    held.opened = this.#closed;
     this.#path(held, granted ? path : undefined);
   }
 
@@ -164,21 +170,48 @@ export class MediaViewers {
   }
 
   /**
-   * A grant went in ace-media (a view closed, or its connection did): as many views it refused
-   * at the viewer limit as slots freed ask again, oldest first.
+   * Granted views went in ace-media (a view closed, or its connection did): as many views it
+   * refused at the viewer limit as slots freed ask again, oldest first. A view whose open is
+   * still unanswered is skipped: its refusal, if it comes, sees the close and asks again itself.
    */
   #freed(slots: number): void {
+    this.#closed += slots;
     for (const held of this.#held.values()) {
       if (slots <= 0) return;
-      if (held.path !== undefined || held.why !== "limit") continue;
-      const live = this.#options.live().find((entry) => held.intent.shows(entry.producer));
-      if (!live) continue;
-      slots--;
-      const refused = held.why;
-      this.#grant(held, live.path, live.producer);
-      // Asked again, still refused until ace-media says otherwise: the subscriber keeps the why.
-      held.why = refused;
+      if (held.path === undefined && held.why === "limit" && this.#retry(held)) slots--;
     }
+  }
+
+  /**
+   * Opens a view ace-media refused at its limit again, keeping the refusal as its why until it
+   * plays. Not one a newer bind of its connection and target replaced: ace-media holds one view
+   * per connection and target, so reopening it would retire the newer one's stream. False when
+   * it didn't ask.
+   */
+  #retry(held: Held): boolean {
+    if (this.#superseded(held)) return false;
+    const live = this.#options.live().find((entry) => held.intent.shows(entry.producer));
+    if (!live) return false;
+    const refused = held.why;
+    this.#grant(held, live.path, live.producer);
+    held.why = refused;
+    return true;
+  }
+
+  /** Whether a newer view of the held one's connection and target replaced it (a resubscribe). */
+  #superseded(held: Held): boolean {
+    const target = JSON.stringify(held.intent.target);
+    let newer = false;
+    for (const other of this.#held.values()) {
+      if (other === held) newer = true;
+      else if (
+        newer &&
+        other.intent.connection === held.intent.connection &&
+        JSON.stringify(other.intent.target) === target
+      )
+        return true;
+    }
+    return false;
   }
 
   configure(viewer: string, viewport: ViewViewport, audio: boolean): void {
@@ -299,6 +332,9 @@ export class MediaViewers {
       if (!held) return;
       held.path = undefined;
       this.#admit(held, false, message.reason);
+      // A slot freed after the open went: ace-media refused it before taking that close, and
+      // the close found this view still unanswered. The slot is its own: it asks again now.
+      if (message.reason === "limit" && this.#closed > held.opened) this.#retry(held);
     } else if (message.type === "connection.closed") {
       let slots = 0;
       for (const [viewer, held] of this.#held)
