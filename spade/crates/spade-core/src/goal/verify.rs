@@ -323,6 +323,21 @@ fn arguments_of(events: &[Event], id: &str) -> String {
         .unwrap_or_default()
 }
 
+/// How many times the check says "not yet" to a verified routine's goal before its run fails:
+/// the first, then two retries (ADR 0204 §3).
+pub const MOST_ROUTINE_NOT_YET: usize = 3;
+
+/// The open goal a verified routine's run opened, once its check said "not yet"
+/// [`MOST_ROUTINE_NOT_YET`] times: the event that ends it as failed, so the run never reads done.
+/// `None` for any other goal, which keeps ADR 0159's rules.
+pub fn gave_up(events: &[Event]) -> Option<Known> {
+    let task = Task::fold(events).filter(|t| t.goal.closed.is_none())?;
+    (task.goal.run.is_some() && task.not_yet >= MOST_ROUTINE_NOT_YET).then(|| Known::GoalCleared {
+        goal: task.goal.id,
+        failed: true,
+    })
+}
+
 /// The check said "not yet" to the bot's latest claim: the task reads as working again.
 pub fn sent_back(events: &[Event]) -> bool {
     Task::fold(events).is_some_and(|t| sent_back_in(&t))

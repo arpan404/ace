@@ -47,6 +47,7 @@ fn app_call(tool: Mcp) -> Call<'static> {
         ceiling: None,
         command: None,
         destructive: asks_each_call(tool),
+        org: None,
     }
 }
 

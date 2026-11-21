@@ -1,0 +1,344 @@
+{
+  "license": "Apache-2.0",
+  "part": "package",
+  "about": "The rule subset a `schema` check is written in (ADR 0204 §3): the contract subset's keywords plus `pattern`, with `type` and the bounds left optional, since a rule only narrows a value the contract's own schema already bounds. Spade's reader (spade_core::quality::rule) and the marketplace's (readCheckRule in @ace/marketplace) both run every case. Each case's `check` is the rule read. A case with `rule` expects it refused, with a problem naming that rule (`rules.json`), whatever its words. Otherwise each value in `fits` holds, and each entry of `misfits` doesn't, at the place `at` names (the value checked as `output`). `id` names the case in reports and never changes.",
+  "cases": [
+    {
+      "id": "package/rule-required-link-over-https",
+      "name": "a link that must be there and start with https://",
+      "check": {
+        "required": ["link"],
+        "properties": {
+          "link": {
+            "pattern": "^https://"
+          }
+        }
+      },
+      "fits": [
+        {
+          "fare": 182,
+          "link": "https://fares.example/ktm-del"
+        }
+      ],
+      "misfits": [
+        {
+          "value": {
+            "fare": 182
+          },
+          "at": "output.link"
+        },
+        {
+          "value": {
+            "fare": 182,
+            "link": "http://fares.example"
+          },
+          "at": "output.link"
+        },
+        {
+          "value": {
+            "link": 7
+          },
+          "at": "output.link"
+        },
+        {
+          "value": "https://x",
+          "at": "output"
+        }
+      ]
+    },
+    {
+      "id": "package/rule-narrowed-numbers-and-lists",
+      "name": "numbers and lists narrowed further",
+      "check": {
+        "properties": {
+          "fare": {
+            "minimum": 1,
+            "maximum": 5000
+          },
+          "seen": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "fits": [
+        {
+          "fare": 182,
+          "seen": [1, 2.0]
+        },
+        {}
+      ],
+      "misfits": [
+        {
+          "value": {
+            "fare": 0
+          },
+          "at": "output.fare"
+        },
+        {
+          "value": {
+            "seen": []
+          },
+          "at": "output.seen"
+        },
+        {
+          "value": {
+            "seen": [1.5]
+          },
+          "at": "output.seen[0]"
+        }
+      ]
+    },
+    {
+      "id": "package/rule-words-and-lengths",
+      "name": "words from a list, and lengths",
+      "check": {
+        "properties": {
+          "cabin": {
+            "enum": ["economy", "business"]
+          },
+          "route": {
+            "minLength": 7,
+            "maxLength": 7
+          }
+        }
+      },
+      "fits": [
+        {
+          "cabin": "economy",
+          "route": "KTM-DEL"
+        }
+      ],
+      "misfits": [
+        {
+          "value": {
+            "cabin": "first"
+          },
+          "at": "output.cabin"
+        },
+        {
+          "value": {
+            "route": "KTM"
+          },
+          "at": "output.route"
+        }
+      ]
+    },
+    {
+      "id": "package/rule-classes-groups-and-counts",
+      "name": "a pattern with classes, groups, alternation and counts",
+      "check": {
+        "properties": {
+          "code": {
+            "pattern": "^([A-Z]{3}-[A-Z]{3}|none)$"
+          },
+          "date": {
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          },
+          "dotted": {
+            "pattern": "^a.b\\.c$"
+          }
+        }
+      },
+      "fits": [
+        {
+          "code": "KTM-DEL",
+          "date": "2027-01-04",
+          "dotted": "a\nb.c"
+        },
+        {
+          "code": "none"
+        }
+      ],
+      "misfits": [
+        {
+          "value": {
+            "code": "ktm-del"
+          },
+          "at": "output.code"
+        },
+        {
+          "value": {
+            "date": "4 Jan"
+          },
+          "at": "output.date"
+        },
+        {
+          "value": {
+            "dotted": "axbxc"
+          },
+          "at": "output.dotted"
+        }
+      ]
+    },
+    {
+      "id": "package/rule-refuses-unknown-keyword",
+      "name": "a keyword outside the subset",
+      "rule": "check-rule.keyword",
+      "check": {
+        "properties": {
+          "link": {
+            "format": "uri"
+          }
+        }
+      }
+    },
+    {
+      "id": "package/rule-refuses-ref",
+      "name": "a reference to another schema",
+      "rule": "check-rule.keyword",
+      "check": {
+        "$ref": "#/defs/fare"
+      }
+    },
+    {
+      "id": "package/rule-refuses-mixed-keywords",
+      "name": "keywords of two types in one rule",
+      "rule": "check-rule.mixed",
+      "check": {
+        "minimum": 1,
+        "maxLength": 3
+      }
+    },
+    {
+      "id": "package/rule-refuses-keyword-of-another-type",
+      "name": "a keyword its type doesn't take",
+      "rule": "check-rule.type",
+      "check": {
+        "type": "string",
+        "minimum": 1
+      }
+    },
+    {
+      "id": "package/rule-refuses-shorthand-class",
+      "name": "a shorthand class like \\d",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "^\\d+$"
+      }
+    },
+    {
+      "id": "package/rule-refuses-lookaround",
+      "name": "a look-ahead group",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "^(?=https)"
+      }
+    },
+    {
+      "id": "package/rule-refuses-nested-class",
+      "name": "a [ inside a class",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "[[:alpha:]]"
+      }
+    },
+    {
+      "id": "package/rule-refuses-class-set-operation",
+      "name": "&& inside a class",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "[a-z&&x]"
+      }
+    },
+    {
+      "id": "package/rule-refuses-double-dash-in-class",
+      "name": "-- inside a class",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "[a--z]"
+      }
+    },
+    {
+      "id": "package/rule-refuses-empty-class",
+      "name": "an empty class",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "[]a]"
+      }
+    },
+    {
+      "id": "package/rule-refuses-lone-bracket",
+      "name": "an unescaped ] outside a class",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "a]"
+      }
+    },
+    {
+      "id": "package/rule-refuses-lone-brace",
+      "name": "a { that isn't a count",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "a{x}"
+      }
+    },
+    {
+      "id": "package/rule-refuses-big-count",
+      "name": "a count over 1,000",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "a{1001}"
+      }
+    },
+    {
+      "id": "package/rule-refuses-unclosed-class",
+      "name": "a class never closed",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "[a-z"
+      }
+    },
+    {
+      "id": "package/rule-refuses-long-pattern",
+      "name": "a pattern over 200 characters",
+      "rule": "check-rule.pattern",
+      "check": {
+        "pattern": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "package/rule-refuses-deep-rule",
+      "name": "a rule seven levels deep",
+      "rule": "check-rule.depth",
+      "check": {
+        "properties": {
+          "a": {
+            "properties": {
+              "b": {
+                "properties": {
+                  "c": {
+                    "properties": {
+                      "d": {
+                        "properties": {
+                          "e": {
+                            "properties": {
+                              "f": {
+                                "minimum": 0
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "package/rule-refuses-required-not-names",
+      "name": "required that isn't a list of names",
+      "rule": "check-rule.required",
+      "check": {
+        "required": "link"
+      }
+    }
+  ]
+}

@@ -265,6 +265,9 @@ export async function fakeSpade() {
     asks_more: ["publish"],
     off: [],
   };
+  /** What a free replay of a bot's kept runs answers (ADR 0204 §2); none kept by default. */
+  let replay: unknown = { summary: "No kept runs to replay.", passed: 0, failed: 0, cases: [] };
+  const replayCalls: { bot: string; body: unknown }[] = [];
   const token = "spade-test-token";
   const server = createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`)
@@ -325,6 +328,11 @@ export async function fakeSpade() {
         deleted ? { ok: true } : { error: "no such agent" },
       );
     }
+    const replayed = /^\/v1\/agents\/([^/]+)\/cases\/replay$/.exec(url.pathname);
+    if (replayed?.[1] && request.method === "POST") {
+      replayCalls.push({ bot: decodeURIComponent(replayed[1]), body });
+      return send(response, 200, { replay });
+    }
     // A linked bot's package (ADR 0200): the plan it answers, each update and each withdrawal.
     const linked = /^\/v1\/agents\/([^/]+)\/package(\/plan|\/withdrawn)?$/.exec(url.pathname);
     if (linked?.[1]) {
@@ -374,6 +382,11 @@ export async function fakeSpade() {
     },
     setPlan(plan: unknown) {
       packagePlan = plan;
+    },
+    /** The replays asked for, in order, and what the next answers. */
+    replayCalls,
+    setReplay(next: unknown) {
+      replay = next;
     },
     connection: () => (running ? { host: "127.0.0.1", port, token } : undefined),
     /** Spade's version as it reports it; undefined before it has answered. */

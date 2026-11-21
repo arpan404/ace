@@ -11,6 +11,7 @@ import {
 } from "@ace/protocol/marketplace";
 import type { Refusal, RuleId } from "./rules.ts";
 import { surfaceProblems } from "./surfaces.ts";
+import { checkProblems, declaredCards, declaredContracts, verifyProblems } from "./checks.ts";
 import { codeProblems } from "./code.ts";
 
 /*
@@ -70,6 +71,7 @@ const known = new Set([
   "pricing",
   "surfaces",
   "contracts",
+  "checks",
   "code",
   ...identity,
   ...executions,
@@ -211,8 +213,10 @@ function issues(error: z.ZodError): MarketProblem[] {
     .filter(
       (issue) =>
         !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")) &&
-        // `surfaceProblems` says what's wrong with a surface, in Spade's words.
-        issue.path[0] !== "surfaces",
+        // `surfaceProblems` and `checkProblems` say what's wrong, in Spade's words.
+        issue.path[0] !== "surfaces" &&
+        issue.path[0] !== "checks" &&
+        !(issue.path[0] === "triggers" && issue.path[2] === "verify"),
     )
     .slice(0, 20)
     .map((issue) =>
@@ -302,6 +306,13 @@ export function readPackage(
       );
   }
   for (const found of surfaceProblems(json["surfaces"])) problems.push(fromRefusal(found));
+  // What a result is held to before it counts as done (ADR 0204 §3).
+  const places = {
+    contracts: declaredContracts(json["contracts"]),
+    cards: declaredCards(json["surfaces"]),
+  };
+  for (const found of checkProblems(json["checks"], places)) problems.push(fromRefusal(found));
+  for (const found of verifyProblems(json["triggers"])) problems.push(fromRefusal(found));
   if (json["uses"] !== undefined && !Array.isArray(json["uses"]))
     problems.push(problem("package.uses", "uses lists runtime modules"));
   const effects: unknown[] = Array.isArray(json["effects"]) ? json["effects"] : [];

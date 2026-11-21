@@ -1,6 +1,7 @@
 import type { WithdrawalTarget } from "@ace/marketplace";
 import type { ScanContext } from "@ace/marketplace/scan";
 import type {
+  MarketBotReplay,
   MarketBotUpdate,
   MarketKeySet,
   MarketPublisher,
@@ -25,7 +26,7 @@ import { reauthSentence } from "./fresh-sign-in.ts";
 import { buildReview, reviewPage, type PreparedEntry, type PreparedReview } from "./review.ts";
 import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
 import { bytesJson, packageAsksMore } from "./package-diff.ts";
-import { checkFiles } from "@ace/marketplace/checks";
+import { checkFiles, panelPageTexts } from "@ace/marketplace/checks";
 import { badgesOf, type Trust } from "./trust.ts";
 
 /*
@@ -35,6 +36,8 @@ import { badgesOf, type Trust } from "./trust.ts";
  */
 
 const reviewLifetimeMs = 30 * 60_000;
+/** The longest an update review waits on the free replay of the bot's kept runs. */
+const replayBoundMs = 20_000;
 const maxPending = 32;
 
 interface Pending {
@@ -236,7 +239,43 @@ export class OpenReviews {
       : undefined;
     const asksMore =
       before?.type === "spade-bot" ? packageAsksMore(before.recipe, next.recipe) : [];
-    return { bot: moving.bot, rollback: moving.rollback, plan, asksMore };
+    const replay = await this.#replay(moving.bot, manifest, review);
+    return {
+      bot: moving.bot,
+      rollback: moving.rollback,
+      plan,
+      asksMore,
+      ...(replay ? { replay } : {}),
+    };
+  }
+
+  /**
+   * The bot's kept runs replayed free on the review's version (ADR 0204 §2), within a bound: a
+   * replay that fails or takes too long leaves the review without its line, never holds it up.
+   */
+  async #replay(
+    bot: string,
+    manifest: unknown,
+    review: PreparedReview,
+  ): Promise<MarketBotReplay | undefined> {
+    const replay = this.#ports.spade.replayUpdate;
+    if (!replay) return undefined;
+    const next = review.checked.inspection;
+    const surfaces = next?.type === "spade-bot" ? next.recipe.surfaces : undefined;
+    const pages = panelPageTexts(surfaces, review.checked.files);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>((done) => {
+      timer = setTimeout(() => done(undefined), replayBoundMs);
+    });
+    try {
+      const replayed = await Promise.race([
+        replay.call(this.#ports.spade, bot, manifest, pages).catch(() => undefined),
+        late,
+      ]);
+      return replayed && replayed.cases.length > 0 ? replayed : undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** What the device's scan compares against: every listed entry, the signed lists. */

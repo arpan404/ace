@@ -282,6 +282,8 @@ const RecipeRoutine = z.strictObject({
   instruction: trimmedText(1, 4000),
   /** A phrase or cron expression Spade's routines read (`weekdays at 8:00`). */
   schedule: trimmedText(1, 200),
+  /** A package's schedule trigger: each run opens a goal and ends in the check of done (ADR 0204 §3). */
+  verify: z.boolean().optional(),
 });
 
 /** How a Spade bot talks: its tone, and humour and emoji (both off unless chosen). */

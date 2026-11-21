@@ -51,16 +51,33 @@ impl Engine {
         arguments: &Value,
         declared: Option<Effect>,
     ) -> Granted {
+        self.granting(conversation, tool, arguments, declared)
+            .map_or(Granted::No, |(granted, _)| granted)
+    }
+
+    /// [`Engine::granted`], with the grant that covers the call: for a shared bot's audit
+    /// entry, which names it and who made it (ADR 0206 §4.1).
+    pub(crate) fn granting(
+        &self,
+        conversation: &str,
+        tool: &str,
+        arguments: &Value,
+        declared: Option<Effect>,
+    ) -> Option<(Granted, spade_core::grant::Grant)> {
         let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
-            return Granted::No;
+            return None;
         };
         let grants = security.effective_grants(&agent);
+        let covering = |action: &Action<'_>| {
+            grants
+                .iter()
+                .find(|grant| spade_core::grant::allowed(std::slice::from_ref(*grant), action))
+                .cloned()
+        };
         let text = |name: &str| arguments.get(name).and_then(Value::as_str).unwrap_or("");
         // Pushes and comments are matched by their canonical destination, host included.
         if matches!(tool, effect::GIT_PUSH | effect::PR_COMMENT) {
-            let Ok(repo) = spade_core::outward::canonical_repo(text("repo")) else {
-                return Granted::No;
-            };
+            let repo = spade_core::outward::canonical_repo(text("repo")).ok()?;
             let action = if tool == effect::GIT_PUSH {
                 Action::GitPush {
                     repo: &repo,
@@ -72,22 +89,14 @@ impl Engine {
                     own: false,
                 }
             };
-            return if spade_core::grant::allowed(&grants, &action) {
-                Granted::Typed
-            } else {
-                Granted::No
-            };
+            return covering(&action).map(|grant| (Granted::Typed, grant));
         }
         // A generic grant covers only a tool that declares what it does, and never one that
         // could pay, send, drive a page or app, change access or read secrets.
         if effect::never_granted(declared).is_some() {
-            return Granted::No;
+            return None;
         }
-        if spade_core::grant::allowed(&grants, &Action::Tool { tool, arguments }) {
-            Granted::Tool
-        } else {
-            Granted::No
-        }
+        covering(&Action::Tool { tool, arguments }).map(|grant| (Granted::Tool, grant))
     }
 
     /// Records what the gate authorized for the call `key`, for its launch: where it may start,

@@ -172,7 +172,7 @@ it("a demotion while WorkOS is still answering never yields a grant with the rol
   await events();
   const box = await api.machine(worker.db, owner.id, await signIn(owner, "machine"));
   expect(
-    (await api.call(ownerToken, "POST", `/v1/orgs/${org}/hosts`, { hostId: box.hostId })).status,
+    (await api.enroll(ownerToken, org, box, await api.consent(box, org, owner.id))).status,
   ).toBe(201);
   const miaToken = await signIn(mia);
 

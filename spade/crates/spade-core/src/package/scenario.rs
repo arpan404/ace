@@ -30,6 +30,9 @@ use serde_json::Value;
 
 use crate::effect::Effect;
 
+/// The id a run gives a scenario's contract call, which its scripted `contract_return` names.
+pub const CALL: &str = "cc.scenario";
+
 /// Most model steps a scenario scripts.
 pub const MOST_STEPS: usize = 64;
 /// Most tool calls in one step.

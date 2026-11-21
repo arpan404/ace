@@ -422,9 +422,6 @@
     display: grid;
     gap: 2px;
   }
-  .mk-fact-row .mk-app-mark {
-    --size: 32px;
-  }
   .mk-publisher-mini {
     display: flex;
     gap: 12px;

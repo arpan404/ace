@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PackagePlan } from "@ace/protocol/marketplace";
+import { MarketBotReplay, PackagePlan } from "@ace/protocol/marketplace";
 import type { SpadeConnection } from "../spade/forward.ts";
 import { spadeRequest } from "../spade/forward.ts";
 import type { MadeBot, PackageInput, SpadePort } from "./install.ts";
@@ -99,6 +99,7 @@ async function spadeCallStatus(
 }
 
 const Planned = z.object({ plan: PackagePlan });
+const Replayed = z.object({ replay: MarketBotReplay });
 
 /**
  * A version 3 package's part of `POST /v1/agents`: `bot.json` as published, read by Spade's own
@@ -169,6 +170,11 @@ export function spadePort(
     async planUpdate(bot, manifest) {
       const path = `/v1/agents/${encodeURIComponent(bot)}/package/plan`;
       return Planned.parse(await spadeCall(live(), "POST", path, { recipe: manifest })).plan;
+    },
+    async replayUpdate(bot, manifest, pages) {
+      const path = `/v1/agents/${encodeURIComponent(bot)}/cases/replay`;
+      const body = { recipe: manifest, ...(Object.keys(pages).length > 0 ? { pages } : {}) };
+      return Replayed.parse(await spadeCall(live(), "POST", path, body)).replay;
     },
     async updateBot(bot, input) {
       const answer = await spadeCallStatus(

@@ -14,7 +14,7 @@ pub struct Suite {
 }
 
 /// The manifest cases, by part: each a base manifest with a case's fields merged over it.
-pub const MANIFESTS: [Suite; 5] = [
+pub const MANIFESTS: [Suite; 6] = [
     Suite {
         part: "package",
         file: "package/manifests.json",
@@ -40,7 +40,19 @@ pub const MANIFESTS: [Suite; 5] = [
         file: "code/manifests.json",
         text: include_str!("../../../../spec/conformance/code/manifests.json"),
     },
+    Suite {
+        part: "package",
+        file: "package/checks.json",
+        text: include_str!("../../../../spec/conformance/package/checks.json"),
+    },
 ];
+
+/// The rule subset a `schema` check is written in (ADR 0204 §3).
+pub const RULES: Suite = Suite {
+    part: "package",
+    file: "package/check-rules.json",
+    text: include_str!("../../../../spec/conformance/package/check-rules.json"),
+};
 
 /// The bounded schema subset's cases.
 pub const SCHEMAS: Suite = Suite {

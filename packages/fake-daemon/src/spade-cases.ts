@@ -26,6 +26,19 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
 export class FakeSpadeCases {
   /** Every kept case, `{summary, case}` as Spade answers, by agent. */
   readonly kept = new Map<string, Json[]>();
+  /**
+   * Why a kept run doesn't replay the same on the version a replay names (ADR 0204 §2), by case
+   * id: a world or a test sets it; every other kept run replays the same.
+   */
+  readonly differs = new Map<string, string>();
+  /** What a model replay would cost, about, for `GET …/cases/replay?model=`. */
+  replayCost = {
+    model: "openrouter/openai/gpt-6.1-mini",
+    model_name: "GPT-6.1 mini",
+    micros: 4_000,
+  };
+  /** Every replay asked for, `{agent, body}`, in order. */
+  readonly replays: Json[] = [];
   private readonly deps: FakeSpadeCaseDeps;
   private next = 1;
 
@@ -87,11 +100,62 @@ export class FakeSpadeCases {
     return kept;
   }
 
-  /** `/v1/agents/{id}/cases[/preview | /{case}]`. */
+  /** `{replay}` for `agent`'s latest 20 kept runs, as Spade judges them. */
+  private replay(agent: string, body: Json): Json {
+    this.replays.push({ agent, body });
+    const kept = (this.kept.get(agent) ?? []).slice(0, 20);
+    const model = typeof body.model === "string";
+    const cases = kept.map((each) => {
+      const summary = each.summary as Json;
+      const why = this.differs.get(text(summary.id));
+      return {
+        id: summary.id,
+        given: summary.given || "A kept run",
+        ...(summary.mark ? { mark: summary.mark } : {}),
+        passed: why === undefined,
+        lines: why === undefined ? [] : [why],
+        outside: 0,
+      };
+    });
+    const passed = cases.filter((each) => each.passed).length;
+    const failed = cases.length - passed;
+    const runs = (n: number) => (n === 1 ? "kept run" : "kept runs");
+    const [same, worse] = model ? ["the same or better", "worse"] : ["replay the same", "don't"];
+    const summary =
+      cases.length === 0
+        ? "No kept runs to replay."
+        : failed === 0
+          ? `${cases.length === 1 ? "The" : "All"} ${cases.length} ${runs(cases.length)} ${model ? same : cases.length === 1 ? "replays the same" : same}.`
+          : `${passed} of ${cases.length} ${runs(cases.length)} ${same}. ${failed} ${failed === 1 && !model ? "doesn't" : worse}: see why.`;
+    return {
+      replay: {
+        mode: model ? "model" : "wiring",
+        ...(model ? { model: this.replayCost.model } : {}),
+        cases,
+        passed,
+        failed,
+        outside: 0,
+        summary,
+      },
+    };
+  }
+
+  /** `/v1/agents/{id}/cases[/preview | /replay | /{case}]`. */
   route(method: string, agent: string, sub: string | undefined, body: Json): FakeSpadeAnswer {
     const conversation = this.deps.conversationOf(agent);
     if (!conversation) return problem(404, "no such agent");
     const kept = this.kept.get(agent) ?? [];
+    if (sub === "replay" && method === "POST") return reply(this.replay(agent, body));
+    if (sub === "replay" && method === "GET")
+      return reply({
+        estimate: {
+          model: this.replayCost.model,
+          model_name: this.replayCost.model_name,
+          cases: Math.min(kept.length, 20),
+          cost_micros: this.replayCost.micros * Math.min(kept.length, 20),
+          priced: true,
+        },
+      });
     if (method === "GET" && sub === undefined)
       return reply({ cases: kept.map((each) => each.summary) });
     if (method === "POST" && (sub === undefined || sub === "preview")) {
