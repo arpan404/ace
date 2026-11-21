@@ -41,6 +41,7 @@ import { useExplorerFollows, useRevealRows, type RevealTarget } from "./file-tre
 import { useInlineRename } from "./file-tree-rename.tsx";
 import { draftKey, rowsWithDraft, useInlineCreate } from "./file-tree-create.ts";
 import { useFolderTree } from "./use-folder-tree.ts";
+import { useLineCounts } from "./use-line-counts.ts";
 import { useTreeCommands, type OpenHow, type TreeCommands } from "./tree-commands.ts";
 import { entryOf, onRowKey as onKeyFor, type RowKeyContext } from "./tree-row-keys.ts";
 import { useTreeDrag } from "./use-tree-drag.ts";
@@ -108,6 +109,7 @@ export function FileTree(props: {
     [props.expanded, follows, currentPath],
   );
   const tree = useFolderTree({ threadId: props.threadId, expanded: opened, paused: searching });
+  const lineCounts = useLineCounts(props.threadId);
   // New file and New folder are named in a field at the top of their folder.
   const revealLater = useRef<(target: RevealTarget) => void>(() => {});
   const create = useInlineCreate({
@@ -319,6 +321,7 @@ export function FileTree(props: {
           disabled={!online}
           onOperation={commands.operation}
           onUpload={props.onUpload}
+          onCollapseAll={() => commands.collapseBelow("")}
           onFirstRow={() => (searching ? moveMatch(1) : focusRow(navigable[0]?.key))}
           onPrevious={() => searching && moveMatch(-1)}
           matches={
@@ -396,6 +399,7 @@ export function FileTree(props: {
                         : undefined
                   }
                   mark={props.marks?.get(row.key)}
+                  counts={lineCounts.get(row.key)}
                 />
               )}
             />

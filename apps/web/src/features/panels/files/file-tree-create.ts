@@ -93,7 +93,8 @@ export function useInlineCreate(inputs: {
       const start = draft.folder ? draft.folder.split("/").length + 1 : 1;
       for (let depth = start; depth < parts.length; depth++) {
         const folder = parts.slice(0, depth).join("/");
-        if (!(await exists(folder))) await mutations.run({ op: "mkdir", path: folder, expected: null });
+        if (!(await exists(folder)))
+          await mutations.run({ op: "mkdir", path: folder, expected: null });
       }
       await mutations.run(
         draft.kind === "file"

@@ -58,7 +58,9 @@ async function create(panel: HTMLElement, label: "New file" | "New folder", path
   await userEvent.click(await screen.findByRole("menuitem", { name: label }));
   const field = await within(panel).findByRole("textbox", { name: `${label} name` });
   await userEvent.type(field, `${path}{Enter}`);
-  await waitFor(() => expect(within(panel).queryByRole("textbox", { name: `${label} name` })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole("textbox", { name: `${label} name` })).toBeNull(),
+  );
 }
 async function bytes(app: ReturnType<typeof harness>, path: string) {
   const chunks: Uint8Array<ArrayBuffer>[] = [];

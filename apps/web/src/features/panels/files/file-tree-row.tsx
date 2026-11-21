@@ -2,6 +2,7 @@ import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
 import type { FolderRow } from "@ace/ui-core";
 import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import type { ProviderKind } from "@ace/protocol";
+import { DiffStat } from "@/components/diff-stat.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
@@ -12,6 +13,7 @@ import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 import type { TreeDrag } from "./use-tree-drag.ts";
 import { MiddleName } from "./middle-name.tsx";
+import type { LineCounts } from "./use-line-counts.ts";
 import { RenameField, type RowField } from "./file-tree-rename.tsx";
 
 const rowClass =
@@ -70,12 +72,21 @@ export interface FileTreeRowViewProps {
   renaming?: RowField | undefined;
   /** The agent's mark, as the file's tab carries it. */
   mark?: RowMark | undefined;
+  /** A file's lines added and removed since the checkout's HEAD; folders carry none. */
+  counts?: LineCounts | undefined;
 }
 
-function rowDescription(cut: boolean, mark: RowMark | undefined): string | undefined {
-  const changed = mark && `Changed by ${mark.name} · ${mark.age}`;
-  if (cut) return changed ? `Cut. ${changed}` : "Cut";
-  return changed;
+function rowDescription(
+  cut: boolean,
+  mark: RowMark | undefined,
+  counts: LineCounts | undefined,
+): string | undefined {
+  const parts = [
+    cut && "Cut",
+    mark && `Changed by ${mark.name} · ${mark.age}`,
+    counts && `${counts.additions} added, ${counts.deletions} removed since the last commit`,
+  ].filter((part) => typeof part === "string");
+  return parts.length ? parts.join(". ") : undefined;
 }
 
 /** One row of the lazy checkout tree: an entry, or a folder's Loading, error or Show more line. */
@@ -182,7 +193,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-expanded={folder ? row.expanded : undefined}
         aria-busy={folder && row.busy ? true : undefined}
         aria-selected={props.selected}
-        aria-description={rowDescription(props.cut, props.mark)}
+        aria-description={rowDescription(props.cut, props.mark, folder ? undefined : props.counts)}
         tabIndex={props.focusable ? 0 : -1}
         title={
           props.mark ? `${row.key}, changed by ${props.mark.name} · ${props.mark.age}` : row.key
@@ -228,6 +239,11 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           className="text-subtle-foreground"
         />
         <MiddleName text={row.name} offset={0} positions={noPositions} />
+        {props.counts && !folder && (
+          <span aria-hidden data-part="line-counts" className="ml-auto shrink-0 pl-1.5">
+            <DiffStat {...props.counts} />
+          </span>
+        )}
         {props.mark && (
           <span
             aria-hidden

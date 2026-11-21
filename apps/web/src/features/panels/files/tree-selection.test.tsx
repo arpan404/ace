@@ -1,4 +1,4 @@
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { threadId } from "./tree-test-queries.ts";

@@ -14,6 +14,7 @@ export function FileMenu(props: {
   disabled: boolean;
   onOperation(operation: FileOperationDialog): void;
   onUpload(): void;
+  onCollapseAll(): void;
 }) {
   const folder = cleanPath(props.folder);
   return (
@@ -41,6 +42,7 @@ export function FileMenu(props: {
         </MenuItem>
         <MenuItem onClick={props.onUpload}>Upload files…</MenuItem>
         <MenuSeparator />
+        <MenuItem onClick={props.onCollapseAll}>Collapse all folders</MenuItem>
         <MenuItem onClick={() => props.onOperation({ kind: "archive", path: "" })}>
           Download folder…
         </MenuItem>

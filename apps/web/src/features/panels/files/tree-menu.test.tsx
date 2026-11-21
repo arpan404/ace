@@ -101,7 +101,9 @@ test("the tree's empty space acts on the checkout's root", async () => {
   const field = await screen.findByRole("textbox", { name: "New folder name" });
   expect(field.closest("[role='treeitem']")?.getAttribute("aria-level")).toBe("1");
   await userEvent.type(field, "{Escape}");
-  await waitFor(() => expect(screen.queryByRole("textbox", { name: "New folder name" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("textbox", { name: "New folder name" })).toBeNull(),
+  );
   await userEvent.pointer({ target: empty, keys: "[MouseRight]" });
   const menu = await screen.findByRole("menu");
   expect(within(menu).queryByRole("menuitem", { name: /^Rename/ })).toBeNull();
@@ -124,3 +126,20 @@ test("Reveal shows the file in the machine's file manager when ace runs on this 
     ]),
   );
 });
+
+test("the explorer's ⋯ folds every open folder", async () => {
+  const { tree } = await renderTree();
+  await expand(tree, ["apps/", "apps/web/", "apps/web/src/"]);
+  const panel = tree.closest("section");
+  if (!panel) throw new Error("no panel");
+  await userEvent.click(within(panel).getByRole("button", { name: "Manage files" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Collapse all folders" }));
+  await waitFor(() => expect(listedRow(tree, "apps/").getAttribute("aria-expanded")).toBe("false"));
+  expect(tree.querySelector('[data-path="apps/web/"]')).toBeNull();
+});
+
+const listedRow = (tree: HTMLElement, path: string) => {
+  const found = tree.querySelector<HTMLElement>(`[data-path="${path}"]`);
+  if (!found) throw new Error(`${path} is not listed`);
+  return found;
+};

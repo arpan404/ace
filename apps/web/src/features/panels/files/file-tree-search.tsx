@@ -15,6 +15,7 @@ export function FileTreeSearch(props: {
   disabled: boolean;
   onOperation(operation: FileOperationDialog): void;
   onUpload(files: readonly File[], folder: string): void;
+  onCollapseAll(): void;
   /** ↓: the tree's first row, or while filtering the next match. */
   onFirstRow(): void;
   /** ↑ while filtering: the previous match. */
@@ -77,6 +78,7 @@ export function FileTreeSearch(props: {
         disabled={props.disabled}
         onOperation={props.onOperation}
         onUpload={() => upload.current?.click()}
+        onCollapseAll={props.onCollapseAll}
       />
       <input
         ref={upload}

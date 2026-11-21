@@ -108,7 +108,8 @@ export function RenameField(props: {
       if (!field) return;
       if (document.activeElement !== field) field.focus();
       // Letters typed before this frame stay where they went.
-      if (field.value === props.name) field.setSelectionRange(0, nameStem(props.name, props.folder));
+      if (field.value === props.name)
+        field.setSelectionRange(0, nameStem(props.name, props.folder));
     });
     return () => cancelAnimationFrame(frame);
   }, [props.name, props.folder]);

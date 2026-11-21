@@ -70,8 +70,11 @@ test("a folder with more than one entry, or a page still to come, doesn't chain"
     "": listed(dir("apps")),
     "apps/": { ...listed(dir("apps/web")), nextCursor: "1" },
   };
-  expect(shown(compactFolderRows(paged, chainedOpenFolders(paged, new Set(["apps/"])))))
-    .toEqual(["apps ▾", "  web", "    Show more"]);
+  expect(shown(compactFolderRows(paged, chainedOpenFolders(paged, new Set(["apps/"]))))).toEqual([
+    "apps ▾",
+    "  web",
+    "    Show more",
+  ]);
 });
 
 test("the root's only folder starts a chain but isn't opened by it", () => {

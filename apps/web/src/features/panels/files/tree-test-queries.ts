@@ -14,9 +14,7 @@ export const threadId = ThreadId.parse("thread-cold-start");
  */
 export function row(tree: HTMLElement, path: string) {
   return waitFor(() => {
-    const found = tree.querySelector<HTMLElement>(
-      `[data-path="${path}"], [data-chain~="${path}"]`,
-    );
+    const found = tree.querySelector<HTMLElement>(`[data-path="${path}"], [data-chain~="${path}"]`);
     if (!found) throw new Error(`${path} is not listed yet`);
     return found;
   });
