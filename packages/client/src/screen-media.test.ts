@@ -145,6 +145,7 @@ describe("screen pictures by the media connection", () => {
         media: { connection: "mc_aaaaaaaaaa" },
         codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
         mediaClient: true,
+        deliveryStatus: true,
       },
     ]);
     media.deliver({
@@ -193,7 +194,9 @@ describe("screen pictures by the media connection", () => {
     const media = fakeRoute(undefined);
     client.useMedia(media.route);
     client.retainStream("app");
-    expect(subscribes(sent)).toEqual([{ op: "subscribe", sessionId: "app", mediaClient: true }]);
+    expect(subscribes(sent)).toEqual([
+      { op: "subscribe", sessionId: "app", mediaClient: true, deliveryStatus: true },
+    ]);
     for (const piece of picture(4, "avc1.42E033")) server(piece);
     await flush();
     // Only ace-media delivers live pictures (X3): one on the channel is no delivery's.
@@ -239,6 +242,7 @@ describe("screen pictures by the media connection", () => {
         media: { connection: "mc_aaaaaaaaaa" },
         codecs: ["avc1.42E033"],
         mediaClient: true,
+        deliveryStatus: true,
       },
     ]);
     // A reconnect keeps the other session on HEVC and this one on H.264.

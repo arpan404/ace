@@ -3336,6 +3336,7 @@ Example:
 | video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
 | mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 
 Example:
 

@@ -782,3 +782,19 @@ it("an older client is told to update in the device's error, which it already sh
   await m.request("current", { op: "subscribe", deviceId, mediaClient: true });
   expect(errorIn("current")).toBeUndefined();
 });
+
+it("a device's delivery status goes only to a subscriber that asked for it", async () => {
+  const m = await mediaChannel([], { granted: () => false, sourceState: () => "pending" });
+  const statuses = () => m.sent.filter((message) => message.type === "devices.delivery");
+  // A client of before `deliveryStatus`: its decoder would close on an unknown message type.
+  await m.subscribe("older", "mc_aaaaaaaaaaaa");
+  expect(statuses()).toEqual([]);
+  await m.request("current", {
+    op: "subscribe",
+    deviceId,
+    media: { connection: "mc_aaaaaaaaaaaa" },
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  expect(statuses().at(-1)).toMatchObject({ deviceId, undelivered: { code: "starting" } });
+});

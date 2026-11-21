@@ -183,7 +183,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    */
   begin(source: string): {
     generation: number;
-    fields: { media?: MediaBinding; codecs?: string[]; mediaClient: true };
+    fields: { media?: MediaBinding; codecs?: string[]; mediaClient: true; deliveryStatus: true };
   } {
     const binding = this.#route?.binding();
     const codecs = this.codecs(source);
@@ -204,13 +204,15 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     });
     this.#emit(source);
     // Every subscribe says this client takes pictures only from a media connection.
-    if (!binding || !asked) return { generation, fields: { mediaClient: true } };
+    if (!binding || !asked)
+      return { generation, fields: { mediaClient: true, deliveryStatus: true } };
     return {
       generation,
       fields: {
         media: binding,
         ...(codecs.length ? { codecs: codecs.slice(0, 8) } : {}),
         mediaClient: true,
+        deliveryStatus: true,
       },
     };
   }

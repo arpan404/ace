@@ -6444,12 +6444,14 @@ Example:
 | video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
 | mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 
 Example:
 
 ```json
 {
   "binaryFrames": true,
+  "deliveryStatus": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe",
@@ -14295,15 +14297,14 @@ Example:
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
 | mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
 
 ```json
 {
-  "codecs": [
-    "l0pS6coFS"
-  ],
+  "deliveryStatus": true,
   "deviceId": "ios:847934C2AAd66-3Ad42C43dA78B2b1E71f14",
   "media": {
     "connection": "mc_8jVj2aFIOlmo0nRRlGfFS"
@@ -39795,6 +39796,7 @@ Example:
 | link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | media | no | [MediaBinding.json](schema/MediaBinding.json) |  |
 | mediaClient | no | `true` |  |
+| deliveryStatus | no | `true` |  |
 | codecs | no | [MediaCodecs.json](schema/MediaCodecs.json) |  |
 
 Example:
@@ -39802,8 +39804,9 @@ Example:
 ```json
 {
   "codecs": [
-    "0Ri0"
+    "Ri0.M.TtvS"
   ],
+  "deliveryStatus": true,
   "media": {
     "connection": "mc_2otTIQbL4ydth2_lWmeZlAWc-pCdPxIK9vQr36"
   },

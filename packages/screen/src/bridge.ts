@@ -57,6 +57,7 @@ export function screenConnection(
     if (!watch) return;
     subscriptions.delete(sessionId);
     old.delete(sessionId);
+    status.delete(sessionId);
     watch.release();
     if (watch.media) peer.delivery?.port()?.unbind(watch.media.viewer);
   };
@@ -64,6 +65,8 @@ export function screenConnection(
   let pending = 0;
   /** Sessions this connection watches from a client older than X3 (no `mediaClient`). */
   const old = new Set<string>();
+  /** Sessions whose subscriber reads `screen.delivery` (`deliveryStatus`): only they get one. */
+  const status = new Set<string>();
   /**
    * A session's state as this connection sees it: with what its video runs on and, for an older
    * client, why its view is empty in the field it already shows (`error`).
@@ -126,7 +129,8 @@ export function screenConnection(
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
   const delivered = (sessionId: string, granted: boolean) => {
-    if (closed) return;
+    // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
+    if (closed || !status.has(sessionId)) return;
     const port = peer.delivery?.port();
     const undelivered = granted
       ? undefined
@@ -262,6 +266,8 @@ export function screenConnection(
             const swap = viewSwap(peer.delivery?.port(), previous?.media, media);
             if (operation.mediaClient === true) old.delete(sessionId);
             else old.add(sessionId);
+            if (operation.deliveryStatus === true) status.add(sessionId);
+            else status.delete(sessionId);
             let stop: (() => void) | undefined;
             let state: ScreenState;
             try {

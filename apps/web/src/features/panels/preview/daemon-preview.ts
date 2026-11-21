@@ -443,6 +443,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
           ...(binding ? { media: binding } : {}),
           mediaClient: true,
+          deliveryStatus: true,
         },
         binding ? { timeoutMs: lateReplyMs } : undefined,
       );

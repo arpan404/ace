@@ -126,7 +126,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
   const tellDelivery = (deviceId: string, granted: boolean) => {
-    if (closed) return;
+    // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
+    if (closed || !status.has(deviceId)) return;
     const port = peer.delivery?.port();
     const kinds = port?.sourceKinds(showsDevice(deviceId)) ?? [];
     const undelivered = granted
@@ -164,6 +165,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
   };
   /** Devices this connection watches from a client older than X3 (no `mediaClient`). */
   const old = new Set<string>();
+  /** Devices whose subscriber reads `devices.delivery` (`deliveryStatus`): only they get one. */
+  const status = new Set<string>();
   /**
    * A device's state as this connection sees it; for an older client, with why its view is
    * empty in the field it already shows (`error`), unless the device has a failure of its own.
@@ -297,6 +300,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               try {
                 if (operation.mediaClient === true) old.delete(deviceId);
                 else old.add(deviceId);
+                if (operation.deliveryStatus === true) status.add(deviceId);
+                else status.delete(deviceId);
                 const connection = operation.media?.connection;
                 const viewer =
                   connection === undefined ? undefined : bindMedia(deviceId, connection, operation);
@@ -354,6 +359,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
           } else if (operation.op === "unsubscribe") {
             const deviceId = operation.deviceId;
             old.delete(deviceId);
+            status.delete(deviceId);
             await queue.run(deviceId, "unsubscribe", async () => streams.remove(deviceId));
           }
           if (operation.op === "logs.start") {

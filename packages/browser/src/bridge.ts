@@ -113,6 +113,8 @@ export function connectBrowser(
     media: Map<string, string>;
     /** Subscribers from clients older than X3 (no `mediaClient`): no picture will reach them. */
     old: Set<string>;
+    /** Subscribers that read `browser.delivery` (`deliveryStatus`): only they are sent one. */
+    status: Set<string>;
     /**
      * The one view ace-media holds per media connection for this thread: a client can't tell two
      * views of one thread apart, so its subscribers there share it (fanned out client-side).
@@ -210,7 +212,8 @@ export function connectBrowser(
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
   const delivered = (threadId: string, granted: boolean) => {
-    if (closed) return;
+    // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
+    if (closed || !subscriptions.get(threadId)?.status.size) return;
     const port = options.media?.delivery();
     const kind = service.videoKind(threadId);
     const undelivered = granted
@@ -468,6 +471,7 @@ export function connectBrowser(
               subscribers: new Set(existing.subscribers),
               media: new Map(existing.media),
               old: new Set(existing.old),
+              status: new Set(existing.status),
               views: new Map(existing.views),
               video: existing.video,
               shown: existing.shown,
@@ -499,6 +503,8 @@ export function connectBrowser(
               const join = (entry: Subscription) => {
                 if (message.mediaClient === true) entry.old.delete(subscriber);
                 else entry.old.add(subscriber);
+                if (message.deliveryStatus === true) entry.status.add(subscriber);
+                else entry.status.delete(subscriber);
                 if (!joined || !message.media) return;
                 entry.media.set(subscriber, message.media.connection);
                 entry.views.set(message.media.connection, joined.viewer);
@@ -522,6 +528,7 @@ export function connectBrowser(
                   video,
                   media: new Map(),
                   old: new Set(),
+                  status: new Set(),
                   views: new Map(),
                   shown: capture,
                 };
@@ -590,6 +597,7 @@ export function connectBrowser(
             retire(entry, subscriber);
             entry?.subscribers.delete(subscriber);
             entry?.old.delete(subscriber);
+            entry?.status.delete(subscriber);
             // Who is left decides again whether ace-media delivers this view.
             if (entry?.subscribers.size && entry.shown)
               service.configureCapture(

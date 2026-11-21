@@ -244,7 +244,11 @@ test("a bound view whose tab isn't streaming yet is told so, and told again when
         "type" in message &&
         message.type === "browser.delivery",
     );
-  await client.handle({ ...subscribe(a, "mc_aaaaaaaaaaaa"), mediaClient: true });
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
   expect(results).toContainEqual(
     expect.objectContaining({ type: "browser.result", media: { connection: "mc_aaaaaaaaaaaa" } }),
   );
@@ -256,5 +260,34 @@ test("a bound view whose tab isn't streaming yet is told so, and told again when
   // It stops again (its ingest refused): told why once more.
   intent?.onGrant?.(false);
   expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+  client.close();
+});
+
+test("a subscriber that didn't ask for delivery status never gets one: an older decoder would close", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  const client = connectBrowser(t.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: {
+      owner: () => owner,
+      delivery: () => ({ ...d.port, granted: () => false, sourceState: () => "pending" }),
+    },
+  });
+  // A client of before this change: it names a media connection, but not `deliveryStatus`.
+  await client.handle({ ...subscribe(a, "mc_aaaaaaaaaaaa"), mediaClient: true });
+  const [intent] = d.views.values();
+  intent?.onGrant?.(true);
+  intent?.onGrant?.(false);
+  const types = results.map((message) =>
+    typeof message === "object" && message !== null && "type" in message ? message.type : "",
+  );
+  expect(types).toContain("browser.result");
+  expect(types).not.toContain("browser.delivery");
   client.close();
 });

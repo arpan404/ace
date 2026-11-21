@@ -170,6 +170,11 @@ export const ScreenOperation = z.discriminatedUnion("op", [
      * views are told, in fields it already shows, to update.
      */
     mediaClient: z.literal(true).optional(),
+    /**
+     * This client reads `*.delivery` pushes: whether its bound view gets pictures now. Absent,
+     * none is sent: an older client's decoder would refuse a message type it doesn't know.
+     */
+    deliveryStatus: z.literal(true).optional(),
     /** The viewer's decoders, best first (WebCodecs strings); with `media`, ace-media encodes for them. */
     codecs: MediaCodecs.optional(),
   }),

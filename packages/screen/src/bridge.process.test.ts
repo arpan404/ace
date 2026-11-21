@@ -270,3 +270,35 @@ it("a resubscribe on the same media connection that fails keeps delivering on th
   expect(d.live.size).toBe(0);
   expect(d.views.size).toBe(0);
 });
+
+it("a session's delivery status goes only to a subscriber that asked for it", async () => {
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const messages: ScreenServerMessage[] = [];
+  const delivery = fakeDelivery();
+  const port = { ...delivery.port, granted: () => false, sourceState: () => "pending" as const };
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: (message) => messages.push(message),
+    delivery: { owner: () => phoneOwner, port: () => port },
+  });
+  cleanups.push(async () => connection.close());
+  const subscribe = (requestId: string, deliveryStatus: boolean) =>
+    connection.request({
+      type: "screen.request",
+      requestId,
+      operation: {
+        op: "subscribe",
+        sessionId: state.sessionId,
+        media: { connection: "mc_phoneconnection1" },
+        mediaClient: true,
+        ...(deliveryStatus ? { deliveryStatus: true } : {}),
+      },
+    });
+  const statuses = () => messages.filter((message) => message.type === "screen.delivery");
+  // A client of before `deliveryStatus`: its decoder would close on an unknown message type.
+  await subscribe("older", false);
+  expect(statuses()).toEqual([]);
+  await subscribe("current", true);
+  expect(statuses().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+});
