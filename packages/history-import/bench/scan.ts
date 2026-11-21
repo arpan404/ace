@@ -23,8 +23,9 @@ import { DatabaseSync } from "node:sqlite";
 import { databaseFixture } from "./database-fixture.ts";
 import { scaleFixture } from "./scale-fixture.ts";
 
-const binary = findHistoryBinary();
-if (!binary) throw new Error("Build native/history first (cargo build --release)");
+const found = findHistoryBinary();
+if (!found) throw new Error("Build native/history first (cargo build --release)");
+const binary: string = found;
 
 /** Peak resident memory of this process's children, the readers, while `run` runs. */
 async function measured<T>(
