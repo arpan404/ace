@@ -104,6 +104,8 @@ function makeRuntime(exits: MediaExit[] = []) {
     runtimeDir,
     dataDir: runtimeDir,
     host: nodeMediaHost(process.env),
+    // As the daemon does: which hardware encoders ace-media builds here (VideoToolbox on a Mac).
+    platform: process.platform,
     clock: systemMediaClock,
     random: Math.random,
     randomBytes: (n) => new Uint8Array(randomBytes(n)),
