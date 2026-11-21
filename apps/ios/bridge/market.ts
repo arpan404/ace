@@ -12,6 +12,7 @@ import {
 } from "./market-home.ts";
 import { installedAnswer } from "./market-installed.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
+import { HeldReviews, type HeldRefusal } from "./market-review-held.ts";
 import type { MarketWords } from "./market-rows.ts";
 
 /*
@@ -130,6 +131,18 @@ export function refusalAnswer(code: string, step: MarketStep) {
   };
 }
 
+/** An install the bridge kept back (`HeldReviews`): the daemon's sentence where it has one. */
+function heldRefusal(refusal: HeldRefusal) {
+  if (!refusal.message) return refusalAnswer(refusal.code, "install");
+  return {
+    ok: false as const,
+    offline: false,
+    code: refusal.code,
+    message: refusal.message,
+    way: null,
+  };
+}
+
 const offlineWrite = {
   ok: false as const,
   offline: true,
@@ -140,7 +153,12 @@ const offlineWrite = {
 const offlineRead = { ...offlineWrite, message: "Your machine is offline." };
 
 /** The daemon's result as the phone's answer, or undefined when it answered something else. */
-function shaped(op: V1Op, result: MarketResult, words: MarketWords): object | undefined {
+function shaped(
+  operation: MarketOperation,
+  result: MarketResult,
+  words: MarketWords,
+): object | undefined {
+  const op = operation.op;
   switch (result.op) {
     case "discover":
       return op === "discover" ? discoverAnswer(result) : undefined;
@@ -161,7 +179,7 @@ function shaped(op: V1Op, result: MarketResult, words: MarketWords): object | un
     case "review":
       return op.startsWith("prepare") ? reviewAnswer(result) : undefined;
     case "reviewPage":
-      return op === "readReview" ? reviewPageAnswer(result) : undefined;
+      return operation.op === "readReview" ? reviewPageAnswer(result, operation.offset) : undefined;
     case "installed":
       return op === "installed" ? installedAnswer(result) : undefined;
     case "done":
@@ -183,15 +201,22 @@ export class NativeMarket {
   readonly #now: () => number;
   /** Each kept read's last answer, by its operation. */
   readonly #last = new Map<string, object>();
+  /** The reviews open on the machine, which Install is checked against before it is sent. */
+  readonly #held = new HeldReviews();
   constructor(owner: Owner, now: () => number) {
     this.#owner = owner;
     this.#now = now;
   }
 
   async answer(request: NativeMarketRequest, signal: AbortSignal): Promise<object> {
-    const { operation } = request;
+    let { operation } = request;
     if (!isV1(operation.op)) return refusalAnswer("invalid", "read");
     const op = operation.op;
+    if (operation.op === "install") {
+      const held = this.#held.install(operation);
+      if ("refuse" in held) return heldRefusal(held.refuse);
+      operation = held.send;
+    }
     const key = kept.has(op) ? JSON.stringify(operation) : undefined;
     let result: MarketResult;
     try {
@@ -207,8 +232,9 @@ export class NativeMarket {
       const last = this.#last.get(key);
       return last ? { ...last, offline: true } : offlineRead;
     }
+    this.#held.heard(operation, result);
     if (result.op === "error") return refusalAnswer(result.code, stepOf(op));
-    const answer = shaped(op, result, { now: this.#now() });
+    const answer = shaped(operation, result, { now: this.#now() });
     if (!answer) return refusalAnswer("failed", stepOf(op));
     const value = { ok: true, offline: false, ...answer };
     if (key) this.#last.set(key, value);
