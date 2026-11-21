@@ -77,7 +77,9 @@ struct SettingsSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(ace: .x) }
+                    // ✕ as the thread's bar buttons draw it: the plain glyph in the body ink.
+                    Button { dismiss() } label: { Image(bar: .x).foregroundStyle(AceTheme.Colours.foreground) }
+                        .barGlyph()
                         .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
                 }
             }

@@ -23,6 +23,11 @@ async function opened(threadId: string, seed: Fact[]) {
   await until(() => lease.store.thread !== undefined, "thread snapshot");
   return { daemon, client, store: lease.store };
 }
+/** A subagent fact with the role its parent gave it. */
+function withRole(fact: Fact, role: string): Fact {
+  if (fact.type !== "agent.seen") throw new Error("not an agent fact");
+  return { ...fact, role };
+}
 function sheet(sink: RecordingSink): AgentSheet {
   const patch = sink.read("thread:agents");
   expect(patch?.type).toBe("agents.sheet");
@@ -294,7 +299,7 @@ describe("Agents sheet", () => {
     followAgents(store, "sentence", 1, sink, plainPreview);
     await until(() => sheet(sink).rows.length === 3, "three agents");
     expect(sheet(sink).summary).toEqual({
-      text: "Waiting on 2 agents. One needs you.",
+      text: "Waiting on 2 subagents. One needs you.",
       token: "needsYou",
     });
     const asker = sheet(sink).rows.find((row) => row.name === "Review insets");
@@ -312,7 +317,7 @@ describe("Agents sheet", () => {
       },
       facts.endTurn("asker"),
     ]);
-    await until(() => sheet(sink).summary.text === "Waiting on 1 agent", "one left");
+    await until(() => sheet(sink).summary.text === "Waiting on 1 subagent", "one left");
     expect(sheet(sink).rows[0]?.icon).toEqual({ kind: "agents", tone: "waiting", count: 1 });
     expect(sheet(sink).rows.find((row) => row.name === "Write the test")?.icon.kind).toBe(
       "working",
@@ -321,6 +326,79 @@ describe("Agents sheet", () => {
     await until(() => sheet(sink).summary.token === "done", "all finished");
     expect(sheet(sink).summary.text).toBe("All agents finished");
     expect(sheet(sink).rows.every((row) => row.icon.kind === "done")).toBe(true);
+  });
+
+  test("the header counts working subagents as the thread's chip does, the main agent aside", async () => {
+    const { store } = await opened("count", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "helper", "Helper", "spawn-helper"),
+      facts.turn("helper", "spawn"),
+    ]);
+    const sink = new RecordingSink();
+    followAgents(store, "count", 1, sink, plainPreview);
+    await until(() => sheet(sink).rows.length === 2, "both agents");
+    expect(sheet(sink).summary).toEqual({ text: "Working with 1 subagent", token: "working" });
+  });
+
+  test("the tree lists who needs you, then what works, then the rest newest first", async () => {
+    const { store } = await opened("order", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "long", "Long runner", "spawn-long"),
+      facts.turn("long", "spawn"),
+      facts.subagent("codex", "old-fail", "Old failure", "spawn-old-fail"),
+      facts.turn("old-fail", "spawn"),
+      facts.endTurn("old-fail", "failed", { kind: "provider", message: "stream closed" }),
+      facts.subagent("codex", "asker", "Asker", "spawn-asker"),
+      facts.turn("asker", "spawn"),
+      {
+        type: "interaction.opened",
+        agent: "asker",
+        interaction: "ask",
+        blocking: true,
+        request: {
+          kind: "approval",
+          title: "Run bun test?",
+          options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+        },
+      },
+      facts.subagent("codex", "finished", "Finished one", "spawn-finished"),
+      facts.turn("finished", "spawn"),
+      facts.endTurn("finished"),
+      facts.subagent("codex", "new-fail", "New failure", "spawn-new-fail"),
+      facts.turn("new-fail", "spawn"),
+      facts.endTurn("new-fail", "failed", { kind: "provider", message: "stream closed" }),
+    ]);
+    const sink = new RecordingSink();
+    followAgents(store, "order", 1, sink, plainPreview);
+    await until(() => sheet(sink).rows.length === 6, "every agent");
+    expect(sheet(sink).rows.map((row) => row.name)).toEqual([
+      expect.anything(),
+      "Asker",
+      "Long runner",
+      "New failure",
+      "Finished one",
+      "Old failure",
+    ]);
+  });
+
+  test("a row whose role is its name doesn't say the name twice", async () => {
+    const { store } = await opened("roles", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      withRole(
+        facts.subagent("codex", "fix", "Fix-2132-restart-rows-shimmer", "spawn-fix"),
+        "Fix-2132-restart-rows-shimmer",
+      ),
+      withRole(facts.subagent("codex", "rev", "Check insets", "spawn-rev"), "reviewer"),
+    ]);
+    const sink = new RecordingSink();
+    followAgents(store, "roles", 1, sink, plainPreview);
+    await until(() => sheet(sink).rows.length === 3, "three agents");
+    const roles = Object.fromEntries(sheet(sink).rows.map((row) => [row.name, row.role]));
+    expect(roles["Fix-2132-restart-rows-shimmer"]).toBe("");
+    expect(roles["Check insets"]).toBe("reviewer");
   });
 
   test("a failed or usage-limited subagent says why on its own line", async () => {

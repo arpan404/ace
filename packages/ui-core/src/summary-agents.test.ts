@@ -61,6 +61,7 @@ const groups = (works: Map<string, ThreadWork>) => {
     working: names(agents.working),
     failed: names(agents.failed),
     done: names(agents.done),
+    unsure: names(agents.unsure),
     total: agents.total,
     finished: agents.finished,
   };
@@ -88,7 +89,9 @@ test("agents that wait on the person come first, then working, failed and done",
     asks: ["asker"],
     working: ["busy"],
     failed: ["broke"],
-    done: ["done1", "done2"],
+    // Newest first, as the Agents page lists them.
+    done: ["done2", "done1"],
+    unsure: [],
     total: 5,
     finished: 2,
   });
@@ -139,7 +142,33 @@ test("a settled agent whose thread is still syncing is never counted done", () =
   ]);
   const shown = groups(works);
   expect(shown.done).toEqual([]);
-  expect(shown.working).toEqual(["delegate"]);
+  // Not working either: its facts aren't in, so it waits apart until they are.
+  expect(shown.working).toEqual([]);
+  expect(shown.unsure).toEqual(["delegate"]);
+});
+
+test("settled delegates whose threads weren't loaded fold apart, never done and never working", () => {
+  const works = new Map([
+    [
+      "t1",
+      work([
+        agent("t1", "root", working),
+        agent("t1", "old", idle, "root", "t2"),
+        agent("t1", "older-fail", failedStatus, "root", "t3"),
+        agent("t1", "busy", working, "root", "t4"),
+      ]),
+    ],
+    ["t2", work([], { facts: "not_loaded" })],
+    ["t3", work([], { facts: "not_loaded" })],
+    ["t4", work([], { facts: "not_loaded" })],
+  ]);
+  const shown = groups(works);
+  // One that says it works is working whatever loaded; a failure is known for sure.
+  expect(shown.working).toEqual(["busy"]);
+  expect(shown.failed).toEqual(["older-fail"]);
+  expect(shown.unsure).toEqual(["old"]);
+  expect(shown.done).toEqual([]);
+  expect(shown.total).toBe(3);
 });
 
 test("a nested agent is indented under a parent in its own group, and names a parent elsewhere", () => {
@@ -177,10 +206,11 @@ test("a nested agent is indented under a parent in its own group, and names a pa
   const failed = (agents?.failed ?? []).map((entry) => [entry.indent, entry.under?.agent.id]);
   expect(failed).toEqual([[0, "other"]]);
   const done = (agents?.done ?? []).map((entry) => [entry.node.agent.id, entry.indent]);
+  // Newest first: "other" started after "reviewer".
   expect(done).toEqual([
+    ["other", 0],
     ["reviewer", 0],
     ["r1", 1],
-    ["other", 0],
   ]);
 });
 
@@ -189,7 +219,7 @@ test("a row whose thread is still syncing says so, and never reads done", () => 
     ["t1", work([agent("t1", "root", idle), agent("t1", "delegate", idle, "root", "t2")])],
     ["t2", work([agent("t2", "root", idle)], { facts: "syncing", status: { state: "done" } })],
   ]);
-  const entry = summaryAgents("t1", agentForest("t1", works), works)?.working[0];
+  const entry = summaryAgents("t1", agentForest("t1", works), works)?.unsure[0];
   if (!entry) throw new Error("no row");
   const none = { request: undefined, tool: undefined, spawn: undefined };
   expect(forestAgentWords(true, entry.node, none)).toMatchObject({ step: "syncing", done: false });
@@ -252,6 +282,8 @@ test("a remote child that didn't confirm its stop is never listed done, and says
     step: "stopped · didn't confirm",
     done: false,
   });
+  // Listed among the working for its words, but Now never counts a stop in doubt as working.
+  expect(agents?.counts).toEqual({ working: 0, failed: 0, done: 0 });
 });
 
 test("a working agent with a request it doesn't wait on stays working", () => {
