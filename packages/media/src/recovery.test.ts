@@ -7,8 +7,8 @@ import { harness } from "./supervisor-test-support.ts";
 
 /*
  * X2's acceptance (docs/media/plan.md, Wave 7): ace-media is the only path a producer has, so
- * after it is killed every producer must be pointed at the new process's ingest quickly, and
- * while it can't be, the producer is told why. The supervisor, routes and sources are the real
+ * while it can't take a source the producer is told why. (Recovery after a kill is measured
+ * through the real producer adapters: `media-recovery.test.ts` in the browser and screen.) The supervisor, routes and sources are the real
  * ones; only the ace-media process is faked, at its lanes, with the injected clock and jitter.
  */
 
@@ -62,38 +62,6 @@ function world(random: number) {
   };
   return { h, runtime, producer, points, stops, run };
 }
-
-it("ace-media killed: the producer is pointed at the new process's ingest within 2 s p95, and is told it is restarting meanwhile", async () => {
-  const delays: number[] = [];
-  // Restart jitter across its whole range: each trial is a fresh daemon and a first failure.
-  for (let trial = 0; trial < 20; trial++) {
-    const w = world(trial / 19);
-    const source = w.runtime.sources.add(w.producer);
-    await w.run(5_000, () => w.points.some((p) => p.address));
-    const first = w.points.find((p) => p.address)?.address;
-    expect(first, "the producer streams into the first ace-media").toBeDefined();
-    const pid = w.h.host.last.pid;
-    const killed = w.h.clock.now();
-    w.h.host.last.kill();
-    await w.run(10_000, () =>
-      w.points.some((p) => p.at >= killed && p.address && p.address.token !== first?.token),
-    );
-    const back = w.points.find(
-      (p) => p.at >= killed && p.address && p.address.path !== first?.path,
-    );
-    expect(w.h.host.last.pid).not.toBe(pid);
-    expect(back, `trial ${trial}: pointed again`).toBeDefined();
-    delays.push((back?.at ?? Infinity) - killed);
-    // In between it streamed nowhere, and said why.
-    expect(w.points.some((p) => p.at >= killed && p.address === undefined)).toBe(true);
-    expect(w.stops).toEqual([restartingReason]);
-    source.close();
-    w.runtime.dispose();
-  }
-  const sorted = delays.toSorted((a, b) => a - b);
-  const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1] ?? Infinity;
-  expect(p95).toBeLessThan(2_000);
-});
 
 it("an ace-media that keeps crashing becomes unavailable, and a producer added then is told so at once", async () => {
   const w = world(0.5);
