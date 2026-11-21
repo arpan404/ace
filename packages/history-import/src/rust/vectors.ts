@@ -1,4 +1,5 @@
 import { encodeFrames } from "./frames.ts";
+import { textVectors } from "./text-vectors.ts";
 
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 const frames = (message: unknown, id = 0) => encodeFrames(message, id).map(hex);
@@ -83,5 +84,8 @@ function fromReader() {
 
 /** Every vector file, by name under `native/history/vectors/`. */
 export function historyVectors(): Record<string, unknown> {
-  return { "wire.json": { toReader: toReader(), fromReader: fromReader() } };
+  return {
+    "wire.json": { toReader: toReader(), fromReader: fromReader() },
+    "text.json": textVectors(),
+  };
 }
