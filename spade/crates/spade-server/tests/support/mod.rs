@@ -11,9 +11,10 @@ pub mod contracts;
 pub mod fleet;
 pub mod gated;
 pub mod market;
+#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
+pub mod org;
 pub mod packaged;
 pub mod plugins;
-#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod sandbox;
 
 use keyring_core::mock;
@@ -1034,6 +1035,26 @@ impl Spade {
         let status = response.status().as_u16();
         let text = response.text().await?;
         Ok((status, serde_json::from_str(&text).unwrap_or(Value::Null)))
+    }
+
+    /// `POST` with extra headers, as ace's daemon sends a stamped change.
+    pub async fn post_with(
+        &self,
+        path: &str,
+        body: Value,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value)> {
+        let mut request = self
+            .http
+            .post(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
     pub async fn get(&self, path: &str) -> Result<(u16, Value)> {

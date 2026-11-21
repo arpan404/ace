@@ -160,6 +160,28 @@ function summary(
   };
 }
 
+/** A bot's recipe carries its face, as a published one does; the rest of a listing is bare. */
+function listing(entry: MarketEntrySummary) {
+  if (entry.type !== "spade-bot") return { summary: entry };
+  return {
+    summary: entry,
+    review: {
+      body: {
+        type: "spade-bot" as const,
+        botName: entry.title,
+        face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
+        task: entry.line,
+        model: "fast" as const,
+        routines: [],
+        notes: [],
+        brings: [],
+        needs: [],
+        spadeReady: true,
+      },
+    },
+  };
+}
+
 export function fakeMarket(now: number): MarketplaceSeed {
   const listed = [
     ...byAce.map((listing, index) => summary(listing, ace, index, now)),
@@ -194,7 +216,7 @@ export function fakeMarket(now: number): MarketplaceSeed {
     rankedAt: now,
   };
   return {
-    entries: [...listed.map((entry) => ({ summary: entry })), ...packageEntries(now)],
+    entries: [...listed.map(listing), ...packageEntries(now)],
     featured: picks.map(({ type, name }) => ({ type, name })),
     categories: [
       { id: "mail", title: "Mail" },

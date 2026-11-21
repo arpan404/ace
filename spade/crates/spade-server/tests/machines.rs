@@ -78,6 +78,7 @@ impl Remote for FakeDaemons {
                 host_id: "host-studio".to_owned(),
                 name: "Studio".to_owned(),
                 online,
+                org: None,
             }])
         })
     }

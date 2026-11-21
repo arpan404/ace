@@ -85,13 +85,24 @@ struct To {
 async fn accept(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    method: axum::http::Method,
+    uri: axum::extract::OriginalUri,
     headers: axum::http::HeaderMap,
-    Body(body): Body<AcceptFor>,
+    raw: axum::body::Bytes,
 ) -> Response {
+    let body: AcceptFor = match serde_json::from_slice(&raw) {
+        Ok(body) => body,
+        Err(error) => return super::problem(StatusCode::BAD_REQUEST, &error.to_string()),
+    };
     let stamp = headers
         .get(crate::security::attest::HEADER)
         .and_then(|value| value.to_str().ok());
-    match state.engine.accept_move(&id, &body, stamp) {
+    // On an org host an admin accepts, with their member stamp (ADR 0206 §2.3).
+    let member = super::org::stamped(&state, &method, &uri, &headers, &raw);
+    match state
+        .engine
+        .accept_move_by(&id, &body, stamp, member.as_ref())
+    {
         Ok(()) => Json(json!({ "accepted": true })).into_response(),
         Err(error) => move_problem(&error),
     }

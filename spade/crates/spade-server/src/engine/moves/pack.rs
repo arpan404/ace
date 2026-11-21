@@ -357,7 +357,16 @@ impl Engine {
             "schema": spade_store::Store::schema_version(),
             "move": entry.id,
             "from": kept["from"],
-            "bot": { "id": entry.agent_id, "name": entry.agent_name, "main": entry.main },
+            // A shared bot's organization (ADR 0206): only a host of the same one takes it.
+            "bot": {
+                "id": entry.agent_id,
+                "name": entry.agent_name,
+                "main": entry.main,
+                "org": match self.agent_space(&entry.agent_id) {
+                    spade_core::org::Space::Org(org) => Some(org),
+                    spade_core::org::Space::Personal => None,
+                },
+            },
             "agents": agents,
             "tables": sums,
             "inventory": { "count": count, "bytes": bytes, "sha256": inventory_sha },

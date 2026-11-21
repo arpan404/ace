@@ -153,6 +153,12 @@ export function findingSentences(scan: MarketScanReport | undefined): string[] {
 }
 
 /** A recipe's need switches as its review opens them: required ones on, optional ones off. */
+/** The catalogue id of a connector need (`connector:<id>`); none for an address or a plugin. */
+export function needCatalogue(key: string): string | undefined {
+  const id = key.startsWith("connector:") ? key.slice("connector:".length) : undefined;
+  return id && !id.includes(":") && !id.includes("/") ? id : undefined;
+}
+
 export function needDefaults(needs: readonly MarketNeed[]): Record<string, boolean> {
   return Object.fromEntries(needs.map((need) => [need.key, need.required]));
 }

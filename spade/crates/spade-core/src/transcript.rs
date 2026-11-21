@@ -639,6 +639,7 @@ mod tests {
                 call_id: "c1".into(),
                 allowed: true,
                 always: true,
+                by: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -979,6 +980,7 @@ mod tests {
             call_id: "j1.call_0".into(),
             allowed: true,
             always: true,
+            by: None,
         }));
         let transcript = Transcript::fold(&events);
         assert!(!transcript.waiting_on_you());

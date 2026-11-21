@@ -15,6 +15,8 @@ pub struct Machine {
     pub host_id: String,
     pub name: String,
     pub online: bool,
+    /// The organization that owns it, for an org host (ADR 0206 §2.1); `None` for a person's.
+    pub org: Option<String>,
 }
 
 /// Why a request to another machine got no answer from its Spade.
@@ -68,6 +70,7 @@ pub fn machines_from(answer: &Value) -> Vec<Machine> {
                         host_id: m["hostId"].as_str()?.to_owned(),
                         name: m["name"].as_str().unwrap_or("another machine").to_owned(),
                         online: m["status"] == "online",
+                        org: m["org"].as_str().map(str::to_owned),
                     })
                 })
                 .collect()
