@@ -55,6 +55,12 @@ export async function startCapture(options: {
   env: NodeJS.ProcessEnv;
   publish(frame: Frame): void;
   failure(error: unknown): void;
+  /**
+   * The device's picture came, but no still of it fits a frame (a Simulator taller than 2160
+   * pixels): the capture holds the device all the same. Stills then come from ace-media while a
+   * view watches, else the device's own screenshot.
+   */
+  held?(): void;
   signal?: AbortSignal;
   /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
   media?: DeviceMedia;

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -108,10 +108,15 @@ function standIn() {
   };
 }
 
-async function simulator(media: DeviceMedia | undefined) {
+async function simulator(media: DeviceMedia | undefined, picture?: Buffer) {
   const home = await mkdtemp(join(tmpdir(), "sim-video-status-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const sim = await fakeServeSim(home, "0.1.49-beta.139.1", ios.slice(4));
+  const sim = await fakeServeSim(
+    home,
+    "0.1.49-beta.139.1",
+    ios.slice(4),
+    picture ? { picture } : {},
+  );
   const platform = new FakeSimPlatform(home);
   let id = 0;
   const service = new DevicesService({
@@ -209,5 +214,28 @@ it("a watched Simulator whose screen shows nothing new still answers an agent's 
   const asked = performance.now();
   const shot = await d.service.screenshot(ios, person);
   expect(performance.now() - asked).toBeLessThan(500);
+  expect(shot.header).toMatchObject({ codec: "jpeg", width: 300, height: 600 });
+});
+
+/** serve-sim's picture of an iPhone 17 Pro: 1206 × 2622, taller than a still frame carries. */
+async function fullSizePicture(): Promise<Buffer> {
+  const picture = Buffer.from(
+    await readFile(new URL("./testing/fixtures/white-201x437.jpg", import.meta.url)),
+  );
+  // The baseline frame header (SOF0) holds the height, then the width.
+  const sof = picture.indexOf(Buffer.from([0xff, 0xc0]));
+  if (sof < 0) throw new Error("no frame header");
+  picture.writeUInt16BE(2622, sof + 5);
+  picture.writeUInt16BE(1206, sof + 7);
+  return picture;
+}
+
+it("a Simulator whose picture is taller than a still frame carries still opens, and an agent's still of it is the device's own", async () => {
+  const ace = standIn();
+  const d = await simulator(ace.media, await fullSizePicture());
+  expect((await d.state())?.lifecycle).toBe("live");
+  const before = d.platform.shots.length;
+  const shot = await d.service.screenshot(ios, person);
+  expect(d.platform.shots.length).toBe(before + 1);
   expect(shot.header).toMatchObject({ codec: "jpeg", width: 300, height: 600 });
 });

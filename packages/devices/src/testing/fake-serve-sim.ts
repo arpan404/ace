@@ -59,6 +59,8 @@ export async function fakeServeSim(
     notice?: string;
     /** Real H.264 instead of placeholder NAL units: what each subscription opens with. */
     stream?: { description: Buffer; key: Buffer };
+    /** What the screen shows at first, instead of a white 201 × 437 one. */
+    picture?: Buffer;
   } = {},
 ) {
   const base = `/helper/${udid}`;
@@ -69,7 +71,7 @@ export async function fakeServeSim(
   // A white 201 × 437 screen.
   const jpeg = readFileSync(new URL("fixtures/white-201x437.jpg", import.meta.url));
   /** What the screen shows now: like serve-sim, a new MJPEG stream starts with it. */
-  let current: Buffer = jpeg;
+  let current: Buffer = options.picture ?? jpeg;
   const server = createServer((req, res) => {
     if (req.url === `${base}/stream.mjpeg`) {
       mjpegOpen++;

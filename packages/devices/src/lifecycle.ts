@@ -139,6 +139,10 @@ export async function startDevice(
         session.hub.publish(frame);
         session.recording?.push(frame);
       },
+      held() {
+        // No still of the picture fits a frame, but the capture has the device: it opens.
+        if (session.generation === generation) firstResolve?.();
+      },
       failure(error) {
         if (session.generation !== generation) return;
         owner.log("Device live view ended", session, error);

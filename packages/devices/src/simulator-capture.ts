@@ -87,6 +87,12 @@ export async function simulatorCapture(options: {
   signal?: AbortSignal;
   publish(frame: Frame): void;
   failure(error: unknown): void;
+  /**
+   * The device's picture came, but no still of it fits a frame (a Simulator taller than 2160
+   * pixels): the capture holds the device all the same. Stills then come from ace-media while a
+   * view watches, else the device's own screenshot.
+   */
+  held?(): void;
   /** The screen helper, to touch the Simulator through Xcode's own input service. */
   digitizer?: string;
   /** The Simulator's built-in screens, so a touch reaches the one in the picture. */
@@ -232,6 +238,7 @@ export async function simulatorCapture(options: {
       failure: failed,
       source(width, height) {
         if (!screen.width) Object.assign(screen, { width, height });
+        if (width > agentStill.maxWidth || height > agentStill.maxHeight) options.held?.();
       },
       publish(image, scale) {
         if (stopped || mode !== "jpeg" || jpeg !== source) return;
