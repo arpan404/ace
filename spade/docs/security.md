@@ -7,7 +7,9 @@ Date: 2026-11-15, amended 2026-11-16 and 2026-11-17 (Linux, Windows). As built f
 (grants) and `spade-server` (`security/`, `api/security.rs`, the shell, services and plugin
 servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
 [autonomy.md](autonomy.md). A package's WebAssembly components run in `spade-wasm`, a worker
-started offline inside the bot's sandbox, which asks Spade for every effect ([code.md](code.md)).
+started offline inside the bot's sandbox, which asks Spade for every effect ([code.md](code.md)):
+its `tools` calls are routed by the gate with the package's ceiling first and no earlier answer
+carried over, and its `http` goes only to declared hosts left on, through the egress proxy.
 
 ## What is built where
 
