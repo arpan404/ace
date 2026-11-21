@@ -1,3 +1,4 @@
+import { olderStatus, wireTrims } from "@ace/projection/wire-trim";
 import {
   HostId,
   MachineCallRequest,
@@ -219,9 +220,13 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         return describe(device, origin, known);
       case "delegate":
         return deps.threads.delegate(device, origin, call);
-      case "status":
+      case "status": {
         for (const id of call.threadIds) owned(id);
-        return { threads: call.threadIds.map((id) => deps.threads.view(id)) };
+        const views = call.threadIds.map((id) => deps.threads.view(id));
+        // A calling machine from before the moved status rejects the whole batch for it.
+        if (origin.accepts?.includes(wireTrims.movedStatus)) return { threads: views };
+        return { threads: views.map((view) => ({ ...view, status: olderStatus(view.status) })) };
+      }
       case "cancel":
         owned(call.threadId);
         return deps.threads.cancel(device, call.threadId);
