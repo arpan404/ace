@@ -21,7 +21,7 @@ struct TransferSheet: View {
                 .toolbar {
                     if case .options = sheet.step {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button { model.transfer(["kind": "back"]) } label: { Image(ace: .caretLeft) }
+                            Button { model.transfer(["kind": "back"]) } label: { Image(ace: .caretLeft).flipsForRightToLeftLayoutDirection(true) }
                                 .accessibilityLabel("Machines").accessibilityIdentifier("transfer.back")
                         }
                     }
