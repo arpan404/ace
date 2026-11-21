@@ -2,15 +2,18 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readSchema, schemaMisfits } from "./schema.ts";
 
-/** The schema cases Spade's reader runs too (`spade_core::schema`, schema/tests.rs). */
+/**
+ * The conformance suite's schema cases (`spade/spec/conformance/contracts/schemas.json`), which
+ * Spade's reader runs too (`spade_core::schema`).
+ */
 const all = JSON.parse(
   readFileSync(
-    new URL("../../../spade/crates/spade-core/src/schema/cases.json", import.meta.url),
+    new URL("../../../spade/spec/conformance/contracts/schemas.json", import.meta.url),
     "utf8",
   ),
 ) as {
   cases: {
-    name: string;
+    id: string;
     schema: unknown;
     refused?: string;
     fits?: unknown[];
@@ -19,7 +22,7 @@ const all = JSON.parse(
 };
 
 describe("the schema subset both readers share", () => {
-  it.each(all.cases.map((c) => [c.name, c] as const))("%s", (_name, c) => {
+  it.each(all.cases.map((c) => [c.id, c] as const))("%s", (_name, c) => {
     const read = readSchema(c.schema, "input");
     if (c.refused !== undefined) {
       expect(read.problems.some((p) => p.includes(c.refused!))).toBe(true);

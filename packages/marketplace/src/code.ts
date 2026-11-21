@@ -8,7 +8,7 @@ import {
 /*
  * A package's own code (ADR 0203): the WebAssembly components `bot.json` names under `code`,
  * read the way Spade reads them (`spade_core::package::code`), with the same sentences, which
- * `rules.json` holds both readers to. The Worker runs TypeScript and so checks only a component's
+ * the conformance suite's `code` part (`spade/spec/conformance/code/`) holds both readers to. The Worker runs TypeScript and so checks only a component's
  * header, its size and the manifest's list; what the binary really imports is read by Spade's
  * program on the signer (`spade --code-check`) and on the device, which hold it to this list.
  * Pure.

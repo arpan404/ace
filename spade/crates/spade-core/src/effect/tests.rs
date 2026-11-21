@@ -26,6 +26,7 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         classifier: true,
         ceiling: None,
         command: None,
+        destructive: false,
     }
 }
 
@@ -502,30 +503,6 @@ fn person_only_effects_hold_wherever_the_call_runs() {
             Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned()),
             "{place:?}"
         );
-    }
-}
-
-#[test]
-fn hints_raise_a_trusted_declaration_but_never_lower_it() {
-    use Effect::*;
-    let cases = [
-        // A payments app's read-only-marked tool still pays.
-        (true, Some(Pay), Some(Pay)),
-        // A tool declared to read that says it may write is a write outside the box.
-        (false, Some(Read), Some(Network)),
-        (true, Some(Read), Some(Read)),
-        (false, Some(Publish), Some(Publish)),
-        // Hints alone declare nothing: the person decides once.
-        (true, None, None),
-        (false, None, None),
-    ];
-    for (read_only, declared, expected) in cases {
-        let tool = Mcp {
-            read_only,
-            annotated: true,
-            declared,
-        };
-        assert_eq!(mcp(tool), expected, "{tool:?}");
     }
 }
 

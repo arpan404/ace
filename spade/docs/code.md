@@ -33,7 +33,8 @@ uses) and `wasi:random/random@0.2.x`. Nothing else: no `wasi:filesystem`, `wasi:
 ## The manifest
 
 `bot.json` v3's `code`, read by `spade_core::package::code` and by `codeProblems` in
-`@ace/marketplace` (`rules.json` holds both to the same sentences):
+`@ace/marketplace` (the conformance suite's `code` part, `spade/spec/conformance/code/`, holds both to the same
+sentences; the spec's part is [`spade/spec/code.md`](../spec/code.md)):
 
 ```json
 "code": [

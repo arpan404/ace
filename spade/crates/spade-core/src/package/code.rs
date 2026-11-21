@@ -4,8 +4,9 @@
 //! offers and its entry lists; [`binary`] reads what the bytes really import and export, so the
 //! review shows the binary's list, never the manifest's. Running it is `spade-wasm`'s.
 //!
-//! The matching reader for the market's checks is `readCode` in `@ace/marketplace`; `rules.json`
-//! holds both to the same manifest rules.
+//! The matching reader for the market's checks is `codeProblems` in `@ace/marketplace`; the
+//! conformance suite's `code` part (`spade/spec/conformance/code/`) holds both to the same
+//! manifest rules, and `spade/spec/code.md` is the part.
 
 pub mod binary;
 

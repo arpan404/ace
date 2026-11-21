@@ -27,8 +27,14 @@ export function threadStatusLabel(status: ThreadStatus): { label: string; tone: 
       return { label: "New", tone: "idle" };
     case "moved":
       return { label: movedWords(status), tone: "idle" };
+    // A state newer than this build: neutral, never done.
+    case "unknown":
+      return { label: unknownStatusWord, tone: "idle" };
   }
 }
+
+/** What a client shows for a thread state newer than itself: neutral words, never Done. */
+export const unknownStatusWord = "Status unknown";
 
 /** "Moved to Studio" (ADR 0191): the work goes on there; this thread runs nothing more. */
 export function movedWords(status: Extract<ThreadStatus, { state: "moved" }>): string {
@@ -137,5 +143,8 @@ export function taskPill(
     // Not done and not settled: the row says where the work went.
     case "moved":
       return { label: movedWords(status), tone: "idle", icon: "background" };
+    // A state newer than this build: named neutrally, so the row never reads as Done or New.
+    case "unknown":
+      return { label: unknownStatusWord, tone: "idle", icon: "background" };
   }
 }

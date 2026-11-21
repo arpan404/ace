@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliSpadeSkillImport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "files": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "skipped": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "source": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliProblem.json"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "source",
+    "files",
+    "skipped",
+    "warnings"
+  ],
+  "type": "object"
+}

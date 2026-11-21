@@ -17,6 +17,7 @@ pub mod contract_files;
 pub mod link;
 pub mod manifest;
 pub mod scenario;
+pub mod signed;
 pub mod surfaces;
 pub mod update;
 

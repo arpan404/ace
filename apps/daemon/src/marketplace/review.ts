@@ -203,6 +203,10 @@ function body(entry: PreparedReview): MarketReviewBody {
         description: inspection.description,
         files: entry.checked.files.length,
         flagged: inspection.flagged.length,
+        ...(inspection.license ? { license: inspection.license } : {}),
+        ...(inspection.compatibility ? { compatibility: inspection.compatibility } : {}),
+        ...(inspection.allowedTools.length ? { allowedTools: inspection.allowedTools } : {}),
+        ...(inspection.unused.length ? { unused: inspection.unused } : {}),
       };
     case "spade-plugin":
       return {

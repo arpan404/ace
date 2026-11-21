@@ -341,6 +341,49 @@ export class LiveSource {
       at: this.ports.now(),
     });
   }
+  /**
+   * The "Moving to" row says plainly when the machine isn't linked now, and says it no more once
+   * a link to it is back.
+   */
+  waiting(record: OutgoingRecord, unlinked: boolean): void {
+    const threadId = record.transfer.threadId;
+    if (!threadId || record.request.agent) return;
+    const name = record.transfer.target.name;
+    this.ports.hold(threadId, record.transfer.transferId, {
+      title: unlinked ? `Moving to ${name}, which isn't linked any more` : `Moving to ${name}`,
+    });
+  }
+  /**
+   * The person chose to carry on here while the machine can't be asked, warned that both may
+   * run if it already took the thread. Recorded on the transfer by the caller; here, in one
+   * transaction, the thread is this machine's again and a stopped agent is told to carry on.
+   */
+  carryOnHere(record: OutgoingRecord): void {
+    const threadId = need(record.transfer.threadId);
+    const { transferId, target } = record.transfer;
+    this.ports.atomic(() => {
+      const owner = this.ports.ownership.get(threadId);
+      if (owner?.transferId === transferId && owner.state !== "moved" && owner.state !== "owned")
+        this.ports.ownership.change(threadId, {
+          to: "local",
+          transferId,
+          confirmed: false,
+          byPerson: true,
+          at: this.ports.now(),
+        });
+      if (!record.request.agent) this.ports.hold(threadId, transferId, { ended: true });
+      if (record.plan?.interrupted)
+        this.ports.resume(
+          threadId,
+          transferId,
+          resumeMessage(
+            target.name,
+            `the person chose to carry on here while ${target.name} wasn't linked.`,
+          ),
+        );
+    });
+    this.ports.released(threadId);
+  }
   /** The target owns the thread: it reads moved here, in one transaction. */
   moved(record: OutgoingRecord, peerThread: string): void {
     const threadId = need(record.transfer.threadId);

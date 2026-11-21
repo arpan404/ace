@@ -25,19 +25,31 @@ pub const FORMAT: &str = "spade-bot";
 /// The runtime API's major version this build serves (ADR 0200 §4): `spade.v1`'s.
 pub const RUNTIME: &str = runtime::VERSION;
 
-const MOST_TRIGGERS: usize = 40;
-const MOST_ROUTINES: usize = 32;
-const MOST_NOTES: usize = 50;
-const NOTE_CHARS: usize = 2000;
-const MOST_TOOLS: usize = 64;
-const MOST_EFFECTS: usize = 32;
-const MOST_HOSTS: usize = 32;
-const MOST_TESTS: usize = 64;
-const MOST_REFS: usize = 64;
-const WHY_CHARS: usize = 500;
+pub(crate) const MOST_TRIGGERS: usize = 40;
+pub(crate) const MOST_ROUTINES: usize = 32;
+pub(crate) const MOST_NOTES: usize = 50;
+pub(crate) const NOTE_CHARS: usize = 2000;
+pub(crate) const MOST_TOOLS: usize = 64;
+pub(crate) const MOST_EFFECTS: usize = 32;
+pub(crate) const MOST_HOSTS: usize = 32;
+pub(crate) const MOST_TESTS: usize = 64;
+pub(crate) const MOST_REFS: usize = 64;
+pub(crate) const WHY_CHARS: usize = 500;
+pub(crate) const NAME_CHARS: usize = 80;
+pub(crate) const BLURB_CHARS: usize = 300;
+/// `limits`' bounds: the spend alert in dollars a day, workers at once, the workspace in MB.
+pub(crate) const MOST_SPEND_ALERT_USD: f64 = 10_000.0;
+pub(crate) const MOST_WORKERS_AT_ONCE: u64 = 64;
+pub(crate) const MOST_WORKSPACE_MB: u64 = 1_000_000;
+/// The ace events an `event` trigger names.
+pub(crate) const ACE_EVENTS: [(&str, AceEvent); 3] = [
+    ("thread.finished", AceEvent::ThreadDone),
+    ("thread.failed", AceEvent::ThreadFailed),
+    ("thread.needs_you", AceEvent::ThreadNeedsYou),
+];
 
 /// Identity is the market's, read from the signed version manifest, never from the file.
-const IDENTITY: [&str; 6] = [
+pub(crate) const IDENTITY: [&str; 6] = [
     "publisher",
     "signature",
     "signatures",
@@ -46,7 +58,7 @@ const IDENTITY: [&str; 6] = [
     "package",
 ];
 /// Runnable executions belong to plugins (ADR 0200 §3.8).
-const EXECUTIONS: [&str; 8] = [
+pub(crate) const EXECUTIONS: [&str; 8] = [
     "mcpServers",
     "mcp_servers",
     "mcp",
@@ -56,7 +68,7 @@ const EXECUTIONS: [&str; 8] = [
     "commands",
     "command",
 ];
-const KNOWN_V3: [&str; 23] = [
+pub(crate) const KNOWN_V3: [&str; 23] = [
     "format",
     "version",
     "requires",
@@ -81,7 +93,7 @@ const KNOWN_V3: [&str; 23] = [
     "contracts",
     "code",
 ];
-const KNOWN_V2: [&str; 14] = [
+pub(crate) const KNOWN_V2: [&str; 14] = [
     "personality",
     "format",
     "version",
@@ -380,7 +392,7 @@ impl Reader<'_> {
             })
             .cloned()
             .collect();
-        let name = self.text("name", 80, true);
+        let name = self.text("name", NAME_CHARS, true);
         let task = self.text("task", self.build.task_chars, false);
         let model = match self.fields.get("model") {
             None => "capable".to_owned(),
@@ -419,7 +431,7 @@ impl Reader<'_> {
         let manifest = Manifest {
             version,
             name,
-            blurb: self.text("blurb", 300, false),
+            blurb: self.text("blurb", BLURB_CHARS, false),
             task,
             face: self.fields.get("face").and_then(Value::as_object).cloned(),
             style: if version == 3 { self.style() } else { None },
@@ -647,11 +659,11 @@ impl Reader<'_> {
                             }
                         }
                         "event" => {
-                            let event = match item.get("event").and_then(Value::as_str) {
-                                Some("thread.finished") => AceEvent::ThreadDone,
-                                Some("thread.failed") => AceEvent::ThreadFailed,
-                                Some("thread.needs_you") => AceEvent::ThreadNeedsYou,
-                                _ => {
+                            let named = item.get("event").and_then(Value::as_str);
+                            let known = ACE_EVENTS.iter().find(|(word, _)| Some(*word) == named);
+                            let event = match known {
+                                Some((_, event)) => *event,
+                                None => {
                                     self.problem(format!(
                                         "{at}.event is thread.finished, thread.failed or thread.needs_you"
                                     ));
@@ -876,7 +888,7 @@ impl Reader<'_> {
         let mut read = Limits::default();
         if let Some(alert) = limits.get("spend_alert") {
             match alert.get("usd_per_day").and_then(Value::as_f64) {
-                Some(usd) if (0.0..=10_000.0).contains(&usd) => {
+                Some(usd) if (0.0..=MOST_SPEND_ALERT_USD).contains(&usd) => {
                     read.spend_alert_usd_per_day = Some(usd);
                 }
                 _ => self.problem("limits.spend_alert.usd_per_day is a number of dollars"),
@@ -892,12 +904,12 @@ impl Reader<'_> {
                     .ok_or_else(|| format!("limits.{name} is a whole number from 1 to {most}")),
             )
         };
-        match count("workers_at_once", 64) {
+        match count("workers_at_once", MOST_WORKERS_AT_ONCE) {
             Some(Ok(n)) => read.workers_at_once = Some(n),
             Some(Err(why)) => self.problem(why),
             None => {}
         }
-        match count("workspace_mb", 1_000_000) {
+        match count("workspace_mb", MOST_WORKSPACE_MB) {
             Some(Ok(n)) => read.workspace_mb = Some(n),
             Some(Err(why)) => self.problem(why),
             None => {}

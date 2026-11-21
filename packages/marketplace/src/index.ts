@@ -119,3 +119,17 @@ export {
   type WithdrawalTarget,
 } from "./signing.ts";
 export { marketOrigin, shippedMarketKeys } from "./keys.ts";
+export {
+  exportProblems,
+  exportSkillMd,
+  importSkillMd,
+  readSkillMd,
+  skillExportVersion,
+  skillMdLimits,
+  skillMdProblems,
+  specFields,
+  unusedFields,
+  type ExportFacts,
+  type Imported,
+  type SkillMd,
+} from "./skill-md.ts";

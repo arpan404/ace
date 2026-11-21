@@ -74,7 +74,7 @@ fn owner_hidden(table: &str, row: &str) -> Option<String> {
             conversation(&format!("{row}.conversation_id")),
             conversation(&format!("{row}.parent_id"))
         ),
-        "notes" | "knowledge" | "episodes" | "digests" | "routines" | "skill_uses" => {
+        "notes" | "knowledge" | "episodes" | "cases" | "digests" | "routines" | "skill_uses" => {
             agent(&format!("{row}.agent_id"))
         }
         "knowledge_links" => format!(

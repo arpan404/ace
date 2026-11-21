@@ -33,6 +33,24 @@
             "transferId"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "carryOnHere",
+              "type": "string"
+            },
+            "transferId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "transferId"
+          ],
+          "type": "object"
         }
       ]
     },
