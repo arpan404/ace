@@ -427,3 +427,33 @@ test("a remote child renders as an agent row with its provider, not a command", 
   expect(forest.reach).toEqual([]);
   expect(forest.confirmed).toBe(true);
 });
+
+test("a second delegate to a thread whose own delegate hasn't reported yet is unconfirmed, not done", () => {
+  const works = new Map([
+    [
+      "t1",
+      thread(
+        [
+          agent("t1", "root", idle),
+          agent("t1", "first", idle, "root", "t2"),
+          agent("t1", "again", idle, "root", "t2"),
+        ],
+        { state: "done" },
+      ),
+    ],
+    [
+      "t2",
+      thread([agent("t2", "root", idle), agent("t2", "to3", idle, "root", "t3")], {
+        state: "done",
+      }),
+    ],
+  ]);
+  // t3 is within the tree's bounds but its subscription hasn't reported anything yet.
+  const forest = agentForest("t1", works);
+  expect(forest.reach).toContain("t3");
+  const again = forest.roots[0]?.children.find(
+    (node) => node.kind === "agent" && node.agent.id === "again",
+  );
+  expect(again).toMatchObject({ live: false, unconfirmed: true });
+  expect(forestTally(forest.roots).done).toBe(0);
+});

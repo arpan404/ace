@@ -63,6 +63,8 @@ function currentStep(
   const below = node.tally;
   if (node.live && !isRunning(doer) && (below.working || below.commands))
     return `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`;
+  // Its thread shows under another row, still working: this row waits on it there.
+  if (node.live && !isRunning(doer) && node.elsewhere) return "waiting on delegated work";
   if (node.live) return agentStep({ status, item: tool });
   return agentOutcome(spawn) ?? "finished";
 }

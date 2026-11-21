@@ -75,6 +75,11 @@ export interface AgentForestNode extends NodeBase {
   /** A delegate whose thread couldn't be loaded (no room, or its subscription failed). */
   notLoaded: boolean;
   /**
+   * The thread it delegated to, when that thread shows under another row (a cycle, or delegated
+   * twice): this row reads that thread's work without repeating its agents.
+   */
+  elsewhere?: string | undefined;
+  /**
    * The running task that stands for this agent's work (a subagent task naming it, such as the
    * hold a child on another machine keeps): this row is that work, so no command row repeats it.
    */
@@ -221,13 +226,19 @@ function reachedWork(
   start: string,
   works: ReadonlyMap<string, ThreadWork>,
   layer: (facts: ThreadWork) => Layer,
+  loading: ReadonlySet<string>,
 ): Reached {
   const out: Reached = { live: false, needsYou: false, unconfirmed: false };
   const seen = new Set([start]);
   const queue = [start];
   for (let at = 0; at < queue.length; at++) {
-    const facts = works.get(queue[at] ?? "");
-    if (!facts) continue;
+    const threadId = queue[at] ?? "";
+    const facts = works.get(threadId);
+    // One the tree loads that hasn't reported yet may be working.
+    if (!facts) {
+      if (loading.has(threadId)) out.unconfirmed = true;
+      continue;
+    }
     if (facts.facts === "syncing" || facts.facts === "not_loaded") out.unconfirmed = true;
     if (facts.facts === "not_loaded") continue;
     const own = layer(facts);
@@ -307,7 +318,7 @@ export function agentForest(
   const reached = new Map<string, Reached>();
   const reachedOf = (threadId: string) => {
     let kept = reached.get(threadId);
-    if (!kept) reached.set(threadId, (kept = reachedWork(threadId, works, layer)));
+    if (!kept) reached.set(threadId, (kept = reachedWork(threadId, works, layer, allowed)));
     return kept;
   };
   const build = (threadId: string): ForestNode[] => {
@@ -388,6 +399,7 @@ export function agentForest(
         unconfirmed,
         stale,
         notLoaded,
+        elsewhere: elsewhere ? child : undefined,
         hold,
         tally,
         children: ordered(children),
