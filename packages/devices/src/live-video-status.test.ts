@@ -54,7 +54,7 @@ function service() {
   let capture: { publish(frame: Frame): void; media: DeviceMedia } | undefined;
   const opened = Promise.withResolvers<void>();
   /** What the capture does once it holds the device's control, before any video. */
-  let onOpen: (open: NonNullable<typeof capture>) => void = () => {};
+  let onOpen: ((open: NonNullable<typeof capture>) => void) | undefined;
   let ids = 0;
   const devices = new DevicesService({
     cowork: false,
@@ -78,7 +78,7 @@ function service() {
     capture: async (options): Promise<DeviceCapture> => {
       if (!options.media) throw new Error("no media");
       capture = { publish: (f) => options.publish(f), media: options.media };
-      onOpen(capture);
+      onOpen?.(capture);
       opened.resolve();
       return { stop: async () => {}, streamId: options.streamId };
     },
@@ -88,7 +88,7 @@ function service() {
     devices,
     producers,
     opened: opened.promise,
-    onOpen: (run: typeof onOpen) => void (onOpen = run),
+    onOpen: (run: NonNullable<typeof onOpen>) => void (onOpen = run),
     capture: () => {
       if (!capture) throw new Error("no capture");
       return capture;

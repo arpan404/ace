@@ -301,7 +301,7 @@ it("a socket that fails while the writer is made reports its close after the cal
   const made = new IngestWriter({
     socket: "/nonexistent/ingest.sock",
     token: new Uint8Array(32),
-    onClosed: (reason) => void closes.push({ reason, held: writer !== undefined }),
+    onClosed: (reason) => void closes.push({ reason: reason ?? "", held: writer !== undefined }),
     onKeyframe: () => {},
     connect: () => {
       const socket = createConnection("/nonexistent/ingest.sock");
