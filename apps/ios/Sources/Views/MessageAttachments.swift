@@ -1,14 +1,14 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// How a message's images and files are read and opened. A thread screen sets it
-/// (`MessageAttachmentRoutes`); without one the bubble still lays them out, unopened.
+/// How a message's images and files are read and opened. A thread screen or a Spade conversation
+/// sets it (`MessageAttachmentRoutes`); without one the bubble still lays them out, unopened.
 struct MessageAttachmentAccess {
     /// A preview already decoded this launch, for drawing on the first frame.
     let cached: @MainActor (_ itemId: String, _ ref: String) -> UIImage?
     /// The preview, at most `pixels` on its long side; nil when it can't be read.
     let thumbnail: @MainActor (_ itemId: String, _ ref: String, _ pixels: CGFloat) async -> UIImage?
-    let open: @MainActor (_ row: TranscriptRow, _ line: AttachmentLine) -> Void
+    let open: @MainActor (_ itemId: String, _ line: AttachmentLine) -> Void
     /// The picture itself, from the message carrying it (or the thread's own list when nil).
     var original: @MainActor (_ itemId: String?, _ ref: String) async -> UIImage? = { _, _ in nil }
 }
@@ -20,17 +20,18 @@ extension EnvironmentValues {
 /// A person's message's attachments, above its bubble and unframed, as the web draws them: the
 /// images as one rounded group (one keeps its shape, more share a 2×2 grid whose last cell says
 /// "+N"), then each file as a row with its name, size and type. A tile has its final size before
-/// its bytes arrive, so the transcript never moves while previews load.
+/// its bytes arrive, so the transcript never moves while previews load. `itemId` names the message
+/// carrying them, as the source reads them.
 struct MessageAttachments: View {
-    let row: TranscriptRow
+    let itemId: String
     let attachments: [AttachmentLine]
     let more: Int
     var body: some View {
         let images = attachments.filter(\.previewed)
         let files = attachments.filter { !$0.previewed }
         VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
-            if !images.isEmpty { ImageGroup(row: row, images: images) }
-            ForEach(Array(files.enumerated()), id: \.offset) { _, file in AttachmentFileLine(row: row, line: file) }
+            if !images.isEmpty { ImageGroup(itemId: itemId, images: images) }
+            ForEach(Array(files.enumerated()), id: \.offset) { _, file in AttachmentFileLine(itemId: itemId, line: file) }
             if more > 0 {
                 Text("\(more) more").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -53,20 +54,20 @@ extension AttachmentLine {
 }
 
 private struct ImageGroup: View {
-    let row: TranscriptRow
+    let itemId: String
     let images: [AttachmentLine]
     private static let cell: CGFloat = 112
     private static let single: CGFloat = 240
     var body: some View {
         if images.count == 1, let image = images.first {
-            AttachmentThumb(row: row, line: image, size: Self.fitted(image))
+            AttachmentThumb(itemId: itemId, line: image, size: Self.fitted(image))
         } else {
             let shown = Array(images.prefix(4))
             let rest = images.count > 4 ? images.count - 3 : 0
             let columns = [GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight), GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight)]
             LazyVGrid(columns: columns, alignment: .trailing, spacing: AceDesign.Space.tight) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, image in
-                    AttachmentThumb(row: row, line: image, size: CGSize(width: Self.cell, height: Self.cell),
+                    AttachmentThumb(itemId: itemId, line: image, size: CGSize(width: Self.cell, height: Self.cell),
                                     more: index == 3 ? rest : 0)
                 }
             }
@@ -83,7 +84,7 @@ private struct ImageGroup: View {
 }
 
 private struct AttachmentThumb: View {
-    let row: TranscriptRow
+    let itemId: String
     let line: AttachmentLine
     let size: CGSize
     var more = 0
@@ -93,8 +94,8 @@ private struct AttachmentThumb: View {
     @State private var failed = false
     var body: some View {
         let ref = line.ref ?? ""
-        let image = loaded ?? access?.cached(row.id, ref)
-        Button { access?.open(row, line) } label: {
+        let image = loaded ?? access?.cached(itemId, ref)
+        Button { access?.open(itemId, line) } label: {
             ZStack {
                 AceTheme.Colours.fill
                 if let image {
@@ -121,7 +122,7 @@ private struct AttachmentThumb: View {
         // Loads when the row is on screen; a cancelled load (scrolled away) starts again on return.
         .task(id: ref) {
             guard image == nil, let access, !ref.isEmpty else { return }
-            let read = await access.thumbnail(row.id, ref, max(size.width, size.height) * scale)
+            let read = await access.thumbnail(itemId, ref, max(size.width, size.height) * scale)
             if Task.isCancelled { return }
             if let read { loaded = read } else { failed = true }
         }
@@ -129,12 +130,12 @@ private struct AttachmentThumb: View {
 }
 
 private struct AttachmentFileLine: View {
-    let row: TranscriptRow
+    let itemId: String
     let line: AttachmentLine
     @Environment(\.messageAttachments) private var access
     var body: some View {
         let opens = line.opens == true && access != nil
-        Button { access?.open(row, line) } label: {
+        Button { access?.open(itemId, line) } label: {
             HStack(spacing: AceDesign.Space.related) {
                 AceIcon(line.kind == "image" ? .image : line.kind == "pdf" || line.kind == "text" ? .fileText : .file,
                         size: AceDesign.Size.icon, relativeTo: .footnote)
@@ -177,16 +178,44 @@ struct AttachmentBytes: Decodable, Sendable {
         cache.totalCostLimit = 48 * 1024 * 1024
         return cache
     }()
-    static func key(_ threadId: String, _ itemId: String, _ ref: String) -> NSString {
-        "\(threadId)|\(itemId)|\(ref)" as NSString
+    static func key(_ scope: String, _ itemId: String, _ ref: String) -> NSString {
+        "\(scope)|\(itemId)|\(ref)" as NSString
     }
 }
 
-/// Where a thread's message attachments open: an image in the full-screen viewer, any other file
+/// Where a message's attachments are read from: a thread, because the message carries them, or
+/// Spade's store by hash (`spade.image`, which has no smaller preview). Both answer in
+/// `AttachmentBytes`.
+enum MessageAttachmentSource: Equatable, Sendable {
+    case thread(String)
+    case spade
+
+    /// What the decoded previews are kept under, so two sources never share an entry.
+    var scope: String {
+        switch self {
+        case let .thread(id): id
+        case .spade: "spade"
+        }
+    }
+
+    /// The request for one file: its `thumbnail` preview or the `original` itself.
+    func request(_ itemId: String?, _ ref: String, variant: String) -> [String: Any] {
+        switch self {
+        case let .thread(threadId):
+            var payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "ref": ref, "variant": variant]
+            if let itemId { payload["itemId"] = itemId }
+            return payload
+        case .spade:
+            return ["type": "spade.image", "sha256": ref]
+        }
+    }
+}
+
+/// Where a message's attachments open: an image in the full-screen viewer, any other file
 /// fetched because that message carries it and shown in Quick Look (which can share it).
 struct MessageAttachmentRoutes: ViewModifier {
     let model: ClientModel
-    let threadId: String
+    let source: MessageAttachmentSource
     @State private var viewing: AttachmentTarget?
     @State private var preview: URL?
     @State private var opening: String?
@@ -217,13 +246,13 @@ struct MessageAttachmentRoutes: ViewModifier {
     }
 
     private var access: MessageAttachmentAccess {
-        let model = model, threadId = threadId
+        let model = model, source = source
         return MessageAttachmentAccess(
-            cached: { itemId, ref in AttachmentThumbnails.cache.object(forKey: AttachmentThumbnails.key(threadId, itemId, ref)) },
+            cached: { itemId, ref in AttachmentThumbnails.cache.object(forKey: AttachmentThumbnails.key(source.scope, itemId, ref)) },
             thumbnail: { itemId, ref, pixels in
-                let key = AttachmentThumbnails.key(threadId, itemId, ref)
+                let key = AttachmentThumbnails.key(source.scope, itemId, ref)
                 if let hit = AttachmentThumbnails.cache.object(forKey: key) { return hit }
-                let payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "itemId": itemId, "ref": ref, "variant": "thumbnail"]
+                let payload = source.request(itemId, ref, variant: "thumbnail")
                 guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
                 let image = await Task.detached(priority: .userInitiated) {
                     Data(base64Encoded: reply.data).flatMap(ImageDecoding.source).flatMap { ImageDecoding.preview($0, pixels: pixels) }
@@ -234,10 +263,9 @@ struct MessageAttachmentRoutes: ViewModifier {
                 }
                 return image
             },
-            open: { row, line in open(row, line) },
+            open: { itemId, line in open(itemId, line) },
             original: { itemId, ref in
-                var payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "ref": ref, "variant": "original"]
-                if let itemId { payload["itemId"] = itemId }
+                let payload = source.request(itemId, ref, variant: "original")
                 guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
                 return await MediaViewer.image(base64: reply.data)
             }
@@ -246,26 +274,21 @@ struct MessageAttachmentRoutes: ViewModifier {
 
     /// The image itself, read because its message carries it, for the full-screen viewer.
     private func original(_ target: AttachmentTarget) async -> UIImage? {
-        guard let reply = try? await model.service(originalRequest(target.row.id, target.line.ref ?? ""), as: AttachmentBytes.self) else { return nil }
+        guard let reply = try? await model.service(source.request(target.itemId, target.line.ref ?? "", variant: "original"), as: AttachmentBytes.self) else { return nil }
         return await MediaViewer.image(base64: reply.data)
     }
 
-    /// The file itself (not its preview), asked for because message `itemId` carries it.
-    private func originalRequest(_ itemId: String, _ ref: String) -> [String: Any] {
-        ["type": "native.attachment", "threadId": threadId, "itemId": itemId, "ref": ref, "variant": "original"]
-    }
-
-    private func open(_ row: TranscriptRow, _ line: AttachmentLine) {
+    private func open(_ itemId: String, _ line: AttachmentLine) {
         guard line.opens == true, let ref = line.ref, !ref.isEmpty else { return }
         if line.previewed {
-            viewing = AttachmentTarget(row: row, line: line)
+            viewing = AttachmentTarget(itemId: itemId, line: line)
             return
         }
         opening = line.name
         Task {
             defer { opening = nil }
             do {
-                let reply = try await model.service(originalRequest(row.id, ref), as: AttachmentBytes.self)
+                let reply = try await model.service(source.request(itemId, ref, variant: "original"), as: AttachmentBytes.self)
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
                 preview = try Self.keep(data, named: reply.name)
             } catch {
@@ -288,7 +311,7 @@ struct MessageAttachmentRoutes: ViewModifier {
 }
 
 private struct AttachmentTarget: Identifiable {
-    let row: TranscriptRow
+    let itemId: String
     let line: AttachmentLine
-    var id: String { "\(row.id)|\(line.ref ?? "")" }
+    var id: String { "\(itemId)|\(line.ref ?? "")" }
 }

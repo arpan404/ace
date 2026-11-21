@@ -128,6 +128,8 @@ struct SpadeConversationView: View {
         // On the transcript only: set below the composer's inset, it would replace the
         // composer's and Stop's own identifiers.
         .accessibilityIdentifier("spade.conversation")
+        // The person's pictures open full size, read from Spade by hash.
+        .modifier(MessageAttachmentRoutes(model: client, source: .spade))
         // Opens at the end, and a short chat sits on the composer. Size changes (a streaming
         // reply, rows measuring, the keyboard, the composer growing) keep the bottom still only
         // while the chat follows its end; reading back, the rows on screen stay where they are.

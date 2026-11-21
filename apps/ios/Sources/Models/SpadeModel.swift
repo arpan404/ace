@@ -102,7 +102,8 @@ import Observation
     }
     /// One bubble of the conversation.
     enum Bubble: Decodable, Equatable, Sendable {
-        case person(text: String, sending: Bool, attached: String?)
+        /// `attached` names what isn't drawn as a picture; `images` are drawn as a thread's are.
+        case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine])
         case bot(text: String, live: Bool, end: End?)
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool)
         case question(SpadeQuestionCard)
@@ -111,7 +112,7 @@ import Observation
         case note(text: String)
 
         private enum Keys: String, CodingKey {
-            case kind, text, sending, attached, live, end, callId, sentence, detail, reason, always, name, face, first, last
+            case kind, text, sending, attached, images, live, end, callId, sentence, detail, reason, always, name, face, first, last
         }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
@@ -119,7 +120,8 @@ import Observation
             switch try box.decode(String.self, forKey: .kind) {
             case "person":
                 self = .person(text: text, sending: try box.decodeIfPresent(Bool.self, forKey: .sending) ?? false,
-                               attached: try box.decodeIfPresent(String.self, forKey: .attached))
+                               attached: try box.decodeIfPresent(String.self, forKey: .attached),
+                               images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [])
             case "bot":
                 self = .bot(text: text, live: try box.decodeIfPresent(Bool.self, forKey: .live) ?? false,
                             end: try box.decodeIfPresent(End.self, forKey: .end))
