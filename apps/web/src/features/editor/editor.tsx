@@ -498,25 +498,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       data-selected-lines={selected}
       className={cn("flex h-full min-h-0 flex-col", props.className)}
     >
-      {finder.open ? <EditorFindBar finder={finder} mac={isMacPlatform()} /> : null}
-      {goingTo && doc ? (
-        <GoToLineBar
-          lineCount={lineCount}
-          lineLength={(line) => doc.line(line).length}
-          onGo={(position) => {
-            setGoingTo(false);
-            setAffinity(noAffinity);
-            state.select([{ anchor: position, head: position }]);
-            reveal(position, false);
-            announce(position);
-            field.current?.focus({ preventScroll: true });
-          }}
-          onClose={() => {
-            setGoingTo(false);
-            field.current?.focus({ preventScroll: true });
-          }}
-        />
-      ) : null}
       <div
         data-editor-frame
         className="group/editor relative min-h-0 flex-1 font-mono text-ui focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
@@ -721,6 +702,25 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             style={{ left: textareaLeft, top: textareaTop }}
           />
         ) : null}
+        {goingTo && doc ? (
+          <GoToLineBar
+            lineCount={lineCount}
+            lineLength={(line) => doc.line(line).length}
+            onGo={(position) => {
+              setGoingTo(false);
+              setAffinity(noAffinity);
+              state.select([{ anchor: position, head: position }]);
+              reveal(position, false);
+              announce(position);
+              field.current?.focus({ preventScroll: true });
+            }}
+            onClose={() => {
+              setGoingTo(false);
+              field.current?.focus({ preventScroll: true });
+            }}
+          />
+        ) : null}
+        {finder.open ? <EditorFindBar finder={finder} mac={isMacPlatform()} /> : null}
         {announcement ? (
           <span key={announcement.seq} aria-live="polite" className="sr-only">
             {announcement.text}
