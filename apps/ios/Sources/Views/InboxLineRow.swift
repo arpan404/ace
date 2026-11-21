@@ -4,7 +4,7 @@ import SwiftUI
 /// `lead: "provider"`): the provider's mark, the title, then at the right edge one thing. A
 /// chat ends with its status mark (`.status`); a snoozed or settled thread ends with its work,
 /// the pull request and lines changed (`.work`), unless it needs the person or failed, when its
-/// status mark stands there instead. Every line is the same height, so the list stays combed.
+/// status mark stands there instead, or its work moved, when where it went does. Every line is the same height, so the list stays combed.
 struct InboxLineRow: View {
     enum End { case status, work }
     let row: ThreadRow
@@ -39,7 +39,13 @@ struct InboxLineRow: View {
 
     @ViewBuilder private func trailing(_ look: RowLook?) -> some View {
         let urgent = look?.level == "needs-you" || look?.level == "failed"
-        if end == .work && !urgent {
+        if end == .work && !urgent, let look, look.moved != nil {
+            // Its work went to another machine: where it went stands here, never its work or wake.
+            HStack(spacing: AceDesign.Space.tight) {
+                InboxRowMark(look: look, size: AceDesign.Size.rowStatus)
+                InboxRowAge(row: row, look: look)
+            }
+        } else if end == .work && !urgent {
             if row.pr != nil || row.work != nil {
                 InboxLineWork(row: row)
             } else if let wake {

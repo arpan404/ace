@@ -6,9 +6,19 @@ struct OtherMachines {
     var client: @MainActor (String) -> ClientModel? = { _ in nil }
     /// A machine's name as this phone calls it.
     var name: @MainActor (String) -> String? = { _ in nil }
-    /// Opens that machine's thread on the Threads tab; false when this phone can't show it.
-    /// Nil where nothing can be opened from (inside Settings).
-    var open: (@MainActor (InboxKey) -> Bool)? = nil
+    /// Opens that machine's thread on the Threads tab, or says why it can't yet; `opened` runs
+    /// once the thread shows, also when it waited for that machine's list. Nil where nothing can
+    /// be opened from (inside Settings).
+    var open: (@MainActor (InboxKey, _ opened: @escaping @MainActor @Sendable () -> Void) -> OpenElsewhere)? = nil
+}
+
+/// What opening another machine's thread did.
+enum OpenElsewhere: Equatable {
+    case opened
+    /// That machine's list doesn't hold the thread yet (after a reconnect): it opens once it does.
+    case waiting
+    /// This phone isn't paired with that machine.
+    case unpaired
 }
 
 extension EnvironmentValues {
@@ -22,7 +32,7 @@ struct TransferLineView: View {
     let model: ClientModel
     let line: TransferLineRow
     /// After Open has gone to the work (the sheet closes).
-    var opened: () -> Void = {}
+    var opened: @MainActor @Sendable () -> Void = {}
     @Environment(\.otherMachines) private var others
 
     private var actions: [TransferLineRow.Action] {
@@ -58,7 +68,7 @@ struct TransferLineView: View {
     private func run(_ action: TransferLineRow.Action) {
         if action.act == "open" {
             guard let target = line.open else { return }
-            if let thread = target.threadId, others.open?(InboxKey(machineId: target.hostId, id: thread)) == true { opened() }
+            if let thread = target.threadId { _ = others.open?(InboxKey(machineId: target.hostId, id: thread), opened) }
             return
         }
         guard let transferId = line.transferId else {
