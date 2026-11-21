@@ -83,8 +83,8 @@ export function SpadeSecuritySettings() {
         <SettingSection label="Permissions" anchor="permissions">
           <PermissionRows
             permissions={status.permissions}
-            save={async (key, on) => {
-              if (on !== null) show(await setMachinePermission(client, key, on));
+            save={async (which, on) => {
+              if (on !== null) show(await setMachinePermission(client, which, on));
             }}
             under={{
               computer_use: (
