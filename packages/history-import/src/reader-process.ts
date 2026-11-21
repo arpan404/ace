@@ -1,4 +1,4 @@
-import { fork, type ChildProcess, type Serializable } from "node:child_process";
+import { fork, spawn, type ChildProcess, type Serializable } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import type { WorkerOptions } from "node:worker_threads";
@@ -16,6 +16,13 @@ import {
   type ResidentSampler,
 } from "@ace/provider-kit/resident-memory";
 import { ReaderFault } from "./reader-host.ts";
+import { encodeFrames, FrameReader } from "./rust/frames.ts";
+
+/**
+ * What a reader process runs: the TypeScript worker forked over Node IPC, or the ace-history
+ * binary (ADR 0206), which speaks the same messages framed over its stdin and stdout.
+ */
+export type ReaderLaunch = { kind: "fork"; entry: URL } | { kind: "binary"; path: string };
 
 /**
  * The reader's hard memory limit, in resident memory (RSS). The worker it replaces had a 128 MB
@@ -94,27 +101,25 @@ export class ReaderProcess extends EventEmitter {
   private failed = false;
   private readonly exited = Promise.withResolvers<number>();
   private readonly runtime: ReaderProcessRuntime;
-  constructor(entry: URL, options: WorkerOptions, runtime: ReaderProcessRuntime) {
+  private framed = false;
+  constructor(launch: URL | ReaderLaunch, options: WorkerOptions, runtime: ReaderProcessRuntime) {
     super();
     this.runtime = runtime;
-    const windows = runtime.platform === "win32";
-    this.child = fork(fileURLToPath(entry), [], {
-      // Structured clone, as between threads: blob chunks stay Uint8Array.
-      serialization: "advanced",
-      // Its own process group (POSIX), so a stop reaches anything it starts.
-      detached: !windows,
-      windowsHide: true,
-      stdio: ["ignore", "ignore", "inherit", "ipc"],
-      // Never the daemon's own flags (watch mode, inspector). Where the watchdog can read
-      // memory it is the one limit; where it can't (Node off Linux), Node's heap cap stands in.
-      execArgv: [...(runtime.sampling ? [] : heapFlags(options)), ...(options.execArgv ?? [])],
-      env: {
-        ...(typeof options.env === "object" ? options.env : process.env),
-        // The daemon to watch: the reader's own parent can change if the daemon dies first.
-        [readerParentVariable]: String(process.pid),
-      },
-    });
-    this.child.on("message", (value: unknown) => {
+    const how: ReaderLaunch = launch instanceof URL ? { kind: "fork", entry: launch } : launch;
+    this.child =
+      how.kind === "fork"
+        ? forkReader(how.entry, options, runtime)
+        : spawnReader(how.path, options);
+    this.framed = how.kind === "binary";
+    this.listen();
+    this.pid = this.child.pid;
+    const pid = this.pid;
+    if (pid === undefined) return;
+    this.own(pid);
+    this.send({ init: options.workerData });
+  }
+  private listen(): void {
+    const deliver = (value: unknown) => {
       const fault = ReaderFault.safeParse(value).data;
       if (fault) {
         const { message, code } = fault.fault;
@@ -122,7 +127,21 @@ export class ReaderProcess extends EventEmitter {
         return;
       }
       this.emit("message", value);
-    });
+    };
+    if (this.framed) {
+      const reader = new FrameReader();
+      this.child.stdout?.on("data", (chunk: Uint8Array) => {
+        reader.push(chunk);
+        try {
+          for (const message of reader.messages()) deliver(message);
+        } catch (error) {
+          this.fail(error instanceof Error ? error : new Error(String(error)));
+          this.child.kill("SIGKILL");
+        }
+      });
+      // A pipe closed under a write reports here, never unhandled.
+      this.child.stdin?.on("error", (error) => this.fail(error));
+    } else this.child.on("message", deliver);
     // For the child's whole life: every failed send or spawn reports here, never unhandled.
     this.child.on("error", (error) => {
       this.fail(error);
@@ -130,9 +149,9 @@ export class ReaderProcess extends EventEmitter {
       if (this.child.pid === undefined) this.finish(1);
     });
     this.child.once("exit", (code) => this.finish(code ?? 1));
-    this.pid = this.child.pid;
-    const pid = this.pid;
-    if (pid === undefined) return;
+  }
+  private own(pid: number): void {
+    const runtime = this.runtime;
     try {
       registerGroup(
         pid,
@@ -172,7 +191,6 @@ export class ReaderProcess extends EventEmitter {
         this.fail(readerMemoryError(runtime.limitBytes));
       },
     });
-    this.send({ init: options.workerData });
   }
   /** The reader's process id, once it has started. */
   get processId(): number | undefined {
@@ -190,6 +208,14 @@ export class ReaderProcess extends EventEmitter {
     return this.exited.promise;
   }
   private send(message: Serializable): void {
+    if (this.framed) {
+      const stdin = this.child.stdin;
+      if (!stdin || stdin.destroyed || this.exitCode !== undefined) return;
+      const id = typeof message === "object" && message !== null ? Reflect.get(message, "id") : 0;
+      for (const bytes of encodeFrames(message, typeof id === "number" ? id : 0))
+        stdin.write(bytes);
+      return;
+    }
     if (!this.child.connected) return;
     this.child.send(message, (error) => {
       if (error) this.fail(error);
@@ -216,6 +242,44 @@ export class ReaderProcess extends EventEmitter {
     this.exited.resolve(code);
     this.emit("exit", code);
   }
+}
+
+function forkReader(
+  entry: URL,
+  options: WorkerOptions,
+  runtime: ReaderProcessRuntime,
+): ChildProcess {
+  const windows = runtime.platform === "win32";
+  return fork(fileURLToPath(entry), [], {
+    // Structured clone, as between threads: blob chunks stay Uint8Array.
+    serialization: "advanced",
+    // Its own process group (POSIX), so a stop reaches anything it starts.
+    detached: !windows,
+    windowsHide: true,
+    stdio: ["ignore", "ignore", "inherit", "ipc"],
+    // Never the daemon's own flags (watch mode, inspector). Where the watchdog can read
+    // memory it is the one limit; where it can't (Node off Linux), Node's heap cap stands in.
+    execArgv: [...(runtime.sampling ? [] : heapFlags(options)), ...(options.execArgv ?? [])],
+    env: readerEnv(options),
+  });
+}
+
+/** ace-history: frames on stdin and stdout, its own process group, exits when stdin closes. */
+function spawnReader(path: string, options: WorkerOptions): ChildProcess {
+  return spawn(path, [], {
+    detached: process.platform !== "win32",
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "inherit"],
+    env: readerEnv(options),
+  });
+}
+
+function readerEnv(options: WorkerOptions): NodeJS.ProcessEnv {
+  return {
+    ...(typeof options.env === "object" ? options.env : process.env),
+    // The daemon to watch: the reader's own parent can change if the daemon dies first.
+    [readerParentVariable]: String(process.pid),
+  };
 }
 
 /** Node's stand-in limit: the worker's old-generation heap size, as a flag. */
