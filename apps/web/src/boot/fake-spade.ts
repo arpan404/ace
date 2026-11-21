@@ -22,7 +22,12 @@ import { seedFakeModelAccess } from "./fake-spade-models.ts";
  * build server, so the Spade place shows every state the person meets: Spade at work, a bot
  * waiting on an approval, an idle bot, a message from another bot, and the working line.
  */
-export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpadeApi {
+export function seedFakeSpade(
+  daemon: FakeDaemon,
+  server: FakeDaemon,
+  /** The build server's Spade, for a world that seeds more on it (`?fakeWorld=org`). */
+  onRemote?: (remote: FakeSpadeApi) => void,
+): FakeSpadeApi {
   const now = Date.now();
   const minutes = (count: number) => now - count * 60_000;
   const here = running(daemon);
@@ -590,6 +595,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon): FakeSpade
     },
   });
   remote.endpoints.push({ ...endpoint });
+  onRemote?.(remote);
   return here;
 }
 
