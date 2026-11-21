@@ -1,3 +1,4 @@
+import { notDeleted } from "./tombstone.ts";
 import { z } from "zod";
 import { AceAccountGrant } from "@ace/protocol/ace-account";
 import type { Sealer } from "./crypto.ts";
@@ -99,14 +100,22 @@ export function loginStore(db: D1Database, sealer: Sealer) {
         .bind(id)
         .run();
     },
-    /** False when the login was cancelled or expired while WorkOS was answering. */
+    /**
+     * Completes a sign-in with its session and the grant the app claims, only while that
+     * session still exists and its account has no deletion recorded: a deletion that removed
+     * the session first leaves no sealed grant and no success behind. False then, and when the
+     * login was cancelled or expired while WorkOS was answering.
+     */
     async complete(id: string, session: string, grant: AceAccountGrant, now: number) {
       return changed(
         await db
           .prepare(
-            "UPDATE logins SET phase = 'complete', verifier = NULL, session = ?, issued = ? WHERE id = ? AND phase = 'exchanging' AND expires > ?",
+            `UPDATE logins SET phase = 'complete', verifier = NULL, session = ?1, issued = ?2
+             WHERE id = ?3 AND phase = 'exchanging' AND expires > ?4
+               AND EXISTS (SELECT 1 FROM sessions WHERE token = ?1)
+               AND ${notDeleted("?5")}`,
           )
-          .bind(session, await sealer.seal(JSON.stringify(grant), id), id, now)
+          .bind(session, await sealer.seal(JSON.stringify(grant), id), id, now, grant.account.id)
           .run(),
       );
     },

@@ -20,6 +20,7 @@ import { Attachment, hostAccount, nextExpiry, routeFacts } from "./attachment.ts
 import { sendPairing } from "./pairing-send.ts";
 import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER } from "./admission.ts";
 import { machineStore } from "./account/machines.ts";
+import { accountDeleted } from "./account/tombstone.ts";
 import { openControl, sealControl } from "./control.ts";
 import { FrameBudget } from "./frame-budget.ts";
 import { HttpGateway } from "./http-gateway.ts";
@@ -333,8 +334,15 @@ export class RelayObject extends DurableObject<Env> {
     } catch {
       return this.#close(ws, 1011, "Directory unavailable");
     }
-    // The account was deleted after this grant was issued; retrying won't help.
-    if (!registered) return this.#close(ws, 1008, "Account deleted");
+    // The account was deleted after this grant was issued, or while the row was written;
+    // retrying won't help.
+    let deleted: boolean;
+    try {
+      deleted = !registered || (await accountDeleted(this.env.ACCOUNTS, attachment.account));
+    } catch {
+      return this.#close(ws, 1011, "Directory unavailable");
+    }
+    if (deleted) return this.#close(ws, 1008, "Account deleted");
     // The daemon closed while the entry was written.
     if (this.#read(ws)?.id !== attachment.id) return;
     this.#save(ws, host);
@@ -354,8 +362,10 @@ export class RelayObject extends DurableObject<Env> {
   async registerAgain(account: string): Promise<void> {
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = this.#read(ws);
-      if (attachment?.kind === "host" && attachment.account === account)
-        this.#close(ws, REGISTER_AGAIN, "Register again");
+      // One still in its handshake too: its directory write may have landed just before the
+      // account forgot it, and it would otherwise go live without a row.
+      const live = attachment?.kind === "host" || attachment?.kind === "handshake";
+      if (live && attachment.account === account) this.#close(ws, REGISTER_AGAIN, "Register again");
     }
   }
 
