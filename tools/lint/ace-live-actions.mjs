@@ -68,6 +68,7 @@ const formatters = new Set([
   "agentStatusLabel",
   "agentStep",
   "agentOutcome",
+  "forestAgentWords",
   "threadRowStatus",
   "listTreeFacts",
   "treeWorking",

@@ -726,7 +726,13 @@ import QuartzCore
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
             case .summary(let id, let epoch, let summary):
-                if thread?.id == id, thread?.epoch == epoch, sheets.summary != summary { sheets.summary = summary }
+                if thread?.id == id, thread?.epoch == epoch, sheets.summary != summary {
+                    // A clock from a count that has stopped says nothing now.
+                    if !summary.now.ticking { sheets.summaryClock = nil }
+                    sheets.summary = summary
+                }
+            case .summaryClock(let id, let epoch, let clock):
+                if thread?.id == id, thread?.epoch == epoch, sheets.summaryClock != clock { sheets.summaryClock = clock }
             case .logs(let id, let epoch, let logs):
                 if thread?.id == id, thread?.epoch == epoch, sheets.logs != logs { sheets.logs = logs }
             case .logsCopy(let id, let text): sheets.copies[id] = text

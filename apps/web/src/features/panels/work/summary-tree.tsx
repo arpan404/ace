@@ -1,5 +1,11 @@
-import { foldFinished, type ForestNode, type ForestRow, type ThreadWork } from "@ace/ui-core";
-import type { Interaction } from "@ace/protocol";
+import {
+  foldFinished,
+  forestRequests,
+  type ForestNode,
+  type ForestRequests,
+  type ForestRow,
+  type ThreadWork,
+} from "@ace/ui-core";
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import { rowMotion, useListMotion, usePresence } from "@/lib/motion.ts";
@@ -108,7 +114,7 @@ interface TreeContext {
   /** Whether a run of finished siblings shows its rows; folded until the person opens it. */
   isShown(key: string): boolean;
   fold(key: string, open: boolean): void;
-  requests: ReadonlyMap<string, Interaction>;
+  requests: ForestRequests;
 }
 
 /**
@@ -125,15 +131,8 @@ export function SummaryTree(props: {
   const actions = useWorkspaceActions(props.threadId);
   const sections = workspace.tabs.find((tab) => tab.key === "work")?.ui?.sections;
   const [selected, setActive] = useState<string>();
-  const requests = useMemo(() => {
-    const map = new Map<string, Interaction>();
-    for (const [threadId, work] of props.works)
-      for (const interaction of work.interactions) {
-        const key = `${threadId}/${interaction.agentId}`;
-        if (!map.has(key)) map.set(key, interaction);
-      }
-    return map;
-  }, [props.works]);
+  // Only requests the person can answer now, the blocking and newest first (`forestRequests`).
+  const requests = useMemo(() => forestRequests(props.works), [props.works]);
   // The main agent's row stays open: it is the tree itself, not a branch of it.
   const isOpen = useCallback(
     (node: ForestNode, depth: number) =>

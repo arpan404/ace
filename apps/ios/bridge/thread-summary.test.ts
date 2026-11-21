@@ -32,6 +32,8 @@ async function opened(
     before?: (daemon: FakeDaemon) => void;
     details?: Thread["details"];
     limits?: ClientOptions["limits"];
+    scheduler?: typeof timers;
+    clock?: () => number;
   } = {},
 ) {
   const { before, details, limits } = setup;
@@ -53,8 +55,8 @@ async function opened(
   const cleared = new Map<string, number>();
   const follow = () => {
     const summary = new ThreadSummary(client, lease.store, threadId, 1, sink, plainPreview, {
-      now: () => 10_000_000,
-      scheduler: timers,
+      now: setup.clock ?? (() => 10_000_000),
+      scheduler: setup.scheduler ?? timers,
       cleared,
     });
     closers.push(() => summary.close());
@@ -118,6 +120,8 @@ const write = (agent: string, item: string, path: string): Fact[] => [
   facts.toolDone(agent, item),
 ];
 
+const names = (rows: { name: string }[] | undefined) => rows?.map((row) => row.name);
+
 describe("the phone's Summary", () => {
   test("Now says working with the subagent at work, then done once the whole tree settled", async () => {
     const { daemon, sink, follow } = await opened("now", [
@@ -131,10 +135,181 @@ describe("the phone's Summary", () => {
     await until(() => view(sink)?.now.sub === "1 agent working", "subagent counted");
     // The main agent's turn ended, but its tree is still at work: never done.
     expect(view(sink)?.now.lead).toBe("Working");
-    expect(view(sink)?.agents).toBe("2 working");
+    expect(view(sink)?.agents?.working.map((row) => row.name)).toEqual(["Reviewer"]);
+    expect(view(sink)?.now.progress?.words).toBe("0 of 1 done");
     daemon.apply("now", [facts.endTurn("reviewer")]);
     await until(() => view(sink)?.now.lead === "Done", "tree settled");
     expect(view(sink)?.now.sub).toBe("1 agent finished");
+  });
+
+  test("the agents read who waits on you first, then working, failed, and the finished folded", async () => {
+    const ask = "ask-branch";
+    const { sink, follow, store } = await opened("order", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "done1", "Linter", "s1"),
+      facts.turn("done1", "spawn"),
+      facts.endTurn("done1"),
+      facts.subagent("codex", "broke", "Migrator", "s2"),
+      facts.turn("broke", "spawn"),
+      facts.endTurn("broke", "failed", { kind: "provider", message: "boom" }),
+      facts.subagent("codex", "busy", "Tester", "s3"),
+      facts.turn("busy", "spawn"),
+      facts.subagent("codex", "asker", "Planner", "s4"),
+      facts.turn("asker", "spawn"),
+      {
+        type: "interaction.opened",
+        agent: "asker",
+        interaction: ask,
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "q",
+              text: "Which branch?",
+              options: [],
+              multiSelect: false,
+              allowOther: true,
+              secret: false,
+            },
+          ],
+        },
+      },
+      facts.subagent("codex", "done2", "Docs", "s5"),
+      facts.turn("done2", "spawn"),
+      facts.endTurn("done2"),
+    ]);
+    const summary = follow();
+    await until(() => (view(sink)?.agents?.asks.length ?? 0) > 0, "asker listed");
+    const agents = view(sink)?.agents;
+    expect(names(agents?.asks)).toEqual(["Planner"]);
+    expect(agents?.asks[0]).toMatchObject({ step: "Asks: Which branch?", action: "Answer" });
+    // Answer opens exactly the request the row shows.
+    expect(agents?.asks[0]?.requestId).toBe(store.interactionIds()[0]);
+    expect(names(agents?.working)).toEqual(["Tester"]);
+    expect(names(agents?.failed)).toEqual(["Migrator"]);
+    // Finished rows cross only once the person opens their fold.
+    expect(agents?.done).toEqual([]);
+    expect(agents?.doneWords).toBe("2 done");
+    summary.doneRows(true);
+    expect(names(view(sink)?.agents?.done)).toEqual(["Linter", "Docs"]);
+    expect(view(sink)?.now.progress).toEqual({ done: 2, total: 5, words: "2 of 5 done" });
+  });
+
+  test("a row's words follow an item that changes alone, even in a delegated thread", async () => {
+    const { daemon, sink, follow } = await opened(
+      "steps",
+      [...working, ...delegate("lead", "kid")],
+      {
+        before: (fake) =>
+          child(fake, "kid", "steps", [
+            facts.rootAgent("codex"),
+            facts.turn("root"),
+            facts.tool("root", "spawn-worker", {
+              kind: "agent.spawn",
+              title: "Worker",
+              detail: { kind: "agent.spawn", description: "Worker", prompt: "Fix the export." },
+            }),
+            facts.subagent("codex", "worker", "Worker", "spawn-worker"),
+            facts.turn("worker", "spawn"),
+            facts.endTurn("worker"),
+            // The call ended before its report came: what follows changes that item alone.
+            facts.toolDone("root", "spawn-worker"),
+          ]),
+      },
+    );
+    const summary = follow();
+    summary.doneRows(true);
+    const step = () => view(sink)?.agents?.done.find((row) => row.name === "Worker")?.step;
+    await until(() => step() === "Finished", "finished without a report yet");
+    // The pump reads a patch only when it is put: the change must put the Summary again.
+    const puts = sink.puts;
+    // Only the spawn call's item changes, with the report: the row says what it came back with.
+    daemon.apply("kid", [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "spawn-worker",
+        draft: {
+          type: "tool_call",
+          complete: true,
+          call: {
+            status: "succeeded",
+            result: {
+              isError: false,
+              durationMs: 5,
+              content: [{ type: "text", text: "Fixed the export." }],
+            },
+          },
+        },
+      },
+    ]);
+    await until(() => sink.puts > puts, "the Summary put again");
+    expect(step()).toBe("Fixed the export.");
+  });
+
+  test("a counting Now sends only its clock each tick, never the agent list again", async () => {
+    let at = Date.now();
+    const pending: (() => void)[] = [];
+    const scheduler = {
+      set(_delay: number, callback: () => void) {
+        pending.push(callback);
+        return () => {
+          const index = pending.indexOf(callback);
+          if (index >= 0) pending.splice(index, 1);
+        };
+      },
+    };
+    const { sink, follow } = await opened(
+      "clock",
+      [
+        ...working,
+        facts.subagent("codex", "helper", "Helper", "s1"),
+        facts.turn("helper", "spawn"),
+      ],
+      { scheduler, clock: () => at },
+    );
+    follow();
+    await until(() => view(sink)?.now.ticking === true, "Now counts");
+    const sheets = sink.putsOf.get("thread:summary") ?? 0;
+    // A minute on, the tick says the new time without sending the Summary again.
+    at += 60_000;
+    for (const tick of pending.splice(0)) tick();
+    expect(sink.putsOf.get("thread:summary")).toBe(sheets);
+    const clock = sink.read("thread:summary.clock");
+    expect(clock).toMatchObject({ type: "thread.summary.clock", threadId: "clock" });
+    expect(String(clock?.speak)).toMatch(/^working for /);
+  });
+
+  test("two hundred agents, the done fold open, still fit one 32 KiB bridge frame", async () => {
+    const seed: Fact[] = [...working];
+    for (let index = 0; index < 200; index++) {
+      const id = `agent-${index}`;
+      seed.push(
+        facts.subagent("codex", id, `Shard ${index + 1} of the billing export`, `spawn-${id}`, {
+          model: "gpt-6.1-sol",
+        }),
+        facts.turn(id, "spawn"),
+      );
+      // The first 120 still work; the rest finished.
+      if (index >= 120) seed.push(facts.endTurn(id));
+    }
+    const { sink, follow } = await opened("wide", seed);
+    const summary = follow();
+    summary.doneRows(true);
+    await until(() => view(sink)?.agents?.progress.total === 200, "every agent counted");
+    const agents = view(sink)?.agents;
+    const shown =
+      (agents?.asks.length ?? 0) +
+      (agents?.working.length ?? 0) +
+      (agents?.failed.length ?? 0) +
+      (agents?.done.length ?? 0);
+    // What doesn't cross is counted, for the agent tree to show.
+    expect(shown + (agents?.hidden ?? 0)).toBe(200);
+    expect(agents?.doneWords).toBe("80 done");
+    const bytes = new TextEncoder().encode(JSON.stringify(sink.read("thread:summary"))).length;
+    expect(bytes).toBeLessThan(32_760);
   });
 
   test("a delegate stays working while the thread it delegated to still works", async () => {

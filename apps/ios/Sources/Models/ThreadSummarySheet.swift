@@ -20,6 +20,70 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let tone: String
         let speak: String
         let open: Open?
+        /// The main agent's provider and model in words ("Opus 5.5"); empty when unknown.
+        let provider: String
+        let model: String
+        /// Subagents finished out of all of them, once there are any.
+        let progress: Progress?
+        /// The span counts on: the clock patch (`SummaryClock`) says it from here, so the whole
+        /// Summary isn't sent again every second.
+        let ticking: Bool
+    }
+    /// Now's running time while it counts (`thread.summary.clock`), sent apart from the sheet.
+    struct Clock: Codable, Sendable, Equatable {
+        let span: String
+        let speak: String
+    }
+    struct Progress: Codable, Sendable, Equatable {
+        let done: Int
+        let total: Int
+        /// "8 of 14 done".
+        let words: String
+    }
+    /// One agent besides the main one, as its group lists it.
+    struct Agent: Codable, Sendable, Equatable, Identifiable {
+        struct Icon: Codable, Sendable, Equatable {
+            let kind: String
+            let tone: String
+            let count: Int?
+        }
+        let key: String
+        let threadId: String
+        let agentId: String
+        let childThreadId: String?
+        let name: String
+        let provider: String
+        let model: String
+        /// What it does, asks, or came back with, in one line.
+        let step: String
+        /// plain, needs-you or failed.
+        let tone: String
+        let icon: Icon
+        /// Levels in under the rows above it, 0 to 2.
+        let indent: Int
+        /// The parent it hangs under, where the indent doesn't show it.
+        let under: String?
+        /// "Answer" or "Review" for a request.
+        let action: String?
+        /// The request that action answers: the one its row shows.
+        let requestId: String?
+        let startedAt: Double
+        let endedAt: Double?
+        /// Its own work runs now: the row counts its running time.
+        let ticking: Bool
+        var id: String { key }
+    }
+    /// Every agent but the main one, by what it needs from the person.
+    struct Agents: Codable, Sendable, Equatable {
+        let asks: [Agent]
+        let working: [Agent]
+        let failed: [Agent]
+        let done: [Agent]
+        /// "12 done", over the folded finished rows.
+        let doneWords: String?
+        /// Rows past the bridge's budget, the folded ones aside: the agent tree has them.
+        let hidden: Int
+        let progress: Progress
     }
     struct Line: Codable, Sendable, Equatable, Identifiable {
         let text: String
@@ -30,6 +94,8 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let id: String
         let title: String
         let line: String
+        /// merged, open, draft, closed, or failing when its checks failed.
+        let dot: String
         let url: String
         let number: Int
         let repository: ForgeRepository
@@ -68,7 +134,7 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
     let workspacePath: String?
     let now: Now
     let catchUp: [Line]
-    let agents: String?
+    let agents: Agents?
     let prs: [PullRequest]
     let prFold: String?
     let files: Files?

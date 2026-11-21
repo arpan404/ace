@@ -16,7 +16,7 @@ import { seedAutomations } from "./automations-scenario.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedWork, WorkScenario } from "./work-scenario.ts";
-import { seedSubagents } from "./subagent-scenario.ts";
+import { seedSubagents, seedSummaryTree } from "./subagent-scenario.ts";
 import { seedElsewhere, seedWorktreeStops } from "./elsewhere-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
@@ -245,6 +245,36 @@ daemon.createThread({
   details: details("perf/shards"),
 });
 seedSubagents(daemon);
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-summary-tree",
+  workspaceId: "ace",
+  title: "Ship the billing export",
+  provider: "claude",
+  details: {
+    ...details("feat/billing-export"),
+    linkedPrs: [
+      {
+        number: 2401,
+        state: "open",
+        title: "Billing export: CSV and schema",
+        url: "https://github.com/arpan404/ace/pull/2401",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
+        checks: "failed",
+        updatedAt: 2,
+      },
+      {
+        number: 2388,
+        state: "merged",
+        title: "Billing: currency rounding",
+        url: "https://github.com/arpan404/ace/pull/2388",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
+        updatedAt: 1,
+      },
+    ],
+  },
+});
+seedSummaryTree(daemon);
 seedElsewhere(daemon, { hostId, name: machineName });
 seedWorktreeStops(daemon);
 daemon.createThread({

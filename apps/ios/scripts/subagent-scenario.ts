@@ -9,6 +9,9 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
  *   the person a question, so its branch waits on the person and never reads done.
  * - `ios-big-tree`: 160 finished subagents, two still working, and 45 background commands, for
  *   the Agents sheet's pages.
+ * - `ios-summary-tree`: the Summary's agents. A reviewer asks the person a question; a lead
+ *   waits on a chain of subagents four deep, the deepest still working; one failed; and twelve
+ *   finished, for the "12 done" fold.
  */
 
 function launch(item: string, name: string, prompt: string): Fact[] {
@@ -127,4 +130,97 @@ export function seedSubagents(daemon: FakeDaemon): void {
     );
   big.push(facts.endTurn("root"));
   daemon.apply("ios-big-tree", big);
+}
+
+/** `ios-summary-tree`: waiting, a deep working chain, a failure and many finished agents. */
+export function seedSummaryTree(daemon: FakeDaemon): void {
+  const tree: Fact[] = [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Ship the billing export with tests and docs."),
+  ];
+  const done = [
+    "Schema reader",
+    "CSV writer",
+    "Docs pass",
+    "Fixture builder",
+    "Type checker",
+    "Lint fixer",
+    "Changelog",
+    "Date parser",
+    "Currency rounding",
+    "Index planner",
+    "Error copy",
+    "Release notes",
+  ];
+  done.forEach((name, index) => {
+    const id = `done-${index}`;
+    tree.push(
+      facts.subagent("claude", id, name, `spawn-${id}`, { model: "claude-sonnet-5-5" }),
+      facts.turn(id, "spawn"),
+      facts.endTurn(id),
+    );
+  });
+  tree.push(
+    facts.subagent("claude", "reviewer", "Reviewer", "spawn-reviewer", {
+      model: "claude-opus-5-5",
+    }),
+    facts.turn("reviewer", "spawn"),
+    {
+      type: "interaction.opened",
+      agent: "reviewer",
+      interaction: "reviewer-ask",
+      blocking: true,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "scope",
+            text: "Include refunds in the export?",
+            multiSelect: false,
+            allowOther: false,
+            secret: false,
+            options: [
+              { id: "yes", label: "Yes" },
+              { id: "no", label: "Not yet" },
+            ],
+          },
+        ],
+      },
+    },
+    facts.subagent("claude", "migrator", "Migrator", "spawn-migrator", {
+      model: "claude-sonnet-5-5",
+    }),
+    facts.turn("migrator", "spawn"),
+    facts.endTurn("migrator", "failed", {
+      kind: "provider",
+      message: "The model's server closed the stream before the answer finished",
+    }),
+    facts.subagent("claude", "lead", "Export lead", "spawn-lead", { model: "claude-opus-5-5" }),
+    facts.turn("lead", "spawn"),
+  );
+  // A chain four deep under the lead: each waits on the next, the deepest still runs a command.
+  let parent = "lead";
+  for (const [id, name] of [
+    ["builder", "Export builder"],
+    ["tests", "Test writer"],
+    ["runner", "Test runner"],
+  ] as const) {
+    tree.push(
+      facts.subagent("claude", id, name, `spawn-${id}`, { parent, model: "claude-haiku-5-5" }),
+      facts.turn(id, "spawn"),
+    );
+    parent = id;
+  }
+  tree.push(
+    facts.tool("runner", "run-tests", {
+      kind: "shell",
+      title: "bun run test billing",
+      detail: { kind: "shell", command: "bun run test billing" },
+    }),
+    facts.endTurn("builder"),
+    facts.endTurn("tests"),
+    facts.endTurn("lead"),
+  );
+  daemon.apply("ios-summary-tree", tree);
 }
