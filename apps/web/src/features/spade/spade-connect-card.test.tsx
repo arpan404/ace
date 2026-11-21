@@ -228,7 +228,7 @@ test("a Coming soon app's card says it isn't available yet and offers nothing to
 });
 
 test("a bot's apps suggest the ones that fit its task, each a click from connected", async () => {
-  const { spade } = await spadeApp("/spade/boards?profile=details", (api) => {
+  const { spade } = await spadeApp("/spade/boards?profile=permissions", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     api.connectors.catalogue.push(linear, {

@@ -1,3 +1,4 @@
+import { CardFace } from "./spade-card.tsx";
 import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
 import { SpadeNoticeRow } from "./spade-notice-row.tsx";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
@@ -205,77 +206,79 @@ export function SpadeChat(props: {
     listed: (id) => bot.names.has(id),
   };
   return (
-    <div
-      role="feed"
-      aria-label={`Conversation with ${bot.name}`}
-      aria-busy={view.busy}
-      className="flex flex-col"
-    >
-      <KeepCaseDialog
-        bot={{ id: bot.id, name: bot.name }}
-        reply={keeping}
-        onDone={() => setKeeping(undefined)}
-      />
-      {rows.length === 0 && !lined && !rest && props.start}
-      {rows.slice(from).map((row, index) => (
-        <Row
-          key={row.key}
-          row={row}
-          previous={rows[from + index - 1]}
-          bot={bot}
-          handlers={handlers}
+    <CardFace value={bot.avatar}>
+      <div
+        role="feed"
+        aria-label={`Conversation with ${bot.name}`}
+        aria-busy={view.busy}
+        className="flex flex-col"
+      >
+        <KeepCaseDialog
+          bot={{ id: bot.id, name: bot.name }}
+          reply={keeping}
+          onDone={() => setKeeping(undefined)}
         />
-      ))}
-      {rest && !props.paused && onWake ? (
-        <RestingLine
-          avatar={bot.avatar}
-          line={rest}
-          onAction={(action) => onWake(rest.wake, action)}
-        />
-      ) : (
-        lined &&
-        (props.paused ? (
-          // Paused by Spade while the person drives: nothing runs, so no clock.
-          <WorkingLine
-            avatar={bot.avatar}
-            state="idle"
-            label="Paused while you have the computer"
-            since={undefined}
-            onWatch={undefined}
+        {rows.length === 0 && !lined && !rest && props.start}
+        {rows.slice(from).map((row, index) => (
+          <Row
+            key={row.key}
+            row={row}
+            previous={rows[from + index - 1]}
+            bot={bot}
+            handlers={handlers}
           />
-        ) : task?.tone === "needs-you" ? (
-          <WorkingLine
+        ))}
+        {rest && !props.paused && onWake ? (
+          <RestingLine
             avatar={bot.avatar}
-            state="needs-you"
-            label={task.sentence}
-            since={undefined}
-            onWatch={undefined}
-          />
-        ) : task?.tone === "waiting" && !working ? (
-          // Waiting on something other than the person: it says so, with no spinner or clock.
-          <WorkingLine
-            avatar={bot.avatar}
-            state="idle"
-            label={[task.sentence, task.step].filter(Boolean).join(" · ")}
-            since={undefined}
-            onWatch={undefined}
+            line={rest}
+            onAction={(action) => onWake(rest.wake, action)}
           />
         ) : (
-          <WorkingLine
-            avatar={bot.avatar}
-            state={task && !working ? "working" : lineState}
-            label={
-              task && task.tone !== "waiting"
-                ? [task.sentence, task.step].filter(Boolean).join(" · ")
-                : (view.status ?? "Working")
-            }
-            detail={working ? running : undefined}
-            since={working ? view.working?.since : undefined}
-            onWatch={props.onWatch}
-          />
-        ))
-      )}
-    </div>
+          lined &&
+          (props.paused ? (
+            // Paused by Spade while the person drives: nothing runs, so no clock.
+            <WorkingLine
+              avatar={bot.avatar}
+              state="idle"
+              label="Paused while you have the computer"
+              since={undefined}
+              onWatch={undefined}
+            />
+          ) : task?.tone === "needs-you" ? (
+            <WorkingLine
+              avatar={bot.avatar}
+              state="needs-you"
+              label={task.sentence}
+              since={undefined}
+              onWatch={undefined}
+            />
+          ) : task?.tone === "waiting" && !working ? (
+            // Waiting on something other than the person: it says so, with no spinner or clock.
+            <WorkingLine
+              avatar={bot.avatar}
+              state="idle"
+              label={[task.sentence, task.step].filter(Boolean).join(" · ")}
+              since={undefined}
+              onWatch={undefined}
+            />
+          ) : (
+            <WorkingLine
+              avatar={bot.avatar}
+              state={task && !working ? "working" : lineState}
+              label={
+                task && task.tone !== "waiting"
+                  ? [task.sentence, task.step].filter(Boolean).join(" · ")
+                  : (view.status ?? "Working")
+              }
+              detail={working ? running : undefined}
+              since={working ? view.working?.since : undefined}
+              onWatch={props.onWatch}
+            />
+          ))
+        )}
+      </div>
+    </CardFace>
   );
 }
 

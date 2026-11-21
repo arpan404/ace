@@ -15,6 +15,7 @@ import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import {
   CardBody,
+  CardWhy,
   cardKeyHint,
   CardFooter,
   CardPrimary,
@@ -146,8 +147,8 @@ export function SpadeRequestBubble(props: {
       </NeedsYouLine>
       {(reason || card.detail) && (
         <CardBody>
-          {reason && <p className="text-ui leading-5 text-muted-foreground">{reason}</p>}
           {card.detail && <Detail detail={card.detail} />}
+          {reason && <CardWhy>{reason}</CardWhy>}
         </CardBody>
       )}
       <CardFooter
@@ -249,19 +250,16 @@ function Detail(props: { detail: SpadeRequestDetail }) {
       );
     case "email":
       return (
-        <div className="flex flex-col gap-0.5 text-ui">
-          {detail.to && <Line label="To" value={detail.to} />}
-          {detail.subject && <Line label="Subject" value={detail.subject} />}
-          {detail.body && <FoldedText text={detail.body} muted />}
-        </div>
+        <MessagePreview
+          heads={[
+            detail.to ? (["To", detail.to] as const) : undefined,
+            detail.subject ? (["Subject", detail.subject] as const) : undefined,
+          ]}
+          body={detail.body}
+        />
       );
     case "message":
-      return (
-        <div className="flex flex-col gap-0.5 text-ui">
-          <Line label="To" value={detail.to} />
-          <FoldedText text={detail.text} muted />
-        </div>
-      );
+      return <MessagePreview heads={[["To", detail.to] as const]} body={detail.text} />;
     case "task":
       return (
         <div className="-ml-3 flex flex-col gap-1">
@@ -270,22 +268,43 @@ function Detail(props: { detail: SpadeRequestDetail }) {
         </div>
       );
     case "fields":
-      return (
-        <div className="flex flex-col gap-0.5 text-ui">
-          {detail.fields.map((field) => (
-            <Line key={field.label} label={field.label} value={field.value} />
-          ))}
-        </div>
-      );
+      return <Fields rows={detail.fields.map((field) => [field.label, field.value] as const)} />;
   }
 }
 
-function Line(props: { label: string; value: string }) {
+/** Labelled values in two columns: the label quiet on the left, the value beside it. */
+function Fields(props: { rows: readonly (readonly [string, string] | undefined)[] }) {
   return (
-    <p className="whitespace-pre-wrap wrap-anywhere">
-      <span className="text-muted-foreground">{`${props.label}: `}</span>
-      {props.value}
-    </p>
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-ui leading-5">
+      {props.rows.map((row) =>
+        row ? (
+          <div key={row[0]} className="contents">
+            <dt className="text-muted-foreground">{row[0]}</dt>
+            <dd className="m-0 whitespace-pre-wrap wrap-anywhere text-foreground">{row[1]}</dd>
+          </div>
+        ) : null,
+      )}
+    </dl>
+  );
+}
+
+/**
+ * A message as a message: who it goes to and its subject as fields, then its words in a quiet
+ * inset well, clamped to a few lines until Show all.
+ */
+function MessagePreview(props: {
+  heads: readonly (readonly [string, string] | undefined)[];
+  body: string | undefined;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Fields rows={props.heads} />
+      {props.body && (
+        <div aria-label="Message" className="rounded-lg bg-chat-well px-3 py-2.5 text-ui leading-5">
+          <FoldedText text={props.body} />
+        </div>
+      )}
+    </div>
   );
 }
 
