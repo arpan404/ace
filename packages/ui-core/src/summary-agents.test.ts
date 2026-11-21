@@ -282,6 +282,8 @@ test("a remote child that didn't confirm its stop is never listed done, and says
     step: "stopped · didn't confirm",
     done: false,
   });
+  // Listed among the working for its words, but Now never counts a stop in doubt as working.
+  expect(agents?.counts).toEqual({ working: 0, failed: 0, done: 0 });
 });
 
 test("a working agent with a request it doesn't wait on stays working", () => {

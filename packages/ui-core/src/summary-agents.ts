@@ -7,7 +7,7 @@ import { isRunning } from "./agents.ts";
 import { pluralCount } from "./counts.ts";
 import { remoteContactStep } from "./remote-contact.ts";
 import { forestRequest, forestRequests } from "./forest-requests.ts";
-import { askWords } from "./summary-now.ts";
+import { askWords, type SummaryGroupCounts } from "./summary-now.ts";
 
 /*
  * The Summary's agents, as words and as groups. `forestAgentWords` is what one agent row says
@@ -138,6 +138,11 @@ export interface SummaryAgents {
   total: number;
   /** Those in `done`. */
   finished: number;
+  /**
+   * What Now's line counts. Working counts only agents whose work is live: a remote child whose
+   * stop is in doubt is listed with the working for its words, but nothing says it works.
+   */
+  counts: SummaryGroupCounts;
 }
 
 /** How far rows indent at phone width before they name their parent instead. */
@@ -237,5 +242,14 @@ export function summaryAgents(
     lists.done.length +
     lists.unsure.length;
   if (!total) return undefined;
-  return { ...lists, total, finished: lists.done.length };
+  return {
+    ...lists,
+    total,
+    finished: lists.done.length,
+    counts: {
+      working: lists.working.filter((entry) => entry.node.live).length,
+      failed: lists.failed.length,
+      done: lists.done.length,
+    },
+  };
 }

@@ -189,10 +189,6 @@ export function summaryAgentsView(
       total: agents.total,
       words: `${agents.finished} of ${agents.total} done`,
     },
-    counts: {
-      working: agents.working.length,
-      failed: agents.failed.length,
-      done: agents.finished,
-    },
+    counts: agents.counts,
   };
 }
