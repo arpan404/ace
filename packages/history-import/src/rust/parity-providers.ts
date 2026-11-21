@@ -17,11 +17,18 @@ async function storageHome(home: string) {
     });
   const message = async (session: string, id: string, value: Record<string, unknown>) => {
     await mkdir(join(home, "storage/message", session), { recursive: true });
-    await json(join(home, "storage/message", session, `${id}.json`), { id, sessionID: session, ...value });
+    await json(join(home, "storage/message", session, `${id}.json`), {
+      id,
+      sessionID: session,
+      ...value,
+    });
   };
   const part = async (message: string, id: string, value: unknown, raw?: string) => {
     await mkdir(join(home, "storage/part", message), { recursive: true });
-    await writeFile(join(home, "storage/part", message, `${id}.json`), raw ?? JSON.stringify(value));
+    await writeFile(
+      join(home, "storage/part", message, `${id}.json`),
+      raw ?? JSON.stringify(value),
+    );
   };
   await mkdir(join(home, "storage/session/proj"), { recursive: true });
   await session("ses_main", { title: "Storage session" });
@@ -77,7 +84,12 @@ function v1Home(home: string, name: string, wal: boolean) {
   const message = db.prepare("INSERT INTO message VALUES(?,?,?,?)");
   const part = db.prepare("INSERT INTO part VALUES(?,?,?)");
   session.run("s1", cwd, "Database session", 1767225900000, null);
-  message.run("m1", "s1", 1767225600000, JSON.stringify({ role: "user", time: { created: 1767225610000 } }));
+  message.run(
+    "m1",
+    "s1",
+    1767225600000,
+    JSON.stringify({ role: "user", time: { created: 1767225610000 } }),
+  );
   part.run("p1", "m1", JSON.stringify({ type: "text", text: "Ship the database reader" }));
   part.run("p0", "m1", JSON.stringify({ type: "text", text: "hidden", synthetic: true }));
   message.run(
@@ -90,13 +102,21 @@ function v1Home(home: string, name: string, wal: boolean) {
   part.run(
     "p3",
     "m2",
-    JSON.stringify({ type: "tool", tool: "read", state: { status: "error", input: { filePath: "/w/a" }, output: "denied" } }),
+    JSON.stringify({
+      type: "tool",
+      tool: "read",
+      state: { status: "error", input: { filePath: "/w/a" }, output: "denied" },
+    }),
   );
   part.run("p4", "m2", null);
   part.run("p5", "m2", JSON.stringify({ type: "text", text: big(80 * 1024) }));
   message.run("m3", "s1", 1767225800000, "{broken");
   message.run("m4", "s1", 1767225800000, JSON.stringify({ role: "user" }));
-  part.run("p6", "m4", JSON.stringify({ type: "file", mime: "image/jpeg", url: "https://example.com/a.jpg" }));
+  part.run(
+    "p6",
+    "m4",
+    JSON.stringify({ type: "file", mime: "image/jpeg", url: "https://example.com/a.jpg" }),
+  );
   session.run("s2", cwd, "s2", 1767225950000, "s1");
   message.run("m5", "s2", 1, JSON.stringify({ role: "user", model: { modelID: "nested-model" } }));
   part.run("p7", "m5", JSON.stringify({ type: "text", text: "Child of the database session" }));
@@ -120,9 +140,31 @@ function v2Home(home: string) {
   const session = db.prepare("INSERT INTO session VALUES(?,?,?,?,?)");
   const row = db.prepare("INSERT INTO session_message VALUES(?,?,?,?,?)");
   session.run("v1", cwd, "Version two", 1767226000000, null);
-  row.run("r2", "v1", "assistant", 2, JSON.stringify({ content: [{ type: "text", text: "Answered" }] }));
-  row.run("r1", "v1", "user", 1, JSON.stringify({ text: "Ask in v2", time: { created: 1767225600000 } }));
-  row.run("r3", "v1", "tool", 3, JSON.stringify({ type: "tool", tool: "bash", state: { status: "running", input: { cmd: "make" } } }));
+  row.run(
+    "r2",
+    "v1",
+    "assistant",
+    2,
+    JSON.stringify({ content: [{ type: "text", text: "Answered" }] }),
+  );
+  row.run(
+    "r1",
+    "v1",
+    "user",
+    1,
+    JSON.stringify({ text: "Ask in v2", time: { created: 1767225600000 } }),
+  );
+  row.run(
+    "r3",
+    "v1",
+    "tool",
+    3,
+    JSON.stringify({
+      type: "tool",
+      tool: "bash",
+      state: { status: "running", input: { cmd: "make" } },
+    }),
+  );
   row.run("r4", "v1", "assistant", 4, "not json");
   row.run("r5", "v1", "assistant", 5, JSON.stringify([1, 2]));
   session.run("v2", cwd, "No history at all", 7, null);
@@ -141,7 +183,13 @@ async function piHome(home: string) {
     timestamp: "2026-01-01T00:00:00.000Z",
     cwd,
   });
-  const message = (id: string, parentId: string | null, role: string, content: unknown, at = "2026-01-01T00:01:00.000Z") => ({
+  const message = (
+    id: string,
+    parentId: string | null,
+    role: string,
+    content: unknown,
+    at = "2026-01-01T00:01:00.000Z",
+  ) => ({
     type: "message",
     id,
     parentId,

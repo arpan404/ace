@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ace/adapter-pi": "workspace:*",
+    "@ace/files-native": "workspace:*",
     "@ace/native-session": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",

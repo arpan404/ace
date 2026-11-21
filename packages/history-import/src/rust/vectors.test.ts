@@ -31,10 +31,13 @@ test("frames ace-history writes read back as the worker's messages, bodies as by
   ]);
 });
 
-test("a broken frame declaration ends the stream", () => {
+test("a broken frame declaration is an error, never a message", () => {
   const reader = new FrameReader();
   reader.push(new Uint8Array([0, 0, 0, 0]));
-  expect(() => [...reader.messages()]).toThrow("broken frame");
+  expect(() => [...reader.messages()]).toThrow("frame declares no kind byte");
+  const oversized = new FrameReader();
+  oversized.push(new Uint8Array([0xff, 0xff, 0xff, 0xff]));
+  expect(() => [...oversized.messages()]).toThrow("exceeds the 16 MiB limit");
 });
 
 test("a Buffer travels as a body, not as its JSON form", () => {

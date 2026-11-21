@@ -40,6 +40,9 @@ const env = testHomeEnvironment(
 );
 for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
 Object.assign(process.env, env);
+// The ace-history the process projects built (scripts/history-binary-setup.ts).
+const historyBinary = inject("historyBinary");
+if (historyBinary) process.env.ACE_HISTORY_PATH = historyBinary;
 
 // Checked per file, so the failure names a file that ran while the checkout's config changed.
 afterAll(() => {

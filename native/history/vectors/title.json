@@ -1,0 +1,473 @@
+{
+  "frozen": "Generated from the TypeScript reader's sessionTitle before it was removed (ADR 0206).",
+  "title": [
+    {
+      "preferred": "",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "",
+      "at": 0,
+      "output": "Session from 1970-01-01"
+    },
+    {
+      "preferred": "   plain words   ",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "plain words"
+    },
+    {
+      "preferred": "",
+      "prompt": "   plain words   ",
+      "at": 86400000,
+      "output": "plain words"
+    },
+    {
+      "preferred": "﻿ bom first",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "bom first"
+    },
+    {
+      "preferred": "",
+      "prompt": "﻿ bom first",
+      "at": 172800000,
+      "output": "bom first"
+    },
+    {
+      "preferred": "/goal ship it",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "ship it"
+    },
+    {
+      "preferred": "",
+      "prompt": "/goal ship it",
+      "at": 259200000,
+      "output": "ship it"
+    },
+    {
+      "preferred": "/compact",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "/compact",
+      "at": 345600000,
+      "output": "Session from 1970-01-05"
+    },
+    {
+      "preferred": "[ace-origin:thread-1]\nhello there",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "hello there"
+    },
+    {
+      "preferred": "",
+      "prompt": "[ace-origin:thread-1]\nhello there",
+      "at": 432000000,
+      "output": "hello there"
+    },
+    {
+      "preferred": "<system-reminder>be careful</system-reminder>\nthe actual ask",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "the actual ask"
+    },
+    {
+      "preferred": "",
+      "prompt": "<system-reminder>be careful</system-reminder>\nthe actual ask",
+      "at": 518400000,
+      "output": "the actual ask"
+    },
+    {
+      "preferred": "<system-reminder>unfinished",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "<system-reminder>unfinished",
+      "at": 604800000,
+      "output": "Session from 1970-01-08"
+    },
+    {
+      "preferred": "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>the PR</command-args>",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "the PR"
+    },
+    {
+      "preferred": "",
+      "prompt": "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>the PR</command-args>",
+      "at": 691200000,
+      "output": "the PR"
+    },
+    {
+      "preferred": "<environment_context>\n  <cwd>/w</cwd>\n</environment_context>",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "<environment_context>\n  <cwd>/w</cwd>\n</environment_context>",
+      "at": 777600000,
+      "output": "Session from 1970-01-10"
+    },
+    {
+      "preferred": "keep <b>bold</b> xml and <system-reminder>hidden</system-reminder> words",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "keep bold xml and words"
+    },
+    {
+      "preferred": "",
+      "prompt": "keep <b>bold</b> xml and <system-reminder>hidden</system-reminder> words",
+      "at": 864000000,
+      "output": "keep bold xml and words"
+    },
+    {
+      "preferred": "<System-Reminder note=1>case</System-Reminder> after",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "after"
+    },
+    {
+      "preferred": "",
+      "prompt": "<System-Reminder note=1>case</System-Reminder> after",
+      "at": 950400000,
+      "output": "after"
+    },
+    {
+      "preferred": "<user_instructions>a<user_instructions>b</user_instructions>c</user_instructions>tail",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "tail"
+    },
+    {
+      "preferred": "",
+      "prompt": "<user_instructions>a<user_instructions>b</user_instructions>c</user_instructions>tail",
+      "at": 1036800000,
+      "output": "tail"
+    },
+    {
+      "preferred": "<custom>mine</custom> stays",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "mine stays"
+    },
+    {
+      "preferred": "",
+      "prompt": "<custom>mine</custom> stays",
+      "at": 1123200000,
+      "output": "mine stays"
+    },
+    {
+      "preferred": "# AGENTS.md instructions\nrules\n</INSTRUCTIONS>\nreal question",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "real question"
+    },
+    {
+      "preferred": "",
+      "prompt": "# AGENTS.md instructions\nrules\n</INSTRUCTIONS>\nreal question",
+      "at": 1209600000,
+      "output": "real question"
+    },
+    {
+      "preferred": "# CLAUDE.md\nno end marker",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "# CLAUDE.md\nno end marker",
+      "at": 1296000000,
+      "output": "Session from 1970-01-16"
+    },
+    {
+      "preferred": "[Image #1] look at this",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "[Image #1] look at this"
+    },
+    {
+      "preferred": "",
+      "prompt": "[Image #1] look at this",
+      "at": 1382400000,
+      "output": "[Image #1] look at this"
+    },
+    {
+      "preferred": "[Attachment: a.png] see",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "see"
+    },
+    {
+      "preferred": "",
+      "prompt": "[Attachment: a.png] see",
+      "at": 1468800000,
+      "output": "see"
+    },
+    {
+      "preferred": "[Attached image saved at /tmp/x.png] check",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "check"
+    },
+    {
+      "preferred": "",
+      "prompt": "[Attached image saved at /tmp/x.png] check",
+      "at": 1555200000,
+      "output": "check"
+    },
+    {
+      "preferred": "name: shot.png\nmimeType: image/png\nsizeBytes: 12\nwhat is this",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "what is this"
+    },
+    {
+      "preferred": "",
+      "prompt": "name: shot.png\nmimeType: image/png\nsizeBytes: 12\nwhat is this",
+      "at": 1641600000,
+      "output": "what is this"
+    },
+    {
+      "preferred": "fileName: a.txt\nnot a field\nkeep",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "fileName: a.txt not a field keep"
+    },
+    {
+      "preferred": "",
+      "prompt": "fileName: a.txt\nnot a field\nkeep",
+      "at": 1728000000,
+      "output": "fileName: a.txt not a field keep"
+    },
+    {
+      "preferred": "  \n\nname: x.png\n  mimeType: image/png\nname: y\nkeep this",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "name: y keep this"
+    },
+    {
+      "preferred": "",
+      "prompt": "  \n\nname: x.png\n  mimeType: image/png\nname: y\nkeep this",
+      "at": 1814400000,
+      "output": "name: y keep this"
+    },
+    {
+      "preferred": "TITLE REQUEST: shout",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "shout"
+    },
+    {
+      "preferred": "",
+      "prompt": "TITLE REQUEST: shout",
+      "at": 1900800000,
+      "output": "shout"
+    },
+    {
+      "preferred": "a [user ATTACHED one or more images] b",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "a b"
+    },
+    {
+      "preferred": "",
+      "prompt": "a [user ATTACHED one or more images] b",
+      "at": 1987200000,
+      "output": "a b"
+    },
+    {
+      "preferred": "Attached file notes.txt\nsummarize",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "summarize"
+    },
+    {
+      "preferred": "",
+      "prompt": "Attached file notes.txt\nsummarize",
+      "at": 2073600000,
+      "output": "summarize"
+    },
+    {
+      "preferred": "<image>\ncaption",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "caption"
+    },
+    {
+      "preferred": "",
+      "prompt": "<image>\ncaption",
+      "at": 2160000000,
+      "output": "caption"
+    },
+    {
+      "preferred": "The user interrupted the previous turn on purpose. Do x.",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "The user interrupted the previous turn on purpose. Do x.",
+      "at": 2246400000,
+      "output": "Session from 1970-01-27"
+    },
+    {
+      "preferred": "A previous agent produced the plan below\n1. step",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "A previous agent produced the plan below\n1. step",
+      "at": 2332800000,
+      "output": "Session from 1970-01-28"
+    },
+    {
+      "preferred": "Continue this conversation using the transcript context below\nstuff",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "Continue this conversation using the transcript context below\nstuff",
+      "at": 2419200000,
+      "output": "Session from 1970-01-29"
+    },
+    {
+      "preferred": "before [User attached one or more images] after",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "before after"
+    },
+    {
+      "preferred": "",
+      "prompt": "before [User attached one or more images] after",
+      "at": 2505600000,
+      "output": "before after"
+    },
+    {
+      "preferred": "trailing [User attached one or more images",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "trailing"
+    },
+    {
+      "preferred": "",
+      "prompt": "trailing [User attached one or more images",
+      "at": 2592000000,
+      "output": "trailing"
+    },
+    {
+      "preferred": "Title request: Check reconnect retries",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Check reconnect retries"
+    },
+    {
+      "preferred": "",
+      "prompt": "Title request: Check reconnect retries",
+      "at": 2678400000,
+      "output": "Check reconnect retries"
+    },
+    {
+      "preferred": "tabs\tand\nnewlines\r\n  here",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "tabs and newlines here"
+    },
+    {
+      "preferred": "",
+      "prompt": "tabs\tand\nnewlines\r\n  here",
+      "at": 2764800000,
+      "output": "tabs and newlines here"
+    },
+    {
+      "preferred": "emoji 👋🏽 and accents é",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "emoji 👋🏽 and accents é"
+    },
+    {
+      "preferred": "",
+      "prompt": "emoji 👋🏽 and accents é",
+      "at": 2851200000,
+      "output": "emoji 👋🏽 and accents é"
+    },
+    {
+      "preferred": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "preferred": "",
+      "prompt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "at": 2937600000,
+      "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "preferred": "👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋"
+    },
+    {
+      "preferred": "",
+      "prompt": "👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋",
+      "at": 3024000000,
+      "output": "👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋"
+    },
+    {
+      "preferred": "Untitled",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "Untitled",
+      "at": 3110400000,
+      "output": "Untitled"
+    },
+    {
+      "preferred": "new session - 2026",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "new session - 2026",
+      "at": 3196800000,
+      "output": "new session - 2026"
+    },
+    {
+      "preferred": "<a href",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "Session from 2026-01-01"
+    },
+    {
+      "preferred": "",
+      "prompt": "<a href",
+      "at": 3283200000,
+      "output": "Session from 1970-02-08"
+    }
+  ]
+}

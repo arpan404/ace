@@ -1,6 +1,5 @@
 import { sanitizeTypedText, sanitizeUserText, timestamp } from "@ace/native-session";
 import { summarizeOutput } from "@ace/projection";
-import { sessionTitle } from "../user-text.ts";
 
 /** Inputs the text rules are pinned on: real envelopes, edges of each rule and plain words. */
 const samples = [
@@ -86,20 +85,6 @@ export function textVectors() {
       user: sanitizeUserText(input),
       typed: sanitizeTypedText(input),
     })),
-    title: samples.flatMap((preferred, index) => [
-      {
-        preferred,
-        prompt: "",
-        at: 1767225600000,
-        output: sessionTitle(preferred, "", 1767225600000),
-      },
-      {
-        preferred: "",
-        prompt: preferred,
-        at: index * 86_400_000,
-        output: sessionTitle("", preferred, index * 86_400_000),
-      },
-    ]),
     output: outputs.map((text) => ({ text, output: summarizeOutput("item-1", text) })),
     timestamp: timestamps.map((input) => ({ input, output: timestamp(input) ?? null })),
   };

@@ -189,7 +189,9 @@ test.skipIf(!binary)(
       typescript.imports.filter(
         (i) =>
           i.archive !== null &&
-          typescript.stored.sources.some((row) => row.id === i.session && row.instance === instance),
+          typescript.stored.sources.some(
+            (row) => row.id === i.session && row.instance === instance,
+          ),
       ).length;
     for (const instance of ["opencode-storage", "opencode-v1", "opencode-v2", "pi-home"])
       expect(importedFrom(instance), instance).toBeGreaterThan(0);

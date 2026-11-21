@@ -1,19 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `vectors/text.json` holds what the TypeScript rules return (ADR 0206); the ports must agree.
+//! `vectors/text.json` holds what the shared TypeScript rules return (ADR 0206), regenerated from
+//! them; `vectors/title.json` holds what the TypeScript reader's titles were when it was removed.
+//! The ports must agree with both.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use history_text::{js, sanitize_typed_text, sanitize_user_text, session_title, summarize_output};
 use serde_json::Value;
 
-fn vectors() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vectors/text.json");
+fn vectors(file: &str) -> Value {
+    let path = format!("{}/../../vectors/{file}", env!("CARGO_MANIFEST_DIR"));
     serde_json::from_str(&std::fs::read_to_string(path).expect("vectors")).expect("json")
 }
 
 fn cases(name: &str) -> Vec<Value> {
-    vectors()[name].as_array().expect("cases").clone()
+    let file = if name == "title" {
+        "title.json"
+    } else {
+        "text.json"
+    };
+    vectors(file)[name].as_array().expect("cases").clone()
 }
 
 #[test]
