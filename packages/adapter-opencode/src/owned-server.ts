@@ -29,6 +29,8 @@ export function spawnOwnedServer(options: {
     ...(options.cwd ? { cwd: options.cwd } : {}),
     name: "opencode-server",
     maxLineBytes: 65536,
+    // stderr carries its MCP servers' logs and is never read; a long line is dropped, not fatal.
+    onStderrLineDropped: () => {},
   });
 }
 
