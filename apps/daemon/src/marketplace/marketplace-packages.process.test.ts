@@ -443,3 +443,33 @@ describe("agent packages", () => {
     expect(now?.held).toBeUndefined();
   });
 });
+
+describe("a package's needs against the person's models", () => {
+  const prepare = async () =>
+    (
+      await harness.ask(
+        { op: "prepare", source: "market", type: "spade-bot", name: "flight-watcher" },
+        "review",
+      )
+    ).review.body;
+
+  it("warns on the review when a bot using apps has no model that calls tools", async () => {
+    publish("1.0.0", { uses: ["task", "apps"] });
+    await harness.ask({ op: "refresh" }, "sources");
+    const fine = await prepare();
+    expect(fine.type === "spade-bot" && fine.modelWarning).toBeFalsy();
+
+    // The sample bot names `fast`: only that route counts.
+    spade.setPackageTools({ fast: false, capable: true });
+    const warned = await prepare();
+    expect(warned.type === "spade-bot" && warned.modelWarning).toContain("call tools");
+  });
+
+  it("doesn't warn for a bot that uses neither apps nor agents", async () => {
+    spade.setPackageTools({ fast: false, capable: false });
+    publish("1.0.0", { uses: ["task", "memory"] });
+    await harness.ask({ op: "refresh" }, "sources");
+    const body = await prepare();
+    expect(body.type === "spade-bot" && body.modelWarning).toBeFalsy();
+  });
+});

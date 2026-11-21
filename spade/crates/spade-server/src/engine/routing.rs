@@ -278,6 +278,42 @@ impl Engine {
         })
     }
 
+    /// `GET /v1/models/package-routes` (ADR 0205 §3): the models a package's bot naming `fast`
+    /// or `capable` would think with, in order (its model, then the person's `main` route), and
+    /// whether any of them calls tools, which a bot using `apps` or `agents` needs.
+    pub fn package_routes_view(&self) -> Value {
+        let person = Person(self.models.endpoints());
+        let fallbacks: Vec<String> = self
+            .global_overrides()
+            .roles
+            .get(&Role::Main)
+            .map(|route| route.0.clone())
+            .unwrap_or_default();
+        let route_of = |head: Option<String>| -> Vec<String> {
+            let mut route: Vec<String> = Vec::new();
+            for model in head.into_iter().chain(fallbacks.iter().cloned()) {
+                if !model.is_empty()
+                    && person.configured(&model)
+                    && !route.contains(&model)
+                    && route.len() < MOST_IN_ROUTE
+                {
+                    route.push(model);
+                }
+            }
+            route
+        };
+        let capable = route_of(Some(self.new_bot_default()));
+        let fast = route_of(
+            self.fast_endpoint_model()
+                .filter(|m| person.calls_tools(m))
+                .or_else(|| Some(self.new_bot_default())),
+        );
+        let view = |route: Vec<String>| {
+            json!({ "tools": route.iter().any(|m| person.calls_tools(m)), "route": route })
+        };
+        json!({ "fast": view(fast), "capable": view(capable) })
+    }
+
     /// `GET /v1/models/roles`: the global overrides, `null` for none.
     pub fn global_roles_view(&self) -> Result<Value, StoreError> {
         let global = self.global_overrides();

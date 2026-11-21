@@ -64,6 +64,8 @@ export interface PreparedReview extends PreparedEntry {
   spadeReady: boolean;
   /** An update or rollback of a linked bot: which bot, and what Spade's plan says it does. */
   updating?: MarketBotUpdate | undefined;
+  /** No model the bot would think with calls tools, which what it uses needs (ADR 0205 §3). */
+  modelWarning?: string | undefined;
 }
 
 const textLimit = 65_536;
@@ -246,6 +248,7 @@ function body(entry: PreparedReview): MarketReviewBody {
             }
           : {}),
         ...(entry.updating ? { update: entry.updating } : {}),
+        ...(entry.modelWarning ? { modelWarning: entry.modelWarning } : {}),
       };
     }
     case undefined:

@@ -72,6 +72,7 @@ mod speech;
 mod style;
 mod suggest;
 mod terms;
+mod terms_notices;
 mod thread_asks;
 mod trim;
 mod try_again;
@@ -109,6 +110,7 @@ pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 pub use suggest::{MarketBots, MarketFuture};
+pub use terms_notices::{Applied, Notices, verify_notices};
 pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
@@ -457,6 +459,8 @@ impl Engine {
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
+        // The shipped terms record, tightened by the newest signed notices (ADR 0205 §4).
+        engine.reload_terms_notices();
         // Levels Spade no longer has move forward to the auto-review (ADR 0163); then Spade exists
         // from the first answer, whatever setup does later.
         engine.retire_levels()?;

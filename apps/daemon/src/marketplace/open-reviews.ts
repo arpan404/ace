@@ -193,6 +193,7 @@ export class OpenReviews {
       brings,
       spadeReady: entry.type === "spade-bot" ? this.#ports.spade.ready() : true,
     };
+    review.modelWarning = await this.#modelWarning(entry);
     if (moving) {
       const updating = await this.#plan(review, moving);
       if ("op" in updating) return updating;
@@ -201,6 +202,21 @@ export class OpenReviews {
     const built = buildReview(review);
     this.#pending.set(review.id, { review, items: built.items });
     return { op: "review", review: built.review };
+  }
+
+  /**
+   * Why a bot that uses apps or agents may not be able to act (ADR 0205 §3): none of the models
+   * it would think with calls tools. Nothing when it uses neither, or Spade can't say.
+   */
+  async #modelWarning(entry: PreparedEntry): Promise<string | undefined> {
+    const inspection = entry.checked.inspection;
+    if (inspection?.type !== "spade-bot" || inspection.recipe.version !== 3) return undefined;
+    const uses = inspection.recipe.uses ?? [];
+    if (!uses.includes("apps") && !uses.includes("agents")) return undefined;
+    if (!this.#ports.spade.ready()) return undefined;
+    const tools = await this.#ports.spade.packageTools().catch(() => undefined);
+    if (!tools || tools[inspection.recipe.model]) return undefined;
+    return "This bot works with apps and other agents, which takes a model that can call tools, and none of the models it would run on can. Add one in Settings › Spade › Models, or it won't be able to act.";
   }
 
   /** What moving the bot to the review's version does, by Spade's plan and the two manifests. */

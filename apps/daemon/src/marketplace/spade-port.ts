@@ -37,6 +37,10 @@ const Agents = z.object({
     )
     .max(10_000),
 });
+const PackageRoutes = z.object({
+  fast: z.object({ tools: z.boolean() }),
+  capable: z.object({ tools: z.boolean() }),
+});
 const BotPlugins = z.object({
   plugins: z.array(z.object({ name: z.string().max(64), allowed: z.boolean() })).max(1024),
 });
@@ -217,6 +221,10 @@ export function spadePort(
         ];
       });
       return { ids: new Set(listed.agents.map((agent) => agent.id)), linked: links };
+    },
+    async packageTools() {
+      const routes = PackageRoutes.parse(await spadeCall(live(), "GET", "/v1/models/package-routes"));
+      return { fast: routes.fast.tools, capable: routes.capable.tools };
     },
     async termsNotices(signed) {
       await spadeCall(live(), "PUT", "/v1/subscriptions/notices", { signed });

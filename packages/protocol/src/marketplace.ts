@@ -224,6 +224,11 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     unused: z.array(z.string().max(80)).max(64).optional(),
     /** For an update or a rollback of an installed bot. */
     update: MarketBotUpdate.optional(),
+    /**
+     * It uses apps or agents, which take a model that calls tools, and none of the models it
+     * would think with does (ADR 0205 §3). Installing still works; the bot can't act until then.
+     */
+    modelWarning: z.string().max(500).optional(),
   }),
 ]);
 export type MarketReviewBody = z.infer<typeof MarketReviewBodySchema>;

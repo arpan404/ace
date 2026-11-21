@@ -256,3 +256,38 @@ async fn a_local_model_that_passes_every_check_runs_bots_and_every_role() -> Res
     assert_eq!(status, 202);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_package_route_of_models_that_cant_call_tools_says_so() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let (tiny, _) = checked_local_model(
+        &spade,
+        vec![Script::reply("Hello!"), Script::reply("No tools here."), answers_json()],
+    )
+    .await?;
+    // The fast model writes titles on it; a `fast` package's bot runs on a model that calls tools.
+    let (status, body) = spade
+        .put("/v1/settings", json!({ "fast_model": tiny }))
+        .await?;
+    assert!(status < 300, "{body}");
+    let (_, routes) = spade.get("/v1/models/package-routes").await?;
+    assert_eq!(routes["fast"]["tools"], true, "{routes}");
+    assert!(!routes["fast"]["route"].to_string().contains("tiny"), "{routes}");
+    assert_eq!(routes["capable"]["tools"], true, "{routes}");
+
+    // With no model left that calls tools, neither route has one: the review warns.
+    let (_, models) = spade.get("/v1/models").await?;
+    for endpoint in models["endpoints"].as_array().cloned().unwrap_or_default() {
+        for model in endpoint["models"].as_array().cloned().unwrap_or_default() {
+            let path = format!("/v1/endpoints/{}/models", endpoint["id"].as_str().unwrap_or_default());
+            let (status, body) = spade
+                .post(&path, json!({ "id": model["id"], "capabilities": [] }))
+                .await?;
+            assert_eq!(status, 200, "{body}");
+        }
+    }
+    let (_, routes) = spade.get("/v1/models/package-routes").await?;
+    assert_eq!(routes["fast"]["tools"], false, "{routes}");
+    assert_eq!(routes["capable"]["tools"], false, "{routes}");
+    Ok(())
+}
