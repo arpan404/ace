@@ -106,6 +106,21 @@
       "typed": "fileName: a.txt\nnot a field\nkeep"
     },
     {
+      "input": "  \n\nname: x.png\n  mimeType: image/png\nname: y\nkeep this",
+      "user": "name: y\nkeep this",
+      "typed": "name: y\nkeep this"
+    },
+    {
+      "input": "TITLE REQUEST: shout",
+      "user": "shout",
+      "typed": "shout"
+    },
+    {
+      "input": "a [user ATTACHED one or more images] b",
+      "user": "a  b",
+      "typed": "a  b"
+    },
+    {
       "input": "Attached file notes.txt\nsummarize",
       "user": "summarize",
       "typed": "summarize"
@@ -435,6 +450,42 @@
       "output": "fileName: a.txt not a field keep"
     },
     {
+      "preferred": "  \n\nname: x.png\n  mimeType: image/png\nname: y\nkeep this",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "name: y keep this"
+    },
+    {
+      "preferred": "",
+      "prompt": "  \n\nname: x.png\n  mimeType: image/png\nname: y\nkeep this",
+      "at": 1814400000,
+      "output": "name: y keep this"
+    },
+    {
+      "preferred": "TITLE REQUEST: shout",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "shout"
+    },
+    {
+      "preferred": "",
+      "prompt": "TITLE REQUEST: shout",
+      "at": 1900800000,
+      "output": "shout"
+    },
+    {
+      "preferred": "a [user ATTACHED one or more images] b",
+      "prompt": "",
+      "at": 1767225600000,
+      "output": "a b"
+    },
+    {
+      "preferred": "",
+      "prompt": "a [user ATTACHED one or more images] b",
+      "at": 1987200000,
+      "output": "a b"
+    },
+    {
       "preferred": "Attached file notes.txt\nsummarize",
       "prompt": "",
       "at": 1767225600000,
@@ -443,7 +494,7 @@
     {
       "preferred": "",
       "prompt": "Attached file notes.txt\nsummarize",
-      "at": 1814400000,
+      "at": 2073600000,
       "output": "summarize"
     },
     {
@@ -455,7 +506,7 @@
     {
       "preferred": "",
       "prompt": "<image>\ncaption",
-      "at": 1900800000,
+      "at": 2160000000,
       "output": "caption"
     },
     {
@@ -467,8 +518,8 @@
     {
       "preferred": "",
       "prompt": "The user interrupted the previous turn on purpose. Do x.",
-      "at": 1987200000,
-      "output": "Session from 1970-01-24"
+      "at": 2246400000,
+      "output": "Session from 1970-01-27"
     },
     {
       "preferred": "A previous agent produced the plan below\n1. step",
@@ -479,8 +530,8 @@
     {
       "preferred": "",
       "prompt": "A previous agent produced the plan below\n1. step",
-      "at": 2073600000,
-      "output": "Session from 1970-01-25"
+      "at": 2332800000,
+      "output": "Session from 1970-01-28"
     },
     {
       "preferred": "Continue this conversation using the transcript context below\nstuff",
@@ -491,8 +542,8 @@
     {
       "preferred": "",
       "prompt": "Continue this conversation using the transcript context below\nstuff",
-      "at": 2160000000,
-      "output": "Session from 1970-01-26"
+      "at": 2419200000,
+      "output": "Session from 1970-01-29"
     },
     {
       "preferred": "before [User attached one or more images] after",
@@ -503,7 +554,7 @@
     {
       "preferred": "",
       "prompt": "before [User attached one or more images] after",
-      "at": 2246400000,
+      "at": 2505600000,
       "output": "before after"
     },
     {
@@ -515,7 +566,7 @@
     {
       "preferred": "",
       "prompt": "trailing [User attached one or more images",
-      "at": 2332800000,
+      "at": 2592000000,
       "output": "trailing"
     },
     {
@@ -527,7 +578,7 @@
     {
       "preferred": "",
       "prompt": "Title request: Check reconnect retries",
-      "at": 2419200000,
+      "at": 2678400000,
       "output": "Check reconnect retries"
     },
     {
@@ -539,7 +590,7 @@
     {
       "preferred": "",
       "prompt": "tabs\tand\nnewlines\r\n  here",
-      "at": 2505600000,
+      "at": 2764800000,
       "output": "tabs and newlines here"
     },
     {
@@ -551,7 +602,7 @@
     {
       "preferred": "",
       "prompt": "emoji 👋🏽 and accents é",
-      "at": 2592000000,
+      "at": 2851200000,
       "output": "emoji 👋🏽 and accents é"
     },
     {
@@ -563,7 +614,7 @@
     {
       "preferred": "",
       "prompt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "at": 2678400000,
+      "at": 2937600000,
       "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     },
     {
@@ -575,7 +626,7 @@
     {
       "preferred": "",
       "prompt": "👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋",
-      "at": 2764800000,
+      "at": 3024000000,
       "output": "👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋"
     },
     {
@@ -587,7 +638,7 @@
     {
       "preferred": "",
       "prompt": "Untitled",
-      "at": 2851200000,
+      "at": 3110400000,
       "output": "Untitled"
     },
     {
@@ -599,7 +650,7 @@
     {
       "preferred": "",
       "prompt": "new session - 2026",
-      "at": 2937600000,
+      "at": 3196800000,
       "output": "new session - 2026"
     },
     {
@@ -611,8 +662,8 @@
     {
       "preferred": "",
       "prompt": "<a href",
-      "at": 3024000000,
-      "output": "Session from 1970-02-05"
+      "at": 3283200000,
+      "output": "Session from 1970-02-08"
     }
   ],
   "output": [

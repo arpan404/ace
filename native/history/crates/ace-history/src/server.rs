@@ -97,14 +97,12 @@ pub fn serve(
         }
     }
     out.reply(0, json!("ready"));
+    // After `close` the reader waits to be stopped, or for stdin to close: exiting by itself
+    // would race the daemon's own stop and read as a crash.
     while let Ok(message) = inbox.recv() {
         let ToMain::Op(op) = message else { continue };
-        let close = matches!(op.request, Ok(Request::Close));
         server.handle(op);
         busy.store(false, Ordering::SeqCst);
-        if close {
-            return 0;
-        }
     }
     0
 }
@@ -338,6 +336,20 @@ impl Server {
     fn persist(&mut self, init: &ImportInit) -> Result<Value> {
         self.cancel.reset();
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
+        // A staged import is one long transaction: a 16 MiB page cache, for its length only,
+        // keeps SQLite from spilling the same pages to the WAL again and again.
+        self.catalog.db.execute_batch("PRAGMA cache_size=-16384")?;
+        let outcome = self.persist_tree(&home, &members, init);
+        self.catalog.db.execute_batch("PRAGMA cache_size=-1024")?;
+        outcome
+    }
+
+    fn persist_tree(
+        &mut self,
+        home: &Home,
+        members: &[Member],
+        init: &ImportInit,
+    ) -> Result<Value> {
         let db = &self.catalog.db;
         let archive = &mut self.archive;
         let mut began = false;

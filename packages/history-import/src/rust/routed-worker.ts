@@ -58,9 +58,10 @@ export class RoutedWorker extends EventEmitter {
     this.ts.start();
   }
   postMessage(message: unknown): void {
+    // A retired TypeScript reader has nothing to cancel or close: never restart it for that.
     if (message === "cancel") {
       this.rust.postMessage(message);
-      this.ts.postMessage(message);
+      if (this.ts.started) this.ts.postMessage(message);
       return;
     }
     const envelope = Envelope.safeParse(message).data;
@@ -73,8 +74,8 @@ export class RoutedWorker extends EventEmitter {
     } else if (op === "next" || op === "return")
       return this.reader(this.importer).postMessage(message);
     else if (op === "close") {
-      this.closing = { id: envelope.id, waiting: 2 };
-      this.ts.postMessage(message);
+      this.closing = { id: envelope.id, waiting: this.ts.started ? 2 : 1 };
+      if (this.ts.started) this.ts.postMessage(message);
     }
     this.rust.postMessage(message);
   }

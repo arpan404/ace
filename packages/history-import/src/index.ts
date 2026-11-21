@@ -112,7 +112,10 @@ export async function openHistory(
       },
     );
     const others = HistoryProvider.options.filter((p) => !rustProviders.includes(p));
-    worker = new RoutedWorker(rust, typescript(others));
+    // The TypeScript reader runs only while a home needs it (ADR 0206).
+    worker = parsed.instances.some((i) => others.includes(i.provider))
+      ? new RoutedWorker(rust, typescript(others))
+      : rust;
   }
   const service = new HistoryService(worker);
   worker.start();

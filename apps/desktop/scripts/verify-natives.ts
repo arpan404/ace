@@ -21,6 +21,7 @@ export async function verifyNatives(
   const executables = [
     executable("media", "ace-media"),
     executable("files", "ace-files"),
+    executable("history", "ace-history"),
     join(dist, "bin", platform === "win32" ? "rg.exe" : "rg"),
   ];
   // Windows terminals need no guardian: a Job Object owns them (ADR 0095).
@@ -48,7 +49,7 @@ export async function verifyNatives(
       if (existsSync(path) && ((await stat(path)).mode & 0o111) === 0)
         problems.push(`${path} is not executable`);
   for (const found of await mismatchedBinaries(
-    ["daemon", "node_modules", "bin", "helpers", "runtime", "spade", "media", "files"]
+    ["daemon", "node_modules", "bin", "helpers", "runtime", "spade", "media", "files", "history"]
       .map((name) => join(dist, name))
       .filter((path) => existsSync(path)),
     platform,
