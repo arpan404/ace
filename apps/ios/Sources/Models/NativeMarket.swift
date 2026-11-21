@@ -235,11 +235,14 @@ enum MarketWay: String, Decodable {
 }
 
 /// A refusal from the marketplace, one sentence from its code. `offline` means the machine
-/// couldn't be reached and nothing changed.
+/// couldn't be reached; `unconfirmed` means a change was sent and its outcome is unknown, so the
+/// way is to read again, never to retry.
 struct MarketRefusal: LocalizedError, Equatable {
     let code: String
     let message: String
     let way: MarketWay?
     let offline: Bool
+    /// The line under the sentence: the check that refused it, or what this device's scan found.
+    var reason: String? = nil
     var errorDescription: String? { message }
 }
