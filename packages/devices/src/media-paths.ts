@@ -5,6 +5,7 @@ import {
   type IngestProducer,
   type IngestSource,
   type Origin,
+  type StopStatus,
 } from "@ace/media/ingest-sources";
 import { PathMerge } from "@ace/media/path-merge";
 import { readProducerStamp } from "@ace/media/producer-stamp";
@@ -54,6 +55,44 @@ export function withMediaWant(
           source.close();
         },
       };
+    },
+  };
+}
+
+/** Why a device's video can't play now; undefined once a unit arrives again. */
+export type DeviceVideoStatus = { status: StopStatus; reason: string } | undefined;
+
+/**
+ * A device's media whose producers report why their video stopped (ace-media restarting,
+ * unavailable, or refusing the source) and that it plays again at the next unit back on egress,
+ * for the device's state (`DeviceState.video`).
+ */
+export function withVideoStatus(
+  media: DeviceMedia,
+  status: (video: DeviceVideoStatus) => void,
+): DeviceMedia {
+  return {
+    attach: (producer) => {
+      let stalled = false;
+      const deliver = producer.consumers.deliver;
+      return media.attach({
+        ...producer,
+        consumers: {
+          ...producer.consumers,
+          deliver: (unit) => {
+            if (stalled) {
+              stalled = false;
+              status(undefined);
+            }
+            deliver(unit);
+          },
+        },
+        stopped: (reason, kind) => {
+          stalled = true;
+          status({ status: kind, reason });
+          producer.stopped?.(reason, kind);
+        },
+      });
     },
   };
 }

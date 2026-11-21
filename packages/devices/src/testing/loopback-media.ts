@@ -11,13 +11,17 @@ import type { DeviceMedia } from "../media-paths.ts";
  * ace-media for device tests without the binary: a real ingest socket that takes each
  * producer's hello and units and hands every video unit straight back as egress. Each attach is
  * pointed at the socket at once, with a token of its own, as ace-media does once it has the
- * source. Video reaches a capture only this way, as in the daemon.
+ * source. Video reaches a capture or a screen session only this way, as in the daemon.
  */
-export async function loopbackMedia(cleanup: (() => Promise<void> | void)[]): Promise<DeviceMedia> {
+export async function loopbackMedia(
+  cleanup: (() => Promise<void> | void)[],
+): Promise<DeviceMedia & { add: DeviceMedia["attach"]; pictures: string[] }> {
   const dir = await mkdtemp(join(tmpdir(), "ace-loopback-"));
   const socket = join(dir, "ingest.sock");
   const byToken = new Map<string, { producer: IngestProducer; path: string }>();
   let paths = 0;
+  /** JPEG pictures sources handed to ace-media to encode (a JPEG-only screen's). */
+  const pictures: string[] = [];
   const open = new Set<import("node:net").Socket>();
   const server: Server = createServer((connection) => {
     open.add(connection);
@@ -50,25 +54,28 @@ export async function loopbackMedia(cleanup: (() => Promise<void> | void)[]): Pr
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
   });
-  return {
-    attach(producer): IngestSource {
-      const token = new Uint8Array(randomBytes(32));
-      const path = `loopback-${++paths}`;
-      byToken.set(Buffer.from(token).toString("hex"), { producer, path });
-      setTimeout(() => {
-        void producer
-          .point({ url: "", socket, token: token.slice(), epoch: 0, path })
-          .catch(() => {});
-      }, 0);
-      return {
-        streaming: () => true,
-        reconnect: () => {},
-        codecs: () => {},
-        encodes: () => {},
-        key: () => {},
-        picture: () => false,
-        close: () => void byToken.delete(Buffer.from(token).toString("hex")),
-      };
-    },
+  const attach = (producer: IngestProducer): IngestSource => {
+    const token = new Uint8Array(randomBytes(32));
+    const path = `loopback-${++paths}`;
+    byToken.set(Buffer.from(token).toString("hex"), { producer, path });
+    setTimeout(() => {
+      void producer
+        .point({ url: "", socket, token: token.slice(), epoch: 0, path })
+        .catch(() => {});
+    }, 0);
+    return {
+      streaming: () => true,
+      reconnect: () => {},
+      codecs: () => {},
+      encodes: () => {},
+      key: () => {},
+      picture: (base64) => {
+        pictures.push(base64);
+        return true;
+      },
+      close: () => void byToken.delete(Buffer.from(token).toString("hex")),
+    };
   };
+  // Devices attach their producers; a screen manager adds them.
+  return { attach, add: attach, pictures };
 }

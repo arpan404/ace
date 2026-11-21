@@ -7,7 +7,12 @@ import type { DeviceRuntime } from "./runtime.ts";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import type { Actor } from "./lease.ts";
 import { mirrorDeviceController } from "./screen-controller.ts";
-import { withMediaWant, type DeviceMedia } from "./media-paths.ts";
+import {
+  withMediaWant,
+  withVideoStatus,
+  type DeviceMedia,
+  type DeviceVideoStatus,
+} from "./media-paths.ts";
 import type { ScreenStreamSettings } from "@ace/protocol";
 
 export interface LifecycleOptions {
@@ -40,6 +45,8 @@ export interface LifecycleOwner {
    * undefined once it no longer holds.
    */
   mediaWant?(session: DeviceSession, settings: ScreenStreamSettings | undefined): void;
+  /** Why the device's live video can't play now; undefined once it plays again. */
+  videoStatus?(session: DeviceSession, video: DeviceVideoStatus): void;
 }
 function noop() {}
 
@@ -103,7 +110,10 @@ export async function startDevice(
       ...(options.screen ? { screen: options.screen } : {}),
       ...(options.media
         ? {
-            media: withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+            media: withVideoStatus(
+              withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+              (video) => owner.videoStatus?.(session, video),
+            ),
           }
         : {}),
       runtime: options.runtime,

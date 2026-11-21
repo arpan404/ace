@@ -24,6 +24,10 @@ export interface DeviceSession {
   activitySequence: number;
   /** A foldable device's posture, when ace can fold it. */
   posture?: DevicePosture;
+  /** A view has the capture streaming video: its own stills are no longer kept fresh. */
+  liveVideo?: boolean;
+  /** Why the live video can't play now, while it can't (`DeviceState.video`). */
+  video?: { status: "retrying" | "unavailable"; reason: string };
   /** The posture read in flight, so overlapping refreshes share one. */
   readingPosture?: Promise<void>;
   capture?: DeviceCapture;
