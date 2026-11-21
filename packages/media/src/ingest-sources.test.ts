@@ -48,6 +48,8 @@ function world() {
       stills: "auto",
     } as MediaSettings,
     health: "healthy" as MediaHealth,
+    /** What this build can stream into ace-media: emptied, a kind's route leaves it. */
+    capabilities,
     up: true,
     needs: 0,
   };
@@ -56,7 +58,7 @@ function world() {
   let now = 0;
   let ids = 0;
   let bytes = 0;
-  const routes = () => mediaRoutes(state.settings, state.health, capabilities);
+  const routes = () => mediaRoutes(state.settings, state.health, state.capabilities);
   const router = new EgressRouter((kind) => routes()[kind]);
   const sources = new IngestSources({
     port: {
@@ -74,7 +76,7 @@ function world() {
     router,
     routes,
     settings: () => state.settings,
-    capabilities: () => capabilities,
+    capabilities: () => state.capabilities,
     randomBytes: (length) => new Uint8Array(length).fill(++bytes),
     id: () => `s${++ids}`,
     schedule: (run, ms) => {
@@ -163,9 +165,9 @@ describe("IngestSources", () => {
     expect(w.state.needs).toBe(1);
   });
 
-  it("keeps a source with the daemon while its setting is legacy, without starting ace-media", () => {
+  it("keeps a source with the daemon while its kind can't stream into ace-media, without starting it", () => {
     const w = world();
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     const l = producer();
     w.sources.add(l.p);
     expect(w.sent).toEqual([]);
@@ -194,7 +196,7 @@ describe("IngestSources", () => {
     w.router.push(encodeEgress(1, 0, unitFrame(1)));
     // The route leaves ace-media; ace-media's status about the producer's end comes first,
     // long before the lane carrying its last units drains.
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab"]);
     expect(l.points.at(-1)).toBeUndefined();
     w.status("s1", "ended");
@@ -217,7 +219,7 @@ describe("IngestSources", () => {
     const l = producer();
     w.sources.add(l.p);
     w.status("s1", "starting");
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab"]);
     w.advance(drainMs - 1);
     expect(l.ended).toEqual([]);
@@ -231,7 +233,7 @@ describe("IngestSources", () => {
     const l = producer();
     w.sources.add(l.p);
     w.status("s1", "starting");
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab"]);
     w.router.push(encodeEgressEnd(1, 0, false));
     expect(l.events).toEqual(["point", "unpoint", "ended"]);
@@ -291,7 +293,7 @@ describe("IngestSources", () => {
     w.sources.add(l.p);
     w.status("s1", "starting");
     expect(l.points.at(-1)).toBeDefined();
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["simulator"]);
     // No producer of its own to drain: only ace-media's close ends its reading.
     expect(w.closed()).toEqual(["s1"]);
@@ -336,7 +338,7 @@ describe("IngestSources", () => {
     ]);
     // ace-media reads these pictures itself: the close is ordered after the last one.
     w.status("s2", "starting");
-    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.state.capabilities = { ...w.state.capabilities, ingest: [] };
     w.sources.routesChanged(["tab-pictures"]);
     expect(w.closed()).toEqual(["s2"]);
     w.router.push(encodeEgressEnd(2, 0, false));

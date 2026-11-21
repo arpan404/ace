@@ -39,12 +39,12 @@ const allLegacy: SourceRoute = sourceRoute(
   "healthy",
   { ingest: sourceKinds, delivery: true },
 );
-/** A kind whose producer streams to the daemon: nothing comes back on egress. */
+/** A kind whose producer can't stream into ace-media: nothing comes back on egress. */
 const onDaemon: SourceRoute = sourceRoute(
   "tab",
-  { encode: "legacy", delivery: "auto", recordings: "auto", stills: "auto" },
+  { encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" },
   "healthy",
-  { ingest: sourceKinds, delivery: true },
+  { ingest: [], delivery: true },
 );
 
 /** A router whose route table the test changes, as `RouteWatch` would. */

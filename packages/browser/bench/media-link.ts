@@ -118,6 +118,8 @@ const media: BrowserMedia = {
 const service = new BrowserService({ dataDir: home, executablePath, now: clock, media });
 
 type Shown = { arrivedAt: number; capturedAt: number; codedWidth: number };
+/** An ack on the wire: its JSON and the relay channel's framing. */
+const ackBytes = 120;
 /** Video bytes the daemon sent on its main socket. */
 let daemonVideoBytes = 0;
 let sessions = 0;
@@ -131,6 +133,8 @@ async function watch(
   link: Path | undefined,
   ms: number,
   threeG?: (typeof threeGProfiles)[ThreeGProfileName],
+  /** The link back up, for the acks: its serialization, loss and jitter pace the view. */
+  uplink?: Path,
 ) {
   const shown: Shown[] = [];
   const assembler = new StreamAssembler();
@@ -150,9 +154,10 @@ async function watch(
     const { sequence, timestamp, codedWidth } = message.chunk;
     when(arrives, () => {
       if (counting) shown.push({ arrivedAt: arrives, capturedAt: timestamp, codedWidth });
-      // Acks go back up the link, as small messages: half its round trip.
-      const back = threeG ? threeG.rttMs / 2 : link ? 60 : 0;
-      when(clock() + back, () => ack(sequence));
+      // Acks go back up as small messages: through the modelled uplink where there is one.
+      const now = clock();
+      const acked = uplink ? uplink.send(ackBytes, now) : now + (link ? 60 : 0);
+      when(acked, () => ack(sequence));
     });
   };
   let client: MediaTestClient | undefined;
@@ -259,8 +264,8 @@ try {
   /** ace-media's delivery over a 3G profile's relay legs (ADR 0149). */
   const overThreeG = async (name: ThreeGProfileName) => {
     const profile = threeGProfiles[name];
-    const { down } = threeGLink(profile, seededRandom(7), clock());
-    const run = await watch(true, down, seconds * 1000, profile);
+    const { down, up } = threeGLink(profile, seededRandom(7), clock());
+    const run = await watch(true, down, seconds * 1000, profile, up);
     const counts = Array.from({ length: seconds }, (_, index) => {
       const from = run.start + index * 1000;
       return run.shown.filter(({ arrivedAt }) => arrivedAt >= from && arrivedAt < from + 1000)
