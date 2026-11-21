@@ -14,7 +14,8 @@ import {
   type ScreenTransport,
   type SourcePicture,
 } from "./screen-stream.ts";
-import { encodePicture, streamKinds } from "@ace/browser/stream";
+import { streamKinds } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 
 const state = ScreenState.parse({
   sessionId: "app",

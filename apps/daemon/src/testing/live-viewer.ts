@@ -1,14 +1,17 @@
 /*
  * A person's live view over the daemon WebSocket, as the web and iOS clients hold one: requests
- * on the main channel (screen sessions) or the devices channel (simulators and emulators),
- * pictures as stream pieces, each one acknowledged so the daemon's pacing window keeps
- * sending. For end-to-end tests of real capture paths.
+ * on the main channel (screen sessions) or the devices channel (simulators and emulators), and
+ * pictures from ace-media on a media connection the main session asked for (X3: nothing else
+ * delivers them), as stream pieces, each one acknowledged there so ace-media's pacing window
+ * keeps sending. For end-to-end tests of real capture paths.
  */
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
+import { MediaConnectResult } from "@ace/protocol";
+import { MediaTestClient } from "@ace/media/testing/media-test-client";
 
 /** One picture as the viewer received it. */
 export type ViewerFrame = {
@@ -54,48 +57,49 @@ export class LiveViewer {
   #requests = 0;
   #foreign = 0;
   readonly #heartbeat: ReturnType<typeof setInterval>;
+  #media: MediaTestClient | undefined;
+  #main: WebSocket | undefined;
   private constructor(socket: WebSocket, surface: Surface) {
     this.#socket = socket;
     this.#surface = surface;
     // The daemon closes a socket quiet for a minute; clients ping, so a long wait stays open.
     this.#heartbeat = setInterval(() => socket.send(JSON.stringify({ type: "ping" })), 20_000);
     socket.on("close", () => clearInterval(this.#heartbeat));
-    const assembler = new StreamAssembler();
     socket.on("message", (data, binary) => {
-      if (!binary) {
-        const message = Result.parse(JSON.parse(String(data)));
-        if (message.type === words[surface].result && message.requestId)
-          this.#waiting.get(message.requestId)?.(message);
-        return;
-      }
-      if (!Buffer.isBuffer(data) || !isStreamPiece(data)) return void this.#foreign++;
-      const envelope = assembler.push(data);
-      const message = envelope && decodeStreamMessage(envelope);
-      if (message?.kind !== words[surface].frame || message.frame.still) return;
-      const { frame } = message;
-      this.#frames.push({
-        sessionId: message.sourceId,
-        streamId: frame.streamId,
-        sequence: frame.sequence,
-        width: frame.width,
-        height: frame.height,
-        scale: frame.scale,
-        codec: frame.codec,
-        key: frame.key,
-        bytes: Buffer.from(frame.bytes),
-        receivedAt: performance.now(),
-      });
-      // Acknowledged on arrival, as a client does once its decoder has taken the picture.
-      const ack = { streamId: frame.streamId, sequence: frame.sequence };
-      socket.send(
-        JSON.stringify(
-          surface === "screen"
-            ? { type: "screen.ack", sessionId: message.sourceId, ...ack }
-            : { type: "devices.ack", deviceId: message.sourceId, ...ack },
-        ),
-      );
-      this.#arrived();
+      if (binary) return void this.#foreign++;
+      const message = Result.parse(JSON.parse(String(data)));
+      if (message.type === words[surface].result && message.requestId)
+        this.#waiting.get(message.requestId)?.(message);
     });
+  }
+
+  /** One binary message off the media connection: a piece of a picture, acked once whole. */
+  #piece(assembler: StreamAssembler, data: Uint8Array): void {
+    if (!isStreamPiece(data)) return void this.#foreign++;
+    const envelope = assembler.push(data);
+    const message = envelope && decodeStreamMessage(envelope);
+    if (message?.kind !== words[this.#surface].frame || message.frame.still) return;
+    const { frame } = message;
+    this.#frames.push({
+      sessionId: message.sourceId,
+      streamId: frame.streamId,
+      sequence: frame.sequence,
+      width: frame.width,
+      height: frame.height,
+      scale: frame.scale,
+      codec: frame.codec,
+      key: frame.key,
+      bytes: Buffer.from(frame.bytes),
+      receivedAt: performance.now(),
+    });
+    // Acknowledged on arrival, as a client does once its decoder has taken the picture.
+    const ack = { streamId: frame.streamId, sequence: frame.sequence };
+    this.#media?.send(
+      this.#surface === "screen"
+        ? { type: "screen.ack", sessionId: message.sourceId, ...ack }
+        : { type: "devices.ack", deviceId: message.sourceId, ...ack },
+    );
+    this.#arrived();
   }
 
   static async connect(
@@ -103,23 +107,18 @@ export class LiveViewer {
     tokenPath: string,
     surface: Surface = "screen",
   ): Promise<LiveViewer> {
-    const socket = new WebSocket(url);
-    await once(socket, "open");
-    const viewer = new LiveViewer(socket, surface);
     const token = (await readFile(tokenPath, "utf8")).trim();
-    const welcomed = new Promise<void>((resolve) => {
-      const listener = (data: unknown, binary: boolean) => {
-        if (binary || JSON.parse(String(data)).type !== "welcome") return;
-        socket.off("message", listener);
-        resolve();
-      };
-      socket.on("message", listener);
+    // The media connection is the main session's; a devices channel of the same device and
+    // admission may name it.
+    const main = await welcomed(url, token, {});
+    const socket = surface === "devices" ? await welcomed(url, token, { channel: "devices" }) : main;
+    const viewer = new LiveViewer(socket, surface);
+    if (socket !== main) viewer.#main = main;
+    const grant = await mediaConnect(main);
+    const assembler = new StreamAssembler();
+    viewer.#media = await MediaTestClient.open(grant, {
+      onPiece: (piece) => viewer.#piece(assembler, piece),
     });
-    const channel = surface === "devices" ? { channel: "devices" } : {};
-    socket.send(
-      JSON.stringify({ type: "hello", protocolVersion: 1, token, deviceId: "viewer", ...channel }),
-    );
-    await welcomed;
     return viewer;
   }
 
@@ -135,8 +134,13 @@ export class LiveViewer {
         clearTimeout(timer);
         resolve(message);
       });
+      // A subscribe names the media connection: only ace-media delivers its pictures.
+      const named =
+        operation.op === "subscribe" && this.#media
+          ? { ...operation, media: { connection: this.#media.connection } }
+          : operation;
       this.#socket.send(
-        JSON.stringify({ type: words[this.#surface].request, requestId, operation }),
+        JSON.stringify({ type: words[this.#surface].request, requestId, operation: named }),
       );
     });
     this.#waiting.delete(requestId);
@@ -183,9 +187,54 @@ export class LiveViewer {
 
   async close(): Promise<void> {
     clearInterval(this.#heartbeat);
-    if (this.#socket.readyState === WebSocket.CLOSED) return;
-    const closed = once(this.#socket, "close");
-    this.#socket.close();
-    await closed;
+    this.#media?.close();
+    for (const socket of [this.#socket, this.#main]) {
+      if (!socket || socket.readyState === WebSocket.CLOSED) continue;
+      const closed = once(socket, "close");
+      socket.close();
+      await closed;
+    }
   }
+}
+
+/** A daemon socket past its welcome, on the channel asked for. */
+async function welcomed(
+  url: string,
+  token: string,
+  channel: { channel?: "devices" },
+): Promise<WebSocket> {
+  const socket = new WebSocket(url);
+  await once(socket, "open");
+  const done = new Promise<void>((resolve) => {
+    const listener = (data: unknown, binary: boolean) => {
+      if (binary || JSON.parse(String(data)).type !== "welcome") return;
+      socket.off("message", listener);
+      resolve();
+    };
+    socket.on("message", listener);
+  });
+  socket.send(
+    JSON.stringify({ type: "hello", protocolVersion: 1, token, deviceId: "viewer", ...channel }),
+  );
+  await done;
+  return socket;
+}
+
+/** The main session's media connection grant; throws when the daemon has none to give. */
+async function mediaConnect(socket: WebSocket) {
+  const requestId = "viewer-media";
+  const reply = new Promise<MediaConnectResult>((resolve) => {
+    const listener = (data: unknown, binary: boolean) => {
+      if (binary) return;
+      const parsed = MediaConnectResult.safeParse(JSON.parse(String(data)));
+      if (!parsed.success || parsed.data.requestId !== requestId) return;
+      socket.off("message", listener);
+      resolve(parsed.data);
+    };
+    socket.on("message", listener);
+  });
+  socket.send(JSON.stringify({ type: "media.connect", requestId }));
+  const { result } = await reply;
+  if (!result.ok) throw new Error(`media.connect refused: ${result.code} ${result.message}`);
+  return result;
 }

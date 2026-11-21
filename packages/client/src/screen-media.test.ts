@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ScreenState, ServerMessage, type MediaStreamClientMessage } from "@ace/protocol";
-import { encodePicture, streamKinds, type StreamMessage } from "@ace/browser/stream";
+import { streamKinds, type StreamMessage } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import { ScreenStreamClient, type MediaRoute, type SourcePicture } from "./screen-stream.ts";
 
 const state = ScreenState.parse({

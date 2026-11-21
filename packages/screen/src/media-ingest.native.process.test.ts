@@ -66,7 +66,7 @@ it.runIf(runs)(
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true }));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     };
@@ -176,11 +176,10 @@ function observe(producers: MediaRuntime) {
           producer.pathEnded?.(path, interrupted);
         },
         consumers: {
-          deliver: (unit) => {
+          record: (unit) => {
             counted(unit);
-            producer.consumers.deliver(unit);
+            producer.consumers.record(unit);
           },
-          record: producer.consumers.record,
           still: producer.consumers.still,
         },
       }),
@@ -357,7 +356,7 @@ it.runIf(windowsRuns)(
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true, maxRetries: 10 }));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     };

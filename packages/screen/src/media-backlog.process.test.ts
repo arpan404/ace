@@ -96,7 +96,7 @@ it.runIf(!!binary)(
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true }));
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     };
@@ -138,10 +138,10 @@ it.runIf(!!binary)(
             ...producer,
             consumers: {
               ...producer.consumers,
-              deliver: (egress) => {
+              record: (egress) => {
                 const stamp = readProducerStamp(egress.frame.extension);
                 if (stamp) arrivals.push(`egress:${stamp.sequence}`);
-                producer.consumers.deliver(egress);
+                producer.consumers.record(egress);
               },
             },
           }),

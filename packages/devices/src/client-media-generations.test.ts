@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MediaRoute, SourcePicture } from "@ace/browser/live-view";
-import { encodePicture, streamKinds, type StreamMessage } from "@ace/browser/stream";
+import { streamKinds, type StreamMessage } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import type { MediaStreamClientMessage } from "@ace/protocol";
 import type { DeviceAck, DeviceClientMessage } from "@ace/protocol/devices";
 import { DeviceClient, type DeviceTransportEvents } from "./client.ts";

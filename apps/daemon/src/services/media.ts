@@ -25,12 +25,13 @@ import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
  * The daemon's ace-media for live video (E4, ADR 0147): one `MediaRuntime`, made once the
- * binary is found and `media.encode` asks for it. Until then, and whenever ace-media isn't
- * healthy, every capture takes the browser's own path.
+ * binary is found. It is the only deliverer of live views (X3), so it is made at start; while
+ * ace-media isn't healthy, captures take the browser's own path and live views say why.
  */
 
 const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
-const mediaKeys = ["media.encode", "media.delivery"] as const;
+/** `media.delivery` is only ever `auto` (X3), so only `media.encode` is read. */
+const mediaKeys = ["media.encode"] as const;
 
 /** The binary this daemon runs: the bundled one in a release, the Cargo build from source. */
 export function findMediaBinary(): string | undefined {
@@ -53,9 +54,8 @@ export function findMediaBinary(): string | undefined {
 
 /**
  * Delivery by ace-media (D1): clients' media connections and the views on them. Present while
- * the runtime exists, so sessions are always cleaned up; it connects and serves only while
- * `media.delivery` is `auto`. Every call answers at once, so a subscribe never waits on
- * ace-media longer than its poster's deadline.
+ * the runtime exists, so sessions are always cleaned up. Every call answers at once, so a
+ * subscribe never waits on ace-media longer than its poster's deadline.
  */
 export type DaemonDelivery = MediaDeliveryPort & {
   connect(owner: MediaOwner): Promise<MediaConnectGrant>;
@@ -139,7 +139,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         onMessage: (message, payload) => relayPort?.message(message, payload),
         onExit: () => relayPort?.exit(),
       });
-      relayPort = new RuntimeRelayPort(runtime, () => settings.delivery === "auto");
+      relayPort = new RuntimeRelayPort(runtime);
       for (const [producer, slot] of waiting) {
         slot.source = runtime.sources.add(producer);
         if (slot.codecs) slot.source.codecs(slot.codecs);
@@ -151,15 +151,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     }));
 
   const read = async () => {
-    const [encode, delivery] = await Promise.all(
-      mediaKeys.map(async (key) => MediaSetting((await services.settings?.get(key))?.value)),
-    );
-    settings = {
-      ...legacyMediaSettings,
-      encode: encode ?? "legacy",
-      delivery: delivery ?? "legacy",
-    };
-    if (settings.encode === "auto" || settings.delivery === "auto") await start();
+    const encode = MediaSetting((await services.settings?.get("media.encode"))?.value);
+    settings = { ...legacyMediaSettings, encode };
+    // ace-media delivers every live view, so its runtime exists whatever the settings.
+    await start();
     runtime?.settingsChanged();
   };
   void read().catch(() => {});
@@ -176,7 +171,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
 
   return {
     delivery: () =>
-      runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
+      runtime && relayPort ? daemonDelivery(runtime, relayPort) : undefined,
     acceleration,
     pid: () => runtime?.supervisor.snapshot().pid,
     add: (producer) => runtime?.sources.add(producer),
@@ -213,21 +208,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
  * Delivery by a live runtime, as producers and sessions see it. Built on every lookup; `relay`
  * is the runtime's one port, so lookups never add watchers.
  */
-export function daemonDelivery(
-  live: MediaRuntime,
-  relay: MediaRelayPort,
-  settings: () => MediaSettings,
-): DaemonDelivery {
+export function daemonDelivery(live: MediaRuntime, relay: MediaRelayPort): DaemonDelivery {
   return {
     ...live.delivery(),
-    connect: (owner) =>
-      settings().delivery === "auto"
-        ? live.connections.connect(owner)
-        : Promise.resolve({
-            ok: false,
-            code: "unavailable",
-            message: "ace-media isn't serving viewers.",
-          }),
+    connect: (owner) => live.connections.connect(owner),
     sessionStarted: (session) => live.links.started(session),
     sessionEnded: (session) => {
       live.links.ended(session);

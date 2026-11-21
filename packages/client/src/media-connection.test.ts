@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { encodePicture, streamKinds, type StreamMessage } from "@ace/browser/stream";
+import { streamKinds, type StreamMessage } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import {
   MediaConnection,
   mediaHello,

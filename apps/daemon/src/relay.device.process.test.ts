@@ -13,7 +13,6 @@ import {
   DeviceState,
 } from "@ace/protocol/devices";
 import { DeviceId } from "@ace/protocol";
-import { videoWindow } from "@ace/browser/video-fanout";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { fingerprint, keyPair } from "@ace/secure-channel";
@@ -294,44 +293,7 @@ async function ready(client: DeviceClient, deviceId: string) {
   expect(await client.request({ op: "subscribe", deviceId })).toMatchObject({ ok: true });
 }
 
-it("a relay viewer on the shared media stream gets an emulator's pictures at the pace it acks", async () => {
-  const f = await fixture();
-  const client = await f.connected();
-  await client.request({ op: "enable", enabled: true });
-  await ready(client, "android:Tablet");
-  const first = await client.picture();
-  expect(first.sourceId).toBe("android:Tablet");
-  expect(first.frame).toMatchObject({ sequence: 0, codec: "avc1.42E01F", key: true, width: 640 });
-  expect(Buffer.from(first.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 22));
-  // Each 128 KiB picture crossed the relay in pieces no larger than a relay message.
-  expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
-  client.chunks.length = 0;
-  // The shared window is the browser video's public bound, not a per-test
-  // constant: fill all of videoWindow.frames with unacked pictures, so the
-  // next ones wait, each replacing the one before, until the ack releases
-  // the newest waiting picture.
-  const capacity = videoWindow.frames;
-  const shown = [first];
-  for (let sequence = 1; sequence <= capacity - 1; sequence++) {
-    f.publish("android:Tablet", sequence, 40 + sequence);
-    shown.push(await client.picture());
-    // Same piece-size bound for every picture; reset the test client's flood
-    // guard so a full window does not trip a counter sized for eight.
-    expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
-    client.chunks.length = 0;
-  }
-  expect(shown.map((picture) => picture.frame.sequence)).toEqual(
-    Array.from({ length: capacity }, (_, index) => index),
-  );
-  f.publish("android:Tablet", capacity, 100);
-  f.publish("android:Tablet", capacity + 1, 101);
-  await client.ack("android:Tablet", first.frame.streamId, capacity - 1);
-  const newest = await client.picture();
-  expect(newest.frame.sequence).toBe(capacity + 1);
-  expect(Buffer.from(newest.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 101));
-});
-
-it("a paired phone boots and controls an emulator and reassembles large encrypted device frames", async () => {
+it("a paired phone boots and controls an emulator, and the relay carries none of its live pictures", async () => {
   const f = await fixture();
   const client = await f.connected();
   const before = await client.request({ op: "list" });
@@ -345,10 +307,9 @@ it("a paired phone boots and controls an emulator and reassembles large encrypte
   expect(
     DeviceInventory.parse(after.data).devices.find((device) => device.id === "android:Tablet"),
   ).toMatchObject({ state: "booted", serial: "emulator-5556" });
-  const picture = await client.picture();
-  expect(Buffer.from(picture.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 22));
-  expect(client.chunks).toHaveLength(3);
-  expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
+  // ace-media delivers live pictures on a media connection (X3): none cross this channel.
+  f.publish("android:Tablet", 1, 33);
+  expect(client.chunks).toHaveLength(0);
   expect(
     await client.request({
       op: "input",
@@ -359,39 +320,25 @@ it("a paired phone boots and controls an emulator and reassembles large encrypte
   expect(f.inputs).toEqual(["-s emulator-5556 shell 'input' 'tap' '7' '9'"]);
 });
 
-it("two live device streams and a screenshot keep whole pictures over one encrypted relay channel", async () => {
+it("a screenshot crosses the encrypted relay channel whole, as a still, while live pictures don't", async () => {
   const f = await fixture();
   const client = await f.connected();
   await client.request({ op: "enable", enabled: true });
   await ready(client, "android:Pixel");
-  const pixel = await client.picture();
-  await ready(client, "android:Tablet");
-  const tablet = await client.picture();
   const request = await client.send({ op: "screenshot", deviceId: "android:Pixel" });
   f.publish("android:Pixel", 1, 33);
-  f.publish("android:Tablet", 1, 44);
   const result = await client.result(request);
   expect(result.ok).toBe(true);
-  const pictures = [await client.picture(), await client.picture(), await client.picture()];
+  const still = await client.picture();
   const screenshot = DeviceScreenshot.parse(result.data);
   // The screenshot came as a still, ahead of its result, naming the capture and picture.
-  const still = pictures.find((picture) => picture.frame.still);
   expect(still).toMatchObject({
     sourceId: "android:Pixel",
-    frame: { streamId: screenshot.streamId, sequence: screenshot.sequence },
+    frame: { still: true, streamId: screenshot.streamId, sequence: screenshot.sequence },
   });
-  // The device's own still: a watched live view stays video for a screenshot.
-  expect(Buffer.from(still?.frame.bytes ?? [])).toEqual(Buffer.alloc(128 * 1024, 77));
-  const live = pictures.filter((picture) => !picture.frame.still);
-  expect(live.map((picture) => [picture.sourceId, picture.frame.sequence]).toSorted()).toEqual([
-    ["android:Pixel", 1],
-    ["android:Tablet", 1],
-  ]);
-  for (const picture of live)
-    expect(Buffer.from(picture.frame.bytes)).toEqual(
-      Buffer.alloc(128 * 1024, picture.sourceId === tablet.sourceId ? 44 : 33),
-    );
-  expect(pixel.frame.streamId).not.toBe(tablet.frame.streamId);
+  // The device's own still, in pieces no larger than a relay message.
+  expect(Buffer.from(still.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 77));
+  expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
 });
 
 it("a pairing without administrator access is told why its device list is refused", async () => {
@@ -435,7 +382,6 @@ it("read-only pairings cannot use devices and revocation closes an active contro
   const client = await f.connected();
   await client.request({ op: "enable", enabled: true });
   await ready(client, "android:Pixel");
-  await client.picture();
   const released = new Promise<void>((resolve) => {
     const unwatch = f.service.watch((state) => {
       if (state.device.id === "android:Pixel" && state.controller === "none") {

@@ -375,30 +375,6 @@ it("without an open Devices view no scheduled inventory ticks read device state"
   expect(await f.readCount()).toBe(closed);
 });
 
-it("frames from a simulator reach the client as H.264 only", async () => {
-  const f = await fixture();
-  await writeFile(f.state, "booted");
-  const { client } = connect(f.service);
-  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
-  await client.request({ op: "enable", enabled: true });
-  await client.request({ op: "list" });
-  const shown: string[] = [];
-  const codecs = new Set<string>();
-  client.watchPictures(deviceId, async (picture) => {
-    shown.push(Buffer.from(picture.bytes).toString());
-    codecs.add(picture.codec);
-    client.ack(picture);
-  });
-
-  await client.request({ op: "start", deviceId, fps: 10 });
-  await client.request({ op: "subscribe", deviceId });
-
-  expect(deviceState(client)).toMatchObject({ lifecycle: "live" });
-  await waitFor(() => expect(shown).toContain("simulator:home"));
-  expect(codecs.size).toBe(1);
-  expect(codecs.has("jpeg")).toBe(false);
-});
-
 it("a Simulator that can only make JPEG refuses the live view and names serve-sim", async () => {
   const f = await fixture({ video: false });
   await writeFile(f.state, "booted");
@@ -437,11 +413,6 @@ it("input is refused without control and reaches the simulator with it", async (
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
-  const shown: string[] = [];
-  client.watchPictures(deviceId, async (picture) => {
-    shown.push(Buffer.from(picture.bytes).toString());
-    client.ack(picture);
-  });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "subscribe", deviceId });
 
@@ -473,7 +444,6 @@ it("input is refused without control and reaches the simulator with it", async (
     { button: "Volume Up" },
     { button: "Action" },
   ]);
-  await waitFor(() => expect(shown).toContain("simulator:after-text.type"));
 });
 
 it("without Screen Recording the live view says which permission is missing, asks macOS for it, and starts once granted", async () => {
@@ -622,25 +592,19 @@ it("lease expiry posts mouse-up at the native boundary without another client co
   expect(deviceState(client)?.controller).toBe("none");
 });
 
-it("a Simulator streams to a person and is handed to an agent while computer use stays off", async () => {
+it("a Simulator goes live for a person and is handed to an agent while computer use stays off", async () => {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
-  const shown: string[] = [];
-  client.watchPictures(deviceId, async (picture) => {
-    shown.push(Buffer.from(picture.bytes).toString());
-    client.ack(picture);
-  });
   expect(await client.request({ op: "permissions" })).toEqual({
     screenRecording: true,
     accessibility: true,
   });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "subscribe", deviceId });
-  await waitFor(() => expect(shown).toContain("simulator:home"));
   expect(deviceState(client)).toMatchObject({ lifecycle: "live" });
   expect(deviceState(client)?.threadId).toBeUndefined();
   await client.request({
@@ -675,46 +639,6 @@ it("a resubscribe on the same media connection that fails keeps delivering on th
   await m.request("leave", { op: "unsubscribe", deviceId });
   expect(m.d.live.size).toBe(0);
   expect(m.d.views.size).toBe(0);
-});
-
-it("a media resubscribe that fails leaves the legacy view its stream and its pictures", async () => {
-  const f = await fixture();
-  await writeFile(f.state, "booted");
-  const d = fakeDelivery();
-  const failing = { on: false };
-  const { client } = connect(f.service, "browser-1", {
-    delivery: {
-      owner: () => phoneOwner,
-      port: () => ({
-        ...d.port,
-        poster: () =>
-          failing.on ? Promise.reject(new Error("poster gone")) : Promise.resolve(undefined),
-      }),
-    },
-  });
-  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
-  await client.request({ op: "enable", enabled: true });
-  await client.request({ op: "list" });
-  let shown = 0;
-  client.watchPictures(deviceId, async (picture) => {
-    shown++;
-    client.ack(picture);
-  });
-  await client.request({ op: "start", deviceId, fps: 10 });
-  // Watched on the main socket: the daemon delivers it.
-  await client.request({ op: "subscribe", deviceId });
-  await waitFor(() => expect(shown).toBeGreaterThan(0));
-  failing.on = true;
-  await expect(
-    client.request({ op: "subscribe", deviceId, media: { connection: "mc_aaaaaaaaaaaa" } }),
-  ).rejects.toThrow();
-  failing.on = false;
-  expect(d.views.size).toBe(0);
-  // The old view keeps its stream request: the device still makes H.264, so the next picture
-  // reaches it. (A withdrawn request would leave the device on JPEG, which live views drop.)
-  const before = shown;
-  await client.request({ op: "stream.keyframe", deviceId });
-  await vi.waitFor(() => expect(shown).toBeGreaterThan(before), { timeout: 2_000 });
 });
 
 it("a subscribe superseded while it is set up never takes its successor's view", async () => {

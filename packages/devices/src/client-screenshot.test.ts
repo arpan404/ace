@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { encodePicture, streamKinds } from "@ace/browser/stream";
+import { streamKinds } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import { DeviceClient, type DeviceTransportEvents } from "./client.ts";
 import type { DeviceClientMessage } from "@ace/protocol/devices";
 

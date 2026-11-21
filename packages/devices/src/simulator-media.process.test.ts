@@ -72,7 +72,7 @@ it.runIf(!!binary)(
 
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     };
@@ -114,10 +114,10 @@ it.runIf(!!binary)(
             ...producer,
             consumers: {
               ...producer.consumers,
-              deliver: (unit) => {
+              record: (unit) => {
                 fromEgress = true;
                 try {
-                  producer.consumers.deliver(unit);
+                  producer.consumers.record(unit);
                 } finally {
                   fromEgress = false;
                 }

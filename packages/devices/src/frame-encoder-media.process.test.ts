@@ -47,7 +47,7 @@ it.runIf(process.platform === "darwin" && !!binary)(
 
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     };
@@ -108,10 +108,10 @@ it.runIf(process.platform === "darwin" && !!binary)(
             },
             consumers: {
               ...producer.consumers,
-              deliver: (unit) => {
+              record: (unit) => {
                 const stamp = readProducerStamp(unit.frame.extension);
                 if (stamp) viaEgress.add(stamp.timestamp);
-                producer.consumers.deliver(unit);
+                producer.consumers.record(unit);
               },
             },
           }),

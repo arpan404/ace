@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { encodePicture, streamKinds } from "@ace/browser/stream";
+import { streamKinds } from "@ace/browser/stream";
+import { encodePicture } from "@ace/browser/stream-encode";
 import { devicePoint } from "@ace/ui-core";
 import { DeviceClient, type DeviceTransport, type DeviceTransportEvents } from "./client.ts";
 import type { DeviceAck, DeviceClientMessage, DeviceState } from "@ace/protocol/devices";

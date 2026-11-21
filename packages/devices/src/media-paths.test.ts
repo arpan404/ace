@@ -58,7 +58,7 @@ function device() {
       pts: BigInt(sequence),
     });
   const egress = (path: string, sequence: number, keyframe = false) =>
-    ready().consumers.deliver({
+    ready().consumers.record({
       source: path,
       sequence,
       gap: false,

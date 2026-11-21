@@ -75,7 +75,7 @@ it.runIf(runs)(
     ]);
     const settings: MediaSettings = {
       encode: "auto",
-      delivery: "legacy",
+      delivery: "auto",
       recordings: "legacy",
       stills: "legacy",
     };
@@ -121,11 +121,10 @@ it.runIf(runs)(
               producer.pathEnded?.(path, interrupted);
             },
             consumers: {
-              deliver: (unit) => {
+              record: (unit) => {
                 counted(unit);
-                producer.consumers.deliver(unit);
+                producer.consumers.record(unit);
               },
-              record: producer.consumers.record,
               still: producer.consumers.still,
             },
           }),
