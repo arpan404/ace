@@ -4,8 +4,9 @@
  * session's H.264. What the adapter tests can't show (they hand back egress as soon as the
  * source holds a token) is the whole way round through a real restart: supervisor, reopened
  * source, new ingest, the encoder and egress. The first keyframe the new process encodes is
- * decoded by ace-media itself (a still of it, through its H.264 decoder), and kill → that
- * keyframe is measured over twenty restarts. Runs when ACE_MEDIA_TEST_BINARY names a built
+ * decoded by ace-media itself (a still of it, through its H.264 decoder) where it has one (a
+ * Mac); elsewhere its parameter sets and IDR slice are read. Kill → that keyframe is measured
+ * over twenty restarts. Runs when ACE_MEDIA_TEST_BINARY names a built
  * ace-media (`bun run check:media` does).
  */
 import { execFileSync } from "node:child_process";
@@ -13,6 +14,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { spsDimensions } from "@ace/browser/h264";
 import { IngestWriter } from "@ace/media/ingest-writer";
 import type { IngestProducer } from "@ace/media/ingest-sources";
 import { MediaRuntime } from "@ace/media/runtime";
@@ -54,6 +56,25 @@ function still(sequence: number): Frame {
   const [frame] = frames;
   if (!frame) throw new Error("no frame");
   return frame;
+}
+
+/** The NAL units of an Annex B access unit. */
+function nalUnits(bytes: Uint8Array): Uint8Array[] {
+  const starts: number[] = [];
+  for (let i = 0; i + 3 <= bytes.length; i++)
+    if (bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1) starts.push(i + 3);
+  return starts.map((start, n) => {
+    let end = n + 1 < starts.length ? (starts[n + 1] ?? bytes.length) - 3 : bytes.length;
+    while (end > start && bytes[end - 1] === 0) end--;
+    return bytes.subarray(start, end);
+  });
+}
+
+/** Whether ace-media reported an H.264 decoder that works here (only VideoToolbox, today). */
+function decodesH264(runtime: MediaRuntime): boolean {
+  return (runtime.supervisor.capabilities() ?? []).some(
+    (entry) => entry.step === "decode" && entry.state === "ok" && entry.codec?.startsWith("avc1"),
+  );
 }
 
 /**
@@ -220,9 +241,24 @@ it.skipIf(!binary)(
   async () => {
     const { keyframe, runtime, done } = await round();
     try {
-      const picture = await decoded(runtime, keyframe);
-      expect({ width: picture.width, height: picture.height }).toEqual({ width: 390, height: 844 });
-      expect(picture.steps.map((s) => s.step)).toContain("decode");
+      if (decodesH264(runtime)) {
+        const picture = await decoded(runtime, keyframe);
+        expect({ width: picture.width, height: picture.height }).toEqual({
+          width: 390,
+          height: 844,
+        });
+        expect(picture.steps.map((s) => s.step)).toContain("decode");
+        return;
+      }
+      // No video decoder here (CPU stills are JPEG only): the keyframe starts a stream a viewer
+      // decodes, its parameter sets then an IDR slice, at the screen's size.
+      const units = nalUnits(keyframe.payload);
+      const types = units.map((unit) => (unit[0] ?? 0) & 0x1f);
+      expect(types).toEqual(expect.arrayContaining([7, 8, 5]));
+      expect(types.indexOf(7)).toBeLessThan(types.indexOf(5));
+      const sps = units[types.indexOf(7)];
+      if (!sps) throw new Error("no SPS");
+      expect(spsDimensions(sps)).toEqual({ width: 390, height: 844 });
     } finally {
       done();
     }

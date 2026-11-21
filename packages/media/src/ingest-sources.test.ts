@@ -447,6 +447,44 @@ describe("IngestSources", () => {
     expect(w.opened()).toHaveLength(3);
   });
 
+  it("a source ace-media ended for want of an encoder opens again once ace-media's encoders change, with its encodes", () => {
+    const w = world();
+    const l = producer("tab-pictures");
+    const source = w.sources.add(l.p);
+    const encodes = [
+      { id: 1, codec: "avc1.42E033", width: 390, height: 844, fps: 30, bitrate: 2_000_000 },
+    ];
+    source.encodes(encodes);
+    // ace-media just started: its last-resort encoder (Linux, Windows) hasn't reported yet.
+    w.status("s1", "starting");
+    w.status("s1", "ended", "encoder-unavailable");
+    expect(l.refused).toEqual(["encoder-unavailable"]);
+    w.sources.message({ type: "capabilities.changed", capabilities: [] });
+    expect(w.opened()).toHaveLength(2);
+    expect(w.sent.findLast(({ message }) => message.type === "source.encodes")?.message).toEqual({
+      type: "source.encodes",
+      source: "s2",
+      encodes,
+    });
+    w.status("s2", "starting");
+    expect(l.points.at(-1)).toBeDefined();
+    // Refused again with the encoders it reported: it waits for the next change, saying why.
+    w.status("s2", "ended", "encoder-unavailable");
+    expect(l.refused).toEqual(["encoder-unavailable", "encoder-unavailable"]);
+    expect(w.opened()).toHaveLength(2);
+  });
+
+  it("a source ace-media ended for another reason stays stopped when its encoders change", () => {
+    const w = world();
+    const l = producer("tab-pictures");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.status("s1", "ended", "encoder-failed");
+    w.sources.message({ type: "capabilities.changed", capabilities: [] });
+    expect(w.opened()).toHaveLength(1);
+    expect(l.points.at(-1)).toBeUndefined();
+  });
+
   it("a JPEG source's encodes are kept and sent again after a restart, and leaving waits for the marker after its last picture", () => {
     const w = world();
     const l = producer("tab-pictures");

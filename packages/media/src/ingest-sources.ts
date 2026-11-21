@@ -154,6 +154,8 @@ export type StopStatus = "retrying" | "unavailable";
 export const restartingReason = "ace-media stopped and is starting again";
 /** What they say when ace-media kept failing the source. */
 export const failedReason = "ace-media couldn't take this video";
+/** ace-media's reason for ending a source it has no encoder for (yet). */
+const noEncoderReason = "encoder-unavailable";
 /**
  * What a JPEG source's views say when the running ace-media is older than this daemon and
  * can't encode pictures off the ingest (`picture-ingest` not agreed). Its other video goes on.
@@ -201,6 +203,11 @@ type Entry = {
   generation: number;
   /** Ingest failed or was refused: it stays off until its route changes or ace-media restarts. */
   failed: boolean;
+  /**
+   * ace-media refused it for want of an encoder: it also opens again once ace-media's encoders
+   * change, since the last-resort one reports only after `ready`.
+   */
+  noEncoder: boolean;
   reopens: number;
   closed: boolean;
   /** The path whose acceleration report stands for this source. */
@@ -322,6 +329,7 @@ export class IngestSources {
       page: undefined,
       generation: 0,
       failed: false,
+      noEncoder: false,
       reopens: 0,
       closed: false,
       held: [],
@@ -483,6 +491,7 @@ export class IngestSources {
 
   /** The supervisor's `onMessage`. */
   message(message: FromMedia): void {
+    if (message.type === "capabilities.changed") return this.#encodersChanged();
     if (
       message.type !== "source.status" &&
       message.type !== "source.keyframe" &&
@@ -528,12 +537,27 @@ export class IngestSources {
     }
     if (message.status === "ended" && message.reason !== undefined) {
       entry.failed = true;
+      entry.noEncoder = message.reason === noEncoderReason;
       this.#leave(entry);
       entry.producer.refused?.(message.reason);
       this.#tell(entry, message.reason);
       return;
     }
     if (entry.state === "ingest") this.#reconnect(entry);
+  }
+
+  /**
+   * ace-media's capability list changed (a late encoder trial reported): sources it refused for
+   * want of an encoder open again. If it still has none, it refuses them again, saying why.
+   */
+  #encodersChanged(): void {
+    for (const entry of this.#entries) {
+      if (entry.closed || !entry.failed || !entry.noEncoder) continue;
+      entry.failed = false;
+      entry.noEncoder = false;
+      entry.reopens = 0;
+      this.#sync(entry);
+    }
   }
 
   #sync(entry: Entry): void {
@@ -676,6 +700,7 @@ export class IngestSources {
           error: error instanceof Error ? error.message : String(error),
         });
         entry.failed = true;
+        entry.noEncoder = false;
         this.#leave(entry);
         this.#tell(entry, failedReason);
       },
@@ -706,6 +731,7 @@ export class IngestSources {
     if (live) this.#retire(live);
     if (++entry.reopens > maxIngestReopens) {
       entry.failed = true;
+      entry.noEncoder = false;
       void entry.producer.point(undefined).catch(() => {});
       this.#tell(entry, failedReason);
       return;
