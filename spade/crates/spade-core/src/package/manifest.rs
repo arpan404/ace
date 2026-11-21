@@ -68,7 +68,7 @@ pub(crate) const EXECUTIONS: [&str; 8] = [
     "commands",
     "command",
 ];
-pub(crate) const KNOWN_V3: [&str; 22] = [
+pub(crate) const KNOWN_V3: [&str; 23] = [
     "format",
     "version",
     "requires",
@@ -91,6 +91,7 @@ pub(crate) const KNOWN_V3: [&str; 22] = [
     "pricing",
     "surfaces",
     "contracts",
+    "checks",
 ];
 pub(crate) const KNOWN_V2: [&str; 14] = [
     "personality",
@@ -268,6 +269,13 @@ pub struct Manifest {
     /// The cards and panels it ships (ADR 0200 §5).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<Surface>,
+    /// What Spade holds a result to before it counts as done (ADR 0204 §3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<super::checks::Check>,
+    /// The schedule, event and webhook triggers that say `"verify": true`, by name: each run
+    /// opens a goal and ends in the check of done (ADR 0204 §3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified: Vec<String>,
     /// Fields this build doesn't use, by name, for the review's "Not used by this Spade".
     pub unused: Vec<String>,
 }
@@ -276,6 +284,11 @@ impl Manifest {
     /// Every declared effect's switch key, in order.
     pub fn effect_keys(&self) -> Vec<String> {
         self.effects.iter().map(Declared::key).collect()
+    }
+
+    /// Whether the routine named `name` is checked before its run counts as done.
+    pub fn verifies(&self, name: &str) -> bool {
+        self.verified.iter().any(|v| v == name)
     }
 
     /// The triggers that become routines, by name.
@@ -419,6 +432,26 @@ impl Reader<'_> {
         } else {
             Vec::new()
         };
+        let surfaces = if version == 3 {
+            super::surfaces::read(self.fields.get("surfaces"), &mut self.problems)
+        } else {
+            Vec::new()
+        };
+        let checks = if version == 3 {
+            super::checks::read(
+                self.fields.get("checks"),
+                &contracts,
+                &surfaces,
+                &mut self.problems,
+            )
+        } else {
+            Vec::new()
+        };
+        let verified = if version == 3 {
+            self.verified()
+        } else {
+            Vec::new()
+        };
         let manifest = Manifest {
             version,
             name,
@@ -447,11 +480,9 @@ impl Reader<'_> {
                 Vec::new()
             },
             notes: self.notes(),
-            surfaces: if version == 3 {
-                super::surfaces::read(self.fields.get("surfaces"), &mut self.problems)
-            } else {
-                Vec::new()
-            },
+            surfaces,
+            checks,
+            verified,
             unused,
         };
         if version == 3 {
@@ -677,6 +708,33 @@ impl Reader<'_> {
         }
         self.bounded_routines(&triggers);
         triggers
+    }
+
+    /// The routine triggers that say `"verify": true`, by name; `verify` is true or false.
+    fn verified(&mut self) -> Vec<String> {
+        let items = self
+            .fields
+            .get("triggers")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut verified = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            let kind = item.get("kind").and_then(Value::as_str).unwrap_or_default();
+            match item.get("verify") {
+                None | Some(Value::Bool(false)) => {}
+                Some(Value::Bool(true)) if matches!(kind, "schedule" | "event" | "webhook") => {
+                    if let Some(name) = item.get("name").and_then(Value::as_str) {
+                        verified.push(name.trim().to_owned());
+                    }
+                }
+                Some(Value::Bool(true)) => self.problem(format!(
+                    "triggers[{i}].verify is for a schedule, event or webhook trigger"
+                )),
+                Some(_) => self.problem(format!("triggers[{i}].verify is true or false")),
+            }
+        }
+        verified
     }
 
     /// At most 32 routines, each name once: an update finds a routine by its name.

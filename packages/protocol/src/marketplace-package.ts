@@ -80,8 +80,20 @@ export const PackageTrigger = z.discriminatedUnion("kind", [
       .max(2)
       .default(["threads", "clubs"]),
   }),
-  z.strictObject({ kind: z.literal("event"), name: routineName, instruction, event: PackageEvent }),
-  z.strictObject({ kind: z.literal("webhook"), name: routineName, instruction }),
+  z.strictObject({
+    kind: z.literal("event"),
+    name: routineName,
+    instruction,
+    event: PackageEvent,
+    /** Each run opens a goal and ends in the check of done (ADR 0204 §3). */
+    verify: z.boolean().optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("webhook"),
+    name: routineName,
+    instruction,
+    verify: z.boolean().optional(),
+  }),
 ]);
 export type PackageTrigger = z.infer<typeof PackageTrigger>;
 
@@ -176,6 +188,8 @@ export const packageFields = {
     .default([]),
   style: z.strictObject({ accent: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).optional(),
   surfaces: z.array(PackageSurface).max(16).optional(),
+  /** What a result is held to before it counts as done (ADR 0204 §3); checked by `checkProblems`. */
+  checks: z.array(z.unknown()).max(32).optional(),
 };
 
 /** A linked bot's package and version, from the signed manifest (ADR 0200 §3.9). */

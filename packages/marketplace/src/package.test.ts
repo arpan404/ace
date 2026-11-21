@@ -234,9 +234,15 @@ interface ManifestCases {
  * Spade's reader runs too (`spade_core::package::read`): accepted, or refused with a problem
  * saying the case's words.
  */
-const suites = ["package", "effects", "contracts", "surfaces"].map((part) => {
-  const url = new URL(`../../../spade/spec/conformance/${part}/manifests.json`, import.meta.url);
-  return [part, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
+const suites = [
+  "package/manifests",
+  "effects/manifests",
+  "contracts/manifests",
+  "surfaces/manifests",
+  "package/checks",
+].map((file) => {
+  const url = new URL(`../../../spade/spec/conformance/${file}.json`, import.meta.url);
+  return [file, JSON.parse(readFileSync(url, "utf8")) as ManifestCases] as const;
 });
 
 describe.each(suites)("the conformance suite's %s manifests", (_part, suite) => {

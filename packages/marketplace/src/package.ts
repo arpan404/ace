@@ -10,6 +10,7 @@ import {
   type MarketProblem,
 } from "@ace/protocol/marketplace";
 import { surfaceProblems } from "./surfaces.ts";
+import { checkProblems, declaredCards, declaredContracts, verifyProblems } from "./checks.ts";
 
 /*
  * An agent package's manifest, `bot.json` at version 3 (ADR 0200 §3), read the way Spade reads it
@@ -58,6 +59,7 @@ const known = new Set([
   "pricing",
   "surfaces",
   "contracts",
+  "checks",
   ...identity,
   ...executions,
 ]);
@@ -181,8 +183,10 @@ function issues(error: z.ZodError): MarketProblem[] {
     .filter(
       (issue) =>
         !(issue.path[0] === "effects" && (issue.path[2] === "why" || issue.path[2] === "effect")) &&
-        // `surfaceProblems` says what's wrong with a surface, in Spade's words.
-        issue.path[0] !== "surfaces",
+        // `surfaceProblems` and `checkProblems` say what's wrong, in Spade's words.
+        issue.path[0] !== "surfaces" &&
+        issue.path[0] !== "checks" &&
+        !(issue.path[0] === "triggers" && issue.path[2] === "verify"),
     )
     .slice(0, 20)
     .map((issue) => problem(`${issue.path.join(".") || "bot.json"}: ${issue.message}`));
@@ -248,6 +252,13 @@ export function readPackage(
       problems.push(problem(`${field} is a list of at most ${most}`));
   }
   for (const message of surfaceProblems(json["surfaces"])) problems.push(problem(message));
+  // What a result is held to before it counts as done (ADR 0204 §3).
+  const places = {
+    contracts: declaredContracts(json["contracts"]),
+    cards: declaredCards(json["surfaces"]),
+  };
+  for (const message of checkProblems(json["checks"], places)) problems.push(problem(message));
+  for (const message of verifyProblems(json["triggers"])) problems.push(problem(message));
   if (json["uses"] !== undefined && !Array.isArray(json["uses"]))
     problems.push(problem("uses lists runtime modules"));
   const effects: unknown[] = Array.isArray(json["effects"]) ? json["effects"] : [];

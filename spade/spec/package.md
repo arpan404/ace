@@ -51,6 +51,7 @@ Version 3 knows these fields:
 | `pricing` | `{kind: "free"}`; missing reads as free, and any other price is refused. |
 | `surfaces` | Cards and panels ([surfaces](surfaces.md)). |
 | `contracts` | Typed calls other bots of the person may make to it ([contracts](contracts.md)). |
+| `checks` | What a result is held to before it counts as done: `schema` rules on contract outputs and cards, `criterion` lines on the goal (below). |
 <!-- spec:end fields -->
 
 A version 2 manifest knows these fields; a reader MAY install it as a copy the person owns,
@@ -146,6 +147,57 @@ install, and start only the ones the person turned on.
 An `event` trigger names one of: `thread.finished` (when an agent thread finishes), `thread.failed` (when an agent thread fails), `thread.needs_you` (when an agent thread needs you).
 <!-- spec:end triggers -->
 
+A schedule, event or webhook trigger MAY say `"verify": true`: each of its runs opens a goal
+from the trigger's instruction with the package's `criterion` checks as its criteria, and a
+runtime MUST NOT count the run done until that goal's check of done says so. On any other
+trigger, or with a value other than `true` or `false`, the manifest is refused.
+
+## Checks
+
+`checks` lists what a result is held to before it counts as done. A check is on one or more
+places: `contract:<name>` (one of the package's contracts: its output, before the caller gets
+it), `card:<id>` (one of the package's cards: its data, before it is shown) or `goal` (the
+goal, when the bot says it is done).
+
+| `kind`      | What it holds                                                                 | On                  |
+| ----------- | ----------------------------------------------------------------------------- | ------------------- |
+| `schema`    | `rule`: a rule in the subset below, which the result MUST hold                 | contracts and cards |
+| `criterion` | `text`: one line, added to the goal's criteria and judged by the check of done | the goal only       |
+| `code`      | `code`: a component's `check` export; refused until a runtime runs package code | contracts and cards |
+
+A runtime MUST NOT pass a result whose check fails: the result goes back to the bot with the
+reasons, at most twice, and then the call fails, the card isn't shown, or the goal reads not yet.
+Checks only add conditions; they never mark done what the runtime's own check refused. A rule is
+the contract subset's keywords plus `pattern`, with `type` and every bound optional, since it
+narrows a value the contract's or card's own schema already bounds. A keyword of one kind of
+value refuses the rule when another kind's keyword or another `type` is beside it. A `pattern`
+matches anywhere in the text unless anchored, in the part of regular expressions both Rust's
+`regex` and JavaScript's `RegExp` (with the `u` and `s` flags) read the same way: literals,
+`.`, `^`, `$`, `|`, groups, `*`, `+`, `?`, counts and classes with ranges. A backslash escapes
+only punctuation; `\d`, `\w`, `\s`, `\b`, `(?…)`, a `[` inside a class, `&&`, `--` and `~~` in a
+class, an empty class and an unescaped `]` or `}` outside a class are refused.
+
+<!-- spec:begin checks -->
+A check has `name`, `on`, `kind`, `rule`, `text`, `code`.
+
+| What | Bound |
+| --- | --- |
+| checks in a package | at most 32 |
+| a check's `name` | 1 to 40 lower-case letters, digits and dashes, each once |
+| a check's `on` | 1 to 8 places |
+| `criterion` checks | at most 8, each `text` at most 500 characters |
+| a rule's `pattern` | 1 to 200 characters, counts at most 1,000 |
+
+A rule's keywords, by the kind of value they narrow (every rule also takes `type`, `description`, `title`):
+
+| Kind | Keywords |
+| --- | --- |
+| `object` | `properties`, `required` |
+| `string` | `minLength`, `maxLength`, `enum`, `pattern` |
+| `number, integer` | `minimum`, `maximum` |
+| `array` | `items`, `minItems`, `maxItems` |
+<!-- spec:end checks -->
+
 ## Conformance
 
 <!-- spec:begin cases -->
@@ -163,3 +215,58 @@ From [`conformance/package/manifests.json`](conformance/package/manifests.json).
 | `package/triggers-as-an-object` | triggers as an object | refuse: a problem says “triggers is a list” |
 | `package/uses-as-a-word` | uses as a word | refuse: a problem says “uses lists runtime modules” |
 <!-- spec:end cases -->
+
+<!-- spec:begin check-cases -->
+From [`conformance/package/checks.json`](conformance/package/checks.json).
+
+| Case | What it is | A reader MUST |
+| --- | --- | --- |
+| `package/checks-schema-and-criterion` | a schema check on a contract and a card, and a criterion on the goal | accept |
+| `package/checks-not-a-list` | checks that aren't a list | refuse: a problem says “checks is a list of at most 32” |
+| `package/checks-name-twice` | two checks with one name | refuse: a problem says “each check has a name of its own” |
+| `package/checks-bad-name` | a check named with capitals | refuse: a problem says “name is a short name” |
+| `package/checks-unknown-contract` | a check on a contract the package doesn't publish | refuse: a problem says “isn't one of the package's contracts” |
+| `package/checks-unknown-card` | a check on a card the package doesn't ship | refuse: a problem says “isn't one of the package's cards” |
+| `package/checks-no-places` | a check on nothing | refuse: a problem says “on names 1 to 8 places” |
+| `package/checks-unknown-place` | a check on a place that isn't a contract, card or goal | refuse: a problem says “is contract:<name>, card:<id> or goal” |
+| `package/checks-schema-on-goal` | a schema check on the goal | refuse: a problem says “a schema check is on contracts and cards” |
+| `package/checks-criterion-on-contract` | a criterion check on a contract | refuse: a problem says “a criterion check is on the goal only” |
+| `package/checks-criterion-without-text` | a criterion check that says nothing | refuse: a problem says “text says in 1 to 500 characters” |
+| `package/checks-code` | a code check, which this build can't run | refuse: a problem says “Needs a newer Spade: code checks” |
+| `package/checks-unknown-kind` | a check of a kind that doesn't exist | refuse: a problem says “kind is schema, code or criterion” |
+| `package/checks-unknown-field` | a check with a field checks don't have | refuse: a problem says “isn't a field of a check” |
+| `package/checks-schema-without-rule` | a schema check with no rule | refuse: a problem says “rule is the rule the result must hold” |
+| `package/checks-rule-outside-subset` | a rule with a keyword outside the subset | refuse: a problem says “isn't in the rule subset checks use” |
+| `package/checks-too-many-criteria` | nine criterion checks | refuse: a problem says “at most 8 criterion checks” |
+| `package/triggers-verify` | a schedule trigger that verifies each run | accept |
+| `package/triggers-verify-not-a-flag` | verify that isn't true or false | refuse: a problem says “verify is true or false” |
+| `package/triggers-verify-on-message` | verify on a message trigger | refuse: a problem says “verify is for a schedule, event or webhook trigger” |
+<!-- spec:end check-cases -->
+
+<!-- spec:begin rule-cases -->
+From [`conformance/package/check-rules.json`](conformance/package/check-rules.json).
+
+| Case | What it is | A reader MUST |
+| --- | --- | --- |
+| `package/rule-required-link-over-https` | a link that must be there and start with https:// | accept |
+| `package/rule-narrowed-numbers-and-lists` | numbers and lists narrowed further | accept |
+| `package/rule-words-and-lengths` | words from a list, and lengths | accept |
+| `package/rule-classes-groups-and-counts` | a pattern with classes, groups, alternation and counts | accept |
+| `package/rule-refuses-unknown-keyword` | a keyword outside the subset | refuse: a problem says “isn't in the rule subset checks use” |
+| `package/rule-refuses-ref` | a reference to another schema | refuse: a problem says “isn't in the rule subset checks use” |
+| `package/rule-refuses-mixed-keywords` | keywords of two types in one rule | refuse: a problem says “mixes keywords of different types” |
+| `package/rule-refuses-keyword-of-another-type` | a keyword its type doesn't take | refuse: a problem says “takes none of the number keywords” |
+| `package/rule-refuses-shorthand-class` | a shorthand class like \d | refuse: a problem says “write \d another way” |
+| `package/rule-refuses-lookaround` | a look-ahead group | refuse: a problem says “has no (?…) groups” |
+| `package/rule-refuses-nested-class` | a [ inside a class | refuse: a problem says “escapes a [ inside a class” |
+| `package/rule-refuses-class-set-operation` | && inside a class | refuse: a problem says “doesn't use && inside a class” |
+| `package/rule-refuses-double-dash-in-class` | -- inside a class | refuse: a problem says “doesn't use -- inside a class” |
+| `package/rule-refuses-empty-class` | an empty class | refuse: a problem says “has no empty class” |
+| `package/rule-refuses-lone-bracket` | an unescaped ] outside a class | refuse: a problem says “escapes a ] outside a class” |
+| `package/rule-refuses-lone-brace` | a { that isn't a count | refuse: a problem says “repeats with {n}” |
+| `package/rule-refuses-big-count` | a count over 1,000 | refuse: a problem says “repeats with {n}” |
+| `package/rule-refuses-unclosed-class` | a class never closed | refuse: a problem says “closes every class it opens” |
+| `package/rule-refuses-long-pattern` | a pattern over 200 characters | refuse: a problem says “is 1 to 200 characters” |
+| `package/rule-refuses-deep-rule` | a rule seven levels deep | refuse: a problem says “a rule nests at most 6 levels” |
+| `package/rule-refuses-required-not-names` | required that isn't a list of names | refuse: a problem says “required is a list of field names” |
+<!-- spec:end rule-cases -->

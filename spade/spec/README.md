@@ -73,7 +73,9 @@ both.
 | [`conformance/effects/manifests.json`](conformance/effects/manifests.json) | [`effects`](effects.md) | 15 |
 | [`conformance/contracts/manifests.json`](conformance/contracts/manifests.json) | [`contracts`](contracts.md) | 18 |
 | [`conformance/surfaces/manifests.json`](conformance/surfaces/manifests.json) | [`surfaces`](surfaces.md) | 16 |
+| [`conformance/package/checks.json`](conformance/package/checks.json) | [`package`](package.md) | 20 |
 | [`conformance/contracts/schemas.json`](conformance/contracts/schemas.json) | [`contracts`](contracts.md) | 11 |
+| [`conformance/package/check-rules.json`](conformance/package/check-rules.json) | [`package`](package.md) | 21 |
 <!-- spec:end suite -->
 
 ## Changes

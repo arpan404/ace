@@ -1,0 +1,530 @@
+{
+  "license": "Apache-2.0",
+  "part": "package",
+  "about": "The package part's cases for `checks` (ADR 0204 §3) and `verify` on triggers. Each case is the base manifest with `with` merged over it at the top level. A case without `refused` is accepted; with it, a reader refuses the manifest and one of its problems contains those words. Spade's reader (spade_core::package::read) and the marketplace's (readRecipe in @ace/marketplace) both run every case. `id` names the case in reports and never changes.",
+  "base": {
+    "format": "spade-bot",
+    "version": 3,
+    "requires": {
+      "runtime": "1"
+    },
+    "name": "Flight watcher",
+    "blurb": "Watches fares.",
+    "task": "You watch flight fares for the person.",
+    "model": "fast",
+    "effects": [
+      {
+        "effect": "network",
+        "hosts": ["api.example-fares.com"],
+        "why": "Reads fares."
+      }
+    ],
+    "contracts": [
+      {
+        "name": "cheapest_fare",
+        "summary": "The cheapest fare seen for a route this week.",
+        "input": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "maxLength": 3
+            }
+          },
+          "required": ["from"]
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "fare": {
+              "type": "number",
+              "minimum": 0
+            },
+            "link": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "required": ["fare"]
+        }
+      }
+    ],
+    "surfaces": [
+      {
+        "id": "fare-drop",
+        "kind": "card",
+        "file": "cards/fare-drop.json"
+      }
+    ],
+    "triggers": [
+      {
+        "kind": "message"
+      },
+      {
+        "kind": "schedule",
+        "name": "Morning fares",
+        "instruction": "Check today's fares.",
+        "schedule": "daily at 8:00"
+      }
+    ],
+    "pricing": {
+      "kind": "free"
+    }
+  },
+  "cases": [
+    {
+      "id": "package/checks-schema-and-criterion",
+      "name": "a schema check on a contract and a card, and a criterion on the goal",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare", "card:fare-drop"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          },
+          {
+            "name": "said-why",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          }
+        ]
+      }
+    },
+    {
+      "id": "package/checks-not-a-list",
+      "name": "checks that aren't a list",
+      "with": {
+        "checks": {
+          "fare-has-link": {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        }
+      },
+      "refused": "checks is a list of at most 32"
+    },
+    {
+      "id": "package/checks-name-twice",
+      "name": "two checks with one name",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          },
+          {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "each check has a name of its own"
+    },
+    {
+      "id": "package/checks-bad-name",
+      "name": "a check named with capitals",
+      "with": {
+        "checks": [
+          {
+            "name": "Fare Link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "name is a short name"
+    },
+    {
+      "id": "package/checks-unknown-contract",
+      "name": "a check on a contract the package doesn't publish",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["contract:dearest_fare"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "isn't one of the package's contracts"
+    },
+    {
+      "id": "package/checks-unknown-card",
+      "name": "a check on a card the package doesn't ship",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["card:fare-rise"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "isn't one of the package's cards"
+    },
+    {
+      "id": "package/checks-no-places",
+      "name": "a check on nothing",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": [],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "on names 1 to 8 places"
+    },
+    {
+      "id": "package/checks-unknown-place",
+      "name": "a check on a place that isn't a contract, card or goal",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["panel:watchlist"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "is contract:<name>, card:<id> or goal"
+    },
+    {
+      "id": "package/checks-schema-on-goal",
+      "name": "a schema check on the goal",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["goal"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "a schema check is on contracts and cards"
+    },
+    {
+      "id": "package/checks-criterion-on-contract",
+      "name": "a criterion check on a contract",
+      "with": {
+        "checks": [
+          {
+            "name": "said-why",
+            "on": ["contract:cheapest_fare"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          }
+        ]
+      },
+      "refused": "a criterion check is on the goal only"
+    },
+    {
+      "id": "package/checks-criterion-without-text",
+      "name": "a criterion check that says nothing",
+      "with": {
+        "checks": [
+          {
+            "name": "said-why",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": " "
+          }
+        ]
+      },
+      "refused": "text says in 1 to 500 characters"
+    },
+    {
+      "id": "package/checks-code",
+      "name": "a code check, which this build can't run",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-is-current",
+            "on": ["contract:cheapest_fare"],
+            "kind": "code",
+            "code": "code/fares#fare-is-current"
+          }
+        ]
+      },
+      "refused": "Needs a newer Spade: code checks"
+    },
+    {
+      "id": "package/checks-unknown-kind",
+      "name": "a check of a kind that doesn't exist",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "vibe",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "kind is schema, code or criterion"
+    },
+    {
+      "id": "package/checks-unknown-field",
+      "name": "a check with a field checks don't have",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "schema",
+            "rule": {
+              "required": ["link"],
+              "properties": {
+                "link": {
+                  "pattern": "^https://"
+                }
+              }
+            },
+            "severity": "high"
+          }
+        ]
+      },
+      "refused": "isn't a field of a check"
+    },
+    {
+      "id": "package/checks-schema-without-rule",
+      "name": "a schema check with no rule",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "schema"
+          }
+        ]
+      },
+      "refused": "rule is the rule the result must hold"
+    },
+    {
+      "id": "package/checks-rule-outside-subset",
+      "name": "a rule with a keyword outside the subset",
+      "with": {
+        "checks": [
+          {
+            "name": "fare-has-link",
+            "on": ["contract:cheapest_fare"],
+            "kind": "schema",
+            "rule": {
+              "properties": {
+                "link": {
+                  "format": "uri"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "refused": "isn't in the rule subset checks use"
+    },
+    {
+      "id": "package/checks-too-many-criteria",
+      "name": "nine criterion checks",
+      "with": {
+        "checks": [
+          {
+            "name": "said-0",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-1",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-2",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-3",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-4",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-5",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-6",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-7",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          },
+          {
+            "name": "said-8",
+            "on": ["goal"],
+            "kind": "criterion",
+            "text": "Each fare it reports names the route, the date seen and the link."
+          }
+        ]
+      },
+      "refused": "at most 8 criterion checks"
+    },
+    {
+      "id": "package/triggers-verify",
+      "name": "a schedule trigger that verifies each run",
+      "with": {
+        "triggers": [
+          {
+            "kind": "message"
+          },
+          {
+            "kind": "schedule",
+            "name": "Morning fares",
+            "instruction": "Check today's fares.",
+            "schedule": "daily at 8:00",
+            "verify": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "package/triggers-verify-not-a-flag",
+      "name": "verify that isn't true or false",
+      "with": {
+        "triggers": [
+          {
+            "kind": "message"
+          },
+          {
+            "kind": "schedule",
+            "name": "Morning fares",
+            "instruction": "Check today's fares.",
+            "schedule": "daily at 8:00",
+            "verify": "yes"
+          }
+        ]
+      },
+      "refused": "verify is true or false"
+    },
+    {
+      "id": "package/triggers-verify-on-message",
+      "name": "verify on a message trigger",
+      "with": {
+        "triggers": [
+          {
+            "kind": "message",
+            "verify": true
+          }
+        ]
+      },
+      "refused": "verify is for a schedule, event or webhook trigger"
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 //! routines as schedule triggers. Pure: the server brings the build's version and limits.
 //!
 //! - [`manifest`] reads `bot.json` and refuses what a package may never carry.
+//! - [`checks`] reads its checks: what Spade holds a result to before it counts as done.
 //! - [`contract`] reads its contracts: typed calls other agents of the person make to its bot.
 //! - [`link`] is what a bot installed from a version 3 package keeps of it, and its ceiling.
 //! - [`scenario`] reads a package's scenario tests and checks what a run of one showed.
@@ -10,6 +11,7 @@
 //! - [`update`] plans an update or a rollback: what the package replaces, what stays because
 //!   the person or the bot changed it, and what the new version asks for that starts off.
 
+pub mod checks;
 pub mod contract;
 pub mod contract_files;
 pub mod link;
