@@ -5,12 +5,6 @@
     "protocol": 1,
     "version": "value",
     "runtimeDir": "value",
-    "dataDir": "value",
-    "settings": {
-      "recordings": "auto",
-      "stills": "auto",
-      "encode": "auto",
-      "delivery": "auto"
-    }
+    "dataDir": "value"
   }
 }

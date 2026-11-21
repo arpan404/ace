@@ -31,7 +31,6 @@ import {
   crashLoop,
   restartDelay,
   supervisionTimings,
-  initSettings,
   type MediaHealth,
 } from "./supervision-policy.ts";
 import { secureRandomBytes, type MediaClock, type MediaHost } from "./supervisor-host.ts";
@@ -308,7 +307,6 @@ export class MediaSupervisor {
         version,
         runtimeDir,
         dataDir,
-        settings: initSettings,
       },
       secret.slice(),
     );

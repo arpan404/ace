@@ -40,9 +40,7 @@ fn refuses_a_runtime_directory_other_users_could_reach() {
     let _ = std::fs::set_permissions(&media.dir, std::fs::Permissions::from_mode(0o755));
     let dir = media.dir.to_string_lossy().into_owned();
     media.send(
-        json!({ "type": "init", "protocol": 1, "version": "x", "runtimeDir": dir, "dataDir": dir,
-                "settings": { "recordings": "legacy", "stills": "legacy", "encode": "legacy",
-                "delivery": "legacy" } }),
+        json!({ "type": "init", "protocol": 1, "version": "x", "runtimeDir": dir, "dataDir": dir }),
         &SECRET,
     );
     assert_eq!(media.exits_within(Duration::from_secs(2)), Some(1));

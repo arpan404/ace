@@ -2,13 +2,6 @@ pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step,
 pub use crate::link::LinkHint;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Setting {
-    #[serde(rename = "auto")]
-    Auto,
-    #[serde(rename = "legacy")]
-    Legacy,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Status {
     #[serde(rename = "starting")]
     Starting,
@@ -161,18 +154,6 @@ pub struct Owner {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Settings {
-    #[serde(rename = "recordings")]
-    pub recordings: Setting,
-    #[serde(rename = "stills")]
-    pub stills: Setting,
-    #[serde(rename = "encode")]
-    pub encode: Setting,
-    #[serde(rename = "delivery")]
-    pub delivery: Setting,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Remote {
     #[serde(rename = "addresses")]
     pub addresses: Vec<String>,
@@ -322,8 +303,10 @@ pub enum ToMedia {
         runtime_dir: String,
         #[serde(rename = "dataDir")]
         data_dir: String,
-        #[serde(rename = "settings")]
-        settings: Settings,
+        /// The media settings an older daemon still sends (ADR 0201): there are none any more,
+        /// so whatever it holds is read and dropped, never refused and never sent.
+        #[serde(rename = "settings", default, skip_serializing)]
+        older_settings: Option<serde::de::IgnoredAny>,
     },
     #[serde(rename = "ping")]
     Ping {

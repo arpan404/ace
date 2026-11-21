@@ -48,13 +48,6 @@ const ViewerTarget = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("device"), deviceId: id }),
 ]);
 export type ViewerTarget = z.infer<typeof ViewerTarget>;
-const Settings = z.strictObject({
-  recordings: z.enum(["auto", "legacy"]),
-  stills: z.enum(["auto", "legacy"]),
-  /** Phase 2 removed the daemon's own encoders: ace-media always encodes. */
-  encode: z.literal("auto"),
-  delivery: z.enum(["auto", "legacy"]),
-});
 const Remote = z.strictObject({
   addresses: z.array(text),
   port: u32,
@@ -147,7 +140,6 @@ export const ToMedia = z.discriminatedUnion("type", [
     version: text,
     runtimeDir: text,
     dataDir: text,
-    settings: Settings,
   }),
   z.strictObject({ type: z.literal("ping"), id: id }),
   z.strictObject({ type: z.literal("shutdown"), graceMs: u32 }),

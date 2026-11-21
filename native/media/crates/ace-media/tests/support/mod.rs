@@ -240,8 +240,7 @@ impl Media {
     /// Sends `init` and returns the control socket, the ingest socket and the WebSocket port.
     pub fn start(&mut self) -> (String, String, u32) {
         let init = json!({ "type": "init", "protocol": 1, "version": "0.0.0-test",
-            "runtimeDir": self.dir.to_string_lossy(), "dataDir": self.dir.to_string_lossy(),
-            "settings": { "recordings": "legacy", "stills": "auto", "encode": "legacy", "delivery": "legacy" } });
+            "runtimeDir": self.dir.to_string_lossy(), "dataDir": self.dir.to_string_lossy() });
         self.send(init, &SECRET);
         match self.read() {
             FromMedia::Ready {

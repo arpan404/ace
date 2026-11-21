@@ -1,8 +1,5 @@
-import type { ToMedia } from "./wire.ts";
-
 /** The supervision rules of docs/media/plan.md ("Supervision"), as pure values and functions. */
 
-type WireSettings = Extract<ToMedia, { type: "init" }>["settings"];
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
 
 export const supervisionTimings = {
@@ -33,15 +30,3 @@ export function crashLoop(failures: readonly number[], now: number) {
   const recent = failures.filter((at) => now - at < supervisionTimings.crashWindowMs);
   return { recent, looping: recent.length >= supervisionTimings.crashLimit };
 }
-
-/**
- * What `init` tells ace-media (ADR 0201): it encodes, delivers, records and makes stills for every
- * source. There are no media settings any more; protocol 1 still carries these fields, and every
- * ace-media binary is sent the same values.
- */
-export const initSettings: WireSettings = {
-  recordings: "auto",
-  stills: "auto",
-  encode: "auto",
-  delivery: "auto",
-};
