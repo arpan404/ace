@@ -41,7 +41,7 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
      will: the image process starts on the first image job whatever is stored.
 2. **ace-media also owns still images (X4).** Resizing and fitting, format conversion, decoding
    JPEG (baseline and progressive, with EXIF orientation), PNG, WebP, GIF (first frame), ICO
-   (PNG entries and 24/32-bit bitmaps) and static SVG, compositing (device chrome, skins and body
+   (PNG entries and 24/32-bit bitmaps), static SVG, BMP, TIFF and HEIC (see below), compositing (device chrome, skins and body
    pieces, with masks), skin alpha, and icon images all move into ace-media. sharp and `Bun.Image`
    leave the code, every `package.json`, `bun.lock`, the desktop native-module lists and release
    staging. No TypeScript decodes or encodes pixels.
@@ -59,11 +59,30 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
 4. **Where the work runs.** The pure `media-image` crate decodes and encodes on M5's CPU codecs:
    ace's JPEG decoder and encoder (with `zune-jpeg` for streams it doesn't take), the SIMD
    resampler, `png`, `image-webp`, `gif` and `resvg` (scripts, text, raster images and outside
-   references off). Every one passes `cargo deny` under the existing `deny.toml`, with no
-   IJG-licensed or libjpeg code. A JPEG to JPEG fit with no turn and no alpha takes M5's planar
-   transcode, never leaving YCbCr. The image process runs jobs on up to four threads sharing one
-   queue. One-shot jobs don't use the hardware still paths: their inputs aren't video, and at
-   these sizes an upload costs more than M5's CPU path takes.
+   references off), `zune-bmp` and `tiff` (none, LZW, Deflate, PackBits or JPEG compression;
+   gray, RGB and CMYK at 8 or 16 bits, the first image only). Every one passes `cargo deny`
+   under the existing `deny.toml`, with no IJG-licensed or libjpeg code.
+   - **HEIC and HEIF (amended 2026-11-21, for #2489's previews).** ace ships no HEVC decoder:
+     the open ones (libheif, libde265) are LGPL. A HEIC decodes through the OS where it has a
+     decoder, in a small audited module of `media-image`, and its top-level boxes are checked
+     whole first on every OS (a box cut short or no `meta` box is `truncated`).
+     - **macOS:** ImageIO. Only a source ImageIO itself types `public.heic` or `public.heif`
+       is read, so no other of its formats is reached. `probe` reads the primary image's
+       size and orientation from its properties without decoding; a decode draws it into an
+       sRGB bitmap ace owns, at the size the header gave (any other size fails
+       `decode-failed`), then turned like a JPEG.
+     - **Windows:** WIC, where the HEIF Image Extensions (and HEVC) are installed; WIC
+       finding no HEIF decoder is `unsupported`. Orientation comes from
+       `System.Photo.Orientation`.
+     - **Linux and elsewhere:** `unsupported`, at probe as at decode.
+     - A HEIC that isn't decoded is not previewable: it is still attached as an opaque file
+       the agent reads by path (ADR 0034), matching `opaquePreviewable` returning false.
+     - Its reservation charges three copies of its RGBA (the system decoder's picture and
+       frames beside ace's bitmap) plus the file, since the system decoder's own allocations
+       are outside the counting allocator's view. A JPEG to JPEG fit with no turn and no alpha takes M5's planar
+       transcode, never leaving YCbCr. The image process runs jobs on up to four threads sharing one
+       queue. One-shot jobs don't use the hardware still paths: their inputs aren't video, and at
+       these sizes an upload costs more than M5's CPU path takes.
 5. **Bounds, and refusals with a reason.** Never filled with grey.
    - **Pixels**, from real callers: at most 50 million an input and 16,384 px a side (a
      48-megapixel phone photo is the largest picture ace is sent). Attachments are held to the
@@ -123,6 +142,12 @@ packaging rules, for work ace-media already does faster (F2: 6.2 ms for a 1206 Ã
      `SystemDrive`, `windir`, `TEMP`, `TMP` on Windows; nothing elsewhere).
    - **What callers do.**
      - An attachment preview answers `unsupported` or `busy`, as an image it can't preview did.
+       An opaque HEIC, HEIF, TIFF or BMP attachment is marked previewable at upload only when
+       ace-media's `probe` (header only, within the upload's 40 million pixels) reads it; any
+       refusal, ace-media unable to run included, leaves it without a preview.
+     - A Spade picture's preview (`GET /v1/images/{sha256}?preview`, a 512 px PNG) is fitted
+       by the image process from Spade's bytes. A refusal that may pass answers 503; bytes it
+       can't preview, 422.
      - An icon is "ask again later" (`later`) for any failure that may pass, and `none` for
        bytes refused for good.
      - A device screenshot fails with a stated `DeviceError`. Device chrome falls back to the

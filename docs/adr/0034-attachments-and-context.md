@@ -154,7 +154,8 @@ image containers. An attachment is delivered natively, as inline text, or as a
 readable absolute file path. Unsupported native formats never refuse a send.
 Malformed, animated, HEIC and oversized raster containers are retained as opaque
 files with no thumbnail and no native image input. (Amended 2026-11-21: HEIC, HEIF, TIFF
-and BMP files whose header the daemon's decoder reads get a 512-pixel PNG thumbnail, so
+and BMP files whose header ace-media reads get a 512-pixel PNG thumbnail (HEIC only where the
+OS has a decoder, ADR 0208), so
 the apps draw them as pictures; they stay opaque files with no native image input.) Hash mismatches, unreadable
 files and hard storage/message limits still fail with corrective messages.
 
