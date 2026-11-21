@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { notDeleted } from "./tombstone.ts";
 
 const Row = z.object({
   session: z.string(),
@@ -26,7 +27,7 @@ export function machineCredentialStore(db: D1Database) {
     /**
      * The statement that issues a credential, for the batch with the session's change (ADR 0190),
      * only while `from` can still issue it: a session whose token isn't retired, or an unspent
-     * ticket. Two exchanges racing for one session or ticket issue at most one credential, and a
+     * ticket, and never for an account with a deletion recorded. Two exchanges racing for one session or ticket issue at most one credential, and a
      * retry of one that worked changes nothing.
      */
     inserting(
@@ -41,7 +42,7 @@ export function machineCredentialStore(db: D1Database) {
           : "SELECT 1 FROM machine_enrollments WHERE ticket = ? AND expires > ?";
       return db
         .prepare(
-          `INSERT OR IGNORE INTO machine_credentials (token, session, host_id, account_id, expires, sole, created_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard})`,
+          `INSERT OR IGNORE INTO machine_credentials (token, session, host_id, account_id, expires, sole, created_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard}) AND ${notDeleted()}`,
         )
         .bind(
           hash,
@@ -53,6 +54,7 @@ export function machineCredentialStore(db: D1Database) {
           now,
           "session" in from ? from.session : from.ticket,
           now,
+          credential.accountId,
         );
     },
     async get(hash: string, now: number): Promise<StoredMachineCredential | undefined> {

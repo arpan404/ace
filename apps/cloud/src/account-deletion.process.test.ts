@@ -116,15 +116,16 @@ it("deleting an account removes its machine credentials and enrollment tickets, 
   }
 });
 
-it("a WorkOS failure keeps the asking session, so trying again finishes the deletion", async () => {
+it("a WorkOS failure keeps the asking session only to retry, and trying again finishes the deletion", async () => {
   const grant = await signIn("user_retry");
   const otherDevice = await signIn("user_retry");
   await addMachine("D".repeat(52), "user_retry");
   workos.failDeletes(true);
   expect((await deleteAccount(grant.token)).status).toBe(502);
   expect(workos.deletedUsers()).not.toContain("user_retry");
-  // The asking phone can still retry; everything else ace held is already gone.
-  expect((await session(grant.token)).status).toBe(200);
+  // Everything else ace held is already gone, and the asking session opens nothing now: it
+  // can only retry the deletion.
+  expect((await session(grant.token)).status).toBe(401);
   expect((await session(otherDevice.token)).status).toBe(401);
   expect(await count("SELECT count(*) AS n FROM machines WHERE account_id = ?", "user_retry")).toBe(
     0,

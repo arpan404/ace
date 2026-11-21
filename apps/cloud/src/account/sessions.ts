@@ -25,10 +25,14 @@ const stored = (account: AceAccount, pictureUrl: string | undefined) =>
   JSON.stringify(pictureUrl ? { ...account, pictureUrl } : account);
 
 /** ace sessions in D1, keyed by the token's digest. Refresh tokens are sealed to that digest. */
+/** A session row whose account has no deletion recorded. */
+const live = notDeleted("json_extract(sessions.account, '$.id')");
+
 export function sessionStore(db: D1Database, sealer: Sealer) {
   const select = (retired: boolean) =>
     db.prepare(
-      `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"}`,
+      // An account with a deletion recorded opens nothing: its asking session only retries it.
+      `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"} AND ${live}`,
     );
   async function read(hash: string, now: number, retired: boolean) {
     const raw = await select(retired).bind(hash, now).first();
@@ -91,7 +95,9 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
      */
     async standingNow(hash: string, now: number): Promise<SessionStanding | undefined> {
       const raw = await db
-        .prepare("SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ?")
+        .prepare(
+          `SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ? AND ${live}`,
+        )
         .bind(hash, now)
         .first<{ standing: string }>();
       return raw ? Row.shape.standing.parse(raw.standing) : undefined;

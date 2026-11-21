@@ -32,8 +32,15 @@ export async function fakeWorkos() {
   const codes = new Map<string, { user: WorkosUser; challenge: string }>();
   const refreshTokens = new Map<string, WorkosUser>();
   let failure: "invalid_grant" | "unavailable" | undefined;
-  let barrier: Promise<void> | undefined;
-  let entered: (() => void) | undefined;
+  /** Calls `hold` stops, by kind: the next one waits until released. */
+  type Held = "exchange" | "refresh" | "delete";
+  const barriers = new Map<Held, { promise: Promise<void>; entered: () => void }>();
+  const pause = async (kind: Held) => {
+    const barrier = barriers.get(kind);
+    if (!barrier) return;
+    barrier.entered();
+    await barrier.promise;
+  };
   let issued = 0;
   let deleteFailure = false;
   const deleted: string[] = [];
@@ -54,6 +61,7 @@ export async function fakeWorkos() {
         if (deleting && request.method === "DELETE") {
           if (request.headers.authorization !== "Bearer sk_test_backend")
             return reply(response, 401, { message: "Unauthorized" });
+          await pause("delete");
           if (deleteFailure) return reply(response, 500, { message: "Internal error" });
           const id = decodeURIComponent(deleting);
           if (deleted.includes(id)) return reply(response, 404, { message: "Not found" });
@@ -78,9 +86,9 @@ export async function fakeWorkos() {
             .update(body.code_verifier ?? "")
             .digest("base64url");
           if (entry?.challenge === challenge) user = entry.user;
-          entered?.();
-          if (barrier) await barrier;
+          await pause("exchange");
         } else if (body.grant_type === "refresh_token") {
+          await pause("refresh");
           user = refreshTokens.get(body.refresh_token ?? "");
           refreshTokens.delete(body.refresh_token ?? "");
         }
@@ -104,17 +112,18 @@ export async function fakeWorkos() {
     fail(mode?: "invalid_grant" | "unavailable") {
       failure = mode;
     },
-    /** Holds the next code exchange until `release`; resolves once WorkOS has it. */
-    hold() {
+    /**
+     * Holds the next code exchange (or token refresh, or user delete) and every one after it
+     * until `release`; `started` resolves once the first has reached WorkOS.
+     */
+    hold(kind: Held = "exchange") {
       const held = Promise.withResolvers<void>();
-      barrier = held.promise;
-      const started = new Promise<void>((resolve) => {
-        entered = resolve;
-      });
+      const started = Promise.withResolvers<void>();
+      barriers.set(kind, { promise: held.promise, entered: started.resolve });
       return {
-        started,
+        started: started.promise,
         release: () => {
-          barrier = undefined;
+          barriers.delete(kind);
           held.resolve();
         },
       };

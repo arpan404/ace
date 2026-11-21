@@ -18,29 +18,56 @@ export const DELETION_TOMBSTONE_MS = 30 * 86_400_000;
  */
 export function accountDeletions(db: D1Database) {
   const sessionsOf = "SELECT token FROM sessions WHERE json_extract(account, '$.id') = ?";
-  /** Everything of the account but sessions and the sign-ins that issued them. */
-  const rest = (accountId: string) => [
-    db.prepare("DELETE FROM machine_credentials WHERE account_id = ?").bind(accountId),
-    db.prepare("DELETE FROM machine_enrollments WHERE account_id = ?").bind(accountId),
-    db.prepare("DELETE FROM machines WHERE account_id = ? RETURNING host_id").bind(accountId),
+  /**
+   * Everything of the account but sessions and the sign-ins that issued them, each removal only
+   * where `only` holds (an SQL condition, bound to `values`).
+   */
+  const rest = (accountId: string, only = "1", values: string[] = []) => [
+    db
+      .prepare(`DELETE FROM machine_credentials WHERE account_id = ? AND ${only}`)
+      .bind(accountId, ...values),
+    db
+      .prepare(`DELETE FROM machine_enrollments WHERE account_id = ? AND ${only}`)
+      .bind(accountId, ...values),
+    db
+      .prepare(`DELETE FROM machines WHERE account_id = ? AND ${only} RETURNING host_id`)
+      .bind(accountId, ...values),
   ];
   return {
-    /** Records the deletion and removes all but `keep`'s session. Answers the machines removed. */
-    async begin(accountId: string, keep: string, now: number): Promise<string[]> {
+    /**
+     * Records the deletion and removes all but `keep`'s session, in one batch, only while
+     * `keep` is a live session of the account with person standing: the check and the record
+     * are one statement, so a session exposed, retired or signed out a moment before records
+     * nothing. Undefined when it recorded nothing; else the machines removed.
+     */
+    async begin(accountId: string, keep: string, now: number): Promise<string[] | undefined> {
+      // Each removal runs only if this batch recorded the deletion for `keep`.
+      const recorded =
+        "EXISTS (SELECT 1 FROM account_deletions WHERE account_id = ? AND session = ? AND finished_at IS NULL)";
       const results = await db.batch([
         db
           .prepare(
-            "INSERT INTO account_deletions (account_id, session, started_at) VALUES (?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET session = excluded.session WHERE finished_at IS NULL",
+            `INSERT INTO account_deletions (account_id, session, started_at)
+             SELECT ?1, ?2, ?3 WHERE EXISTS (
+               SELECT 1 FROM sessions WHERE token = ?2 AND retired = 0 AND expires > ?3
+                 AND standing = 'person' AND json_extract(account, '$.id') = ?1)
+             ON CONFLICT (account_id) DO UPDATE SET session = excluded.session
+               WHERE finished_at IS NULL`,
           )
           .bind(accountId, keep, now),
         db
-          .prepare(`DELETE FROM logins WHERE session IN (${sessionsOf}) AND session != ?`)
-          .bind(accountId, keep),
+          .prepare(
+            `DELETE FROM logins WHERE session IN (${sessionsOf}) AND session != ? AND ${recorded}`,
+          )
+          .bind(accountId, keep, accountId, keep),
         db
-          .prepare("DELETE FROM sessions WHERE json_extract(account, '$.id') = ? AND token != ?")
-          .bind(accountId, keep),
-        ...rest(accountId),
+          .prepare(
+            `DELETE FROM sessions WHERE json_extract(account, '$.id') = ? AND token != ? AND ${recorded}`,
+          )
+          .bind(accountId, keep, accountId, keep),
+        ...rest(accountId, recorded, [accountId, keep]),
       ]);
+      if ((results[0]?.meta.changes ?? 0) === 0) return undefined;
       return (results.at(-1)?.results ?? []).map((row) => Removed.parse(row).host_id);
     },
     /** The unfinished deletion `hash`'s session asked for, which that session may finish. */
@@ -111,8 +138,9 @@ const finished = (done: boolean) =>
 
 /**
  * DELETE /v1/account (App Store guideline 5.1.1(v)). Only the person's own session may ask
- * (`person` standing, read at the decision): a session a daemon keeps, or one from before
- * standing was kept, is refused. ace records the deletion and removes all but the asking
+ * (`person` standing, checked in the statement that records the deletion): a session a daemon
+ * keeps, or one from before standing was kept, is refused. Once recorded, the asking session
+ * opens nothing but this retry. ace records the deletion and removes all but the asking
  * session, then WorkOS deletes the user, then ace removes the rest. A WorkOS failure keeps the
  * asking session; it, or the sweep, finishes the job, even once WorkOS has the user no more.
  * Machines removed from the list are asked to register again, which the deletion now refuses.
@@ -135,11 +163,15 @@ export function deleteAccountRoute(deps: {
     if (begun) return finished(await complete(deps, begun, deps.now()));
     const session = await deps.sessions.read(token);
     if (!session) return fail(401, "unauthenticated");
-    const standing = await deps.standing.standingNow(hash, deps.now());
-    if (standing === undefined) return fail(401, "unauthenticated");
-    if (standing !== "person") return fail(403, "person_session_required");
     const { id } = session.account;
+    // The person check and the record are one statement: nothing read before it decides.
     const hosts = await deps.deletions.begin(id, hash, deps.now());
+    if (!hosts) {
+      const standing = await deps.standing.standingNow(hash, deps.now());
+      return standing === undefined
+        ? fail(401, "unauthenticated")
+        : fail(403, "person_session_required");
+    }
     await Promise.allSettled(hosts.map((hostId) => deps.forgotten?.(hostId, id)));
     return finished(await complete(deps, id, deps.now()));
   };
