@@ -1,13 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { lazy, Suspense, useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
@@ -51,7 +42,7 @@ export function GroupView(props: {
   const tab = group.tabs.find((each) => each.path === path);
   const markdown = markdownShow(tab);
   const [zone, setZone] = useState<Zone | undefined>(undefined);
-  const area = useRef<HTMLDivElement>(null);
+  const [area, setArea] = useState<HTMLDivElement | null>(null);
   const textStart = useTextStart(area);
   // Compare shows in place of the editor while the change it is about waits for an answer.
   const [comparing, setComparing] = useState<string | undefined>(undefined);
@@ -117,7 +108,7 @@ export function GroupView(props: {
         />
       )}
       <div
-        ref={area}
+        ref={setArea}
         data-part="buffer-editor"
         // Only the focused group draws its caret: the keyboard is in one place (spec 19).
         className={cn(
@@ -188,18 +179,29 @@ export function GroupView(props: {
 type Zone = Side | "center";
 
 /**
- * Where the shown editor's text starts (its `data-text-start`), read after each render: it moves
- * only when the line numbers gain a digit, which comes with a render of the group.
+ * Where the shown editor's text starts (its `data-text-start`), watched as the editor mounts,
+ * unmounts or gains a line-number digit.
  */
-function useTextStart(area: RefObject<HTMLDivElement | null>): number | undefined {
-  const [start, setStart] = useState<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    const frame = area.current?.querySelector<HTMLElement>("[data-text-start]");
+function useTextStart(area: HTMLElement | null): number | undefined {
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      if (!area || typeof MutationObserver === "undefined") return () => {};
+      const observer = new MutationObserver(changed);
+      observer.observe(area, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["data-text-start"],
+      });
+      return () => observer.disconnect();
+    },
+    [area],
+  );
+  return useSyncExternalStore(subscribe, () => {
+    const frame = area?.querySelector<HTMLElement>("[data-text-start]");
     const value = Number(frame?.dataset.textStart);
-    const next = Number.isFinite(value) && value > 0 ? value : undefined;
-    if (next !== start) setStart(next);
+    return Number.isFinite(value) && value > 0 ? value : undefined;
   });
-  return start;
 }
 
 /** The host's editor when it brings one (tests, the harness), else the editor's own. */

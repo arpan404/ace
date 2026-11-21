@@ -41,12 +41,13 @@ export function TabStrip(props: {
   // The active tab always scrolls into view (spec 28), again once the ⌄ takes its room.
   const active = group.active;
   useLayoutEffect(() => {
-    if (active === undefined) return;
+    // With every tab in view there is nothing to scroll to.
+    if (active === undefined || !overflowing) return;
     const shown = scroller.current?.querySelector<HTMLElement>(
       `[data-path="${CSS.escape(active)}"]`,
     );
     shown?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [active, overflowing, group.tabs.length]);
+  }, [active, overflowing]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>, index: number) => {
     const tabs = group.tabs;
