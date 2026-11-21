@@ -48,6 +48,29 @@ import Testing
         #expect(!follow.following)
     }
 
+    @Test func aSlowDragBackCountsOnceItHasMovedAPointInAll() {
+        // Each geometry callback moves the content under a point.
+        var travel = DragTravel()
+        travel.began(at: 1_000)
+        let steps = (1...4).map { travel.moved(to: 1_000 - 0.4 * Double($0)) }
+        #expect(steps == [false, false, true, true])
+    }
+
+    @Test func aDragBackCountsFromTheNewestPointItReached() {
+        // Pulled past the end first, then back toward older messages.
+        var travel = DragTravel()
+        travel.began(at: 1_000)
+        #expect(!travel.moved(to: 1_050))
+        #expect(travel.moved(to: 1_030))
+    }
+
+    @Test func aDragTowardNewerMessagesIsNotOne() {
+        var travel = DragTravel()
+        travel.began(at: 1_000)
+        #expect(!travel.moved(to: 1_000.5))
+        #expect(!travel.moved(to: 1_200))
+    }
+
     @Test func sendingFollowsTheEndFromWhereverThePersonWas() {
         var follow = ChatEndFollow(slack: 24)
         follow.touched()

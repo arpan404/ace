@@ -149,7 +149,8 @@ struct SpadeConversationView: View {
             if Int(new.contentHeight) != Int(old.contentHeight) {
                 SpadeFeedTrace.laidOut(contentHeight: new.contentHeight, viewport: new.viewport, rows: spade.order.count)
             }
-            if new.y < old.y - 1 { change { $0.scrolled(towardOlder: true) } }
+            // Measured from the newest place the drag reached, so a slow drag counts too.
+            if scroll.travel.moved(to: new.y) { change { $0.scrolled(towardOlder: true) } }
         }
         .onScrollPhaseChange { _, phase in scrollPhase(phase) }
         .onChange(of: spade.order.count) { restack() }
@@ -172,6 +173,7 @@ struct SpadeConversationView: View {
     private func scrollPhase(_ phase: ScrollPhase) {
         switch phase {
         case .tracking, .interacting:
+            if !scroll.moving { scroll.travel.began(at: scroll.place.y) }
             scroll.moving = true
             change { $0.touched() }
         case .decelerating, .animating:
@@ -340,4 +342,6 @@ private struct SpadeWorkingLine: View {
     /// A finger, its fling or an animated scroll is moving the chat.
     var moving = false
     var stack = TranscriptStackChoice()
+    /// How far the person's drag has moved back toward older messages.
+    var travel = DragTravel()
 }

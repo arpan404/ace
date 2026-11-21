@@ -51,3 +51,21 @@ struct ChatEndFollow: Equatable, Sendable {
     /// The feed jumped to a row the person asked for (a card for later).
     mutating func jumped() { following = false }
 }
+
+/// Whether a drag has moved back toward older messages: by more than a point from the newest
+/// place it reached since it began, however little each frame moved it. Pure.
+struct DragTravel: Equatable, Sendable {
+    /// The largest content offset since the drag began: the newest messages it showed.
+    private var newest: Double?
+
+    /// A finger went down with the content at offset `y`.
+    mutating func began(at y: Double) { newest = y }
+
+    /// The content moved to offset `y`. True once it is more than a point back toward older
+    /// messages from the newest place reached.
+    mutating func moved(to y: Double) -> Bool {
+        let peak = max(newest ?? y, y)
+        newest = peak
+        return y < peak - 1
+    }
+}
