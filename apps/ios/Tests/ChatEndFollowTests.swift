@@ -65,6 +65,18 @@ import Testing
         #expect(!follow.following, "only their own scroll, or VoiceOver's after VoiceOver's, follows again")
     }
 
+    @Test func theRowsChangeStackOnlyWhileTheChatFollowsItsEnd() {
+        // Moving the rows to another stack can shift the ones a reader looking back is on.
+        var follow = ChatEndFollow(slack: 24)
+        #expect(follow.mayRestack)
+        follow.touched()
+        follow.scrolled(towardOlder: true)
+        follow.rested(fromEnd: 400, viewport: 800)
+        #expect(!follow.mayRestack)
+        follow.sent()
+        #expect(follow.mayRestack)
+    }
+
     @Test func aSlowDragBackCountsOnceItHasMovedAPointInAll() {
         // Each geometry callback moves the content under a point.
         var travel = DragTravel()

@@ -194,9 +194,11 @@ struct SpadeConversationView: View {
         if next != follow { follow = next }
     }
 
-    /// Moves the rows to the other stack when the chat outgrew a plain one, never mid-scroll.
+    /// Moves the rows to the other stack when the chat outgrew a plain one, never mid-scroll and
+    /// never while the person reads back: it waits for them at the end.
     private func restack() {
-        if scroll.stack.update(rows: spade.order.count, moving: scroll.moving) != nil { stackSwitches += 1 }
+        let held = scroll.moving || !follow.mayRestack
+        if scroll.stack.update(rows: spade.order.count, moving: held) != nil { stackSwitches += 1 }
     }
 
     private func problemLine(_ text: String) -> some View {
@@ -267,6 +269,7 @@ struct SpadeConversationView: View {
         sends += 1
         // What the person sent shows at the end, wherever they were reading.
         follow.sent()
+        restack()
         withAnimation { reader.scrollTo(Self.endID, anchor: .bottom) }
         Task {
             let outcome: SpadeOutcome

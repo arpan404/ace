@@ -26,6 +26,10 @@ struct ChatEndFollow: Equatable, Sendable {
 
     init(slack: Double) { self.slack = slack }
 
+    /// Whether the rows may move to another stack now. Only at the end: a switch can shift the
+    /// rows a reader looking back is on (`TranscriptStackChoice`).
+    var mayRestack: Bool { following }
+
     /// The person put a finger on the scroll.
     mutating func touched() { touching = true }
 
