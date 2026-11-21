@@ -2,6 +2,7 @@
 //! applied, the audit key that signs its log, and exporting and verifying that log. The engine
 //! keeps the rest (`engine::org`): shared bots, their gate and their entries.
 
+pub mod acting;
 pub mod export;
 pub mod signer;
 pub mod statement;

@@ -371,6 +371,19 @@ impl Engine {
         id: &str,
         connectors: Option<&spade_connect::Connectors>,
     ) -> Result<Value, MoveError> {
+        self.start_move_by(agent_id, to, id, connectors, None).await
+    }
+
+    /// [`Engine::start_move`], asked for by `by` (a member's stamp on an org host), whom the
+    /// move's record names (ADR 0206 §4.1).
+    pub async fn start_move_by(
+        self: &Arc<Self>,
+        agent_id: &str,
+        to: &str,
+        id: &str,
+        connectors: Option<&spade_connect::Connectors>,
+        by: Option<&spade_core::org::Member>,
+    ) -> Result<Value, MoveError> {
         paths::moves_here().map_err(MoveError::Refused)?;
         if !paths::plain_id(id) {
             return Err(MoveError::Invalid(
@@ -442,6 +455,7 @@ impl Engine {
                 "sent": 0,
                 "total": 0,
                 "deadline": deadline,
+                "by": by,
             })
             .to_string(),
             created_ms: now,

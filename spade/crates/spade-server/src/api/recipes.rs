@@ -45,6 +45,7 @@ fn portable_status(error: &PortableError) -> StatusCode {
     match error {
         PortableError::NotFound => StatusCode::NOT_FOUND,
         PortableError::Invalid(_) => StatusCode::BAD_REQUEST,
+        PortableError::Refused(_) => StatusCode::FORBIDDEN,
         PortableError::Agent(AgentError::Invalid(_) | AgentError::Image(_)) => {
             StatusCode::BAD_REQUEST
         }

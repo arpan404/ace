@@ -62,6 +62,9 @@ pub enum PackageError {
     Unproven(String),
     #[error("{0}")]
     Failed(String),
+    /// The organization's policy doesn't allow it on this host, in its own words.
+    #[error("{0}")]
+    Refused(String),
 }
 
 fn failed(error: impl std::fmt::Display) -> PackageError {
@@ -326,7 +329,10 @@ pub fn withdraw(engine: &Arc<Engine>, bot: &str, reason: &str) -> Result<Link, P
 /// The person resumes a bot its package's withdrawal paused: the same Resume as the Running
 /// page's, so each wake that came due fires once and what waited is answered.
 pub fn resume(engine: &Arc<Engine>, bot: &str) -> Result<Link, PackageError> {
-    link_of(engine, bot)?;
+    // Not while its organization still blocks the version it runs.
+    if let Some(why) = engine.org_blocked(&link_of(engine, bot)?.package) {
+        return Err(PackageError::Refused(why));
+    }
     engine.resume_agent(bot).map_err(failed)?;
     // Resume forgets the withdrawal itself; one cut short is forgotten here.
     forget_withdrawal(engine, bot)?;

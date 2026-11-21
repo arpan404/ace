@@ -260,6 +260,7 @@ fn portable_problem(error: &PortableError) -> Response {
         PortableError::Agent(
             crate::engine::AgentError::Invalid(_) | crate::engine::AgentError::Image(_),
         ) => StatusCode::BAD_REQUEST,
+        PortableError::Refused(_) => StatusCode::FORBIDDEN,
         PortableError::Agent(_) | PortableError::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
