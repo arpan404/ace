@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { context, type Plugin } from "esbuild";
 import { appEnvironment, desktop, electronBinary, electronBundles, mainEntry } from "./common.ts";
@@ -11,6 +12,9 @@ import { appEnvironment, desktop, electronBinary, electronBundles, mainEntry } f
  */
 const outdir = join(desktop, "dist/dev");
 const binary = await electronBinary();
+const trayBuild = join(desktop, "../../native/tray/build.sh");
+if (process.platform === "darwin" && existsSync(trayBuild))
+  execFileSync("sh", [trayBuild, join(outdir, "../bin/ace-tray")], { stdio: "inherit" });
 let child: ChildProcess | undefined;
 let stopping = false;
 let restarting: Promise<void> | undefined;

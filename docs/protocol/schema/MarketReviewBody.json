@@ -205,6 +205,10 @@
           ],
           "type": "string"
         },
+        "modelWarning": {
+          "maxLength": 500,
+          "type": "string"
+        },
         "needs": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/MarketNeed.json"

@@ -325,6 +325,12 @@ export class IntentStore {
         .map((row) => InteractionId.parse(row.resolution_id)),
     );
   }
+  steerTarget(id: number): string | null | undefined {
+    const row = this.sql(
+      "SELECT json_type(payload,'$.payload.runId') AS kind, json_extract(payload,'$.payload.runId') AS run FROM intents WHERE id=?",
+    ).get(id);
+    return row?.kind === "null" ? null : typeof row?.run === "string" ? row.run : undefined;
+  }
   hasSelection(id: number): boolean {
     const row = this.sql(
       "SELECT json_type(payload,'$.payload.model') AS model,json_type(payload,'$.payload.options') AS options FROM intents WHERE id=?",

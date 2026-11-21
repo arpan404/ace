@@ -154,7 +154,10 @@ test("the live activity strip describes ace tools instead of showing native name
       },
     },
   ]);
-  await waitFor(() => expect(document.body.textContent).toContain("Checking a subagent"));
+  const turn = await screen.findByRole("group", { name: "Turn in progress" });
+  await waitFor(() =>
+    expect(within(turn).getByRole("status").textContent).toContain("Checking a subagent"),
+  );
   expect(document.body.textContent).not.toMatch(/agents_status|ace ›|opaque-id/);
 });
 

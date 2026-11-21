@@ -11,6 +11,7 @@ export {
   visualizationUrl,
   inlineVisualizationUrl,
   panelUrl,
+  mcpAppPanelUrl,
   visualizationWindow,
   styleKitVersion,
   themeMessage,
@@ -59,3 +60,19 @@ export {
   type PanelConfirm,
   type PanelWatch,
 } from "./panel.ts";
+export {
+  mcpAppBusy,
+  mcpAppContextChanged,
+  mcpAppInitialized,
+  mcpAppLinkAnswer,
+  mcpAppLinkConfirm,
+  mcpAppStep,
+  mcpAppToolInput,
+  mcpAppToolResult,
+  readMcpAppMessage,
+  type McpAppDelivery,
+  type McpAppFacts,
+  type McpAppOwnMessage,
+  type McpAppPlace,
+  type McpAppStep,
+} from "./mcp-app.ts";
