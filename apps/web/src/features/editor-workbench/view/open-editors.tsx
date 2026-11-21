@@ -1,5 +1,5 @@
 import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
-import { useState, useSyncExternalStore } from "react";
+import { useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useAgentMark, useSnapshot, type EditorBuffers } from "./editor-buffers.ts";
 import {
@@ -9,7 +9,7 @@ import {
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
-import { fileName, folderEnds, folderOf } from "./paths.ts";
+import { fileName, folderOf, folderVariants } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
 /**
@@ -128,17 +128,37 @@ function OpenEditorRow(props: {
 }
 
 /**
- * The row's folder in subtle ink, giving way in its middle: its start truncates and its nearest
- * folder stays ("apps/web/…shell"). TODO: switch to `MiddleText` from
- * panels/files/middle-name.tsx once #2519 is on main.
+ * The row's folder in subtle ink, giving way in its middle by whole folders: the longest of
+ * `folderVariants` that fits the row's room, measured as the room changes. TODO: switch to
+ * `MiddleText` from panels/files/middle-name.tsx once #2519 is on main.
  */
 function FolderHint(props: { folder: string }) {
-  const { head, tail } = folderEnds(props.folder);
-  if (!tail) return null;
+  const forms = folderVariants(props.folder);
+  const [box, setBox] = useState<HTMLSpanElement | null>(null);
+  const [shown, setShown] = useState(0);
+  const key = forms.join("\n");
+  useLayoutEffect(() => {
+    if (!box || typeof ResizeObserver === "undefined") return;
+    const all = key.split("\n");
+    const context = document.createElement("canvas").getContext("2d");
+    // Called once on observe and on every resize: the first form whose text fits the room.
+    const observer = new ResizeObserver(() => {
+      if (!context) return;
+      context.font = getComputedStyle(box).font;
+      const room = box.clientWidth;
+      const fits = all.findIndex((form) => context.measureText(form).width <= room);
+      setShown(fits === -1 ? all.length - 1 : fits);
+    });
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [box, key]);
+  if (forms.length === 0) return null;
   return (
-    <span className="flex min-w-0 text-xs text-subtle-foreground">
-      {head && <span className="min-w-0 truncate">{head}</span>}
-      <span className="shrink-0">{tail}</span>
+    <span
+      ref={setBox}
+      className="min-w-0 flex-1 truncate text-xs whitespace-nowrap text-subtle-foreground"
+    >
+      {forms[Math.min(shown, forms.length - 1)]}
     </span>
   );
 }
