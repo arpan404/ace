@@ -8,21 +8,14 @@ import {
 import { EgressRouter } from "./egress.ts";
 import { IngestSources, type IngestProducer } from "./ingest-sources.ts";
 import { mediaRoutes, type RouteCapabilities } from "./routes.ts";
-import type { MediaSettings } from "./supervision-policy.ts";
 import type { FromMedia } from "./wire.ts";
 
 const built: RouteCapabilities = {
   ingest: ["tab-pictures"],
   delivery: false,
 };
-const settings: MediaSettings = {
-  encode: "auto",
-  delivery: "auto",
-  recordings: "auto",
-  stills: "auto",
-};
 
-const routes = () => mediaRoutes(settings, "healthy", built);
+const routes = () => mediaRoutes("healthy", built);
 
 /** The store fed by the daemon's sources, with ace-media faked at its control lane. */
 function world() {
@@ -40,7 +33,6 @@ function world() {
     },
     router: new EgressRouter((kind) => routes()[kind]),
     routes,
-    settings: () => settings,
     capabilities: () => built,
     randomBytes: (length) => new Uint8Array(length),
     id: () => `m${++ids}`,

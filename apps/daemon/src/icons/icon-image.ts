@@ -1,12 +1,11 @@
+import { ImageError, type ImageWork } from "@ace/media/images";
+
 /*
  * Icon bytes from outside (a project's favicon, a site's favicon, an app's icon) made safe to
- * show: SVGs only without scripts, styles or external references, everything rasterised to a
- * PNG of at most 64px through one bounded decode queue.
+ * show: SVGs only without scripts, styles or external references, everything rasterised by
+ * ace-media (ADR 0201) to a PNG of at most 64px. ICO files are read there too: the entry
+ * closest to 64px, an embedded PNG or a 24/32-bit bitmap.
  */
-
-let decoder: Promise<typeof import("sharp")> | undefined;
-let decoding = Promise.resolve();
-let queued = 0;
 
 /**
  * Whether an SVG is safe to decode: no scripts, embedded documents, images, style sheets or
@@ -30,57 +29,61 @@ function safeSvg(bytes: Buffer, installed = false): boolean {
   );
 }
 
-type Input = Buffer | { raw: Buffer; width: number; height: number };
-
-/**
- * A PNG of at most 64x64. Null when the bytes are not an image ace will show; undefined when the
- * decoder is busy or unavailable, which may pass.
- */
-export async function rasterPng(input: Input, svg = false): Promise<Buffer | null | undefined> {
-  if (svg && Buffer.isBuffer(input) && !safeSvg(input)) return null;
-  return decode(input);
+/** Markup: what an SVG starts with, whatever the caller thought the bytes were. */
+function markup(bytes: Buffer): boolean {
+  return bytes
+    .subarray(0, 64)
+    .toString("utf8")
+    .replace(/^\uFEFF/, "")
+    .trimStart()
+    .startsWith("<");
 }
 
-/** An app icon installed on this machine (a Linux icon theme's PNG or SVG) as a PNG. */
-export async function installedIconPng(bytes: Buffer): Promise<Buffer | null | undefined> {
-  const markup = bytes.subarray(0, 64).toString("utf8").trimStart().startsWith("<");
-  if (markup && !safeSvg(bytes, true)) return null;
-  return decode(bytes);
+/** How long ace-media may take with one icon, its start included. */
+const iconDeadlineMs = 5_000;
+
+export interface IconImages {
+  /**
+   * A PNG of at most 64x64. Null when the bytes are not an image ace will show; undefined when
+   * the decoder is busy or unavailable, which may pass.
+   */
+  rasterPng(bytes: Buffer, svg?: boolean): Promise<Buffer | null | undefined>;
+  /** An app icon installed on this machine (a Linux icon theme's PNG or SVG) as a PNG. */
+  installedIconPng(bytes: Buffer): Promise<Buffer | null | undefined>;
 }
 
-async function decode(input: Input): Promise<Buffer | null | undefined> {
-  if (queued >= 8) return undefined;
-  queued++;
-  const previous = decoding;
-  const finished = Promise.withResolvers<void>();
-  decoding = finished.promise;
-  try {
-    await previous;
-    let sharp: typeof import("sharp");
+export function iconImages(images: ImageWork): IconImages {
+  const decode = async (bytes: Buffer): Promise<Buffer | null | undefined> => {
     try {
-      sharp = await (decoder ??= import("sharp")
-        .then((module) => module.default)
-        .catch((error) => {
-          decoder = undefined;
-          throw error;
-        }));
-    } catch {
-      // No decoder now: that may pass.
-      return undefined;
+      const png = await images.run({
+        inputs: [{ kind: "bytes", bytes }],
+        op: {
+          op: "fit",
+          maxPixels: 1_048_576,
+          width: 64,
+          height: 64,
+          autoOrient: false,
+          output: { format: "png" },
+        },
+        deadlineMs: iconDeadlineMs,
+      });
+      return Buffer.from(png.bytes);
+    } catch (error) {
+      // A decode that may work later is "later"; bytes ace-media refuses are no image for good.
+      return error instanceof ImageError && error.passing ? undefined : null;
     }
-    const source = Buffer.isBuffer(input)
-      ? sharp(input, { limitInputPixels: 1_048_576, animated: false, failOn: "warning" })
-      : sharp(input.raw, { raw: { width: input.width, height: input.height, channels: 4 } });
-    return await source
-      .resize({ width: 64, height: 64, fit: "inside", withoutEnlargement: true })
-      .timeout({ seconds: 1 })
-      .png()
-      .toBuffer();
-  } catch (error) {
-    // A decode that ran out of time may pass; bytes the decoder refuses are no image for good.
-    return error instanceof Error && /timeout|time out/i.test(error.message) ? undefined : null;
-  } finally {
-    queued--;
-    finished.resolve();
-  }
+  };
+  return {
+    // SVG markup passes the strict check whether or not the caller said it was SVG.
+    rasterPng: async (bytes, svg = false) =>
+      (svg || markup(bytes)) && !safeSvg(bytes) ? null : decode(bytes),
+    installedIconPng: async (bytes) =>
+      markup(bytes) && !safeSvg(bytes, true) ? null : decode(bytes),
+  };
 }
+
+/** Icons where no image work was given: every one may come later. */
+export const noIconImages: IconImages = {
+  rasterPng: async () => undefined,
+  installedIconPng: async () => undefined,
+};

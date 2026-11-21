@@ -6,12 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { EgressUnit } from "@ace/media/egress";
 import type { MediaOwner } from "@ace/media/media-connections";
 import { MediaRuntime } from "@ace/media/runtime";
-import {
-  defaultMediaSettings,
-  nodeMediaHost,
-  systemMediaClock,
-  type MediaSettings,
-} from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import type { BrowserServerMessage, BrowserState } from "@ace/protocol";
 import { connectBrowser } from "./index.ts";
@@ -44,7 +39,7 @@ async function until(condition: () => boolean, what: string, ms = 20_000): Promi
 }
 
 /** A real MediaRuntime on the binary, and the BrowserMedia the daemon would give the browser. */
-function media(settings: MediaSettings) {
+function media() {
   const path = binary ?? "";
   const runtimeDir = mkdtempSync(join(tmpdir(), "acem-"));
   let ids = 0;
@@ -55,7 +50,6 @@ function media(settings: MediaSettings) {
     binary: path,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => settings,
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     random: Math.random,
@@ -88,7 +82,7 @@ function media(settings: MediaSettings) {
     runtime.dispose();
     rmSync(runtimeDir, { recursive: true, force: true });
   });
-  runtime.settingsChanged();
+  runtime.reroute();
   return { runtime, browser, units, statuses };
 }
 
@@ -235,7 +229,7 @@ function noRepeats(chunks: readonly BrowserVideoChunk[]): boolean {
 
 describe.runIf(binary && executablePath)("live video through ace-media", () => {
   it("a tab streams only through ace-media; killed, the view says it is retrying and the picture is back on the new ace-media within 2 s", async () => {
-    const m = media(defaultMediaSettings);
+    const m = media();
     const f = await fixture({ media: m.browser });
     await f.navigate();
     await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
@@ -301,7 +295,7 @@ describe.runIf(binary && executablePath)("live video through ace-media", () => {
   it.runIf(process.platform === "darwin")(
     "a private-context tab's screencast is encoded by ace-media on VideoToolbox once it is up, and the viewer plays its units",
     async () => {
-      const m = media(defaultMediaSettings);
+      const m = media();
       const f = await fixture({ media: m.browser, profilePreference: () => "ephemeral" });
       await f.navigate();
       await f.service.execute("thread", { action: "resize", width: 640, height: 400 });

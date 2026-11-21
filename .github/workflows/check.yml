@@ -124,6 +124,11 @@ jobs:
         # `ace bot test|dev|publish` run Spade's own program (ADR 0200 §9); their tests use this build.
         run: cargo build --locked -j 2 --manifest-path spade/Cargo.toml -p spade-server --bin spade
 
+      - name: Build ace-media for the image tests
+        # Every picture the daemon decodes or encodes goes through ace-media (ADR 0201); the tests
+        # that need real pixels run against this build (`@ace/media/testing/images`).
+        run: cargo build --locked -j 2 --manifest-path native/media/Cargo.toml -p ace-media
+
       - name: Native screen behavior tests
         run: |
           cargo test --locked -j 2 --manifest-path native/screen-helper-windows/Cargo.toml

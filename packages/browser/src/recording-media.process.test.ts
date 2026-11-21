@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
-import { defaultMediaSettings, nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import type { BrowserArtifact } from "@ace/protocol";
 import { executablePath, fixture } from "./test-support.ts";
 
@@ -30,7 +30,6 @@ function runtime(path: string) {
     binary: path,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => defaultMediaSettings,
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     random: Math.random,

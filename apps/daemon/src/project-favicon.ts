@@ -1,6 +1,6 @@
 import type { PinnedDirectory } from "@ace/workspace";
 import { ProjectIcon } from "@ace/protocol";
-import { rasterPng } from "./icons/icon-image.ts";
+import type { IconImages } from "./icons/icon-image.ts";
 
 const directories = [
   "",
@@ -15,14 +15,18 @@ const directories = [
 const names = ["favicon.ico", "favicon.png", "favicon.svg", "favicon.webp", "icon.png", "icon.svg"];
 const byteLimit = 96_000;
 
-async function raster(bytes: Buffer, svg: boolean): Promise<string | null | undefined> {
-  const png = await rasterPng(bytes, svg);
+async function raster(
+  icons: IconImages,
+  bytes: Buffer,
+  svg: boolean,
+): Promise<string | null | undefined> {
+  const png = await icons.rasterPng(bytes, svg);
   if (!png) return png;
   const value = `data:image/png;base64,${png.toString("base64")}`;
   return ProjectIcon.safeParse(value).success ? value : null;
 }
 
-async function ico(bytes: Buffer): Promise<string | null | undefined> {
+async function ico(icons: IconImages, bytes: Buffer): Promise<string | null | undefined> {
   if (bytes.length < 22 || bytes.readUInt16LE(0) !== 0 || bytes.readUInt16LE(2) !== 1) return null;
   const count = bytes.readUInt16LE(4);
   if (count < 1 || count > 16 || bytes.length < 6 + 16 * count) return null;
@@ -34,7 +38,7 @@ async function ico(bytes: Buffer): Promise<string | null | undefined> {
     if (length < 40 || offset < 6 + 16 * count || offset + length > bytes.length) continue;
     const image = bytes.subarray(offset, offset + length);
     if (image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
-      const decoded = await raster(image, false);
+      const decoded = await raster(icons, image, false);
       if (decoded) return decoded;
       unavailable ||= decoded === undefined;
       continue;
@@ -69,6 +73,7 @@ async function ico(bytes: Buffer): Promise<string | null | undefined> {
 /** At most 48 known names, four decode attempts and 96 KiB per file. Never follows links. */
 export async function discoverProjectFavicon(
   root: PinnedDirectory,
+  icons: IconImages,
 ): Promise<string | null | undefined> {
   let attempts = 0;
   let unavailable = false;
@@ -89,8 +94,8 @@ export async function discoverProjectFavicon(
         }
         if (++attempts > 4) return unavailable ? undefined : null;
         const icon = name.endsWith(".ico")
-          ? await ico(bytes)
-          : await raster(bytes, name.endsWith(".svg"));
+          ? await ico(icons, bytes)
+          : await raster(icons, bytes, name.endsWith(".svg"));
         if (icon) return icon;
         unavailable ||= icon === undefined;
       }

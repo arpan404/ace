@@ -1,20 +1,20 @@
-import sharp from "sharp";
 import { expect, it, onTestFinished } from "vitest";
 import { SimulatorJpeg } from "./simulator-jpeg.ts";
 import { deviceStillStream } from "./stream-control.ts";
+import { firstRed, flatJpeg, mediaBinary } from "./testing/media-images.ts";
+
+/* Screens are made and read by ace-media (ADR 0201); without a built binary these don't run. */
+const drawn = it.skipIf(!mediaBinary);
 
 /** A screen painted one flat colour, as serve-sim's MJPEG would carry it. */
-const screen = (red: number) =>
-  sharp({ create: { width: 201, height: 437, channels: 3, background: { r: red, g: 0, b: 0 } } })
-    .jpeg()
-    .toBuffer();
+const screen = (red: number) => flatJpeg(201, 437, [red, 0, 0]);
 const part = (image: Buffer) =>
   Buffer.concat([
     Buffer.from(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${image.length}\r\n\r\n`),
     image,
     Buffer.from("\r\n"),
   ]);
-const red = async (image: Buffer) => (await sharp(image).raw().toBuffer())[0] ?? 0;
+const red = (image: Buffer) => firstRed(image);
 
 /**
  * serve-sim's MJPEG route, as measured on a real Simulator: each new stream starts with the
@@ -82,33 +82,39 @@ async function capture() {
 }
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-it("a Simulator nobody watches or records takes no pictures until an agent asks for a still", async () => {
-  const { sim, jpeg, published } = await capture();
-  await jpeg.configure(deviceStillStream);
-  expect(sim.open()).toBe(0);
-  const before = published.length;
-  for (let index = 1; index <= 10; index++) sim.paint(await screen(index));
-  await pause(50);
-  expect(published.length).toBe(before);
-});
+drawn(
+  "a Simulator nobody watches or records takes no pictures until an agent asks for a still",
+  async () => {
+    const { sim, jpeg, published } = await capture();
+    await jpeg.configure(deviceStillStream);
+    expect(sim.open()).toBe(0);
+    const before = published.length;
+    for (let index = 1; index <= 10; index++) sim.paint(await screen(index));
+    await pause(50);
+    expect(published.length).toBe(before);
+  },
+);
 
-it("a still shows the screen as it is when asked, not as it was before the last action", async () => {
-  const { sim, jpeg, published } = await capture();
-  await jpeg.configure(deviceStillStream);
-  // The agent acts while the stream is closed: the screen turns red.
-  sim.paint(await screen(255));
-  await jpeg.replay();
-  expect(await red(published.at(-1) ?? Buffer.alloc(0))).toBeGreaterThan(200);
-  // The stream closes again once the still is made.
-  expect(sim.open()).toBe(0);
-  // A second action and still: again the new screen.
-  sim.paint(await screen(40));
-  await jpeg.replay();
-  expect(await red(published.at(-1) ?? Buffer.alloc(0))).toBeLessThan(80);
-  expect(sim.open()).toBe(0);
-});
+drawn(
+  "a still shows the screen as it is when asked, not as it was before the last action",
+  async () => {
+    const { sim, jpeg, published } = await capture();
+    await jpeg.configure(deviceStillStream);
+    // The agent acts while the stream is closed: the screen turns red.
+    sim.paint(await screen(255));
+    await jpeg.replay();
+    expect(await red(published.at(-1) ?? Buffer.alloc(0))).toBeGreaterThan(200);
+    // The stream closes again once the still is made.
+    expect(sim.open()).toBe(0);
+    // A second action and still: again the new screen.
+    sim.paint(await screen(40));
+    await jpeg.replay();
+    expect(await red(published.at(-1) ?? Buffer.alloc(0))).toBeLessThan(80);
+    expect(sim.open()).toBe(0);
+  },
+);
 
-it("stills asked together share one picture from serve-sim", async () => {
+drawn("stills asked together share one picture from serve-sim", async () => {
   const { sim, jpeg } = await capture();
   await jpeg.configure(deviceStillStream);
   const requests = sim.requests();
@@ -198,7 +204,7 @@ const settled = (promise: Promise<unknown>) => {
   return () => done;
 };
 
-it("a still never takes a picture that began arriving before it asked", async () => {
+drawn("a still never takes a picture that began arriving before it asked", async () => {
   const sim = handDriven();
   await sim.idle();
   const first = sim.jpeg.replay();
@@ -223,39 +229,45 @@ it("a still never takes a picture that began arriving before it asked", async ()
   expect(sim.requests).toHaveLength(2);
 });
 
-it("a still whose request serve-sim never answers gives up, and the next still asks again", async () => {
-  const sim = handDriven();
-  await sim.idle();
-  const stuck = sim.jpeg.replay();
-  await expect.poll(() => sim.requests.length).toBe(2);
-  sim.expire();
-  await expect(stuck).rejects.toThrow(/no picture in time/);
-  // The unanswered request is cancelled, not left open for later stills.
-  expect(sim.requests[1]?.signal?.aborted).toBe(true);
-  const next = sim.jpeg.replay();
-  await expect.poll(() => sim.requests.length).toBe(3);
-  sim.requests[2]?.answer().enqueue(new Uint8Array(part(await screen(255))));
-  await next;
-  expect(await red(sim.published.at(-1) ?? Buffer.alloc(0))).toBeGreaterThan(200);
-  // Stopping returns although the first request never answered.
-  await sim.jpeg.stop();
-});
+drawn(
+  "a still whose request serve-sim never answers gives up, and the next still asks again",
+  async () => {
+    const sim = handDriven();
+    await sim.idle();
+    const stuck = sim.jpeg.replay();
+    await expect.poll(() => sim.requests.length).toBe(2);
+    sim.expire();
+    await expect(stuck).rejects.toThrow(/no picture in time/);
+    // The unanswered request is cancelled, not left open for later stills.
+    expect(sim.requests[1]?.signal?.aborted).toBe(true);
+    const next = sim.jpeg.replay();
+    await expect.poll(() => sim.requests.length).toBe(3);
+    sim.requests[2]?.answer().enqueue(new Uint8Array(part(await screen(255))));
+    await next;
+    expect(await red(sim.published.at(-1) ?? Buffer.alloc(0))).toBeGreaterThan(200);
+    // Stopping returns although the first request never answered.
+    await sim.jpeg.stop();
+  },
+);
 
-it("serve-sim answering after the still gave up publishes nothing from that late answer", async () => {
-  const sim = handDriven();
-  await sim.idle();
-  const late = sim.jpeg.replay();
-  await expect.poll(() => sim.requests.length).toBe(2);
-  sim.expire();
-  await expect(late).rejects.toThrow(/no picture in time/);
-  const published = sim.published.length;
-  const picture = new Uint8Array(part(await screen(200)));
-  sim.requests[1]?.answer().enqueue(picture);
-  await expect.poll(() => sim.requests[1]?.cancelled()).toBe(true);
-  expect(sim.published).toHaveLength(published);
-});
+drawn(
+  "serve-sim answering after the still gave up publishes nothing from that late answer",
+  async () => {
+    const sim = handDriven();
+    await sim.idle();
+    const late = sim.jpeg.replay();
+    await expect.poll(() => sim.requests.length).toBe(2);
+    sim.expire();
+    await expect(late).rejects.toThrow(/no picture in time/);
+    const published = sim.published.length;
+    const picture = new Uint8Array(part(await screen(200)));
+    sim.requests[1]?.answer().enqueue(picture);
+    await expect.poll(() => sim.requests[1]?.cancelled()).toBe(true);
+    expect(sim.published).toHaveLength(published);
+  },
+);
 
-it("stopping cancels a request serve-sim hasn't answered", async () => {
+drawn("stopping cancels a request serve-sim hasn't answered", async () => {
   const sim = handDriven();
   await sim.idle();
   const pending = sim.jpeg.replay();

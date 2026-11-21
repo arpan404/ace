@@ -2,25 +2,33 @@ import { once } from "node:events";
 import { createServer as createTcpServer, type Socket } from "node:net";
 import { expect, test } from "vitest";
 import { localSite } from "../icons/local-site.ts";
+import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
+import { iconImages } from "../icons/icon-image.ts";
 import { pageTitle, probePage } from "./page-probe.ts";
 
-test("a dev server's page title and declared icon come back over loopback", async () => {
-  const site = await localSite({
-    "/": {
-      html: '<!doctype html><head><title>\n  Vite &amp; React &#8212; TS\n</title><link rel="icon" href="/vite.svg"></head>',
-    },
-    "/vite.svg": Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#646cff"/></svg>',
-    ),
-  });
-  try {
-    const page = await probePage(site.port);
-    expect(page).toMatchObject({ http: true, title: "Vite & React — TS" });
-    expect(page.iconUrl).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/);
-  } finally {
-    await site.close();
-  }
-});
+/* ace-media draws a page's icon (ADR 0201): the icon test needs a built binary. */
+const mediaBinary = testMediaBinary();
+
+test.skipIf(!mediaBinary)(
+  "a dev server's page title and declared icon come back over loopback",
+  async () => {
+    const site = await localSite({
+      "/": {
+        html: '<!doctype html><head><title>\n  Vite &amp; React &#8212; TS\n</title><link rel="icon" href="/vite.svg"></head>',
+      },
+      "/vite.svg": Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#646cff"/></svg>',
+      ),
+    });
+    try {
+      const page = await probePage(site.port, 1500, iconImages(binaryImages(mediaBinary ?? "")));
+      expect(page).toMatchObject({ http: true, title: "Vite & React — TS" });
+      expect(page.iconUrl).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/);
+    } finally {
+      await site.close();
+    }
+  },
+);
 
 test("a server that answers HTTP without a page is still a server, without a title", async () => {
   const site = await localSite({});

@@ -18,6 +18,8 @@ export interface BrowserServiceOptions {
    * missing, so a capture says why). Omitted, backends' hosts run as they are: test doubles only.
    */
   media?: import("./media-video.ts").BrowserMedia;
+  /** ace-media's image work (ADR 0201): the measurement filmstrip. */
+  images?: import("@ace/media/images").ImageWork;
   /** A Chromium to run instead of ace's pinned one (`ACE_CHROMIUM_PATH`). */
   executablePath?: string;
   /**

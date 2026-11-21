@@ -104,8 +104,7 @@ mod bench {
         };
         let path = dir.to_string_lossy();
         let init = json!({ "type": "init", "protocol": 1, "version": "bench", "runtimeDir": path,
-        "dataDir": path, "settings": { "recordings": "legacy", "stills": "legacy",
-        "encode": "auto", "delivery": "auto" } });
+        "dataDir": path });
         stdin
             .write_all(&frame(init, &[1; 32])?)
             .map_err(|e| e.to_string())?;

@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
 import { FakeMediaRecorder } from "@ace/media/testing/fake-recorder";
-import { defaultMediaSettings, nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { FrameDecoder, type Frame } from "./frames.ts";
 import { ScreenRecording, type RecordingArtifact } from "./recording.ts";
 import { helperFixture } from "./testing/support.ts";
@@ -35,7 +35,6 @@ function runtime() {
     binary: binary ?? "",
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => defaultMediaSettings,
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     random: Math.random,

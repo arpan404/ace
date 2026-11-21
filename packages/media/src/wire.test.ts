@@ -10,6 +10,7 @@ import {
   decodeToMedia,
   decodeFromMedia,
 } from "@ace/media/wire";
+import { imagePayloadBytes } from "@ace/media/image-wire";
 const directory = new URL("../../../native/media/vectors/control/", import.meta.url);
 const Fixture = z.strictObject({
   direction: z.enum(["ToMedia", "FromMedia"]),
@@ -32,9 +33,11 @@ test("every control variant has a shared fixture and survives its binary lane", 
         ? 32
         : message.type === "relay.keys"
           ? 120
-          : message.type === "listen" && message.remote
-            ? message.remote.certificateBytes + message.remote.keyBytes
-            : 0,
+          : message.type === "image.job"
+            ? imagePayloadBytes(message.inputs)
+            : message.type === "listen" && message.remote
+              ? message.remote.certificateBytes + message.remote.keyBytes
+              : 0,
     );
     const lane = controlLane(message.type),
       parts = encodeControl(message, payload, lane);

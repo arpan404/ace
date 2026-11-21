@@ -12,6 +12,25 @@ fn main() {
             let _ = writeln!(io::stdout().lock(), "{VERSION}");
             return;
         }
+        Some("--init-level") => {
+            let _ = writeln!(io::stdout().lock(), "{}", media_wire::control::INIT_LEVEL);
+            return;
+        }
+        // Image jobs (ADR 0201): no runtime, no sockets, no secrets. `--images` is the image
+        // process the daemon supervises; `--image` runs one job, for tests and tools.
+        Some(mode @ ("--image" | "--images")) => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let root = match args.as_slice() {
+                [flag, dir] if flag == "--root" => Some(std::path::PathBuf::from(dir)),
+                [] => None,
+                _ => std::process::exit(2),
+            };
+            std::process::exit(if mode == "--images" {
+                ace_media::images::server::run(root.as_deref())
+            } else {
+                ace_media::image_cli::run(root.as_deref())
+            });
+        }
         // The start probe on its own, for `ace doctor`: one JSON line, then exit.
         Some("--probe") => {
             let args: Vec<String> = std::env::args().skip(2).collect();

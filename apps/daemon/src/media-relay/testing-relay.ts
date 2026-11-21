@@ -7,7 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MediaRuntime } from "@ace/media/runtime";
-import { defaultMediaSettings, nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import type { FromMedia, ToMedia } from "@ace/media/wire";
 import { DeviceId, type ClientMessage } from "@ace/protocol";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
@@ -105,7 +105,6 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
     binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => ({ ...defaultMediaSettings, encode: "auto", delivery: "auto" }),
     capabilities: { ingest: ["tab", "scrcpy"], delivery: true },
     host: nodeMediaHost(
       { ...process.env, ...(tls ? { SSL_CERT_FILE: tls.trust } : {}) },

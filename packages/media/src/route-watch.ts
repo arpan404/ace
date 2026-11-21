@@ -5,10 +5,9 @@ import {
   type RouteCapabilities,
   type SourceKind,
 } from "./routes.ts";
-import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
+import type { MediaHealth } from "./supervision-policy.ts";
 
 export type RouteWatchOptions = {
-  settings: () => MediaSettings;
   health: () => MediaHealth;
   capabilities: () => RouteCapabilities;
   /** The routes changed for these kinds: reconfigure their producers and consumers. */
@@ -41,7 +40,7 @@ export class RouteWatch {
   }
 
   #compute(): MediaRoutes {
-    const { settings, health, capabilities } = this.#options;
-    return mediaRoutes(settings(), health(), capabilities());
+    const { health, capabilities } = this.#options;
+    return mediaRoutes(health(), capabilities());
   }
 }

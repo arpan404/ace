@@ -11,7 +11,6 @@ import { removeWhenFree } from "./supervisor-test-support.ts";
 import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
 import { authenticateLane, connectLane } from "./lanes.ts";
 import {
-  defaultMediaSettings,
   MediaSupervisor,
   nodeMediaHost,
   systemMediaClock,
@@ -83,7 +82,6 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
     binary: target.binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => defaultMediaSettings,
     host: remember(
       (hooks.host ?? ((host) => host))(nodeMediaHost({ ...process.env, ...env }, target.launch)),
     ),

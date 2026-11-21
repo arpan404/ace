@@ -56,12 +56,8 @@ export const channelPath = "channel";
 /** A delivery nobody serves: no pictures come, and `undelivered` says why. */
 export const nonePath = "none";
 
-/**
- * How an ack for a picture travels: the media connection, or nowhere (stale). `channel` is
- * never answered since X3 (the daemon sends no live pictures there); it stays in the type
- * until every client stops naming it.
- */
-export type AckWay = "media" | "channel" | "stale";
+/** How an ack for a picture travels: the media connection, or nowhere (stale). */
+export type AckWay = "media" | "stale";
 
 /** One subscribe of one source: its generation, what it named, and what the daemon answered. */
 interface Delivery {

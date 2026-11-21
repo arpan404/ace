@@ -113,10 +113,10 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     private var deadline: DispatchWorkItem?
     private var queue: OperationQueue { session.queue }
 
-    /// The way this socket's pictures come (`MediaDelivery`): the channel, or the media
-    /// connection's own socket id.
-    let path: String
-    init(target: ConnectionTarget, session: PinnedSession? = nil, path: String = MediaDelivery.channel,
+    /// A media connection's own socket id, the way its pictures come (`MediaDelivery`); nil for
+    /// the daemon's main socket, which carries no live pictures (ADR 0201).
+    let path: String?
+    init(target: ConnectionTarget, session: PinnedSession? = nil, path: String? = nil,
          now: @escaping @Sendable () -> Date = { Date() },
          connectTimeout: TimeInterval = PinnedSocket.connectTimeout,
          streams: BrowserStreamHub? = nil, event: @escaping @Sendable (String, SocketPayload) -> Void) {
@@ -193,9 +193,9 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
                     case .none: break
-                    case .stream(let message): self.streams?.deliver(message, path: self.path)
-                    case .device(let message): self.streams?.deliver(message, path: self.path)
-                    case .screen(let message): self.streams?.deliverScreen(message, path: self.path)
+                    case .stream(let message): if let path = self.path { self.streams?.deliver(message, path: path) }
+                    case .device(let message): if let path = self.path { self.streams?.deliver(message, path: path) }
+                    case .screen(let message): if let path = self.path { self.streams?.deliverScreen(message, path: path) }
                     case .sdk: self.event("binary", .bytes(bytes))
                     case .broken: self.finish(1002); return
                     }

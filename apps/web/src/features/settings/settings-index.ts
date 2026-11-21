@@ -1,5 +1,5 @@
 import { settingDescriptions } from "./setting-descriptions.ts";
-import { agentSettingTitles, betaSwitches, mediaPipelineSwitch } from "@ace/ui-core";
+import { agentSettingTitles, betaSwitches } from "@ace/ui-core";
 import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
@@ -829,12 +829,6 @@ const entries = [
     keywords: ["defaults", "restore"],
   },
   // Beta
-  {
-    id: "beta.mediaPipeline",
-    page: "/settings/beta",
-    title: mediaPipelineSwitch.title,
-    keywords: ["ace-media", "video", "encode", "stream", "delivery", "experimental", "preview"],
-  },
   {
     id: "beta.spade",
     page: "/settings/beta",

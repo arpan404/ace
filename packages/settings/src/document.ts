@@ -1,5 +1,5 @@
 import { retiredWorkflowKeys } from "./retired-workflow-migration.ts";
-import { retiredMediaEncode } from "./media-encode-migration.ts";
+import { retiredMediaKeys } from "./retired-media-keys.ts";
 import { cursorConfiguration } from "./cursor-configuration.ts";
 import { migratesOnWrite, remoteNetworksMigration } from "./remote-networks-migration.ts";
 import { guardSecrets, MAX_CLIENT_BYTES, MAX_DOCUMENT_BYTES, SettingsError } from "./validation.ts";
@@ -87,14 +87,15 @@ export function decode(text: string): DecodedDocument {
   }
   if (migrated) scanned = parseDocument(text);
   const data: unknown = scanned.value;
-  if (retiredMediaEncode(data))
-    return { ...decode(edit(text, ["settings", "media.encode"], undefined)), migrated: true };
   const result = SettingsDocument.safeParse(data);
   if (!result.success)
     throw new SettingsError("validation", "Settings document has invalid known values");
-  const retiredWorkflow = retiredWorkflowKeys(result.data.settings);
-  if (retiredWorkflow.length) {
-    for (const key of retiredWorkflow) text = edit(text, ["settings", key], undefined);
+  const retiredKeys = [
+    ...retiredWorkflowKeys(result.data.settings),
+    ...retiredMediaKeys(result.data.settings),
+  ];
+  if (retiredKeys.length) {
+    for (const key of retiredKeys) text = edit(text, ["settings", key], undefined);
     return { ...decode(text), migrated: true };
   }
   const networks = remoteNetworksMigration(result.data.settings);

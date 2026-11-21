@@ -1,18 +1,5 @@
-import type { ToMedia } from "./wire.ts";
-
 /** The supervision rules of docs/media/plan.md ("Supervision"), as pure values and functions. */
 
-type WireSettings = Extract<ToMedia, { type: "init" }>["settings"];
-/**
- * The daemon's media settings. Recordings and stills are always ace-media's (X1), and so are
- * encoding (X2) and delivery (X3): the wire keeps their `legacy` value for older binaries, but
- * the daemon never sends it, and no route reads them.
- */
-export type MediaSettings = Omit<WireSettings, "recordings" | "stills" | "delivery"> & {
-  recordings: "auto";
-  stills: "auto";
-  delivery: "auto";
-};
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
 
 export const supervisionTimings = {
@@ -45,12 +32,18 @@ export function crashLoop(failures: readonly number[], now: number) {
 }
 
 /**
- * The settings a daemon starts with: ace-media encodes, delivers, records and makes stills for
- * every source; no `media.*` setting has another value the daemon acts on.
+ * The init this build sends, as a level `ace-media --init-level` must report at least. Level 2:
+ * init carries no media settings (ADR 0201). A binary from before it answers nothing (it reads
+ * init from stdin, which the probe closes), and would refuse this init.
  */
-export const defaultMediaSettings: MediaSettings = {
-  recordings: "auto",
-  stills: "auto",
-  encode: "auto",
-  delivery: "auto",
-};
+export const mediaInitLevel = 2;
+
+/** What a live view and a recording say when the binary is older than this daemon. */
+export const olderMediaReason =
+  "Live video can't start: this ace-media is older than ace. Update ace or rebuild native/media.";
+
+/** Whether `--init-level`'s output names a level this daemon can start. Pure. */
+export function speaksInit(output: string): boolean {
+  const level = /^\s*(\d+)\s*$/.exec(output)?.[1];
+  return level !== undefined && Number(level) >= mediaInitLevel;
+}

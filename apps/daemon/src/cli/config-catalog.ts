@@ -55,8 +55,6 @@ export const settingSummaries: Readonly<Partial<Record<SettingsKey, string>>> = 
   "market.askBeforeAgentPublish":
     "Ask you before an agent publishes to the market (off by default)",
   "devices.emulatorWindow": "Android emulators ace starts also open their own window",
-  "media.encode": "Who encodes live video (always ace-media)",
-  "media.delivery": "Who delivers live video to viewers",
   "devices.enabled": "Let ace watch and drive this machine's simulators and emulators",
   "access.defaultMode": "The access new threads start with",
   "access.nativeModes": "A provider's own permission mode instead of ace's, as a JSON file",

@@ -4,15 +4,11 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { imageWidth } from "./media-image-test-support.ts";
 import { afterEach, expect, vi } from "vitest";
 import { z } from "zod";
 import { MediaRuntime } from "@ace/media/runtime";
-import {
-  defaultMediaSettings,
-  nodeMediaHost,
-  systemMediaClock,
-  systemWallClock,
-} from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock, systemWallClock } from "@ace/media/supervisor";
 import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import type { BrowserState } from "@ace/protocol";
 import { pixel } from "./annotation-test-support.ts";
@@ -67,9 +63,8 @@ const pages: Record<string, string> = {
 const magenta = ([r, g, b]: [number, number, number]) => r > 190 && g < 110 && b > 190;
 
 async function bytesImage(bytes: Uint8Array) {
-  const { default: sharp } = await import("sharp");
   const data = Buffer.from(bytes);
-  return { data: data.toString("base64"), width: (await sharp(data).metadata()).width ?? 0 };
+  return { data: data.toString("base64"), width: await imageWidth(data) };
 }
 
 /**
@@ -121,7 +116,6 @@ function mediaRuntime() {
     binary: mediaBinary ?? "",
     runtimeDir: home,
     dataDir: home,
-    settings: () => defaultMediaSettings,
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     wallClock: systemWallClock,
@@ -166,7 +160,7 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
   const { runtime, media } = mediaRuntime();
-  runtime.settingsChanged();
+  runtime.reroute();
   const f = await fixture({
     agentCursor: { glideMs: 60, name: (_thread, agentId) => (agentId ? "Helper" : undefined) },
     media,

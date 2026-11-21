@@ -134,33 +134,6 @@ import XCTest
         app.buttons["Keep sign-ins"].tap()
     }
 
-    func testBetaMediaPipelineSwitchSavesOnTheMachine() throws {
-        let app = launchIntoMachine()
-        let beta = app.buttons["machine.settings.Beta"]
-        for _ in 0..<6 where !beta.isHittable { app.swipeUp() }
-        screenshot("machine-settings")
-        open(app, "machine.settings.Beta")
-        let toggle = app.switches["setting.beta.mediaPipeline"].firstMatch
-        XCTAssertTrue(toggle.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["New media pipeline"].exists)
-        XCTAssertEqual(toggle.value as? String, "0")
-        screenshot("beta-off")
-        toggle.switches.firstMatch.tap()
-        let turned = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: toggle)
-        wait(for: [turned], timeout: 10)
-        // Read again from the machine: both settings were saved there.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        open(app, "machine.settings.Beta")
-        let reread = app.switches["setting.beta.mediaPipeline"].firstMatch
-        XCTAssertTrue(reread.waitForExistence(timeout: 20))
-        let on = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: reread)
-        wait(for: [on], timeout: 15)
-        screenshot("beta-on")
-        reread.switches.firstMatch.tap()
-        let off = expectation(for: NSPredicate(format: "value == '0'"), evaluatedWith: reread)
-        wait(for: [off], timeout: 15)
-    }
-
     func testConnectAnAppListsAddressesAndSwitchesTheRelayOnTheMachine() throws {
         let app = launchIntoMachine()
         open(app, "machine.connectedApps")

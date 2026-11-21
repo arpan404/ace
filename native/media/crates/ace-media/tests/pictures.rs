@@ -87,8 +87,7 @@ fn a_jpeg_only_screen_is_encoded_and_returned_on_egress_under_its_handle() {
 fn jpeg_source_round_trip(name: &str, origin: serde_json::Value) {
     let mut media = Media::spawn(name);
     let init = json!({ "type": "init", "protocol": 1, "version": "0.0.0-test",
-        "runtimeDir": media.dir.to_string_lossy(), "dataDir": media.dir.to_string_lossy(),
-        "settings": { "recordings": "legacy", "stills": "legacy", "encode": "auto", "delivery": "legacy" } });
+        "runtimeDir": media.dir.to_string_lossy(), "dataDir": media.dir.to_string_lossy() });
     media.send(init, &SECRET);
     let FromMedia::Ready {
         capabilities,

@@ -1,13 +1,10 @@
 pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step, TrialState};
 pub use crate::link::LinkHint;
 use serde::{Deserialize, Serialize};
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Setting {
-    #[serde(rename = "auto")]
-    Auto,
-    #[serde(rename = "legacy")]
-    Legacy,
-}
+/// The init this binary takes, reported by `ace-media --init-level` so a daemon checks it before
+/// sending one. Level 2: init carries no media settings (ADR 0201). A daemon refuses a binary
+/// below its own level instead of starting it.
+pub const INIT_LEVEL: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Status {
     #[serde(rename = "starting")]
@@ -161,18 +158,6 @@ pub struct Owner {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Settings {
-    #[serde(rename = "recordings")]
-    pub recordings: Setting,
-    #[serde(rename = "stills")]
-    pub stills: Setting,
-    #[serde(rename = "encode")]
-    pub encode: Setting,
-    #[serde(rename = "delivery")]
-    pub delivery: Setting,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Remote {
     #[serde(rename = "addresses")]
     pub addresses: Vec<String>,
@@ -322,8 +307,10 @@ pub enum ToMedia {
         runtime_dir: String,
         #[serde(rename = "dataDir")]
         data_dir: String,
-        #[serde(rename = "settings")]
-        settings: Settings,
+        /// The media settings an older daemon still sends (ADR 0201): there are none any more,
+        /// so whatever it holds is read and dropped, never refused and never sent.
+        #[serde(rename = "settings", default, skip_serializing)]
+        older_settings: Option<serde::de::IgnoredAny>,
     },
     #[serde(rename = "ping")]
     Ping {
@@ -709,6 +696,25 @@ pub enum ToMedia {
         #[serde(rename = "clear")]
         clear: Vec<EpochRange>,
     },
+    /// One-shot image work (ADR 0201), answered once with `image.done` or `image.failed`.
+    /// The payload holds the `bytes` and `rgba` inputs back to back, in order.
+    #[serde(rename = "image.job")]
+    ImageJob {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "deadlineMs")]
+        deadline_ms: u32,
+        #[serde(rename = "inputs")]
+        inputs: Vec<crate::image::ImageInput>,
+        #[serde(rename = "op")]
+        op: crate::image::ImageOp,
+    },
+    /// The daemon no longer wants the job's result.
+    #[serde(rename = "image.cancel")]
+    ImageCancel {
+        #[serde(rename = "request")]
+        request: Id,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -959,6 +965,30 @@ pub enum FromMedia {
         #[serde(rename = "reason")]
         reason: String,
     },
+    /// An image job's result; the payload is the output (none for `probe`).
+    #[serde(rename = "image.done")]
+    ImageDone {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "width")]
+        width: u32,
+        #[serde(rename = "height")]
+        height: u32,
+        #[serde(rename = "format")]
+        format: crate::image::DoneFormat,
+        #[serde(rename = "source")]
+        source: crate::image::SourceImage,
+    },
+    #[serde(rename = "image.failed")]
+    ImageFailed {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "reason")]
+        reason: crate::image::ImageFailure,
+        /// A sentence the daemon may show.
+        #[serde(rename = "message")]
+        message: String,
+    },
     #[serde(rename = "log")]
     Log {
         #[serde(rename = "level")]
@@ -1036,7 +1066,16 @@ fn validate<M: Message>(message: &M, payload: &[u8], expected: Lane) -> Result<(
             value["remote"]["certificateBytes"].as_u64().unwrap_or(0)
                 + value["remote"]["keyBytes"].as_u64().unwrap_or(0)
         }
-        "relay.out" | "relay.in" | "still.done" => return Ok(()),
+        "image.job" => value["inputs"].as_array().map_or(0, |inputs| {
+            inputs
+                .iter()
+                .filter(|input| input["kind"] != "file")
+                .map(|input| input["bytes"].as_u64().unwrap_or(0))
+                .sum()
+        }),
+        "relay.out" | "relay.in" | "still.done" | "image.done" => {
+            return Ok(());
+        }
         _ => 0,
     };
     if payload.len() as u64 != length {

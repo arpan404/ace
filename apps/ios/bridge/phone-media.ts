@@ -1,6 +1,6 @@
 import { ClientError, type ClientCore } from "@ace/client";
-import { MediaConnection, type OpenMediaSocket } from "@ace/client/media";
-import { channelPath, type DeliveryState, type MediaRoute } from "@ace/browser/live-view";
+import { MediaConnection, unavailableReason, type OpenMediaSocket } from "@ace/client/media";
+import type { DeliveryState, MediaRoute } from "@ace/browser/live-view";
 import { call } from "./host.ts";
 import { nativeMediaRelay, type PhoneMediaRelayOptions } from "./phone-media-relay.ts";
 import { nativeMediaSocket } from "./socket.ts";
@@ -34,7 +34,8 @@ export interface PhoneMedia {
   readonly route: MediaRoute;
   /**
    * Tells Swift a live source's delivery as the shared client sets it (`media.delivery`): its
-   * generation, and the native socket its pictures come by, or none yet while pending.
+   * generation, the native socket its pictures come by (`none` when nothing serves it), or none
+   * yet while pending, and why its pictures don't come, which the view says until one does.
    */
   deliver(view: "browser" | "screen" | "device", state: DeliveryState): void;
   stop(): void;
@@ -76,7 +77,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
   const relay = options.relay ? nativeMediaRelay({ ...options.relay, opened: note }) : undefined;
   const connection = new MediaConnection({
     // A daemon that refuses the request outright (an older build) has no media connection; that
-    // answer stands like `unavailable`, and delivery stays on the main socket.
+    // answer stands like `unavailable`, and its live views say why they get no pictures.
     connect: () =>
       owner.request({ type: "media.connect" }).catch((error: unknown) => {
         if (error instanceof ClientError && transient.has(error.code)) throw error;
@@ -94,6 +95,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
     watch: (listener) => connection.watch(listener),
     onStream: (listener) => connection.onStream(listener),
     ack: (message) => connection.ack(message),
+    unavailable: () => unavailableReason(connection.state),
   };
   // The connection a welcome bound is the socket opened for it: one is open at a time.
   connection.watch(() => {
@@ -105,12 +107,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
   /** The order Swift takes deliveries in: each one sent counts up, whatever its generation. */
   let revision = 0;
   const deliver = (view: "browser" | "screen" | "device", state: DeliveryState) => {
-    const path =
-      state.path === undefined
-        ? null
-        : state.path === channelPath
-          ? "channel"
-          : (sockets.get(state.path) ?? state.path);
+    const path = state.path === undefined ? null : (sockets.get(state.path) ?? state.path);
     void call("media.delivery", {
       view,
       source: state.source,
@@ -119,6 +116,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
       path,
       // Swift named the reply's poster with a token in place of its JPEG.
       poster: state.poster?.jpeg ?? null,
+      waiting: state.undelivered?.reason ?? null,
     }).catch(() => {});
   };
   const generation = owner.connectionGeneration();

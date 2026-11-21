@@ -26,21 +26,21 @@ test("without configured scopes, every device may do everything", () => {
   expect(scopeRefusal(install, undefined, "anyone")).toBeUndefined();
 });
 
-test("only an admin device may switch the media pipeline, alone or in a batch", () => {
+test("only an admin device may let agents use a locked Mac, alone or in a batch", () => {
   const batch = message({
     type: "settings.setMany",
     requestId: "m1",
     entries: [
-      { key: "media.encode", value: "auto" },
-      { key: "media.delivery", value: "auto" },
+      { key: "beta.spade", value: true },
+      { key: "computer.lockedUse", value: true },
     ],
     layer: { kind: "global" },
   });
   const single = message({
     type: "settings.set",
     requestId: "m2",
-    key: "media.delivery",
-    value: "auto",
+    key: "computer.lockedUse",
+    value: true,
     layer: { kind: "global" },
   });
   for (const request of [batch, single]) {

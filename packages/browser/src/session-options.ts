@@ -19,6 +19,8 @@ export interface SessionCursor {
   name?(agentId: string | undefined): string | undefined;
 }
 export interface SessionOptions {
+  /** ace-media's image work (ADR 0201): the measurement filmstrip. */
+  images?: import("@ace/media/images").ImageWork;
   threadId: ThreadId;
   backend: BrowserBackendSession;
   backendKind: BrowserBackend["kind"];

@@ -112,3 +112,36 @@ impl Scaler for CpuScaler {
         )?))
     }
 }
+
+/// Resample tightly packed four-channel samples (RGBA, straight or premultiplied) from `from`
+/// to `to` with the still path's filter. Unlike [`CpuScaler`], the sizes are the caller's to
+/// bound: one-shot images (ADR 0201) accept larger sources than video stills.
+pub fn resample_rgba(src: &[u8], from: Size, to: Size) -> Result<Vec<u8>, CodecError> {
+    let stride = from.width as usize * 4;
+    if from.width == 0 || from.height == 0 || to.width == 0 || to.height == 0 {
+        return Err(CodecError::InvalidInput("empty picture".into()));
+    }
+    if src.len() != stride * from.height as usize {
+        return Err(CodecError::InvalidInput("RGBA length mismatch".into()));
+    }
+    let out_stride = to.width as usize * 4;
+    let mut data = vec![0; out_stride * to.height as usize];
+    Resampler::default().run(
+        SimdKernel::detect(),
+        Pack::Rgba,
+        src,
+        Layout {
+            width: from.width,
+            height: from.height,
+            stride,
+        },
+        (f64::from(from.width), f64::from(from.height)),
+        &mut data,
+        Layout {
+            width: to.width,
+            height: to.height,
+            stride: out_stride,
+        },
+    )?;
+    Ok(data)
+}

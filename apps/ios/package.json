@@ -43,6 +43,7 @@
     "@ace/devices": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
     "@ace/icons": "workspace:*",
+    "@ace/media": "workspace:*",
     "@ace/relay": "workspace:*",
     "@ace/secure-channel": "workspace:*",
     "@types/bun": "^1.3.10",

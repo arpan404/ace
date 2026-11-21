@@ -21,7 +21,7 @@ import type { EgressUnit } from "@ace/media/egress";
 import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import { readProducerStamp } from "@ace/media/producer-stamp";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { ScreenManager, type Frame } from "./index.ts";
 import { linuxLaunch } from "./linux.ts";
@@ -73,12 +73,6 @@ it.runIf(runs)(
       "org.gnome.Calculator.desktop",
       "Calculator",
     ]);
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
     const producers = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -86,7 +80,6 @@ it.runIf(runs)(
       binary: binary ?? "",
       runtimeDir: dataDir,
       dataDir,
-      settings: () => settings,
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,

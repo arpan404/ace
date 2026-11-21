@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import { MediaRuntime } from "@ace/media/runtime";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { probeOutput, spawnRawSupervised } from "@ace/provider-kit/process";
 import { startFrameEncoder } from "./frame-encoder.ts";
 import { DeviceVideoPaths } from "./media-paths.ts";
@@ -45,12 +45,6 @@ it.runIf(process.platform === "darwin" && !!binary)(
     const picture = Buffer.alloc(width * height * 4);
     writeFileSync(file, picture);
 
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
     const resumed: string[] = [];
     const runtime = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
@@ -59,7 +53,6 @@ it.runIf(process.platform === "darwin" && !!binary)(
       binary: binary ?? "",
       runtimeDir: directory,
       dataDir: directory,
-      settings: () => settings,
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,

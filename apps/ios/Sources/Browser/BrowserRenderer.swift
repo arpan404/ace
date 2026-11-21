@@ -15,8 +15,8 @@ struct BrowserPicture: @unchecked Sendable {
 /// A cumulative video acknowledgement (`browser.ack` with `video`, ADR 0088).
 struct BrowserAck: Equatable, Sendable {
     let sequence: Int
-    /// The delivery generation the picture came for (`media.delivery`); nil before the script set
-    /// one. The shared script sends it the way that delivery's pictures come, or not at all.
+    /// The delivery generation the picture came for (`media.delivery`). The shared script sends it
+    /// by that delivery's media connection, or not at all once it is stale.
     var generation: Int? = nil
     /// The decoder lost its place: the daemon sends a keyframe.
     var keyframe = false
@@ -44,26 +44,34 @@ final class BrowserRenderer: @unchecked Sendable {
     private let discard: @Sendable () -> Void
     /// Shows the poster a delivery for this thread names, until the first live picture.
     private let showPoster: @Sendable (CGImage) -> Void
+    /// Hears the sentence saying why pictures don't come, or nil once one does.
+    private let waiting: @Sendable (String?) -> Void
+    private var said: String?
     private let latch = ClosedLatch()
     /// Where this thread's deliveries and the posters they name come from, once following.
     private var hub: BrowserStreamHub?
 
     init(threadId: String, clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          discard: @escaping @Sendable () -> Void = {}, showPoster: @escaping @Sendable (CGImage) -> Void = { _ in },
+         waiting: @escaping @Sendable (String?) -> Void = { _ in },
          present: @escaping @Sendable (BrowserPicture) -> Void, ack: @escaping @Sendable (BrowserAck) -> Void) {
         self.threadId = threadId
         self.clock = clock
         self.discard = discard
         self.showPoster = showPoster
+        self.waiting = waiting
         self.present = present
         self.ack = ack
     }
-    /// From any queue; another thread's chunks are ignored.
-    func receive(_ chunk: BrowserVideoChunk, path: String = MediaDelivery.channel) {
+    /// From any queue; another thread's chunks are ignored. `path` is the media socket it came by.
+    func receive(_ chunk: BrowserVideoChunk, path: String) {
         guard chunk.threadId == threadId else { return }
         queue.async { [self] in
             guard !closed else { return }
-            if case .show(let generation) = delivery.arrive(chunk, path: path, at: clock()) { handle(chunk, generation: generation) }
+            if case .show(let generation) = delivery.arrive(chunk, path: path, at: clock()) {
+                tell()
+                handle(chunk, generation: generation)
+            }
         }
     }
     /// The script set this thread's delivery: a new one starts the decoder over, a settled one
@@ -90,6 +98,7 @@ final class BrowserRenderer: @unchecked Sendable {
         if change.reset { forget(); discard() }
         for chunk in change.released { handle(chunk, generation: next.generation) }
         if let ask = change.keyframe { ack(BrowserAck(sequence: ask.sequence, generation: next.generation, keyframe: true)) }
+        tell()
         // The poster this thread's current subscribe brought back, once its way is settled.
         if next.path != nil, let token = next.poster, let image = hub?.takePoster(token) { showPoster(image) }
     }
@@ -100,12 +109,18 @@ final class BrowserRenderer: @unchecked Sendable {
         queue.async { [self] in closed = true; forget() }
     }
 
+    /// Says the delivery's sentence when it changed.
+    private func tell() {
+        guard delivery.waiting != said else { return }
+        said = delivery.waiting
+        waiting(said)
+    }
     private func forget() {
         gate.reset()
         decoder = nil
         tabId = nil
     }
-    private func handle(_ chunk: BrowserVideoChunk, generation: Int?) {
+    private func handle(_ chunk: BrowserVideoChunk, generation: Int) {
         guard !closed else { return }
         switch gate.admit(chunk) {
         case .skip:
@@ -121,7 +136,7 @@ final class BrowserRenderer: @unchecked Sendable {
             ack(BrowserAck(sequence: chunk.sequence, generation: generation))
         }
     }
-    private func failed(codec: String, generation: Int?) {
+    private func failed(codec: String, generation: Int) {
         decoder = nil
         if let sequence = gate.failed() { ack(BrowserAck(sequence: sequence, generation: generation, keyframe: true, fallback: VideoCapabilities.isHEVC(codec))) }
     }

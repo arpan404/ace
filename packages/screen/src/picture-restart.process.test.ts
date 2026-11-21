@@ -150,7 +150,6 @@ async function round(): Promise<{
     binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => ({ encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" }),
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     random: Math.random,

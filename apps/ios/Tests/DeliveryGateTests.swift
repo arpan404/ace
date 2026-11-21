@@ -54,9 +54,9 @@ import Testing
         let renderer = BrowserRenderer(threadId: "thread", present: { log.show($0.sequence) }, ack: { log.ack($0) })
         defer { renderer.close() }
         renderer.delivery("thread", MediaDelivery(generation: 4, path: nil))
-        // A still page: one keyframe on the media connection, the channel's replay, then nothing.
+        // A still page: one keyframe on the media connection, another connection's, then nothing.
         renderer.receive(chunk(7), path: "media-a")
-        renderer.receive(chunk(9), path: MediaDelivery.channel)
+        renderer.receive(chunk(9), path: "media-b")
         try await Task.sleep(for: .milliseconds(100))
         #expect(log.pictures.isEmpty && log.acks.isEmpty)
         renderer.delivery("thread", MediaDelivery(generation: 4, path: "media-a"))
@@ -65,17 +65,49 @@ import Testing
         #expect(log.acks == [BrowserAck(sequence: 7, generation: 4)])
     }
 
-    @Test func anAckCarriesTheGenerationItsPictureCameForAndNoneBeforeTheScriptSetOne() async throws {
+    @Test func aPictureBeforeAnySubscribeIsNeitherDrawnNorAcknowledged() async throws {
         let chunk = try stream()
         let log = Log()
         let renderer = BrowserRenderer(threadId: "thread", present: { log.show($0.sequence) }, ack: { log.ack($0) })
         defer { renderer.close() }
-        renderer.receive(chunk(1))
+        // Nothing asked for it: only ace-media delivers, and only to a subscribe that named it.
+        renderer.receive(chunk(1), path: "media-a")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(log.pictures.isEmpty && log.acks.isEmpty)
+        renderer.delivery("thread", MediaDelivery(generation: 12, path: "media-a"))
+        renderer.receive(chunk(2), path: "media-a")
         try await settle(log, acks: 1)
-        renderer.delivery("thread", MediaDelivery(generation: 12, path: MediaDelivery.channel))
-        renderer.receive(chunk(2))
-        try await settle(log, acks: 2)
-        #expect(log.acks.map(\.generation) == [nil, 12])
+        #expect(log.pictures == [2])
+        #expect(log.acks.map(\.generation) == [12])
+    }
+
+    @Test func theLiveViewSaysWhyUntilTheFirstPictureOfItsDeliveryComes() async throws {
+        let chunk = try stream()
+        let said = Said()
+        let renderer = BrowserRenderer(threadId: "thread", waiting: { said.add($0) }, present: { _ in }, ack: { _ in })
+        defer { renderer.close() }
+        renderer.delivery("thread", MediaDelivery(generation: 1, path: "media-a", revision: 1, waiting: "Live video is starting."))
+        try await said.until(1)
+        // A picture of another connection says nothing about this delivery.
+        renderer.receive(chunk(1), path: "media-b")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(said.values == ["Live video is starting."])
+        renderer.receive(chunk(2), path: "media-a")
+        try await said.until(2)
+        // Then the machine says its source stopped, while the view still has the delivery.
+        renderer.delivery("thread", MediaDelivery(generation: 1, path: "media-a", revision: 2, waiting: "The tab stopped streaming."))
+        try await said.until(3)
+        #expect(said.values == ["Live video is starting.", nil, "The tab stopped streaming."])
+    }
+
+    private final class Said: @unchecked Sendable {
+        private let lock = NSLock()
+        private var said: [String?] = []
+        func add(_ value: String?) { lock.withLock { said.append(value) } }
+        var values: [String?] { lock.withLock { said } }
+        func until(_ count: Int) async throws {
+            for _ in 0..<400 where values.count < count { try await Task.sleep(for: .milliseconds(5)) }
+        }
     }
 
     // The gate alone, on stand-in pictures.
@@ -89,12 +121,29 @@ import Testing
         _ = gate.set(MediaDelivery(generation: 1, path: nil))
         let delta = Picture(id: 0, key: false, byteCount: 10)
         for (picture, path) in [(delta, "a"), (Picture(id: 1, key: true, byteCount: 10), "a"), (Picture(id: 2, key: false, byteCount: 10), "a"),
-                                (Picture(id: 3, key: true, byteCount: 10), "channel")] {
+                                (Picture(id: 3, key: true, byteCount: 10), "b")] {
             #expect({ if case .hold = gate.arrive(picture, path: path, at: 0) { true } else { false } }())
         }
         let change = gate.set(MediaDelivery(generation: 1, path: "a"))
         #expect(change.released.map(\.id) == [1, 2] && !change.reset && change.keyframe == nil)
-        #expect({ if case .drop = gate.arrive(Picture(id: 4, key: true, byteCount: 1), path: "channel", at: 0) { true } else { false } }())
+        #expect({ if case .drop = gate.arrive(Picture(id: 4, key: true, byteCount: 1), path: "b", at: 0) { true } else { false } }())
+    }
+
+    @Test func aDeliveryNothingServesKeepsSayingWhy() {
+        var gate = DeliveryGate<Picture>()
+        _ = gate.set(MediaDelivery(generation: 1, path: "none", waiting: "This computer can't stream this live view yet."))
+        #expect({ if case .drop = gate.arrive(Picture(id: 1, key: true, byteCount: 1), path: "a", at: 0) { true } else { false } }())
+        #expect(gate.waiting == "This computer can't stream this live view yet.")
+    }
+
+    @Test func pictureHeldWhileTheReplyWasPendingEndTheWaitWhenItSettles() {
+        var gate = DeliveryGate<Picture>()
+        _ = gate.set(MediaDelivery(generation: 1, path: nil, revision: 1, waiting: "Connecting to live video…"))
+        _ = gate.arrive(Picture(id: 1, key: true, byteCount: 1), path: "a", at: 0)
+        #expect(gate.waiting == "Connecting to live video…")
+        let change = gate.set(MediaDelivery(generation: 1, path: "a", revision: 2, waiting: "Connecting to live video…"))
+        #expect(change.released.map(\.id) == [1])
+        #expect(gate.waiting == nil)
     }
 
     @Test func pastFourMegabytesOrTwoSecondsOnlyTheKeyframeIsKeptAndAFreshOneIsAskedFor() {

@@ -32,7 +32,6 @@ import {
   restartDelay,
   supervisionTimings,
   type MediaHealth,
-  type MediaSettings,
 } from "./supervision-policy.ts";
 import { secureRandomBytes, type MediaClock, type MediaHost } from "./supervisor-host.ts";
 import {
@@ -65,7 +64,6 @@ export type MediaSupervisorOptions = {
   binary: string;
   runtimeDir: string;
   dataDir: string;
-  settings: () => MediaSettings;
   host: MediaHost;
   clock: MediaClock;
   /** Backoff jitter only. */
@@ -309,7 +307,6 @@ export class MediaSupervisor {
         version,
         runtimeDir,
         dataDir,
-        settings: this.#options.settings(),
       },
       secret.slice(),
     );

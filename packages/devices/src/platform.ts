@@ -20,6 +20,8 @@ import { DeviceChromeReader } from "./device-chrome-reader.ts";
 import { SimulatorPostures } from "./simulator-posture.ts";
 import { EmulatorPostures, type EmulatorConsole } from "./android-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
+import { unavailableImages, type ImageWork } from "@ace/media/images";
+import { modelImageRuntime, type ModelImageRuntime } from "@ace/mcp-server";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import { iosNeedsMac } from "./sdk.ts";
 import {
@@ -66,6 +68,11 @@ export type PlatformOptions = SDKOptions & {
   emulatorWindow?: NonNullable<AndroidOptions["emulatorWindow"]>;
   /** Reads the SDK's device art; tests point it at fixtures. */
   readFile?: (path: string) => Promise<Uint8Array | undefined>;
+  /**
+   * ace-media's image work (ADR 0201): screenshots, chrome drawn as PNG, skins' alpha and
+   * Simulator bodies. Absent, each of those fails or falls back as having no image decoder.
+   */
+  images?: ImageWork;
 };
 /** An inventory issue, with the platform it concerns. */
 function tagged(issue: DeviceError, platform: Device["platform"]): DeviceFailure {
@@ -85,6 +92,7 @@ const AppId = z
 
 export class DevicePlatform {
   private readonly options: PlatformOptions;
+  private readonly images: ImageWork;
   private readonly probe: typeof probeOutput;
   private readonly simulators: Simulators;
   private readonly android: AndroidPlatform;
@@ -142,6 +150,8 @@ export class DevicePlatform {
             },
           })
         : undefined;
+    this.images =
+      options.images ?? unavailableImages("the device platform was given no image work");
     this.chromes = new DeviceChromeReader(
       deviceChromeSources({
         home: options.home,
@@ -155,6 +165,7 @@ export class DevicePlatform {
           (await this.simulators.list()).find((device) => device.udid === udid)
             ?.deviceTypeIdentifier,
         ...(options.readFile ? { readFile: options.readFile } : {}),
+        images: this.images,
       }),
     );
   }
@@ -458,18 +469,26 @@ export class DevicePlatform {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
     else await this.android.boot(device, authorize);
   }
+  /** How an agent's screenshot is fitted to the model: through ace-media (ADR 0201). */
+  modelImages(): ModelImageRuntime {
+    return modelImageRuntime(this.images);
+  }
   /** One still of the screen, for when no live view is running. */
   screenshot(device: Device, authorize?: () => void): Promise<DeviceShot> {
-    return deviceScreenshot(device, {
-      simulator: async (path) => {
-        await this.simctl(device, ["io", "screenshot", "--type=png", path], authorize);
+    return deviceScreenshot(
+      device,
+      {
+        simulator: async (path) => {
+          await this.simctl(device, ["io", "screenshot", "--type=png", path], authorize);
+        },
+        emulator: (path) =>
+          emulatorScreenshot(
+            (args, maxBytes) => this.android.adb(device, args, maxBytes, authorize),
+            path,
+          ),
       },
-      emulator: (path) =>
-        emulatorScreenshot(
-          (args, maxBytes) => this.android.adb(device, args, maxBytes, authorize),
-          path,
-        ),
-    });
+      this.images,
+    );
   }
   /** Without a live view's control channel: the Simulator pasteboard through simctl. */
   async clipboardRead(device: Device, authorize?: () => void): Promise<ClipboardRead> {

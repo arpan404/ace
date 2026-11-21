@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Frame } from "@ace/screen";
 import { DevicePlatform, startCapture, type DeviceRuntime } from "./index.ts";
@@ -70,12 +70,6 @@ it.runIf(!!binary)(
     const platform = platformFor(home);
     onTestFinished(() => platform.close());
 
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
     const media = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -83,7 +77,6 @@ it.runIf(!!binary)(
       binary: binary ?? "",
       runtimeDir: home,
       dataDir: home,
-      settings: () => settings,
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,

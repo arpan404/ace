@@ -1,3 +1,5 @@
+import { modelImageRuntime } from "@ace/mcp-server";
+import { daemonImages } from "./media-images.ts";
 import {
   ComputerClient,
   type ComputerClientOptions,
@@ -82,6 +84,8 @@ export async function startScreen(
           media: media ? { add: (producer) => media.attach(producer) } : undefined,
           // Every screen recording is ace-media's (X1); without it a recording refuses, saying why.
           recorder: media?.recorder ?? noMediaRecorder,
+          // Agents' screenshots are fitted by ace-media's image process (ADR 0201).
+          modelImageRuntime: modelImageRuntime(daemonImages(context)),
         })
       : undefined);
   if (!manager) return;

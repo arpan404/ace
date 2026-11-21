@@ -17,6 +17,8 @@ import UIKit
     private(set) var pageSize: CGSize?
     /// A subscribe's poster is on screen in place of the page until its first live picture.
     private(set) var posterShown = false
+    /// Why the page's pictures don't come, or haven't yet: one sentence, nil once one does.
+    private(set) var waiting: String?
     /// The devices the device toolbar offers (`bridge/browser-device.ts`).
     private(set) var presets: [BrowserViewInfo.Device.Preset] = []
     /// The person's zoom and move of the picture (`PageGeometry`), for what is drawn over it.
@@ -72,6 +74,9 @@ import UIKit
         let poster = LatestPoster()
         self.poster = poster
         let renderer = BrowserRenderer(threadId: threadId, discard: { _ = latest.take() }, showPoster: { poster.put($0) },
+                                       waiting: { [weak self] text in
+                                           Task { @MainActor in if self?.threadId == threadId { self?.waiting = text } }
+                                       },
                                        present: { latest.put($0) }, ack: { acks.acknowledge($0) })
         self.latest = latest
         self.acks = acks
@@ -86,7 +91,7 @@ import UIKit
         renderer?.close()
         acks?.close()
         renderer = nil; latest = nil; acks = nil
-        threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil; posterShown = false
+        threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil; posterShown = false; waiting = nil
         pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
         done = nil; source = nil; sizes = nil; extensions = nil; latency = nil

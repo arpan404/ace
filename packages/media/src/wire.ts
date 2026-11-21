@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ImageFromMedia, ImageToMedia, imagePayloadBytes } from "./image-wire.ts";
 // ace-media's JSON parser refuses lone UTF-16 surrogates, so every string, including those
 // inside free-form fields, must be well-formed Unicode on this side too.
 const text = z.string().refine((value) => value.isWellFormed());
@@ -47,13 +48,6 @@ const ViewerTarget = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("device"), deviceId: id }),
 ]);
 export type ViewerTarget = z.infer<typeof ViewerTarget>;
-const Settings = z.strictObject({
-  recordings: z.enum(["auto", "legacy"]),
-  stills: z.enum(["auto", "legacy"]),
-  /** Phase 2 removed the daemon's own encoders: ace-media always encodes. */
-  encode: z.literal("auto"),
-  delivery: z.enum(["auto", "legacy"]),
-});
 const Remote = z.strictObject({
   addresses: z.array(text),
   port: u32,
@@ -146,7 +140,6 @@ export const ToMedia = z.discriminatedUnion("type", [
     version: text,
     runtimeDir: text,
     dataDir: text,
-    settings: Settings,
   }),
   z.strictObject({ type: z.literal("ping"), id: id }),
   z.strictObject({ type: z.literal("shutdown"), graceMs: u32 }),
@@ -315,6 +308,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     /** The epochs decided clear: a poster comes only from a picture whose every epoch is in one. */
     clear: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
+  ...ImageToMedia,
 ]);
 export type ToMedia = z.infer<typeof ToMedia>;
 export const FromMedia = z.discriminatedUnion("type", [
@@ -408,6 +402,7 @@ export const FromMedia = z.discriminatedUnion("type", [
     steps: z.array(SourceStep),
   }),
   z.strictObject({ type: z.literal("still.failed"), request: id, reason: text }),
+  ...ImageFromMedia,
   z.strictObject({
     type: z.literal("log"),
     level: z.enum(["debug", "info", "warn", "error"]),
@@ -453,9 +448,13 @@ function validatePayload(
     case "listen":
       length = message.remote ? message.remote.certificateBytes + message.remote.keyBytes : 0;
       break;
+    case "image.job":
+      length = imagePayloadBytes(message.inputs);
+      break;
     case "relay.out":
     case "relay.in":
     case "still.done":
+    case "image.done":
       return;
   }
   if (payload.length !== length) throw new Error("Invalid control payload length");

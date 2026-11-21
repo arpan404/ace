@@ -30,6 +30,11 @@ fn every_control_message_round_trips_with_payload_and_lane()
             match kind {
                 "init" | "source.open" | "media.ticket" => 32,
                 "relay.keys" => 120,
+                "image.job" => m["inputs"].as_array().map_or(0, |inputs| inputs
+                    .iter()
+                    .filter(|input| input["kind"] != "file")
+                    .map(|input| input["bytes"].as_u64().unwrap_or(0))
+                    .sum::<u64>()) as usize,
                 "listen" =>
                     (m["remote"]["certificateBytes"].as_u64().unwrap_or(0)
                         + m["remote"]["keyBytes"].as_u64().unwrap_or(0))
@@ -391,5 +396,22 @@ fn the_egress_end_marker_matches_the_shared_bytes_and_says_whether_the_stream_wa
         payload: vec![1],
     };
     assert_eq!(unit.end(), None);
+    Ok(())
+}
+#[test]
+fn an_older_daemons_init_settings_are_read_and_dropped() -> Result<(), Box<dyn std::error::Error>> {
+    let older = json!({ "type": "init", "protocol": 1, "version": "v", "runtimeDir": "/r",
+        "dataDir": "/d", "settings": { "recordings": "legacy", "stills": "auto",
+        "encode": "auto", "delivery": "legacy" } });
+    let message: ToMedia = serde_json::from_value(older)?;
+    // Written again, it carries no settings: there are none to send.
+    assert_eq!(
+        serde_json::to_value(&message)?,
+        json!({ "type": "init", "protocol": 1, "version": "v", "runtimeDir": "/r", "dataDir": "/d" })
+    );
+    // Other unknown fields are still refused.
+    let unknown = json!({ "type": "init", "protocol": 1, "version": "v", "runtimeDir": "/r",
+        "dataDir": "/d", "other": 1 });
+    assert!(serde_json::from_value::<ToMedia>(unknown).is_err());
     Ok(())
 }

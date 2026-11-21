@@ -538,6 +538,7 @@ export class BrowserService {
           now: this.now,
           id: this.id,
           navigationClock: this.navigationClock,
+          ...(this.options.images ? { images: this.options.images } : {}),
           cancelPolicy: () => {
             if (!retiring) scope.abort();
           },

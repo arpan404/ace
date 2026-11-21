@@ -110,6 +110,12 @@ struct RemoteScreenSessionView: View {
                         .foregroundStyle(AceDesign.Ink.muted)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceDesign.Space.margin)
                         .accessibilityIdentifier("screen.videoStopped")
+                } else if let waiting = screen.live.waiting, !waiting.isEmpty, state?.lifecycle == "live" {
+                    // Why the window's pictures don't come yet, as the machine says it.
+                    Text(waiting).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceDesign.Space.margin)
+                        .accessibilityIdentifier("screen.waiting")
                 } else if let degraded = session.degraded, !degraded.isEmpty {
                     Text(degraded).font(AceDesign.Typeface.meta)
                         .foregroundStyle(AceDesign.Ink.muted)

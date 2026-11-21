@@ -29,6 +29,8 @@ import type { Store } from "../store.ts";
 import { grantOfCaller } from "../external-mcp/principals.ts";
 import { browserBackendMessage } from "./socket-message.ts";
 import { noMediaRecorder, startMedia } from "./media.ts";
+
+import { daemonImages } from "./media-images.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 
 /**
@@ -91,6 +93,8 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     media,
     // Every browser recording is ace-media's (X1); without it a recording refuses, saying why.
     recorder: options.browser?.recorder ?? started?.recorder ?? noMediaRecorder,
+    // The measurement filmstrip is drawn by ace-media (ADR 0201).
+    images: daemonImages(context),
     ...(config.chromiumPath && !options.browser?.executablePath
       ? { executablePath: config.chromiumPath }
       : {}),
@@ -210,6 +214,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       headlessBackend: new UserChromeTabsBackend(user.backend),
       backendPreference: () => "headless",
       ...(media ? { media } : {}),
+      images: daemonImages(context),
       tabLifecycle: false,
       tabBudget,
       // Agent tabs there come back after a restart too, from their own table.

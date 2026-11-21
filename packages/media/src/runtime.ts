@@ -27,8 +27,7 @@ import type { FromMedia } from "./wire.ts";
 
 /**
  * The daemon's ace-media, put together: the supervisor, the live route table, the egress
- * router and the sources whose producers stream into it. One per daemon. Settings are read
- * live; call `settingsChanged()` when one changes.
+ * router and the sources whose producers stream into it. One per daemon.
  */
 
 export type MediaRuntimeOptions = Omit<
@@ -70,14 +69,12 @@ export class MediaRuntime {
   readonly stills: MediaStills;
 
   readonly #encoders: readonly string[];
-  readonly #settings: MediaRuntimeOptions["settings"];
   readonly #capabilities: RouteCapabilities;
 
   constructor(options: MediaRuntimeOptions) {
     this.#encoders = options.platform === undefined ? [] : pictureEncoders(options.platform);
     this.acceleration = options.acceleration ?? new MediaAccelerationStore();
     const capabilities = options.capabilities ?? builtRouteCapabilities;
-    this.#settings = options.settings;
     this.#capabilities = capabilities;
     this.supervisor = new MediaSupervisor({
       ...options,
@@ -111,7 +108,6 @@ export class MediaRuntime {
       },
     });
     this.routes = new RouteWatch({
-      settings: options.settings,
       health: () => this.supervisor.health(),
       capabilities: () => capabilities,
       onChange: (_routes, changed) => this.sources.routesChanged(changed),
@@ -130,7 +126,6 @@ export class MediaRuntime {
       },
       router: this.egress,
       routes: () => this.routes.routes(),
-      settings: options.settings,
       capabilities: () => capabilities,
       randomBytes: options.randomBytes ?? secureRandomBytes,
       id: options.id,
@@ -197,8 +192,7 @@ export class MediaRuntime {
     return {
       // Frames must be in ace-media for it to deliver them: the producer streams there.
       serves: (kind) => this.routes.routes()[kind].deliverer === "ace-media",
-      unserved: (kind) =>
-        undeliveredReason(kind, this.#settings(), this.supervisor.health(), this.#capabilities),
+      unserved: (kind) => undeliveredReason(kind, this.supervisor.health(), this.#capabilities),
       sourceKinds: (shows) => this.sources.kinds(shows),
       sourceState: (shows) => this.sources.state(shows),
       bind: (intent) => this.viewers.bind(intent),
@@ -212,8 +206,8 @@ export class MediaRuntime {
     };
   }
 
-  /** A media setting changed: routes move, and sources follow. */
-  settingsChanged(): void {
+  /** Routes are worked out again and every source follows: after sources are added at start. */
+  reroute(): void {
     this.routes.update();
     this.sources.routesChanged(sourceKinds);
   }

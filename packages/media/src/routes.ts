@@ -1,4 +1,4 @@
-import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
+import type { MediaHealth } from "./supervision-policy.ts";
 import type { ToMedia } from "./wire.ts";
 
 /**
@@ -93,14 +93,12 @@ export function platformRouteCapabilities(platform: string): RouteCapabilities {
  */
 export function sourceRoute(
   kind: SourceKind,
-  /** Kept for the callers until the media settings go; no route reads them. */
-  _settings: MediaSettings,
   health: MediaHealth,
   capabilities: RouteCapabilities,
 ): SourceRoute {
   const healthy = health === "healthy";
   // ace-media is the only media path: every producer that can stream into it does, while it is
-  // healthy, whatever any setting says.
+  // healthy.
   const producer = healthy && capabilities.ingest.includes(kind) ? "ace-media" : "none";
   // ace-media delivers what its producer streams into it.
   const deliverer = producer === "ace-media" && capabilities.delivery ? "ace-media" : "none";
@@ -119,24 +117,19 @@ export function sourceRoute(
  */
 export function undeliveredReason(
   kind: SourceKind,
-  settings: MediaSettings,
   health: MediaHealth,
   capabilities: RouteCapabilities,
 ): string | undefined {
-  if (sourceRoute(kind, settings, health, capabilities).deliverer === "ace-media") return undefined;
+  if (sourceRoute(kind, health, capabilities).deliverer === "ace-media") return undefined;
   if (health === "restarting") return "Live video is starting. It shows in a moment.";
   if (health === "unavailable")
     return "Live video stopped: ace's media process keeps failing on this computer. Restart ace to try again.";
   return "This computer can't stream this live view yet.";
 }
 
-export function mediaRoutes(
-  settings: MediaSettings,
-  health: MediaHealth,
-  capabilities: RouteCapabilities,
-): MediaRoutes {
+export function mediaRoutes(health: MediaHealth, capabilities: RouteCapabilities): MediaRoutes {
   const routes = {} as MediaRoutes;
-  for (const kind of sourceKinds) routes[kind] = sourceRoute(kind, settings, health, capabilities);
+  for (const kind of sourceKinds) routes[kind] = sourceRoute(kind, health, capabilities);
   return routes;
 }
 
