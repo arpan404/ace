@@ -1,13 +1,14 @@
-import { stageSharpRuntime } from "./sharp-runtime-assets.ts";
 import { stageCursorRuntime } from "./cursor-runtime-assets.ts";
 import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { copyRuntimePackage } from "./copy-runtime-package.ts";
 import { z } from "zod";
 
-/** These packages locate runtime files relative to their installed package roots. */
+/**
+ * These packages locate runtime files relative to their installed package roots. No image
+ * library ships: ace-media is the only image pipeline (ADR 0201).
+ */
 export const runtimePackages = [
-  { name: "sharp", workspace: "packages/devices" },
   { name: "@anthropic-ai/claude-agent-sdk", workspace: "packages/adapter-claude" },
   { name: "@cursor/sdk", workspace: "packages/adapter-cursor" },
 ];
@@ -26,10 +27,6 @@ export async function stageRuntimePackages(
   const manifests: string[] = [];
   for (const pkg of runtimePackages) {
     const source = await realpath(join(repo, pkg.workspace, "node_modules", pkg.name));
-    if (pkg.name === "sharp") {
-      manifests.push(...(await stageSharpRuntime(source, root, target)));
-      continue;
-    }
     if (pkg.name === "@cursor/sdk") {
       manifests.push(...(await stageCursorRuntime(source, root, target)));
       continue;

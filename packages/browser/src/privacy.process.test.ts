@@ -1,25 +1,28 @@
 import { expect, it, vi } from "vitest";
-import { cursorFixture, executablePath } from "./cursor-test-support.ts";
+import { cursorFixture, runnable } from "./cursor-test-support.ts";
 import { Snapshot } from "./test-support.ts";
+import { decodedPixels } from "./media-image-test-support.ts";
 
-const test = it.skipIf(!executablePath);
+const test = it.skipIf(!runnable);
 
 /** Dark pixels (text, bullets) inside a CSS box of a viewport image. */
 async function inkIn(
   image: { data: string; width: number },
   box: { x: number; y: number; width: number; height: number },
 ): Promise<number> {
-  const { default: sharp } = await import("sharp");
   const scale = image.width / 800;
-  const { data, info } = await sharp(Buffer.from(image.data, "base64"))
-    .extract({
-      left: Math.round(box.x * scale),
-      top: Math.round(box.y * scale),
-      width: Math.round(box.width * scale),
-      height: Math.round(box.height * scale),
-    })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+  const decoded = await decodedPixels(Buffer.from(image.data, "base64"));
+  const left = Math.round(box.x * scale),
+    top = Math.round(box.y * scale);
+  const right = left + Math.round(box.width * scale),
+    bottom = top + Math.round(box.height * scale);
+  const data: number[] = [];
+  for (let y = top; y < bottom; y++)
+    for (let x = left; x < right; x++) {
+      const at = (y * decoded.width + x) * 4;
+      data.push(...decoded.data.subarray(at, at + 4));
+    }
+  const info = { channels: 4 };
   let dark = 0;
   for (let index = 0; index < data.length; index += info.channels)
     if (Math.max(data[index] ?? 255, data[index + 1] ?? 255, data[index + 2] ?? 255) < 100) dark++;

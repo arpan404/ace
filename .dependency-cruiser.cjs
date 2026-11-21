@@ -49,7 +49,7 @@ module.exports = {
       name: "no-legacy-media",
       severity: "error",
       comment:
-        "ace-media is the only media pipeline (ADR 0147, X1): the daemon's ffmpeg recording and still paths and its Bun.Image frame transcodes are gone. Record through @ace/media/tee-recordings and take stills from ace-media or the source's own capture.",
+        "ace-media is the only media pipeline (ADR 0147, X1): the daemon's ffmpeg recording and still paths and its Bun image-pipeline frame transcodes are gone. Record through @ace/media/tee-recordings and take stills from ace-media or the source's own capture.",
       from: {},
       to: {
         path: "^packages/devices/src/(video|recording-feed|h264-jpeg|android-screenrecord)\\.ts$",

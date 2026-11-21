@@ -119,7 +119,12 @@ function elide(input: Readable, limits: ElisionLimits): Readable {
 }
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
-function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): RawSupervisedProcess {
+function spawnOwned(
+  options: SpawnOptions,
+  maxLineBytes: number | undefined,
+  /** What `options.env` is laid over: the daemon's environment, or nothing. */
+  base: NodeJS.ProcessEnv = process.env,
+): RawSupervisedProcess {
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
   const killTree = options.windowsKillTree ?? killWindowsTree;
@@ -137,7 +142,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
   const child = spawn(target.command, target.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: markedEnv({ ...process.env, ...options.env }),
+    env: markedEnv({ ...base, ...options.env }),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],
@@ -352,6 +357,15 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
 /** Binary bytes share the aggregate budget without imposing line framing. */
 export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
   return spawnOwned(options, undefined);
+}
+
+/**
+ * As `spawnRawSupervised`, but the child gets exactly `options.env` (and the run's owner
+ * marker), nothing of the daemon's own environment: for a worker that must not see the
+ * daemon's credentials or settings.
+ */
+export function spawnRawSupervisedExactEnv(options: SpawnOptions): RawSupervisedProcess {
+  return spawnOwned(options, undefined, {});
 }
 
 /** Bounded text bytes for callers that own their decoding/framing. */

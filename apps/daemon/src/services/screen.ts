@@ -1,3 +1,5 @@
+import { modelImageRuntime } from "@ace/mcp-server";
+import { daemonImages } from "./media-images.ts";
 import {
   ComputerClient,
   type ComputerClientOptions,
@@ -80,6 +82,8 @@ export async function startScreen(
           session,
           cowork,
           media: media ? { add: (producer) => media.attach(producer) } : undefined,
+          // Agents' screenshots are fitted by ace-media's image process (ADR 0201).
+          modelImageRuntime: modelImageRuntime(daemonImages(context)),
         })
       : undefined);
   if (!manager) return;

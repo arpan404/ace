@@ -1,9 +1,11 @@
-import { deflateSync, inflateSync } from "node:zlib";
+import { deflateSync } from "node:zlib";
+import { binaryImages, imagePixels, testMediaBinary } from "@ace/media/testing/images";
 import { expect, it } from "vitest";
-import { fitImage } from "@ace/provider-kit/image";
-import { modelImage } from "./index.ts";
+import { modelImage, modelImageRuntime } from "./index.ts";
 
-// The real resize (Bun's image pipeline): a solid red PNG in, a bounded JPEG out.
+// The real resize (ace-media's image process, ADR 0201): a solid red PNG in, a bounded JPEG out.
+const binary = testMediaBinary();
+const images = binaryImages(binary ?? "");
 
 function crc32(bytes: Buffer): number {
   let crc = 0xffffffff;
@@ -37,55 +39,37 @@ function solidPng(width: number, height: number, rgb: [number, number, number]):
     chunk("IEND", Buffer.alloc(0)),
   ]);
 }
-/** The first pixel of an 8-bit RGB or RGBA PNG. */
-function firstPixel(png: Buffer): number[] {
-  let at = 8;
-  let channels = 3;
-  const data: Buffer[] = [];
-  while (at < png.length) {
-    const length = png.readUInt32BE(at);
-    const type = png.toString("latin1", at + 4, at + 8);
-    const body = png.subarray(at + 8, at + 8 + length);
-    if (type === "IHDR") channels = body[9] === 6 ? 4 : 3;
-    if (type === "IDAT") data.push(body);
-    at += 12 + length;
-  }
-  const raw = inflateSync(Buffer.concat(data));
-  return [...raw.subarray(1, 1 + channels)].slice(0, 3);
-}
-
-it("large model screenshots keep their pixels and point scale within bounded JPEG dimensions", async () => {
-  const payload = solidPng(2000, 1000, [255, 0, 0]);
-  const image = await modelImage(
-    { payload, width: 2000, height: 1000, scale: 2 },
-    new AbortController().signal,
-  );
-  expect({ width: image.width, height: image.height, scale: image.scale }).toEqual({
-    width: 1536,
-    height: 768,
-    scale: 1.536,
-  });
-  expect(image.payload.readUInt16BE(0)).toBe(0xffd8);
-  expect(image.payload.length).toBeLessThanOrEqual(1024 * 1024);
-  // The JPEG's SOF reports the size it was encoded at, not just the returned metadata.
-  let offset = 2;
-  let size: [number, number] | undefined;
-  while (offset < image.payload.length && !size) {
-    const marker = image.payload.readUInt16BE(offset);
-    const length = image.payload.readUInt16BE(offset + 2);
-    if ([0xffc0, 0xffc1, 0xffc2].includes(marker))
-      size = [image.payload.readUInt16BE(offset + 7), image.payload.readUInt16BE(offset + 5)];
-    offset += 2 + length;
-  }
-  expect(size).toEqual([1536, 768]);
-  // Still red once decoded.
-  const pixel = await fitImage(
-    { input: image.payload, maxPixels: 1 << 24, autoOrient: false },
-    { width: 1, height: 1 },
-    { format: "png" },
-  );
-  const [r = 0, g = 255, b = 255] = firstPixel(pixel.bytes);
-  expect(r).toBeGreaterThan(240);
-  expect(g).toBeLessThan(16);
-  expect(b).toBeLessThan(16);
-});
+it.skipIf(!binary)(
+  "large model screenshots keep their pixels and point scale within bounded JPEG dimensions",
+  async () => {
+    const payload = solidPng(2000, 1000, [255, 0, 0]);
+    const image = await modelImage(
+      { payload, width: 2000, height: 1000, scale: 2 },
+      new AbortController().signal,
+      modelImageRuntime(images),
+    );
+    expect({ width: image.width, height: image.height, scale: image.scale }).toEqual({
+      width: 1536,
+      height: 768,
+      scale: 1.536,
+    });
+    expect(image.payload.readUInt16BE(0)).toBe(0xffd8);
+    expect(image.payload.length).toBeLessThanOrEqual(1024 * 1024);
+    // The JPEG's SOF reports the size it was encoded at, not just the returned metadata.
+    let offset = 2;
+    let size: [number, number] | undefined;
+    while (offset < image.payload.length && !size) {
+      const marker = image.payload.readUInt16BE(offset);
+      const length = image.payload.readUInt16BE(offset + 2);
+      if ([0xffc0, 0xffc1, 0xffc2].includes(marker))
+        size = [image.payload.readUInt16BE(offset + 7), image.payload.readUInt16BE(offset + 5)];
+      offset += 2 + length;
+    }
+    expect(size).toEqual([1536, 768]);
+    // Still red once decoded.
+    const [r = 0, g = 255, b = 255] = (await imagePixels(images, image.payload)).data;
+    expect(r).toBeGreaterThan(240);
+    expect(g).toBeLessThan(16);
+    expect(b).toBeLessThan(16);
+  },
+);

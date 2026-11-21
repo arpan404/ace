@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fitImage, imageSize } from "@ace/provider-kit/image";
 import { framePacket, type Frame } from "@ace/screen";
 import type { AppDevice as Device } from "@ace/protocol/devices";
-import { jpegComplete } from "./jpeg.ts";
+import { deviceImageError, shotDeadlineMs, type ImageWork } from "./device-images.ts";
 import { DeviceError } from "./sdk.ts";
 import { adbShell } from "./commands.ts";
 import type { DeviceRuntime } from "./runtime.ts";
@@ -23,8 +22,11 @@ const maxWidth = 1920;
 const maxHeight = 2160;
 const maxSourceBytes = 32 * 1024 * 1024;
 
-/** Re-encode a device's native screenshot (PNG or JPEG) as a JPEG that fits a frame packet. */
-export async function shotJpeg(source: Buffer): Promise<DeviceShot> {
+/**
+ * Re-encode a device's native screenshot (PNG or JPEG) as a JPEG that fits a frame packet,
+ * through ace-media. A cut-short picture is refused, never shown to an agent with grey in it.
+ */
+export async function shotJpeg(source: Buffer, images: ImageWork): Promise<DeviceShot> {
   if (!source.length || source.length > maxSourceBytes)
     throw new DeviceError(
       "invalid_data",
@@ -32,29 +34,27 @@ export async function shotJpeg(source: Buffer): Promise<DeviceShot> {
       "Retry; if it persists, restart the device.",
     );
   try {
-    // Bun's decoder fills a cut-short JPEG with grey; a screenshot an agent acts on must be whole.
-    if (source[0] === 0xff && source[1] === 0xd8 && !jpegComplete(source))
-      throw new Error("Incomplete JPEG");
-    const image = { input: source, maxPixels: 64 * 1024 * 1024, autoOrient: false };
-    const { width: sourceWidth } = await imageSize(image);
-    if (!sourceWidth) throw new Error("No image width");
-    const shot = await fitImage(
-      image,
-      { width: maxWidth, height: maxHeight },
-      { format: "jpeg", quality: 80 },
-    );
+    const shot = await images.run({
+      inputs: [{ kind: "bytes", bytes: source }],
+      op: {
+        op: "fit",
+        // The largest device screens are a few megapixels (a 13-inch iPad is 5.7).
+        maxPixels: 16 * 1024 * 1024,
+        width: maxWidth,
+        height: maxHeight,
+        autoOrient: false,
+        output: { format: "jpeg", quality: 80 },
+      },
+      deadlineMs: shotDeadlineMs,
+    });
     return {
-      payload: shot.bytes,
+      payload: Buffer.from(shot.bytes),
       width: shot.width,
       height: shot.height,
-      scale: shot.width / sourceWidth,
+      scale: shot.width / shot.source.width,
     };
-  } catch {
-    throw new DeviceError(
-      "invalid_data",
-      "Device screenshot could not be read",
-      "Retry; if it persists, restart the device.",
-    );
+  } catch (error) {
+    throw deviceImageError(error, "Device screenshot");
   }
 }
 
@@ -114,9 +114,10 @@ export interface ScreenshotCommands {
 export async function deviceScreenshot(
   device: Device,
   commands: ScreenshotCommands,
+  images: ImageWork,
 ): Promise<DeviceShot> {
   const source = await viaTemporaryFile("screen.png", (path) =>
     device.platform === "ios" ? commands.simulator(path) : commands.emulator(path),
   );
-  return shotJpeg(source);
+  return shotJpeg(source, images);
 }

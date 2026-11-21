@@ -1,7 +1,6 @@
 import { constants } from "node:fs";
 import { link, open } from "node:fs/promises";
 import type { Attachment } from "@ace/protocol";
-import { fitImage } from "@ace/provider-kit/image";
 import { requireContext } from "./errors.ts";
 
 const extensions: Record<string, string> = {
@@ -30,21 +29,13 @@ export async function providerImagePath(path: string, mime: string): Promise<str
   return alias;
 }
 export const previewLimit = 512 * 1024;
-/** A PNG preview of at most 512px a side, upright by its EXIF orientation. */
-export async function renderThumbnail(path: string): Promise<Buffer> {
-  const preview = await fitImage(
-    { input: { path }, maxPixels: 40_000_000, autoOrient: true },
-    { width: 512, height: 512 },
-    { format: "png" },
-  );
-  return preview.bytes;
-}
 /** Originals are read in bounded ranges; previews have independent byte and pixel bounds. */
 export class AttachmentBytes {
   private previews = 0;
   private cache = new Map<string, Buffer>();
-  private render: (path: string) => Promise<Buffer>;
-  constructor(render: (path: string) => Promise<Buffer> = renderThumbnail) {
+  /** Makes a preview; absent, no attachment has one (ace-media is the only decoder). */
+  private render: ((path: string) => Promise<Buffer>) | undefined;
+  constructor(render?: (path: string) => Promise<Buffer>) {
     this.render = render;
   }
   async read(
@@ -68,11 +59,13 @@ export class AttachmentBytes {
         "unsupported",
         "Attachment has no thumbnail",
       );
+      const render = this.render;
+      requireContext(render, "unsupported", "Attachment previews need ace-media");
       requireContext(this.previews < 2, "busy", "Thumbnail decoder busy");
       this.previews++;
       try {
         let data = this.cache.get(blob.attachment.sha256);
-        data ??= await this.render(blob.path);
+        data ??= await render(blob.path);
         requireContext(data.length <= previewLimit, "quota", "Thumbnail exceeds byte limit");
         this.cache.delete(blob.attachment.sha256);
         this.cache.set(blob.attachment.sha256, data);

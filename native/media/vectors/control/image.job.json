@@ -1,0 +1,17 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "image.job",
+    "request": "image-1",
+    "deadlineMs": 2000,
+    "inputs": [{ "kind": "bytes", "bytes": 3 }],
+    "op": {
+      "op": "fit",
+      "maxPixels": 67108864,
+      "width": 1920,
+      "height": 2160,
+      "autoOrient": false,
+      "output": { "format": "jpeg", "quality": 80 }
+    }
+  }
+}

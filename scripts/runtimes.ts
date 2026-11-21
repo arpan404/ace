@@ -34,7 +34,7 @@ export function realNode(path = process.env.PATH ?? ""): string | undefined {
 
 /**
  * The Bun to start the daemon with: this process's own runtime when it is Bun, otherwise the
- * first `bun` on PATH. The daemon uses Bun-only APIs (bun:ffi, Bun.Image, Bun's PTY) and can't
+ * first `bun` on PATH. The daemon uses Bun-only APIs (bun:ffi, Bun's PTY) and can't
  * start on Node, so tooling that runs on Node must hand the daemon to Bun.
  */
 export function bunBinary(path = process.env.PATH ?? ""): string {

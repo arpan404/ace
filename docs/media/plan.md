@@ -416,6 +416,8 @@ table, including timed-out trials and the ranking cache.
 | `record.stop`      | normal   | `recording`                                                                                                                                                                                                                                                                                                                                                  | —                                                                         |
 | `still.take`       | normal   | `request, source, maxWidth, maxHeight, maxPixels, quality, deadlineMs`                                                                                                                                                                                                                                                                                       | —                                                                         |
 | `still.poster`     | normal   | `request, source, width, height, deadlineMs` (D1: a viewer's poster, 10–20 KB at the viewport, answered with `still.done` or `still.failed`)                                                                                                                                                                                                                 | —                                                                         |
+| `image.job`        | normal   | `request, deadlineMs, inputs[], op` (ADR 0201: the image process's lane; see "Images")                                                                                                                                                                                                                                                                       | the inputs whose `kind` is `bytes` or `rgba`, back to back, in order      |
+| `image.cancel`     | normal   | `request` (the job's result, if any, is dropped)                                                                                                                                                                                                                                                                                                             | —                                                                         |
 
 ### ace-media → daemon (`FromMedia`)
 
@@ -442,6 +444,8 @@ table, including timed-out trials and the ranking cache.
 | `record.done` / `record.failed` | normal   | `recording, parts[]` / `recording, reason`                                                                                                                                                                                      | —                 |
 | `still.done`                    | normal   | `request, width, height, steps[]` (`steps` as in `source.status.acceleration`: the path the still took, with its copies)                                                                                                        | the JPEG          |
 | `still.failed`                  | normal   | `request, reason`                                                                                                                                                                                                               | —                 |
+| `image.done`                    | normal   | `request, width, height, format: "jpeg" \| "png" \| "alpha" \| "none", source: {format, width, height, orientation}` (ADR 0201)                                                                                                 | the output image  |
+| `image.failed`                  | normal   | `request, reason, message` (reasons in "Images")                                                                                                                                                                                | —                 |
 | `log`                           | normal   | `level, message, fields` (never keys, tokens, tickets or picture bytes; `relay.keys`, `listen` and `init` payloads are never logged on either side)                                                                             | —                 |
 
 ### Ingest framing (`MediaFrame` v1)
@@ -1257,18 +1261,26 @@ acceptance with the real web and iOS clients is C1's and C2's, and Q1 runs after
 | **C2** iOS media connection  | D1, D2, I1     | `apps/ios/**`: the media socket in Swift, bridge routing; the degraded sentence in the iOS live views                                                                                                                                                                                                                                                                                                      | the same as C1 (including the sentence) on a simulator over the relay                                                                                                                                                                                                                                                                                                                                                                                   | the 3G targets of "3G" (ADR 0149) on the `3g-400` and `3g-1600` profiles, measured on the phone over the relay (replaces "60 fps on the phone-link profile")                                                                                                                  |
 | **Q1** Route matrix          | C1, C2, F1, F2 | `packages/media/src/routes.process.test.ts`, which joins `test:process`                                                                                                                                                                                                                                                                                                                                    | all 16 setting combinations end to end with ace-media healthy, including `encode` and `delivery` on `auto` with `recordings` and `stills` on `legacy` (fed by egress); the four corner combinations also with ace-media killed mid-stream and with it unavailable; each asserts a viewer gets pictures (web and iOS bridge), a recording decodes with its privacy barrier held, and a still returns                                                     | must pass on the release candidate before any X PR merges                                                                                                                                                                                                                     |
 
-### Wave 7: deletion (one PR per phase, after a release ships with `auto` as the default and needs no fallback, and Q1 passed on that release)
+### Wave 7: deletion (one PR per phase; done in one batch, ADR 0201)
 
-| PR             | Deletes                                                                                                                                                                                                                                                                                   | Acceptance tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **X1** phase 1 | ffmpeg recording and still paths, `Bun.Image` frame transcodes, JPEG-file browser recordings; `legacy` for `media.recordings` and `media.stills` (a stored `legacy` reads as `auto`)                                                                                                      | **Recovery:** ace-media killed mid-recording → the recording continues in a new part. **Unavailable:** with ace-media unavailable, a recording refuses to start with a stated reason, never silently records nothing; agent stills still return through the source's own capture (helper JPEG, `simctl`/`adb` screenshots through the model-image path), which X1 keeps as the stills fallback. **Consumers:** `typecheck` and `check:deps` (a new rule forbidding imports of the removed modules) pass. **Ownership:** the Rust privacy and mp4 vectors stay green, as does the reordered-barrier process test |
-| **X2** phase 2 | the CDP base64 chunk path in `chrome-video.ts`, the daemon-run encoder Chrome, `picture-video.ts`, Swift `--transcode`, frame packets from helpers to the daemon, the tee; `legacy` for `media.encode`                                                                                    | **Recovery:** ace-media killed → producers reconnect to the new ingest and the picture returns within 2 s p95. **Unavailable:** with ace-media unavailable, live views show `video.status: retrying` with the reason, never a blank pane without one, and agent tools still work. **Delivery:** egress still serves `media.delivery: legacy` until X3. **Identity:** the screen helper's identity matches `identity.txt`. **Consumers:** `typecheck` and `check:deps` pass. **Ownership:** the route table, without the removed values, stays green                                                             |
-| **X3** phase 3 | `video-fanout.ts`, `link-rate.ts`, `video-scale.ts`, `video-policy.ts`, `picture-viewer.ts`, `picture-channel.ts`, the daemon's stream and relay sends of video, the egress lane, clients' legacy delivery; `legacy` for `media.delivery`; the vectors frozen into `native/media/vectors` | **Recovery:** ace-media killed → web and iOS reconnect their media connections and resume at a keyframe. **Unavailable:** live views say why. **Old clients:** a client without a media connection gets a status asking it to update, not a blank view. **Bytes:** `media-link.ts` shows daemon `bytesOut` for video = 0. **Consumers:** `check:deps` forbids daemon packages from encoding video envelopes. **Ownership:** every frozen vector passes in Rust, and the authorization and revocation tests from D1 and D2 stay green                                                                            |
-| **X5** cleanup | the settings `media.encode`, `media.delivery`, `media.recordings` and `media.stills`, Settings › Beta's media switch on web and the phone, the media runtime's `settings` option, and the phone's main-socket live pictures and acks (ADR 0201)                                           | **Old files:** a settings file with any of the four keys loads, and the keys are removed on the next read. **Phone:** every live subscribe says `mediaClient` and `deliveryStatus`; a view answered without delivery says why in one sentence until its first picture, and asks again on the unserved ladder; nothing is drawn or acked from the main socket                                                                                                                                                                                                                                                    |
+The owner lifted this wave's release gate on 2026-11-20 ([ADR 0201](../adr/0201-ace-media-is-the-only-media-and-image-pipeline.md)):
+`legacy` is removed now for every media setting, and X1–X4 land as one batch on
+`ace/media-rust-only`. The owner then decided the settings themselves go too (X5, after X2 and
+X3): the `media.*` keys, the Beta opt-in and the setting-driven route table. The acceptance tests below still apply; only "after a release ships with
+`auto` as the default, and Q1 passed on that release" is dropped.
+
+| PR                                                         | Deletes                                                                                                                                                                                                                                                                                                               | Acceptance tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **X1** phase 1 (done in this batch)                        | ffmpeg recording and still paths, `Bun.Image` frame transcodes, JPEG-file browser recordings; `legacy` for `media.recordings` and `media.stills` (a stored `legacy` reads as `auto`)                                                                                                                                  | **Recovery:** ace-media killed mid-recording → the recording continues in a new part. **Unavailable:** with ace-media unavailable, a recording refuses to start with a stated reason, never silently records nothing; agent stills still return through the source's own capture (helper JPEG, `simctl`/`adb` screenshots through the model-image path), which X1 keeps as the stills fallback. **Consumers:** `typecheck` and `check:deps` (a new rule forbidding imports of the removed modules) pass. **Ownership:** the Rust privacy and mp4 vectors stay green, as does the reordered-barrier process test |
+| **X2** phase 2 (done in this batch)                        | the CDP base64 chunk path in `chrome-video.ts`, the daemon-run encoder Chrome, `picture-video.ts`, Swift `--transcode`, frame packets from helpers to the daemon, the tee; `legacy` for `media.encode`                                                                                                                | **Recovery:** ace-media killed → producers reconnect to the new ingest and the picture returns within 2 s p95. **Unavailable:** with ace-media unavailable, live views show `video.status: retrying` with the reason, never a blank pane without one, and agent tools still work. **Delivery:** egress still serves `media.delivery: legacy` until X3. **Identity:** the screen helper's identity matches `identity.txt`. **Consumers:** `typecheck` and `check:deps` pass. **Ownership:** the route table, without the removed values, stays green                                                             |
+| **X3** phase 3 (done in this batch)                        | `video-fanout.ts`, `link-rate.ts`, `video-scale.ts`, `video-policy.ts`, `picture-viewer.ts`, `picture-channel.ts`, the daemon's stream and relay sends of video, the egress lane, clients' legacy delivery; `legacy` for `media.delivery`; the vectors frozen into `native/media/vectors`                             | **Recovery:** ace-media killed → web and iOS reconnect their media connections and resume at a keyframe. **Unavailable:** live views say why. **Old clients:** a client without a media connection gets a status asking it to update, not a blank view. **Bytes:** `media-link.ts` shows daemon `bytesOut` for video = 0. **Consumers:** `check:deps` forbids daemon packages from encoding video envelopes. **Ownership:** every frozen vector passes in Rust, and the authorization and revocation tests from D1 and D2 stay green                                                                            |
+| **X4** images (done in this batch)                         | `@ace/provider-kit/image` (`Bun.Image`), every sharp use (device chrome and skins, Simulator bodies, icons, the measurement filmstrip, attachment previews, test fixtures), `favicon-image.ts`'s bitmap decoding; `sharp` from every `package.json`, `bun.lock`, the desktop native-module lists and release staging  | **Bounds:** a truncated JPEG is refused `truncated`, never grey; over-limit inputs are refused before decode. **Unavailable:** with ace-media unavailable, an image job fails `unavailable` with the reason at once, and agent state isn't held. **Behaviour:** an oversized model attachment arrives within its bounds; a screenshot composited into its chrome keeps the mask. **Consumers:** `git grep` finds no `sharp` or `Bun.Image` outside docs. **Ownership:** `vectors/image` passes in Rust and against the binary                                                                                   |
+| **X5** settings and opt-in removal (after X2 and X3 merge) | the settings keys `media.encode`, `media.delivery`, `media.recordings` and `media.stills` (stored values ignored), the Settings › Beta media opt-in on web and iOS, `MediaSettings` and the `init.settings` it fills, and the setting-driven route table (`routes.ts`, `route-watch.ts`, `stillRoute`, `mediaWanted`) | **Behaviour:** a stored `media.*` value of either kind changes nothing; video starts on ace-media whatever is stored. **Images:** image jobs start the image process with no `media.*` setting stored, as before (they never read one). **Consumers:** `typecheck`, `check:deps` and the web and iOS settings screens build without the opt-in. **Ownership:** recorded in ADR 0201 §1                                                                                                                                                                                                                          |
 
 ## Benchmarks
 
-- **`native/media/bench/`** has `envelope`, `fanout`, `seal`, `mux`, `still --path {gpu,cpu}`,
+- **`native/media/bench/`** has `envelope`, `fanout`, `seal`, `mux`, `image` (X4, in
+  `media-image`), `still --path {gpu,cpu}`,
   `jpeg --path {gpu,cpu}`, `encode --backend {vt,mf,vaapi,nv,chrome}`, `alloc`, `ingest` and
   `size`.
   - Each prints one JSON line in the format `video-link.ts` uses, and fails below its acceptance
@@ -2449,3 +2461,88 @@ src/media-ingest.linux.process.test.ts` in `packages/screen`, and
     above 24 throughout.
   - The diagnostics bundle in the key scan (it isn't wired to ace-media's state yet).
   - Account-device relay streams are tested through `admit.ts` only; no account relay test yet.
+
+## Images (X4, ADR 0201)
+
+One-shot still-image work for the daemon: attachment previews, model attachments, device
+screenshots, device chrome and skins, Simulator bodies, icons and the measurement filmstrip.
+
+- **Messages.** `image.job {request, deadlineMs, inputs, op}` and `image.cancel {request}` in;
+  `image.done {request, width, height, format, source}` (the output as payload) or
+  `image.failed {request, reason, message}` out. Types: `media_wire::image` and
+  `packages/media/src/image-wire.ts`.
+- **Inputs.** `{kind: "bytes", bytes}` (a slice of the payload, in order),
+  `{kind: "rgba", bytes, width, height}` (straight RGBA, 4 bytes a pixel) and
+  `{kind: "file", path, maxBytes}` (a file ace wrote; read by ace-media, at most 32 MiB).
+  Formats are sniffed from the bytes: JPEG, PNG, WebP, GIF (first frame), ICO (the entry
+  closest to the job's box: its PNG or 24/32-bit bitmap) and SVG.
+- **Ops.**
+  - `probe {maxPixels}`: the stored size, format and EXIF orientation, read from the header.
+  - `fit {maxPixels, width, height, autoOrient, vectorScale?, output}`: scaled down, keeping
+    its shape, to fit the box, never up; an SVG is drawn at up to `vectorScale` pixels per unit
+    (default 1) to fit. `output` is `{format: "jpeg", quality, background?}` (alpha flattened
+    over `background`, black by default) or `{format: "png"}`.
+  - `alpha {maxPixels}`: the decoded alpha plane, one byte a pixel (`format: "alpha"`).
+  - `compose {width, height, background, maxPixels, layers, output}`: layers drawn in order,
+    source over, on a canvas. `{kind: "image", input, left, top, width, height, fit, mask?}`
+    (`fill` stretches, `contain` keeps the shape and centres; `mask` names an input whose alpha,
+    drawn the same way, multiplies the layer's) and `{kind: "text", text, left, top, size,
+color}` (the built-in 5 × 7 bitmap font, scaled to `size` px high).
+- **Reasons.** `invalid` (a field out of range or an input index that isn't there), `too-large`,
+  `unsupported`, `truncated`, `decode-failed`, `unreadable` (a file input that can't be read),
+  `busy` (more than 64 jobs held, a full queue, or no room for the answer), `deadline`, `cancelled`, `shutdown`; the daemon adds
+  `unavailable` and `exited`.
+- **Bounds.** 16,384 px a side and 50 million pixels whatever the job asks (attachments 40
+  million, screenshots and frames 16 Mi); SVG text at most 4 MiB
+  and drawn at most 4,096 px a side; the output must fit one normal-lane frame.
+- **The image process** (`ace-media --images --root <data dir>`, `ace_media::images`): its own
+  process, apart from the media process (which answers `image.job` `unsupported`), its
+  stdin/stdout its only lane. `jobs` holds requests, deadlines and the one answer each;
+  `pool` runs them on cores − 1 (1 to 4) threads sharing one queue (32 jobs, 64 MiB of inputs),
+  where a cancelled or expired job leaves the queue at once or stops at its next step;
+  `budget` reserves each job's peak (`media_image::peak_bytes`, from headers: an icon's largest
+  entry, the scaler's rows, the encoder's copies; checked against a counting allocator in
+  `media-image/tests/memory.rs`) from 768 MiB before decoding; `files` reads file inputs only
+  inside `--root`, whose handle is opened at start and kept, walking each from it with
+  `O_NOFOLLOW` (`NtCreateFile` relative to the parent's handle on Windows; names with `/`,
+  `\`, `:` or NUL, and `.`/`..`, refused everywhere), opening `O_NONBLOCK`, regular
+  files only, 32 MiB a file and 64 MiB a job;
+  `output` writes answers behind a 48 MiB queue, past which an answer becomes `busy`. Linux caps
+  its data at 1.5 GiB (`RLIMIT_DATA`). A job still in a step 10 s past its deadline exits the
+  process (code 1). A panic in a decoder fails its job only.
+- **The daemon side.** `ImageProcess` (`packages/media/src/image-process.ts`) supervises the
+  image process on every OS, Windows included, whatever the media process does there: lazy
+  start, 60 s idle stop, 0.5 s doubling backoff, unavailable for 10 minutes after five failures
+  in two minutes, and a 1.5 GiB resident-memory watchdog (`watchMemory`). `MediaImages`
+  (`images.ts`) settles each job once (done, failed, deadline, cancel, exit), holds at most 32
+  jobs and 32 MiB of inputs (a settled job's frame still being written stays charged until it
+  is, and one not yet written is taken off the lane), sends each frame with only the time its
+  job has left, and fails at once while the process is unavailable. The process gets an exact
+  environment (`spawnRawSupervisedExactEnv`): nothing of the daemon's.
+  `apps/daemon/src/services/media-images.ts` gives it to attachments, devices, icons, projects,
+  previews and the browser.
+- **Encoders.** JPEG through M5's encoder, kept per image thread so a repeated geometry reuses
+  its buffers; a JPEG to JPEG fit with no turn stays in YCbCr (M5's planar transcode). PNG at
+  `png`'s fast (fdeflate) level: an attachment preview of the 1206 × 2622 test screen is 168 KB
+  against 104 KB at the high level, at a fifth of the time.
+- **Bench** (`cargo run --release -p media-image --example image`, one JSON line a job, bounds
+  enforced below twice the core count). On this machine (12 x86 cores, AVX2, load 11 to 20
+  from other work), the 1206 × 2622 screen:
+  - fit to 1568 as JPEG q80 (screenshots, model images): median 9.6 ms, p95 10.3 ms in one
+    run and 12.8 / 15.4 ms in another, against `Bun.Image`'s ≈ 10 ms on the M4 Max (M5);
+  - attachment preview, 512 px PNG: median 22–30 ms, p95 24–33 ms;
+  - device chrome, a 430 × 932 pt body as a 1116 × 2400 PNG: median 69–92 ms (once per device
+    type, then cached);
+  - the filmstrip, eight full screens and captions: median 187–252 ms (once per measurement).
+    The Mac numbers remain to be measured.
+- **Tests and tools.** `ace-media --image` runs one job, frame in on stdin and frame out on
+  stdout. `vectors/image/cases.json` lists each op's inputs and outcome; `media-image`'s tests
+  replay it, and `packages/media/src/images.process.test.ts` replays it against the binary.
+- **Left for X1.** `simulator-frames.ts` (X1's) re-encodes a frame over its bound with
+  `fitImage` from `packages/devices/src/simulator-frame-fit.ts`, a bridge over these one-shot
+  jobs that `DevicePlatform` installs (`useSimulatorFrameImages`). X1 deletes the transcode,
+  that import, the bridge file, its call in `platform.ts`, and the bridge setup in
+  `simulator-frames.test.ts`, `simulator-jpeg.test.ts`, `simulator-stills.process.test.ts` and
+  `simulator-capture.process.test.ts`.
+- **Windows.** The image process runs there like everywhere (`media-images.test.ts`); the
+  daemon RSS watchdog is its memory limit, since Windows has no `RLIMIT_DATA`.

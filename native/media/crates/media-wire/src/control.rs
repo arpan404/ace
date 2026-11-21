@@ -709,6 +709,25 @@ pub enum ToMedia {
         #[serde(rename = "clear")]
         clear: Vec<EpochRange>,
     },
+    /// One-shot image work (ADR 0201), answered once with `image.done` or `image.failed`.
+    /// The payload holds the `bytes` and `rgba` inputs back to back, in order.
+    #[serde(rename = "image.job")]
+    ImageJob {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "deadlineMs")]
+        deadline_ms: u32,
+        #[serde(rename = "inputs")]
+        inputs: Vec<crate::image::ImageInput>,
+        #[serde(rename = "op")]
+        op: crate::image::ImageOp,
+    },
+    /// The daemon no longer wants the job's result.
+    #[serde(rename = "image.cancel")]
+    ImageCancel {
+        #[serde(rename = "request")]
+        request: Id,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -959,6 +978,30 @@ pub enum FromMedia {
         #[serde(rename = "reason")]
         reason: String,
     },
+    /// An image job's result; the payload is the output (none for `probe`).
+    #[serde(rename = "image.done")]
+    ImageDone {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "width")]
+        width: u32,
+        #[serde(rename = "height")]
+        height: u32,
+        #[serde(rename = "format")]
+        format: crate::image::DoneFormat,
+        #[serde(rename = "source")]
+        source: crate::image::SourceImage,
+    },
+    #[serde(rename = "image.failed")]
+    ImageFailed {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "reason")]
+        reason: crate::image::ImageFailure,
+        /// A sentence the daemon may show.
+        #[serde(rename = "message")]
+        message: String,
+    },
     #[serde(rename = "log")]
     Log {
         #[serde(rename = "level")]
@@ -1036,7 +1079,16 @@ fn validate<M: Message>(message: &M, payload: &[u8], expected: Lane) -> Result<(
             value["remote"]["certificateBytes"].as_u64().unwrap_or(0)
                 + value["remote"]["keyBytes"].as_u64().unwrap_or(0)
         }
-        "relay.out" | "relay.in" | "still.done" => return Ok(()),
+        "image.job" => value["inputs"].as_array().map_or(0, |inputs| {
+            inputs
+                .iter()
+                .filter(|input| input["kind"] != "file")
+                .map(|input| input["bytes"].as_u64().unwrap_or(0))
+                .sum()
+        }),
+        "relay.out" | "relay.in" | "still.done" | "image.done" => {
+            return Ok(());
+        }
         _ => 0,
     };
     if payload.len() as u64 != length {

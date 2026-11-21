@@ -1,4 +1,6 @@
 import type { SpikeSocketData } from "./spike-media.ts";
+import { unavailableImages } from "@ace/media/images";
+import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import {
   AppDevice,
@@ -115,6 +117,12 @@ const output = (command: string, args: readonly string[]) =>
  * daemon's own reader, so the phone shows what a real daemon sends. Off a Mac, or without
  * Xcode's files, it keeps the drawn frame.
  */
+/** ace-media's one-shot image jobs, from this tree's build; none without one. */
+function mediaImages() {
+  const binary = testMediaBinary();
+  return binary ? binaryImages(binary) : unavailableImages("build ace-media in native/media");
+}
+
 async function seedChrome(daemon: FakeDaemon): Promise<void> {
   if (process.platform !== "darwin") return;
   const reader = new DeviceChromeReader(
@@ -124,6 +132,8 @@ async function seedChrome(daemon: FakeDaemon): Promise<void> {
       simctl: (args) => output("xcrun", ["simctl", ...args]),
       plutil: (args) => output("/usr/bin/plutil", args),
       simulatorType: async () => undefined,
+      // The body is drawn by ace-media (ADR 0201): this tree's build of it.
+      images: mediaImages(),
     }),
   );
   const chrome = await reader

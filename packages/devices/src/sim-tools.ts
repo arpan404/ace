@@ -133,7 +133,7 @@ async function run(
       const image = await modelImage(
         { payload: frame.payload, ...frame.header },
         signal,
-        imageRuntime,
+        imageRuntime ?? service.modelImages(),
       );
       signal.throwIfAborted();
       return {

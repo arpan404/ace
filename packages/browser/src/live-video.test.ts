@@ -12,6 +12,7 @@ function fakeHost(supported = ["avc1.42E033"]) {
   const encodes: VideoEncode[][] = [];
   const codecs: string[][] = [];
   const sound: boolean[] = [];
+  const pages: { width: number; height: number; scale: number }[] = [];
   let closed = 0;
   const host: VideoHost = {
     mediaKind: "tab",
@@ -23,11 +24,12 @@ function fakeHost(supported = ["avc1.42E033"]) {
         keyframe: () => {},
         codecs: (runs) => codecs.push([...runs]),
         audio: (on) => sound.push(on),
+        page: (shown) => pages.push({ ...shown }),
         close: () => void closed++,
       };
     },
   };
-  return { host, opened, encodes, codecs, sound, closed: () => closed };
+  return { host, opened, encodes, codecs, sound, pages, closed: () => closed };
 }
 
 /** A pane ace-media delivers, on the client's media connection. */
@@ -77,6 +79,15 @@ describe("a view ace-media delivers", () => {
     events.want?.([wanted]);
     await t.run();
     expect(t.encoder.encodes.at(-1)).toEqual([wanted]);
+  });
+
+  it("tells ace-media the page's shape, and its new one when the tab is resized", async () => {
+    const t = watched();
+    t.video.add("viewer", delivered());
+    await t.run();
+    expect(t.encoder.pages.at(-1)).toEqual({ width: 640, height: 400, scale: 1 });
+    t.video.tick({ width: 800, height: 600 });
+    expect(t.encoder.pages.at(-1)).toEqual({ width: 800, height: 600, scale: 1 });
   });
 
   it("tells ace-media the codecs its encoder runs, less one that failed", async () => {

@@ -118,6 +118,11 @@ export interface VideoCaptureHandle {
    * views (`source.codecs`), so it never asks for one the encoder can't make.
    */
   codecs?(codecs: readonly string[]): void;
+  /**
+   * The page the capture shows, CSS size and device pixel ratio, on every tick: present where
+   * ace-media plans the capture's views (`source.page`), so they keep the page's shape.
+   */
+  page?(page: { width: number; height: number; scale: number }): void;
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */

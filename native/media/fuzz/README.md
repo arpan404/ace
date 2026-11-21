@@ -33,3 +33,12 @@ cargo fuzz run bitstream -- -max_total_time=600 -max_len=4096
 
 The workspace tests run a seeded mutation sweep of the same property over the VideoToolbox
 vectors (`crates/media-bitstream/tests/hostile.rs`) on every `check:media`.
+
+`image` feeds arbitrary bytes to media-image (ADR 0201): probe, a fit and an alpha read under a
+1 Mi-pixel bound. It checks that nothing panics, that probe never reports more than the bound
+(so a crafted second frame header can't pass the check and size the decode), and that an
+accepted fit fits its box. The image vectors make a good seed corpus:
+
+```sh
+cargo fuzz run image ../vectors/image/inputs -- -max_total_time=600 -max_len=65536
+```

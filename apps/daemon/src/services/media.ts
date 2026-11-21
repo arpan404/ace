@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { BrowserMedia } from "@ace/browser";
 import { MediaAccelerationStore } from "@ace/media/acceleration";
-import type { IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import type { IngestPage, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
 import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections";
 import type { MediaDeliveryPort } from "@ace/media/media-viewers";
 import { platformRouteCapabilities } from "@ace/media/routes";
@@ -130,6 +130,7 @@ type Waiting = {
   source: IngestSource | undefined;
   codecs?: string[] | undefined;
   encodes?: Parameters<IngestSource["encodes"]>[0] | undefined;
+  page?: IngestPage | undefined;
 };
 
 /** The recorder producers use on a daemon that has no ace-media at all. */
@@ -218,6 +219,7 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       for (const [producer, slot] of waiting) {
         slot.source = runtime.sources.add(producer);
         if (slot.codecs) slot.source.codecs(slot.codecs);
+        if (slot.page) slot.source.page?.(slot.page);
         if (slot.encodes) slot.source.encodes(slot.encodes);
       }
       failure = undefined;
@@ -287,6 +289,10 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       codecs: (codecs) => {
         slot.codecs = [...codecs];
         slot.source?.codecs(codecs);
+      },
+      page: (page) => {
+        slot.page = { ...page };
+        slot.source?.page?.(page);
       },
       // Kept for the source the runtime will open: a JPEG source's encodes are asked once.
       encodes: (encodes) => {
