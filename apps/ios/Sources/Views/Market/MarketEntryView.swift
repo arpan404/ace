@@ -18,6 +18,8 @@ struct MarketEntryView: View {
     @State private var picture: UIImage?
     @State private var reviewing: Ask?
     @State private var removing = false
+    /// The question before a withdrawn entry runs again, while it is asked.
+    @State private var turningOn: MarketInstalledItem.Ask?
     @State private var busy = false
     @State private var changeProblem: String?
     @State private var removed = 0
@@ -73,6 +75,15 @@ struct MarketEntryView: View {
             Button("Remove", role: .destructive) { remove() }.accessibilityIdentifier("market.entry.remove.confirm")
         } message: {
             Text(page?.entry.removeLine ?? "")
+        }
+        .confirmationDialog(turningOn?.question ?? "", isPresented: Binding(get: { turningOn != nil }, set: { if !$0 { turningOn = nil } }),
+                            titleVisibility: .visible, presenting: turningOn) { ask in
+            Button(ask.confirm, role: .destructive) {
+                if let install = page?.entry.installed { turnBackOn(install) }
+            }
+            .accessibilityIdentifier("market.entry.turnOn.confirm")
+        } message: { ask in
+            Text(ask.detail)
         }
         .sensoryFeedback(.warning, trigger: removed)
         .accessibilityIdentifier("market.entry")
@@ -155,7 +166,10 @@ struct MarketEntryView: View {
             }
             HStack(spacing: AceDesign.Space.group) {
                 if let turnOn = detail.turnOnWord {
-                    Button(turnOn) { turnBackOn(install) }.buttonStyle(.textAction(.prominent))
+                    Button(turnOn) {
+                        if let ask = detail.turnOnAsk { turningOn = ask } else { turnBackOn(install) }
+                    }
+                    .buttonStyle(.textAction(.prominent))
                         .disabled(!online || busy).accessibilityIdentifier("market.entry.turnOn")
                 }
                 Button("Remove") { removing = true }.buttonStyle(.textAction(.destructive))

@@ -385,12 +385,13 @@ test("an installed Suit's page says where it is and asks before removing it", as
     sourceText: "market.acehq.dev",
     installedNote: "Wear it from ace on your computer.",
     removeQuestion: "Remove Harbour dusk?",
-    removeLine: "It comes off this machine. You can get it again here.",
+    removeLine: "The Suit comes off this machine.",
     turnOnWord: null,
+    turnOnAsk: null,
   });
 });
 
-test("a bot package's remove keeps the bot, and a withdrawn install offers Turn back on", async () => {
+test("the entry page asks as Installed does: a bot package's remove keeps what it brought, a withdrawn install asks first", async () => {
   const { ask } = await market([
     {
       source: "market",
@@ -407,9 +408,16 @@ test("a bot package's remove keeps the bot, and a withdrawn install offers Turn 
   ]);
   const page = await ask({ op: "read", source: "market", type: "spade-bot", name: "inbox" });
   expect(page.entry).toMatchObject({
-    removeQuestion: "Remove Inbox's skills and plugins?",
-    removeLine: "The bot stays yours.",
+    removeQuestion: "Remove Inbox from Installed?",
+    removeLine:
+      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the marketplace.",
     turnOnWord: "Turn back on",
+    turnOnAsk: {
+      question: "Turn Inbox back on?",
+      detail:
+        "Its publisher withdrew it: Broken. It runs again at your own risk, until ace turns it off the next time it reads the market.",
+      confirm: "Turn back on anyway",
+    },
     installedNote: null,
   });
 });

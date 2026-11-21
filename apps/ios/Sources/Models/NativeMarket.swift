@@ -224,8 +224,10 @@ struct MarketEntryPage: Decodable, Equatable {
         /// The remove confirmation's title and line, naming what goes; nil when not installed.
         let removeQuestion: String?
         let removeLine: String?
-        /// "Turn back on" for a withdrawn or turned-off install.
+        /// "Turn back on" (or "Resume") for a withdrawn or turned-off install.
         let turnOnWord: String?
+        /// A withdrawn install comes back only through this question, as Installed asks it.
+        let turnOnAsk: MarketInstalledItem.Ask?
         var key: MarketEntryKey { MarketEntryKey(source: source, type: type, name: name) }
     }
     let offline: Bool

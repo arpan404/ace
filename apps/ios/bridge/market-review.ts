@@ -27,6 +27,7 @@ import {
 } from "@ace/ui-core/market";
 import { updateSentences } from "@ace/ui-core/spade-chat";
 import { initialOf } from "./spade-group-rows.ts";
+import { installedItem } from "./market-installed.ts";
 import { entryRow, installedRow } from "./market-rows.ts";
 
 /*
@@ -48,6 +49,8 @@ export function entryAnswer(result: Result<"read">) {
   const { summary } = entry;
   const action = entryAction(entry);
   const installed = entry.installed;
+  // Remove and Turn back on ask in Installed's words, so both places say the same thing.
+  const item = installed ? installedItem(installed) : undefined;
   return {
     entry: {
       ...entryRow(summary),
@@ -69,17 +72,11 @@ export function entryAnswer(result: Result<"read">) {
       // The phone doesn't wear Suits; the sheet says where it landed first.
       installedNote:
         installed && summary.type === "suit" ? "Wear it from ace on your computer." : null,
-      removeQuestion: installed
-        ? summary.type === "spade-bot"
-          ? `Remove ${summary.title}'s skills and plugins?`
-          : `Remove ${summary.title}?`
-        : null,
-      removeLine: installed
-        ? summary.type === "spade-bot"
-          ? "The bot stays yours."
-          : "It comes off this machine. You can get it again here."
-        : null,
-      turnOnWord: installed && installed.state !== "on" ? "Turn back on" : null,
+      removeQuestion: item?.removeQuestion ?? null,
+      removeLine: item?.removeDetail ?? null,
+      turnOnWord: item?.turnOnWord ?? null,
+      /** A withdrawn entry comes back only through this question. */
+      turnOnAsk: item?.turnOnAsk ?? null,
     },
   };
 }
