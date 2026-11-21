@@ -25,7 +25,7 @@ const chainOf = (...keys: RegistryKeyChain["keys"]): RegistryKeyChain => ({ org,
 const rotated = link({ position: 1, key: second, previous: first, at: at + 1000 });
 
 describe("a registry's key chain", () => {
-  it("verifies from an owner's countersigned first key through each rotation", () => {
+  it("verifies from an owner's attested first key through each rotation", () => {
     const chain = verifyRegistryChain(chainOf(link(), rotated), { grantKeys });
     expect(chain.keys.map((key) => key.id)).toEqual(["acme-1", "acme-2"]);
     expect(chain.current).toEqual(marketPublicKey(second));
@@ -34,14 +34,14 @@ describe("a registry's key chain", () => {
   it.each([
     ["a first key a non-owner added", chainOf(link({ role: "admin" })), /owner/],
     [
-      "a first key countersigned by an unknown backend key",
+      "a first key attested by an unknown backend key",
       chainOf(link({ grantKey: { id: "acct", privateKey: new Uint8Array(32).fill(4) } })),
-      /countersign/,
+      /didn't attest/,
     ],
     [
-      "a first key whose grant named another upload",
-      chainOf({ ...link(), grant: link({ at: at + 5 }).grant }),
-      /another request/,
+      "a first key whose attestation is for another upload",
+      chainOf({ ...link(), attestation: link({ at: at + 5 }).attestation }),
+      /didn't attest/,
     ],
     [
       "a later key the key before it didn't sign",

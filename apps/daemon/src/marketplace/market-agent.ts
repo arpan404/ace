@@ -52,15 +52,16 @@ export interface MarketAgentDeps {
  * its organization's, any other machine the account signed in on it.
  */
 export function membershipOf(
-  account: Pick<MachineAccount, "grantKeys" | "ownerOrg" | "account">,
+  account: Pick<MachineAccount, "grantKeys" | "ownerOrg" | "account" | "relayHostId">,
 ): Membership {
   const org = account.ownerOrg();
+  const hostId = account.relayHostId();
   return {
     keys: account.grantKeys(),
     machine:
       org === undefined
-        ? { kind: "personal", account: account.account()?.id }
-        : { kind: "org-host", org },
+        ? { kind: "personal", account: account.account()?.id, hostId }
+        : { kind: "org-host", org, hostId },
   };
 }
 

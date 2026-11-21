@@ -78,7 +78,14 @@ export const MarketInstalled = z.strictObject({
   /** A bot from a version 3 package: it stays linked, so it updates and rolls back (ADR 0200). */
   linked: z.boolean().optional(),
   /** The version a linked bot had before, kept pinned here so a rollback needs no network. */
-  previous: z.strictObject({ version: z.string().max(64), hash: MarketHash }).optional(),
+  previous: z
+    .strictObject({
+      version: z.string().max(64),
+      hash: MarketHash,
+      /** That version came from this organization's registry (ADR 0206 §5.4). */
+      registry: MarketOrgId.optional(),
+    })
+    .optional(),
   /**
    * An update of a linked bot the person accepted while it worked: Spade applies it when the
    * bot's turn ends. `version` above stays the one running until then.

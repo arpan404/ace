@@ -1,4 +1,4 @@
-import { get, hash, orgId, post, put, versionKey, type Methods } from "./route-keys.ts";
+import { entryKey, get, hash, orgId, post, put, versionKey, type Methods } from "./route-keys.ts";
 
 /*
  * An organization's registry paths, `/v1/orgs/{org}/…` (ADR 0206 §5): its creation and key chain
@@ -20,6 +20,20 @@ export function orgRoutes(rest: readonly string[]): Methods | undefined {
       default:
         return undefined;
     }
+  // A member's reads of the registry: under the organization, so nothing on the public market's
+  // paths ever reaches a registry's row, and membership is decided before anything is read.
+  if (first === "entries") {
+    if (rest.length === 4) {
+      const entry = entryKey(a, b);
+      return entry ? get({ kind: "org-entry", org, ...entry }) : undefined;
+    }
+    const key = rest.length === 5 ? versionKey(a, b, c) : undefined;
+    return key ? get({ kind: "org-version", org, ...key }) : undefined;
+  }
+  if (first === "objects") {
+    const h = rest.length === 3 ? hash(a) : undefined;
+    return h ? get({ kind: "org-object", org, hash: h }) : undefined;
+  }
   if (first !== "signer") return undefined;
   if (rest.length === 3) {
     if (a === "pending") return get({ kind: "org-signer-pending", org });

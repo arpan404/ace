@@ -20,17 +20,17 @@ CREATE TABLE registry_publishers (
   PRIMARY KEY (org, account)
 ) STRICT;
 
--- The registry's signing keys, first first (§5.3). `upload` is the owner's request body exactly
--- as sent, and `grant` the owner's market grant that named its digest: the account backend's
--- countersignature, which devices check again. A new first key replaces the whole chain (a
--- reset, which every device asks about again).
+-- The registry's signing keys, first first (§5.3). `upload` is the key's statement exactly as the
+-- owner sent it, and `attestation` the account backend's signed word that an owner added it: it
+-- authorizes nothing, so serving it hands out no credential, and devices check it again. A new
+-- first key replaces the whole chain (a reset, which every device asks about again).
 CREATE TABLE registry_keys (
   org TEXT NOT NULL REFERENCES registries (org),
   position INTEGER NOT NULL,
   key_id TEXT NOT NULL,
   public_key TEXT NOT NULL,
   upload TEXT NOT NULL,
-  grant_token TEXT NOT NULL,
+  attestation TEXT NOT NULL,
   added_by TEXT NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (org, position)

@@ -28,6 +28,7 @@ import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
 import { bytesJson, packageAsksMore } from "./package-diff.ts";
 import { checkFiles, panelPageTexts } from "@ace/marketplace/checks";
 import { badgesOf, type Trust } from "./trust.ts";
+import type { RegistryReview } from "./org-registry.ts";
 
 /*
  * The reviews the service holds open between `prepare` and `install` (ADR 0168): each names the
@@ -72,9 +73,18 @@ export class OpenReviews {
     this.#ports = ports;
   }
 
-  /** The organization whose registry the open review `id` installs from, if any. */
-  registryOf(id: string): string | undefined {
-    return this.#pending.get(id)?.review.registry;
+  /** What the open review `id` installs from an organization's registry, if it does. */
+  registryReview(id: string): RegistryReview | undefined {
+    const review = this.#pending.get(id)?.review;
+    if (!review?.registry) return undefined;
+    return {
+      org: review.registry,
+      type: review.type,
+      name: review.name,
+      version: review.version,
+      hash: review.hash,
+      signedManifest: review.signedManifest,
+    };
   }
 
   /** One page of an open review's items. */
@@ -157,7 +167,11 @@ export class OpenReviews {
    * A review of the version a linked bot had before (ADR 0200 §6.1), from the bytes pinned here:
    * checked again, and needing no network. Installing it is the person's, as an update is.
    */
-  async prepareRollback(install: StoredInstall): Promise<MarketResult> {
+  async prepareRollback(
+    install: StoredInstall,
+    /** The registry the earlier version came from, once its checks passed (ADR 0206 §5.4). */
+    registry?: string,
+  ): Promise<MarketResult> {
     const { store } = this.#ports;
     if (install.type !== "spade-bot" || !install.linked || !install.target)
       return error("invalid", "Only a bot from a version 3 package rolls back");
@@ -186,6 +200,7 @@ export class OpenReviews {
       byAce: false,
       checked,
       previous: { version: install.version, files: current },
+      ...(registry ? { registry } : {}),
     };
     return this.#open(entry, [], { bot: install.target, rollback: true });
   }

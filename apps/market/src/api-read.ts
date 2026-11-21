@@ -5,15 +5,8 @@ import { entryPage, featuredEntries, indexBody, parseSince, searchInput } from "
 import { etagOf, failure, notFound } from "./http.ts";
 import { searchSort, searchSorted } from "./store/discover.ts";
 import { countDownload } from "./store/downloads.ts";
-import {
-  categories,
-  listedWithHash,
-  signedVersion,
-  withdrawnList,
-  type ListedCopy,
-} from "./store/read.ts";
-import { mayRead, privateHeaders } from "./registry-access.ts";
-import { audienceOf } from "./store/registries.ts";
+import { categories, listedWithHash, signedVersion, withdrawnList } from "./store/read.ts";
+import { privateHeaders } from "./registry-access.ts";
 
 /*
  * The catalog API (ADR 0168 §3, ADR 0174 §6): no sign-in, no cookie, and nothing kept about who
@@ -28,7 +21,7 @@ const revalidate = { "cache-control": "public, max-age=0, must-revalidate" };
  * JSON with a strong ETag; 304 when the caller already has these bytes. A registry's answer
  * (`members`) is never kept by a shared cache.
  */
-async function tagged(request: Request, body: unknown, members = false): Promise<Response> {
+export async function tagged(request: Request, body: unknown, members = false): Promise<Response> {
   const text = JSON.stringify(body);
   const etag = await etagOf(text);
   const headers = { ...(members ? privateHeaders : revalidate), etag };
@@ -69,62 +62,41 @@ export async function readRoute(
         entries: entries.map((entry) => ({ type: entry.type, name: entry.name })),
       });
     }
+    // A public name is never a registry's stored one: these reach the public market only.
     case "entry": {
-      const audience = await readable(request, route, context);
-      if (audience === undefined) return notFound();
       const page = await entryPage(dbs, route.type, route.name);
       if (!page) return notFound();
       const { row: _row, ...body } = page;
-      return tagged(request, body, audience !== "public");
+      return tagged(request, body);
     }
     case "version": {
       const db = dbs.catalogue(route.type);
-      const audience = await readable(request, route, context);
-      const signed = db && audience !== undefined ? await signedVersion(db, route) : undefined;
-      return signed ? tagged(request, signed, audience !== "public") : notFound();
+      const signed = db ? await signedVersion(db, route) : undefined;
+      return signed ? tagged(request, signed) : notFound();
     }
     case "withdrawn": {
       const list = await withdrawnList(dbs.lists);
       return list ? tagged(request, list.signed) : notFound();
     }
     case "object":
-      return object(request, route.hash, context);
+      return object(request, route.hash, "public", context);
     default:
       return undefined;
   }
 }
 
 /**
- * The entry's audience when this request may read it; undefined for no entry or one of a
- * registry the caller isn't a member of, which read alike.
+ * An archive by its hash, for `audience`'s readers: the public market's, or a registry's, whose
+ * route has authorized its member first.
  */
-async function readable(
+export async function object(
   request: Request,
-  key: { type: string; name: string },
+  hash: string,
+  audience: string,
   context: Context,
-): Promise<string | undefined> {
-  const db = context.dbs.catalogue(key.type);
-  const audience = db ? await audienceOf(db, key.type, key.name) : undefined;
-  if (audience === undefined) return undefined;
-  return (await mayRead(request, context, audience)) ? audience : undefined;
-}
-
-/** The copies this request may read: every public one, and a registry's for its members. */
-async function readableCopies(request: Request, copies: ListedCopy[], context: Context) {
-  if (copies.some((copy) => copy.audience === "public")) return { copies, members: false };
-  const audiences = [...new Set(copies.map((copy) => copy.audience))];
-  const allowed = new Set<string>();
-  for (const audience of audiences)
-    if (await mayRead(request, context, audience)) allowed.add(audience);
-  return { copies: copies.filter((copy) => allowed.has(copy.audience)), members: true };
-}
-
-async function object(request: Request, hash: string, context: Context): Promise<Response> {
-  const { copies, members } = await readableCopies(
-    request,
-    await listedWithHash(context.dbs, hash),
-    context,
-  );
+): Promise<Response> {
+  const copies = await listedWithHash(context.dbs, hash, audience);
+  const members = audience !== "public";
   if (copies.length === 0) return notFound();
   const headers = {
     "content-type": "application/x-tar",

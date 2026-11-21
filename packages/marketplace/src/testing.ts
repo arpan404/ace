@@ -4,9 +4,13 @@ import type {
   MarketPublisher,
   Signed,
 } from "@ace/protocol/marketplace";
-import { GRANT_LIFETIME_MS, signMarketGrant, type GrantSigningKey } from "@ace/account-grant";
+import {
+  signRegistryKeyAttestation,
+  type GrantSigningKey,
+  policyBodySha256,
+} from "@ace/account-grant";
 import { writeArchive, type ArchiveFile } from "./archive.ts";
-import { registryKeyAction, signRegistryKey } from "./registry.ts";
+import { signRegistryKey } from "./registry.ts";
 import { contentHash, hashFiles } from "./hash.ts";
 import {
   marketPublicKey,
@@ -264,8 +268,9 @@ export function signedWithdrawn(
 }
 
 /**
- * A registry key as the market serves it (ADR 0206 §5.3): the upload, signed by the key and, after
- * the first, by `previous`, with an owner's grant naming it, signed by `grantKey`.
+ * A registry key as an owner sends it and the market serves it (ADR 0206 §5.3): the upload,
+ * signed by the key and, after the first, by `previous`, with the account backend's attestation
+ * of it, signed by `grantKey`.
  */
 export function registryLink(input: {
   org: string;
@@ -275,10 +280,9 @@ export function registryLink(input: {
   owner: string;
   at: number;
   grantKey: GrantSigningKey;
-  /** The owner's role as the grant carries it; `owner` unless a test says otherwise. */
+  /** The owner's role as the attestation names it; `owner` unless a test says otherwise. */
   role?: string;
-  issuer?: string;
-}): { upload: string; grant: string } {
+}): { upload: string; attestation: string } {
   const own = marketPublicKey(input.key);
   const upload = JSON.stringify(
     signRegistryKey(
@@ -296,21 +300,15 @@ export function registryLink(input: {
       input.previous,
     ),
   );
-  const grant = signMarketGrant(
+  const attestation = signRegistryKeyAttestation(
     {
-      kind: "device",
-      account: input.owner,
-      subject: "owner-laptop",
-      iss: input.issuer ?? "cloud.acehq.dev",
-      emailVerified: true,
-      authAt: input.at,
-      iat: input.at,
-      exp: input.at + GRANT_LIFETIME_MS,
-      action: registryKeyAction(input.org, upload),
       org: input.org,
-      orgRole: input.role ?? "owner",
+      upload_sha256: policyBodySha256(upload),
+      account: input.owner,
+      role: input.role ?? "owner",
+      at: input.at,
     },
     input.grantKey,
   );
-  return { upload, grant };
+  return { upload, attestation };
 }

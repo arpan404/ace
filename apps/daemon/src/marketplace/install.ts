@@ -448,7 +448,16 @@ async function installIn(
       target: bot,
       linked: true,
       ...signedRecord(before),
-      ...(before ? { previous: { version: before.version, hash: before.hash } } : {}),
+      // Where the version before came from goes with it, so a rollback is checked as its source.
+      ...(before
+        ? {
+            previous: {
+              version: before.version,
+              hash: before.hash,
+              ...(before.registry ? { registry: before.registry } : {}),
+            },
+          }
+        : {}),
     });
     // Held for the end of the bot's turn: the record stays the version Spade runs, and says
     // which one waits (ADR 0200 §6.1). It becomes `next` once Spade runs it.

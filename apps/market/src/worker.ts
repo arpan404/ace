@@ -4,6 +4,7 @@ import { signerRoute } from "./api-signer.ts";
 import { discoverRoute } from "./api-discover.ts";
 import { maintainerRoute } from "./api-maintainers.ts";
 import { meRoute } from "./api-me.ts";
+import { orgReadRoute } from "./api-org-reads.ts";
 import { orgSignerRoute } from "./api-org-signer.ts";
 import { orgRoute } from "./api-orgs.ts";
 import { profileRoute } from "./api-profiles.ts";
@@ -70,6 +71,7 @@ async function dispatch(
       return (
         (await meRoute(request, url, route, context)) ??
         (await orgRoute(request, route, context)) ??
+        (await orgReadRoute(request, route, context)) ??
         (await orgSignerRoute(request, route, context)) ??
         (await profileRoute(request, route, context)) ??
         (await signerRoute(request, route, context)) ??

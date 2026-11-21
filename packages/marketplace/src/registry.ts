@@ -2,10 +2,9 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import {
   GrantError,
-  MARKET_GRANT_ISSUER,
   decodeBase64url,
   encodeBase64url,
-  verifyMarketGrantSignature,
+  verifyRegistryKeyAttestation,
   type GrantKeySet,
 } from "@ace/account-grant";
 import { orgAllows } from "@ace/account-grant/org-roles";
@@ -28,9 +27,9 @@ import {
  * An organization's private registry (ADR 0206 §5): the key chain devices pin, and the proofs
  * its signer sends. Pure: keys, clocks and grant keys come in as arguments.
  *
- * The chain's first key is published by an owner from the person's own session: the owner's
- * market grant names the exact upload (`POST /v1/orgs/{org}/keys <sha256>`), so the account
- * backend's signature on that grant countersigns the key. Each later key is signed by the key
+ * The chain's first key is published by an owner from the person's own session, with the account
+ * backend's attestation of its exact upload: a statement that authorizes nothing, so the chain
+ * the market serves holds no credential. Each later key is signed by the key
  * before it. Every key also signs its own statement, so whoever published it held its private
  * half.
  */
@@ -42,7 +41,7 @@ export class RegistryChainError extends Error {
 const encoder = new TextEncoder();
 const keyLabel = "ace-registry-key-v1";
 const requestLabel = "ace-registry-request-v1";
-/** How long before an owner's grant its key statement may have been written. */
+/** How long before its attestation a key statement may have been written. */
 const statementLeadMs = 10 * 60_000;
 /** How far a signer's request time may be from the market's clock. */
 export const registryRequestSkewMs = 5 * 60_000;
@@ -51,10 +50,6 @@ const keyText = (statement: RegistryKeyStatement) =>
   encoder.encode(`${keyLabel}\n${canonicalJson(statement)}`);
 
 const sha256Url = (bytes: Uint8Array) => encodeBase64url(sha256(bytes));
-
-/** The market request an owner's grant names to publish this upload text (ADR 0190). */
-export const registryKeyAction = (org: string, upload: string) =>
-  `POST /v1/orgs/${org}/keys ${sha256Url(encoder.encode(upload))}`;
 
 function verifies(signature: string, message: Uint8Array, publicKey: string): boolean {
   try {
@@ -107,31 +102,27 @@ export function readRegistryKeyUpload(text: string): RegistryKeyUpload {
 }
 
 /**
- * Whether `grant` is the backend's countersignature of the first key's `upload`: a market grant
- * for an owner of the organization (`registry:key`), from the account that added the key, that
- * named this very upload, minted within minutes of when the statement says it was made.
+ * Whether `attestation` is the account backend's word for the first key's `upload`: made for an
+ * owner of the organization (`registry:key`), the account that added the key, over this very
+ * upload, within minutes after the statement says it was written.
  */
-export function countersignProblem(
-  input: { org: string; upload: string; grant: string; statement: RegistryKeyStatement },
+export function attestationProblem(
+  input: { org: string; upload: string; attestation: string; statement: RegistryKeyStatement },
   grantKeys: GrantKeySet,
-  issuer: string = MARKET_GRANT_ISSUER,
 ): string | undefined {
-  let claims;
+  let attested;
   try {
-    claims = verifyMarketGrantSignature(input.grant, grantKeys);
+    attested = verifyRegistryKeyAttestation(input.attestation, grantKeys, input.upload);
   } catch (error) {
-    if (error instanceof GrantError) return "the account service didn't countersign it";
+    if (error instanceof GrantError) return "the account service didn't attest it";
     throw error;
   }
-  if (claims.iss !== issuer) return "the account service didn't countersign it";
-  if (claims.org !== input.org || !orgAllows(claims.orgRole ?? "", "registry:key"))
+  if (attested.org !== input.org || !orgAllows(attested.role, "registry:key"))
     return "it wasn't added by an owner of the organization";
-  if (claims.account !== input.statement.addedBy) return "it names another owner";
-  if (claims.action !== registryKeyAction(input.org, input.upload))
-    return "the countersignature is for another request";
-  // The statement is written first, then the grant naming its digest is minted.
-  if (input.statement.at < claims.iat - statementLeadMs || input.statement.at > claims.exp)
-    return "it was made long before or after its countersignature";
+  if (attested.account !== input.statement.addedBy) return "it names another owner";
+  // The statement is written first, then attested.
+  if (input.statement.at > attested.at || attested.at - input.statement.at > statementLeadMs)
+    return "it was attested long before or after it was made";
   return undefined;
 }
 
@@ -147,13 +138,13 @@ export interface VerifiedChain {
 }
 
 /**
- * The chain checked from its first key: each key proved by itself, the first countersigned by
- * an owner's grant (skipped when `trustedFirst` is that very upload, which this device already
+ * The chain checked from its first key: each key proved by itself, the first attested by the
+ * account backend for an owner (skipped when `trustedFirst` is that very upload, which this device already
  * checked and pinned), each later one signed by the key before it. Throws `RegistryChainError`.
  */
 export function verifyRegistryChain(
   chain: RegistryKeyChain,
-  options: { grantKeys: GrantKeySet; issuer?: string; trustedFirst?: string },
+  options: { grantKeys: GrantKeySet; trustedFirst?: string },
 ): VerifiedChain {
   const statements: RegistryKeyStatement[] = [];
   const keys: MarketKeySet["keys"] = [];
@@ -167,10 +158,9 @@ export function verifyRegistryChain(
     const before = keys[position - 1];
     if (!before) {
       if (link.upload !== options.trustedFirst) {
-        const problem = countersignProblem(
-          { org: chain.org, upload: link.upload, grant: link.grant, statement },
+        const problem = attestationProblem(
+          { org: chain.org, upload: link.upload, attestation: link.attestation, statement },
           options.grantKeys,
-          options.issuer,
         );
         if (problem)
           throw new RegistryChainError(`The registry's first key is refused: ${problem}`);

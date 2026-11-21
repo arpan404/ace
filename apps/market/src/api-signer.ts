@@ -99,7 +99,8 @@ export async function signerRoute(
       });
     }
     case "signer-object": {
-      if (!(await hashIsStored(dbs, route.hash))) return notFound();
+      // Only the public market's bytes: a registry's are its own signer's to read.
+      if (!(await hashIsStored(dbs, route.hash, "public"))) return notFound();
       const stored = await context.env.OBJECTS.get(objectKey(route.hash));
       return stored
         ? new Response(stored.body, { headers: { "content-type": "application/x-tar" } })

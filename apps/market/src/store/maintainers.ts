@@ -12,6 +12,7 @@ import { syncPublisher } from "./copies.ts";
 import { fromCatalogues, type Databases } from "./databases.ts";
 import { bumpGeneration, refreshEntry } from "./entries.ts";
 import { markUsageDirty } from "./me-limits.ts";
+import { audienceOrg, shownName } from "./registries.ts";
 import { pendingListingOf, type EntryTable } from "./rows.ts";
 
 /*
@@ -42,6 +43,7 @@ type HeldRow = Key & {
   publisher_name: string;
   created: number;
   live_versions: number;
+  audience: string;
 };
 type AppealRow = {
   id: string;
@@ -79,7 +81,7 @@ export async function queue(dbs: Databases, bucket: R2Bucket, now: number): Prom
       const { results } = await db
         .prepare(
           `SELECT v.type, v.name, v.version, v.hash, v.published, p.id AS publisher_id,
-              p.name AS publisher_name, p.created, p.live_versions
+              p.name AS publisher_name, p.created, p.live_versions, e.audience
             FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
             JOIN publisher_copies p ON p.id = e.publisher
             WHERE v.state = 'held' ORDER BY v.published LIMIT ${queueLimit}`,
@@ -153,7 +155,9 @@ export async function queue(dbs: Databases, bucket: R2Bucket, now: number): Prom
       const scan = reports[index];
       const item: Queue["held"][number] = {
         type: row.type as Queue["held"][number]["type"],
-        name: row.name,
+        // A registry's version shows its own name and the organization: a maintainer releases
+        // it with `?registry=<org>`.
+        name: shownName(row.name),
         version: row.version,
         hash: row.hash,
         publisher: { id: row.publisher_id, name: row.publisher_name },
@@ -163,6 +167,8 @@ export async function queue(dbs: Databases, bucket: R2Bucket, now: number): Prom
         ),
         published: row.published,
       };
+      const registry = audienceOrg(row.audience);
+      if (registry) item.registry = registry;
       if (scan) item.scan = scan;
       return item;
     }),
@@ -209,7 +215,16 @@ export async function queue(dbs: Databases, bucket: R2Bucket, now: number): Prom
   };
 }
 
-export async function scanContext(dbs: Databases, now: number): Promise<MarketScanContextBody> {
+/**
+ * What a signer's scan compares with: the public market's entries, and for an organization's
+ * signer its own registry's (`audiences`), never another organization's names, publishers or
+ * totals.
+ */
+export async function scanContext(
+  dbs: Databases,
+  now: number,
+  audiences: readonly string[] = ["public"],
+): Promise<MarketScanContextBody> {
   const [entries, publishers, live] = await Promise.all([
     fromCatalogues(dbs, async ({ db }) => {
       const { results } = await db
@@ -218,10 +233,12 @@ export async function scanContext(dbs: Databases, now: number): Promise<MarketSc
               (SELECT COALESCE(SUM(v.counted), 0) FROM versions v
                 WHERE v.type = e.type AND v.name = e.name) AS downloads
             FROM entries e JOIN publisher_copies p ON p.id = e.publisher
+            WHERE e.audience IN (SELECT value FROM json_each(?1))
             ORDER BY e.type, e.name LIMIT 50000`,
         )
+        .bind(JSON.stringify(audiences))
         .all<{ type: string; name: string; publisher: string; downloads: number }>();
-      return results;
+      return results.map((row) => Object.assign(row, { name: shownName(row.name) }));
     }),
     dbs.publishers
       .prepare("SELECT id, name, display_name, verified, created FROM publishers LIMIT 50000")

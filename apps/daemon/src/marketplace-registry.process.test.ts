@@ -4,10 +4,12 @@ import {
   GRANT_LIFETIME_MS,
   encodeBase64url,
   grantPublicKey,
+  policyBodySha256,
   signMarketGrant,
+  signRegistryKeyAttestation,
 } from "@ace/account-grant";
 import { writeArchive, type ArchiveFile } from "@ace/marketplace";
-import { folder, keySetOf, registryLink, testKey } from "@ace/marketplace/testing";
+import { folder, keySetOf, registryLink, samplePackage, testKey } from "@ace/marketplace/testing";
 import { marketKey, signerToken, startMarketWorker, type MarketWorker } from "@ace/market/testing";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import type { MarketRequestPorts } from "./marketplace/options.ts";
@@ -27,20 +29,29 @@ import { freshSeed, makeRegistryKey, signRegistry } from "./org-registry/signer.
 
 const org = "org_01ACME";
 const owner = "user_owner";
+/** This org host's id, and another host of the same organization. */
+const host = "HOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const otherHost = "HOSTBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const backend = { id: "backend", privateKey: new Uint8Array(32).fill(5) };
 const backendKeys = { keys: [grantPublicKey(backend)] };
 
-/** A market grant the account backend mints, acting in `inOrg` with `orgRole`. */
+/** A market grant the account backend mints, acting in `inOrg` with `orgRole`, for `subject`. */
 function grant(
   account: string,
-  options: { orgRole?: string; inOrg?: string; action?: string; iat?: number } = {},
+  options: {
+    orgRole?: string;
+    inOrg?: string;
+    action?: string;
+    iat?: number;
+    subject?: string;
+  } = {},
 ) {
   const iat = options.iat ?? Date.now();
   return signMarketGrant(
     {
       kind: options.action ? "device" : "machine",
       account,
-      subject: "laptop",
+      subject: options.subject ?? host,
       iss: "cloud.acehq.dev",
       emailVerified: true,
       authAt: iat,
@@ -56,6 +67,16 @@ function grant(
 /** What a person's grant names for one request (ADR 0190). */
 const intent = (method: string, path: string, body: string) =>
   `${method} ${path} ${encodeBase64url(createHash("sha256").update(body).digest())}`;
+
+/** An owner's POST from their own session: the grant names this very body. */
+const asOwner = (path: string, body: string) =>
+  market.fetch(path, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${grant(owner, { orgRole: "owner", action: intent("POST", path, body) })}`,
+    },
+    body,
+  });
 
 function suit(description: string): ArchiveFile[] {
   return folder({
@@ -93,8 +114,9 @@ const loop = () =>
     delay: () => () => {},
   });
 
-async function publishVersion(version: string, files: ArchiveFile[]) {
-  const published = await market.fetch(`/v1/publish/suit/acme-slate/versions?version=${version}`, {
+/** An admin publishes a version to the registry; ace's maintainers release any hold; it's signed. */
+async function publishVersion(type: string, name: string, version: string, files: ArchiveFile[]) {
+  const published = await market.fetch(`/v1/publish/${type}/${name}/versions?version=${version}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${grant("user_admin", { orgRole: "admin" })}`,
@@ -103,14 +125,14 @@ async function publishVersion(version: string, files: ArchiveFile[]) {
     body: new Uint8Array(writeArchive(files)),
   });
   expect(published.status).toBe(201);
-  // ace's maintainers release a hold the scan made; nothing to release is fine too.
-  await market.fetch(`/v1/signer/holds/suit/acme-slate/${version}`, {
+  // Nothing to release is fine too.
+  await market.fetch(`/v1/signer/holds/${type}/${name}/${version}?registry=${org}`, {
     method: "PUT",
     headers: { authorization: `Bearer ${signerToken}`, "content-type": "application/json" },
     body: JSON.stringify({ decision: "approve" }),
   });
   const report = await loop().runOnce();
-  expect(report?.signed).toContain(`suit/acme-slate@${version}`);
+  expect(report?.signed).toContain(`${type}/${name}@${version}`);
 }
 
 const member = { orgRole: "member" };
@@ -119,14 +141,12 @@ const answer = (body: unknown) =>
   Promise.resolve(
     new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } }),
   );
-const onOrgHost = { keys: backendKeys, machine: { kind: "org-host" as const, org } };
+const onOrgHost = { keys: backendKeys, machine: { kind: "org-host" as const, org, hostId: host } };
 const request = (operation: MarketOperation, ports: MarketRequestPorts = {}) =>
   harness.service.request(operation, ports);
+const memberGrant = (subject = host) => grant("user_member", { ...member, iat: start, subject });
 const asMember = (operation: MarketOperation): Promise<MarketResult> =>
-  request(operation, {
-    orgGrant: grant("user_member", { ...member, iat: start }),
-    membership: onOrgHost,
-  });
+  request(operation, { orgGrant: memberGrant(), membership: onOrgHost });
 const errorOf = (result: MarketResult) => (result.op === "error" ? result : undefined);
 const prepare = {
   op: "prepare",
@@ -135,21 +155,26 @@ const prepare = {
   name: "acme-slate",
   registry: org,
 } as const;
+const installOf = (id: string, hash: string): MarketOperation => ({
+  op: "install",
+  id,
+  hash,
+  choices: { bots: [], needs: {}, startRoutines: false },
+});
+const installed = async (name: string) => {
+  const list = await request({ op: "installed" });
+  return list.op === "installed" ? list.installed.find((each) => each.name === name) : undefined;
+};
+const chainPath = `/v1/orgs/${org}/keys`;
 let firstKey = "";
 
 beforeAll(async () => {
   market = await startMarketWorker({ grantKeys: [grantPublicKey(backend)] });
-  const created = JSON.stringify({ handle: "acme" });
-  const path = `/v1/orgs/${org}/registry`;
-  const opened = await market.fetch(path, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${grant(owner, { orgRole: "owner", action: intent("POST", path, created) })}`,
-    },
-    body: created,
-  });
-  expect(opened.status).toBe(201);
-  // The key is made in the org host's keychain; an owner publishes the upload from their app.
+  expect(
+    (await asOwner(`/v1/orgs/${org}/registry`, JSON.stringify({ handle: "acme" }))).status,
+  ).toBe(201);
+  // The key is made in the org host's keychain; an owner publishes the upload from their app,
+  // with the account backend's attestation of it.
   const made = await makeRegistryKey(signerDeps(), {
     org,
     owner,
@@ -157,16 +182,19 @@ beforeAll(async () => {
     seed: freshSeed(),
   });
   firstKey = made.key.id;
-  const keys = `/v1/orgs/${org}/keys`;
-  const published = await market.fetch(keys, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${grant(owner, { orgRole: "owner", action: intent("POST", keys, made.upload) })}`,
+  const attestation = signRegistryKeyAttestation(
+    {
+      org,
+      upload_sha256: policyBodySha256(made.upload),
+      account: owner,
+      role: "owner",
+      at: Date.now(),
     },
-    body: made.upload,
-  });
+    backend,
+  );
+  const published = await asOwner(chainPath, JSON.stringify({ upload: made.upload, attestation }));
   expect(published.status).toBe(201);
-  await publishVersion("1.0.0", suit("Slate panels for Acme."));
+  await publishVersion("suit", "acme-slate", "1.0.0", suit("Slate panels for Acme."));
   spade = await fakeSpade();
   start = Date.now();
   harness = await marketplaceHarness({ origin: market.origin, spade, clock: start });
@@ -187,27 +215,23 @@ describe("a package from an organization's registry", () => {
     const review = await asMember({ ...prepare, trustKey: firstKey });
     if (review.op !== "review") throw new Error(JSON.stringify(review));
     // The install needs membership at that moment too, not only at the review.
-    const install: MarketOperation = {
-      op: "install",
-      id: review.review.id,
-      hash: review.review.hash,
-      choices: { bots: [], needs: {}, startRoutines: false },
-    };
+    const install = installOf(review.review.id, review.review.hash);
     expect(errorOf(await request(install, { membership: onOrgHost }))?.code).toBe("not_member");
     expect((await asMember(install)).op).toBe("done");
-    const installed = await request({ op: "installed" });
-    expect(installed.op === "installed" && installed.installed).toEqual([
-      expect.objectContaining({ name: "acme-slate", version: "1.0.0", registry: org, state: "on" }),
-    ]);
+    expect(await installed("acme-slate")).toMatchObject({
+      version: "1.0.0",
+      registry: org,
+      state: "on",
+    });
   });
 
   it("is refused on a machine whose account isn't a member, even with a member's grant copied to it", async () => {
     const elsewhere = {
       keys: backendKeys,
-      machine: { kind: "personal" as const, account: "user_out" },
+      machine: { kind: "personal" as const, account: "user_out", hostId: host },
     };
     for (const orgGrant of [
-      grant("user_member", { ...member, iat: start }),
+      memberGrant(),
       grant("user_out", { orgRole: "owner", inOrg: "org_01OTHER", iat: start }),
       undefined,
     ]) {
@@ -221,14 +245,42 @@ describe("a package from an organization's registry", () => {
     }
   });
 
+  it("is authorized for this machine only, and checked again against the chain inside the install queue", async () => {
+    // A member's grant asked for another of the organization's hosts proves nothing here.
+    const forOtherHost = { orgGrant: memberGrant(otherHost), membership: onOrgHost };
+    expect(errorOf(await request(prepare, forOtherHost))?.code).toBe("not_member");
+    const review = await asMember(prepare);
+    if (review.op !== "review") throw new Error(JSON.stringify(review));
+    const install = installOf(review.review.id, review.review.hash);
+    expect(errorOf(await request(install, forOtherHost))?.code).toBe("not_member");
+    // The chain reset after the review: the install doesn't follow it silently.
+    const served = await (
+      await market.fetch(chainPath, {
+        headers: { authorization: `Bearer ${grant("user_member", member)}` },
+      })
+    ).json();
+    const reset = registryLink({
+      org,
+      position: 0,
+      key: testKey("acme-reset", 42),
+      owner,
+      at: Date.now(),
+      grantKey: backend,
+    });
+    harness.hooks.respond = (url) =>
+      url.endsWith(chainPath) ? answer({ ...(served as object), keys: [reset] }) : undefined;
+    expect(errorOf(await asMember(install))?.code).toBe("registry_trust");
+    harness.hooks.respond = undefined;
+    await request({ op: "cancel", id: review.review.id });
+  });
+
   it("is refused from a key chain that doesn't verify, and a reset first key is asked about again", async () => {
-    const chainPath = `/v1/orgs/${org}/keys`;
     const served = (await (
       await market.fetch(chainPath, {
         headers: { authorization: `Bearer ${grant("user_member", member)}` },
       })
-    ).json()) as { org: string; publisher: unknown; keys: { upload: string; grant: string }[] };
-    // A first key countersigned for an admin, not an owner: the chain is broken.
+    ).json()) as { org: string; publisher: unknown; keys: unknown[] };
+    // A first key attested for an admin, not an owner: the chain is broken.
     const forged = registryLink({
       org,
       position: 0,
@@ -261,15 +313,57 @@ describe("a package from an organization's registry", () => {
     harness.hooks.respond = undefined;
   });
 
-  it("stops updating when the member leaves, keeps what was installed, and resumes for a member again", async () => {
-    await publishVersion("1.1.0", suit("Slate panels for Acme, darker."));
-    const refreshed = await asMember({ op: "registryRefresh", registry: org });
-    expect(refreshed.op === "installed" && refreshed.installed[0]).toMatchObject({
-      update: "1.1.0",
+  it("rolls a linked bot back only as its registry's, for a member, keeping where each version came from", async () => {
+    await publishVersion("spade-bot", "flight-watcher", "1.0.0", samplePackage());
+    const first = await asMember({ ...prepare, type: "spade-bot", name: "flight-watcher" });
+    if (first.op !== "review") throw new Error(JSON.stringify(first));
+    const choices = {
+      bots: [],
+      needs: {},
+      startRoutines: false,
+      effects: { "network:hosts:api.example-fares.com": true, send_as_person: false },
+    };
+    const installFirst = {
+      op: "install",
+      id: first.review.id,
+      hash: first.review.hash,
+      choices,
+    } as const;
+    expect((await asMember(installFirst)).op).toBe("done");
+    await publishVersion("spade-bot", "flight-watcher", "2.0.0", samplePackage({ task: "kept" }));
+    await asMember({ op: "registryRefresh", registry: org });
+    const update = await asMember({
+      op: "prepareUpdate",
+      type: "spade-bot",
+      name: "flight-watcher",
+    });
+    if (update.op !== "review") throw new Error(JSON.stringify(update));
+    expect((await asMember(installOf(update.review.id, update.review.hash))).op).toBe("done");
+    expect(await installed("flight-watcher")).toMatchObject({
+      version: "2.0.0",
+      registry: org,
+      previous: { version: "1.0.0", registry: org },
     });
 
-    const left = await request({ op: "registryLeft", registry: org });
-    const kept = left.op === "installed" ? left.installed[0] : undefined;
+    const rollback = { op: "prepareRollback", type: "spade-bot", name: "flight-watcher" } as const;
+    expect(errorOf(await request(rollback, { membership: onOrgHost }))?.code).toBe("not_member");
+    const back = await asMember(rollback);
+    if (back.op !== "review") throw new Error(JSON.stringify(back));
+    expect(
+      errorOf(await request(installOf(back.review.id, back.review.hash), { membership: onOrgHost }))
+        ?.code,
+    ).toBe("not_member");
+    expect((await asMember(installOf(back.review.id, back.review.hash))).op).toBe("done");
+    expect(await installed("flight-watcher")).toMatchObject({ version: "1.0.0", registry: org });
+  });
+
+  it("stops updating when the member leaves, keeps what was installed, and resumes for a member again", async () => {
+    await publishVersion("suit", "acme-slate", "1.1.0", suit("Slate panels for Acme, darker."));
+    await asMember({ op: "registryRefresh", registry: org });
+    expect(await installed("acme-slate")).toMatchObject({ update: "1.1.0" });
+
+    await request({ op: "registryLeft", registry: org });
+    const kept = await installed("acme-slate");
     expect(kept).toMatchObject({ version: "1.0.0", state: "on", registry: org });
     expect(kept?.update).toBeUndefined();
     expect(kept?.updatesStopped).toMatch(/no longer a member/);
@@ -278,8 +372,8 @@ describe("a package from an organization's registry", () => {
     const update = { op: "prepareUpdate", type: "suit", name: "acme-slate" } as const;
     expect(errorOf(await request(update, { membership: onOrgHost }))?.code).toBe("not_member");
 
-    const back = await asMember({ op: "registryRefresh", registry: org });
-    const resumed = back.op === "installed" ? back.installed[0] : undefined;
+    await asMember({ op: "registryRefresh", registry: org });
+    const resumed = await installed("acme-slate");
     expect(resumed?.updatesStopped).toBeUndefined();
     expect(resumed?.update).toBe("1.1.0");
     expect((await asMember(update)).op).toBe("review");

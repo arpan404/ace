@@ -4,10 +4,12 @@ import {
   verifyMarketGrant,
   type GrantKeySet,
 } from "@ace/account-grant";
+import { SignatureError } from "@ace/marketplace";
 import {
   RegistryChainError,
   chainStanding,
   verifyRegistryChain,
+  verifyRegistryManifest,
   type RegistryPin,
   type VerifiedChain,
 } from "@ace/marketplace/registry";
@@ -26,10 +28,13 @@ import type { MarketStore, StoredInstall } from "./store.ts";
  * updates stopped.
  */
 
-/** Who this machine answers to: a person's own machine, or an organization's host. */
+/**
+ * Who this machine answers to, a person's own machine or an organization's host, and its host
+ * id: a member's grant names the machine it was asked for (`subject`), and is good there only.
+ */
 export type RegistryMachine =
-  | { kind: "personal"; account: string | undefined }
-  | { kind: "org-host"; org: string };
+  | { kind: "personal"; account: string | undefined; hostId: string | undefined }
+  | { kind: "org-host"; org: string; hostId: string | undefined };
 
 /** What checking a member's grant needs: the backend's pinned keys and who this machine is. */
 export interface Membership {
@@ -78,6 +83,11 @@ export function membershipProblem(
   }
   if (claims.org !== org) return "That membership check is for another organization.";
   const machine = membership.machine;
+  // Asked for another machine, even another of the organization's hosts, it proves nothing here.
+  if (machine.hostId === undefined || claims.subject !== machine.hostId)
+    return "That membership check was made for another machine.";
+  // One naming a single market request is that request's alone.
+  if (claims.action !== undefined) return "That membership check was made for another request.";
   if (machine.kind === "org-host")
     return machine.org === org ? undefined : "This machine is another organization's host.";
   return machine.account === claims.account
@@ -116,7 +126,7 @@ export async function trustedChain(
   request: RegistryRequest,
   membership: Membership,
 ): Promise<VerifiedChain> {
-  const served = RegistryKeyChain.safeParse(await reads.chain(request.org));
+  const served = RegistryKeyChain.safeParse(await reads.chain());
   if (!served.success || served.data.org !== request.org)
     throw new Refused("The registry's key chain isn't in a form this build reads");
   const pin = pinOf(store, request.org);
@@ -124,7 +134,6 @@ export async function trustedChain(
   try {
     chain = verifyRegistryChain(served.data, {
       grantKeys: membership.keys,
-      issuer: membership.issuer ?? MARKET_GRANT_ISSUER,
       ...(pin?.uploads[0] ? { trustedFirst: pin.uploads[0] } : {}),
     });
   } catch (error) {
@@ -162,6 +171,50 @@ export async function trustedChain(
   return chain;
 }
 
+/** What an open review from a registry installs: checked again at the moment it installs. */
+export interface RegistryReview {
+  org: string;
+  type: string;
+  name: string;
+  version: string;
+  hash: string;
+  signedManifest: unknown;
+}
+
+/**
+ * Inside the install queue, right before anything lands: the account is still a member (with the
+ * grant sent with the install), the registry's chain as the market serves it now still extends
+ * what this device trusts, and the reviewed version's signed manifest verifies against that
+ * chain for these very bytes. A chain reset or rotated since the review, or a key it no longer
+ * holds, refuses the install.
+ */
+export async function confirmRegistryInstall(
+  reads: MemberReads,
+  store: MarketStore,
+  review: RegistryReview,
+  request: RegistryRequest,
+  membership: Membership,
+): Promise<void> {
+  const chain = await trustedChain(reads, store, request, membership);
+  let manifest;
+  try {
+    manifest = verifyRegistryManifest(review.signedManifest, chain);
+  } catch (error) {
+    if (error instanceof SignatureError)
+      throw new Refused(
+        `What you reviewed is no longer signed by ${review.org}'s registry: ${error.message}. Nothing was installed.`,
+      );
+    throw error;
+  }
+  if (
+    manifest.type !== review.type ||
+    manifest.name !== review.name ||
+    manifest.version !== review.version ||
+    manifest.hash !== review.hash
+  )
+    throw new Refused("The registry's signature is for another version. Nothing was installed.");
+}
+
 const stopped = (org: string) =>
   `From ${org}'s registry · updates stopped: you're no longer a member`;
 
@@ -186,7 +239,7 @@ export async function refreshRegistry(
   store: MarketStore,
   org: string,
 ): Promise<boolean> {
-  const listed = RegistryEntries.safeParse(await reads.entries(org));
+  const listed = RegistryEntries.safeParse(await reads.entries());
   if (!listed.success) throw new Refused("The registry's list isn't in a form this build reads");
   const latest = new Map(
     listed.data.entries.map((entry) => [`${entry.type}/${entry.name}`, entry.latest]),

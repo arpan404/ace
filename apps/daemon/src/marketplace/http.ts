@@ -71,10 +71,10 @@ export interface EntryReads {
   object(hash: string): Promise<Uint8Array>;
 }
 
-/** A registry's reads with a member's grant. */
+/** One registry's reads with a member's grant. */
 export interface MemberReads extends EntryReads {
-  chain(org: string): Promise<unknown>;
-  entries(org: string): Promise<unknown>;
+  chain(): Promise<unknown>;
+  entries(): Promise<unknown>;
 }
 
 export class MarketHttp {
@@ -208,22 +208,27 @@ export class MarketHttp {
    * An organization's registry, read with a member's market grant (ADR 0206 §5.3): the grant goes
    * to this origin only, and the market answers 404 to anyone it doesn't admit.
    */
-  member(grant: string): MemberReads {
+  member(org: string, grant: string): MemberReads {
     const headers = { authorization: `Bearer ${grant}` };
+    // Under the organization's own paths: the public ones never reach a registry's entries.
+    const base = `/v1/orgs/${encodeURIComponent(org)}`;
     return {
       origin: this.origin,
-      entry: (type, name) => this.#json(entryPath(type, name), headers),
+      entry: (type, name) => this.#json(`${base}${entryPath(type, name).slice(3)}`, headers),
       version: (type, name, version) =>
-        this.#json(`${entryPath(type, name)}/${encodeURIComponent(version)}`, headers),
-      object: (hash) => this.#object(hash, headers),
-      chain: (org) => this.#json(`/v1/orgs/${encodeURIComponent(org)}/keys`, headers),
-      entries: (org) => this.#json(`/v1/orgs/${encodeURIComponent(org)}/entries`, headers),
+        this.#json(
+          `${base}${entryPath(type, name).slice(3)}/${encodeURIComponent(version)}`,
+          headers,
+        ),
+      object: (hash) => this.#object(hash, headers, base),
+      chain: () => this.#json(`${base}/keys`, headers),
+      entries: () => this.#json(`${base}/entries`, headers),
     };
   }
 
-  async #object(hash: string, headers: Record<string, string>): Promise<Uint8Array> {
+  async #object(hash: string, headers: Record<string, string>, base = "/v1"): Promise<Uint8Array> {
     if (!/^[a-f0-9]{64}$/.test(hash)) throw new MarketHttpError("Not a content hash");
-    const response = await this.#get(`/v1/objects/${hash}`, {
+    const response = await this.#get(`${base}/objects/${hash}`, {
       accept: "application/x-tar",
       ...headers,
     });

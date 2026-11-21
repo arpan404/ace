@@ -45,7 +45,7 @@ import {
   scanWithin,
 } from "./store/me-scan.ts";
 import { handleTaken } from "./store/profiles.ts";
-import { claimForOrg } from "./store/registries.ts";
+import { claimForOrg, orgAudience, shownName, storedName } from "./store/registries.ts";
 import {
   addWithdrawal,
   claimPublisher,
@@ -141,7 +141,17 @@ async function storeScanned(
   if (stored.hash === undefined) return changed();
   if (stored.hash !== checked.hash) return reused();
   await putReport(context.env.OBJECTS, versionReportKey(key), scan);
-  return json({ status: "pending", ...key, hash: checked.hash, held: fate === "hold", scan }, 201);
+  return json(
+    {
+      status: "pending",
+      ...key,
+      name: shownName(key.name),
+      hash: checked.hash,
+      held: fate === "hold",
+      scan,
+    },
+    201,
+  );
 }
 
 /** The publisher's own handle check on a first publish: the rules, then lookalikes taken. */
@@ -180,10 +190,13 @@ export async function publish(
     const refusal = await handleRefusal(publishers, wanted);
     if (refusal) return refusal;
   }
-  const owner = await ownerOf(db, key.type, key.name);
+  // A registry's entry is stored under its organization's own name for it, so it never meets a
+  // public entry or another organization's: neither side can find, or is refused by, the other.
+  const storedAs = { ...key, name: storedName(key.name, authed.org) };
+  const owner = await ownerOf(db, storedAs.type, storedAs.name);
   if (owner !== undefined && owner !== publisher?.id) return notYours();
   // A registry's entry is the organization's from its first version on: unlisted and read by
-  // its members only, whichever path (a version now, a draft that scans on) stores it.
+  // its members only.
   if (authed.org !== undefined && publisher && owner === undefined) {
     await ensureCopy(context.dbs, db, publisher.id, context.now);
     await claimForOrg(db, { ...key, publisher: publisher.id, org: authed.org });
@@ -194,11 +207,11 @@ export async function publish(
   const checked = readChecked(key.type, key.name, body);
   if (checked.problems.length > 0) return refused(checked.problems);
 
-  const versionKey = { ...key, version };
+  const versionKey = { ...storedAs, version };
   const existing = await storedVersion(db, versionKey);
   if (existing && existing.state !== "blocked")
     return existing.hash === checked.hash
-      ? json({ status: "pending", ...versionKey, hash: checked.hash }, 200)
+      ? json({ status: "pending", ...key, version, hash: checked.hash }, 200)
       : reused();
 
   if (!publisher) {
@@ -228,10 +241,13 @@ export async function publish(
     };
   }
 
+  // Compared with the public market's entries and, for a registry, its own: never with another
+  // organization's, whose names a finding would show.
   const scanCtx = await scanContext(
     context.dbs,
     { handle: publisher.name, official: publisher.official },
     context.env.MARKET_PUBLIC_KEYS,
+    authed.org === undefined ? ["public"] : ["public", orgAudience(authed.org)],
   );
   const input = scanInput(key.type, key.name, checked, scanCtx);
   const scanned = scanWithin(input);
@@ -250,6 +266,13 @@ export async function publish(
     return refusal ? quota(refusal) : undefined;
   };
   const caps = capsOf(publisher, context.now);
+  // A draft carries on under the name it was published as; a registry's waits for that path.
+  if (!scanned.done && authed.org !== undefined)
+    return failure(
+      413,
+      "too_large",
+      "This version is too large to scan in one go, which an organization's registry needs for now.",
+    );
   if (!scanned.done) {
     const refusal = await reserve(false);
     if (refusal) return refusal;

@@ -42,14 +42,14 @@ export const RegistryKeyUpload = z.strictObject({
 export type RegistryKeyUpload = z.infer<typeof RegistryKeyUpload>;
 
 /**
- * One link as the market serves it: the upload's exact text, and the owner's market grant that
- * named that text's digest. The grant is the account backend's countersignature (ADR 0206 §5.3):
- * it was minted for an owner of the organization, from the person's own session, for this one
- * request.
+ * One link as the market serves it, and as an owner sends it (`POST /v1/orgs/{org}/keys`): the
+ * upload's exact text, and the account backend's attestation of that text (ADR 0206 §5.3), made
+ * for an owner of the organization from the person's own session. The attestation authorizes
+ * nothing, so serving it hands out no credential.
  */
 export const RegistryKeyLink = z.strictObject({
   upload: z.string().min(1).max(4096),
-  grant: z.string().min(1).max(4096),
+  attestation: z.string().min(1).max(4096),
 });
 export type RegistryKeyLink = z.infer<typeof RegistryKeyLink>;
 

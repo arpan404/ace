@@ -285,6 +285,50 @@ export function verifyOrgPolicy(
   return statement;
 }
 
+/**
+ * The account backend's word that an owner of `org` added a registry key (ADR 0206 §5.3): the
+ * SHA-256 of the key's exact upload, who asked and their role, from the same fresh WorkOS answer
+ * a grant needs. It authorizes nothing: no grant parser takes it, and it names no audience, so a
+ * market serving it in a key chain hands out no credential. Devices check a chain's first key
+ * with it.
+ */
+export const RegistryKeyAttestation = z.strictObject({
+  v: z.literal(1),
+  kid: KeyId,
+  kind: z.literal("registry-key"),
+  org: OrgId,
+  upload_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  account: GrantClaims.shape.account,
+  role: z.string().min(1).max(64),
+  at: z.number().int().nonnegative(),
+});
+export type RegistryKeyAttestation = z.infer<typeof RegistryKeyAttestation>;
+
+export function signRegistryKeyAttestation(
+  claims: Omit<RegistryKeyAttestation, "v" | "kid" | "kind">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    RegistryKeyAttestation.parse({ ...claims, v: 1, kid: key.id, kind: "registry-key" }),
+    key,
+  );
+}
+
+/**
+ * Verify an attestation's signature and that `upload` is the text it was made over. Throws
+ * `GrantError`; every grant is refused here, as every grant parser refuses an attestation.
+ */
+export function verifyRegistryKeyAttestation(
+  token: string,
+  keys: GrantKeySet,
+  upload: string,
+): RegistryKeyAttestation {
+  const statement = verifySignature(token, keys, RegistryKeyAttestation);
+  if (statement.upload_sha256 !== policyBodySha256(upload))
+    throw new GrantError("The attestation is for another key");
+  return statement;
+}
+
 const AnyGrantClaims = z.union([
   GrantClaims,
   CloudGrantClaims,

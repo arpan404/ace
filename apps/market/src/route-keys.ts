@@ -104,6 +104,9 @@ export type Route =
   | { kind: "org-keys"; org: string }
   | { kind: "org-key-add"; org: string }
   | { kind: "org-entries"; org: string }
+  | ({ kind: "org-entry"; org: string } & EntryKey)
+  | ({ kind: "org-version"; org: string } & VersionKey)
+  | { kind: "org-object"; org: string; hash: string }
   | { kind: "org-signer-pending"; org: string }
   | { kind: "org-signer-scan-context"; org: string }
   | { kind: "org-signer-object"; org: string; hash: string }

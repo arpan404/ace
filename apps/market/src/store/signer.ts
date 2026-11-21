@@ -71,8 +71,9 @@ export async function pendingWithdrawals(dbs: Databases): Promise<PendingWithdra
   const rows = await fromCatalogues(dbs, async ({ db }) => {
     const { results } = await db
       .prepare(
-        `SELECT type, name, version, hash, reason, at FROM pending_withdrawals
-          ORDER BY at LIMIT ${pendingLimit}`,
+        `SELECT w.type, w.name, w.version, w.hash, w.reason, w.at FROM pending_withdrawals w
+          JOIN entries e ON e.type = w.type AND e.name = w.name
+          WHERE e.audience = 'public' ORDER BY w.at LIMIT ${pendingLimit}`,
       )
       .all<PendingWithdrawal>();
     return results;
@@ -115,10 +116,23 @@ export async function versionForSigning(
     : undefined;
 }
 
-/** Whether any catalogue stores a version with these bytes, listed or not. */
-export async function hashIsStored(dbs: Databases, hash: string): Promise<boolean> {
+/**
+ * Whether any catalogue stores a version with these bytes for `audience`, listed or not: ace's
+ * signer reads the public market's bytes, a registry's signer its own.
+ */
+export async function hashIsStored(
+  dbs: Databases,
+  hash: string,
+  audience: string,
+): Promise<boolean> {
   const found = await eachCatalogue(dbs, ({ db }) =>
-    db.prepare("SELECT 1 AS found FROM versions WHERE hash = ?1 LIMIT 1").bind(hash).first(),
+    db
+      .prepare(
+        `SELECT 1 AS found FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
+          WHERE v.hash = ?1 AND e.audience = ?2 LIMIT 1`,
+      )
+      .bind(hash, audience)
+      .first(),
   );
   return found.some((row) => row !== null);
 }

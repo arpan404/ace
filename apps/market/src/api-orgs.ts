@@ -1,4 +1,3 @@
-import { MARKET_GRANT_ISSUER } from "@ace/account-grant";
 import { orgAllows } from "@ace/account-grant/org-roles";
 import { skeleton } from "@ace/marketplace/profile";
 import {
@@ -6,11 +5,11 @@ import {
   readRegistryKeyUpload,
   verifyRegistryChain,
 } from "@ace/marketplace/registry";
-import { RegistryCreate, type RegistryKeyChain } from "@ace/protocol/marketplace";
+import { RegistryCreate, RegistryKeyLink, type RegistryKeyChain } from "@ace/protocol/marketplace";
 import { handleRefusal } from "./api-publish.ts";
 import { authenticate, type Authed } from "./auth.ts";
 import type { Context } from "./context.ts";
-import { bearer, failure, json, notFound, readCapped, refused } from "./http.ts";
+import { failure, json, notFound, readCapped, refused } from "./http.ts";
 import { mayRead, privateHeaders } from "./registry-access.ts";
 import type { Route } from "./routes.ts";
 import { claimPublisher } from "./store/publish.ts";
@@ -135,30 +134,32 @@ async function addRegistryKey(request: Request, org: string, context: Context): 
   const orgs = context.dbs.orgs;
   const registry = await registryOf(context.dbs, org);
   if (!orgs || !registry) return notFound();
-  const bytes = await readCapped(request, 4096);
-  const text = bytes ? new TextDecoder().decode(bytes) : "";
+  const bytes = await readCapped(request, 16 * 1024);
+  let sent;
+  try {
+    sent = RegistryKeyLink.safeParse(JSON.parse(new TextDecoder().decode(bytes ?? undefined)));
+  } catch {
+    sent = undefined;
+  }
+  if (!sent?.success)
+    return refused([{ message: "Send the key's upload with the account service's attestation." }]);
+  const link = sent.data;
   const keys = await context.grantKeys.get();
   if (!keys) return failure(503, "unavailable", "The market can't check sign-ins right now.");
-  let upload;
+  let statement;
   let verified;
   try {
-    upload = readRegistryKeyUpload(text);
-    const statement = upload.statement;
+    statement = readRegistryKeyUpload(link.upload).statement;
     if (statement.org !== org || statement.addedBy !== authed.account)
       return refused([{ message: "The key names another organization or owner." }]);
-    // The new link with the chain it extends, checked as a device will check it: the owner's
-    // grant for this request countersigns a first key, the key before signs a later one.
+    // The new link with the chain it extends, checked as a device will check it: the backend's
+    // attestation vouches for a first key, the key before signs a later one.
     const before =
       statement.position === 0 ? [] : (await registryKeys(orgs, org)).map((key) => key.link);
     verified = verifyRegistryChain(
-      {
-        org,
-        publisher: registry.publisher,
-        keys: [...before, { upload: text, grant: bearer(request) ?? "" }],
-      },
+      { org, publisher: registry.publisher, keys: [...before, link] },
       {
         grantKeys: keys,
-        issuer: context.env.ACE_GRANT_ISSUER ?? MARKET_GRANT_ISSUER,
         // Its first key was checked when it was stored; a rotation is checked against it.
         ...(before[0] ? { trustedFirst: before[0].upload } : {}),
       },
@@ -167,15 +168,14 @@ async function addRegistryKey(request: Request, org: string, context: Context): 
     if (error instanceof RegistryChainError) return refused([{ message: error.message }]);
     throw error;
   }
-  const statement = upload.statement;
   const added = await addKey(orgs, {
     org,
     position: statement.position,
     keyId: statement.key,
     publicKey: statement.publicKey,
     previous: statement.previous,
-    upload: text,
-    grant: bearer(request) ?? "",
+    upload: link.upload,
+    attestation: link.attestation,
     addedBy: authed.account,
     at: statement.at,
   });

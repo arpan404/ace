@@ -189,6 +189,10 @@ export async function authenticate(
         url.pathname,
         new Uint8Array(await request.clone().arrayBuffer()),
       ));
+  // A grant naming one request is good for that request alone: anywhere else, a grant captured
+  // or read on the way would act as the person who asked for it.
+  if (claims.action !== undefined && !personAction)
+    return failure(401, "person_grant", "That sign-in was made for another request.");
   if (options.sensitive && !personAction) return personGrantNeeded();
   if (options.sensitive && !(context.now - claims.authAt <= reauthMs))
     return failure(401, "reauth", "Sign in again to do this.");

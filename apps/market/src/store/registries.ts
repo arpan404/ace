@@ -8,6 +8,17 @@ import { fromCatalogues, type Databases } from "./databases.ts";
  */
 
 export const orgAudience = (org: string) => `org:${org}`;
+
+/**
+ * How an entry's name is stored: as it is for the public market, `<name>@<org>` for an
+ * organization's registry. A public name can't hold `@`, so a registry's entry never meets a
+ * public one or another organization's: each audience has its own names, and a public lookup
+ * can't reach a private row.
+ */
+export const storedName = (name: string, org?: string) =>
+  org === undefined ? name : `${name}@${org}`;
+/** The name a stored entry is shown and signed under. */
+export const shownName = (stored: string) => stored.split("@")[0] ?? stored;
 /** The organization an entry's audience names, or undefined for a public entry. */
 export const audienceOrg = (audience: string): string | undefined =>
   audience.startsWith("org:") ? audience.slice(4) : undefined;
@@ -71,7 +82,7 @@ export interface StoredKey {
 export async function registryKeys(orgs: D1Database, org: string): Promise<StoredKey[]> {
   const { results } = await orgs
     .prepare(
-      `SELECT position, key_id, public_key, upload, grant_token FROM registry_keys
+      `SELECT position, key_id, public_key, upload, attestation FROM registry_keys
         WHERE org = ?1 ORDER BY position`,
     )
     .bind(org)
@@ -80,13 +91,13 @@ export async function registryKeys(orgs: D1Database, org: string): Promise<Store
       key_id: string;
       public_key: string;
       upload: string;
-      grant_token: string;
+      attestation: string;
     }>();
   return results.map((row) => ({
     position: row.position,
     keyId: row.key_id,
     publicKey: row.public_key,
-    link: { upload: row.upload, grant: row.grant_token },
+    link: { upload: row.upload, attestation: row.attestation },
   }));
 }
 
@@ -112,7 +123,7 @@ export interface KeyWrite {
   publicKey: string;
   previous: string | undefined;
   upload: string;
-  grant: string;
+  attestation: string;
   addedBy: string;
   at: number;
 }
@@ -129,12 +140,12 @@ export async function addKey(orgs: D1Database, write: KeyWrite): Promise<boolean
     write.keyId,
     write.publicKey,
     write.upload,
-    write.grant,
+    write.attestation,
     write.addedBy,
     write.at,
   ];
   const insert = `INSERT INTO registry_keys
-      (org, position, key_id, public_key, upload, grant_token, added_by, at)`;
+      (org, position, key_id, public_key, upload, attestation, added_by, at)`;
   if (write.position === 0) {
     const [, inserted] = await orgs.batch([
       orgs.prepare("DELETE FROM registry_keys WHERE org = ?1").bind(write.org),
@@ -176,9 +187,15 @@ export async function claimForOrg(
   await db
     .prepare(
       `INSERT INTO entries (type, name, publisher, title, visibility, audience)
-        VALUES (?1, ?2, ?3, ?2, 'unlisted', ?4) ON CONFLICT DO NOTHING`,
+        VALUES (?1, ?2, ?3, ?5, 'unlisted', ?4) ON CONFLICT DO NOTHING`,
     )
-    .bind(input.type, input.name, input.publisher, orgAudience(input.org))
+    .bind(
+      input.type,
+      storedName(input.name, input.org),
+      input.publisher,
+      orgAudience(input.org),
+      input.name,
+    )
     .run();
 }
 
@@ -193,7 +210,9 @@ export async function registryEntries(dbs: Databases, org: string): Promise<Regi
       .bind(orgAudience(org))
       .all<{ name: string; title: string; latest: string | null }>();
     return results.map((row) => {
-      const entry: RegistryEntry = { type, name: row.name, title: row.title.slice(0, 120) };
+      const name = shownName(row.name);
+      const title = row.title === row.name ? name : row.title;
+      const entry: RegistryEntry = { type, name, title: title.slice(0, 120) };
       if (row.latest) entry.latest = row.latest;
       return entry;
     });

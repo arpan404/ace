@@ -27,6 +27,7 @@ import { orgEvents } from "./org-events.ts";
 import { orgHostRoutes } from "./org-host-routes.ts";
 import { orgLocks } from "./org-locks.ts";
 import { portalRevocations } from "./org-portal.ts";
+import { orgRegistryRoutes } from "./org-registry-routes.ts";
 import { orgRoutes } from "./org-routes.ts";
 import { orgStore } from "./org-store.ts";
 
@@ -40,7 +41,7 @@ const continuePath = "/v1/account/login/continue";
 /** The join page's form posts here, from the backend's own origin too. */
 const joinPath = "/v1/orgs/join";
 const orgPath =
-  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/(members|invitations|portal|policy|hosts|audit)(?:\/([A-Za-z0-9_-]{1,128}))?$/;
+  /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/(members|invitations|portal|policy|hosts|audit|registry)(?:\/([A-Za-z0-9_-]{1,128}))?$/;
 const loginClaim = /^\/v1\/account\/login\/([A-Za-z0-9_-]{43})$/;
 const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
 const orgHostCredentialPath =
@@ -128,6 +129,7 @@ export function accountApi(
     portal,
     now,
   });
+  const registryApi = orgRegistryRoutes({ access, signingKey: config.grantKey, now });
   const hostApi = orgHostRoutes({
     principals,
     access,
@@ -223,6 +225,8 @@ export function accountApi(
       if (area === "hosts" && item && method === "DELETE")
         return hostApi.release(request, org, item);
       if (area === "audit" && !item && method === "POST") return hostApi.forward(request, org);
+      if (area === "registry" && item === "attestations" && method === "POST")
+        return registryApi.attest(request, org);
     }
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);

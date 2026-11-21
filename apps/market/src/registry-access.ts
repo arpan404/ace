@@ -19,7 +19,9 @@ export async function grantOrg(request: Request, context: Context): Promise<stri
   if (!keys) return undefined;
   try {
     const issuer = context.env.ACE_GRANT_ISSUER ?? MARKET_GRANT_ISSUER;
-    return verifyMarketGrant(token, keys, context.now, issuer).org;
+    const claims = verifyMarketGrant(token, keys, context.now, issuer);
+    // A grant naming one request reads nothing else.
+    return claims.action === undefined ? claims.org : undefined;
   } catch (error) {
     if (error instanceof GrantError) return undefined;
     throw error;
