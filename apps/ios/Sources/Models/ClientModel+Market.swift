@@ -10,19 +10,31 @@ private struct MarketOutcome: Decodable {
     let code: String?
     let message: String?
     let way: MarketWay?
+    let reason: String?
 }
 
 extension ClientModel {
     /// One market operation, its answer decoded as `T` or its refusal thrown as `MarketRefusal`.
     func market<T: Decodable>(_ operation: [String: Any], as type: T.Type, fresh: Bool = false) async throws -> T {
         let payload = marketPayload(operation, fresh: fresh)
+        let changes = marketChanges(operation["op"])
+        // Not connected: a change can't leave the phone, so nothing changed.
+        if changes, connection != "ready" {
+            throw MarketRefusal(code: "offline", message: "Your machine is offline. Nothing was changed.", way: .retry, offline: true)
+        }
         do {
+            // A change waits past the bridge's own check of a lost reply (`bridge/market.ts`).
             let value = marketKept(operation["op"]) ? try await read(payload, as: ServiceValue.self)
-                : try await service(payload, as: ServiceValue.self)
+                : try await service(payload, as: ServiceValue.self, timeout: changes ? .seconds(90) : .seconds(30))
             return try marketAnswer(value, as: type)
         } catch let refusal as MarketRefusal { throw refusal }
         catch is CancellationError { throw CancellationError() }
         catch let failure as ServiceFailure where failure.transport {
+            // A change sent and then lost may have happened: never say it didn't, or offer Retry.
+            if changes {
+                throw MarketRefusal(code: "unconfirmed", message: "Couldn't confirm it: your machine stopped answering. Check again when it's back.",
+                                    way: .reread, offline: true)
+            }
             throw MarketRefusal(code: "offline", message: "Your machine is offline.", way: .retry, offline: true)
         }
     }
@@ -117,6 +129,12 @@ extension ClientModel {
     }
 }
 
+/// The operations that change the machine; the rest only read or hold a review.
+private func marketChanges(_ op: Any?) -> Bool {
+    guard let op = op as? String else { return false }
+    return ["install", "cancel", "remove", "turnOn", "turnOnForBots", "addSource", "removeSource", "setSource", "refresh"].contains(op)
+}
+
 /// The reads the bridge keeps (`bridge/read-policy.ts` `marketReads`).
 private func marketKept(_ op: Any?) -> Bool {
     guard let op = op as? String else { return false }
@@ -127,7 +145,7 @@ private func marketAnswer<T: Decodable>(_ value: ServiceValue, as type: T.Type) 
     let outcome = try value.decode(MarketOutcome.self)
     guard outcome.ok else {
         throw MarketRefusal(code: outcome.code ?? "failed", message: outcome.message ?? "The machine refused that.",
-                            way: outcome.way, offline: outcome.offline ?? false)
+                            way: outcome.way, offline: outcome.offline ?? false, reason: outcome.reason)
     }
     return try value.decode(type)
 }
