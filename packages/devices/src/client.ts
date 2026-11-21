@@ -454,6 +454,9 @@ export class DeviceClient {
    */
   private timedOut(requestId: string, sourceId: string, generation: number): void {
     this.media.abandon(sourceId, generation);
+    // Still the source's current subscribe: ask again after the backoff, unless its late reply
+    // comes first and settles it.
+    if (this.media.generation(sourceId) === generation) this.retryLater(sourceId);
     this.late.set(requestId, { sourceId, generation });
     for (const oldest of this.late.keys()) {
       if (this.late.size <= 32) break;
@@ -557,6 +560,9 @@ export class DeviceClient {
         const late = pending ? undefined : this.late.get(message.requestId);
         if (late) {
           this.late.delete(message.requestId);
+          // The late reply settles what the backoff was waiting for.
+          if (message.ok && this.media.generation(late.sourceId) === late.generation)
+            this.cancelRetry(late.sourceId);
           if (message.ok)
             this.release(
               late.sourceId,

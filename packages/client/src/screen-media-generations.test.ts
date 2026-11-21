@@ -428,3 +428,28 @@ describe("a bound view whose source isn't streaming", () => {
     expect(view.why()).toBeUndefined();
   });
 });
+
+describe("a subscribe that gets no answer in time", () => {
+  it("asks again after the backoff, so the view never stays stopped", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(1);
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+  });
+
+  it("doesn't ask again once its late reply has settled it", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.timeOut();
+    await flush();
+    view.reply(view.subscribes[0]!, "binds");
+    await flush();
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(1);
+  });
+});

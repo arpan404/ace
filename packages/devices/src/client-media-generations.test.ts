@@ -252,3 +252,28 @@ describe("device pictures across a media rebind", () => {
     expect(view.subscribes).toHaveLength(1);
   });
 });
+
+describe("a device subscribe that gets no answer in time", () => {
+  it("asks again after the backoff, so the view never stays stopped", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(1);
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+  });
+
+  it("doesn't ask again once its late reply has settled it", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.timeOut();
+    await flush();
+    view.reply(view.subscribes[0]!);
+    await flush();
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(1);
+  });
+});
