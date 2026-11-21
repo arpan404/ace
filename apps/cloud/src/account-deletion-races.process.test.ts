@@ -141,6 +141,9 @@ it("while WorkOS deletes the user, the asking session can only retry: no grants,
   ).toBe(0);
 });
 
+/** workerd keeps a closed socket's connection open for seconds: take the close frame. */
+const closeOnFrame = { maxPayload: 65535, perMessageDeflate: false, closeTimeout: 500 };
+
 it("a machine still in its handshake when the account is deleted is told to register again", async () => {
   const phone = await signIn("user_handshake");
   const keys = keyPair();
@@ -150,8 +153,7 @@ it("a machine still in its handshake when the account is deleted is told to regi
   const socket = new WebSocket(
     address(worker.relayUrl, "/host", { hostId: id }),
     [GRANT_SUBPROTOCOL_PREFIX + mint("machine", "user_handshake", id)],
-    // workerd keeps a closed socket's connection open for seconds: take the close frame.
-    { closeTimeout: 500 },
+    closeOnFrame,
   );
   const closed = new Promise<number>((resolve) => socket.once("close", (code) => resolve(code)));
   await new Promise<void>((resolve, reject) => {
