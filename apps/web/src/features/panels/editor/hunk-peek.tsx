@@ -98,7 +98,8 @@ export function HunkPeek(props: { hunk: ChangeHunk; onRevert(): void; onClose():
 
 /**
  * One hunk of a turn under review, under its lines: what the turn replaced and what it wrote,
- * with Keep, Revert and Comment, the previous and next change (⇧F7, F7), and Done.
+ * with Keep, Revert and Comment, the previous and next change (⇧F7, F7), the turn's diff side by
+ * side, and Done.
  */
 export function ReviewPeek(props: {
   hunk: ChangeHunk;
@@ -109,6 +110,8 @@ export function ReviewPeek(props: {
   /** Unset while the thread has no composer to take a comment. */
   onComment?: (() => void) | undefined;
   onStep(direction: 1 | -1): void;
+  /** Show the turn's diff of the file side by side instead. */
+  onSideBySide?: (() => void) | undefined;
   onDone(): void;
 }) {
   return (
@@ -144,6 +147,11 @@ export function ReviewPeek(props: {
             keys="F7"
             onClick={() => props.onStep(1)}
           />
+          {props.onSideBySide && (
+            <Button size="sm" variant="ghost" onClick={props.onSideBySide}>
+              Side by side
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={props.onDone}>
             Done
           </Button>

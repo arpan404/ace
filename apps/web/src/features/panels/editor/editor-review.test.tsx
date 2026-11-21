@@ -73,3 +73,16 @@ test("Keep leaves the text as it is and goes on; F7 and ⇧F7 step; Done ends th
   expect(within(view()).queryByRole("group", { name: /^Review change/ })).toBeNull();
   expect(within(view()).queryAllByTitle("Claude Code changed this in turn 1")).toHaveLength(0);
 });
+
+test("Side by side shows the turn's diff of the file in place of the editor, and goes back", async () => {
+  await reviewTurnOne();
+  await userEvent.click(within(await peekOf()).getByRole("button", { name: "Side by side" }));
+
+  const side = await screen.findByRole("region", { name: `Side by side, ${replayTs.path}` });
+  expect(side.textContent).toContain("Claude Code · turn 1 · 1 of 3");
+  expect(side.textContent).toContain("const COLD_START_WINDOW = 200;");
+  expect(screen.queryByRole("region", { name: `Source of ${replayTs.path}` })).toBeNull();
+
+  await userEvent.click(within(side).getByRole("button", { name: "Back to inline" }));
+  expect((await peekOf()).textContent).toContain("1 of 3");
+});

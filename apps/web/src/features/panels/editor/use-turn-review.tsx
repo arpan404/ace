@@ -6,6 +6,7 @@ import {
   revertChange,
   turnHunks,
   type ChangeHunk,
+  type FileDiff,
 } from "@ace/ui-core";
 import { workspaceRelative } from "@ace/ui-core/file-references";
 import {
@@ -40,6 +41,8 @@ import type { LiveGutter } from "./live-gutter.ts";
 
 export interface TurnReviewView {
   agentMarks: readonly AgentMark[];
+  /** Shown side by side instead of inline: the turn's diff of the file, in place of the editor. */
+  side: { diff: FileDiff; where: string; onInline(): void } | undefined;
   peek: { after: number; content: ReactNode } | undefined;
   onKey(event: KeyboardEvent): boolean;
 }
@@ -92,7 +95,8 @@ export function useTurnReview(input: {
   // Progress lives outside the view: a tab switch or a remount comes back to the same change.
   const key = review ? `${threadId}\u0000${review.token}\u0000${path}` : "";
   const state = useSyncExternalStore(progress.subscribe, () => progress.get(key));
-  const setState = (next: Progress) => progress.set(key, next);
+  const setState = (next: Omit<Progress, "side">) =>
+    progress.set(key, { ...next, side: state?.side ?? false });
   const index = state?.index ?? 0;
   const done = state?.done ?? noneDone;
 
@@ -105,11 +109,12 @@ export function useTurnReview(input: {
   const opening = first < 0 ? undefined : located[first];
   useEffect(() => {
     if (!key || !opening || progress.get(key)) return;
-    progress.set(key, { index: first, done: noneDone });
+    progress.set(key, { index: first, done: noneDone, side: false });
     requestReveal(threadId, { path, group, line: opening.start, focus: true });
   }, [key, opening, first, path, group, threadId]);
 
-  if (!review || !turn || hunks.length === 0) return undefined;
+  if (!review || !turn || !diff || hunks.length === 0) return undefined;
+  const sideBySide = (side: boolean) => progress.set(key, { index, done, side });
 
   const current = located[index];
   const step = (direction: 1 | -1, finished: ReadonlySet<number> = done) => {
@@ -181,6 +186,7 @@ export function useTurnReview(input: {
               onRevert={revert}
               onComment={comment || undefined}
               onStep={(direction) => step(direction)}
+              onSideBySide={() => sideBySide(true)}
               onDone={() => endReview(threadId)}
             />
           ),
@@ -188,6 +194,7 @@ export function useTurnReview(input: {
       : undefined;
   return {
     agentMarks,
+    side: state?.side ? { diff, where, onInline: () => sideBySide(false) } : undefined,
     peek,
     onKey: (event) => {
       if (event.key !== "F7" || event.altKey || event.metaKey || event.ctrlKey) return false;
@@ -203,6 +210,8 @@ const noneDone: ReadonlySet<number> = new Set();
 interface Progress {
   index: number;
   done: ReadonlySet<number>;
+  /** The turn's diff shows side by side in place of the editor. */
+  side: boolean;
 }
 
 /** Every file's review progress, by thread, review and path. */

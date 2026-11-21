@@ -499,6 +499,7 @@ function emptyOf(layout: EditorLayout): EditorLayout {
 const EditorCompare = lazy(() =>
   import("./editor-compare.tsx").then((module) => ({ default: module.EditorCompare })),
 );
+const ReviewSideBySide = lazy(() => import("./review-side.tsx"));
 const EditorFileView = lazy(() =>
   import("./editor-file-view.tsx").then((module) => ({ default: module.EditorFileView })),
 );
@@ -610,19 +611,25 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
           if (review?.onKey(event) || gutter.onKey(event)) event.preventDefault();
         }}
       >
-        <BufferEditor
-          {...editor}
-          reveal={reveal}
-          marks={gutter.marks}
-          agentMarks={review ? [...gutter.agentMarks, ...review.agentMarks] : gutter.agentMarks}
-          layer={layer}
-          look={look}
-          onMarkClick={gutter.onMarkClick}
-          peek={review?.peek ?? gutter.peek}
-          onEdited={onEdited}
-          onBlurred={onBlurred}
-          onRevealed={onRevealed}
-        />
+        {review?.side ? (
+          <Suspense fallback={null}>
+            <ReviewSideBySide {...review.side} />
+          </Suspense>
+        ) : (
+          <BufferEditor
+            {...editor}
+            reveal={reveal}
+            marks={gutter.marks}
+            agentMarks={review ? [...gutter.agentMarks, ...review.agentMarks] : gutter.agentMarks}
+            layer={layer}
+            look={look}
+            onMarkClick={gutter.onMarkClick}
+            peek={review?.peek ?? gutter.peek}
+            onEdited={onEdited}
+            onBlurred={onBlurred}
+            onRevealed={onRevealed}
+          />
+        )}
       </div>
     </MentionSelection>
   );
