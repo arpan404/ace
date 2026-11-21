@@ -19,6 +19,10 @@ import { readerMemory } from "./reader-memory.ts";
 const { port, data } = await readerHost();
 const options = Options.parse(data);
 const memory = readerMemory(options.memoryLimitBytes);
+// The homes this reader scans and imports; ace-history reads the others (ADR 0206).
+const scanned = options.providers
+  ? options.instances.filter((instance) => options.providers?.includes(instance.provider))
+  : options.instances;
 await validateIndexPath(options.indexPath, options.instances);
 await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
 const file = await open(options.indexPath, "a", 0o600);
@@ -31,6 +35,7 @@ async function openCatalog(): Promise<Catalog> {
       now: Date.now,
       snapshots: options.snapshot ? { policy: options.snapshot } : {},
       ...(options.lastExit ? { lastExit: options.lastExit } : {}),
+      own: scanned.map((instance) => instance.id),
     });
   } catch (error) {
     const refused = incompatibleData(error);
@@ -110,7 +115,7 @@ const handle = async (value: unknown): Promise<void> => {
       );
       const inventory = await scan(
         catalog,
-        options.instances,
+        scanned,
         controller.signal,
         (files, scanProgress) => progress.update({ progress: files, result: scanProgress }),
         memory,

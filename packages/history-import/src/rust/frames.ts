@@ -27,9 +27,11 @@ function frame(kind: number, payload: Uint8Array, prefix?: Uint8Array): Uint8Arr
 /** The frames of one message: its bodies first, then its JSON. `id` tags the bodies. */
 export function encodeFrames(message: unknown, id = 0): Uint8Array[] {
   const bodies: Uint8Array[] = [];
-  const text = JSON.stringify(message, (_key, value: unknown) => {
-    if (value instanceof Uint8Array) {
-      bodies.push(value);
+  // The holder's own value, not `value`: a Buffer's toJSON runs before a replacer sees it.
+  const text = JSON.stringify(message, function (this: unknown, key: string, value: unknown) {
+    const original: unknown = key === "" ? value : Reflect.get(Object(this), key);
+    if (original instanceof Uint8Array) {
+      bodies.push(original);
       return { $body: bodies.length - 1 };
     }
     return value;
@@ -81,7 +83,10 @@ export class FrameReader {
       const bytes = this.take(HEADER_LEN + length).subarray(HEADER_LEN);
       const kind = bytes[0];
       if (kind === BODY_KIND) {
-        this.bodies.push(bytes.slice(1 + ID_LEN));
+        // A plain Uint8Array, never a Buffer view of the pipe's chunk.
+        const body = new Uint8Array(bytes.length - 1 - ID_LEN);
+        body.set(bytes.subarray(1 + ID_LEN));
+        this.bodies.push(body);
         continue;
       }
       if (kind !== JSON_KIND) continue;

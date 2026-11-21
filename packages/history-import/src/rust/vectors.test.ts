@@ -35,3 +35,11 @@ test("a broken frame declaration ends the stream", () => {
   reader.push(new Uint8Array([0, 0, 0, 0]));
   expect(() => [...reader.messages()]).toThrow("broken frame");
 });
+
+test("a Buffer travels as a body, not as its JSON form", () => {
+  const reader = new FrameReader();
+  for (const frame of encodeFrames({ id: 2, request: { bytes: Buffer.from([1, 2, 3]) } }, 2))
+    reader.push(frame);
+  const [message] = [...reader.messages()];
+  expect(message).toEqual({ id: 2, request: { bytes: new Uint8Array([1, 2, 3]) } });
+});

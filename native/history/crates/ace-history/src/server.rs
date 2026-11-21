@@ -26,6 +26,10 @@ use crate::{Op, ToMain};
 /// An import being pulled packet by packet (`import`, then `next` until done).
 struct Pull {
     packets: mpsc::Receiver<Produced>,
+    /// Lets the producer past a barrier once the daemon asks for more: the final checks run
+    /// only after everything before the barrier was taken.
+    resume: mpsc::SyncSender<()>,
+    held: bool,
     root: String,
 }
 
@@ -389,6 +393,7 @@ impl Server {
         let (home, members) = import::plan_tree(self.catalog.reader(), &self.options, init)?;
         // A slow sink holds the producer back: at most sixteen packets wait.
         let (send, packets) = mpsc::sync_channel::<Produced>(16);
+        let (resume, resumed) = mpsc::sync_channel::<()>(1);
         let scratch = SnapshotScratch::new(
             self.scratch.root.clone(),
             Policy::from_limits(self.options.snapshot.as_ref()),
@@ -396,8 +401,15 @@ impl Server {
         let cancel = self.cancel.clone();
         let root = init.source_id.clone();
         let init = init.clone();
-        std::thread::spawn(move || produce(&home, &members, &init, &scratch, &cancel, &send));
-        self.pull = Some(Pull { packets, root });
+        std::thread::spawn(move || {
+            produce(&home, &members, &init, &scratch, &cancel, &send, &resumed)
+        });
+        self.pull = Some(Pull {
+            packets,
+            resume,
+            held: false,
+            root,
+        });
         Ok(())
     }
 
@@ -405,6 +417,10 @@ impl Server {
     fn pull_packets(&mut self, limit: usize) -> Result<Reply> {
         let mut values = Vec::new();
         let mut bodies = Vec::new();
+        if let Some(pull) = self.pull.as_mut().filter(|p| p.held) {
+            pull.held = false;
+            let _ = pull.resume.send(());
+        }
         while values.len() < limit {
             let Some(pull) = &self.pull else { break };
             self.cancel.check()?;
@@ -413,6 +429,9 @@ impl Server {
                     let barrier = packet == Packet::Barrier;
                     values.push(packet.to_json(&mut bodies));
                     if barrier {
+                        if let Some(pull) = self.pull.as_mut() {
+                            pull.held = true;
+                        }
                         break;
                     }
                 }
@@ -457,10 +476,16 @@ fn produce(
     scratch: &SnapshotScratch,
     cancel: &Cancel,
     send: &mpsc::SyncSender<Produced>,
+    resumed: &mpsc::Receiver<()>,
 ) {
     let outcome = import::import_history(home, members, init, scratch, cancel, &mut |packet| {
+        let barrier = packet == Packet::Barrier;
         send.send(Produced::Packet(packet))
-            .map_err(|_| Error::Aborted)
+            .map_err(|_| Error::Aborted)?;
+        if barrier {
+            resumed.recv().map_err(|_| Error::Aborted)?;
+        }
+        Ok(())
     });
     let _ = send.send(Produced::Done(outcome));
 }

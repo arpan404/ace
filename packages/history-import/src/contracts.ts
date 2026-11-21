@@ -35,6 +35,11 @@ export const Options = z.object({
     .optional(),
   /** Set by the daemon on a restart: how the reader before this one ended (crash-ledger.ts). */
   lastExit: z.enum(["crash", "memory-limit"]).optional(),
+  /**
+   * The providers this reader scans and imports (ADR 0206); every registered home is still known
+   * to it, so trust filters and cleanup agree with the other reader. Set by openHistory.
+   */
+  providers: z.array(HistoryProvider).max(8).optional(),
   /** The reader process's memory limit; past three quarters of it the reader collects garbage. */
   memoryLimitBytes: z.number().int().positive().optional(),
 });

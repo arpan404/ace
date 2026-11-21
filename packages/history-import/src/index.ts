@@ -4,6 +4,8 @@ import { type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-
 import { RecoveringWorker } from "./recovering-worker.ts";
 import { validateIndexPath } from "./index-path.ts";
 import { ReaderProcess, systemReaderRuntime, type ReaderProcessRuntime } from "./reader-process.ts";
+import { findHistoryBinary, rustProviders } from "./rust/reader-binary.ts";
+import { RoutedWorker } from "./rust/routed-worker.ts";
 type HistoryWorker = WorkerPort & { idle?(): void; started?: boolean };
 import { Agent, ThreadId } from "@ace/protocol/entities";
 import {
@@ -15,7 +17,7 @@ import {
   BlobResponse,
 } from "./archive-contracts.ts";
 import { z } from "zod";
-import { HistoryListRequest, HistoryListResponse } from "@ace/protocol/history";
+import { HistoryListRequest, HistoryListResponse, HistoryProvider } from "@ace/protocol/history";
 import {
   Options,
   ImportInit,
@@ -35,8 +37,18 @@ export interface HistoryRuntime {
   delay?: IdleWorkerRuntime["delay"];
   /** The reader process's memory watchdog: its limit, sampler and clock. */
   reader?: Partial<ReaderProcessRuntime>;
+  /**
+   * The ace-history executable (ADR 0206): found beside the daemon by default, `null` to read
+   * every provider with the TypeScript reader.
+   */
+  readerBinary?: string | null;
 }
 export { readerMemoryLimitBytes, readerMemoryError } from "./reader-process.ts";
+/**
+ * ace-history's memory limit, in resident memory. Measured on the scale fixture (6,000 sessions,
+ * gigabyte transcripts); see BENCHMARKS.md. Set with headroom over that peak.
+ */
+export const rustReaderMemoryLimitBytes = 192 * 1024 * 1024;
 const ImportedAgents = z.array(Agent).max(512);
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 const Progress = z.object({
@@ -57,24 +69,51 @@ export async function openHistory(
     ((url: URL, workerOptions: WorkerOptions) => new ReaderProcess(url, workerOptions, reader));
   const parsed = Options.parse(options);
   await validateIndexPath(parsed.indexPath, parsed.instances);
-  const worker = new RecoveringWorker(
-    new URL("./worker.ts", import.meta.url),
-    {
-      workerData: { ...parsed, memoryLimitBytes: reader.limitBytes },
-      // Applies to an injected worker thread; the reader process has its watchdog instead.
-      resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
-    },
-    {
-      spawn,
-      delay:
-        runtime.delay ??
-        ((callback, milliseconds) => {
-          const timer = setTimeout(callback, milliseconds);
-          timer.unref();
-          return () => clearTimeout(timer);
-        }),
-    },
-  );
+  const delay =
+    runtime.delay ??
+    ((callback: () => void, milliseconds: number) => {
+      const timer = setTimeout(callback, milliseconds);
+      timer.unref();
+      return () => clearTimeout(timer);
+    });
+  const typescript = (providers?: HistoryProvider[]) =>
+    new RecoveringWorker(
+      new URL("./worker.ts", import.meta.url),
+      {
+        workerData: {
+          ...parsed,
+          ...(providers ? { providers } : {}),
+          memoryLimitBytes: reader.limitBytes,
+        },
+        // Applies to an injected worker thread; the reader process has its watchdog instead.
+        resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
+      },
+      { spawn, delay },
+    );
+  // An injected worker thread observes the TypeScript reader's internals, so it reads everything.
+  const binary =
+    spawnWorker || runtime.readerBinary === null
+      ? undefined
+      : (runtime.readerBinary ?? findHistoryBinary());
+  let worker: RecoveringWorker | RoutedWorker;
+  if (binary === undefined) worker = typescript();
+  else {
+    const path = binary;
+    const rust = new RecoveringWorker(
+      new URL("./worker.ts", import.meta.url),
+      { workerData: { ...parsed, providers: [...rustProviders] } },
+      {
+        spawn: (_entry, workerOptions) =>
+          new ReaderProcess({ kind: "binary", path }, workerOptions, {
+            ...reader,
+            limitBytes: runtime.reader?.limitBytes ?? rustReaderMemoryLimitBytes,
+          }),
+        delay,
+      },
+    );
+    const others = HistoryProvider.options.filter((p) => !rustProviders.includes(p));
+    worker = new RoutedWorker(rust, typescript(others));
+  }
   const service = new HistoryService(worker);
   worker.start();
   try {
@@ -106,8 +145,8 @@ export class HistoryService {
   readonly ready: Promise<unknown>;
   constructor(worker: HistoryWorker) {
     this.worker = worker;
-    this.recoverable = worker instanceof RecoveringWorker;
-    if (worker instanceof RecoveringWorker) {
+    this.recoverable = worker instanceof RecoveringWorker || worker instanceof RoutedWorker;
+    if (worker instanceof RecoveringWorker || worker instanceof RoutedWorker) {
       worker.on("recovery", (retrying: boolean) => {
         for (const listener of this.recoveryListeners) listener(retrying);
       });

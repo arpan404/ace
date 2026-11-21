@@ -34,31 +34,41 @@ export class CrashLedger {
   private db: DatabaseSync;
   private now: () => number;
   private entries = new Map<string, Entry>();
-  constructor(db: DatabaseSync, now: () => number, lastExit?: LastExit) {
+  private own: string;
+  constructor(db: DatabaseSync, now: () => number, lastExit?: LastExit, own?: readonly string[]) {
     this.db = db;
     this.now = now;
+    // Only this reader's homes; ace-history recovers its own marks (ADR 0206).
+    this.own = own === undefined ? "" : JSON.stringify(own);
     db.exec(
       "CREATE TABLE IF NOT EXISTS scan_crashes(instance TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,strikes INTEGER NOT NULL,retry_at REAL NOT NULL,PRIMARY KEY(instance,path))",
     );
     this.recover(lastExit);
   }
   private recover(lastExit: LastExit | undefined): void {
+    // Bound as a parameter: the JSON array of this reader's home ids.
+    const mine = this.own ? " AND instance IN (SELECT value FROM json_each(?))" : "";
+    const scope = this.own ? [this.own] : [];
     const count = (state: string) =>
       Number(
-        this.db.prepare("SELECT count(*) AS n FROM scan_crashes WHERE state=?").get(state)?.n ?? 0,
+        this.db
+          .prepare(`SELECT count(*) AS n FROM scan_crashes WHERE state=?${mine}`)
+          .get(state, ...scope)?.n ?? 0,
       );
     const reading = count("reading");
     const verifying = count("verifying");
     const strike = (states: string) =>
       this.db
         .prepare(
-          `UPDATE scan_crashes SET state='struck',strikes=strikes+1,retry_at=? * (1 << strikes) + ? WHERE state IN (${states})`,
+          `UPDATE scan_crashes SET state='struck',strikes=strikes+1,retry_at=? * (1 << strikes) + ? WHERE state IN (${states})${mine}`,
         )
-        .run(BASE_MS, this.now());
+        .run(BASE_MS, this.now(), ...scope);
     const suspect = () =>
-      this.db.exec(
-        "UPDATE scan_crashes SET state='suspect' WHERE state IN ('reading','verifying')",
-      );
+      this.db
+        .prepare(
+          `UPDATE scan_crashes SET state='suspect' WHERE state IN ('reading','verifying')${mine}`,
+        )
+        .run(...scope);
     if (lastExit === "memory-limit") {
       if (verifying === 1 && reading === 0) strike("'verifying'");
       else suspect();

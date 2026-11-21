@@ -40,7 +40,13 @@ export class Catalog {
     HistorySession.parse(JSON.parse(json));
   constructor(
     path: string,
-    options: { now: () => number; snapshots?: SnapshotScratchOptions; lastExit?: LastExit },
+    options: {
+      now: () => number;
+      snapshots?: SnapshotScratchOptions;
+      lastExit?: LastExit;
+      /** The homes this reader scans; another reader's crash marks are its own to recover. */
+      own?: readonly string[];
+    },
   ) {
     this.snapshots = new SnapshotScratch(dirname(path), options.snapshots);
     // Crash-ledger marks are written between samples; wait out another writer's brief commit.
@@ -77,7 +83,7 @@ export class Catalog {
       );
     }
     this.backoff = new ReadBackoff(this.db, options.now);
-    this.crashes = new CrashLedger(this.db, options.now, options.lastExit);
+    this.crashes = new CrashLedger(this.db, options.now, options.lastExit, options.own);
     this.reader = new DatabaseSync(path, { readOnly: true });
     this.reader.exec(
       "PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256",
@@ -104,7 +110,8 @@ export class Catalog {
     this.registryKey = JSON.stringify(
       instances
         .map((instance) => [instance.id, resolve(instance.homeDir), instance.provider])
-        .toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        // Code-unit order, which ace-history sorts by too (ADR 0206), so the two agree.
+        .toSorted((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1)),
     );
     this.needsCleanup =
       this.statement("SELECT value FROM catalog_settings WHERE key='instances'").get()?.value !==
