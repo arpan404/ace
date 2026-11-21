@@ -66,7 +66,7 @@ struct TransferSheet: View {
 
     private func machineRow(_ machine: TransferMachineRow) -> some View {
         Button { model.transfer(["kind": "choose", "hostId": machine.hostId]) } label: {
-            InsetRow(machine.name, systemImage: "desktopcomputer", value: machine.reason)
+            InsetRow(machine.name, icon: .desktop, value: machine.reason)
                 .opacity(machine.reason == nil ? 1 : AceTheme.Opacity.disabled(scheme))
         }
         .buttonStyle(.plain)
@@ -107,10 +107,10 @@ struct TransferSheet: View {
         if let there = others.client(machine.hostId), there.connection == "ready" {
             NavigationLink {
                 TransferFolderPicker(client: there, machine: machine.name, chosen: parent) { parent = $0 }
-            } label: { InsetRow("Folder", systemImage: nil, value: shown) }
+            } label: { InsetRow("Folder", icon: nil, value: shown) }
             .accessibilityIdentifier("transfer.folder")
         } else {
-            InsetRow("Folder", systemImage: nil, value: shown).accessibilityIdentifier("transfer.folder")
+            InsetRow("Folder", icon: nil, value: shown).accessibilityIdentifier("transfer.folder")
         }
     }
 }

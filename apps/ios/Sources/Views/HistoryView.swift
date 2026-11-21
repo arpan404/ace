@@ -88,7 +88,7 @@ struct HistoryView: View {
             case .ready:
                 Group {
                     if !text.isEmpty {
-                        EmptyState(systemImage: "magnifyingglass", title: "Nothing settled matches “\(text)”",
+                        EmptyState(icon: .magnifyingGlass, title: "Nothing settled matches “\(text)”",
                                    line: "Check the spelling or try another search.")
                     } else if !project.isEmpty {
                         EmptyState(icon: .clockCounterClockwise, title: "No settled threads in \(chosenName ?? "this project")")

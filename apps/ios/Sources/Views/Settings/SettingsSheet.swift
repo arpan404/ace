@@ -77,7 +77,7 @@ struct SettingsSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(ace: .x) }
                         .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
                 }
             }
@@ -135,37 +135,37 @@ struct SettingsSheet: View {
     private var settingsRows: some View {
             List {
                 Section {
-                    link(.account, "Profile", "person.crop.circle", id: "settings.account")
+                    link(.account, "Profile", .userCircle, id: "settings.account")
                 } header: { InsetHeader("You") }
                 .insetRowBackground()
                 Section {
-                    link(.machines, "Machines", "laptopcomputer", value: inbox.sessions.count.formatted(), id: "settings.machines")
+                    link(.machines, "Machines", .laptop, value: inbox.sessions.count.formatted(), id: "settings.machines")
                     if notifications != nil {
-                        link(.notifications, "Notifications", "bell", value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
+                        link(.notifications, "Notifications", .bell, value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
                     }
-                    if let lock { link(.lock, "App lock", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
+                    if let lock { link(.lock, "App lock", .lock, value: lock.enabled ? "On" : "Off", id: "settings.lock") }
                 } header: { InsetHeader("Connections") }
                 .insetRowBackground()
                 // Each machine's tools (Search's places open the busiest of them directly).
                 SettingsTools(inbox: inbox, machine: $toolsMachine)
                 Section {
-                    link(.appearance, "Appearance", "paintpalette", value: PhoneAppearance.label(appearance), id: "settings.appearance")
-                    link(.keyboard, "Keyboard", "keyboard", id: "settings.keyboard")
+                    link(.appearance, "Appearance", .palette, value: PhoneAppearance.label(appearance), id: "settings.appearance")
+                    link(.keyboard, "Keyboard", .keyboard, id: "settings.keyboard")
                 } header: { InsetHeader("Interface") }
                 .insetRowBackground()
                 Section {
-                    link(.history, "History", "clock.arrow.circlepath", id: "settings.history")
-                    link(.archive, "Archived", "archivebox", id: "settings.archive")
-                    link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
-                    link(.cache, "Cached chats", "internaldrive", id: "settings.cache")
+                    link(.history, "History", .clockCounterClockwise, id: "settings.history")
+                    link(.archive, "Archived", .archive, id: "settings.archive")
+                    link(.profiles, "Task profiles", .userCircle, id: "settings.profiles")
+                    link(.cache, "Cached chats", .database, id: "settings.cache")
                 } header: { InsetHeader("Threads") }
                 .insetRowBackground()
                 Section {
-                    InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
+                    InsetRow("About", icon: .info, value: "\(app.version) (\(app.build))")
                         .accessibilityElement(children: .combine)
-                    link(.licences, "Licences", "doc.text", id: "settings.licences")
+                    link(.licences, "Licences", .fileText, id: "settings.licences")
                     ShareLink(item: report.json, preview: SharePreview("ace diagnostics")) {
-                        InsetRow("Send diagnostics", systemImage: "square.and.arrow.up")
+                        InsetRow("Send diagnostics", icon: .export)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("settings.diagnostics")
@@ -194,8 +194,8 @@ struct SettingsSheet: View {
         places?.startThread()
     }
 
-    private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {
-        GroupLink(route) { InsetRow(title, systemImage: symbol, value: value) }
+    private func link(_ route: SettingsRoute, _ title: String, _ icon: AceIcon.Name, value: String? = nil, id: String) -> some View {
+        GroupLink(route) { InsetRow(title, icon: icon, value: value) }
             .accessibilityIdentifier(id)
     }
 

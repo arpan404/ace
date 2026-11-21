@@ -21,11 +21,11 @@ struct TransferFolderPicker: View {
             case "ready":
                 Section {
                     ForEach(folders?.folders ?? []) { folder in row(folder.name, subtitle: folder.path, path: folder.path) }
-                    if folders?.folders.isEmpty == true { EmptyState(systemImage: "folder", title: "No folders match").listRowBackground(Color.clear) }
+                    if folders?.folders.isEmpty == true { EmptyState(icon: .folder, title: "No folders match").listRowBackground(Color.clear) }
                 } header: { InsetHeader("Folders on \(machine)") }
                 .insetRowBackground()
             case "forbidden":
-                EmptyState(systemImage: "desktopcomputer", title: "Can't browse folders", line: "\(machine) doesn't let this phone browse its folders.")
+                EmptyState(icon: .desktop, title: "Can't browse folders", line: "\(machine) doesn't let this phone browse its folders.")
                     .listRowBackground(Color.clear)
             case "failed" where folders?.query == query:
                 // A failure for an older query falls through to loading: its newer search is already on the way.

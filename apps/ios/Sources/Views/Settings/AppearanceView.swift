@@ -78,13 +78,13 @@ struct AppearanceView: View {
             } header: { InsetHeader("Transcript size") }
             .insetRowBackground()
             Section {
-                InsetRow(systemImage: nil, title: "Reduce motion") {
+                InsetRow(icon: nil, title: "Reduce motion") {
                     Toggle("Reduce motion", isOn: Binding(get: { reduceMotion || systemReduceMotion }, set: { reduceMotion = $0 }))
                         .labelsHidden().disabled(systemReduceMotion)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("appearance.reduceMotion")
-                InsetRow(systemImage: nil, title: "Translucency") {
+                InsetRow(icon: nil, title: "Translucency") {
                     Toggle("Translucency", isOn: Binding(get: { !solid && !systemReduceTransparency }, set: { solid = !$0 }))
                         .labelsHidden().disabled(systemReduceTransparency)
                 }

@@ -107,7 +107,7 @@ struct FileScreen: View {
         if let content {
             switch content.kind {
             case "missing":
-                EmptyState(systemImage: "doc.questionmark", title: "Not in the checkout",
+                EmptyState(icon: .fileDashed, title: "Not in the checkout",
                            line: "Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.") {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
@@ -115,7 +115,7 @@ struct FileScreen: View {
                 LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts,
                                   marks: content.markedLines)
             case "binary":
-                EmptyState(systemImage: "doc", title: "Binary file",
+                EmptyState(icon: .file, title: "Binary file",
                            line: "\(name) (\(size(content.size))) isn't text, so there's nothing to read here.") {
                     Button("Share") { shareFile() }
                 }
@@ -149,7 +149,7 @@ struct FileScreen: View {
     @ViewBuilder private func textBody(_ content: FileContent) -> some View {
         let text = content.text ?? ""
         if text.isEmpty && !editing {
-            EmptyState(systemImage: "doc.text", title: "Empty file", line: "\(name) has no content.")
+            EmptyState(icon: .fileText, title: "Empty file", line: "\(name) has no content.")
         } else if markdownPreview {
             ScrollView {
                 AceMarkdown(text: text).padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.margin)

@@ -105,7 +105,7 @@ private struct ArchiveRows: View {
             }
             .padding(.vertical, AceDesign.Space.group)
         } else if empty {
-            EmptyState(systemImage: "archivebox", title: "Nothing archived")
+            EmptyState(icon: .archive, title: "Nothing archived")
                 .padding(.vertical, AceDesign.Space.group)
         } else if archive.canLoadMore {
             Button("Show older archived threads") { client.loadMoreArchived() }

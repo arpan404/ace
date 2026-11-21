@@ -19,14 +19,14 @@ struct ProviderBehaviourSection: View {
                     DefaultModelPicker(choices: current.choices, resettable: current.resettable, choose: choose,
                                        reset: { save(["kind": "defaultModel", "id": NSNull()]) })
                 } label: {
-                    InsetRow(systemImage: nil, title: "Default model", subtitle: current.note) {
+                    InsetRow(icon: nil, title: "Default model", subtitle: current.note) {
                         InsetValue(text: current.label)
                     }
                 }
                 .accessibilityIdentifier("provider.defaultModel")
             }
             NavigationLink { ProviderModelsView(model: model, provider: provider) } label: {
-                InsetRow("Models in the picker", systemImage: nil, value: models.shown)
+                InsetRow("Models in the picker", icon: nil, value: models.shown)
             }
             .accessibilityIdentifier("provider.models")
             ServiceProblem(message: problem)
@@ -93,7 +93,7 @@ struct ProviderModelsView: View {
                 }
                 custom(models)
             } else if problem == nil {
-                Section { ForEach(0..<4, id: \.self) { _ in InsetRow("Loading", systemImage: nil) } }
+                Section { ForEach(0..<4, id: \.self) { _ in InsetRow("Loading", icon: nil) } }
                     .insetRowBackground().redacted(reason: .placeholder)
             }
             if let locked = models?.locked {

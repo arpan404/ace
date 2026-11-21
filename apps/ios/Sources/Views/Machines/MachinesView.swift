@@ -22,12 +22,12 @@ struct MachinesView: View {
                 FleetUpdatesSection(inbox: inbox)
                 Section {
                     NavigationLink { FleetMapView(inbox: inbox, machines: machines) } label: {
-                        InsetRow("Fleet map", systemImage: "network", subtitle: "How each machine and device is reached, and what needs you")
+                        InsetRow("Fleet map", icon: .treeStructure, subtitle: "How each machine and device is reached, and what needs you")
                     }
                     .accessibilityIdentifier("machines.fleetMap")
                     .insetRowBackground()
                     NavigationLink { FleetRulesView(inbox: inbox) } label: {
-                        InsetRow("Fleet rules", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Remote access and agents, on every machine")
+                        InsetRow("Fleet rules", icon: .graph, subtitle: "Remote access and agents, on every machine")
                     }
                     .accessibilityIdentifier("machines.fleetRules")
                     .insetRowBackground()

@@ -105,18 +105,18 @@ struct NeedsRun: View {
         let waiting = live.filter(isOpen)
         switch NeedsRunQueue.end(waiting: waiting.count, sending: live.count - waiting.count) {
         case .nothing:
-            EmptyState(systemImage: "checkmark.circle", title: "Nothing needs you") {
+            EmptyState(icon: .checkCircle, title: "Nothing needs you") {
                 Button("Done") { dismiss() }.accessibilityIdentifier("run.done")
             }
             .padding(.top, AceDesign.Space.section * 2)
         case .sending(let count):
-            EmptyState(systemImage: "arrow.up.circle", title: count == 1 ? "Sending your answer" : "Sending your answers",
+            EmptyState(icon: .arrowCircleUp, title: count == 1 ? "Sending your answer" : "Sending your answers",
                        line: "This clears once your machine has them.") {
                 Button("Done") { dismiss() }.accessibilityIdentifier("run.done")
             }
             .padding(.top, AceDesign.Space.section * 2)
         case .remaining(let count):
-            EmptyState(systemImage: "hand.raised", title: count == 1 ? "1 still needs you" : "\(count) still need you") {
+            EmptyState(icon: .hand, title: count == 1 ? "1 still needs you" : "\(count) still need you") {
                 Button("Review") { move { $0.again(waiting) } }.accessibilityIdentifier("run.again")
             }
             .padding(.top, AceDesign.Space.section * 2)

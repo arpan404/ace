@@ -39,7 +39,7 @@ struct SettingsSearchResults: View {
 
     private func rows(_ found: [SettingsResult]) -> some View {
         ForEach(found) { result in
-            GroupLink(route(result.target)) { InsetRow(result.title, systemImage: nil, subtitle: result.place) }
+            GroupLink(route(result.target)) { InsetRow(result.title, icon: nil, subtitle: result.place) }
                 .accessibilityIdentifier("settings.search.\(result.id)")
         }
     }

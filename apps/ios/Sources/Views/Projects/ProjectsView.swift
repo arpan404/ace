@@ -58,7 +58,7 @@ struct ProjectsView: View {
             case .empty:
                 if problem == nil {
                     Section {
-                        EmptyState(systemImage: "folder", title: "No projects") {
+                        EmptyState(icon: .folder, title: "No projects") {
                             if model.canOperate { Button("Add project") { adding = true }.accessibilityIdentifier("projects.empty.add") }
                         }
                         .padding(.vertical, AceDesign.Space.group)
@@ -84,7 +84,7 @@ struct ProjectsView: View {
             if query.isEmpty {
                 Section {
                     NavigationLink { ProjectFoldersView(model: model) } label: {
-                        InsetRow("Project folders", systemImage: nil, subtitle: "Where ace may open projects")
+                        InsetRow("Project folders", icon: nil, subtitle: "Where ace may open projects")
                     }
                     .accessibilityIdentifier("projects.folders")
                 }

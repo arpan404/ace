@@ -211,7 +211,7 @@ private struct ScreenTargetPicker: View {
                 if screen.dialogPicks {
                     Section {
                         Button(action: chooseThere) {
-                            InsetRow(systemImage: "rectangle.on.rectangle", title: "Share a window or screen…",
+                            InsetRow(icon: .monitor, title: "Share a window or screen…",
                                      subtitle: "Chosen in the sharing dialog on that computer. Only you can control a shared screen.") { EmptyView() }
                         }
                         .buttonStyle(.plain).insetRowBackground().accessibilityIdentifier("screen.chooser")

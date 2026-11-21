@@ -131,7 +131,7 @@ struct FilesScreen: View {
     @ViewBuilder private var treeRows: some View {
         if let tree {
             if tree.rows.isEmpty {
-                EmptyState(systemImage: "folder", title: "No files").listRowSeparator(.hidden)
+                EmptyState(icon: .folder, title: "No files").listRowSeparator(.hidden)
             }
             ForEach(tree.rows) { row in
                 switch row.kind {
