@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,16 @@ import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
  * is the only media path); the wire still carries the values for older binaries.
  */
 const mediaSettings: MediaSettings = { ...defaultMediaSettings, encode: "auto" };
+
+/** What makes an executable the one it is: path, size, mtime and inode; undefined if it's gone. */
+function executable(path: string): string | undefined {
+  try {
+    const info = statSync(path);
+    return `${path}:${info.size}:${info.mtimeMs}:${info.ino}`;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Why ace-media didn't start, for the person. */
 function mediaFailure(error: unknown): string {
@@ -156,6 +166,8 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
   /** Failed starts in a row, and when the next try may run: 1 s doubling to 60 s. */
   let failures = 0;
   let retryAt = 0;
+  /** The executable that failed (path, size, mtime, inode): a replaced one is tried at once. */
+  let failedAs: string | undefined;
   let starting: Promise<void> | undefined;
   let closed = false;
   let runtimeDir: string | undefined;
@@ -170,7 +182,14 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
 
   const start = () => {
     // Within the cooldown after a failed start, every ask gets the cached reason: no new try.
-    if (!starting && failure !== undefined && performance.now() < retryAt) return Promise.resolve();
+    // A replaced executable (an update) ends the cooldown: it is a different program.
+    if (
+      !starting &&
+      failure !== undefined &&
+      performance.now() < retryAt &&
+      executable(binary) === failedAs
+    )
+      return Promise.resolve();
     return (starting ??= (async () => {
       const { stdout } = await promisify(execFile)(binary, ["--version"], { timeout: 5_000 });
       if (closed) return;
@@ -207,6 +226,7 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       starting = undefined;
       failure = mediaFailure(error);
       retryAt = performance.now() + Math.min(1_000 * 2 ** failures, 60_000);
+      failedAs = executable(binary);
       failures++;
       context.log.log("warn", `ace-media is not available: ${String(error)}`);
     }));

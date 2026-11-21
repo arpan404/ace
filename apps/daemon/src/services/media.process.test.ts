@@ -185,3 +185,51 @@ it.skipIf(process.platform === "win32")(
   },
   30_000,
 );
+
+it.skipIf(!built || process.platform === "win32")(
+  "a failing ace-media replaced by a working one (an update) starts at the next ask, cooldown or not",
+  async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "ace-media-update-"));
+    cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
+    const resources = new Resources();
+    cleanups.push(() => resources.close());
+    const fake = join(dataDir, "ace-media");
+    await writeFile(fake, "#!/bin/sh\nexit 1\n");
+    await chmod(fake, 0o755);
+    const before = process.env.ACE_MEDIA_PATH;
+    process.env.ACE_MEDIA_PATH = fake;
+    cleanups.push(() => {
+      if (before === undefined) delete process.env.ACE_MEDIA_PATH;
+      else process.env.ACE_MEDIA_PATH = before;
+    });
+    const media = startMedia({
+      services: {},
+      id: () => "id",
+      resources,
+      config: { dataDir },
+      log: createLogger({
+        now: () => 0,
+        redact: (value) => value,
+        sink: { write: async () => {}, close: async () => {} },
+      }),
+    });
+    if (!media) throw new Error("the binary was not found");
+    await until(() => media.delivery() !== undefined, 10_000);
+    expect(media.delivery()?.unserved("tab")).toMatch(/^Live video can't start/);
+    // An update puts the real binary where the failing one was, inside the cooldown.
+    await rm(fake);
+    await writeFile(fake, await readFile(built ?? ""));
+    await chmod(fake, 0o755);
+    const owner = {
+      session: "s1",
+      device: "phone",
+      admission: { kind: "pairing", generation: "g1" },
+    } as const;
+    // The next ask (several at once, as reconnecting clients do) starts it at once.
+    await Promise.all(Array.from({ length: 3 }, () => media.delivery()?.connect(owner)));
+    await until(() => !/can't start/.test(media.delivery()?.unserved("tab") ?? ""), 5_000);
+    const grant = await media.delivery()?.connect(owner);
+    expect(grant).toMatchObject({ ok: true });
+  },
+  30_000,
+);
