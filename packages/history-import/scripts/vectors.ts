@@ -14,7 +14,8 @@ for (const [name, content] of Object.entries(historyVectors())) {
   const path = root + name;
   const text = JSON.stringify(content, null, 2) + "\n";
   const current = await readFile(path, "utf8").catch(() => "");
-  if (current === text) continue;
+  // Compared parsed: oxfmt lays the files out its own way.
+  if (current && JSON.stringify(JSON.parse(current)) === JSON.stringify(content)) continue;
   if (check) {
     stale++;
     console.error(`stale: ${path}`);

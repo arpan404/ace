@@ -59,6 +59,13 @@ took 157 ms. Mapping is about three quarters of an import's CPU and most of its 
 
 ## Consequences
 
+- Measured on generated homes (`bench/scan.ts`, BENCHMARKS.md): a cold scan of 6,379 Claude and
+  Codex transcripts takes 1.0 s instead of 2.6 s, and the reader peaks at 11 MiB instead of
+  173 MiB; a 300 MB, 200,000-record import takes 8.3 s instead of 11.3 s, at 33 MiB instead of
+  299 MiB. The watchdog limit for ace-history is 128 MiB.
+- On Windows, std has no stable file index, so fingerprints carry no device or inode there and
+  an index the TypeScript reader wrote is read once more after the move.
+
 - Releases build and sign one more native binary per platform, staged in `history/` beside
   `media/` and `files/`.
 - Where the TypeScript and Rust ports could disagree (JavaScript `Date.parse` of non-ISO

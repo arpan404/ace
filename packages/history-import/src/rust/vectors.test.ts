@@ -7,10 +7,11 @@ const dir = new URL("../../../../native/history/vectors/", import.meta.url);
 
 test("the shared vectors ace-history is tested against are generated from this TypeScript", async () => {
   for (const [name, content] of Object.entries(historyVectors()))
+    // Compared parsed: the formatter may lay a file out its own way.
     expect(
-      await readFile(new URL(name, dir), "utf8"),
+      JSON.parse(await readFile(new URL(name, dir), "utf8")),
       `${name} is stale: run scripts/vectors.ts`,
-    ).toBe(JSON.stringify(content, null, 2) + "\n");
+    ).toEqual(JSON.parse(JSON.stringify(content)));
 });
 
 test("frames ace-history writes read back as the worker's messages, bodies as bytes", () => {
