@@ -43,7 +43,8 @@ export async function intentOf(method: string, path: string, body?: unknown): Pr
   let binary = "";
   for (const byte of digest) binary += String.fromCharCode(byte);
   const hash = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-  return `${method} ${new URL(path, "http://market").pathname} ${hash}`;
+  const target = new URL(path, "http://market");
+  return `${method} ${target.pathname}${target.search} ${hash}`;
 }
 
 export function grantFor(account: string, options: GrantOptions = {}) {

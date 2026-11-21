@@ -62,7 +62,10 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-/** `METHOD /path <base64url SHA-256 of the body>`, as `@ace/client/market-intent` builds it. */
+/**
+ * `METHOD /path?query <base64url SHA-256 of the body>`, as `@ace/client/market-intent` builds
+ * it: the query is part of the target, so a grant for one `version` publishes no other.
+ */
 async function requestIntent(method: string, path: string, body: Uint8Array): Promise<string> {
   return `${method} ${path} ${await sha256(body)}`;
 }
@@ -186,7 +189,7 @@ export async function authenticate(
     claims.action ===
       (await requestIntent(
         request.method,
-        url.pathname,
+        `${url.pathname}${url.search}`,
         new Uint8Array(await request.clone().arrayBuffer()),
       ));
   // A grant naming one request is good for that request alone: anywhere else, a grant captured

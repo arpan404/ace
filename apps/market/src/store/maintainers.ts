@@ -225,20 +225,27 @@ export async function scanContext(
   now: number,
   audiences: readonly string[] = ["public"],
 ): Promise<MarketScanContextBody> {
+  const allowed = JSON.stringify(audiences);
   const [entries, publishers, live] = await Promise.all([
     fromCatalogues(dbs, async ({ db }) => {
       const { results } = await db
         .prepare(
-          `SELECT e.type, e.name, p.name AS publisher,
+          `SELECT e.type, e.name, p.id AS publisher_id, p.name AS publisher,
               (SELECT COALESCE(SUM(v.counted), 0) FROM versions v
                 WHERE v.type = e.type AND v.name = e.name) AS downloads
             FROM entries e JOIN publisher_copies p ON p.id = e.publisher
             WHERE e.audience IN (SELECT value FROM json_each(?1))
             ORDER BY e.type, e.name LIMIT 50000`,
         )
-        .bind(JSON.stringify(audiences))
-        .all<{ type: string; name: string; publisher: string; downloads: number }>();
-      return results.map((row) => Object.assign(row, { name: shownName(row.name) }));
+        .bind(allowed)
+        .all<{
+          type: string;
+          name: string;
+          publisher_id: string;
+          publisher: string;
+          downloads: number;
+        }>();
+      return results;
     }),
     dbs.publishers
       .prepare("SELECT id, name, display_name, verified, created FROM publishers LIMIT 50000")
@@ -249,23 +256,40 @@ export async function scanContext(
         verified: number;
         created: number;
       }>(),
+    // Live versions counted over the permitted audiences only: another organization's activity
+    // never decides whose thresholds are strict.
     fromCatalogues(dbs, async ({ db }) => {
       const { results } = await db
-        .prepare("SELECT id, live_versions FROM publisher_copies WHERE live_versions > 0")
+        .prepare(
+          `SELECT e.publisher AS id, COUNT(*) AS live_versions FROM versions v
+            JOIN entries e ON e.type = v.type AND e.name = v.name
+            WHERE v.listed = 1 AND e.audience IN (SELECT value FROM json_each(?1))
+            GROUP BY e.publisher`,
+        )
+        .bind(allowed)
         .all<{ id: string; live_versions: number }>();
       return results;
     }),
   ]);
   const liveOf = new Map<string, number>();
   for (const row of live) liveOf.set(row.id, (liveOf.get(row.id) ?? 0) + row.live_versions);
+  // Only publishers with an entry the caller may compare with.
+  const seen = new Set(entries.map((entry) => entry.publisher_id));
   return {
-    entries: entries.slice(0, 50000),
+    entries: entries.slice(0, 50000).map((row) => ({
+      type: row.type,
+      name: shownName(row.name),
+      publisher: row.publisher,
+      downloads: row.downloads,
+    })),
     verified: publishers.results
       .filter((row) => row.verified === 1)
       .map((row) => ({ handle: row.name, displayName: row.display_name || row.name })),
     newPublishers: publishers.results
-      .filter((row) =>
-        isNewPublisher({ created: row.created, liveVersions: liveOf.get(row.id) ?? 0 }, now),
+      .filter(
+        (row) =>
+          seen.has(row.id) &&
+          isNewPublisher({ created: row.created, liveVersions: liveOf.get(row.id) ?? 0 }, now),
       )
       .map((row) => row.name),
   };

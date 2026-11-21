@@ -2,6 +2,8 @@ import { SignatureError } from "@ace/marketplace";
 import { verifyRegistryManifest } from "@ace/marketplace/registry";
 import { BlockDecision, HoldDecision, SignedVersionUpload } from "@ace/protocol/marketplace";
 import { usageChanged } from "./api-maintainers.ts";
+import { registryEntry, registryVersion } from "./api-org-reads.ts";
+import { chainAnswer } from "./api-orgs.ts";
 import { malformed, signatureRefused } from "./api-signer.ts";
 import { objectKey, versionReportKey, type Context } from "./context.ts";
 import { failure, json, notFound, readCapped, refused } from "./http.ts";
@@ -70,6 +72,12 @@ export async function orgSignerRoute(
         ...(official ? { official: official.signed } : {}),
       });
     }
+    case "org-signer-keys":
+      return chainAnswer(context, org);
+    case "org-signer-entry":
+      return registryEntry(request, context, org, route);
+    case "org-signer-entry-version":
+      return registryVersion(request, context, org, route);
     case "org-signer-scan-context":
       // The public market's entries and this registry's own: never another organization's.
       return json(await scanContext(dbs, context.now, ["public", audience]));

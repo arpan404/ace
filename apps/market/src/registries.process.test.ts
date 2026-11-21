@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { MarketSigningKey } from "@ace/marketplace";
-import { registryProofHeader, signRegistryRequest } from "@ace/marketplace/registry";
+import {
+  readRegistryKeyUpload,
+  registryProofHeader,
+  signRegistryRequest,
+} from "@ace/marketplace/registry";
+import { writeArchive } from "@ace/marketplace";
 import { registrySignerIo, type RegistryFetch } from "@ace/marketplace/registry-io";
 import { signPending } from "@ace/marketplace/signer";
 import { keySetOf, registryLink, sampleSkill, testKey } from "@ace/marketplace/testing";
@@ -17,6 +22,7 @@ import {
   type Market,
 } from "./testing/harness.ts";
 import { grantFor, intentOf } from "./testing/publisher-harness.ts";
+import { addKey as storeKey, chainState } from "./store/registries.ts";
 
 /*
  * An organization's private registry on the real Worker (ADR 0206 §5, §8.2): its entries answer
@@ -204,6 +210,34 @@ describe("a registry's names", () => {
 });
 
 describe("publishing to the registry", () => {
+  it("with a person's grant publishes only the version that grant names", async () => {
+    const archive = writeArchive(sampleSkill("intent-skill"));
+    const path = (version: string) =>
+      `/v1/publish/spade-skill/intent-skill/versions?version=${version}`;
+    const sent = async (version: string, named: string) =>
+      market.fetch(path(version), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${grantFor("user_admin", {
+            action: await intentOf("POST", path(named), archive),
+            org: acme,
+            orgRole: "admin",
+          })}`,
+          "content-type": "application/x-tar",
+        },
+        body: archive,
+      });
+    expect((await sent("2.0.0", "1.0.0")).status).toBe(401);
+    expect((await sent("1.0.0", "1.0.0")).status).toBe(201);
+  });
+
+  it("moves nothing on the public index's cursor", async () => {
+    const stamp = async () => ((await (await read("/v1/index")).json()) as { stamp: number }).stamp;
+    const before = await stamp();
+    await publishToRegistry("quiet-skill");
+    expect(await stamp()).toBe(before);
+  });
+
   it("needs the registry:publish role; a member without it is refused", async () => {
     const refused = await publish(market, {
       type: "spade-skill",
@@ -275,6 +309,44 @@ describe("what signers see", () => {
     expect(seen).not.toContain("other-secret");
   });
 
+  it("counts only the publishers and versions a signer may compare with", async () => {
+    const context = MarketScanContextBody.parse(
+      await signerIo(acme, acmeKey).get("/v1/signer/scan-context"),
+    );
+    expect(context.newPublishers).toContain("acme");
+    expect(context.newPublishers).not.toContain("other-org");
+    const ace = MarketScanContextBody.parse(
+      await (await market.fetch("/v1/signer/scan-context", { headers: asSigner })).json(),
+    );
+    expect(ace.newPublishers).not.toContain("acme");
+    expect(ace.newPublishers).not.toContain("other-org");
+  });
+
+  it("a signer's proof opens no member route; the signer reads under its own", async () => {
+    const proved = (path: string) =>
+      market.fetch(path, {
+        headers: {
+          [registryProofHeader]: signRegistryRequest(acmeKey, {
+            method: "GET",
+            path,
+            at: Date.now(),
+          }),
+        },
+      });
+    for (const path of [
+      `/v1/orgs/${acme}/entries/spade-skill/acme-triage`,
+      `/v1/orgs/${acme}/entries/spade-skill/acme-triage/1.0.0`,
+      `/v1/orgs/${acme}/keys`,
+      `/v1/orgs/${acme}/entries`,
+    ])
+      expect((await proved(path)).status, path).toBe(404);
+    for (const path of [
+      `/v1/orgs/${acme}/signer/entries/spade-skill/acme-triage/1.0.0`,
+      `/v1/orgs/${acme}/signer/keys`,
+    ])
+      expect((await proved(path)).status, path).toBe(200);
+  });
+
   it("ace's signer reads no registry's entries, bytes or withdrawals", async () => {
     const context = await market.fetch("/v1/signer/scan-context", { headers: asSigner });
     expect(names(await context.json())).not.toContain("other-secret");
@@ -344,5 +416,37 @@ describe("the registry's key chain", () => {
       keys: unknown[];
     };
     expect(chain.keys).toHaveLength(2);
+  });
+
+  it("adds a key only to the chain revision it verified, after the exact key it verified", async () => {
+    const orgs = market.dbs.orgs;
+    if (!orgs) throw new Error("no registries database");
+    const first = testKey("race-1", 51);
+    expect((await addKey(acme, linkFor(acme, first))).answer.status).toBe(201);
+    // A rotation verified against this chain, its write not landed yet...
+    const verified = await chainState(orgs, acme);
+    const rotation = linkFor(acme, testKey("race-2", 52), { position: 1, previous: first });
+    const { statement } = readRegistryKeyUpload(rotation.upload);
+    // ...when a reset lands, with a new first key that reuses the same key id.
+    expect((await addKey(acme, linkFor(acme, testKey("race-1", 53)))).answer.status).toBe(201);
+    const landed = await storeKey(orgs, {
+      org: acme,
+      position: 1,
+      keyId: statement.key,
+      publicKey: statement.publicKey,
+      upload: rotation.upload,
+      attestation: rotation.attestation,
+      addedBy: owner,
+      at: statement.at,
+      revision: verified.revision,
+      previousUpload: verified.keys[0]?.link.upload,
+      writer: "race-writer",
+    });
+    expect(landed).toBe(false);
+    const after = await chainState(orgs, acme);
+    expect(after.keys.map((key) => key.publicKey)).toEqual([
+      readRegistryKeyUpload(after.keys[0]?.link.upload ?? "").statement.publicKey,
+    ]);
+    expect(after.keys).toHaveLength(1);
   });
 });

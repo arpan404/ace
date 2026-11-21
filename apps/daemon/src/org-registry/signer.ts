@@ -47,7 +47,7 @@ async function chainSeenWith(
 ): Promise<MarketKeySet["keys"] | undefined> {
   const io = registrySignerIo({ org, key, now: deps.now, fetch: deps.fetch });
   const read = io.read ?? io.get;
-  const served = RegistryKeyChain.safeParse(await read(`/v1/orgs/${org}/keys`));
+  const served = RegistryKeyChain.safeParse(await read("/v1/signer/keys"));
   if (!served.success) return undefined;
   const keys = served.data.keys.map((link) => {
     const { statement } = readRegistryKeyUpload(link.upload);

@@ -17,6 +17,8 @@ export const orgAudience = (org: string) => `org:${org}`;
  */
 export const storedName = (name: string, org?: string) =>
   org === undefined ? name : `${name}@${org}`;
+/** Whether a stored name is a registry's (`<name>@<org>`). */
+export const isRegistryName = (stored: string) => stored.includes("@");
 /** The name a stored entry is shown and signed under. */
 export const shownName = (stored: string) => stored.split("@")[0] ?? stored;
 /** The organization an entry's audience names, or undefined for a public entry. */
@@ -116,54 +118,81 @@ export async function currentKey(
   return row ? { id: row.key_id, publicKey: row.public_key } : undefined;
 }
 
+/** The chain as one request verifies it: its keys and the revision they were read at. */
+export async function chainState(
+  orgs: D1Database,
+  org: string,
+): Promise<{ revision: number; keys: StoredKey[] }> {
+  const [row, keys] = await Promise.all([
+    orgs
+      .prepare("SELECT chain_revision FROM registries WHERE org = ?1")
+      .bind(org)
+      .first<{ chain_revision: number }>(),
+    registryKeys(orgs, org),
+  ]);
+  return { revision: row?.chain_revision ?? 0, keys };
+}
+
 export interface KeyWrite {
   org: string;
   position: number;
   keyId: string;
   publicKey: string;
-  previous: string | undefined;
   upload: string;
   attestation: string;
   addedBy: string;
   at: number;
+  /** The chain revision the request verified the key against (`chainState`). */
+  revision: number;
+  /** For a later key: the exact upload of the key before it, as verified. */
+  previousUpload: string | undefined;
+  /** This write's own token: the statements after the first act only if it moved the chain. */
+  writer: string;
 }
 
 /**
- * Adds a key to the chain. A first key replaces the whole chain (a reset), in one batch; a later
- * key is written only while the chain ends, at `position - 1`, with the key it names as previous,
- * so two rotations racing can't both land. False when nothing was written.
+ * Adds a key to the chain, in one batch, only while the chain is still at the revision the
+ * request verified: a first key replaces the whole chain (a reset); a later key also needs the
+ * exact upload it was verified to follow at `position - 1`, and nothing at or after it. A reset
+ * and a rotation racing, or two rotations, can't both land, nor one land on a chain it never
+ * verified. False when nothing was written.
  */
 export async function addKey(orgs: D1Database, write: KeyWrite): Promise<boolean> {
-  const values = [
-    write.org,
-    write.position,
-    write.keyId,
-    write.publicKey,
-    write.upload,
-    write.attestation,
-    write.addedBy,
-    write.at,
-  ];
-  const insert = `INSERT INTO registry_keys
-      (org, position, key_id, public_key, upload, attestation, added_by, at)`;
-  if (write.position === 0) {
-    const [, inserted] = await orgs.batch([
-      orgs.prepare("DELETE FROM registry_keys WHERE org = ?1").bind(write.org),
-      orgs.prepare(`${insert} VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`).bind(...values),
-    ]);
-    return (inserted?.meta.changes ?? 0) === 1;
-  }
-  const result = await orgs
+  const moved = "EXISTS (SELECT 1 FROM registries WHERE org = ?1 AND chain_writer = ?9)";
+  const follows =
+    write.position === 0
+      ? ""
+      : `AND EXISTS (SELECT 1 FROM registry_keys WHERE org = ?1 AND position = ?2 - 1
+            AND upload = ?3)
+          AND NOT EXISTS (SELECT 1 FROM registry_keys WHERE org = ?1 AND position >= ?2)`;
+  const claim = orgs
     .prepare(
-      `${insert} SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
-        WHERE EXISTS (SELECT 1 FROM registry_keys
-            WHERE org = ?1 AND position = ?2 - 1 AND key_id = ?9)
-          AND NOT EXISTS (SELECT 1 FROM registry_keys WHERE org = ?1 AND position >= ?2)
-        ON CONFLICT DO NOTHING`,
+      `UPDATE registries SET chain_revision = chain_revision + 1, chain_writer = ?4
+        WHERE org = ?1 AND chain_revision = ?5 ${follows}`,
     )
-    .bind(...values, write.previous ?? "")
-    .run();
-  return result.meta.changes === 1;
+    .bind(write.org, write.position, write.previousUpload ?? "", write.writer, write.revision);
+  const insert = orgs
+    .prepare(
+      `INSERT INTO registry_keys
+          (org, position, key_id, public_key, upload, attestation, added_by, at)
+        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 WHERE ${moved}`,
+    )
+    .bind(
+      write.org,
+      write.position,
+      write.keyId,
+      write.publicKey,
+      write.upload,
+      write.attestation,
+      write.addedBy,
+      write.at,
+      write.writer,
+    );
+  const reset = orgs
+    .prepare(`DELETE FROM registry_keys WHERE org = ?1 AND ${moved.replace("?9", "?2")}`)
+    .bind(write.org, write.writer);
+  const results = await orgs.batch(write.position === 0 ? [claim, reset, insert] : [claim, insert]);
+  return (results.at(-1)?.meta.changes ?? 0) === 1;
 }
 
 /** Who may read an entry: `public`, or the organization's audience; undefined for no entry. */

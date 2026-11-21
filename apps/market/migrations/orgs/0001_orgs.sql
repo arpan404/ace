@@ -4,11 +4,15 @@
 
 -- One registry per organization. `publisher` is its publisher row in the publishers database,
 -- whose `account` column holds the organization's id (WorkOS user ids never start `org_`).
+-- `chain_revision` moves with every write to the key chain, and `chain_writer` names the write
+-- that moved it last: a key is added only to the chain revision its request verified.
 CREATE TABLE registries (
   org TEXT PRIMARY KEY,
   publisher TEXT NOT NULL UNIQUE,
   created INTEGER NOT NULL,
-  created_by TEXT NOT NULL
+  created_by TEXT NOT NULL,
+  chain_revision INTEGER NOT NULL DEFAULT 0,
+  chain_writer TEXT
 ) STRICT;
 
 -- Members an owner named as registry publishers beyond the roles that may (§5.1).

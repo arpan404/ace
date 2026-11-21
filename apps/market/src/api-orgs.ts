@@ -15,6 +15,7 @@ import type { Route } from "./routes.ts";
 import { claimPublisher } from "./store/publish.ts";
 import {
   addKey,
+  chainState,
   orgAudience,
   recordRegistry,
   registryEntries,
@@ -49,18 +50,10 @@ export async function orgRoute(
   switch (route.kind) {
     case "org-registry":
       return create(request, route.org, context);
-    case "org-keys": {
-      const registry = await membersRegistry(request, route.org, context);
-      if (!registry || !context.dbs.orgs) return notFound();
-      const keys = await registryKeys(context.dbs.orgs, route.org);
-      if (keys.length === 0) return notFound();
-      const chain: RegistryKeyChain = {
-        org: route.org,
-        publisher: registry.publisher,
-        keys: keys.map((key) => key.link),
-      };
-      return json(chain, 200, privateHeaders);
-    }
+    case "org-keys":
+      return (await mayRead(request, context, orgAudience(route.org)))
+        ? chainAnswer(context, route.org)
+        : notFound();
     case "org-key-add":
       return addRegistryKey(request, route.org, context);
     case "org-entries": {
@@ -74,7 +67,21 @@ export async function orgRoute(
   }
 }
 
-/** The organization's registry, when this request is a member's (or its signer's). */
+/** The registry's key chain, once the caller is known to be its member or signer. */
+export async function chainAnswer(context: Context, org: string): Promise<Response> {
+  const registry = await registryOf(context.dbs, org);
+  if (!registry || !context.dbs.orgs) return notFound();
+  const keys = await registryKeys(context.dbs.orgs, org);
+  if (keys.length === 0) return notFound();
+  const chain: RegistryKeyChain = {
+    org,
+    publisher: registry.publisher,
+    keys: keys.map((key) => key.link),
+  };
+  return json(chain, 200, privateHeaders);
+}
+
+/** The organization's registry, when this request is a member's. */
 async function membersRegistry(
   request: Request,
   org: string,
@@ -148,14 +155,15 @@ async function addRegistryKey(request: Request, org: string, context: Context): 
   if (!keys) return failure(503, "unavailable", "The market can't check sign-ins right now.");
   let statement;
   let verified;
+  let state;
   try {
     statement = readRegistryKeyUpload(link.upload).statement;
     if (statement.org !== org || statement.addedBy !== authed.account)
       return refused([{ message: "The key names another organization or owner." }]);
     // The new link with the chain it extends, checked as a device will check it: the backend's
     // attestation vouches for a first key, the key before signs a later one.
-    const before =
-      statement.position === 0 ? [] : (await registryKeys(orgs, org)).map((key) => key.link);
+    state = await chainState(orgs, org);
+    const before = statement.position === 0 ? [] : state.keys.map((key) => key.link);
     verified = verifyRegistryChain(
       { org, publisher: registry.publisher, keys: [...before, link] },
       {
@@ -173,11 +181,15 @@ async function addRegistryKey(request: Request, org: string, context: Context): 
     position: statement.position,
     keyId: statement.key,
     publicKey: statement.publicKey,
-    previous: statement.previous,
     upload: link.upload,
     attestation: link.attestation,
     addedBy: authed.account,
     at: statement.at,
+    // Only onto the chain this request verified, after the very key it verified it follows.
+    revision: state.revision,
+    previousUpload:
+      statement.position === 0 ? undefined : state.keys[statement.position - 1]?.link.upload,
+    writer: context.newToken(),
   });
   if (!added) return failure(409, "conflict", "The registry's key chain changed; read it again.");
   return json(

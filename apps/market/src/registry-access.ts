@@ -47,7 +47,10 @@ export async function registrySigner(
   });
 }
 
-/** Whether the request may read what `audience` names. */
+/**
+ * Whether a member may read what `audience` names: a grant acting in its organization, decided
+ * from the request before anything is looked up. A signer's proof counts on signer routes only.
+ */
 export async function mayRead(
   request: Request,
   context: Context,
@@ -55,8 +58,7 @@ export async function mayRead(
 ): Promise<boolean> {
   const org = audienceOrg(audience);
   if (org === undefined) return true;
-  if ((await grantOrg(request, context)) === org) return true;
-  return registrySigner(request, context, org);
+  return (await grantOrg(request, context)) === org;
 }
 
 /** A member's answer: never kept by a shared cache. */

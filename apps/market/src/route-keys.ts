@@ -110,6 +110,9 @@ export type Route =
   | { kind: "org-signer-pending"; org: string }
   | { kind: "org-signer-scan-context"; org: string }
   | { kind: "org-signer-object"; org: string; hash: string }
+  | { kind: "org-signer-keys"; org: string }
+  | ({ kind: "org-signer-entry"; org: string } & EntryKey)
+  | ({ kind: "org-signer-entry-version"; org: string } & VersionKey)
   | ({ kind: "org-signer-version"; org: string } & VersionKey)
   | ({ kind: "org-signer-hold"; org: string } & VersionKey)
   | ({ kind: "org-signer-block"; org: string } & VersionKey);

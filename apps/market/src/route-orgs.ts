@@ -38,15 +38,23 @@ export function orgRoutes(rest: readonly string[]): Methods | undefined {
   if (rest.length === 3) {
     if (a === "pending") return get({ kind: "org-signer-pending", org });
     if (a === "scan-context") return get({ kind: "org-signer-scan-context", org });
+    if (a === "keys") return get({ kind: "org-signer-keys", org });
     return undefined;
   }
   if (rest.length === 4 && a === "objects") {
     const h = hash(b);
     return h ? get({ kind: "org-signer-object", org, hash: h }) : undefined;
   }
+  // What the signer's checks read back (an earlier version, to compare its contracts).
+  if (rest.length === 5 && a === "entries") {
+    const entry = entryKey(b, c);
+    return entry ? get({ kind: "org-signer-entry", org, ...entry }) : undefined;
+  }
   const key = rest.length === 6 ? versionKey(b, c, d) : undefined;
   if (!key) return undefined;
   switch (a) {
+    case "entries":
+      return get({ kind: "org-signer-entry-version", org, ...key });
     case "versions":
       return put({ kind: "org-signer-version", org, ...key });
     case "holds":

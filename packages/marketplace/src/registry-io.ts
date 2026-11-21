@@ -25,11 +25,13 @@ export function registrySignerIo(input: {
   fetch: RegistryFetch;
 }): SignerIo {
   // The signer's paths, and the reads its checks make (an earlier version, to compare its
-  // contracts), go to this registry's own: the public paths never reach a registry's entries.
+  // contracts), go to this registry's signer routes: a signer's proof opens no member route,
+  // and the public paths never reach a registry's entries.
+  const signerPath = `/v1/orgs/${input.org}/signer/`;
   const mapped = (path: string) => {
-    for (const prefix of ["/v1/signer/", "/v1/entries/", "/v1/objects/"])
-      if (path.startsWith(prefix))
-        return `/v1/orgs/${input.org}/${prefix.slice(4)}${path.slice(prefix.length)}`;
+    if (path.startsWith("/v1/signer/")) return signerPath + path.slice("/v1/signer/".length);
+    if (path.startsWith("/v1/entries/")) return `${signerPath}entries/${path.slice(12)}`;
+    if (path.startsWith("/v1/objects/")) return `${signerPath}objects/${path.slice(12)}`;
     return path;
   };
   const send = (method: string, path: string, body?: string) => {
