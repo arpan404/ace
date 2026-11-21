@@ -307,7 +307,9 @@ it("a paired phone boots and controls an emulator, and the relay carries none of
   expect(
     DeviceInventory.parse(after.data).devices.find((device) => device.id === "android:Tablet"),
   ).toMatchObject({ state: "booted", serial: "emulator-5556" });
-  // ace-media delivers live pictures on a media connection (X3): none cross this channel.
+  // ace-media delivers live pictures on a media connection (X3): none cross this channel. That
+  // they do arrive there, and pause and resume with acks, is relay-media.process.test.ts's "a
+  // device's pictures reach a relay client on its media connection…", on the real binary.
   f.publish("android:Tablet", 1, 33);
   expect(client.chunks).toHaveLength(0);
   expect(

@@ -16,7 +16,7 @@ import { startFilesRelay } from "../files-relay.ts";
 import { RemoteAuth } from "../remote-auth.ts";
 import { Store } from "../store.ts";
 import { MediaRelayStreams } from "./streams.ts";
-import { tabProducer } from "./testing-producer.ts";
+import { deviceProducer, tabProducer } from "./testing-producer.ts";
 import { StreamAssembler, decodeStreamMessage } from "@ace/browser/stream";
 
 export const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
@@ -106,7 +106,7 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
     runtimeDir,
     dataDir: runtimeDir,
     settings: () => ({ ...legacyMediaSettings, encode: "auto", delivery: "auto" }),
-    capabilities: { ingest: ["tab"], recordings: false, stills: false, delivery: true },
+    capabilities: { ingest: ["tab", "scrcpy"], recordings: false, stills: false, delivery: true },
     host: nodeMediaHost(
       { ...process.env, ...(tls ? { SSL_CERT_FILE: tls.trust } : {}) },
       (path) => ({ command: path, args: [] }),
@@ -226,8 +226,34 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
       },
     };
   }
+  /** An Android device producing into ace-media, and a view of it bound to a relay connection. */
+  function androidDevice(deviceId: string) {
+    const producer = deviceProducer(deviceId);
+    cleanups.push(() => producer.stop());
+    const source = runtime.sources.add(producer);
+    return {
+      source,
+      bind(connection: string): string | undefined {
+        return runtime.viewers.bind({
+          requester: {
+            session: "s1",
+            device: phone.deviceId,
+            admission: { kind: "pairing", generation: "g1" },
+          },
+          connection,
+          target: { kind: "device", deviceId },
+          codecs: ["avc1.42E033"],
+          viewport: { width: 390, height: 844, dpr: 3, scale: 1 },
+          local: false,
+          audio: false,
+          shows: (p) => p.deviceId === deviceId,
+        });
+      },
+    };
+  }
   return {
     tab,
+    device: androidDevice,
     firstChunk,
     runtime,
     supervisor,
