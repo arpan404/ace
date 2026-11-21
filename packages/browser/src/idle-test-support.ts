@@ -14,8 +14,6 @@ import type {
 import type { VideoEncode } from "./backend.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { BrowserService, connectBrowser } from "./index.ts";
-import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
-import type { BrowserVideoChunk } from "./stream-video.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 
