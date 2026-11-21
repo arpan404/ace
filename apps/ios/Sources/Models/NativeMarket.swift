@@ -45,7 +45,32 @@ struct MarketListing: Decodable, Identifiable, Hashable {
     let block: String?
     /// What Share link sends (`ace://market?at=skill/triage-mail`).
     let link: String?
+    /// Its button and long press, from what the machine has installed (browse rows only).
+    let action: MarketListingAction?
     var key: MarketEntryKey { MarketEntryKey(source: source, type: type, name: name) }
+}
+
+/// A browse row's button (`bridge/market-actions.ts`): what it says and the installed copies it
+/// acts on, a bot package's one per bot.
+struct MarketListingAction: Decodable, Hashable {
+    /// One installed copy, named for the menu that chooses it and for Remove's question.
+    struct Copy: Decodable, Hashable, Identifiable {
+        let install: MarketInstall
+        /// The bot's name for a bot package's copy, else the entry's title.
+        let label: String
+        /// "Remove Inbox's skills and plugins? The bot stays yours."
+        let question: String
+        let update: Bool
+        var id: String { install.id }
+    }
+    /// `get`, `update`, `installed`, `blocked`, or `unknown` while what's installed can't be read.
+    let kind: String
+    /// "Get", "Update", "Installed"; nil when there is no button.
+    let word: String?
+    /// Why it can't be installed here ("Needs a newer ace").
+    let reason: String?
+    let copies: [Copy]
+    var updates: [Copy] { copies.filter(\.update) }
 }
 
 /// An install as a row (`market-rows.ts` `installedRow`).

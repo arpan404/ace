@@ -14,8 +14,6 @@ struct MarketRow: View {
     @Environment(\.marketRows) private var rows
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var button: MarketRowButton { MarketRowButton(listing, installed: rows.installed) }
-
     var body: some View {
         StackingRow {
             Button { rows.open(.entry(listing.key)) } label: {
@@ -37,7 +35,7 @@ struct MarketRow: View {
             .accessibilityLabel(spoken)
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("market.row.\(listing.id)")
-            MarketRowAction(listing: listing, button: button)
+            MarketRowAction(listing: listing)
         }
         .padding(.vertical, AceDesign.Space.tight)
         .contextMenu { menu }
@@ -76,70 +74,71 @@ struct MarketRow: View {
         if let handle = listing.publisher, !listing.byAce {
             Button { rows.open(.browse(.publisher(handle: handle))) } label: { Label("Open publisher", ace: .user) }
         }
-        if let install = button.install {
-            Button(role: .destructive) { rows.remove(install, listing.title) } label: { Label("Remove", ace: .trash) }
+        let copies = listing.action?.copies ?? []
+        if copies.count == 1, let copy = copies.first {
+            Button(role: .destructive) { rows.remove(copy) } label: { Label("Remove", ace: .trash) }
+                .disabled(rows.offline)
+        } else if copies.count > 1 {
+            // One listing made into several bots: the person picks which bot loses it.
+            Menu {
+                ForEach(copies) { copy in
+                    Button(copy.label, role: .destructive) { rows.remove(copy) }
+                }
+            } label: { Label("Remove from…", ace: .trash) }
                 .disabled(rows.offline)
         }
     }
 }
 
-/// A row's one button: Get, Update, the word Installed, or why it can't be installed. While the
-/// machine is offline, Get and Update are disabled and say so.
+/// A row's one button, as the bridge decided it: Get, Update, the word Installed, why it can't
+/// be installed, or nothing while what's installed is unknown. Update with several bots to update
+/// asks which. While the machine is offline Get and Update are disabled and say so.
 struct MarketRowAction: View {
     let listing: MarketListing
-    let button: MarketRowButton
     @Environment(\.marketRows) private var rows
 
     var body: some View {
-        switch button {
-        case .get:
-            Button("Get") { rows.get(.install(listing.key), listing.title) }
-                .buttonStyle(.secondaryAction)
-                .disabled(rows.offline)
-                .accessibilityLabel("Get \(listing.title)")
-                .accessibilityHint(rows.offline ? "Your machine is offline." : "")
-                .accessibilityIdentifier("market.get.\(listing.id)")
-        case .update(let install):
-            Button("Update") { rows.get(.update(install.key), listing.title) }
-                .buttonStyle(.secondaryAction)
-                .disabled(rows.offline)
-                .accessibilityLabel("Update \(listing.title)")
-                .accessibilityHint(rows.offline ? "Your machine is offline." : "")
-                .accessibilityIdentifier("market.update.\(listing.id)")
-        case .installed:
-            Text("Installed").aceFont(AceDesign.TextRole.action).foregroundStyle(AceDesign.Ink.subtle)
-        case .blocked(let reason):
-            Text(reason).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
-                .multilineTextAlignment(.trailing).lineLimit(2)
-        }
-    }
-}
-
-/// What a listing's button is, by what the machine has installed (`MarketInstalledList`).
-enum MarketRowButton: Equatable {
-    case get
-    case update(MarketInstall)
-    case installed(MarketInstall)
-    case blocked(String)
-
-    init(_ listing: MarketListing, installed: [MarketInstall]) {
-        let copies = installed.filter { $0.source == listing.source && $0.type == listing.type && $0.name == listing.name }
-        if let waiting = copies.first(where: { $0.update != nil }) {
-            self = .update(waiting)
-        } else if let copy = copies.first {
-            self = .installed(copy)
-        } else if let block = listing.block {
-            self = .blocked(block)
-        } else {
-            self = .get
+        if let action = listing.action {
+            switch action.kind {
+            case "get":
+                Button(action.word ?? "Get") { rows.get(.install(listing.key), listing.title) }
+                    .buttonStyle(.secondaryAction)
+                    .disabled(rows.offline)
+                    .accessibilityLabel("Get \(listing.title)")
+                    .accessibilityHint(rows.offline ? "Your machine is offline." : "")
+                    .accessibilityIdentifier("market.get.\(listing.id)")
+            case "update":
+                update(action)
+                    .disabled(rows.offline)
+                    .accessibilityLabel("Update \(listing.title)")
+                    .accessibilityHint(rows.offline ? "Your machine is offline." : "")
+                    .accessibilityIdentifier("market.update.\(listing.id)")
+            case "installed":
+                Text(action.word ?? "Installed").aceFont(AceDesign.TextRole.action).foregroundStyle(AceDesign.Ink.subtle)
+            case "blocked":
+                if let reason = action.reason {
+                    Text(reason).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
+                        .multilineTextAlignment(.trailing).lineLimit(2)
+                }
+            default:
+                EmptyView()
+            }
         }
     }
 
-    /// The installed copy a long press can remove.
-    var install: MarketInstall? {
-        switch self {
-        case .update(let install), .installed(let install): install
-        case .get, .blocked: nil
+    @ViewBuilder private func update(_ action: MarketListingAction) -> some View {
+        let updates = action.updates
+        if updates.count > 1 {
+            Menu {
+                ForEach(updates) { copy in
+                    Button(copy.label) { rows.get(.update(copy.install.key), listing.title) }
+                }
+            } label: { Text(action.word ?? "Update") }
+                .menuStyle(.button)
+                .buttonStyle(.secondaryAction)
+        } else if let copy = updates.first {
+            Button(action.word ?? "Update") { rows.get(.update(copy.install.key), listing.title) }
+                .buttonStyle(.secondaryAction)
         }
     }
 }

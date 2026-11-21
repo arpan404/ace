@@ -1,17 +1,17 @@
 import SwiftUI
 
-/// What a market row reaches from wherever it is drawn: the machine's installs (for its button),
-/// whether the machine can be reached, and the page's own ways to open a page, start a review
-/// and remove an install. Each browse screen sets it with `marketBrowseActions`.
+/// What a market row reaches from wherever it is drawn: whether the market can be reached, and
+/// the page's own ways to open a page, start a review and remove an installed copy. Each browse
+/// screen sets it with `marketBrowseActions`, and marks it offline with `marketUnreachable` when
+/// an answer came back offline while the socket stayed up.
 struct MarketRows {
     var model: ClientModel?
-    var installed: [MarketInstall] = []
     var offline = false
     var open: (MarketRoute) -> Void = { _ in }
     /// Get or Update: the review sheet, titled by the listing.
     var get: (MarketReviewSheet.Mode, String) -> Void = { _, _ in }
-    /// Remove, after the person confirms what goes.
-    var remove: (MarketInstall, String) -> Void = { _, _ in }
+    /// Remove one installed copy, after the person confirms its question.
+    var remove: (MarketListingAction.Copy) -> Void = { _ in }
 }
 
 extension EnvironmentValues {
@@ -24,6 +24,12 @@ extension View {
     func marketBrowseActions(model: ClientModel, machineName: String) -> some View {
         modifier(MarketBrowseActions(model: model, machineName: machineName))
     }
+
+    /// Disables these rows' Get, Update and Remove while `unreachable`: an answer came back
+    /// offline (a read timed out) though the socket still reads ready.
+    func marketUnreachable(_ unreachable: Bool) -> some View {
+        transformEnvironment(\.marketRows) { $0.offline = $0.offline || unreachable }
+    }
 }
 
 private struct MarketBrowseActions: ViewModifier {
@@ -32,34 +38,24 @@ private struct MarketBrowseActions: ViewModifier {
         let title: String
         var id: MarketReviewSheet.Mode { mode }
     }
-    struct Removal: Identifiable {
-        let install: MarketInstall
-        let title: String
-        var id: String { install.id }
-    }
 
     let model: ClientModel
     let machineName: String
     @State private var route: MarketRoute?
     @State private var review: Review?
-    @State private var removing: Removal?
-    @State private var installed: [MarketInstall]
+    @State private var removing: MarketListingAction.Copy?
     @State private var removed = 0
     @State private var problem: MarketRefusal?
-
-    init(model: ClientModel, machineName: String) {
-        self.model = model
-        self.machineName = machineName
-        _installed = State(initialValue: model.keptMarketInstalled?.rows ?? [])
-    }
+    /// A change came back offline: Get, Update and Remove stay off until a read answers.
+    @State private var unreachable = false
 
     func body(content: Content) -> some View {
         content
             .environment(\.marketRows, MarketRows(
-                model: model, installed: installed, offline: model.connection != "ready",
+                model: model, offline: model.connection != "ready" || unreachable,
                 open: { route = $0 },
                 get: { review = Review(mode: $0, title: $1) },
-                remove: { removing = Removal(install: $0, title: $1) }))
+                remove: { removing = $0 }))
             .marketRoutes($route, model: model, machineName: machineName)
             .sheet(item: $review) { review in
                 MarketReviewSheet(model: model, mode: review.mode, machineName: machineName) { _ in
@@ -67,36 +63,28 @@ private struct MarketBrowseActions: ViewModifier {
                 }
                 .presentationDetents([.medium, .large])
             }
-            .confirmationDialog(removing.map(Self.question) ?? "", isPresented: Binding(
+            .confirmationDialog(removing?.question ?? "", isPresented: Binding(
                 get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible,
-                presenting: removing) { removal in
-                Button("Remove", role: .destructive) { Task { await remove(removal.install) } }
+                presenting: removing) { copy in
+                Button("Remove", role: .destructive) { Task { await remove(copy) } }
                     .accessibilityIdentifier("market.remove.confirm")
             }
             .alert(problem?.message ?? "", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                 Button("OK", role: .cancel) {}
             }
             .sensoryFeedback(.warning, trigger: removed)
-            .task(id: model.marketGeneration) { await readInstalled() }
+            // The market changed: whatever reads again says whether it is reachable.
+            .onChange(of: model.marketGeneration) { unreachable = false }
+            .onChange(of: model.connection) { unreachable = false }
     }
 
-    /// "Remove Inbox's skills and plugins? The bot stays yours." for a bot; "Remove Triage?" else.
-    private static func question(_ removal: Removal) -> String {
-        removal.install.type == "spade-bot"
-            ? "Remove \(removal.title)'s skills and plugins? The bot stays yours."
-            : "Remove \(removal.title)?"
-    }
-
-    private func readInstalled() async {
-        if let list = try? await model.marketInstalled() { installed = list.rows }
-    }
-
-    private func remove(_ install: MarketInstall) async {
+    /// Removes exactly the chosen copy: a bot package's by its bot.
+    private func remove(_ copy: MarketListingAction.Copy) async {
         do {
-            try await model.marketRemove(install.key)
+            try await model.marketRemove(copy.install.key)
             removed += 1
-            installed.removeAll { $0.id == install.id }
         } catch let refusal as MarketRefusal {
+            if refusal.offline { unreachable = true }
             problem = refusal
         } catch {}
     }

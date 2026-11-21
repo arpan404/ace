@@ -79,26 +79,33 @@ import Testing
         #expect(sources.sources.first?.problem == "Not found.")
     }
 
-    @Test func aListingsButtonFollowsWhatTheMachineHasInstalled() throws {
-        let listing = try decode(Self.listing, as: MarketListing.self)
-        #expect(MarketRowButton(listing, installed: []) == .get)
-        var copy = Self.waiting
-        copy["type"] = "suit"; copy["name"] = "harbour-dusk"; copy["id"] = "suit/harbour-dusk"
-        let installed = try decode(copy, as: MarketInstall.self)
-        #expect(MarketRowButton(listing, installed: [installed]) == .installed(installed))
-        copy["update"] = "1.1.0"
-        let waiting = try decode(copy, as: MarketInstall.self)
-        #expect(MarketRowButton(listing, installed: [installed, waiting]) == .update(waiting))
-        copy["source"] = "git:abc"
-        let elsewhere = try decode(copy, as: MarketInstall.self)
-        #expect(MarketRowButton(listing, installed: [elsewhere]) == .get)
+    @Test func aListingMadeIntoTwoBotsKeepsEachBotsCopySoRemoveTakesTheOneChosen() throws {
+        func copy(_ bot: String, _ name: String, update: Bool) -> [String: Any] {
+            var install = Self.waiting
+            install["type"] = "spade-bot"; install["name"] = "inbox"; install["id"] = "spade-bot/inbox#\(bot)"
+            install["bot"] = bot; install["update"] = update ? "2.0.0" : NSNull()
+            return ["install": install, "label": name, "update": update,
+                    "question": "Remove \(name)'s skills and plugins? The bot stays yours."]
+        }
+        var row = Self.listing
+        row["action"] = ["kind": "update", "word": "Update", "reason": NSNull(),
+                         "copies": [copy("bot-1", "Inbox", update: false), copy("bot-2", "Support", update: true)]]
+        let action = try #require(try decode(row, as: MarketListing.self).action)
+        #expect(action.copies.map(\.label) == ["Inbox", "Support"])
+        #expect(action.copies.map(\.install.key) == [
+            MarketInstalledKey(type: "spade-bot", name: "inbox", bot: "bot-1"),
+            MarketInstalledKey(type: "spade-bot", name: "inbox", bot: "bot-2"),
+        ])
+        #expect(action.copies.first?.question == "Remove Inbox's skills and plugins? The bot stays yours.")
+        #expect(action.updates.map(\.label) == ["Support"])
     }
 
-    @Test func aListingThisBuildCantInstallSaysWhyInPlaceOfGet() throws {
-        var future = Self.listing
-        future["supported"] = false
-        future["block"] = "Needs a newer ace"
-        let listing = try decode(future, as: MarketListing.self)
-        #expect(MarketRowButton(listing, installed: []) == .blocked("Needs a newer ace"))
+    @Test func aRowWhoseInstallsAreUnknownOffersNoButton() throws {
+        var row = Self.listing
+        row["action"] = ["kind": "unknown", "word": NSNull(), "reason": NSNull(), "copies": []]
+        let action = try #require(try decode(row, as: MarketListing.self).action)
+        #expect(action.kind == "unknown")
+        #expect(action.word == nil)
+        #expect(action.copies.isEmpty)
     }
 }
