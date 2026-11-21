@@ -67,6 +67,42 @@ enum SettingsSearch {
         return pages + rows
     }
 
+    /// Everything search finds on one machine: its tools' pages (Computer use, Projects, Usage…),
+    /// then the settings its index describes. A tool the index already lists as a page (Agents)
+    /// shows once, as the index's page. `entries` is nil until the index is read; the tools are
+    /// found before it.
+    static func machineSearchItems(_ entries: [SettingsIndexEntry]?, machine: String, fleet: Bool, spade: Bool) -> [SettingsResult] {
+        let indexed = machineItems(entries ?? [], machine: machine, fleet: fleet)
+        let pageTitles = Set(indexed.filter { $0.place == nil }.map { $0.title.lowercased() })
+        let tools = toolItems(machine: machine, spade: spade).filter { !pageTitles.contains($0.title.lowercased()) }
+        return tools + indexed
+    }
+
+    /// One machine's tools as pages search finds by name and the words people use for them.
+    /// Spade shows only where the machine shows Spade, as Settings › Tools does.
+    static func toolItems(machine: String, spade: Bool) -> [SettingsResult] {
+        SettingsTool.allCases.filter { spade || $0 != .spade }.map { tool in
+            SettingsResult(id: "\(machine)/tool/\(tool.rawValue)", title: tool.title, place: nil,
+                           keywords: toolKeywords(tool), target: .phone(.tool(tool, machine: machine)))
+        }
+    }
+
+    private static func toolKeywords(_ tool: SettingsTool) -> [String] {
+        switch tool {
+        case .agents: ["roles", "subagents", "models"]
+        case .projects: ["folders", "workspaces", "repositories"]
+        case .automations: ["schedule", "cron", "recurring"]
+        case .usage: ["limits", "quota", "cost", "tokens"]
+        case .skills: ["plugins", "skills", "extensions"]
+        case .providers: ["claude", "codex", "cli", "models", "accounts"]
+        case .spade: ["assistant", "bot"]
+        case .sourceControl: ["git", "github", "forge", "branches"]
+        case .prompts: ["snippets", "templates"]
+        case .computer: ["computer", "screen", "control", "desktop"]
+        case .devices: ["simulator", "emulator", "iphone", "android"]
+        }
+    }
+
     /// This phone's pages that `query` finds, as Search's commands (`settings:<page>`, as
     /// `bridge/palette.ts` names them), for when no machine answers: a setting finds its page,
     /// listed once, best match first. Settings itself opens with no machine too, so it leads when

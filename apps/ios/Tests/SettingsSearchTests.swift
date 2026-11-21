@@ -38,6 +38,25 @@ import Testing
         #expect(SettingsSearch.matches(shown, query: "move projects").map(\.title) == ["Agents can move projects"])
     }
 
+    @Test func aMachinesToolPagesAreFoundBeforeItsIndexIsRead() throws {
+        let items = SettingsSearch.machineSearchItems(nil, machine: "studio", fleet: false, spade: false)
+        #expect(SettingsSearch.matches(items, query: "computer").map(\.title) == ["Computer use"])
+        let computer = try #require(SettingsSearch.matches(items, query: "computer").first)
+        #expect(computer.target == .phone(.tool(.computer, machine: "studio")))
+        #expect(SettingsSearch.matches(items, query: "source control").first?.target == .phone(.tool(.sourceControl, machine: "studio")))
+        #expect(SettingsSearch.matches(items, query: "quota").first?.title == "Usage")
+        // Spade is offered only where the machine shows it.
+        #expect(SettingsSearch.matches(items, query: "spade").isEmpty)
+        let spade = SettingsSearch.machineSearchItems(nil, machine: "studio", fleet: false, spade: true)
+        #expect(SettingsSearch.matches(spade, query: "spade").map(\.title) == ["Spade"])
+    }
+
+    @Test func aToolTheIndexListsAsAPageShowsOnce() {
+        let items = SettingsSearch.machineSearchItems(entries, machine: "studio", fleet: false, spade: false)
+        let agents = SettingsSearch.matches(items, query: "agents").filter { $0.place == nil }
+        #expect(agents.map(\.target) == [.machine(machine: "studio", page: "agents", pageTitle: "Agents", row: "")])
+    }
+
     @Test func phoneSettingsAreFoundByTheWordsPeopleUse() {
         let items = SettingsSearch.phoneItems(notifications: true, lock: true)
         #expect(SettingsSearch.matches(items, query: "dark mode").first?.target == .phone(.appearance))
