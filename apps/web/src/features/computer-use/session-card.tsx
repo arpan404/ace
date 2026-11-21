@@ -13,7 +13,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { LiveView } from "./live-view.tsx";
-import { VideoStatusLine } from "@/lib/video/degraded.tsx";
+import { DegradedLine, VideoStatusLine } from "@/lib/video/degraded.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 import { part } from "@/lib/suit-part.ts";
 
@@ -45,6 +45,8 @@ export function SessionCard(props: {
   const machine = useHostIdentity()?.displayName;
   /** Nobody can control it: a whole screen, or a choice still waiting on that machine. */
   const controllable = !view.viewOnly && !view.awaitingChoice;
+  /** The live pane is drawn: it says why the video can't play, so the card doesn't again. */
+  const pane = props.live !== false && session !== undefined && state.lifecycle === "live";
   if (props.compact)
     return (
       <article {...part("list-row", expanded && "open")} aria-label={view.app} className="border-b">
@@ -74,7 +76,7 @@ export function SessionCard(props: {
       aria-label={view.app}
       className="flex min-w-0 flex-col overflow-hidden border-b"
     >
-      {props.live !== false && session && state.lifecycle === "live" && (
+      {pane && session && (
         <div className="relative aspect-video border-b">
           <LiveView
             session={session}
@@ -123,13 +125,16 @@ export function SessionCard(props: {
             " · Only you can control a shared screen"}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
-        {view.lifecycle === "live" && (
-          <VideoStatusLine
-            video={state.video}
-            acceleration={state.acceleration}
-            className="text-sm"
-          />
-        )}
+        {view.lifecycle === "live" &&
+          (pane ? (
+            <DegradedLine acceleration={state.acceleration} className="text-sm" />
+          ) : (
+            <VideoStatusLine
+              video={state.video}
+              acceleration={state.acceleration}
+              className="text-sm"
+            />
+          ))}
         {view.watchOnlyReason && view.lifecycle === "live" && (
           <p className="text-sm text-muted-foreground">{view.watchOnlyReason}</p>
         )}
