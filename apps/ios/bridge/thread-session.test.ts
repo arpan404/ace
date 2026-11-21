@@ -655,8 +655,10 @@ test("a long thread shows its newest screenful first, and the rest of its window
   visit.open(client, "long", false);
   try {
     const first = await until(() => latest("thread.ready"), "the first screen");
-    // The first screen is the tail alone, in a few frames, not the 200-item window.
+    // The first screen is the tail alone, in a few frames, not the 200-item window. Its fence
+    // says so: native already showing the thread keeps its rows until the whole window lands.
     expect(first.count).toBeLessThanOrEqual(screenTail.items);
+    expect(first.tail).toBe(true);
     const before = native.frames.indexOf(first);
     expect(
       native.frames.slice(0, before).filter((frame) => frame.type === "thread.item").length,
@@ -675,6 +677,7 @@ test("a long thread shows its newest screenful first, and the rest of its window
       "the whole window",
     );
     expect(full.count).toBe(200);
+    expect(full.tail).toBeUndefined();
     const pass = native.frames.slice(before + 1, native.frames.indexOf(full));
     expect(
       new Set(pass.filter((frame) => frame.type === "thread.item").map((frame) => frame.id)).size,

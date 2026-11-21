@@ -81,6 +81,10 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let done: [Agent]
         /// "12 done", over the folded finished rows.
         let doneWords: String?
+        /// Agents whose facts aren't loaded yet, while their fold is open.
+        let unsure: [Agent]?
+        /// "173 more agents", over the folded rows not loaded yet.
+        let unsureWords: String?
         /// Rows past the bridge's budget, the folded ones aside: the agent tree has them.
         let hidden: Int
         let progress: Progress

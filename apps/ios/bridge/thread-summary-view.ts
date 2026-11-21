@@ -62,6 +62,8 @@ export interface SummaryFacts {
   showClosed: boolean;
   /** The person opened the agents' "N done" fold. */
   showDone: boolean;
+  /** The person opened the fold of agents not loaded yet. */
+  showUnsure: boolean;
   now: number;
   /** An agent's name as its tree row says it, in the thread it lives in. */
   name(threadId: string, agent: Agent): string;
@@ -145,6 +147,8 @@ function nowView(
     now: facts.now,
     asker: asker && { name, root: asker.root, request: asker.request },
     error: mainAgentError(facts.forest),
+    // The same groups as the progress line under it, so the two never disagree.
+    groups: agents?.counts,
   });
   return {
     say: preview(line.say, 256),
@@ -235,6 +239,7 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
       name: facts.name,
       item: facts.threadItem,
       showDone: facts.showDone,
+      showUnsure: facts.showUnsure,
     },
     preview,
   );

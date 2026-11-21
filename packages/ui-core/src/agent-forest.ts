@@ -1,6 +1,7 @@
 import type { Agent, BackgroundTask, Interaction, ThreadStatus } from "@ace/protocol";
+import { attentionOrder } from "./agent-order.ts";
 import { agentRuns } from "./agent-runs.ts";
-import { agentTreeWork } from "./agents.ts";
+import { agentTreeWork, isRunning } from "./agents.ts";
 
 /*
  * The agent tree across threads (ADR 0108). A thread's agents form a tree by `parentId`; an
@@ -116,9 +117,27 @@ export const forestBounds = { depth: 6, threads: 16 } as const;
 /** Lost-track tasks (`unknown`) have no proof of life and hold nothing (ADR 0052). */
 const runningTask = (task: BackgroundTask) => !task.internal && task.status === "running";
 
+/** It waits on the person: its own row says so, or a request of its own is pending. */
+const asksPerson = (agent: Agent, asked: ReadonlySet<string>) =>
+  (agent.status.state === "blocked" && agent.status.on === "human") || asked.has(agent.id);
+
 /**
- * The delegated threads to load, breadth first from `root`: never one already reached (a cycle
- * or a thread delegated twice), never deeper than `bounds.depth`, at most `bounds.threads`.
+ * The order delegated threads take the budget in, across every thread at one depth: a delegate
+ * waiting on the person first (so its question loads and the Summary names who asks), then one
+ * still at work, then the newest. A long thread's old, settled delegates are what's left out.
+ */
+const byLoadOrder = attentionOrder(
+  (candidate: { agent: Agent; asks: boolean }) => ({
+    needsYou: candidate.asks,
+    live: isRunning(candidate.agent),
+  }),
+  (candidate) => candidate.agent.createdAt,
+);
+
+/**
+ * The delegated threads to load, breadth first from `root`, each depth's delegates from every
+ * thread at that depth ranked together in `byLoadOrder`: never one already reached (a cycle or
+ * a thread delegated twice), never deeper than `bounds.depth`, at most `bounds.threads`.
  */
 function reachable(
   root: string,
@@ -129,16 +148,25 @@ function reachable(
   const reach: string[] = [];
   let level = [root];
   for (let depth = 1; depth <= bounds.depth && level.length; depth++) {
-    const next: string[] = [];
-    for (const threadId of level)
-      for (const agent of works.get(threadId)?.agents ?? []) {
+    const candidates: { agent: Agent; child: string; asks: boolean }[] = [];
+    for (const threadId of level) {
+      const facts = works.get(threadId);
+      if (!facts) continue;
+      const asked = new Set(facts.interactions.map((interaction) => interaction.agentId));
+      for (const agent of facts.agents) {
         // A child on another machine has no thread here to load: its row is all there is.
         const child = agent.machine ? undefined : agent.childThreadId;
-        if (!child || seen.has(child) || reach.length >= bounds.threads) continue;
-        seen.add(child);
-        reach.push(child);
-        next.push(child);
+        if (child) candidates.push({ agent, child, asks: asksPerson(agent, asked) });
       }
+    }
+    const next: string[] = [];
+    for (const { child } of candidates.toSorted(byLoadOrder)) {
+      if (reach.length >= bounds.threads) break;
+      if (seen.has(child)) continue;
+      seen.add(child);
+      reach.push(child);
+      next.push(child);
+    }
     level = next;
   }
   return reach;

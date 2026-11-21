@@ -13,8 +13,8 @@ struct SettingsSearchResults: View {
     var body: some View {
         let phone = SettingsSearch.matches(SettingsSearch.phoneItems(notifications: notifications, lock: lock), query: query)
         let machines = inbox.sessions.compactMap { session -> (String, [SettingsResult])? in
-            guard let entries = index.entries[session.hostId] else { return nil }
-            let items = SettingsSearch.machineItems(entries, machine: session.hostId, fleet: session.client.transfers.linked)
+            let items = SettingsSearch.machineSearchItems(index.entries[session.hostId], machine: session.hostId,
+                                                          fleet: session.client.transfers.linked, spade: session.client.spade.shown == true)
             let found = SettingsSearch.matches(items, query: query)
             return found.isEmpty ? nil : (session.hostId, found)
         }

@@ -44,6 +44,7 @@ const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("summary.clear") }),
   z.object({ kind: z.literal("summary.closed"), shown: z.boolean() }),
   z.object({ kind: z.literal("summary.done"), shown: z.boolean() }),
+  z.object({ kind: z.literal("summary.unsure"), shown: z.boolean() }),
   z.object({ kind: z.literal("work"), open: z.boolean() }),
   z.object({ kind: z.literal("work.refresh") }),
   z.object({ kind: z.literal("work.branches") }),
@@ -274,6 +275,9 @@ export class Sheets {
         return this.#summary !== undefined;
       case "summary.done":
         this.#summary?.doneRows(action.shown);
+        return this.#summary !== undefined;
+      case "summary.unsure":
+        this.#summary?.unsureRows(action.shown);
         return this.#summary !== undefined;
       case "work.refresh":
         void this.#work?.read();
