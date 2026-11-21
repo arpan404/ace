@@ -13,8 +13,10 @@ import {
   detectChromium,
   type BrowserMedia,
 } from "@ace/browser";
+import type { MediaOwner } from "@ace/media/media-connections";
 import { MediaRuntime } from "@ace/media/runtime";
 import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
+import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import {
   decodeStreamMessage,
   StreamAssembler,
@@ -145,59 +147,80 @@ async function watchedUserChrome(chromeArgs: readonly string[] = []) {
   return { browser, runtime, service, origin: await site() };
 }
 
-/** A phone viewer over a binary connection that asks for H.264 and acks what it receives. */
+const owner: MediaOwner = {
+  session: "main-1",
+  device: "phone",
+  admission: { kind: "pairing", generation: "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f" },
+};
+
+/**
+ * A phone viewer that asks for H.264 and acks what it receives. ace-media delivers the view on
+ * the phone's media connection (X3); the browser's socket carries only its state, never video.
+ */
 function phoneViewer(
   service: BrowserService,
+  runtime: MediaRuntime,
   viewport = { width: 640, height: 400, devicePixelRatio: 2 },
 ) {
   const video: BrowserVideoChunk[] = [];
   const kinds: StreamMessage["kind"][] = [];
-  const assembler = new StreamAssembler();
+  /** Stream pieces on the browser's own socket: none, since only ace-media delivers video. */
+  let socketPieces = 0;
   let acking = true;
   const bridge = connectBrowser(service, {
     connectionId: "phone",
     authorize: () => true,
     send: () => true,
     sendStream: (pieces) => {
-      for (const piece of pieces) {
-        const envelope = assembler.push(piece);
-        const message = envelope && decodeStreamMessage(envelope);
-        if (!message) continue;
-        kinds.push(message.kind);
-        if (message.kind !== "browser.video") continue;
-        video.push(message.chunk);
-        // Acked after the send returns, as a client's ack arrives over the network.
-        if (acking)
-          setImmediate(
-            () =>
-              void bridge.handle({
-                type: "browser.ack",
-                threadId: "thread",
-                requestId: `ack-${message.chunk.sequence}`,
-                sequence: message.chunk.sequence,
-                video: true,
-              }),
-          );
-      }
+      socketPieces += pieces.length;
       return true;
     },
+    media: { owner: () => owner, delivery: () => runtime.delivery() },
   });
   return {
     video,
     kinds,
     bridge,
+    socketPieces: () => socketPieces,
     stopAcking: () => {
       acking = false;
     },
-    subscribe: () =>
-      bridge.handle({
+    subscribe: async () => {
+      const grant = await runtime.connections.connect(owner);
+      if (!grant.ok) throw new Error(`media.connect: ${grant.code}`);
+      const assembler = new StreamAssembler();
+      let client: MediaTestClient | undefined;
+      client = await MediaTestClient.open(grant, {
+        onPiece: (piece) => {
+          const envelope = assembler.push(piece);
+          const message = envelope && decodeStreamMessage(envelope);
+          if (!message) return;
+          kinds.push(message.kind);
+          if (message.kind !== "browser.video") return;
+          video.push(message.chunk);
+          // Acked as a client acks what it shows, on the same connection.
+          if (acking)
+            client?.send({
+              type: "browser.ack",
+              threadId: "thread",
+              sequence: message.chunk.sequence,
+              video: true,
+            });
+        },
+      });
+      const opened = client;
+      cleanups.push(async () => opened.close());
+      return bridge.handle({
         type: "browser.subscribe",
         threadId: "thread",
         requestId: "subscribe",
         binaryFrames: true,
         viewport,
         video: { codecs: ["avc1.42E033"] },
-      }),
+        mediaClient: true,
+        media: { connection: grant.connection },
+      });
+    },
   };
 }
 
@@ -211,7 +234,7 @@ describe.skipIf(!executable || !binary || process.platform === "win32")(
       // An agent working the person's tab with nobody watching starts no encoder.
       expect(runtime.supervisor.snapshot().pid).toBeUndefined();
 
-      const viewer = phoneViewer(service);
+      const viewer = phoneViewer(service, runtime);
       await viewer.subscribe();
       await until(() => viewer.video.length > 0, "the first video chunk");
       const [key] = viewer.video;
@@ -221,6 +244,7 @@ describe.skipIf(!executable || !binary || process.platform === "win32")(
       // the picture is capped at the pixels the tab renders.
       expect([key?.codedWidth, key?.codedHeight]).toEqual([640, 400]);
       expect(viewer.kinds.every((kind) => kind === "browser.video")).toBe(true);
+      expect(viewer.socketPieces()).toBe(0);
       expect(runtime.supervisor.snapshot().pid).toBeGreaterThan(0);
 
       // The page keeps scrolling: chunks keep coming at the screencast's pace.
@@ -273,13 +297,17 @@ describe.skipIf(!executable || !binary || process.platform === "win32")(
 
     test("pictures too large for the relay are skipped, and the video resumes once the page's pictures fit", async () => {
       // A screen and window large enough for a 1920 × 1080 tab.
-      const { service, origin } = await watchedUserChrome([
+      const { runtime, service, origin } = await watchedUserChrome([
         "--screen-info={0,0 2560x1600}",
         "--window-size=2100,1400",
       ]);
       await service.execute("thread", { action: "resize", width: 1920, height: 1080 });
       await service.execute("thread", { action: "navigate", url: `${origin}/noise` });
-      const viewer = phoneViewer(service, { width: 1920, height: 1080, devicePixelRatio: 1 });
+      const viewer = phoneViewer(service, runtime, {
+        width: 1920,
+        height: 1080,
+        devicePixelRatio: 1,
+      });
       await viewer.subscribe();
       await until(() => viewer.video.length > 10, "video of the calm page");
       // Two seconds of 1920 px noise: every screencast picture is over the relay's 1 MiB.
