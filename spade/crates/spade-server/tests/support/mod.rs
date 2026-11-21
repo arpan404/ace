@@ -700,8 +700,10 @@ impl Spade {
             None
         };
         // As in Spade: the person's outside A2A agents (ADR 0202 §5).
-        let outside_agents =
-            spade_server::a2a::OutsideAgents::open(Store::open(&dir.path().join("spade.sqlite"))?);
+        let outside_agents = spade_server::a2a::OutsideAgents::open(
+            Store::open(&dir.path().join("spade.sqlite"))?,
+            spade_connect::Addresses::system(),
+        );
         tools = tools.with_source(Arc::new(spade_server::a2a::tools::OutsideAgentSource::new(
             outside_agents.clone(),
             Store::open(&dir.path().join("spade.sqlite"))?,

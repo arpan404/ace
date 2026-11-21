@@ -3,7 +3,11 @@
 //! against keys its publisher serves on the card's own origin and says whether it holds, and
 //! offers each skill as a tool `<agent>__<skill>` whose every call goes to the person (it sends
 //! the person's data to another party: `send_as_person`). What comes back is untrusted. Stop
-//! cancels the task.
+//! cancels the task, and a cancel Spade couldn't confirm is listed on the agent.
+//!
+//! An agent is remote unless the person adds it as local (on their own machine or network): a
+//! remote one's card, keys and endpoint are reached only at public addresses over https, checked
+//! and pinned on every request (`client`), whatever its card names.
 //!
 //! The added agents are kept in Spade's settings (`a2a_agents`) with the card as fetched, so
 //! starting Spade reaches no agent.
@@ -13,10 +17,12 @@ pub mod client;
 pub mod task;
 pub mod tools;
 
-use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
 
 use serde::Serialize;
 use serde_json::{Value, json};
+use spade_connect::Addresses;
 use spade_store::Store;
 
 use card::{Card, Signed};
@@ -25,6 +31,8 @@ use client::A2aClient;
 const SETTING: &str = "a2a_agents";
 /// The most agents the person may add.
 const MOST_AGENTS: usize = 32;
+/// The most unconfirmed cancels kept per agent.
+const MOST_UNCONFIRMED: usize = 16;
 
 /// One added agent, as the API and its tools show it.
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +42,9 @@ pub struct Agent {
     pub description: String,
     /// Where its card was fetched.
     pub address: String,
+    /// The person added it as on their own machine or network: only then may it be reached at
+    /// local or private addresses.
+    pub local: bool,
     /// Its JSON-RPC interface.
     pub endpoint: String,
     /// Its card's signature held with its publisher's key.
@@ -44,6 +55,9 @@ pub struct Agent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsigned_because: Option<String>,
     pub skills: Vec<SkillView>,
+    /// Tasks Stop asked it to cancel that it never confirmed ended: they may still be running.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unconfirmed_stops: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,12 +72,13 @@ pub struct SkillView {
     pub json: bool,
 }
 
-fn view(id: &str, address: &str, card: &Card, signed: &Signed) -> Agent {
+fn view(id: &str, address: &str, local: bool, card: &Card, signed: &Signed) -> Agent {
     Agent {
         id: id.to_owned(),
         name: card.name.clone(),
         description: card.description.clone(),
         address: address.to_owned(),
+        local,
         endpoint: card.endpoint.clone(),
         signed: matches!(signed, Signed::Verified { .. }),
         signature: signed.words().to_owned(),
@@ -83,6 +98,7 @@ fn view(id: &str, address: &str, card: &Card, signed: &Signed) -> Agent {
                 json: skill.json,
             })
             .collect(),
+        unconfirmed_stops: Vec::new(),
     }
 }
 
@@ -111,16 +127,41 @@ pub struct Added {
     pub card: Card,
 }
 
+/// Tasks whose cancel an agent never confirmed, by agent id: what the person is told may still be
+/// running.
+#[derive(Default)]
+pub struct Unconfirmed(Mutex<HashMap<String, Vec<String>>>);
+
+impl Unconfirmed {
+    pub fn note(&self, agent: &str, task: &str) {
+        let mut all = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let tasks = all.entry(agent.to_owned()).or_default();
+        if !tasks.iter().any(|t| t == task) {
+            tasks.push(task.to_owned());
+        }
+        if tasks.len() > MOST_UNCONFIRMED {
+            tasks.remove(0);
+        }
+    }
+
+    fn of(&self, agent: &str) -> Vec<String> {
+        let all = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        all.get(agent).cloned().unwrap_or_default()
+    }
+}
+
 /// The person's outside agents.
 pub struct OutsideAgents {
     store: Store,
     client: A2aClient,
     added: RwLock<Vec<Added>>,
+    unconfirmed: Arc<Unconfirmed>,
 }
 
 impl OutsideAgents {
-    /// The agents added before, from Spade's settings; none is reached.
-    pub fn open(store: Store) -> Arc<Self> {
+    /// The agents added before, from Spade's settings; none is reached. Names are resolved with
+    /// `addresses` when an agent is reached.
+    pub fn open(store: Store, addresses: Addresses) -> Arc<Self> {
         let kept: Vec<Value> = store
             .setting(SETTING)
             .ok()
@@ -139,16 +180,18 @@ impl OutsideAgents {
                 };
                 let id = row["id"].as_str()?;
                 let address = row["address"].as_str().unwrap_or_default();
+                let local = row["local"].as_bool().unwrap_or(false);
                 Some(Added {
-                    agent: view(id, address, &card, &signed),
+                    agent: view(id, address, local, &card, &signed),
                     card,
                 })
             })
             .collect();
         Arc::new(Self {
             store,
-            client: A2aClient::new(),
+            client: A2aClient::new(addresses),
             added: RwLock::new(added),
+            unconfirmed: Arc::default(),
         })
     }
 
@@ -156,34 +199,36 @@ impl OutsideAgents {
         &self.client
     }
 
-    pub fn list(&self) -> Vec<Added> {
-        self.added.read().unwrap_or_else(|p| p.into_inner()).clone()
+    /// Where a call's cancel that never confirmed is noted.
+    pub fn unconfirmed(&self) -> Arc<Unconfirmed> {
+        self.unconfirmed.clone()
     }
 
-    /// Adds the agent at `address`: its card fetched and read, its signature checked. A card
-    /// Spade can't call is refused with why; one whose signature doesn't hold is added, marked
-    /// "Not signed".
-    pub async fn add(&self, address: &str) -> Result<Agent, String> {
+    pub fn list(&self) -> Vec<Added> {
+        let mut added = self.added.read().unwrap_or_else(|p| p.into_inner()).clone();
+        for one in &mut added {
+            one.agent.unconfirmed_stops = self.unconfirmed.of(&one.agent.id);
+        }
+        added
+    }
+
+    /// Adds the agent at `address`, local (on the person's own machine or network) only when the
+    /// person says so: its card fetched and read, its endpoint checked as the agent's every call
+    /// will be, its signature checked. A card Spade can't call is refused with why; one whose
+    /// signature doesn't hold is added, marked "Not signed".
+    pub async fn add(&self, address: &str, local: bool) -> Result<Agent, String> {
         let at = client::card_address(address)?;
         let raw = self
             .client
-            .document(&at)
+            .document(&at, local)
             .await
             .map_err(|why| format!("Its card couldn't be read: {why}"))?;
         let card = card::read(&raw)?;
-        client::allowed(&card.endpoint)?;
-        let signed = match card::key_set_address(&raw) {
-            None => card::verify(&raw, &json!({ "keys": [] })),
-            Some(jku) => match client::same_origin(&at, &jku) {
-                None => Signed::No(
-                    "its signature names keys on another address than its card's".to_owned(),
-                ),
-                Some(jku) => match self.client.document(&jku).await {
-                    Ok(keys) => card::verify(&raw, &keys),
-                    Err(why) => Signed::No(format!("its publisher's keys couldn't be read: {why}")),
-                },
-            },
-        };
+        self.client
+            .check(&card.endpoint, local)
+            .await
+            .map_err(|why| format!("Its card names an endpoint Spade won't call: {why}"))?;
+        let signed = card::verify(&raw, &self.key_sets(&at, &raw, local).await);
         let mut added = self.added.write().unwrap_or_else(|p| p.into_inner());
         if let Some(same) = added.iter().find(|a| a.agent.address == at.as_str()) {
             return Err(format!("{} is added already.", same.agent.name));
@@ -198,11 +243,12 @@ impl OutsideAgents {
             id = format!("{base}-{n}");
             n += 1;
         }
-        let agent = view(&id, at.as_str(), &card, &signed);
+        let agent = view(&id, at.as_str(), local, &card, &signed);
         let mut rows = self.rows();
         rows.push(json!({
             "id": id,
             "address": at.as_str(),
+            "local": local,
             "card": raw,
             "signed": match &signed { Signed::Verified { kid } => Some(kid.clone()), Signed::No(_) => None },
             "why": match &signed { Signed::No(why) => Some(why.clone()), Signed::Verified { .. } => None },
@@ -213,6 +259,44 @@ impl OutsideAgents {
             card,
         });
         Ok(agent)
+    }
+
+    /// Each signature's own key set, from the `jku` it names, which must be on the card's origin:
+    /// one signature's keys are never another's.
+    async fn key_sets(
+        &self,
+        at: &reqwest::Url,
+        raw: &Value,
+        local: bool,
+    ) -> Vec<Result<Value, String>> {
+        let mut fetched: Vec<(String, Result<Value, String>)> = Vec::new();
+        let mut sets = Vec::new();
+        for jku in card::key_set_addresses(raw) {
+            let Some(jku) = jku else {
+                sets.push(Err("its signature names no keys".to_owned()));
+                continue;
+            };
+            let Some(jku) = client::same_origin(at, &jku) else {
+                sets.push(Err(
+                    "its signature names keys on another address than its card's".to_owned(),
+                ));
+                continue;
+            };
+            let keys = match fetched.iter().find(|(url, _)| url == jku.as_str()) {
+                Some((_, keys)) => keys.clone(),
+                None => {
+                    let keys = self
+                        .client
+                        .document(&jku, local)
+                        .await
+                        .map_err(|why| format!("its publisher's keys couldn't be read: {why}"));
+                    fetched.push((jku.to_string(), keys.clone()));
+                    keys
+                }
+            };
+            sets.push(keys);
+        }
+        sets
     }
 
     /// Removes agent `id`; whether it was there.

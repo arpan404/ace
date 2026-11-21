@@ -87,6 +87,18 @@ pub fn result_text(agent: &str, skill: &str, body: &str) -> String {
     )
 }
 
+/// The task's id, if `answer` is a task (or carries one).
+pub fn id_of(answer: &Value) -> Option<String> {
+    if answer.get("message").is_some_and(Value::is_object) {
+        return None;
+    }
+    let task = answer
+        .get("task")
+        .filter(|t| t.is_object())
+        .unwrap_or(answer);
+    task["id"].as_str().map(str::to_owned)
+}
+
 /// The task's id, if the answer is a task, and where it stands. A `SendMessage` answer is
 /// `{task}` or `{message}`; a `GetTask` answer is the task itself.
 pub fn read(answer: &Value, agent: &str, skill: &str) -> (Option<String>, Step) {
@@ -101,7 +113,7 @@ pub fn read(answer: &Value, agent: &str, skill: &str) -> (Option<String>, Step) 
         .get("task")
         .filter(|t| t.is_object())
         .unwrap_or(answer);
-    let id = task["id"].as_str().map(str::to_owned);
+    let id = id_of(answer);
     let state = task["status"]["state"].as_str().unwrap_or_default();
     let step = match state {
         "TASK_STATE_SUBMITTED" | "TASK_STATE_WORKING" => Step::Working,
@@ -139,6 +151,29 @@ pub fn read(answer: &Value, agent: &str, skill: &str) -> (Option<String>, Step) 
         )),
     };
     (id, step)
+}
+
+/// Whether `answer` (a `SendMessage`, `GetTask` or `CancelTask` result) establishes that nothing
+/// of its task can still be running: a message with no task, or a task completed, failed,
+/// rejected or canceled. Working, an interrupted state (input or a sign-in required, which the
+/// agent may resume) and a state Spade doesn't know don't.
+pub fn settled(answer: &Value) -> bool {
+    if answer.get("message").is_some_and(Value::is_object) {
+        return true;
+    }
+    let task = answer
+        .get("task")
+        .filter(|t| t.is_object())
+        .unwrap_or(answer);
+    matches!(
+        task["status"]["state"].as_str(),
+        Some(
+            "TASK_STATE_COMPLETED"
+                | "TASK_STATE_FAILED"
+                | "TASK_STATE_REJECTED"
+                | "TASK_STATE_CANCELED"
+        )
+    )
 }
 
 #[cfg(test)]
@@ -180,6 +215,25 @@ mod tests {
             };
             assert_eq!(got, want, "{state}");
         }
+    }
+
+    #[test]
+    fn only_an_ended_task_or_a_plain_message_is_settled() {
+        for (state, want) in [
+            ("TASK_STATE_SUBMITTED", false),
+            ("TASK_STATE_WORKING", false),
+            ("TASK_STATE_INPUT_REQUIRED", false),
+            ("TASK_STATE_AUTH_REQUIRED", false),
+            ("TASK_STATE_UNKNOWN", false),
+            ("TASK_STATE_COMPLETED", true),
+            ("TASK_STATE_FAILED", true),
+            ("TASK_STATE_REJECTED", true),
+            ("TASK_STATE_CANCELED", true),
+        ] {
+            assert_eq!(settled(&task(state, json!({}))), want, "{state}");
+        }
+        assert!(settled(&json!({ "message": { "parts": [] } })));
+        assert!(!settled(&json!({})));
     }
 
     #[test]
