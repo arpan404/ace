@@ -41,9 +41,9 @@ struct SettingsSearchResults: View {
         ForEach(found) { result in
             Group {
                 if case .web(let url) = result.target {
-                    Link(destination: url) { InsetRow(result.title, systemImage: nil, subtitle: result.place) }
+                    Link(destination: url) { InsetRow(result.title, icon: nil, subtitle: result.place) }
                 } else {
-                    GroupLink(route(result.target)) { InsetRow(result.title, systemImage: nil, subtitle: result.place) }
+                    GroupLink(route(result.target)) { InsetRow(result.title, icon: nil, subtitle: result.place) }
                 }
             }
             .accessibilityIdentifier("settings.search.\(result.id)")

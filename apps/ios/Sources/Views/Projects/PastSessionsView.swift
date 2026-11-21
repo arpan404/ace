@@ -50,7 +50,7 @@ struct PastSessionsView: View {
             }
             if !loading, sessions.isEmpty, problem == nil {
                 Section {
-                    if query.isEmpty { EmptyState(systemImage: "clock.arrow.circlepath", title: "No past CLI sessions in this folder") }
+                    if query.isEmpty { EmptyState(icon: .clockCounterClockwise, title: "No past CLI sessions in this folder") }
                     else { EmptyState.search(query) }
                 }
                 .listRowBackground(Color.clear)

@@ -9,6 +9,7 @@ struct ApprovalCard: View {
     let submission: ApprovalSubmission?
     /// False on a view-only pairing: the card still shows the request, without live choices.
     var canAct = true
+    var retry: (() -> Void)? = nil
     let resolve: (ApprovalRow.Option) -> Void
     @State private var details = false
     var body: some View {
@@ -22,7 +23,8 @@ struct ApprovalCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let note = nonEmpty(approval.summarized) {
-                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                SummarizedRequestNote(text: note, failed: approval.wholeState == "failed",
+                                      retryable: approval.wholeRetryable == true, retry: retry)
             } else if approval.truncated {
                 Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
@@ -46,6 +48,8 @@ struct ApprovalCard: View {
             if details { detailsBody }
             RequestFooter(submission: submission, canAct: canAct)
         }
+        .onAppear { if approval.wholeState == "loaded" { details = true } }
+        .onChange(of: approval.wholeState) { _, state in if state == "loaded" { details = true } }
         .modifier(RequestCardFrame(submission: submission))
     }
     private var riskLevel: String? {

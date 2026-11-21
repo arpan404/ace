@@ -4,12 +4,14 @@ import { REMOTE_STOP, stopBound } from "../liveness/stop.ts";
 import { ThreadId } from "@ace/protocol";
 import { MachineFailure } from "./transport.ts";
 import {
+  asks,
   children,
   ids,
   live,
   notSent,
   parentView,
   parentWithChildren,
+  stopTracking,
 } from "./remote-child-test-support.ts";
 
 /*
@@ -123,34 +125,72 @@ async function stoppedUnconfirmed() {
   return { ...parts, id, caller };
 }
 
-it("unpairing the machine of a child whose stop is unconfirmed stops the cancel retries and settles it cancelled, saying it can't be confirmed", async () => {
+it("unpairing the machine of a child whose stop is unconfirmed keeps it unconfirmed and asks the person, so the parent never reads done", async () => {
   const { f, parent, rijan, ledger, at, id, caller } = await stoppedUnconfirmed();
+  // The parent's own turn ends: only the unconfirmed child could keep it from reading done.
+  await f.complete(parent.threadId, "Stopped the review.");
   rijan.paired = false;
   await at(f.clock.now() + 61_000);
 
+  // Still not confirmed stopped: agents_status, a wait and the parent's row all say so.
+  expect(ledger.children(caller)).toEqual([
+    expect.objectContaining({ id, contact: "unconfirmed" }),
+  ]);
+  expect(ledger.children(caller)[0]?.step).toContain("no longer paired");
+  expect(ledger.watched(id)?.view.contact).toBe("unconfirmed");
+  const view = parentView(f, parent);
+  expect(view.rows.map((row) => row.kind === "agent" && row.agent.machine?.contact)).toEqual([
+    "unconfirmed",
+  ]);
+  // The parent asks the person instead of reading done.
+  const [ask] = asks(f, parent);
+  expect(JSON.stringify(ask?.request)).toContain("Lost contact when unpaired");
+  expect(view.status.state).toBe("needs_you");
+  expect(view.forest.roots[0]?.needsYou).toBe(true);
+
+  // No cancel can reach it while unpaired.
+  const sent = rijan.cancels.length;
+  await at(f.clock.now() + 5 * 61_000);
+  expect(rijan.cancels.length).toBe(sent);
+  expect(asks(f, parent)).toHaveLength(1);
+
+  // Paired again: the question closes and the cancel goes out again until Rijan confirms.
+  rijan.paired = true;
+  await at(f.clock.now() + 2 * 61_000);
+  expect(asks(f, parent)).toEqual([]);
+  expect(rijan.cancels.length).toBeGreaterThan(sent);
+  expect(ledger.children(caller)[0]).toMatchObject({ state: "cancelling", contact: "unconfirmed" });
+});
+
+it("the person stops tracking an unconfirmed child whose machine was unpaired: it settles cancelled, still saying it never confirmed", async () => {
+  const { f, parent, rijan, ledger, at, id, caller } = await stoppedUnconfirmed();
+  await f.complete(parent.threadId, "Stopped the review.");
+  rijan.paired = false;
+  await at(f.clock.now() + 61_000);
+  const [ask] = asks(f, parent);
+  if (!ask) throw new Error("No question for the person");
+
+  expect(stopTracking(ledger, ask.id)).toMatchObject({ ok: true });
+  await f.engine.flush();
+  expect(asks(f, parent)).toEqual([]);
   expect(ledger.children(caller)).toEqual([
     expect.objectContaining({
       id,
       state: "cancelled",
+      contact: "unconfirmed",
       result: expect.stringContaining(
         "no longer paired with this machine, so the stop can't be confirmed",
       ),
     }),
   ]);
-  expect(ledger.children(caller)[0]?.contact).toBeUndefined();
-  expect(ledger.watched(id)?.view).toMatchObject({ state: "cancelled" });
-  expect(ledger.watched(id)?.view.contact).toBeUndefined();
-  expect(
-    parentView(f, parent).rows.map((row) => row.kind === "agent" && row.agent.machine?.contact),
-  ).toEqual([undefined]);
   expect(live).not.toContain(parentView(f, parent).status.state);
 
-  // No cancel goes out any more, even if the machine is paired again later.
+  // Never asked about or cancelled again, even once paired back.
   const sent = rijan.cancels.length;
-  await at(f.clock.now() + 5 * 61_000);
   rijan.paired = true;
   await at(f.clock.now() + 5 * 61_000);
   expect(rijan.cancels.length).toBe(sent);
+  expect(asks(f, parent)).toEqual([]);
   expect(ledger.children(caller)[0]?.state).toBe("cancelled");
 });
 

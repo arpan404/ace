@@ -107,7 +107,7 @@ struct FileScreen: View {
         if let content {
             switch content.kind {
             case "missing":
-                EmptyState(systemImage: "doc.questionmark", title: "Not in the checkout",
+                EmptyState(icon: .fileDashed, title: "Not in the checkout",
                            line: "Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.") {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
@@ -115,7 +115,7 @@ struct FileScreen: View {
                 LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts,
                                   marks: content.markedLines)
             case "binary":
-                EmptyState(systemImage: "doc", title: "Binary file",
+                EmptyState(icon: .file, title: "Binary file",
                            line: "\(name) (\(size(content.size))) isn't text, so there's nothing to read here.") {
                     Button("Share") { shareFile() }
                 }
@@ -149,7 +149,7 @@ struct FileScreen: View {
     @ViewBuilder private func textBody(_ content: FileContent) -> some View {
         let text = content.text ?? ""
         if text.isEmpty && !editing {
-            EmptyState(systemImage: "doc.text", title: "Empty file", line: "\(name) has no content.")
+            EmptyState(icon: .fileText, title: "Empty file", line: "\(name) has no content.")
         } else if markdownPreview {
             ScrollView {
                 AceMarkdown(text: text).padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.margin)
@@ -198,16 +198,16 @@ struct FileScreen: View {
         ToolbarItemGroup(placement: .topBarTrailing) {
             OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
             if text != nil, !markdownPreview, !inParts {
-                Button("Find in file", systemImage: "magnifyingglass") { handle.find() }.accessibilityIdentifier("file.find")
+                Button("Find in file", ace: .magnifyingGlass) { handle.find() }.accessibilityIdentifier("file.find")
             }
             if canEdit {
-                Button("Edit", systemImage: "pencil") { editing = true }.accessibilityIdentifier("file.edit")
+                Button("Edit", ace: .pencilSimple) { editing = true }.accessibilityIdentifier("file.edit")
             } else if canEditParts, content?.kind == "text" {
                 // Over 1 MB: shown in parts, each with its own Edit.
-                Button(inParts ? "Done" : "Edit in parts", systemImage: inParts ? "checkmark" : "pencil") { inParts.toggle() }
+                Button(inParts ? "Done" : "Edit in parts", ace: inParts ? .check : .pencilSimple) { inParts.toggle() }
                     .accessibilityIdentifier("file.editParts")
             }
-            Menu { fileMenu } label: { Label("File options", systemImage: "ellipsis") }
+            Menu { fileMenu } label: { Label("File options", ace: .dotsThree) }
                 .accessibilityIdentifier("file.menu")
         }
     }
@@ -220,23 +220,23 @@ struct FileScreen: View {
         }
     }
     @ViewBuilder private var fileMenu: some View {
-        if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") } }
+        if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", ace: .textAlignLeft) } }
         if content?.markdown == true {
-            Button(source ? "View preview" : "View source", systemImage: source ? "eye" : "chevron.left.forwardslash.chevron.right") { source.toggle() }
+            Button(source ? "View preview" : "View source", ace: source ? .eye : .code) { source.toggle() }
         }
-        if hasChanges { Button("Show changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("file.changes") }
-        if let mention { Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }.accessibilityIdentifier("preview.mention") }
-        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+        if hasChanges { Button("Show changes", ace: .plusMinus) { showChanges = true }.accessibilityIdentifier("file.changes") }
+        if let mention { Button("Mention in message", ace: .at) { mention(ComposerMention(path: path)) }.accessibilityIdentifier("preview.mention") }
+        Button("Copy path", ace: .copy) { UIPasteboard.general.string = path }
         if content?.kind != "missing" {
-            OpenOnHostMenu(model: model, target: hostTarget) { Label("Open in…", systemImage: "arrow.up.forward.app") }
+            OpenOnHostMenu(model: model, target: hostTarget) { Label("Open in…", ace: .arrowSquareOut) }
                 .accessibilityIdentifier("file.openIn")
         }
-        if content != nil, content?.kind != "missing" { Button("Share", systemImage: "square.and.arrow.up") { shareFile() } }
+        if content != nil, content?.kind != "missing" { Button("Share", ace: .export) { shareFile() } }
         if actions.canChange, content?.kind != "missing" {
             Divider()
-            Button("Rename", systemImage: "pencil") { actions.ask(.rename(path: path)) }
-            Button("Move", systemImage: "folder") { actions.ask(.move(path: path)) }
-            Button("Delete", systemImage: "trash", role: .destructive) { actions.ask(.delete(path: path)) }
+            Button("Rename", ace: .pencilSimple) { actions.ask(.rename(path: path)) }
+            Button("Move", ace: .folder) { actions.ask(.move(path: path)) }
+            Button("Delete", ace: .trash, role: .destructive) { actions.ask(.delete(path: path)) }
         }
     }
 
@@ -250,7 +250,7 @@ struct FileScreen: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Find", systemImage: "magnifyingglass") { handle.find() }
+            Button("Find", ace: .magnifyingGlass) { handle.find() }
         }
         ToolbarItem(placement: .confirmationAction) {
             Button(saving ? "Saving…" : "Save") { save() }.fontWeight(.semibold).disabled(!dirty || saving)

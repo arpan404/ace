@@ -113,7 +113,7 @@ struct SkillUpdateReviewView: View {
             .navigationTitle(review?.title ?? "Update \(title)").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close").disabled(busy)
+                    Button { dismiss() } label: { Image(ace: .x) }.accessibilityLabel("Close").disabled(busy)
                 }
             }
         }

@@ -112,7 +112,7 @@ struct InboxRowHead: View {
                 .fixedSize()
             } else {
                 HStack(spacing: AceDesign.Space.tight) {
-                    InboxRowMark(look: look, size: AceDesign.Size.rowStatusSymbol)
+                    InboxRowMark(look: look, size: AceDesign.Size.rowStatus)
                     InboxRowAge(row: row, look: look)
                 }
                 .fixedSize()

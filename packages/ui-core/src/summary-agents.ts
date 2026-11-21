@@ -54,6 +54,8 @@ function currentStep(node: AgentForestNode, facts: ForestRowFacts): string {
   const below = node.tally;
   if (node.live && !isRunning(doer) && (below.working || below.commands))
     return `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`;
+  // Its thread shows under another row, still working: this row waits on it there.
+  if (node.live && !isRunning(doer) && node.elsewhere) return "waiting on delegated work";
   // Live while its own status says it ended (a hold still running, a delegated thread still
   // going): the row's state is the tree's, so it says it works, never its own "done".
   if (node.live) return isRunning(doer) ? agentStep({ status, item: facts.tool }) : "working";

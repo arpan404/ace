@@ -90,7 +90,7 @@ struct MachineDevicesView: View {
             ForEach(overview.devices) { device in
                 RowWithActions(title: device.name, detail: line(device), actionsLabel: "Actions for \(device.name)",
                                actionsId: "devices.actions.\(device.id)", canOperate: model.canOperate) {
-                    Button("Revoke…", systemImage: "xmark.circle", role: .destructive) { revoking = device }
+                    Button("Revoke…", ace: .xCircle, role: .destructive) { revoking = device }
                         .accessibilityIdentifier("devices.revoke.\(device.id)")
                 }
             }
@@ -112,7 +112,7 @@ struct MachineDevicesView: View {
                     RowWithActions(title: pairing.label, detail: "\(pairing.line) · works until \(until)",
                                    actionsLabel: "Actions for \(pairing.label)", actionsId: "devices.link.\(pairing.id)",
                                    canOperate: model.canOperate) {
-                        Button("Cancel link", systemImage: "xmark.circle", role: .destructive) {
+                        Button("Cancel link", ace: .xCircle, role: .destructive) {
                             Task { await run(["op": "cancelPairing", "id": pairing.id]) }
                         }
                         .accessibilityIdentifier("devices.cancel.\(pairing.id)")

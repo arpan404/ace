@@ -67,13 +67,13 @@ private struct ArchiveRows: View {
                     .accessibilityHint("Opens read-only")
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         if client.canOperate {
-                            Button("Restore", systemImage: "tray.and.arrow.up") { Task { await restore(id) } }
+                            Button("Restore", ace: .trayArrowUp) { Task { await restore(id) } }
                                 .tint(AceTheme.Colours.mutedForeground)
                         }
                     }
                     .contextMenu {
                         if client.canOperate {
-                            Button("Restore", systemImage: "tray.and.arrow.up") { Task { await restore(id) } }
+                            Button("Restore", ace: .trayArrowUp) { Task { await restore(id) } }
                         }
                     }
                     .onAppear { if id == ids.last { client.loadMoreArchived() } }
@@ -105,7 +105,7 @@ private struct ArchiveRows: View {
             }
             .padding(.vertical, AceDesign.Space.group)
         } else if empty {
-            EmptyState(systemImage: "archivebox", title: "Nothing archived")
+            EmptyState(icon: .archive, title: "Nothing archived")
                 .padding(.vertical, AceDesign.Space.group)
         } else if archive.canLoadMore {
             Button("Show older archived threads") { client.loadMoreArchived() }
@@ -123,7 +123,7 @@ struct ArchivedNote: View {
     @State private var failed = false
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Label("Archived", systemImage: "archivebox")
+            Label("Archived", ace: .archive)
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
             if failed { Text("Couldn't restore").font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.StatusText.failed) }
             Spacer(minLength: AceTheme.Spacing.sm)

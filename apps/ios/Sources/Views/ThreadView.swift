@@ -463,7 +463,7 @@ struct ThreadView: View {
         } else if model.canOperate {
             ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
                          send: { text, alternate, references in
-                             let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
+                             let reply = asking.map { QuestionReply(interactionId: $0.id, version: $0.wholeVersion, draft: questionDraft) }
                              let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
                              if saved { acceptedSend += 1 }
                              return saved

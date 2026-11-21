@@ -21,8 +21,15 @@ import { phoneAnswer } from "./summarized-requests.ts";
 type Resolution = Extract<CommandPayload, { type: "interaction.resolve" }>["resolution"];
 type Request = Interaction["request"];
 
-const planLimit = 8192;
-const todoLimit = 32;
+/*
+ * What a plan card shows of a plan. A plan sent whole fits in `wholeRequestChars` and so within
+ * these; only one read whole past them is cut, and then it can't be approved here.
+ */
+const planLimit = 256 * 1024;
+const summaryLimit = 64 * 1024;
+const todoLimit = 256;
+const todoChars = 2048;
+const planIncomplete = "This plan is too long to review here. Approve it on your machine.";
 
 /** What the person chose on a request card, as Swift sends it. */
 export const RequestAnswer = z.discriminatedUnion("kind", [
@@ -40,14 +47,30 @@ export const RequestAnswer = z.discriminatedUnion("kind", [
 ]);
 export type RequestAnswer = z.infer<typeof RequestAnswer>;
 
-function planRow(request: Extract<Request, { kind: "plan_review" }>) {
+type Plan = Extract<Request, { kind: "plan_review" }>;
+
+/** Whether the card would cut any of `request`: its plan, summary or todo list. */
+function planClipped(request: Plan): boolean {
+  const todos = request.todos ?? [];
+  return (
+    request.markdown.length > planLimit ||
+    (request.summary ?? "").length > summaryLimit ||
+    todos.length > todoLimit ||
+    todos.some((todo) => todo.content.length > todoChars)
+  );
+}
+
+function planRow(request: Plan) {
+  const clipped = planClipped(request);
   return {
     title: preview(request.title ?? "Review the plan"),
-    summary: preview(request.summary ?? "", 2048),
+    summary: preview(request.summary ?? "", summaryLimit),
     markdown: preview(request.markdown, planLimit),
-    truncated: request.markdown.length > planLimit,
+    truncated: clipped,
+    // Why Approve is off: the person can't read all of what they'd approve.
+    incomplete: clipped ? planIncomplete : "",
     todos: (request.todos ?? []).slice(0, todoLimit).map((todo) => ({
-      text: preview(todo.content, 512),
+      text: preview(todo.content, todoChars),
       status: todo.status,
     })),
 
@@ -119,21 +142,24 @@ export function requestRow(request: Request) {
 /**
  * The canonical resolution for a request card, or undefined when the choice doesn't fit the
  * request: plan feedback must say what should change; a form is accepted only with values that
- * pass its schema, and a consent page only when it has a safe address. A summarized request
- * (ADR 0157) takes only a decline.
+ * pass its schema, and a consent page only when it has a safe address; a plan the card can't show
+ * in full is never approved. A summarized request
+ * (ADR 0157) takes only a decline until read whole (`readWhole`).
  */
 export function requestResolution(
   interaction: Interaction | undefined,
   answer: RequestAnswer,
+  readWhole = false,
 ): Resolution | undefined {
   if (interaction?.state !== "pending") return undefined;
-  return phoneAnswer(interaction, resolutionFor(interaction, answer));
+  return phoneAnswer(interaction, resolutionFor(interaction, answer), readWhole);
 }
 
 function resolutionFor(interaction: Interaction, answer: RequestAnswer): Resolution | undefined {
   const request = interaction.request;
   if (answer.kind === "plan") {
     if (request.kind !== "plan_review") return undefined;
+    if (answer.decision === "approve" && planClipped(request)) return undefined;
     if (answer.decision !== "reject") return { kind: "plan_review", decision: answer.decision };
     const feedback = answer.feedback?.trim();
     return feedback ? { kind: "plan_review", decision: "reject", feedback } : undefined;

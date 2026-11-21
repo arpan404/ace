@@ -55,7 +55,7 @@ struct ThreadCatalogView: View {
                 Section {
                     ForEach(filtered) { entry in
                         NavigationLink { CatalogInvokeView(model: model, threadId: threadId, entry: entry) } label: {
-                            InsetRow(entry.title ?? entry.name, systemImage: nil, value: entry.kind.capitalized, subtitle: entry.description)
+                            InsetRow(entry.title ?? entry.name, icon: nil, value: entry.kind.capitalized, subtitle: entry.description)
                         }
                     }
                 }

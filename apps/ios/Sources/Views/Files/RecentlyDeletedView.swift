@@ -17,7 +17,7 @@ struct RecentlyDeletedView: View {
             if !loaded && problem == nil {
                 SkeletonRows(label: "Loading recently deleted files").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             } else if loaded && entries.isEmpty {
-                EmptyState(systemImage: "trash", title: "No recently deleted files").listRowSeparator(.hidden)
+                EmptyState(icon: .trash, title: "No recently deleted files").listRowSeparator(.hidden)
             }
             ForEach(entries) { entry in
                 QuietSectionRow {

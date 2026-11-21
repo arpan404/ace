@@ -38,7 +38,7 @@ struct ProviderSettingsView: View {
         List {
             // The first run after pairing, skipped or finished, opens again from here.
             Section {
-                NavigationLink { FirstRunView(model: model) } label: { InsetRow("Set up agents", systemImage: "checklist") }
+                NavigationLink { FirstRunView(model: model) } label: { InsetRow("Set up agents", icon: .listChecks) }
                     .accessibilityIdentifier("providers.setup")
             }
             .insetRowBackground()

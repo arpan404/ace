@@ -74,7 +74,7 @@ struct ModelPicker: View {
             .toolbar {
                 if closable {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
+                        Button { cancel(); dismiss() } label: { Image(ace: .x) }
                             .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
                     }
                 }
@@ -152,11 +152,11 @@ struct ModelPicker: View {
     @ViewBuilder private var confirmButton: some View {
         if confirming { ProgressView() }
         else if #available(iOS 26, *) {
-            Button(role: .confirm, action: confirm) { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.onAccent) }
+            Button(role: .confirm, action: confirm) { Image(ace: .check).foregroundStyle(AceTheme.Colours.onAccent) }
                 .buttonStyle(.glassProminent).tint(AceTheme.Colours.accent)
                 .accessibilityLabel("Done").accessibilityIdentifier("modelSheet.done")
         } else {
-            Button(action: confirm) { Image(systemName: "checkmark").fontWeight(.semibold) }
+            Button(action: confirm) { Image(ace: .check) }
                 .accessibilityLabel("Done").accessibilityIdentifier("modelSheet.done")
         }
     }

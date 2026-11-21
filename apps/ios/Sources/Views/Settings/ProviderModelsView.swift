@@ -11,7 +11,7 @@ struct ProviderBehaviourSection: View {
     var body: some View {
         Section {
             ForEach(models.problems, id: \.self) { line in
-                Label(line, systemImage: "exclamationmark.circle").foregroundStyle(AceTheme.StatusText.needsYou)
+                Label(line, ace: .warningCircle).foregroundStyle(AceTheme.StatusText.needsYou)
                     .font(AceDesign.Typeface.meta)
             }
             if let current = models.defaultModel {
@@ -19,14 +19,14 @@ struct ProviderBehaviourSection: View {
                     DefaultModelPicker(choices: current.choices, resettable: current.resettable, choose: choose,
                                        reset: { save(["kind": "defaultModel", "id": NSNull()]) })
                 } label: {
-                    InsetRow(systemImage: nil, title: "Default model", subtitle: current.note) {
+                    InsetRow(icon: nil, title: "Default model", subtitle: current.note) {
                         InsetValue(text: current.label)
                     }
                 }
                 .accessibilityIdentifier("provider.defaultModel")
             }
             NavigationLink { ProviderModelsView(model: model, provider: provider) } label: {
-                InsetRow("Models in the picker", systemImage: nil, value: models.shown)
+                InsetRow("Models in the picker", icon: nil, value: models.shown)
             }
             .accessibilityIdentifier("provider.models")
             ServiceProblem(message: problem)
@@ -93,7 +93,7 @@ struct ProviderModelsView: View {
                 }
                 custom(models)
             } else if problem == nil {
-                Section { ForEach(0..<4, id: \.self) { _ in InsetRow("Loading", systemImage: nil) } }
+                Section { ForEach(0..<4, id: \.self) { _ in InsetRow("Loading", icon: nil) } }
                     .insetRowBackground().redacted(reason: .placeholder)
             }
             if let locked = models?.locked {
@@ -128,7 +128,7 @@ struct ProviderModelsView: View {
             }
             Spacer(minLength: AceDesign.Space.related)
             Button { save(["kind": "favourite", "key": row.key]) } label: {
-                Image(systemName: row.starred ? "star.fill" : "star")
+                Image(ace: .star, weight: row.starred ? .fill : .regular)
                     .foregroundStyle(row.starred ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                     .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                     .contentShape(Rectangle())
@@ -136,7 +136,7 @@ struct ProviderModelsView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(row.starred ? "Unstar \(row.label)" : "Star \(row.label)")
             Button { save(["kind": "modelHidden", "id": row.id, "aliases": row.aliases, "hidden": row.hidden]) } label: {
-                Image(systemName: row.hidden ? "eye.slash" : "eye")
+                Image(ace: row.hidden ? .eyeSlash : .eye)
                     .foregroundStyle(AceDesign.Ink.muted)
                     .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                     .contentShape(Rectangle())

@@ -57,22 +57,15 @@ struct InsetHeader: View {
 
 /// One row: symbol, label (with an optional muted line under it) and a trailing view.
 struct InsetRow<Trailing: View>: View {
-    /// An SF Symbol, or one of ace's own icons on screens drawn with them.
-    enum Glyph { case symbol(String), ace(AceIcon.Name) }
-    let glyph: Glyph?
+    /// One of ace's own icons, or none.
+    let icon: AceIcon.Name?
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var trailing: () -> Trailing
     @ScaledMetric(relativeTo: .subheadline) private var glyphSize = AceDesign.Size.groupGlyph
 
-    init(systemImage: String?, title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
-        self.init(glyph: systemImage.map(Glyph.symbol), title: title, subtitle: subtitle, trailing: trailing)
-    }
     init(icon: AceIcon.Name?, title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
-        self.init(glyph: icon.map(Glyph.ace), title: title, subtitle: subtitle, trailing: trailing)
-    }
-    private init(glyph: Glyph?, title: String, subtitle: String?, trailing: @escaping () -> Trailing) {
-        self.glyph = glyph
+        self.icon = icon
         self.title = title
         self.subtitle = subtitle
         self.trailing = trailing
@@ -105,16 +98,9 @@ struct InsetRow<Trailing: View>: View {
     private var stacked: Bool { typeSize.isAccessibilitySize }
 
     @ViewBuilder private var glyphView: some View {
-        switch glyph {
-        case .symbol(let name)?:
-            Image(systemName: name).font(.system(size: glyphSize - AceDesign.Space.tight, weight: AceDesign.Typeface.regular))
-                .foregroundStyle(AceDesign.Ink.muted)
+        if let icon {
+            AceIcon(icon, size: AceDesign.Size.groupGlyph, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.muted)
                 .frame(width: glyphSize).accessibilityHidden(true)
-        case .ace(let name)?:
-            AceIcon(name, size: AceDesign.Size.groupGlyph, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.muted)
-                .frame(width: glyphSize).accessibilityHidden(true)
-        case nil:
-            EmptyView()
         }
     }
 
@@ -134,11 +120,7 @@ struct InsetRow<Trailing: View>: View {
 
 extension InsetRow where Trailing == InsetValue {
     /// A row with a muted value on the right ("2", "On", "System").
-    init(_ title: String, systemImage: String?, value: String? = nil, subtitle: String? = nil) {
-        self.init(systemImage: systemImage, title: title, subtitle: subtitle) { InsetValue(text: value) }
-    }
-    /// The same with one of ace's own glyphs.
-    init(_ title: String, icon: AceIcon.Name, value: String? = nil, subtitle: String? = nil) {
+    init(_ title: String, icon: AceIcon.Name?, value: String? = nil, subtitle: String? = nil) {
         self.init(icon: icon, title: title, subtitle: subtitle) { InsetValue(text: value) }
     }
 }
@@ -158,7 +140,7 @@ struct AddRow: View {
         // holds rows to a tap's height gets no extra height, and the tap reaches into the row's padding.
         let listHolds = listRowHeight >= AceDesign.Size.tap
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.groupGlyphGap) {
-            Image(systemName: "plus").font(.system(size: glyphSize - AceDesign.Space.tight, weight: AceDesign.Typeface.strong))
+            AceIcon(.plus, size: AceDesign.Size.groupGlyph, relativeTo: .subheadline)
                 .frame(width: glyphSize).accessibilityHidden(true)
             Text(title).aceFont(AceDesign.TextRole.rowTitle).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: AceDesign.Space.related)

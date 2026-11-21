@@ -90,7 +90,7 @@ struct ChangesSheet: View {
             .toolbar {
                 if panelHost == nil, !inPage {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                        Button { dismiss() } label: { Image(ace: .x) }
                             .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
                     }
                 }
@@ -253,7 +253,7 @@ struct ChangesSheet: View {
                     Text(summary?.scope?.label ?? "Changes")
                         .aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
                     if (summary?.scopes?.count ?? 0) > 1 {
-                        Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        AceIcon(.caretDown, size: AceDesign.Size.glyphSmall, weight: .bold, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                 }
                 if let totals = summary?.totals, totals.files > 0 {
@@ -360,7 +360,7 @@ struct ChangedFileHeader: View {
     var body: some View {
         Button(action: toggle) {
             HStack(spacing: AceDesign.Space.related) {
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+                AceIcon(.caretRight, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                     .rotationEffect(.degrees(open ? 90 : 0))
                     .animation(.default, value: open)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -378,7 +378,7 @@ struct ChangedFileHeader: View {
         .buttonStyle(.plain)
         // On the button itself, the element a long press lands on.
         .contextMenu {
-            Button(reviewed ? "Mark as not viewed" : "Mark as viewed", systemImage: reviewed ? "eye.slash" : "eye", action: review)
+            Button(reviewed ? "Mark as not viewed" : "Mark as viewed", ace: reviewed ? .eyeSlash : .eye, action: review)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .offset(x: drag)

@@ -27,7 +27,7 @@ struct ThreadMcpView: View {
                 Section {
                     ForEach(sources.servers) { server in
                         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                            InsetRow(server.name, systemImage: nil,
+                            InsetRow(server.name, icon: nil,
                                      value: server.status.replacingOccurrences(of: "_", with: " ").capitalized)
                             HStack(spacing: AceDesign.Space.related) {
                                 Button(server.status == "disabled" ? "Enable" : "Disable") {

@@ -16,7 +16,7 @@ struct PairingView: View {
         List {
             Section {
                 Button { scanning = true } label: {
-                    Label("Scan QR code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
+                    Label("Scan QR code", ace: .qrCode).frame(maxWidth: .infinity)
                 }
                 .pairingPrimaryButton()
                 .accessibilityIdentifier("pairing.scan")
@@ -44,7 +44,7 @@ struct PairingView: View {
                     }
                 }
                 if let entryError {
-                    Label(entryError, systemImage: "exclamationmark.circle")
+                    Label(entryError, ace: .warningCircle)
                         .font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.StatusText.failed)
                         .accessibilityIdentifier("pairing.entryError")
                 }

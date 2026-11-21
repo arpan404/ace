@@ -91,7 +91,7 @@ struct SpadeTab<Bar: View>: View {
                 ForEach(inbox.spadeSessions) { shown in Text(inbox.name(shown.hostId)).tag(Optional(shown.hostId)) }
             }
         } label: {
-            Image(systemName: "desktopcomputer")
+            Image(ace: .desktop)
         }
         .accessibilityLabel("Machine")
         .accessibilityIdentifier("spade.machine")

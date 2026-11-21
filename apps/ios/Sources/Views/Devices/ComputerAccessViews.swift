@@ -82,7 +82,7 @@ struct UseMyChromeView: View {
                         .foregroundStyle(AceDesign.Ink.muted).insetRowBackground()
                 } else {
                     Section {
-                        InsetRow(systemImage: nil, title: "Browser connection",
+                        InsetRow(icon: nil, title: "Browser connection",
                                  subtitle: chrome.installed ? "Installed for \(chrome.installedFor.joined(separator: ", "))." : "Agents work in tabs you share, with your sign-ins and extensions.") {
                             Button(access?.busy == "chrome.install" ? "Installing…" : chrome.installed ? "Reinstall" : "Install") { model.useMyChrome("install") }
                                 .buttonStyle(.borderless)
@@ -115,7 +115,7 @@ struct UseMyChromeView: View {
                     if chrome.installed {
                         Section {
                             if chrome.connections.isEmpty {
-                                InsetRow("No browser connected", systemImage: nil).insetRowBackground()
+                                InsetRow("No browser connected", icon: nil).insetRowBackground()
                             }
                             ForEach(chrome.connections) { connection in
                                 InsetRow(icon: .globe, title: connection.title, subtitle: connection.summary) { EmptyView() }
@@ -126,7 +126,7 @@ struct UseMyChromeView: View {
                             NavigationLink {
                                 // The Browser page holds the Chrome storage switch.
                                 RemoteSettingsView(model: model, category: .browser)
-                            } label: { InsetRow("Cookies and site storage", systemImage: nil) }
+                            } label: { InsetRow("Cookies and site storage", icon: nil) }
                             .insetRowBackground()
                             if model.canOperate, model.mayAdminister {
                                 Button("Stop agents in my Chrome") { model.useMyChrome("stop") }

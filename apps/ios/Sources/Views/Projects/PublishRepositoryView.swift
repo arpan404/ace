@@ -60,7 +60,7 @@ struct PublishRepositoryView: View {
         .navigationTitle("Publish repository").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button { done() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                Button { done() } label: { Image(ace: .x) }.accessibilityLabel("Close")
             }
             ToolbarItem(placement: .confirmationAction) {
                 if busy { WorkingMark() } else if let status, status.publication?.phase != "pushed" {
