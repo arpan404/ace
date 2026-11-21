@@ -27,7 +27,8 @@ export function machineCredentialStore(db: D1Database) {
      * The statement that issues a credential, for the batch with the session's change (ADR 0190),
      * only while `from` can still issue it: a session whose token isn't retired, or an unspent
      * ticket. Two exchanges racing for one session or ticket issue at most one credential, and a
-     * retry of one that worked changes nothing.
+     * retry of one that worked changes nothing. On an org host, a credential of the account that
+     * enrolled it is bound to that enrollment (ADR 0206 §2.1); anyone else's is bound to none.
      */
     inserting(
       hash: string,
@@ -37,11 +38,14 @@ export function machineCredentialStore(db: D1Database) {
     ) {
       const guard =
         "session" in from
-          ? "SELECT 1 FROM sessions WHERE token = ? AND retired = 0 AND expires > ?"
-          : "SELECT 1 FROM machine_enrollments WHERE ticket = ? AND expires > ?";
+          ? "SELECT 1 FROM sessions WHERE token = ?8 AND retired = 0 AND expires > ?7"
+          : "SELECT 1 FROM machine_enrollments WHERE ticket = ?8 AND expires > ?7";
       return db
         .prepare(
-          `INSERT OR IGNORE INTO machine_credentials (token, session, host_id, account_id, expires, sole, created_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard})`,
+          `INSERT OR IGNORE INTO machine_credentials (token, session, host_id, account_id, expires, sole, created_at, org_id, enrollment)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, h.org_id, h.enrollment
+           FROM (SELECT 1) LEFT JOIN org_hosts h ON h.host_id = ?3 AND h.enrolled_by = ?4
+           WHERE EXISTS (${guard})`,
         )
         .bind(
           hash,
@@ -52,7 +56,6 @@ export function machineCredentialStore(db: D1Database) {
           credential.sole ? 1 : 0,
           now,
           "session" in from ? from.session : from.ticket,
-          now,
         );
     },
     async get(hash: string, now: number): Promise<StoredMachineCredential | undefined> {

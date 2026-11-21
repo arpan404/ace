@@ -25,14 +25,39 @@ export const FAKE_PICTURE = Buffer.from(
   "base64",
 );
 
+/** A request the fake received, for `holdNext` and `failNext` to pick. */
+export type FakeRequest = { method: string; path: string; body: Record<string, unknown> };
+type Hold = {
+  matches: (request: FakeRequest) => boolean;
+  when: "before" | "after";
+  entered: () => void;
+  released: Promise<void>;
+};
+
 /**
  * WorkOS's User Management API, as far as ace uses it: authorization codes checked against
- * their PKCE challenge, and single-use refresh tokens that rotate on every refresh.
+ * their PKCE challenge, and single-use refresh tokens that rotate on every refresh. A spent
+ * refresh token presented again is counted (`reusedRefreshTokens`): real WorkOS may take that
+ * as theft and end the session.
  */
 export async function fakeWorkos() {
   const orgs = fakeWorkosOrgs("client_test");
   const codes = new Map<string, { user: WorkosUser; challenge: string; invitation?: string }>();
   const refreshTokens = new Map<string, WorkosUser>();
+  const spent = new Set<string>();
+  let reused = 0;
+  const holds: Hold[] = [];
+  const failures: { matches: (request: FakeRequest) => boolean; status: number; left: number }[] =
+    [];
+  /** Waits on the first hold for this request at `when`, and spends it. */
+  async function holding(request: FakeRequest, when: Hold["when"]) {
+    const index = holds.findIndex((each) => each.when === when && each.matches(request));
+    const hold = holds[index];
+    if (!hold) return;
+    holds.splice(index, 1);
+    hold.entered();
+    await hold.released;
+  }
   let failure: "invalid_grant" | "unavailable" | undefined;
   let barrier: Promise<void> | undefined;
   let entered: (() => void) | undefined;
@@ -43,6 +68,31 @@ export async function fakeWorkos() {
     request.on("data", (chunk: Buffer) => (raw += chunk.toString()));
     request.on("end", () => {
       void (async () => {
+        const seen: FakeRequest = {
+          method: request.method ?? "GET",
+          path: new URL(request.url ?? "/", "http://fake").pathname,
+          body: (() => {
+            try {
+              const parsed: unknown = raw ? JSON.parse(raw) : {};
+              return typeof parsed === "object" && parsed !== null
+                ? (parsed as Record<string, unknown>)
+                : {};
+            } catch {
+              return {};
+            }
+          })(),
+        };
+        await holding(seen, "before");
+        const injected = failures.find((each) => each.left > 0 && each.matches(seen));
+        if (injected) {
+          injected.left--;
+          return reply(response, injected.status, { message: "Injected failure" });
+        }
+        // What the fake decided is held back, as a slow answer would be, before it is sent.
+        const send = async (status: number, body: unknown) => {
+          await holding(seen, "after");
+          reply(response, status, body);
+        };
         // Where WorkOS keeps profile pictures: an image, and a page that isn't one.
         if (request.url === "/pictures/person.png") {
           response.writeHead(200, { "Content-Type": "image/png" });
@@ -64,9 +114,7 @@ export async function fakeWorkos() {
               : {},
             request.headers,
           );
-          return answer
-            ? reply(response, answer.status, answer.body)
-            : reply(response, 404, { message: "Not found" });
+          return answer ? send(answer.status, answer.body) : send(404, { message: "Not found" });
         }
         const body = JSON.parse(raw) as Record<string, string>;
         if (body.client_id !== "client_test" || body.client_secret !== "sk_test_backend")
@@ -92,16 +140,18 @@ export async function fakeWorkos() {
           if (user && body.organization_id) {
             // A refusal leaves the refresh token as it was.
             const into = orgs.refreshInto(user.id, body.organization_id);
-            if (!("accessToken" in into)) return reply(response, into.status, into.body);
+            if (!("accessToken" in into)) return send(into.status, into.body);
             accessToken = into.accessToken;
             organization = body.organization_id;
           }
+          if (!user && spent.has(body.refresh_token ?? "")) reused++;
           refreshTokens.delete(body.refresh_token ?? "");
+          spent.add(body.refresh_token ?? "");
         }
-        if (!user) return reply(response, 400, { error: "invalid_grant" });
+        if (!user) return send(400, { error: "invalid_grant" });
         const refresh = `workos-refresh-${++issued}`;
         refreshTokens.set(refresh, user);
-        reply(response, 200, {
+        await send(200, {
           user,
           access_token: accessToken,
           refresh_token: refresh,
@@ -153,6 +203,22 @@ export async function fakeWorkos() {
     },
     /** Refresh tokens WorkOS would still accept. */
     liveRefreshTokens: () => [...refreshTokens.keys()],
+    /** How many times a refresh token already spent was presented again. */
+    reusedRefreshTokens: () => reused,
+    /**
+     * Holds the next request `matches` picks until `release`: `before` WorkOS acts on it, or
+     * `after` it acted, with its answer not yet sent. `started` resolves once it is held.
+     */
+    holdNext(matches: (request: FakeRequest) => boolean, when: Hold["when"] = "after") {
+      const released = Promise.withResolvers<void>();
+      const started = Promise.withResolvers<void>();
+      holds.push({ matches, when, entered: started.resolve, released: released.promise });
+      return { started: started.promise, release: () => released.resolve() };
+    },
+    /** Answers the next `times` requests `matches` picks with `status`, doing nothing. */
+    failNext(matches: (request: FakeRequest) => boolean, status = 500, times = 1) {
+      failures.push({ matches, status, left: times });
+    },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

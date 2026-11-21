@@ -172,6 +172,48 @@ it("member grants go only to the person's own session, for its organization's ow
   );
 });
 
+it("a host's credential speaks only for the enrollment it is bound to, and releasing the host revokes it", async () => {
+  const { ownerToken, org, box } = await team("Released");
+  const next = await api.createOrg(ownerToken, "Next");
+  const entry = (hash: string) => ({
+    hash: hash.repeat(64),
+    action: "bot.effect",
+    occurredAt: Date.now(),
+    actor: { type: "bot", id: "ci-watcher" },
+    targets: [{ type: "host", id: box.hostId }],
+  });
+  const forward = (credential: string, to: string, hash: string) =>
+    api.call(credential, "POST", `/v1/orgs/${to}/audit`, entry(hash));
+  const policy = (credential: string, of: string) =>
+    api.call(credential, "GET", `/v1/orgs/${of}/policy`);
+
+  // Another account's credential for the same machine isn't part of Olivia's enrollment.
+  const others = await box.exchange(await signIn(mia, "machine"));
+  expect((await policy(box.credential, org)).status).toBe(200);
+  expect((await forward(others, org, "c")).body).toEqual({ error: "not_org_host" });
+  expect((await policy(others, org)).status).toBe(403);
+
+  expect((await api.call(ownerToken, "DELETE", `/v1/orgs/${org}/hosts/${box.hostId}`)).status).toBe(
+    200,
+  );
+  // Released: the host's credential from that enrollment is gone.
+  expect((await api.call(box.credential, "GET", "/v1/account/session")).status).toBe(401);
+
+  // Given to the next organization, no earlier credential speaks for it.
+  expect(
+    (await api.call(ownerToken, "POST", `/v1/orgs/${next}/hosts`, { hostId: box.hostId })).status,
+  ).toBe(201);
+  for (const earlier of [box.credential, others]) {
+    expect((await forward(earlier, next, "d")).body).toEqual({ error: "not_org_host" });
+    expect((await policy(earlier, next)).status).toBe(earlier === others ? 403 : 401);
+  }
+  // The machine signed in again as the person who enrolled it does, for this organization only.
+  const fresh = await box.exchange(await signIn(owner, "machine"));
+  expect((await forward(fresh, next, "e")).status).toBe(200);
+  expect((await policy(fresh, next)).body).toMatchObject({ org: next, version: 0 });
+  expect((await forward(fresh, org, "f")).body).toEqual({ error: "not_org_host" });
+});
+
 it("policy versions are signed with the grant key, only grow, and ride in member grants", async () => {
   const { ownerToken, org, box, miaToken } = await team("Policy");
   const policy = { effects: { pay: "off", publish: "approvers" }, full_access: "never" };

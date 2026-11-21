@@ -4,30 +4,28 @@ import {
   AceOrgPortalRequest,
   AceOrgRoleChange,
 } from "@ace/protocol/ace-org";
-import type { AceOrgInvitation, AceOrgPortalIntent } from "@ace/protocol/ace-org";
+import type { AceOrgInvitation } from "@ace/protocol/ace-org";
 import { orgAllows, orgRole } from "@ace/account-grant/org-roles";
-import type { OrgPermission } from "@ace/account-grant/org-roles";
 import { invitationToken } from "./login.ts";
 import type { Member, OrgAccess } from "./org-access.ts";
 import type { OrgAudit } from "./org-audit.ts";
+import type { OrgLocks } from "./org-locks.ts";
+import { opensPortal, portalPermission } from "./org-portal.ts";
+import type { PortalRevocations } from "./org-portal.ts";
 import type { OrgStore } from "./org-store.ts";
 import { joinPage, page } from "./pages.ts";
 import { bearer, fail, json, jsonBody } from "./respond.ts";
 import type { PrincipalReader } from "./principal.ts";
 import { WorkosRefusal } from "./workos-orgs.ts";
-import type { WorkosInvitation, WorkosOrgs } from "./workos-orgs.ts";
+import type { WorkosInvitation, WorkosMembership, WorkosOrgs } from "./workos-orgs.ts";
 
 /** An Admin Portal link lasts five minutes (WorkOS). */
 const PORTAL_LINK_MS = 5 * 60_000;
-/** Who may open each Admin Portal intent (ADR 0206 §2.7). */
-const portalPermission: Record<AceOrgPortalIntent, OrgPermission> = {
-  sso: "sso:manage",
-  dsync: "sso:manage",
-  domain_verification: "sso:manage",
-  certificate_renewal: "sso:manage",
-  log_streams: "sso:manage",
-  audit_logs: "audit:read",
-};
+/**
+ * One membership change at a time per organization, across isolates. Each holds it through a
+ * few WorkOS calls of at most ten seconds each; others wait up to five seconds for it.
+ */
+const MEMBERS_LEASE = { ms: 60_000, tries: 25, waitMs: 200 };
 
 const actor = ({ principal }: Member) => ({
   type: "member",
@@ -49,6 +47,10 @@ const invitation = (raw: WorkosInvitation): AceOrgInvitation => ({
  * the authority: every change is made there first, then mirrored. Removing a member deletes the
  * membership, never deactivates it (deactivating would end all their WorkOS sessions, personal
  * ones too), and nothing here touches a member's personal data.
+ *
+ * Membership changes run one at a time per organization (`members:<org>`), and each decides on
+ * WorkOS's membership and owners read inside that turn, never the mirror's: two owners leaving
+ * at once can't both pass "another owner remains".
  */
 export function orgRoutes(deps: {
   principals: PrincipalReader;
@@ -56,22 +58,43 @@ export function orgRoutes(deps: {
   orgs: OrgStore;
   workos: WorkosOrgs;
   audit: OrgAudit;
+  locks: OrgLocks;
+  portal: PortalRevocations;
   now: () => number;
 }) {
-  const { access, orgs, workos, audit, now } = deps;
+  const { access, orgs, workos, audit, portal, now } = deps;
   const iso = () => new Date(now()).toISOString();
 
-  /** Whether `member` may change `target`'s membership to `role` (undefined: remove it). */
+  /** Runs one membership change of `org`, holding the organization's members lease. */
+  async function serialized(org: string, then: () => Promise<Response>): Promise<Response> {
+    const held = await deps.locks.holding(`members:${org}`, MEMBERS_LEASE, then);
+    return held.ok ? held.value : fail(503, "busy");
+  }
+
+  /** The account's membership of `org` as WorkOS holds it now, read inside the turn. */
+  async function current(org: string, account: string): Promise<WorkosMembership | undefined> {
+    const found = await workos.findMembership(account, org);
+    return found && found.organization_id === org && found.user_id === account ? found : undefined;
+  }
+
+  /**
+   * Whether `member` may change `target`'s membership to `role` (undefined: remove it), on
+   * WorkOS's membership and active owners now.
+   */
   async function guard(
     member: Member,
-    target: { role: string; directory_managed: number },
+    target: WorkosMembership,
     role: string | undefined,
   ): Promise<Response | undefined> {
-    if (target.directory_managed === 1) return fail(409, "directory_managed");
-    const touchesOwner = orgRole(target.role) === "owner" || role === "owner";
+    if (target.directory_managed === true) return fail(409, "directory_managed");
+    const was = orgRole(target.role?.slug ?? "member");
+    const touchesOwner = was === "owner" || role === "owner";
     if (touchesOwner && !orgAllows(member.role, "org:owners")) return fail(403, "forbidden");
-    const losesOwner = orgRole(target.role) === "owner" && role !== "owner";
-    if (losesOwner && (await orgs.activeOwners(member.org)) <= 1) return fail(409, "last_owner");
+    const losesOwner = was === "owner" && target.status === "active" && role !== "owner";
+    if (losesOwner) {
+      const owners = await workos.activeWithRole(member.org, "owner", 2);
+      if (!owners.some((each) => each.id !== target.id)) return fail(409, "last_owner");
+    }
     return undefined;
   }
 
@@ -147,44 +170,57 @@ export function orgRoutes(deps: {
         json(200, { members: await orgs.members(member.org) }),
       ),
 
-    /** PATCH /v1/orgs/{org}/members/{account}. */
+    /**
+     * PATCH /v1/orgs/{org}/members/{account}. A role that opens no Admin Portal intent queues the
+     * revocation of the account's portal sessions with the mirror's change.
+     */
     changeRole: (request: Request, org: string, account: string) =>
       access.member(request, org, "members:manage", async (member) => {
         const body = AceOrgRoleChange.safeParse(await jsonBody(request, 1024));
         if (!body.success) return fail(400, "invalid_request");
         const target = await orgs.member(member.org, account);
         if (!target || target.status === "removed") return fail(404, "not_found");
-        const refused = await guard(member, target, body.data.role);
-        if (refused) return refused;
-        const updated = await workos.updateMembershipRole(target.membership_id, body.data.role);
-        await orgs.run([
-          orgs.upsertingMember(
-            {
-              org: member.org,
-              account,
-              membership: updated.id,
-              role: updated.role?.slug ?? body.data.role,
-              status: updated.status,
-              directoryManaged: updated.directory_managed === true,
-              version: updated.updated_at ?? iso(),
-            },
-            now(),
-          ),
-          orgs.droppingChecks(member.org, account),
-          orgs.flaggingOwners(member.org),
-        ]);
-        await audit.record(request, member.org, {
-          action: "org.member.role_changed",
-          actor: actor(member),
-          targets: [{ type: "member", id: account }],
-          metadata: { role_before: target.role, role_after: body.data.role },
+        const role = body.data.role;
+        return serialized(member.org, async () => {
+          const found = await current(member.org, account);
+          if (!found) return fail(404, "not_found");
+          const refused = await guard(member, found, role);
+          if (refused) return refused;
+          const updated = await workos.updateMembershipRole(found.id, role);
+          const after = updated.role?.slug ?? role;
+          const revokes = !opensPortal(after);
+          await orgs.run([
+            orgs.upsertingMember(
+              {
+                org: member.org,
+                account,
+                membership: updated.id,
+                role: after,
+                status: updated.status,
+                directoryManaged: updated.directory_managed === true,
+                version: updated.updated_at ?? iso(),
+              },
+              now(),
+            ),
+            orgs.droppingChecks(member.org, account),
+            orgs.flaggingOwners(member.org),
+            ...(revokes ? [portal.queueing(member.org, account)] : []),
+          ]);
+          if (revokes) await portal.revokeNow(member.org, account);
+          await audit.record(request, member.org, {
+            action: "org.member.role_changed",
+            actor: actor(member),
+            targets: [{ type: "member", id: account }],
+            metadata: { role_before: found.role?.slug ?? "member", role_after: role },
+          });
+          return json(200, { ok: true });
         });
-        return json(200, { ok: true });
       }),
 
     /**
      * DELETE /v1/orgs/{org}/members/{account}: Remove, or Leave for one's own account. Deletes
-     * the WorkOS membership and keeps a `removed` row; ends the admin's portal sessions.
+     * the WorkOS membership and keeps a `removed` row; queues the revocation of the account's
+     * Admin Portal sessions, whatever role the mirror showed, and tries it at once.
      */
     remove: (request: Request, org: string, account: string) =>
       access.member(request, org, undefined, async (member) => {
@@ -192,32 +228,37 @@ export function orgRoutes(deps: {
         if (!self && !orgAllows(member.role, "members:manage")) return fail(403, "forbidden");
         const target = await orgs.member(member.org, account);
         if (!target || target.status === "removed") return fail(404, "not_found");
-        // Leaving as the last owner is refused like removing them.
-        const refused = await guard(member, target, undefined);
-        if (refused) return refused;
-        try {
-          await workos.deleteMembership(target.membership_id);
-        } catch (error) {
-          if (error instanceof WorkosRefusal && error.status === 404) {
-            // Already gone at WorkOS: mirror that.
-          } else if (error instanceof WorkosRefusal && error.status === 422)
-            return fail(409, "directory_managed");
-          else throw error;
-        }
-        await orgs.run([
-          orgs.removingMember(member.org, account, target.membership_id, iso()),
-          orgs.droppingChecks(member.org, account),
-          orgs.flaggingOwners(member.org),
-        ]);
-        if (orgAllows(target.role, "sso:manage"))
-          await workos.revokePortal(member.org, account).catch(() => {});
-        await audit.record(request, member.org, {
-          action: "org.member.removed",
-          actor: actor(member),
-          targets: [{ type: "member", id: account }],
-          metadata: { role_before: target.role },
+        return serialized(member.org, async () => {
+          const found = await current(member.org, account);
+          if (found) {
+            // Leaving as the last owner is refused like removing them.
+            const refused = await guard(member, found, undefined);
+            if (refused) return refused;
+            try {
+              await workos.deleteMembership(found.id);
+            } catch (error) {
+              if (error instanceof WorkosRefusal && error.status === 404) {
+                // Already gone at WorkOS: mirror that.
+              } else if (error instanceof WorkosRefusal && error.status === 422)
+                return fail(409, "directory_managed");
+              else throw error;
+            }
+          }
+          await orgs.run([
+            orgs.removingMember(member.org, account, found?.id ?? target.membership_id, iso()),
+            orgs.droppingChecks(member.org, account),
+            orgs.flaggingOwners(member.org),
+            portal.queueing(member.org, account),
+          ]);
+          await portal.revokeNow(member.org, account);
+          await audit.record(request, member.org, {
+            action: "org.member.removed",
+            actor: actor(member),
+            targets: [{ type: "member", id: account }],
+            metadata: { role_before: found?.role?.slug ?? target.role },
+          });
+          return json(200, { ok: true });
         });
-        return json(200, { ok: true });
       }),
 
     /** GET /v1/orgs/{org}/invitations. */
@@ -280,11 +321,15 @@ export function orgRoutes(deps: {
         if (!orgAllows(member.role, portalPermission[body.data.intent]))
           return fail(403, "forbidden");
         const expiresAt = now() + PORTAL_LINK_MS;
-        const link = await workos.portalLink(
-          member.org,
-          body.data.intent,
-          member.principal.account.id,
-        );
+        const admin = member.principal.account.id;
+        // Never while a revocation of theirs is queued, nor once their membership has changed
+        // since WorkOS's answer: a revocation queued after this check runs after the link exists.
+        const issued = await portal.link(member.org, admin, body.data.intent, async () => {
+          const row = await orgs.member(member.org, admin);
+          return (row?.seq ?? null) === member.seq && (!row || row.status === "active");
+        });
+        if (!issued.ok) return fail(issued.error === "busy" ? 503 : 403, issued.error);
+        const { link } = issued;
         await audit.record(request, member.org, {
           action: "org.portal.opened",
           actor: actor(member),
