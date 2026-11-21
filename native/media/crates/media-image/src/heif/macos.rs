@@ -89,12 +89,12 @@ pub fn decode(bytes: &[u8], (width, height): (u32, u32)) -> Result<Raster> {
     let (source, primary) = source(bytes)?;
     // SAFETY: a valid index of a valid source; the image owns what it decodes.
     let image = unsafe { source.image_at_index(primary, None) }.ok_or_else(unreadable)?;
-    let drawn = (
-        CGImage::width(Some(&image)),
-        CGImage::height(Some(&image)),
-    );
+    let drawn = (CGImage::width(Some(&image)), CGImage::height(Some(&image)));
     if drawn != (width as usize, height as usize) {
-        return Err(Failed::decode("HEIC", "it decodes to a size other than its header's"));
+        return Err(Failed::decode(
+            "HEIC",
+            "it decodes to a size other than its header's",
+        ));
     }
     // SAFETY: ImageIO's constant name for sRGB.
     let space = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }))

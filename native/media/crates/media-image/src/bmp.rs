@@ -57,7 +57,13 @@ fn layout(bytes: &[u8]) -> Result<Layout> {
         if w <= 0 {
             return Err(Failed::decode("BMP", "its width isn't positive"));
         }
-        (w.unsigned_abs(), h.unsigned_abs(), bits, compression, image_size)
+        (
+            w.unsigned_abs(),
+            h.unsigned_abs(),
+            bits,
+            compression,
+            image_size,
+        )
     } else {
         return Err(Failed::decode("BMP", "its info header has an unknown size"));
     };
@@ -172,7 +178,10 @@ pub(crate) mod tests {
     fn a_bitmap_cut_short_is_refused_from_its_header() {
         let bytes = bmp(5, 3, [1, 2, 3]);
         let cut = &bytes[..bytes.len() - 1];
-        assert_eq!(header(cut).err().map(|f| f.reason), Some(ImageFailure::Truncated));
+        assert_eq!(
+            header(cut).err().map(|f| f.reason),
+            Some(ImageFailure::Truncated)
+        );
         assert_eq!(
             decode(cut, 100).err().map(|f| f.reason),
             Some(ImageFailure::Truncated)

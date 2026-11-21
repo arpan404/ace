@@ -236,7 +236,10 @@ pub(crate) mod tests {
     fn a_tiff_cut_short_is_refused_from_its_directory() {
         let bytes = tiff(6, 4, [1, 2, 3], 1);
         let cut = &bytes[..bytes.len() - 1];
-        assert_eq!(header(cut).err().map(|f| f.reason), Some(ImageFailure::Truncated));
+        assert_eq!(
+            header(cut).err().map(|f| f.reason),
+            Some(ImageFailure::Truncated)
+        );
         assert_eq!(
             decode(cut, 100).err().map(|f| f.reason),
             Some(ImageFailure::Truncated)

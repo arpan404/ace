@@ -73,7 +73,9 @@ fn whole(bytes: &[u8]) -> Result<()> {
         if size < header {
             return Err(Failed::decode("HEIC", "a box is shorter than its header"));
         }
-        let end = at.checked_add(size).ok_or_else(|| Failed::truncated("HEIC"))?;
+        let end = at
+            .checked_add(size)
+            .ok_or_else(|| Failed::truncated("HEIC"))?;
         if end > length {
             return Err(Failed::truncated("HEIC"));
         }
@@ -170,7 +172,10 @@ mod tests {
     #[cfg(target_os = "macos")]
     fn a_heic_decodes_through_imageio_at_its_header_size() -> std::result::Result<(), String> {
         let bytes = fixture().ok_or("the HEIC fixture is missing")?;
-        assert_eq!(header(&bytes).map_err(|f| f.message.clone())?, (320, 240, 1));
+        assert_eq!(
+            header(&bytes).map_err(|f| f.message.clone())?,
+            (320, 240, 1)
+        );
         let (raster, orientation) = decode(&bytes, 1 << 20).map_err(|f| f.message)?;
         assert_eq!((raster.width, raster.height, orientation), (320, 240, 1));
         assert!(raster.data.chunks_exact(4).any(|p| p[..3] != [0, 0, 0]));
