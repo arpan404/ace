@@ -174,8 +174,6 @@ fn serve_reads(reader: &Connection, reads: &mpsc::Receiver<Op>, out: &Out) {
 enum Reply {
     Value(Value),
     Bodies(Value, Vec<Vec<u8>>),
-    /// The source is another reader's: the daemon routes the request there.
-    Elsewhere,
 }
 
 fn summary_value(source: Option<crate::session::Source>) -> Result<Value> {
@@ -207,16 +205,16 @@ impl Server {
         match reply {
             Ok(Reply::Value(value)) => self.out.reply(id, value),
             Ok(Reply::Bodies(value, bodies)) => self.out.reply_bodies(id, value, &bodies),
-            Ok(Reply::Elsewhere) => self.out.send(
-                &json!({ "id": id, "error": "This saved conversation is read by another reader", "elsewhere": true }),
-                &[],
-                id,
-            ),
             Err(error) => self.out.error(id, &error.to_string()),
         }
     }
 
     fn run(&mut self, request: Request, bodies: &[Vec<u8>]) -> Result<Reply> {
+        if let Some(failure) = crate::hooks::failure()
+            && !matches!(request, Request::Close)
+        {
+            return Err(Error::message(failure));
+        }
         let value = match request {
             Request::Close => {
                 self.cancel.cancel();
@@ -260,25 +258,12 @@ impl Server {
             Request::Scan => self.scan()?,
             Request::List { request, exclude } => list(self.catalog.reader(), &request, &exclude)?,
             Request::Get { id } => summary_value(get(self.catalog.reader(), &id)?)?,
-            Request::Reference { id } => {
-                if !self.owns(&id)? {
-                    return Ok(Reply::Elsewhere);
-                }
-                match get(self.catalog.reader(), &id)? {
-                    Some(source) => import::native_reference(&source)?["nativeId"].clone(),
-                    None => Value::Null,
-                }
-            }
-            Request::ImportPersist { init } => {
-                if !self.owns(&init.source_id)? {
-                    return Ok(Reply::Elsewhere);
-                }
-                self.persist(&init)?
-            }
+            Request::Reference { id } => match get(self.catalog.reader(), &id)? {
+                Some(source) => import::native_reference(&source)?["nativeId"].clone(),
+                None => Value::Null,
+            },
+            Request::ImportPersist { init } => self.persist(&init)?,
             Request::Import { init } => {
-                if !self.owns(&init.source_id)? {
-                    return Ok(Reply::Elsewhere);
-                }
                 if self.pull.is_some() {
                     return Err(Error::message("Import already in progress"));
                 }
@@ -343,11 +328,6 @@ impl Server {
             .catalog
             .crashes
             .finished(&self.catalog.db, &instance, &path);
-    }
-
-    /// Whether this reader imports the source; an unknown one is this reader's to refuse.
-    fn owns(&self, id: &str) -> Result<bool> {
-        Ok(import::owner(self.catalog.reader(), &self.options, id)?.unwrap_or(true))
     }
 
     fn archive_write(&mut self, command: ArchiveCommand, bodies: &[Vec<u8>]) -> Result<()> {

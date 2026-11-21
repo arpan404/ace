@@ -8,6 +8,7 @@
 //! - `delay: { at, ms }` sleeps at a point, widening a window a race needs;
 //! - `pause: { at, match?, dir }` stops once at a point: it creates `dir/paused` and waits for
 //!   `dir/continue`;
+//! - `failRequests` answers every request but `close` with this error, as a broken reader would;
 //! - `clockShiftMs` moves the reader's clock forward, past the crash ledger's waits;
 //! - `readLog` appends each transcript opened for content to a file;
 //! - `snapshotLog` appends each private database snapshot staged;
@@ -85,6 +86,13 @@ mod enabled {
         }
     }
 
+    pub fn failure() -> Option<String> {
+        config()
+            .get("failRequests")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }
+
     pub fn clock_shift() -> f64 {
         config()
             .get("clockShiftMs")
@@ -132,7 +140,7 @@ mod enabled {
 }
 
 #[cfg(feature = "test-hooks")]
-pub use enabled::{at, at_path, clock_shift, decoding, read, snapshot};
+pub use enabled::{at, at_path, clock_shift, decoding, failure, read, snapshot};
 
 #[cfg(not(feature = "test-hooks"))]
 mod disabled {
@@ -141,6 +149,13 @@ mod disabled {
     #[inline(always)]
     pub fn at_path(_point: &str, _subject: &str) {}
     #[inline(always)]
+    pub fn failure() -> Option<String> {
+        config()
+            .get("failRequests")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }
+
     pub fn clock_shift() -> f64 {
         0.0
     }
@@ -153,4 +168,4 @@ mod disabled {
 }
 
 #[cfg(not(feature = "test-hooks"))]
-pub use disabled::{at, at_path, clock_shift, decoding, read, snapshot};
+pub use disabled::{at, at_path, clock_shift, decoding, failure, read, snapshot};

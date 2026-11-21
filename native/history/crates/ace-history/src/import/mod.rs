@@ -38,15 +38,6 @@ pub struct Member {
     pub parent_id: Option<String>,
 }
 
-/// Whether this reader imports the source `id`; `None` when it is unknown.
-pub fn owner(db: &Connection, options: &Options, id: &str) -> Result<Option<bool>> {
-    let Some(root) = get(db, id)? else {
-        return Ok(None);
-    };
-    let home = options.instances.iter().find(|h| h.id == root.instance_id);
-    Ok(Some(home.is_some_and(|h| options.reads(h.provider))))
-}
-
 /// Everything checked before the first packet: the tree, its support and its fingerprints.
 pub fn plan_tree(
     db: &Connection,

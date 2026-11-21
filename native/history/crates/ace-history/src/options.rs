@@ -62,25 +62,11 @@ pub struct Options {
     pub snapshot: Option<SnapshotLimits>,
     #[serde(default)]
     pub last_exit: Option<LastExit>,
-    /// The providers this reader scans and imports; every registered home is still known to it.
-    #[serde(default)]
-    pub providers: Option<Vec<Provider>>,
 }
 
 impl Options {
-    /// Whether this reader scans and imports `provider`.
-    pub fn reads(&self, provider: Provider) -> bool {
-        self.providers
-            .as_ref()
-            .is_none_or(|p| p.contains(&provider))
-    }
-
     /// The ids of the homes this reader scans.
     pub fn own_instances(&self) -> Vec<String> {
-        self.instances
-            .iter()
-            .filter(|h| self.reads(h.provider))
-            .map(|h| h.id.clone())
-            .collect()
+        self.instances.iter().map(|h| h.id.clone()).collect()
     }
 }

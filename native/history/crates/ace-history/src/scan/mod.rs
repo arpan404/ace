@@ -95,13 +95,7 @@ impl Scan<'_> {
     /// Scan every home this reader owns. Returns the tally.
     pub fn run(mut self) -> Result<Tally> {
         self.catalog.cleanup(self.cancel)?;
-        let homes: Vec<Home> = self
-            .options
-            .instances
-            .iter()
-            .filter(|h| self.options.reads(h.provider))
-            .cloned()
-            .collect();
+        let homes: Vec<Home> = self.options.instances.to_vec();
         for home in &homes {
             self.cancel.check()?;
             if home.provider == Provider::Cursor {
