@@ -1,13 +1,28 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
-import { fitImage } from "@ace/provider-kit/image";
 import { jpegComplete } from "./jpeg.ts";
 import { DeviceError } from "./sdk.ts";
 import { deviceImageStream } from "./stream-control.ts";
 
 type Image = { bytes: Buffer; width: number; height: number };
-/** sharp's default bound, which frames were decoded under before (about 268 MP). */
-const frameMaxPixels = 0x3fff * 0x3fff;
-/** Retain only the latest native frame while one JPEG transform is outstanding. */
+/** The frame packet's tallest picture, a portrait phone's included. */
+const frameHeightLimit = 2160;
+
+/**
+ * serve-sim's picture is larger than a frame can carry. Nothing here scales it (ace-media owns
+ * every image, X1): the still is taken another way, by ace-media or the device's own screenshot.
+ */
+export class StillTooLarge extends Error {
+  constructor(width: number, height: number) {
+    super(`The Simulator's ${width}×${height} picture is larger than a still frame carries`);
+  }
+}
+
+/**
+ * serve-sim's pictures as the capture's stills, published as they came: one inside the stream's
+ * box (and the frame packet's 2160-pixel height) goes out at once; a larger one is never
+ * re-encoded here, and a still waiting for it is refused with `StillTooLarge`. Only the latest
+ * picture is kept while one is being handed on.
+ */
 export class SimulatorFrames {
   private settings: ScreenStreamSettings;
   private revision = 0;
@@ -71,38 +86,24 @@ export class SimulatorFrames {
       this.pending = undefined;
       const revision = this.revision;
       const settings = this.settings;
-      // The packet protocol permits a 2160-pixel height, including portrait devices.
-      const heightLimit = Math.min(2160, settings.maxHeight);
-      const resize = source.width > settings.maxWidth || source.height > heightLimit;
-      const budget = Math.max(16384, settings.bitrate / 8 / settings.fps);
-      // A cut-short frame would show an agent a screen that isn't there: refused, whether
-      // passed through or re-encoded (Bun's decoder fills missing data with grey).
+      // A cut-short frame would show an agent a screen that isn't there: refused.
       if (!jpegComplete(source.bytes))
         throw new DeviceError(
           "invalid_data",
           "The Simulator sent an incomplete picture",
           "Retry; if it persists, restart the device view.",
         );
-      let image = source;
-      if (resize || source.bytes.length > budget) {
-        const { bytes, width, height } = await fitImage(
-          { input: source.bytes, maxPixels: frameMaxPixels, autoOrient: false },
-          { width: settings.maxWidth, height: heightLimit },
-          {
-            format: "jpeg",
-            quality: Math.max(35, Math.min(85, Math.round((85 * budget) / source.bytes.length))),
-          },
-        );
-        image = { bytes, width, height };
-      }
-      if (!this.stopped && revision === this.revision) {
-        this.options.publish(image, image.width / source.width);
-        for (const waiter of this.waiters)
-          if (waiter.revision <= revision) {
-            this.waiters.delete(waiter);
-            waiter.resolve();
-          }
-      }
+      if (this.stopped || revision !== this.revision) continue;
+      const fits =
+        source.width <= settings.maxWidth &&
+        source.height <= Math.min(frameHeightLimit, settings.maxHeight);
+      if (fits) this.options.publish(source, 1);
+      for (const waiter of this.waiters)
+        if (waiter.revision <= revision) {
+          this.waiters.delete(waiter);
+          if (fits) waiter.resolve();
+          else waiter.reject(new StillTooLarge(source.width, source.height));
+        }
     }
   }
   /** Keeps `bytes` as the latest frame without publishing it: a still waits for `replay`. */

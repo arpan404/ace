@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { expect, it, onTestFinished } from "vitest";
 import type { ScreenStreamSettings } from "@ace/protocol";
-import { SimulatorFrames } from "./simulator-frames.ts";
+import { SimulatorFrames, StillTooLarge } from "./simulator-frames.ts";
 
 /** A busy screen, as hard to compress as a Simulator's: noise at JPEG quality 95. */
 const busyScreen = (width: number, height: number) =>
@@ -48,34 +48,21 @@ function frames(settings: Partial<ScreenStreamSettings>) {
   };
 }
 
-it("a frame larger than the stream's box is fitted inside it, keeping its shape", async () => {
+it("a frame larger than the stream's box is never re-encoded here: its still is refused as too large, and the capture goes on", async () => {
   const source = await busyScreen(1206, 2622);
-  const { still } = frames({ maxWidth: 603, maxHeight: 1400, bitrate: 50_000_000 });
-  const image = await still(source, 1206, 2622);
-  expect(image).toMatchObject({ width: 603, height: 1311, scale: 0.5 });
-  expect(await sharp(image?.bytes).metadata()).toMatchObject({
-    format: "jpeg",
-    width: 603,
-    height: 1311,
-  });
+  const capture = frames({ maxWidth: 1920, maxHeight: 2160 });
+  await expect(capture.still(source, 1206, 2622)).rejects.toBeInstanceOf(StillTooLarge);
+  expect(capture.published).toEqual([]);
+  expect(capture.failures).toEqual([]);
+  // A picture that fits, after it, is published as it came.
+  const small = await busyScreen(100, 200);
+  expect((await capture.still(small, 100, 200))?.bytes.equals(small)).toBe(true);
 });
 
-it("a frame over its byte budget is re-encoded smaller, and a tighter budget makes it smaller still", async () => {
+it("a frame inside the box is published as it came, whatever its size in bytes", async () => {
   const source = await busyScreen(600, 1300);
-  // A budget of 90% of the frame encodes it at quality 77; half of it, at quality 43.
-  const budget = (share: number) => Math.round(source.length * share * 8 * 30);
-  const loose = await frames({ bitrate: budget(0.9) }).still(source, 600, 1300);
-  const tight = await frames({ bitrate: budget(0.5) }).still(source, 600, 1300);
-  // Over budget but inside the box: same size, fewer bytes.
-  expect(loose).toMatchObject({ width: 600, height: 1300, scale: 1 });
-  expect(loose?.bytes.length).toBeLessThan(source.length);
-  expect(tight).toMatchObject({ width: 600, height: 1300 });
-  expect(tight?.bytes.length).toBeLessThan(loose?.bytes.length ?? 0);
-});
-
-it("a frame inside the box and its budget is published as it came", async () => {
-  const source = await busyScreen(100, 200);
-  const image = await frames({ bitrate: 30_000_000 }).still(source, 100, 200);
+  const image = await frames({ bitrate: 128_000 }).still(source, 600, 1300);
+  expect(image).toMatchObject({ width: 600, height: 1300, scale: 1 });
   expect(image?.bytes.equals(source)).toBe(true);
 });
 
@@ -96,8 +83,8 @@ function cutInScan(jpeg: Buffer, keep: number) {
 
 it("a frame cut short inside its picture data is refused, though its header and size are valid", async () => {
   const whole = await busyScreen(1206, 2622);
-  // Over budget and over the box (re-encoded), then small enough to pass through as it came.
-  for (const settings of [{ maxWidth: 603 }, { bitrate: 1_000_000_000 }]) {
+  // Over the box, then inside it: either way the picture is checked whole first.
+  for (const settings of [{ maxWidth: 603 }, { maxWidth: 1920, maxHeight: 2622 }]) {
     const capture = frames(settings);
     await expect(capture.still(cutInScan(whole, 0.6), 1206, 2622)).rejects.toThrow(
       "incomplete picture",
