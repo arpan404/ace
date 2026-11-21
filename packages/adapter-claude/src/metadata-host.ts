@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { routeConsoleToStderr } from "@ace/provider-kit/console-guard";
 import { askClaude } from "./metadata-query.ts";
 import { metadataQuestions } from "./metadata-questions.ts";
 
@@ -7,6 +8,9 @@ import { metadataQuestions } from "./metadata-questions.ts";
  * SDK for metadata alone. The CLI it starts is owned by this process: a stop (SIGTERM) or the
  * daemon going away (stdin closes) exits it, and provider-kit stops owned process groups on exit.
  */
+// Stdout carries the helper's frames, and Bun's console writes there directly; SDK logs go to
+// stderr instead.
+routeConsoleToStderr();
 const question = z.enum(["models", "usage"]).parse(process.argv[2]);
 const target = z
   .object({ executable: z.string().min(1), args: z.array(z.string()), cwd: z.string().min(1) })
