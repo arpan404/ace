@@ -554,6 +554,7 @@
       "name": "@ace/browser-extension",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "ws": "8.22.0",
         "zod": "^4.6.5",
       },
