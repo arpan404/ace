@@ -55,7 +55,7 @@ export function orgStanding(deps: {
     checkedAt: number;
   };
   let proven: Proven | undefined;
-  /** When the backend last confirmed each recent grant; a few, newest last. */
+  /** When the backend last confirmed each grant, for as long as that still counts. */
   const confirmed = new Map<string, number>();
   const current = (): Member | undefined =>
     proven && proven.until > deps.now() && deps.holds(proven.generation)
@@ -111,12 +111,11 @@ export function orgStanding(deps: {
       }
       held.checkedAt = deps.now();
       if (held.grant !== undefined) {
-        confirmed.delete(held.grant);
+        // A confirmation counts for its minute: older ones would be checked again anyway, so
+        // they go, by age, never to make room.
+        for (const [grant, at] of confirmed)
+          if (held.checkedAt - at > MEMBER_RECHECK_MS) confirmed.delete(grant);
         confirmed.set(held.grant, held.checkedAt);
-        for (const grant of confirmed.keys()) {
-          if (confirmed.size <= 8) break;
-          confirmed.delete(grant);
-        }
       }
       return current();
     },

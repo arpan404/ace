@@ -178,3 +178,25 @@ test("a grant issued more than a minute before it is proven is checked on its fi
   expect(await host.answer()).toMatchObject({ kind: "error", code: "forbidden" });
   expect(host.asked).toEqual(["grant-gus"]);
 });
+
+test("a grant's confirmation lasts its minute however many other grants are confirmed meanwhile", async ({
+  onTestFinished,
+}) => {
+  const host = await orgHostSession(
+    async () => ({ current: true, role: "member" }),
+    onTestFinished,
+  );
+  host.advance(61_000);
+  expect(await host.answer()).toMatchObject({ status: 200 });
+  // Nine more grants proven on the socket since, each confirmed by the backend in turn.
+  for (let other = 1; other <= 9; other++) {
+    host.prove(T0, `grant-${other}`);
+    expect(await host.answer()).toMatchObject({ status: 200 });
+  }
+  expect(host.asked).toHaveLength(10);
+  // The first grant again, still inside the minute since it was confirmed: no need to ask.
+  host.advance(10_000);
+  host.prove(T0);
+  expect(await host.answer()).toMatchObject({ status: 200 });
+  expect(host.asked).toHaveLength(10);
+});
