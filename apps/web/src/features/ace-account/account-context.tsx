@@ -1,4 +1,5 @@
 import { aceAccountClient } from "@ace/client/ace-account";
+import { aceOrgClient } from "@ace/client/ace-org";
 import { windowSessionStorage } from "@/boot/window-session.ts";
 import {
   createContext,
@@ -15,6 +16,7 @@ import { hasDesktopBridge } from "@/boot/desktop.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { followAccountLeaving } from "./account-switch.ts";
+import { SpaceProvider } from "./space-context.tsx";
 import {
   aceAccountStore,
   type AceAccountBackend,
@@ -40,6 +42,7 @@ function deployedBackend(): AceAccountBackend | undefined {
       origin,
       fetch: accountFetch(origin),
     }),
+    orgs: aceOrgClient({ origin, fetch: accountFetch(origin) }),
     // In this window's memory only, shared with the machine routes (ADR 0190).
     storage: windowSessionStorage(),
     secure: accountSecret(),
@@ -78,7 +81,11 @@ export function AceAccountProvider(props: { children: ReactNode }) {
       if (main.account) main.retry();
     });
   }, [store]);
-  return <StoreContext value={store}>{props.children}</StoreContext>;
+  return (
+    <StoreContext value={store}>
+      <SpaceProvider store={store}>{props.children}</SpaceProvider>
+    </StoreContext>
+  );
 }
 
 const none = () => () => {};

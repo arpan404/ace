@@ -1,5 +1,6 @@
 import type { MachineAccountStatus } from "@ace/protocol";
 import type { AceAccount } from "@ace/protocol/ace-account";
+import { orgAccountName } from "./machine-account-copy.ts";
 
 /** What the owner row offers: letting the machine go, or how to fix an owner that isn't you. */
 export type MachineOwnerAction = "release" | "notYou" | "none";
@@ -22,11 +23,17 @@ export function machineOwnerRow(
     };
   // An organization's host (ADR 0206 §2.1): its owners release it, from a connection where they
   // proved they're one.
-  if ("org" in status.owner)
+  if ("org" in status.owner) {
+    const org = status.owner.org;
+    const name =
+      status.account && status.account.id === `org:${org}`
+        ? orgAccountName(status.account)
+        : undefined;
     return {
-      sentence: "This machine is an organization's host: its owners can release it.",
+      sentence: `This machine is ${name ? `${name}'s` : "an organization's"} host: its owners can release it.`,
       action: "none",
     };
+  }
   const { account } = status.owner;
   if (app?.id === account)
     return { sentence: `This machine belongs to you (${app.email}).`, action: "release" };

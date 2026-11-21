@@ -25,6 +25,7 @@ export {
   SourceControlSettingsScreen,
   SettingsIndexScreen,
 } from "./settings-screens.tsx";
+export { OrganizationSettingsScreen } from "./organization/screen.tsx";
 /** Every setting by page, for the palette's Settings group and the Settings filter (ST-05). */
 export {
   entryRoute,

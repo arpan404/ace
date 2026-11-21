@@ -35,6 +35,8 @@ function pause(signal: AbortSignal, ms: number) {
 export async function browserSignIn(options: {
   client: AceAccountClient;
   returnTo: string | undefined;
+  /** Enter this organization (ADR 0206 §1.4): its sign-in policy applies. */
+  org?: string | undefined;
   signal: AbortSignal;
   open: (address: Promise<string>) => void;
   started: (login: AceLogin) => void;
@@ -49,7 +51,11 @@ export async function browserSignIn(options: {
     const request = client.login(
       AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
       // This window holds the session itself: the person's (ADR 0190).
-      { holder: "person", ...(options.returnTo ? { returnTo: options.returnTo } : {}) },
+      {
+        holder: "person",
+        ...(options.returnTo ? { returnTo: options.returnTo } : {}),
+        ...(options.org ? { org: options.org } : {}),
+      },
     );
     options.open(request.then((login) => login.loginUrl));
     pending = await request;

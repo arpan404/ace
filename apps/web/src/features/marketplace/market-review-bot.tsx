@@ -5,7 +5,7 @@ import { effectStartsOn, updateSentences } from "@ace/ui-core/spade-chat";
 import { codeKey, decidedEachTime, effectWords, triggerWhen } from "./market-package-words.ts";
 import { needCatalogue } from "./market-model.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
-import { ReplayLine } from "@/features/spade/index.ts";
+import { ReplayLine, type EffectLockOf } from "@/features/spade/index.ts";
 
 /*
  * A bot's part of its review (ADR 0168 §8, ADR 0200 §3.4, §6.1). For an install: what it may do,
@@ -63,11 +63,13 @@ export function UpdateChoices(props: { recipe: Recipe }) {
 
 /**
  * What it may do: each declared effect as a switch, as `effectDefaults` started it. When a
- * stranger's package starts some off, one sentence says so.
+ * stranger's package starts some off, one sentence says so. On an org host, a switch above the
+ * member's role is off and locked, and says why (ADR 0206 §3).
  */
 function EffectChoices(props: {
   recipe: Recipe;
   byAce: boolean;
+  lockOf: EffectLockOf | undefined;
   effects: Readonly<Record<string, boolean>>;
   onEffects(next: (before: Record<string, boolean>) => Record<string, boolean>): void;
 }) {
@@ -84,18 +86,21 @@ function EffectChoices(props: {
       )}
       {rows.map((row) => {
         const words = effectWords(row);
+        const locked = props.lockOf?.(row);
         return (
-          <div key={row.key} className="mk-fact-row">
+          <div key={row.key} className="mk-fact-row" data-locked={locked ? "" : undefined}>
             <span className="mk-words">
               <span className="mk-name">{words}</span>
               <span className="mk-meta">
                 {row.why}
                 {decidedEachTime(row) ? " You decide each time." : ""}
               </span>
+              {locked && <span className="mk-meta">{locked}</span>}
             </span>
             <Switch
               aria-label={words}
-              checked={props.effects[row.key] === true}
+              disabled={locked !== undefined}
+              checked={!locked && props.effects[row.key] === true}
               onCheckedChange={(on) => props.onEffects((before) => ({ ...before, [row.key]: on }))}
             />
           </div>
@@ -143,6 +148,8 @@ function CodeChoices(props: {
 export function RecipeChoices(props: {
   recipe: Recipe;
   byAce: boolean;
+  /** On an org host: why a switch above the member's role is locked. */
+  lockOf?: EffectLockOf | undefined;
   needs: Readonly<Record<string, boolean>>;
   onNeeds(next: (before: Record<string, boolean>) => Record<string, boolean>): void;
   effects: Readonly<Record<string, boolean>>;
@@ -170,6 +177,7 @@ export function RecipeChoices(props: {
       <EffectChoices
         recipe={recipe}
         byAce={props.byAce}
+        lockOf={props.lockOf}
         effects={props.effects}
         onEffects={props.onEffects}
       />
