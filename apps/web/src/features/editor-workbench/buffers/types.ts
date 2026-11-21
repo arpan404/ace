@@ -95,6 +95,11 @@ export type Clash =
       answers: readonly (Answer | undefined)[];
     };
 
+/** The disk version a clash shows the person: what a Replace of it is confirmed against. */
+export function shownVersion(clash: Clash): string | null {
+  return clash.kind === "deleted" ? null : clash.theirs.version;
+}
+
 /** What a view reads to draw a buffer's state. */
 export interface BufferSnapshot {
   status: BufferStatus;
@@ -174,8 +179,12 @@ export interface TextBuffer {
    */
   editLines(changes: readonly { start: number; end: number; text: string }[]): boolean;
   save(): Promise<SaveOutcome>;
-  /** The explicit answer to a clash on save: write the buffer over the disk's version. */
-  replace(): Promise<SaveOutcome>;
+  /**
+   * The explicit answer to a clash on save: write the buffer over the disk version the person
+   * was shown (`over`, from `shownVersion`; null for a deleted file). If the disk has moved on
+   * since, nothing is written and the outcome is a clash: the newer change needs its own answer.
+   */
+  replace(over: string | null): Promise<SaveOutcome>;
   /** Spec 46 Merge: a clean merge lands as one undoable step, unsaved; overlaps become a conflict. */
   merge(): Promise<void>;
   /**

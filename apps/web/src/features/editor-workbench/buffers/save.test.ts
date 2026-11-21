@@ -92,10 +92,39 @@ describe("saving", () => {
     replaceLine(context.buffer, 0, "A");
     await agentWrites(context, "a\nB\n");
 
-    expect(await context.buffer.replace()).toEqual({ kind: "saved", version: "v3" });
+    expect(await context.buffer.replace("v2")).toEqual({ kind: "saved", version: "v3" });
 
     expect(context.disk.text("places.ts")).toBe("A\nb\n");
     expect(context.buffer.snapshot()).toMatchObject({ dirty: false, clash: undefined });
+  });
+
+  it("a Replace confirmed for one disk version overwrites nothing once the agent writes again", async () => {
+    const context = await setup("a\nb\n");
+    replaceLine(context.buffer, 0, "A");
+    await agentWrites(context, "a\nB\n");
+    // The person is asked about v2 ("Replace Claude Code's changes?") …
+    expect(context.buffer.snapshot().clash).toMatchObject({ theirs: { version: "v2" } });
+    // … and while the question is open, the agent writes again.
+    await agentWrites(context, "a\nB\nC\n");
+
+    expect(await context.buffer.replace("v2")).toEqual({ kind: "clash" });
+
+    // The agent's newer write is untouched, and the clash now names it: a new decision.
+    expect(context.disk.text("places.ts")).toBe("a\nB\nC\n");
+    expect(context.buffer.snapshot().clash).toMatchObject({ theirs: { version: "v3" } });
+    expect(context.buffer.document()?.text()).toBe("A\nb\n");
+  });
+
+  it("a Replace confirmed for a deleted file overwrites nothing once the file is back", async () => {
+    const context = await setup("a\n");
+    replaceLine(context.buffer, 0, "A");
+    context.disk.remove("places.ts");
+    context.registry.diskChanged(file);
+    await settle();
+    await agentWrites(context, "b\n");
+
+    expect(await context.buffer.replace(null)).toEqual({ kind: "clash" });
+    expect(context.disk.text("places.ts")).toBe("b\n");
   });
 });
 
@@ -135,7 +164,7 @@ describe("a file changing on disk", () => {
     await settle();
 
     expect(context.buffer.snapshot().clash).toEqual({ kind: "deleted", by: claude });
-    expect(await context.buffer.replace()).toMatchObject({ kind: "saved" });
+    expect(await context.buffer.replace(null)).toMatchObject({ kind: "saved" });
     expect(context.disk.text("places.ts")).toBe("A\n");
   });
 });

@@ -9,7 +9,7 @@ import {
   type EditorLayout,
   type TabRef,
 } from "@ace/ui-core/editor-workbench";
-import type { EditorBuffers } from "@/features/editor-workbench/index.ts";
+import { shownVersion, type EditorBuffers } from "@/features/editor-workbench/index.ts";
 import { groupIds, openPaths } from "./editor-layout.ts";
 import { askReplace, askUnsaved } from "./unsaved-prompt.tsx";
 
@@ -36,6 +36,9 @@ export interface EditorActionsHost {
 
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
 
+/** How many times Save asks again while the disk keeps moving under the question. */
+const replaceAsks = 5;
+
 /** Paths of the layout with unsaved edits now. */
 export function unsavedOf(host: EditorActionsHost): Set<string> {
   return new Set(openPaths(host.layout()).filter((path) => host.buffers.snapshot(path)?.dirty));
@@ -56,11 +59,27 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
     return true;
   }
   if (outcome.kind === "clash") {
-    const clash = buffer.snapshot().clash;
-    const who = clash ? host.buffers.changer(clash.by)?.name : undefined;
-    const answer = await askReplace(path, who);
-    if (answer === "replace") return (await buffer.replace()).kind === "saved";
-    if (answer === "merge") await buffer.merge();
+    // Each answer is bound to the disk version it was asked about: when the agent writes again
+    // while the question is open, Replace writes nothing and the newer change is asked about.
+    for (let asked = 0; asked < replaceAsks; asked++) {
+      const clash = buffer.snapshot().clash;
+      if (!clash) return false;
+      const who = host.buffers.changer(clash.by)?.name;
+      const shown = shownVersion(clash);
+      const answer = await askReplace(path, who);
+      if (answer === "merge") await buffer.merge();
+      if (answer !== "replace") return false;
+      const replaced = await buffer.replace(shown);
+      if (replaced.kind === "saved") {
+        host.problem(undefined);
+        host.saved?.(path);
+        return true;
+      }
+      if (replaced.kind !== "clash") {
+        if (replaced.kind === "failed") host.problem({ path, message: replaced.message });
+        return false;
+      }
+    }
     return false;
   }
   if (outcome.kind === "unanswered")

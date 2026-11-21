@@ -273,8 +273,8 @@ export class Buffer implements TextBuffer {
     void this.diskChanged();
   }
 
-  replace(): Promise<SaveOutcome> {
-    return this.#write("replace");
+  replace(over: string | null): Promise<SaveOutcome> {
+    return this.#write("replace", over);
   }
 
   async merge(): Promise<void> {
@@ -429,7 +429,7 @@ export class Buffer implements TextBuffer {
     this.#emit({ type: "state" });
   }
 
-  async #write(mode: "save" | "replace"): Promise<SaveOutcome> {
+  async #write(mode: "save" | "replace", over?: string | null): Promise<SaveOutcome> {
     if (this.#saving) return this.#saving;
     const doc = this.#doc;
     const base = this.#base;
@@ -441,6 +441,8 @@ export class Buffer implements TextBuffer {
       if (!this.#dirty) return { kind: "unchanged" };
     }
     const expected = clash?.kind === "deleted" ? null : clash ? clash.theirs.version : base.version;
+    // A Replace answers the version the person was shown; a newer one needs its own answer.
+    if (mode === "replace" && expected !== over) return { kind: "clash" };
     const text = doc.text();
     const at = doc.version();
     const running = (async (): Promise<SaveOutcome> => {
