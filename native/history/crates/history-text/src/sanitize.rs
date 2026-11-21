@@ -164,10 +164,7 @@ fn clean(value: &str, command: impl Fn(&str) -> String) -> String {
         };
         text = js::trim_start(&text[end + marker.len()..]).to_owned();
     }
-    loop {
-        let Some(opening) = OPENING.captures(&text) else {
-            break;
-        };
+    while let Some(opening) = OPENING.captures(&text) {
         let (Some(whole), Some(tag)) = (opening.get(0), opening.get(1)) else {
             break;
         };
