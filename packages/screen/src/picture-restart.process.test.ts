@@ -110,7 +110,7 @@ async function decoded(runtime: MediaRuntime, keyframe: Frame): Promise<MediaSti
     );
     // The unit is in once ace-media has it as the source's still.
     for (let tries = 0; ; tries++) {
-      const still = await runtime.stills.take(
+      const made = await runtime.stills.take(
         {
           source: path ?? "",
           maxWidth: 390,
@@ -120,9 +120,9 @@ async function decoded(runtime: MediaRuntime, keyframe: Frame): Promise<MediaSti
           deadlineMs: 2_000,
         },
         () => Promise.resolve(undefined),
-        (made) => made,
+        (taken) => taken,
       );
-      if (still) return still;
+      if (made) return made;
       if (tries > 50) throw new Error("ace-media made no still of the keyframe");
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -221,9 +221,9 @@ it.skipIf(!binary)(
   async () => {
     const { keyframe, runtime, done } = await round();
     try {
-      const still = await decoded(runtime, keyframe);
-      expect({ width: still.width, height: still.height }).toEqual({ width: 390, height: 844 });
-      expect(still.steps.map((s) => s.step)).toContain("decode");
+      const picture = await decoded(runtime, keyframe);
+      expect({ width: picture.width, height: picture.height }).toEqual({ width: 390, height: 844 });
+      expect(picture.steps.map((s) => s.step)).toContain("decode");
     } finally {
       done();
     }
