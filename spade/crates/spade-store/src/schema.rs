@@ -194,6 +194,11 @@ const MIGRATIONS: &[Migration] = &[
 ",
         backfill: None,
     },
+    Migration {
+        // ADR 0204: runs the person kept as tests, each its bot's own.
+        sql: crate::cases::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.
