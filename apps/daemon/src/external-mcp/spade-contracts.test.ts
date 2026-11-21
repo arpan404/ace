@@ -237,9 +237,11 @@ test("the Agent Card is Spade's, addressed here and signed with this machine's k
   expect(header.jku).toBe("https://relay.example/m/host-1/spade/jwks.json");
   const keys = await w.request(base, "/spade/jwks.json", { method: "GET" });
   expect(keys.status).toBe(200);
-  const { keys: published } = (await keys.json()) as { keys: { kid: string }[] };
+  const { keys: published } = (await keys.json()) as {
+    keys: { kid: string; kty: string; crv: string; x: string; y: string }[];
+  };
   const jwk = published.find((key) => key.kid === header.kid);
-  expect(jwk).toBeDefined();
+  if (!jwk) throw new Error(`no key ${header.kid} in ${JSON.stringify(published)}`);
   const { signatures: _signatures, ...payload } = card;
   const verifies = (body: unknown) =>
     verify(
@@ -247,7 +249,7 @@ test("the Agent Card is Spade's, addressed here and signed with this machine's k
       Buffer.from(
         `${signature?.protected}.${Buffer.from(canonicalJson(body)).toString("base64url")}`,
       ),
-      { key: createPublicKey({ key: { ...jwk }, format: "jwk" }), dsaEncoding: "ieee-p1363" },
+      { key: createPublicKey({ key: jwk, format: "jwk" }), dsaEncoding: "ieee-p1363" },
       Buffer.from(signature?.signature ?? "", "base64url"),
     );
   expect(verifies(payload)).toBe(true);
