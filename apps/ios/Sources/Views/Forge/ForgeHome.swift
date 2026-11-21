@@ -148,7 +148,7 @@ struct ForgeHome: View {
         case .issues: features?.issues == true
         case .inbox: features?.inbox == true
         }
-        return "\(listKey)|\(client.readGeneration(read))|\(client.hasKept(read))|\(ready)"
+        return "\(listKey)|\(client.connection)|\(client.readGeneration(read))|\(client.hasKept(read))|\(ready)"
     }
 
     @ViewBuilder private var content: some View {
@@ -320,18 +320,25 @@ struct ForgeHome: View {
     }
 
     private func load(fresh: Bool) async {
-        guard let client = session?.client, let chosen, client.connection == "ready" else { return }
-        if kind == .issues && features?.issues != true || kind == .inbox && features?.inbox != true { return }
+        guard let client = session?.client, let chosen else { return }
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
         let scope = ForgeListScope(machineId: session?.hostId ?? "", project: chosen)
+        // The choice takes the list at once, read or not: a machine that is out says so rather
+        // than leaving the last choice's rows under the new one.
+        let ready = client.connection == "ready"
         switch kind {
         case .pulls:
             let kept = client.kept(ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query), as: ForgePullList.self)
+            pulls.select(listKey, scope: scope, kept: kept)
+            guard ready else { pulls.unreachable(); return }
             await pulls.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgePulls(project: chosen, filter: pullsFilter, query: query, screens: screens, fresh: fresh)
             }
         case .issues:
             let kept = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query), as: ForgeIssueList.self)
+            issues.select(listKey, scope: scope, kept: kept)
+            guard ready else { issues.unreachable(); return }
+            guard features?.issues == true else { return }
             await issues.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }

@@ -171,6 +171,38 @@ import Foundation
         await model.load("open", scope: scope) { _, _ in throw Dropped() }
         #expect(model.list == rows && model.failure == "Machine disconnected")
     }
+    @Test func anotherProjectChosenWhileTheMachineIsOutDropsTheLastProjectsRows() async throws {
+        let model = ForgeListModel<ForgePullList>()
+        let first = ForgeListScope(machineId: "mac", project: "a")
+        let second = ForgeListScope(machineId: "mac", project: "b")
+        let rows = try pullList()
+        await model.load("a|open", scope: first) { _, _ in rows }
+        // Project b chosen offline: a's rows dim at once, then go as the list says the machine is out.
+        model.select("b|open", scope: second)
+        #expect(model.stale && model.scope == first)
+        model.unreachable()
+        #expect(model.list == nil && model.scope == nil && !model.stale)
+        // A choice with rows kept on the phone shows them, offline or not.
+        model.select("a|merged", scope: first, kept: rows)
+        model.unreachable()
+        #expect(model.list == rows && model.scope == first)
+    }
+    @Test func anAnswerForTheLastChoiceLandingAfterANewOneIsDropped() async throws {
+        let model = ForgeListModel<ForgePullList>()
+        let scope = ForgeListScope(machineId: "mac", project: "a")
+        let rows = try pullList()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let reading = Task { await model.load("open", scope: scope) { _, _ in
+            for await _ in gate { break }
+            return rows
+        } }
+        for _ in 0..<20 { await Task.yield() }
+        model.select("merged", scope: scope)
+        model.unreachable()
+        open.yield(); open.finish()
+        await reading.value
+        #expect(model.list == nil && !model.loading)
+    }
     private func pullList() throws -> ForgePullList {
         let json: [String: Any] = ["repository": "acme/ace", "groups": [], "more": false, "authors": [], "labels": []]
         return try JSONDecoder().decode(ForgePullList.self, from: JSONSerialization.data(withJSONObject: json))
