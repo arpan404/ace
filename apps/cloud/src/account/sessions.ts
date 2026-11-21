@@ -1,3 +1,4 @@
+import { notDeleted } from "./tombstone.ts";
 import { z } from "zod";
 import { AceAccount } from "@ace/protocol/ace-account";
 import type { Sealer } from "./crypto.ts";
@@ -23,6 +24,9 @@ export type SessionStanding = z.infer<typeof Row>["standing"];
 const stored = (account: AceAccount, pictureUrl: string | undefined) =>
   JSON.stringify(pictureUrl ? { ...account, pictureUrl } : account);
 
+/** A session row whose account has no deletion recorded. */
+const live = notDeleted("json_extract(sessions.account, '$.id')");
+
 /**
  * ace sessions in D1, keyed by the token's digest. Refresh tokens are sealed to that digest.
  * `newLease` names each refresh lease, so only the reader that took one acts on its refresh.
@@ -30,7 +34,8 @@ const stored = (account: AceAccount, pictureUrl: string | undefined) =>
 export function sessionStore(db: D1Database, sealer: Sealer, newLease: () => string) {
   const select = (retired: boolean) =>
     db.prepare(
-      `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"}`,
+      // An account with a deletion recorded opens nothing: its asking session only retries it.
+      `SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?${retired ? "" : " AND retired = 0"} AND ${live}`,
     );
   async function read(hash: string, now: number, retired: boolean) {
     const raw = await select(retired).bind(hash, now).first();
@@ -52,7 +57,7 @@ export function sessionStore(db: D1Database, sealer: Sealer, newLease: () => str
       .bind(hash);
   return {
     /**
-     * A new sign-in's session. `standing` is `person` for an app's sign-in, which only that app
+     * A new sign-in's session; false, and nothing written, when the account was deleted. `standing` is `person` for an app's sign-in, which only that app
      * holds, and `exposed` for a daemon's (`ace login`), which a machine keeps (ADR 0190).
      */
     async put(
@@ -63,10 +68,10 @@ export function sessionStore(db: D1Database, sealer: Sealer, newLease: () => str
       signedIn: number,
       standing: "person" | "exposed",
       pictureUrl?: string,
-    ) {
-      await db
+    ): Promise<boolean> {
+      const result = await db
         .prepare(
-          "INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) VALUES (?, ?, ?, ?, ?, ?)",
+          `INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) SELECT ?, ?, ?, ?, ?, ? WHERE ${notDeleted()}`,
         )
         .bind(
           hash,
@@ -75,8 +80,10 @@ export function sessionStore(db: D1Database, sealer: Sealer, newLease: () => str
           expires,
           signedIn,
           standing,
+          account.id,
         )
         .run();
+      return result.meta.changes > 0;
     },
     /** A session its token still opens: not expired, not retired. */
     get: (hash: string, now: number) => read(hash, now, false),
@@ -91,7 +98,9 @@ export function sessionStore(db: D1Database, sealer: Sealer, newLease: () => str
      */
     async standingNow(hash: string, now: number): Promise<SessionStanding | undefined> {
       const raw = await db
-        .prepare("SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ?")
+        .prepare(
+          `SELECT standing FROM sessions WHERE token = ? AND retired = 0 AND expires > ? AND ${live}`,
+        )
         .bind(hash, now)
         .first<{ standing: string }>();
       return raw ? Row.shape.standing.parse(raw.standing) : undefined;

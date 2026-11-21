@@ -26,7 +26,7 @@ describe("spike account backend", () => {
     ]);
   });
 
-  it("records nothing until the phone forgets or signs out", async () => {
+  it("records nothing until the phone forgets, signs out or deletes the account", async () => {
     const account = new SpikeAccount(() => 0);
     await call(account, "GET", "/v1/account/session");
     await call(account, "GET", "/v1/machines");
@@ -50,9 +50,18 @@ describe("spike account backend", () => {
     expect((await call(account, "GET", "/v1/account/session"))?.status).toBe(401);
   });
 
+  it("deleting the account records it and ends the session and its machines", async () => {
+    const account = new SpikeAccount(() => 0);
+    expect(await json(await call(account, "DELETE", "/v1/account"))).toEqual({ deleted: true });
+    expect(await requests(account)).toEqual([{ kind: "delete" }]);
+    expect((await call(account, "GET", "/v1/account/session"))?.status).toBe(401);
+    expect((await call(account, "GET", "/v1/machines"))?.status).toBe(401);
+  });
+
   it("refuses another token and records nothing for it", async () => {
     const account = new SpikeAccount(() => 0);
     expect((await call(account, "DELETE", "/v1/account/session", "stolen"))?.status).toBe(401);
+    expect((await call(account, "DELETE", "/v1/account", "stolen"))?.status).toBe(401);
     expect(
       (await call(account, "DELETE", `/v1/machines/${spikeAccountMachineIds.studio}`, "stolen"))
         ?.status,
@@ -63,7 +72,7 @@ describe("spike account backend", () => {
   it("reset brings back the session, both machines and an empty log", async () => {
     const account = new SpikeAccount(() => 0);
     await call(account, "DELETE", `/v1/machines/${spikeAccountMachineIds.laptop}`);
-    await call(account, "DELETE", "/v1/account/session");
+    await call(account, "DELETE", "/v1/account");
     await json(await account.handle(new Request(`${origin}/account/reset`, { method: "POST" })));
     expect(await requests(account)).toEqual([]);
     expect((await json(await call(account, "GET", "/v1/machines"))).machines).toHaveLength(2);
