@@ -14,8 +14,8 @@ import {
 
 /*
  * Settings › Beta's new media pipeline switch on the phone: one toggle over `media.delivery`, read
- * and worded as web's Beta page does (`@ace/ui-core`). Turning it on or off writes it in one
- * `settings.setMany`. Pure.
+ * and worded as web's Beta page does (`@ace/ui-core`). Turning it on or off writes that one
+ * setting. Pure.
  */
 
 /** The row's id, the same anchor web's Settings search uses. */

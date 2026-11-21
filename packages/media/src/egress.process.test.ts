@@ -106,7 +106,7 @@ function legacy() {
 }
 
 it.runIf(real)(
-  "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route returns to the daemon when ace-media dies",
+  "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route stops the producer when ace-media dies",
   async () => {
     // Share one condition-wait budget, leaving room for cleanup within the process tier.
     const deadline = performance.now() + processBudgetMs - cleanupBudgetMs;
@@ -190,8 +190,8 @@ it.runIf(real)(
       await removeWhenFree(runtimeDir, cleanupBudgetMs - 1_000);
     });
 
-    // Before ace-media is up the producer streams to the daemon.
-    expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
+    // Before ace-media is up the producer streams nowhere.
+    expect(watch.routes().tab).toMatchObject({ producer: "none", egress: false });
     supervisor.need();
     await until(
       () => supervisor.health() === "healthy" && starting.has("a") && starting.has("b"),

@@ -636,7 +636,7 @@ test("the switch shows a change made on another device when the page is read aga
 
 test("a phone the machine won't let change it is told so politely and nothing is written", async () => {
   const daemon = fixture();
-  daemon.refuseRequests("forbidden", "settings.setMany");
+  daemon.refuseRequests("forbidden", "settings.set");
   const p = await ports(daemon);
 
   const written = await writeSettingsPage(p, {
