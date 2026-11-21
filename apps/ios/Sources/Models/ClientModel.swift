@@ -205,6 +205,8 @@ import QuartzCore
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
     /// Which runtime is current: a retired one's late callbacks see a newer value and drop.
     @ObservationIgnored private var runtimeEpoch = 0
+    /// The current runtime's place in this model's count, for what must stay with one runtime.
+    var runtimeGeneration: Int { runtimeEpoch }
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     /// Frames held to apply together on the next flush.
@@ -717,7 +719,7 @@ import QuartzCore
                         if tail, thread.loaded, !thread.order.isEmpty, thread.holdTail(revision: revision, count: count) {
                             reorder = false
                             added = []
-                            threadShown(thread, epoch: epoch)
+                            threadShown(thread, at: showing(thread))
                             continue
                         }
                         if thread.loaded, let incoming = thread.refresh, incoming.items.count > thread.items.count {

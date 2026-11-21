@@ -356,6 +356,38 @@ import Testing
         await model.disconnectAndWait()
     }
 
+    /// A route change keeps the thread's model and starts the navigation count again, so the new
+    /// runtime's generation can equal the one a reveal began under. That reveal drew the old
+    /// runtime's screen and must not tell the new one its first screen is shown.
+    @Test func aRevealFromTheRetiredRuntimeNeverReportsTheNewRuntimesFirstScreen() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await drain()
+        model.open("thread")
+        let shown = try #require(model.thread)
+        let revealing = model.showing(shown)
+
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        direct.finishShutdown()
+        try await relay.value
+        let replacement = try #require(sessions.values.last)
+        #expect(model.thread === shown)
+        #expect(shown.epoch == revealing.epoch)
+
+        model.threadShown(shown, at: revealing)
+        #expect(!replacement.actions.contains { $0["type"] as? String == "thread.shown" })
+        model.threadShown(shown, at: model.showing(shown))
+        #expect(replacement.actions.filter { $0["type"] as? String == "thread.shown" }.count == 1)
+        model.disconnect()
+        await drain()
+        replacement.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
     @Test func aRouteChangeKeepsTheTypedReviewReplyAndAnswersItsUnansweredSend() async throws {
         let sessions = Sessions()
         let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
