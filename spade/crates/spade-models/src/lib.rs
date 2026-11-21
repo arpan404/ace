@@ -15,6 +15,7 @@ pub mod listing;
 mod media;
 mod prompt;
 mod speech;
+pub mod terms;
 mod thoughts;
 mod typed;
 mod web_search;
@@ -24,7 +25,7 @@ pub use catalog::{
 };
 pub use client::{KEYLESS, Models};
 pub use config::ModelsConfig;
-pub use error::ModelError;
+pub use error::{ModelError, Unserved};
 pub use format::Format;
 pub use listing::{ListBounds, Listed};
 pub use media::{MOST_AUDIO_BYTES, MOST_MEDIA_ANSWER};
@@ -32,5 +33,6 @@ pub use prompt::{
     Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
 };
 pub use spade_keys::{KeyRequest, Keys};
+pub use terms::{CliTerms, TermsRecord, TermsStatus};
 pub use speech::{MOST_SPEECH_BYTES, MOST_SPEECH_CHARS, Speech, SpeechRequest};
 pub use web_search::{WebFound, WebHit};

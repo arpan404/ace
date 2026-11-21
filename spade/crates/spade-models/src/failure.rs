@@ -92,7 +92,7 @@ fn transient_status(status: StatusCode) -> bool {
 
 /// A refusal that says the account's quota or credit is used up. It comes as a `429` like a rate
 /// limit, but waiting doesn't end it: the person has to act, so it is never sent again.
-fn used_up(message: &str) -> bool {
+pub(crate) fn used_up(message: &str) -> bool {
     let message = message.to_ascii_lowercase();
     [
         "insufficient_quota",
@@ -212,6 +212,45 @@ mod tests {
         ] {
             assert_eq!(wait(huge), Some(LONGEST_HINT), "{huge:?}");
         }
+    }
+
+    #[test]
+    fn only_an_unreachable_endpoint_a_rate_limit_a_used_up_quota_or_a_server_error_is_definite() {
+        use crate::error::Unserved;
+        let quota = genai::Error::HttpError {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            canonical_reason: String::new(),
+            body: r#"{"error":{"code":"insufficient_quota"}}"#.to_owned(),
+            headers: Box::new(HeaderMap::new()),
+        };
+        let low_credit = genai::Error::HttpError {
+            status: StatusCode::BAD_REQUEST,
+            canonical_reason: String::new(),
+            body: "Your credit balance is too low to access the API.".to_owned(),
+            headers: Box::new(HeaderMap::new()),
+        };
+        for (error, expected) in [
+            (read("m", &refused(429, &[]), false), Some(Unserved::RateLimited)),
+            (read("m", &quota, false), Some(Unserved::Quota)),
+            (read("m", &low_credit, false), Some(Unserved::Quota)),
+            (read("m", &refused(402, &[]), false), Some(Unserved::Quota)),
+            (read("m", &refused(503, &[]), false), Some(Unserved::ServerError)),
+            (read("m", &refused(400, &[]), false), None),
+            (read("m", &refused(401, &[]), false), None),
+            (read("m", &refused(408, &[]), false), None),
+            // Once the answer began, the failure is the model's: never a reason to move on.
+            (read("m", &refused(503, &[]), true), None),
+        ] {
+            assert_eq!(error.unserved(), expected, "{error:?}");
+        }
+        let unreachable = ModelError::Unanswered {
+            model: "m".into(),
+            message: "connection refused".into(),
+            transient: true,
+            retry_after: None,
+            status: None,
+        };
+        assert_eq!(unreachable.unserved(), Some(Unserved::Unreachable));
     }
 
     #[test]
