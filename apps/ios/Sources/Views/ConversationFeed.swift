@@ -842,7 +842,14 @@ struct ConversationFeed: View {
             return
         }
         if shiftRow(session.rowID, toTop: session.top) {
-            // Put back by its drift; the next layout checks where it landed.
+            // Put back by its drift, already counted in the frames: settled unless the content's
+            // end stopped it short, in which case the next layout checks where it landed.
+            if let now = anchor.keeper.frames.top(session.rowID, inset: metrics.topInset),
+               TranscriptRowPlacement.settled(top: now, target: session.top) {
+                viewport.noteCorrectionApplied()
+                viewport.clearSessionAnchor()
+                return
+            }
         } else if let fraction = viewport.sessionRestoreFraction(
             viewport: Double(metrics.viewport),
             topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
@@ -960,7 +967,8 @@ struct ConversationFeed: View {
     /// False until the row has measured and the scroll view is found.
     private func shiftRow(_ rowID: String, toTop top: Double) -> Bool {
         guard surface.attached, let now = anchor.keeper.frames.top(rowID, inset: intent.metrics.topInset) else { return false }
-        if let drift = TranscriptRowPlacement.drift(top: now, target: top) { surface.shift(by: drift) }
+        // Noted at once: a second restore before SwiftUI reports the new origin would add it again.
+        if let drift = TranscriptRowPlacement.drift(top: now, target: top) { anchor.keeper.shifted(by: surface.shift(by: drift)) }
         return true
     }
     /// Item-level successor for a gone held row: the row holding the smallest

@@ -107,12 +107,15 @@ import UIKit
     }
 
     /// Moves the content `delta` points up the screen (down, when negative), within its scroll.
-    func shift(by delta: Double) {
-        guard let scroller else { return }
+    /// Returns how far it moved: less than `delta` at either end of the content.
+    @discardableResult func shift(by delta: Double) -> Double {
+        guard let scroller else { return 0 }
         let lowest = -scroller.adjustedContentInset.top
         let highest = max(lowest, scroller.contentSize.height + scroller.adjustedContentInset.bottom - scroller.bounds.height)
-        let target = min(max(scroller.contentOffset.y + CGFloat(delta), lowest), highest)
+        let was = scroller.contentOffset.y
+        let target = min(max(was + CGFloat(delta), lowest), highest)
         scroller.setContentOffset(CGPoint(x: scroller.contentOffset.x, y: target), animated: false)
+        return Double(target - was)
     }
 }
 
