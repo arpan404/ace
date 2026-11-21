@@ -191,6 +191,10 @@ export class ChildLiveness {
    */
   private unconfirmable(row: ChildRow, why: Unconfirmable): void {
     if (this.closed) return;
+    // A refusal that comes back after its pairing went may be from another device under that
+    // name: the child stays unconfirmed, for the person to resolve.
+    const current = this.deps.ledger.row(row.id);
+    if (!current || current.lost_at !== null || this.deps.unpaired(current)) return;
     const name = this.deps.label(row.machine);
     const view = unconfirmableView(row, name, why, this.deps.now());
     const changed = this.deps.store.atomic(() => {

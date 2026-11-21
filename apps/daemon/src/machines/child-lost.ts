@@ -177,8 +177,22 @@ export class LostChildren {
    */
   keepSettled(row: ChildRow): void {
     const name = this.deps.label(row.machine);
-    if (row.lost_at === null) this.deps.ledger.markLost(row.id, this.deps.now());
-    this.ask(row, name, settledRequest(row, name));
+    if (row.lost_at === null) {
+      try {
+        // Marked lost with its question opened, or neither: a crash between them never leaves it
+        // out of the cancel retries with nothing asking the person.
+        this.deps.store.atomic(() => {
+          this.open(row, settledRequest(row, name));
+          this.deps.ledger.markLost(row.id, this.deps.now());
+        });
+      } catch (error) {
+        this.deps.log("Lost child not shown to the person yet", {
+          id: row.id,
+          error: String(error),
+        });
+        return;
+      }
+    } else this.ask(row, name, settledRequest(row, name));
     this.deps.emit([row.id]);
   }
   /** A settled lost child's pairing is back: the approval closes and the re-check reads it. */
