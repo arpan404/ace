@@ -1,10 +1,9 @@
-import { mergeSpadeModels } from "@ace/ui-core/spade-chat";
+import { mergeSpadeModels, spadeModelLabel } from "@ace/ui-core/spade-chat";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { botBubble } from "./spade-card.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
-import { spadeModelLabel } from "./spade-model-options.ts";
 import { useEditBot } from "./spade-profile-actions.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 import { useSpadeModels } from "./use-spade-models.ts";

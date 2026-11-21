@@ -13,11 +13,25 @@ import {
   spadeRefusedAt,
 } from "./spade-question-rows.ts";
 import { spadeProfile, type SpadeProfileRow } from "./spade-profile.ts";
+import {
+  answerSpadeNewBot,
+  spadeNewBotRequests,
+  type NativeSpadeNewBotRequest,
+  type SpadeNewBotAnswer,
+} from "./spade-new-bot.ts";
+import {
+  answerSpadeSettings,
+  setRunning,
+  spadeSettingsRequests,
+  type NativeSpadeSettingsRequest,
+  type SpadeSettingsAnswer,
+} from "./spade-settings.ts";
 import { segment, spadeText, type NativeSpade } from "./spade.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on: send a message, stop a reply,
- * answer an approval or a card of questions, turn Spade on. Every answer is `{ok: true}` or
+ * answer an approval or a card of questions, turn Spade on, and Settings › Spade and New bot
+ * (`spade-settings.ts`, `spade-new-bot.ts`). Every answer is `{ok: true}` or
  * `{ok: false, title, message}` in the person's words; a card's also says which question
  * (`at`) needs more.
  */
@@ -77,12 +91,26 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
     // Spade's limit is in code points, and so is Zod's `max` on a string (not UTF-16 units).
     task: z.string().max(spadeAgentTaskMax),
   }),
+  ...spadeSettingsRequests,
+  ...spadeNewBotRequests,
 ]);
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
 type Refusal = { ok: false; title: string; message: string; at?: number };
 type Outcome = { ok: true } | Refusal;
-type Answer = Outcome | { ok: true; profile: SpadeProfileRow } | { ok: true; task: string };
+type Answer =
+  | Outcome
+  | { ok: true; profile: SpadeProfileRow }
+  | { ok: true; task: string }
+  | SpadeSettingsAnswer
+  | SpadeNewBotAnswer;
+
+const settingsTypes = new Set<string>(spadeSettingsRequests.map((each) => each.shape.type.value));
+const newBotTypes = new Set<string>(spadeNewBotRequests.map((each) => each.shape.type.value));
+const isSettings = (request: NativeSpadeRequest): request is NativeSpadeSettingsRequest =>
+  settingsTypes.has(request.type);
+const isNewBot = (request: NativeSpadeRequest): request is NativeSpadeNewBotRequest =>
+  newBotTypes.has(request.type);
 
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
 const refused = (title: string, error: unknown): Refusal => ({
@@ -98,8 +126,13 @@ export async function answerSpade(
   deps: { id(): string; now(): number },
   signal: AbortSignal,
 ): Promise<Answer> {
-  const ask = (method: "GET" | "POST" | "PUT" | "PATCH", route: string, body?: unknown) =>
-    spadeText(owner, deps.id, method, route, body, signal);
+  const ask = (
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+    route: string,
+    body?: unknown,
+  ) => spadeText(owner, deps.id, method, route, body, signal);
+  if (isSettings(request)) return answerSpadeSettings(owner, spade, request, deps, ask, signal);
+  if (isNewBot(request)) return answerSpadeNewBot(spade, request, ask);
   switch (request.type) {
     case "spade.send":
       return send(spade, request.conversationId, request.text, deps, () =>
@@ -132,7 +165,7 @@ export async function answerSpade(
     case "spade.question.read":
       return readBack(spade, request.conversationId, (route) => ask("GET", route));
     case "spade.enable":
-      return enable(owner, spade, signal);
+      return setRunning(owner, spade, true, signal);
     case "spade.group.send":
       return sendToGroup(spade, request, deps, () =>
         ask("POST", `/v1/groups/${segment(request.groupId)}/messages`, { text: request.text }),
@@ -297,21 +330,4 @@ async function sendToGroup(
     const name = spade.groupName(request.groupId);
     return refused(name ? `Couldn't send to ${name}` : "Couldn't send", error);
   }
-}
-
-/** `spade.enabled` is global and admin only: a device without admin is told so. */
-async function enable(owner: ClientCore, spade: NativeSpade, signal: AbortSignal) {
-  const reply = await owner
-    .request(
-      { type: "settings.set", key: "spade.enabled", value: true, layer: { kind: "global" } },
-      { signal, timeoutMs: 10_000 },
-    )
-    .catch(() => undefined);
-  spade.refresh();
-  if (reply?.ok) return { ok: true } as const;
-  return {
-    ok: false,
-    title: "Couldn't turn on Spade",
-    message: "Only a device with admin access to this machine can change it.",
-  } as const;
 }

@@ -8,6 +8,11 @@ import { spadeJson } from "./json.ts";
 export interface SpadeSearchSettings {
   searxngUrl: string | null;
   braveKeySet: boolean;
+  /**
+   * Where the Brave key comes from: only a keychain key can be removed from the settings.
+   * Undefined with no key, or from a Spade that doesn't say.
+   */
+  braveKeySource: "keychain" | "environment" | undefined;
   /** This machine has a keychain, so a key typed here can be kept. */
   keychain: boolean;
 }
@@ -15,6 +20,7 @@ export interface SpadeSearchSettings {
 const settingsShape = z.object({
   searxng_url: z.string().nullish().catch(null),
   brave_key_set: z.boolean().catch(false),
+  brave_key_source: z.enum(["keychain", "environment"]).nullish().catch(undefined),
   keychain: z.boolean().catch(true),
 });
 
@@ -24,6 +30,7 @@ export function parseSpadeSearchSettings(body: string): SpadeSearchSettings | un
   return {
     searxngUrl: parsed.data.searxng_url ?? null,
     braveKeySet: parsed.data.brave_key_set,
+    braveKeySource: parsed.data.brave_key_source ?? undefined,
     keychain: parsed.data.keychain,
   };
 }

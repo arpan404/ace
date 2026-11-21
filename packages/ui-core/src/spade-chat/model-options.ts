@@ -1,27 +1,28 @@
 import {
-  spadeCantRunBots,
-  spadeChecking,
   spadeLocalFirst,
-  spadeNoToolsShort,
-  spadeWorksWell,
   spadeModelFacts,
-  splitCliModel,
-  splitSpadeModel,
   type SpadeEndpoint,
   type SpadeModelInfo,
-  type SpadeSubscriptionSource,
-} from "@ace/ui-core/spade-chat";
+} from "./endpoints.ts";
+import { splitSpadeModel } from "./agents.ts";
+import {
+  spadeCantRunBots,
+  spadeChecking,
+  spadeNoToolsShort,
+  spadeWorksWell,
+} from "./model-checks.ts";
+import { splitCliModel, type SpadeSubscriptionSource } from "./subscriptions.ts";
 
 /*
  * What the one model picker offers, as plain data, in the order Spade offers models (ADR 0205
  * §1): models on this computer, the person's other endpoints, local servers' models not added
  * yet, then (only where a bot's own model is picked) their coding subscriptions, last, under
  * their own heading. Grouped by where each comes from and narrowed by what the person typed.
- * Pure, so the picker only draws it.
+ * Pure, so each client's picker only draws it.
  */
 
 /** The heading over the subscriptions, which are never picked by themselves. */
-export const subscriptionsHeading = "Your coding subscriptions";
+export const spadeSubscriptionsHeading = "Your coding subscriptions";
 
 export interface SpadeModelOption {
   /** `endpoint/model`, `cli:<provider>@<account>/<model>`, or "" for the picker's empty choice. */
@@ -123,7 +124,7 @@ export function spadeModelGroups(
       adds: { server: server.id, model },
     }));
   if (adds.length) groups.push({ label: "On this computer", options: adds });
-  let heading: string | undefined = subscriptionsHeading;
+  let heading: string | undefined = spadeSubscriptionsHeading;
   for (const source of sources.subscriptions) {
     const acknowledge = source.terms.acknowledged
       ? undefined
@@ -173,7 +174,7 @@ export function spadeModelLabel(
  * The words of a new bot's empty model choice: the first usable model (the picker names it
  * beside), or that none is set up yet.
  */
-export const firstUsableWords = (model: string | undefined) =>
+export const spadeFirstUsableWords = (model: string | undefined) =>
   model ? "First usable model" : "No model set up yet";
 
 /**

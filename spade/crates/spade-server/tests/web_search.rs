@@ -237,6 +237,7 @@ async fn the_person_sets_up_brave_and_searxng_in_settings_and_search_uses_them()
         (&shown["searxng_url"], &shown["brave_key_set"]),
         (&Value::Null, &json!(false))
     );
+    assert_eq!(shown["brave_key_source"], Value::Null);
 
     let (status, _) = spade
         .put("/v1/search/brave-key", json!({ "key": "BSA-secret" }))
@@ -280,6 +281,44 @@ async fn the_person_sets_up_brave_and_searxng_in_settings_and_search_uses_them()
         (&shown["searxng_url"], &shown["brave_key_set"]),
         (&Value::Null, &json!(false))
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_brave_key_says_whether_it_comes_from_the_keychain_or_the_environment() -> Result {
+    // `PATH` is set in every process, so it stands in for a BRAVE_API_KEY the person exported.
+    let config = SearchConfig::from_json(
+        &json!({ "backends": [
+            { "id": "brave", "name": "Brave", "kind": "brave", "base_url": closed_root().await?,
+              "key": { "env": "PATH" } }
+        ]})
+        .to_string(),
+    )?;
+    let options = Options {
+        search: Some(config),
+        ..Options::default()
+    };
+    let spade = Spade::start_with(Vec::new(), Vec::new(), options).await?;
+    let source = |shown: &Value| {
+        (
+            shown["brave_key_set"].clone(),
+            shown["brave_key_source"].clone(),
+        )
+    };
+
+    let (_, shown) = spade.get("/v1/search").await?;
+    assert_eq!(source(&shown), (json!(true), json!("environment")));
+
+    spade
+        .put("/v1/search/brave-key", json!({ "key": "BSA-secret" }))
+        .await?;
+    let (_, shown) = spade.get("/v1/search").await?;
+    // The keychain wins, as it does when searching.
+    assert_eq!(source(&shown), (json!(true), json!("keychain")));
+
+    spade.delete("/v1/search/brave-key").await?;
+    let (_, shown) = spade.get("/v1/search").await?;
+    assert_eq!(source(&shown), (json!(true), json!("environment")));
     Ok(())
 }
 
