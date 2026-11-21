@@ -146,9 +146,10 @@ import Testing
         busy(until: { session.acks.count >= frames }, for: 2)
         #expect(session.acks.count < frames)
         #expect(session.acks.count > 1)
-        await settle { session.acks.count == frames }
+        // The last frames are answered on decode, so their rows may land a moment after the acks.
+        await settle { session.acks.count == frames && model.thread?.order.count == frames }
         #expect(session.acks.count == frames)
-        #expect(model.thread?.order.count == frames)
+        #expect(model.thread?.order == (0..<frames).map { "r\($0)" })
         await close(model, session)
     }
 
