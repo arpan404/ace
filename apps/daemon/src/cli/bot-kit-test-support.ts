@@ -28,13 +28,21 @@ export interface ThrowawaySpade {
   readonly data: string;
   readonly home: string;
   readonly api: SpadeApi;
+  /** Where it listens (`host:port`) and its bearer token. */
+  readonly connection: { address: string; token: string };
   stop(): void;
 }
 
 const run = promisify(execFile);
 
-/** Starts Spade under `root` (`root/home`, `root/spade`), with a model for new bots. */
-export async function startThrowawaySpade(root: string): Promise<ThrowawaySpade> {
+/**
+ * Starts Spade under `root` (`root/home`, `root/spade`), with a model for new bots; `env` adds
+ * to what it runs with (an ace home whose person key it reads, for an org host's suites).
+ */
+export async function startThrowawaySpade(
+  root: string,
+  env: Record<string, string> = {},
+): Promise<ThrowawaySpade> {
   const home = join(root, "home");
   const data = join(root, "spade");
   await mkdir(home, { recursive: true });
@@ -55,6 +63,7 @@ export async function startThrowawaySpade(root: string): Promise<ThrowawaySpade>
       SPADE_SANDBOX: "off",
       SPADE_CLOUD_URL: "off",
       RUST_LOG: "warn",
+      ...env,
     },
     stdio: "ignore",
   });
@@ -87,5 +96,11 @@ export async function startThrowawaySpade(root: string): Promise<ThrowawaySpade>
   });
   await ok("POST", "/v1/endpoints/unreached/models", { id: "m", name: "M" });
   await ok("PUT", "/v1/settings", { new_bot_model: "unreached/m", fast_model: "unreached/m" });
-  return { data, home, api, stop: () => void child.kill("SIGTERM") };
+  return {
+    data,
+    home,
+    api,
+    connection: { address: String(address), token },
+    stop: () => void child.kill("SIGTERM"),
+  };
 }
