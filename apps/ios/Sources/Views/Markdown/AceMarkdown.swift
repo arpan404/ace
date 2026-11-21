@@ -5,7 +5,7 @@ import SwiftUI
 /// task lists, code blocks with grammar colours, Copy and a "Show all" fold past 22 lines,
 /// diff fences, inline and display math) in ace's look (`AceMarkdownTheme`). It takes the width it
 /// is offered and the height its content needs. A table at the margin is drawn by ace
-/// (`MarkdownTableView`) in a scroller of its own, so a wide one slides sideways.
+/// (`MarkdownTableView`): fitted to that width, and scrolling sideways only when its words can't fit.
 ///
 /// A streaming message reaches markit at a steady pace (`StreamPace`) rather than on every delta,
 /// and markit reparses only its open last blocks; finished text shows at once. Links open through
