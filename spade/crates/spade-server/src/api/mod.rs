@@ -5,6 +5,7 @@ mod agents;
 mod body;
 mod brains;
 mod cards;
+mod cases;
 mod computer;
 mod connectors;
 mod contracts;
@@ -209,6 +210,7 @@ pub fn router(state: AppState) -> Router {
         .merge(digests::routes())
         .merge(reach::routes())
         .merge(running::routes())
+        .merge(cases::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()

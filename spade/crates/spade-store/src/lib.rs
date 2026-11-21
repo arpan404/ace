@@ -4,6 +4,7 @@
 //! title and last update for the list. Keys are never stored here (ADR 0119).
 
 mod agents;
+mod cases;
 mod digests;
 mod endpoints;
 mod episodes;
@@ -27,6 +28,7 @@ pub use agents::{
     Agent, BOT_PACKAGE, BOT_PACKAGE_HELD, BOT_RECIPE, NewAgent, made_under_key, package_held_key,
     package_key, recipe_key, style_key,
 };
+pub use cases::StoredCase;
 pub use digests::{BRIEF, DIGESTS, NewDigest, SPEND_ALERT, StoredDigest, digests_key};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use episodes::{NewEpisode, StoredEpisode};
@@ -196,6 +198,7 @@ impl Store {
             "skills",
             "skill_uses",
             "helpers",
+            "cases",
         ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {

@@ -209,30 +209,54 @@ pub fn builtin(name: &str, risk: Risk) -> Option<Effect> {
         })
 }
 
-/// What an MCP tool (a connector's or a plugin's) says it does.
+/// What an MCP tool (a connector's or a plugin's) says it does, and whether Spade believes it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Mcp {
     /// `readOnlyHint: true`.
     pub read_only: bool,
+    /// `destructiveHint: true`.
+    pub destructive: bool,
     /// It sent any annotation at all.
     pub annotated: bool,
     /// What a trusted declaration says it does at least: its catalogue entry (for the tool or
     /// for every tool of the app) or the manifest the person accepted.
     pub declared: Option<Effect>,
+    /// Its server is one Spade trusts to describe its own tools: a shipped catalogue entry marked
+    /// `trusted_annotations` (ADR 0202 §2). Never set for a server added by URL or a plugin's.
+    pub trusted: bool,
 }
 
-/// An MCP tool's effect (ADR 0171, amendment 1). A trusted declaration is the least it does; the
-/// server's hints can raise it (a tool not marked read-only may write outside the box), never
-/// lower it. Hints alone are the server's word about itself, so a tool with no trusted
-/// declaration is undeclared: the person decides once, and no grant covers it.
+/// An MCP tool's effect, read in ADR 0202 §2's order; the first row that applies wins:
+///
+/// 1. a trusted declaration (the shipped catalogue, a plugin's accepted execution entry) is the
+///    least it does, and the hints can raise it (a tool not marked read-only may write outside
+///    the box), never lower it (ADR 0171, amendment 1);
+/// 2. a server Spade trusts, whose tool says `readOnlyHint: true` (and not `destructiveHint`), reads;
+/// 3. a server Spade trusts, any other annotation: `network`;
+/// 4. anything else, whatever its hints say, is undeclared: the server's word about itself never
+///    lowers what Spade asks (the MCP spec: annotations are untrusted unless they come from
+///    trusted servers). An unannotated tool of a trusted server says nothing either.
+///
+/// A destructive hint asks the person on every call besides ([`asks_each_call`]).
 pub fn mcp(tool: Mcp) -> Option<Effect> {
-    let declared = tool.declared?;
-    let hinted = if tool.read_only {
+    let hinted = if tool.read_only && !tool.destructive {
         Effect::Read
     } else {
         Effect::Network
     };
-    Some(declared.max(hinted))
+    match tool.declared {
+        Some(declared) => Some(declared.max(hinted)),
+        None if tool.trusted && tool.annotated => Some(hinted),
+        None => None,
+    }
+}
+
+/// Whether the person decides every call of this MCP tool, whatever they answered before: it
+/// says `destructiveHint: true` (ADR 0131's destructive rule, ADR 0202 §2) and no trusted
+/// declaration says what it does instead. A hint can make Spade ask more, so this holds for any
+/// server's word, trusted or not.
+pub fn asks_each_call(tool: Mcp) -> bool {
+    tool.destructive && tool.declared.is_none()
 }
 
 /// What one of ace's tools does: ace's own risk. A driving call (`browser_*`, `screen_*`,
@@ -351,6 +375,9 @@ pub struct Call<'a> {
     /// For a command that runs or asks to run outside the sandbox, what the shell classifier read
     /// in it: the ceiling holds the call to that, not to the command tool's own local write.
     pub command: Option<Class>,
+    /// An MCP tool whose server says it may delete or overwrite, with no trusted declaration
+    /// saying otherwise ([`asks_each_call`]): the person decides every call.
+    pub destructive: bool,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -453,6 +480,15 @@ pub fn route(call: Call<'_>) -> Route {
         && let Some(route) = persons(call, effect, allowed)
     {
         return route;
+    }
+    // A server's destructive hint makes Spade ask, never skip asking (ADR 0202 §2): the person
+    // decides each call, in every mode, whatever they allowed always or granted. Their "no" for
+    // an undeclared tool still refuses it, and a sealed plugin server stays the sandbox's.
+    if call.destructive && call.place != Place::Sandbox {
+        if call.effect.is_none() && call.remembered == Some(false) {
+            return Route::Refuse(DECLINED_TOOL.to_owned());
+        }
+        return Route::ask(DESTRUCTIVE);
     }
     // Full access is decided here: after the hard stops above, before anything that could reach
     // the reviewer, so nothing it skips can come first.
@@ -576,9 +612,11 @@ pub fn ceiling_holds(
 ) -> Option<String> {
     let confined = matches!(place, Place::Sandbox | Place::Unprotected) && !remote;
     let effect = ceiling::reading(effect, command);
-    // An app's tool that says it writes locally acts on its server: outside the bot.
+    // An app's tool that says it writes locally acts on its server: outside the bot. One Spade
+    // can't read (an untrusted server's, whatever its hints say) reaches that server at least: a
+    // package that declares `network` may use it, the person deciding each call (ADR 0202 §2).
     let effect = match effect {
-        Some(Effect::WriteLocal) if remote => Some(Effect::Network),
+        Some(Effect::WriteLocal) | None if remote => Some(Effect::Network),
         effect => effect,
     };
     ceiling::refusal(ceiling, effect, confined)
@@ -772,6 +810,8 @@ pub const UNDECLARED: &str = "It doesn't say what it does, so you decide once fo
 pub const UNDECLARED_EACH_TIME: &str = "It doesn't say what it does, so you decide each time.";
 pub const UNDECLARED_TAINTED: &str =
     "It doesn't say what it does and untrusted content is in view, so you decide.";
+pub const DESTRUCTIVE: &str =
+    "Its app says it may delete or overwrite something, so you decide each time.";
 pub const DRIVES: &str = "It acts in a page or app as you, so you decide.";
 pub const UNKNOWN: &str = "It declares something Spade doesn't know yet, so you decide.";
 pub const NO_CHECKPOINT: &str = "Spade couldn't take the checkpoint that would undo it.";
@@ -840,5 +880,7 @@ pub fn blocked_hint(kind: Blocked) -> &'static str {
 
 #[cfg(test)]
 mod ceiling_tests;
+#[cfg(test)]
+mod mcp_tests;
 #[cfg(test)]
 mod tests;

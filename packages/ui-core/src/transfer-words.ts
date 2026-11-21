@@ -15,6 +15,11 @@ export interface Refusal {
 /** The running sentence, by phase; a working thread's move by its stage (ADR 0191). */
 export function runningWords(transfer: Transfer): string {
   const to = transfer.target.name;
+  // Its machine isn't linked now: it waits for that machine, and never goes to another.
+  if (transfer.unlinked)
+    return transfer.live
+      ? `This thread is moving to ${to}, which isn't linked any more`
+      : `Waiting for ${to}, which isn't linked any more`;
   const live = liveWords(transfer);
   if (live) return live;
   switch (transfer.phase) {
@@ -164,4 +169,10 @@ function codeWords(code: string | undefined, machine: string): string {
     default:
       return `Couldn't send it to ${machine}.`;
   }
+}
+
+/** What carrying a moving thread on here risks, said before the person chooses it. */
+export function carryOnWarning(transfer: Transfer): string {
+  const to = transfer.target.name;
+  return `If ${to} already took the thread, both may run. Carry on here?`;
 }

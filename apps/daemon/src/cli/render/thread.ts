@@ -103,6 +103,8 @@ export function statusWords(status: ThreadStatus): string {
       return "New";
     case "moved":
       return `Moved to ${status.to.name}`;
+    case "unknown":
+      return "Status unknown";
   }
 }
 
@@ -126,6 +128,7 @@ function memberMark(status: ThreadStatus): {
       return { icon: "done", tone: "finished" };
     case "new":
     case "moved":
+    case "unknown":
       return { icon: "none", tone: "idle" };
   }
 }

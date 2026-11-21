@@ -308,6 +308,23 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         pk: "id",
         unique: true,
     },
+    // Runs the person kept as tests (ADR 0204): they go where the bot goes.
+    MoveTable {
+        name: "cases",
+        filter: IN_AGENTS,
+        columns: &[
+            text("id"),
+            text("agent_id"),
+            text("reply"),
+            opt_text("mark"),
+            text("body"),
+            int("made_ms"),
+        ],
+        owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
+        pk: "id",
+        unique: true,
+    },
     MoveTable {
         name: "digests",
         filter: IN_AGENTS,

@@ -466,10 +466,14 @@ async fn run() -> Result<(), Failure> {
         },
     })
     .map_err(other)?;
-    tools = tools.with_source(Arc::new(ConnectorSource::new(
-        connectors.clone(),
-        Store::open(&home.database()).map_err(other)?,
-    )));
+    tools = tools.with_source(Arc::new(
+        ConnectorSource::new(
+            connectors.clone(),
+            Store::open(&home.database()).map_err(other)?,
+        )
+        // An app's form mid-call becomes a card from the bot (ADR 0202 §2).
+        .with_forms(bots.clone()),
+    ));
     // The person's plugins (ADR 0151), read from ace: rules, hooks and local MCP servers.
     let plugins = match &ace {
         Some(link) => {

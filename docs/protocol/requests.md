@@ -617,14 +617,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"transfers.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cancel"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]},{"type":"object","properties":{"op":{"type":"string","const":"carryOnHere"},"transferId":{"type":"string","minLength":1,"maxLength":128}},"required":["op","transferId"]}]} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "op": "cancel",
+    "op": "carryOnHere",
     "transferId": "example"
   },
   "requestId": "example",
@@ -2027,9 +2027,12 @@ Example:
   "id": 10,
   "request": {
     "call": {
-      "op": "describe"
+      "args": {},
+      "op": "browser",
+      "tool": "browser_fthysumudfmgdfrxaodus"
     },
     "origin": {
+      "accepts": [],
       "agentId": "example",
       "ceiling": "operate",
       "hostId": "example",

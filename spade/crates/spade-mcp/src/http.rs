@@ -16,7 +16,9 @@ use rmcp::transport::streamable_http_client::{
 };
 use serde_json::Value;
 use sse_stream::{Sse, SseStream};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
+
+use crate::ask::Asker;
 
 const SESSION_HEADER: &str = "Mcp-Session-Id";
 /// The most bytes one `tools/call` answer may take, as JSON or as an event stream.
@@ -27,23 +29,70 @@ pub(crate) const ROUTE_KEY: &str = "dev.acehq.spade/call";
 /// One session's calls waiting for their raw answers, by route token. A token is never reused,
 /// and the table belongs to one session, so an answer can only reach the call that asked.
 #[derive(Clone, Default)]
-pub(crate) struct CallRoutes(Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>);
+pub(crate) struct CallRoutes(Arc<Mutex<Table>>);
+
+#[derive(Default)]
+struct Table {
+    answers: HashMap<u64, oneshot::Sender<Value>>,
+    /// The calls that may ask the person, by route token.
+    askers: HashMap<u64, Asking>,
+    /// A server's request (by its JSON-RPC id as JSON text) sent on a call's own answer stream:
+    /// it belongs to that call.
+    related: HashMap<String, u64>,
+}
+
+/// A call that may ask the person: who shows its forms, and how many are open now.
+#[derive(Clone)]
+pub(crate) struct Asking {
+    pub(crate) asker: Arc<dyn Asker>,
+    pub(crate) open: Arc<watch::Sender<usize>>,
+}
 
 impl CallRoutes {
     /// Registers `token` before its call is sent. The answer arrives on the receiver.
     pub(crate) fn register(&self, token: u64) -> oneshot::Receiver<Value> {
         let (tx, rx) = oneshot::channel();
-        lock(&self.0).insert(token, tx);
+        lock(&self.0).answers.insert(token, tx);
         rx
     }
 
+    /// Lets `token`'s call ask the person through `asker`. The receiver counts its open forms.
+    pub(crate) fn asking(&self, token: u64, asker: Arc<dyn Asker>) -> watch::Receiver<usize> {
+        let open = Arc::new(watch::channel(0).0);
+        let counted = open.subscribe();
+        lock(&self.0).askers.insert(token, Asking { asker, open });
+        counted
+    }
+
     pub(crate) fn forget(&self, token: u64) {
-        lock(&self.0).remove(&token);
+        let mut table = lock(&self.0);
+        table.answers.remove(&token);
+        table.askers.remove(&token);
+        table.related.retain(|_, call| *call != token);
     }
 
     fn deliver(&self, token: u64, envelope: Value) {
-        if let Some(waiter) = lock(&self.0).remove(&token) {
+        if let Some(waiter) = lock(&self.0).answers.remove(&token) {
             let _ = waiter.send(envelope);
+        }
+    }
+
+    fn relate(&self, request: String, token: u64) {
+        lock(&self.0).related.insert(request, token);
+    }
+
+    /// Who may answer the server's request `id` for the person: the call whose answer stream it
+    /// came on, else the one call in flight that may ask. `None` when no call may, or several
+    /// may and the request names none of them.
+    pub(crate) fn asker_for(&self, id: &str) -> Option<Asking> {
+        let table = lock(&self.0);
+        if let Some(token) = table.related.get(id) {
+            return table.askers.get(token).cloned();
+        }
+        let mut askers = table.askers.values();
+        match (askers.next(), askers.next()) {
+            (Some(only), None) => Some(only.clone()),
+            _ => None,
         }
     }
 }
@@ -132,10 +181,17 @@ impl RawKeeping {
                     data: Some(data), ..
                 }) = &event
                     && let Ok(message) = serde_json::from_str::<Value>(data)
-                    && message.get("id").map(Value::to_string).as_deref() == Some(id.as_str())
                     && let Some(token) = token
                 {
-                    routes.deliver(token, message);
+                    let request = message.get("id").map(Value::to_string);
+                    if message.get("method").is_some() {
+                        // The server asks something on this call's stream: it is this call's.
+                        if let Some(request) = request {
+                            routes.relate(request, token);
+                        }
+                    } else if request.as_deref() == Some(id.as_str()) {
+                        routes.deliver(token, message);
+                    }
                 }
                 event
             });
