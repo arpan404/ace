@@ -23,9 +23,7 @@ type Def = {
   items?: z.ZodType[];
 };
 const defOf = (schema: unknown): Def | undefined =>
-  typeof schema === "object" && schema !== null
-    ? (schema as { _zod?: { def?: Def } })._zod?.def
-    : undefined;
+  typeof schema === "object" && schema !== null ? (schema as { def?: Def }).def : undefined;
 const literal = (schema: unknown): string | undefined => {
   const values = (defOf(schema) as { values?: unknown[] } | undefined)?.values;
   return typeof values?.[0] === "string" ? values[0] : undefined;

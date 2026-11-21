@@ -29,7 +29,7 @@ function withMovedChild() {
   const h = target({ value: "operate" });
   h.threads.owns = () => true;
   h.threads.view = () => moved;
-  const status = (from: MachineCallOrigin) =>
+  const status = (from: unknown) =>
     h.machine.handle(
       device,
       { origin: from, call: { op: "status", threadIds: ["child"] } },

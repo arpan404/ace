@@ -224,8 +224,10 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         for (const id of call.threadIds) owned(id);
         const views = call.threadIds.map((id) => deps.threads.view(id));
         // A calling machine from before the moved status rejects the whole batch for it.
-        if (origin.accepts?.includes(wireTrims.movedStatus)) return { threads: views };
-        return { threads: views.map((view) => ({ ...view, status: olderStatus(view.status) })) };
+        if (!origin.accepts?.includes(wireTrims.movedStatus))
+          // Each view is built for this answer: replacing its status touches nothing stored.
+          for (const view of views) view.status = olderStatus(view.status);
+        return { threads: views };
       }
       case "cancel":
         owned(call.threadId);
