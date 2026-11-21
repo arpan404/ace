@@ -59,7 +59,7 @@ const spec = (failed: string[] = [], parts: number[] = []): TeeRecordingSpec => 
   private: () => false,
   keyframe: () => {},
   failed: (end) => void failed.push(end.ok ? "ok" : end.reason),
-  part: (part) => void parts.push(part.index),
+  part: (closed) => void parts.push(closed.index),
 });
 
 it("refuses at once, saying why, while ace-media is unavailable, and holds no use of it", async () => {
