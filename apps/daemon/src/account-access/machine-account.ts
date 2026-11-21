@@ -854,6 +854,10 @@ export function machineAccount(options: {
       if (!proven || !owner.holds(seen) || owner.org() !== org) return undefined;
       return { until: proven.until, generation: seen, member: proven.member };
     },
+    /** The clock grants are checked against: a standing's `until` is on it. */
+    grantClock(): number {
+      return options.now();
+    },
     /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
     ownerOrg(): string | undefined {
       return owner.org();

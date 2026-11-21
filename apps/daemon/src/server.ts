@@ -470,7 +470,8 @@ export async function startServer(options: ServerOptions): Promise<{
     // A member's standing on an organization's host (ADR 0206 §2.2), proven on this socket as
     // the person's is, until its grant's expiry, under this owner.
     const memberStanding = orgStanding({
-      now: () => auth.now(),
+      // The grant's own clock: its expiry was read against it.
+      now: () => options.machineAccount?.grantClock() ?? auth.now(),
       holds: (generation) => options.machineAccount?.standingHolds(generation) === true,
     });
     /** Whether this socket is the organization's host shell (ADR 0206 §2.2): its owners only. */

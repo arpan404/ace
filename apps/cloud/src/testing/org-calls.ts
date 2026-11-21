@@ -19,6 +19,11 @@ export const workosUser = (id: string, first: string, verified = true): WorkosUs
 /** An uncompressed P-256 point's length in base64url: what a device key looks like. */
 export const DEVICE_KEY = encodeBase64url(new Uint8Array(65).fill(4));
 
+/** What `machine` writes to: the Worker's D1, typed here so other workspaces need no Workers types. */
+type Directory = {
+  prepare(sql: string): { bind(...values: unknown[]): { run(): Promise<unknown> } };
+};
+
 /** Calls to the Worker's account API as a client would, returning the status and JSON body. */
 export function orgCalls(http: string) {
   async function call(
@@ -66,7 +71,7 @@ export function orgCalls(http: string) {
      * A machine signed in to the account (its directory row, as the relay writes it) with a
      * machine credential its daemon would keep; `session` is the session it exchanges.
      */
-    async machine(db: D1Database, account: string, session: string) {
+    async machine(db: Directory, account: string, session: string) {
       const host = keyPair();
       const id = hostId(host.publicKey);
       await db
