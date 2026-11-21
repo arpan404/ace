@@ -44,6 +44,31 @@ pub const SCHEMAS: Suite = Suite {
     text: include_str!("../../../../spec/conformance/contracts/schemas.json"),
 };
 
+/// The Runtime and Surfaces levels' cases, which `spade-conform` drives a runtime through: over
+/// its HTTP API, and through its scenario door.
+pub const LEVELS: [Suite; 4] = [
+    Suite {
+        part: "runtime",
+        file: "runtime/packages.json",
+        text: include_str!("../../../../spec/conformance/runtime/packages.json"),
+    },
+    Suite {
+        part: "runtime",
+        file: "runtime/scenarios.json",
+        text: include_str!("../../../../spec/conformance/runtime/scenarios.json"),
+    },
+    Suite {
+        part: "surfaces",
+        file: "surfaces/panels.json",
+        text: include_str!("../../../../spec/conformance/surfaces/panels.json"),
+    },
+    Suite {
+        part: "surfaces",
+        file: "surfaces/cards.json",
+        text: include_str!("../../../../spec/conformance/surfaces/cards.json"),
+    },
+];
+
 impl Suite {
     /// The file, parsed; `Null` when it isn't JSON, which every reader of it then fails on.
     pub fn json(&self) -> Value {

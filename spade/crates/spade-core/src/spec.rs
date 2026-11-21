@@ -8,6 +8,7 @@
 pub mod conformance;
 mod contracts;
 mod distribution;
+pub mod door;
 mod effects;
 mod index;
 mod markdown;

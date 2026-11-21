@@ -95,6 +95,30 @@ client. It gives the page its theme and the latest state, and takes from it only
 
 A page that throws, or stops answering the client's pings, is stopped and offered again.
 
+## The Surfaces level
+
+`spade-conform` holds a runtime to the Surfaces level through the same doors as the Runtime
+level: panels over its HTTP API, cards through its scenario door.
+
+<!-- spec:begin level-cases -->
+From [`conformance/surfaces/panels.json`](conformance/surfaces/panels.json).
+
+| Case | A runtime MUST pass |
+| --- | --- |
+| `surfaces/a-panel-page-is-served-as-text` | a panel's page is given to the client as text, never as a page of its own |
+| `surfaces/a-declared-action-from-the-page-is-taken` | an action the panel declares, from its page |
+| `surfaces/an-action-the-panel-doesnt-declare-is-refused` | an action the panel doesn't declare |
+| `surfaces/an-actions-value-outside-its-schema-is-refused` | an action's value that doesn't fit its schema |
+| `surfaces/a-confirm-action-from-the-page-is-refused` | a confirm action sent by the page, not confirmed by the person |
+| `surfaces/a-confirm-action-the-person-confirmed-is-taken` | a confirm action the person confirmed outside the page |
+
+From [`conformance/surfaces/cards.json`](conformance/surfaces/cards.json).
+
+| Case | A runtime MUST pass |
+| --- | --- |
+| `surfaces/a-card-is-drawn-from-data` | a card the bot shows is drawn from its data |
+<!-- spec:end level-cases -->
+
 ## Rules
 
 Every refusal names its rule; a conformance case matches it by id, never by words.

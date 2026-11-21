@@ -134,6 +134,27 @@ pub fn cases(suite: &super::conformance::Suite) -> String {
     )
 }
 
+/// A level's cases as a table: each id and what a runtime MUST do.
+pub fn level_cases(suites: &[&super::conformance::Suite]) -> String {
+    let mut out = String::new();
+    for suite in suites {
+        let rows = suite.cases().into_iter().map(|case| {
+            let name = case["name"].as_str().unwrap_or_default();
+            let id = case["id"].as_str().unwrap_or_default();
+            vec![format!("`{id}`"), cell(name)]
+        });
+        let file = format!("conformance/{}", suite.file);
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!(
+            "From [`{file}`]({file}).\n\n{}",
+            table(&["Case", "A runtime MUST pass"], rows)
+        ));
+    }
+    out
+}
+
 /// A part's rules as a table: each id, what it refuses, and whether the part's JSON Schema alone
 /// decides it.
 pub fn rules(part: &str) -> String {

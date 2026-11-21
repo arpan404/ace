@@ -75,6 +75,10 @@ both.
 | [`conformance/contracts/manifests.json`](conformance/contracts/manifests.json) | [`contracts`](contracts.md) | 18 |
 | [`conformance/surfaces/manifests.json`](conformance/surfaces/manifests.json) | [`surfaces`](surfaces.md) | 16 |
 | [`conformance/contracts/schemas.json`](conformance/contracts/schemas.json) | [`contracts`](contracts.md) | 11 |
+| [`conformance/runtime/packages.json`](conformance/runtime/packages.json) | [`runtime`](runtime.md) | 10 |
+| [`conformance/runtime/scenarios.json`](conformance/runtime/scenarios.json) | [`runtime`](runtime.md) | 3 |
+| [`conformance/surfaces/panels.json`](conformance/surfaces/panels.json) | [`surfaces`](surfaces.md) | 6 |
+| [`conformance/surfaces/cards.json`](conformance/surfaces/cards.json) | [`surfaces`](surfaces.md) | 1 |
 <!-- spec:end suite -->
 
 ## Changes
