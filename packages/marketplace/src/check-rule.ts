@@ -11,12 +11,12 @@ import { schemaLimits, type Misfit } from "./schema.ts";
 
 export const ruleLimits = { patternChars: 200, mostRepeat: 1_000 } as const;
 
-const objectKeywords = ["properties", "required"];
-const stringKeywords = ["minLength", "maxLength", "enum", "pattern"];
-const numberKeywords = ["minimum", "maximum"];
-const arrayKeywords = ["items", "minItems", "maxItems"];
+const objectKeywords = new Set(["properties", "required"]);
+const stringKeywords = new Set(["minLength", "maxLength", "enum", "pattern"]);
+const numberKeywords = new Set(["minimum", "maximum"]);
+const arrayKeywords = new Set(["items", "minItems", "maxItems"]);
 const common = new Set(["type", "description", "title"]);
-const types = ["object", "string", "number", "integer", "boolean", "array"];
+const types = new Set(["object", "string", "number", "integer", "boolean", "array"]);
 
 type Narrowed = "object" | "string" | "number" | "array";
 
@@ -37,10 +37,10 @@ const isFields = (value: unknown): value is Fields =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 function kindOf(keyword: string): Narrowed | undefined {
-  if (objectKeywords.includes(keyword)) return "object";
-  if (stringKeywords.includes(keyword)) return "string";
-  if (numberKeywords.includes(keyword)) return "number";
-  if (arrayKeywords.includes(keyword)) return "array";
+  if (objectKeywords.has(keyword)) return "object";
+  if (stringKeywords.has(keyword)) return "string";
+  if (numberKeywords.has(keyword)) return "number";
+  if (arrayKeywords.has(keyword)) return "array";
   return undefined;
 }
 
@@ -73,8 +73,9 @@ function bound(fields: Fields, key: string, at: string, out: string[]): number |
 const escaped = "^$\\.*+?()[]{}|/";
 const escapedInClass = "^$\\.*+?()[]{}|/-";
 
+const whole = (t: string) => /^[0-9]{1,4}$/.test(t) && Number(t) <= ruleLimits.mostRepeat;
+
 function repeat(inside: string): boolean {
-  const whole = (t: string) => /^[0-9]{1,4}$/.test(t) && Number(t) <= ruleLimits.mostRepeat;
   const comma = inside.indexOf(",");
   if (comma < 0) return whole(inside);
   const [low, high] = [inside.slice(0, comma), inside.slice(comma + 1)];
@@ -160,7 +161,7 @@ function node(value: unknown, at: string, depth: number, out: string[]): CheckRu
   const type = value["type"];
   let kind: string | undefined;
   if (type !== undefined) {
-    if (typeof type === "string" && types.includes(type)) kind = type;
+    if (typeof type === "string" && types.has(type)) kind = type;
     else out.push(`${at}.type is object, string, number, integer, boolean or array`);
   }
   if (kind !== undefined && narrowed !== undefined) {
