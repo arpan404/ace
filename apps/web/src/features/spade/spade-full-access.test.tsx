@@ -18,7 +18,7 @@ async function scoutsChoice() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Details" }));
+  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
   const section = (await profile.findByRole("heading", { name: "Security" })).closest("section");
   if (!section) throw new Error("no Security section");
   const security = within(section);

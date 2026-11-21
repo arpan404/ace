@@ -1,3 +1,4 @@
+import { PermissionSwitches } from "./spade-permissions.tsx";
 import {
   spadeSandboxSentence,
   type SpadeNetworkPolicy,
@@ -73,6 +74,9 @@ export function SpadeSecuritySettings() {
       <p className="mb-6 text-ui text-muted-foreground">
         {spadeSandboxSentence(status)} Every bot uses these unless it sets its own.
       </p>
+      <div className="mb-8 flex flex-col">
+        <PermissionSwitches />
+      </div>
       <SettingSection label="Bots" anchor="bots">
         <AutonomyChoice
           title="How they decide"

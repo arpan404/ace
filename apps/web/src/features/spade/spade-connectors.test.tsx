@@ -166,7 +166,7 @@ const disabled = (element: HTMLElement) =>
   element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
 
 test("an app still signing in can't be given to a bot yet", async () => {
-  await spadeApp("/spade/garden?profile=details", (api) => {
+  await spadeApp("/spade/garden?profile=permissions", (api) => {
     withApps(api);
     api.connectors.connectors.push({
       id: "sentry",
@@ -213,7 +213,7 @@ function withApps(api: FakeSpadeApi) {
 }
 
 test("a bot's profile gives it an app from the connected ones, saved at once and nothing else", async () => {
-  const { spade } = await spadeApp("/spade/garden?profile=details", withApps);
+  const { spade } = await spadeApp("/spade/garden?profile=permissions", withApps);
   await feed("Garden");
   const apps = await appsOf("Garden");
   // A new bot has none until given one.
@@ -231,7 +231,7 @@ test("a bot's profile gives it an app from the connected ones, saved at once and
 });
 
 test("Spade may use every connected app until the person removes one", async () => {
-  const { spade } = await spadeApp("/spade/main?profile=details", withApps);
+  const { spade } = await spadeApp("/spade/main?profile=permissions", withApps);
   await feed("Spade");
   const apps = await appsOf("Spade");
   // Every app is listed, each by name.

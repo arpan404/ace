@@ -10,12 +10,19 @@ import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
  * The profile's tabs: what the bot is, what it works toward (only while it has a goal, workers
  * or decisions), what it keeps, what it drives.
  */
-export type ProfileTab = "details" | "work" | "library" | "computer";
+export type ProfileTab = "details" | "permissions" | "work" | "library" | "computer";
 
-export const profileTabs: readonly ProfileTab[] = ["details", "work", "library", "computer"];
+export const profileTabs: readonly ProfileTab[] = [
+  "details",
+  "permissions",
+  "work",
+  "library",
+  "computer",
+];
 
 export const profileTabNames: Record<ProfileTab, string> = {
   details: "Details",
+  permissions: "Permissions",
   work: "Work",
   library: "Library",
   computer: "Computer",

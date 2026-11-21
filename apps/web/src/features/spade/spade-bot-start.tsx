@@ -23,7 +23,8 @@ import { allowApp } from "./spade-connector-api.ts";
 import { SuggestedApps } from "./spade-suggested-apps.tsx";
 import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
 import { ConversationSkeleton, PageScroller, useSpadeLine } from "./spade-screen-parts.tsx";
-import { RunsWith, StartChips, TemplateRoutines } from "./spade-new-bot-parts.tsx";
+import { RunsWithRows, StartFrom, TemplateRoutines } from "./spade-new-bot-parts.tsx";
+import { SettingCard } from "@/components/setting-row.tsx";
 import { PersonalityRows } from "./spade-profile-personality.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
@@ -171,10 +172,11 @@ function freeName(name: string, taken: readonly string[]): string {
  * should this bot do?" over the composer; what the person sends is the bot's task and its first
  * message, in one call, and the bot's conversation opens on it. There the bot names itself and
  * picks its face (both changed in place with a click), says the job back, asks only what it must,
- * and starts. Under the composer, the templates as chips, one press each, and More settings: the
- * model and machine, never required. Import is in the list's + only.
+ * and starts. Above it, at the page's top: where it starts from (your own, or a template's face,
+ * one press each), then its model, machine, routines and personality, none of them required.
+ * Import is in the list's + only.
  */
-export function NewBotStart() {
+export function NewBotStart(props: { template?: string | undefined } = {}) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
   // The machine the person chose, kept while it is out of reach: never another one silently.
@@ -213,6 +215,9 @@ export function NewBotStart() {
       }
     >
       <NewBotConversation
+        // A template picked from the list while this page is open starts it over from that one.
+        key={props.template ?? ""}
+        startFrom={props.template}
         host={host}
         hosts={roster.hosts}
         names={roster.bots.map((bot) => bot.name)}
@@ -224,6 +229,8 @@ export function NewBotStart() {
 }
 
 function NewBotConversation(props: {
+  /** A template picked before the page opened, by id. */
+  startFrom: string | undefined;
   host: SpadeHost;
   hosts: readonly SpadeHost[];
   /** Names the person's bots already have, which a template's name avoids. */
@@ -236,13 +243,25 @@ function NewBotConversation(props: {
   const navigate = useNavigate();
   const [model, setModel] = useState("");
   const [template, setChosen] = useState<SpadeTemplate>();
+  // A template picked on the way here is picked once its machine has listed it.
+  const listed = useQuery({
+    queryKey: ["spade", "templates", props.host.spade.key],
+    queryFn: ({ signal }) => readTemplates(client, { signal }),
+    enabled: props.startFrom !== undefined,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const [arrived, setArrived] = useState(props.startFrom);
+  const waiting = arrived ? listed.data?.find((each) => each.id === arrived) : undefined;
+  if (waiting && !template) {
+    setArrived(undefined);
+    setChosen(waiting);
+  }
   // Its routines start unless the person turns them off here: they chose to make this bot.
   const [startRoutines, setStartRoutines] = useState(true);
   const setTemplate = (next: SpadeTemplate | undefined) => {
     setChosen(next);
     setStartRoutines(true);
   };
-  const [more, setMore] = useState(false);
   // How it talks, when the person chose under More settings; else left to the bot.
   const [personality, setPersonality] = useState<SpadePersonality>();
   // Apps connected from the template's suggestions, given to the bot once it is made.
@@ -284,24 +303,21 @@ function NewBotConversation(props: {
     <Screen page="spade" title="">
       <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
         <PageScroller>
-          <div className="flex min-h-[40vh] flex-col items-center justify-end gap-3 pb-2 text-center">
-            {template && <BotFace face={template.face} size={64} />}
-            <h1 className="text-2xl font-semibold tracking-title text-foreground">
-              {template ? `What should ${template.name} do first?` : "What should this bot do?"}
-            </h1>
-            {template && (
-              <TemplateRoutines
-                template={template}
-                on={startRoutines}
-                onChange={setStartRoutines}
+          <div className={`${readingColumn} flex min-h-full flex-col gap-6 px-1 pt-6`}>
+            <section aria-label="Start from">
+              <h2 className="mb-2 px-1 text-ui font-medium text-muted-foreground">Start from</h2>
+              <StartFrom
+                client={client}
+                machineKey={props.host.spade.key}
+                value={template?.id}
+                onChange={setTemplate}
               />
-            )}
-            {more && (
-              <>
-                <RunsWith
+            </section>
+            <section aria-label="How it runs" className="flex flex-col gap-4">
+              <SettingCard>
+                <RunsWithRows
                   hosts={props.hosts}
                   host={props.host}
-                  name={name}
                   model={model}
                   newBotModel={models.data?.newBotModel}
                   firstUsable={spadeFirstUsableModel(models.data?.endpoints ?? [])}
@@ -313,21 +329,24 @@ function NewBotConversation(props: {
                     props.onMachine(next);
                   }}
                 />
-                <div
-                  aria-label="Personality"
-                  role="group"
-                  className="mt-2 w-full max-w-md text-left"
-                >
+                {template && (
+                  <TemplateRoutines
+                    template={template}
+                    on={startRoutines}
+                    onChange={setStartRoutines}
+                  />
+                )}
+              </SettingCard>
+              <SettingCard>
+                <div aria-label="Personality" role="group">
                   <PersonalityRows
                     value={personality ?? spadeQuietPersonality}
                     onChange={setPersonality}
                   />
                 </div>
-              </>
-            )}
-          </div>
-          {template && (
-            <div className={`${readingColumn} px-1`}>
+              </SettingCard>
+            </section>
+            {template && (
               <SuggestedApps
                 task={template.task}
                 title={`Apps ${template.name} could use`}
@@ -335,8 +354,14 @@ function NewBotConversation(props: {
                   setApps((had) => (had.includes(connector.id) ? had : [...had, connector.id]))
                 }
               />
+            )}
+            <div className="mt-auto flex flex-col items-center gap-3 pt-6 pb-2 text-center">
+              {template && <BotFace face={template.face} size={56} />}
+              <h1 className="text-2xl font-semibold tracking-title text-foreground">
+                {template ? `What should ${template.name} do first?` : "What should this bot do?"}
+              </h1>
             </div>
-          )}
+          </div>
         </PageScroller>
         <SpadeComposer
           name={name}
@@ -345,16 +370,6 @@ function NewBotConversation(props: {
           blocked={props.blocked}
           placeholder={template ? "Its first job, in your words" : "Describe the job in your words"}
           send={send}
-          below={
-            <StartChips
-              client={client}
-              machineKey={props.host.spade.key}
-              value={template?.id}
-              onChange={setTemplate}
-              more={more}
-              onMore={() => setMore(!more)}
-            />
-          }
         />
       </div>
     </Screen>

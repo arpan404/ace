@@ -104,10 +104,13 @@ function RunningItem(props: {
   const face = botFaceStateOf({ state: row.state, problem: row.failure });
   const uses = spadeRunningUsesWords(row.uses);
   const wake = spadeRunningWakeWords(row, { now, timeZone: personZone() });
+  // A fact at nothing says nothing: spend and the network show once there is some.
+  const spent = row.spend.monthMicros > 0 || row.spend.unusual;
+  const reached = row.network.hosts.length > 0 || row.network.refused > 0;
   const facts = [
     uses,
-    spadeRunningSpendWords(row.spend),
-    spadeRunningNetworkWords(row.network),
+    spent ? spadeRunningSpendWords(row.spend) : undefined,
+    reached ? spadeRunningNetworkWords(row.network) : undefined,
     wake,
     row.archived ? "Archived" : undefined,
     row.machine.primary ? undefined : `On ${row.machine.name}`,
@@ -127,7 +130,7 @@ function RunningItem(props: {
   return (
     <li
       data-running-row={row.reads}
-      className="flex gap-3 border-b border-border/60 py-3.5 last:border-b-0"
+      className="group flex gap-3 border-b border-border/60 py-3.5 last:border-b-0"
     >
       <SpadeFace avatar={row.avatar} size={40} state={face} className="mt-0.5" />
       <div className="min-w-0 flex-1">
@@ -158,7 +161,8 @@ function RunningItem(props: {
           </ul>
         )}
       </div>
-      <div className="flex shrink-0 items-start gap-0.5">
+      {/* Its actions under the pointer or focus, so a long list reads as faces and states. */}
+      <div className="flex shrink-0 items-start gap-0.5 opacity-0 transition-opacity duration-(--motion-fast) group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
         {row.actions.map((action) => (
           <Button
             key={action}

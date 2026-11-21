@@ -18,6 +18,7 @@ import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import { ProfileCases } from "./spade-profile-cases.tsx";
+import { PermissionSwitches } from "./spade-permissions.tsx";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
 import { ProfilePersonality } from "./spade-profile-personality.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
@@ -93,13 +94,27 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
       <ProfileRoutines bot={bot} />
       <ProfileContracts bot={bot} />
       <ProfileCases bot={bot} />
-      <ProfileMakesBots bot={bot} />
-      <ProfileApps bot={bot} />
-      <ProfilePlugins bot={bot} />
-      <ProfileSecurity bot={bot} />
-      <ProfileSpending bot={bot} />
       <ProfileReach bot={bot} />
       <Foot bot={bot} />
+    </>
+  );
+}
+
+/**
+ * Permissions: everything about what the bot may do, in one place. The switches first (each
+ * following the default for every bot until set here), the apps it may never open, then its
+ * apps, plugins, the bots it may make, where its commands run and its spending.
+ */
+export function ProfilePermissions(props: { bot: RosterBot }) {
+  const { bot } = props;
+  return (
+    <>
+      <PermissionSwitches bot={bot} />
+      <ProfileApps bot={bot} />
+      <ProfilePlugins bot={bot} />
+      <ProfileMakesBots bot={bot} />
+      <ProfileSecurity bot={bot} />
+      <ProfileSpending bot={bot} />
     </>
   );
 }

@@ -6,7 +6,11 @@ import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { ProfileComputer, type ProfileComputerPlace } from "./computer/profile-computer.tsx";
 import { profileTabNames, profileTabs, type ProfileTab } from "./computer/panel-place.ts";
-import { ProfileDetails, type ProfilePanels } from "./spade-profile-details.tsx";
+import {
+  ProfileDetails,
+  ProfilePermissions,
+  type ProfilePanels,
+} from "./spade-profile-details.tsx";
 import { ProfileHead } from "./spade-profile-head.tsx";
 import { ProfileLibrary } from "./spade-profile-library.tsx";
 import { ProfileWork, type ProfileWorkPlace } from "./spade-profile-work.tsx";
@@ -147,6 +151,8 @@ export function SpadeProfile(props: {
         >
           {tab === "details" ? (
             <ProfileDetails bot={bot} panels={props.panels} />
+          ) : tab === "permissions" ? (
+            <ProfilePermissions bot={bot} />
           ) : tab === "work" ? (
             <ProfileWork bot={bot} work={work} place={props.work} />
           ) : tab === "library" ? (

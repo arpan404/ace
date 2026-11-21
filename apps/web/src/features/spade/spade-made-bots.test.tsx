@@ -90,6 +90,7 @@ test("with untrusted content in view, making a bot asks the person first", async
 test("May create bots is a profile setting: a bot's starts on Ask me first, and No is saved", async () => {
   const { spade } = await spadeApp("/spade/research", spadeMadeResearch);
   await openProfile("Research");
+  await userEvent.click(await screen.findByRole("tab", { name: "Permissions" }));
   const setting = await screen.findByRole("combobox", { name: "May create bots" });
   expect(setting.textContent).toContain("Ask me first");
   await userEvent.click(setting);
