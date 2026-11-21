@@ -81,11 +81,19 @@ export function TaskChangedLine(props: { item: TaskChanged; bot: RosterBot }) {
 }
 
 /** A task before and after, small: what it said struck through, then what it says now. */
-export function TaskDiff(props: { before: string | undefined; after: string }) {
+export function TaskDiff(props: {
+  before: string | undefined;
+  after: string;
+  /** In a card, its own edge and width: `ml-0 max-w-none`. */
+  className?: string | undefined;
+}) {
   return (
     <dl
       aria-label="Task change"
-      className="ml-3 flex max-w-[64ch] flex-col gap-1 rounded-xl bg-chat-well px-3 py-2 text-ui leading-5 whitespace-pre-wrap wrap-anywhere"
+      className={cn(
+        "ml-3 flex max-w-[64ch] flex-col gap-1 rounded-xl bg-chat-well px-3 py-2 text-ui leading-5 whitespace-pre-wrap wrap-anywhere",
+        props.className,
+      )}
     >
       {props.before !== undefined && (
         <>

@@ -27,12 +27,13 @@ const line = (fields: Record<string, unknown>) => ({
   ...fields,
 });
 
-/** Scout's profile, on Details, and one of its sections. */
+/** Scout's profile, on Permissions, and one of its sections. */
 async function sectionOf(label: string) {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Details" }));
+  // Where it may reach and what it may run is on Permissions.
+  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
   const section = (await profile.findByRole("heading", { name: label })).closest("section");
   if (!section) throw new Error(`no ${label} section`);
   return within(section);

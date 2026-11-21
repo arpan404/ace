@@ -5,7 +5,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { SettingFooter, SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -129,7 +129,10 @@ function useGrantChange(bot: RosterBot) {
   const machine = useSpadeMachine().key;
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string>();
+  // The change last tried, made again once the person confirms it's them.
+  const last = useRef<() => Promise<unknown>>(undefined);
   const run = async (change: () => Promise<unknown>) => {
+    last.current = change;
     setSaving(true);
     setRefusal(undefined);
     try {
@@ -143,7 +146,10 @@ function useGrantChange(bot: RosterBot) {
       await cache.invalidateQueries({ queryKey: botSecurityKey(machine, bot.id, "bot") });
     }
   };
-  return { saving, refusal, run };
+  const retry = () => {
+    if (last.current) void run(last.current);
+  };
+  return { saving, refusal, run, retry };
 }
 
 const access = [
@@ -241,7 +247,7 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
       </SettingFooter>
       {change.refusal && (
         <p data-setting-slot="" className="py-2 text-xs">
-          <Refusal>{change.refusal}</Refusal>
+          <Refusal onConfirmed={change.retry}>{change.refusal}</Refusal>
         </p>
       )}
     </ProfileSection>
@@ -275,7 +281,7 @@ function ProfileGrants(props: { bot: RosterBot; security: SpadeBotSecurity }) {
       })}
       {change.refusal && (
         <p data-setting-slot="" className="py-2 text-xs">
-          <Refusal>{change.refusal}</Refusal>
+          <Refusal onConfirmed={change.retry}>{change.refusal}</Refusal>
         </p>
       )}
     </ProfileSection>

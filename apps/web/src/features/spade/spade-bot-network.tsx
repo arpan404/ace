@@ -6,7 +6,7 @@ import {
   type SpadeNetworkPolicy,
 } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   SettingDisclosure,
   SettingFooter,
@@ -87,7 +87,10 @@ export function PolicyRows(props: {
   const { policy } = props;
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string>();
+  // The change last tried, made again once the person confirms it's them.
+  const last = useRef<() => Promise<unknown>>(undefined);
   const run = async (change: () => Promise<unknown>) => {
+    last.current = change;
     setSaving(true);
     setRefusal(undefined);
     try {
@@ -112,7 +115,13 @@ export function PolicyRows(props: {
     <>
       <SettingRow
         title={props.title}
-        description={refusal ? <Refusal>{refusal}</Refusal> : note}
+        description={
+          refusal ? (
+            <Refusal onConfirmed={() => last.current && void run(last.current)}>{refusal}</Refusal>
+          ) : (
+            note
+          )
+        }
         density="compact"
         inline
       >

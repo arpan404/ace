@@ -12,6 +12,7 @@ import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeGroupChat, unknownFace, type GroupFace } from "./spade-group-chat.tsx";
 import { GroupFaces } from "./spade-group-faces.tsx";
 import { GroupPill } from "./spade-group-pill.tsx";
+import { PillEdge } from "./spade-pill.tsx";
 import { GroupProfile } from "./spade-group-profile.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
@@ -188,6 +189,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
   const chat = (
     <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
       <h1 className="sr-only">{group.name}</h1>
+      <PillEdge />
       <GroupPill
         name={group.name}
         members={members}

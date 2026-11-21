@@ -149,10 +149,10 @@ export function SpadeProfile(props: {
         >
           {tab === "details" ? (
             <ProfileDetails bot={bot} panels={props.panels} />
-          ) : tab === "work" ? (
-            <ProfileWork bot={bot} work={work} place={props.work} />
           ) : tab === "permissions" ? (
             <ProfilePermissions bot={bot} />
+          ) : tab === "work" ? (
+            <ProfileWork bot={bot} work={work} place={props.work} />
           ) : tab === "library" ? (
             <ProfileLibrary
               bot={bot}
