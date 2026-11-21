@@ -210,23 +210,23 @@ extension AceIcon {
         case xCircle = "x-circle"
         case xSquare = "x-square"
         case aceComputerUse = "ace-computer-use"
-    }
 
-    /// The icons also drawn filled, as `icon-<raw value>-fill`.
-    static let filled: Set<Name> = [
-        .alarm,
-        .checkCircle,
-        .checkSquare,
-        .clockCountdown,
-        .flashlight,
-        .funnelSimple,
-        .gauge,
-        .handPalm,
-        .question,
-        .sparkle,
-        .star,
-        .terminalWindow,
-        .warningCircle,
-        .xCircle,
-    ]
+        /// The icons also drawn filled, as `icon-<raw value>-fill`.
+        static let filled: Set<Name> = [
+            .alarm,
+            .checkCircle,
+            .checkSquare,
+            .clockCountdown,
+            .flashlight,
+            .funnelSimple,
+            .gauge,
+            .handPalm,
+            .question,
+            .sparkle,
+            .star,
+            .terminalWindow,
+            .warningCircle,
+            .xCircle,
+        ]
+    }
 }
