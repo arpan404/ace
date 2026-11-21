@@ -242,7 +242,7 @@ struct ThreadView: View {
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }).toolbar { SheetClose() } }
             }
-            .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
+            .modifier(MessageAttachmentRoutes(model: model, source: .thread(thread.id)))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle,
                                        showFiles: Binding(get: { pushedTool == .files }, set: { if !$0, pushedTool == .files { pushedTool = nil } }),
                                        mention: model.canOperate ? { mention = $0 } : nil))
