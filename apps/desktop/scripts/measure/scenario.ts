@@ -26,7 +26,7 @@ async function shellVisible(window: BrowserWindow): Promise<void> {
   const deadline = performance.now() + 60_000;
   while (performance.now() < deadline) {
     const found = await window.webContents
-      .executeJavaScript(`Boolean(document.querySelector('nav[aria-label="Views"]'))`)
+      .executeJavaScript(`Boolean(document.querySelector('[data-part="app"] [data-part="rail"]'))`)
       .catch(() => false);
     if (found === true) return;
     await wait(25);

@@ -1,6 +1,6 @@
 import { CaretLeftIcon } from "@ace/icons";
 import { validateHtml } from "@ace/html";
-import type { SpadePanel } from "@ace/ui-core/spade-chat";
+import type { SpadeAppPage, SpadePanel } from "@ace/ui-core/spade-chat";
 import { useEffect, useMemo, useState } from "react";
 import { desktopVisualizations } from "@/boot/desktop-visualizations.ts";
 import { Icon } from "@/components/icon.tsx";
@@ -20,6 +20,7 @@ import { useSpadeClient } from "../spade-machine.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import type { RosterBot } from "../use-spade-roster.ts";
 import { sendPanelAction, usePanelPage } from "./panels-api.ts";
+import { useMcpAppHost } from "./use-mcp-app-host.ts";
 import { usePanelHost, type PanelConfirmLine as PanelConfirmLineType } from "./use-panel-host.ts";
 
 /*
@@ -29,7 +30,10 @@ import { usePanelHost, type PanelConfirmLine as PanelConfirmLineType } from "./u
  * only while it shows. What the page sends that its panel declares goes to the bot as the page's
  * input, never the person's. An action the panel declares `confirm` waits on ace's own line under
  * the page, where only the person's real press on Confirm sends it as theirs (amendment 1). A page
- * that throws or stalls three times stops, and says so.
+ * that throws or stalls three times stops, and says so. An MCP app's page (ADR 0202 §4) shows the
+ * same way, in the same sandbox, with MCP Apps' messages: what it asks goes to the bot as the
+ * page's, and a link it asks to open waits on the same line. One that needs the network isn't
+ * drawn, and says why.
  */
 
 /** A window's live panels: the most recently shown four. */
@@ -78,7 +82,7 @@ function PanelConfirmLine(props: { line: PanelConfirmLineType }) {
   );
 }
 
-export function BotPanelView(props: {
+interface ViewProps {
   bot: RosterBot;
   conversation: string;
   panel: SpadePanel;
@@ -86,35 +90,95 @@ export function BotPanelView(props: {
   /** It takes the window, with ‹ Chat to go back. */
   covering: boolean;
   onClose(): void;
-}) {
-  const { bot, panel } = props;
+}
+
+export function BotPanelView(props: ViewProps) {
+  return props.panel.app ? (
+    <AppPanelView {...props} app={props.panel.app} />
+  ) : (
+    <PackagePanelView {...props} />
+  );
+}
+
+/** What both hosts give the shell: the page's channel, its watchdog and ace's own line. */
+type Host = ReturnType<typeof usePanelHost>;
+
+/** Sends one action from the page, keyed so a retry lands once; a failure says so. */
+function useDeliver(props: ViewProps) {
   const client = useSpadeClient();
   const toast = useToast();
-  const theme = useHtmlTheme();
-  const accent = useCardAccent(bot);
-  const page = usePanelPage(panel.page);
-  const [element, setElement] = useState<HTMLElement | null>(null);
-  const live = useLiveFrame(`${bot.machine.key}/${bot.id}/${panel.id}`, element, livePanels);
-  const size = useSize(element);
-  const deliver = (name: string, value: unknown, confirmed: boolean) =>
-    void sendPanelAction(client, props.conversation, panel.id, {
+  return (name: string, value: unknown, confirmed: boolean) =>
+    void sendPanelAction(client, props.conversation, props.panel.id, {
       key: crypto.randomUUID(),
       name,
       value,
       confirmed,
     }).catch((error: unknown) =>
-      toast.error({ title: `Couldn't send that to ${bot.name}`, description: message(error) }),
+      toast.error({
+        title: `Couldn't send that to ${props.bot.name}`,
+        description: message(error),
+      }),
     );
+}
+
+function PackagePanelView(props: ViewProps) {
+  const theme = useHtmlTheme();
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const size = useSize(element);
+  const deliver = useDeliver(props);
   const host = usePanelHost({
-    title: panel.title,
-    actions: panel.actions,
-    confirm: panel.confirm,
+    title: props.panel.title,
+    actions: props.panel.actions,
+    confirm: props.panel.confirm,
     state: props.state,
     theme,
     size,
     onAction: (name, value) => deliver(name, value, false),
     onConfirmed: (name, value) => deliver(name, value, true),
   });
+  return <PanelShell {...props} host={host} element={element} setElement={setElement} />;
+}
+
+function AppPanelView(props: ViewProps & { app: SpadeAppPage }) {
+  const theme = useHtmlTheme();
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const size = useSize(element);
+  const deliver = useDeliver(props);
+  const host = useMcpAppHost({
+    facts: { title: props.app.name, tools: props.app.tools },
+    state: props.state,
+    theme,
+    size,
+    platform: desktopVisualizations() === undefined ? "web" : "desktop",
+    onDeliver: (action, value) => deliver(action, value, false),
+    // The person confirmed it on ace's own line: it opens outside the app, with no opener.
+    onOpenLink: (url) => void window.open(url, "_blank", "noopener,noreferrer"),
+  });
+  return (
+    <PanelShell
+      {...props}
+      host={host}
+      element={element}
+      setElement={setElement}
+      refused={props.app.refused}
+    />
+  );
+}
+
+function PanelShell(
+  props: ViewProps & {
+    host: Host;
+    element: HTMLElement | null;
+    setElement(element: HTMLElement | null): void;
+    /** Why the page isn't drawn (an MCP app's page that needs the network). */
+    refused?: string | undefined;
+  },
+) {
+  const { bot, panel, host, element, setElement, refused, covering, onClose } = props;
+  const theme = useHtmlTheme();
+  const accent = useCardAccent(bot);
+  const page = usePanelPage(refused === undefined ? panel.page : undefined);
+  const live = useLiveFrame(`${bot.machine.key}/${bot.id}/${panel.id}`, element, livePanels);
   // A page that wouldn't pass the sandbox's checks is never built.
   const valid = useMemo(
     () => page.data !== undefined && validateHtml(page.data).valid,
@@ -122,7 +186,8 @@ export function BotPanelView(props: {
   );
   const words = "text-ui text-muted-foreground";
   let body;
-  if (host.stopped)
+  if (refused !== undefined) body = <p className={cn(words, "p-4")}>{refused}</p>;
+  else if (host.stopped)
     body = (
       <div role="status" className="flex flex-col items-start gap-2 p-4">
         <p className={words}>The panel stopped.</p>
@@ -169,11 +234,11 @@ export function BotPanelView(props: {
       className="flex h-full min-h-0 flex-col"
     >
       <header className="flex shrink-0 flex-col gap-2 px-4 pt-3 pb-2">
-        {props.covering && (
+        {covering && (
           <button
             type="button"
             aria-label="Back to chat"
-            onClick={props.onClose}
+            onClick={onClose}
             className="-ml-2 flex h-8 w-fit items-center gap-1 rounded-full pr-3 pl-2 text-ui font-medium text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
           >
             <Icon icon={CaretLeftIcon} size={16} />

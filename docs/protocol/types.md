@@ -24482,6 +24482,28 @@ Example:
 }
 ```
 
+## MarketNotices
+
+[JSON Schema](schema/MarketNotices.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-notices"` |  |
+| issued | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| notices | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MarketTermsNotice.json"}} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+
+Example:
+
+```json
+{
+  "format": "ace-market-notices",
+  "issued": 9,
+  "key": "T_0-c",
+  "notices": []
+}
+```
+
 ## MarketOfficialList
 
 [JSON Schema](schema/MarketOfficialList.json), input validation.
@@ -26781,11 +26803,11 @@ Example:
       }
     },
     "byAce": true,
-    "expiresAt": 6,
+    "expiresAt": 2,
     "from": "example",
     "hash": "51b77ff3950f2be9bc92925e36a9bbd830b697bc36eace11c30ffb302c3b2dcb",
     "id": "SyIwyNKmaZDg9IuNm8L9LD7Csrw4zEhF3-xZsLH9f1TBsQ0R30lOsHH-PdoyacMskRZkx",
-    "items": 2,
+    "items": 5,
     "name": "8.edd3-55ov",
     "reviewed": false,
     "signed": true,
@@ -26983,11 +27005,11 @@ Example:
     "type": "spade-bot"
   },
   "byAce": true,
-  "expiresAt": 5,
+  "expiresAt": 7,
   "from": "example",
   "hash": "fbf15b7532da05b3e856100da638327d097f15c018418720de954163ada8dd28",
   "id": "sUU1M8EzvSwqMD-4X32fANAaiL8iuloE5TuhHJ7SbyGz3SK8wLzj8dZo13KkBEcDVnKp0zpGk",
-  "items": 7,
+  "items": 6,
   "name": "g",
   "reviewed": false,
   "signed": true,
@@ -27096,6 +27118,7 @@ Example:
 | limits | no | [PackageLimits.json](schema/PackageLimits.json) |  |
 | unused | no | array | {"maxItems":64,"items":{"type":"string","maxLength":80}} |
 | update | no | [MarketBotUpdate.json](schema/MarketBotUpdate.json) |  |
+| modelWarning | no | string | {"maxLength":500} |
 
 Example:
 
@@ -27105,6 +27128,7 @@ Example:
   "brings": [],
   "linked": false,
   "model": "fast",
+  "modelWarning": "example",
   "needs": [],
   "notes": [],
   "routines": [],
@@ -27607,6 +27631,28 @@ Example:
 }
 ```
 
+## MarketTermsNotice
+
+[JSON Schema](schema/MarketTermsNotice.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| provider | yes | string | {"pattern":"^[a-z][a-z0-9-]{0,31}$"} |
+| status | yes | ["allowed","unclear","refused"] |  |
+| note | yes | string | {"maxLength":500} |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "at": 6,
+  "note": "example",
+  "provider": "sezakgqyh1-fq",
+  "status": "unclear"
+}
+```
+
 ## MarketTopPublisher
 
 [JSON Schema](schema/MarketTopPublisher.json), input validation.
@@ -27999,6 +28045,213 @@ Example:
 ```json
 {
   "reason": "example"
+}
+```
+
+## McpAppMessage
+
+[JSON Schema](schema/McpAppMessage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| role | yes | `"user"` |  |
+| content | yes | union | {"anyOf":[{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string"}},"required":["type","text"]},{"minItems":1,"type":"array","items":{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string"}},"required":["type","text"]}}]} |
+
+Example:
+
+```json
+{
+  "content": {
+    "text": "example",
+    "type": "text"
+  },
+  "role": "user"
+}
+```
+
+## McpAppModelContext
+
+[JSON Schema](schema/McpAppModelContext.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| content | no | array | {"items":{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string"}},"required":["type","text"]}} |
+| structuredContent | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+
+Example:
+
+```json
+{}
+```
+
+## McpAppNotification
+
+[JSON Schema](schema/McpAppNotification.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "example"
+}
+```
+
+## McpAppOpenLink
+
+[JSON Schema](schema/McpAppOpenLink.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| url | yes | string | {"maxLength":2000} |
+
+Example:
+
+```json
+{
+  "url": "example"
+}
+```
+
+## McpAppPageMessage
+
+[JSON Schema](schema/McpAppPageMessage.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "jsonrpc": "2.0",
+  "method": "example",
+  "params": null
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "example",
+  "params": null
+}
+```
+
+### Variant 3
+
+Type: union. See JSON Schema for constraints.
+
+Example:
+
+```json
+{
+  "error": null,
+  "id": 3,
+  "jsonrpc": "2.0"
+}
+```
+
+## McpAppRequest
+
+[JSON Schema](schema/McpAppRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| method | yes | string | {"minLength":1,"maxLength":80} |
+| params | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "id": 6,
+  "jsonrpc": "2.0",
+  "method": "example",
+  "params": null
+}
+```
+
+## McpAppResponse
+
+[JSON Schema](schema/McpAppResponse.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| result | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "id": 9,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| jsonrpc | yes | `"2.0"` |  |
+| id | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]} |
+| error | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "error": null,
+  "id": 1,
+  "jsonrpc": "2.0"
+}
+```
+
+## McpAppToolCall
+
+[JSON Schema](schema/McpAppToolCall.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":128} |
+| arguments | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "arguments": {},
+  "name": "example"
 }
 ```
 
@@ -42838,6 +43091,26 @@ Example:
 }
 ```
 
+## SignedNoticesUpload
+
+[JSON Schema](schema/SignedNoticesUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| notices | yes | [Signed.json](schema/Signed.json) |  |
+| basedOn | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "notices": {
+    "body": null,
+    "signature": "gSwM5nhH9ZhThd9IhIlfrQLu-PuC_IV9H_e6_9Iz4I8XNycgpj6z8-bOFPUdy43h6GDaE7zIdE6aBfjmB-H95N"
+  }
+}
+```
+
 ## SignedOfficialUpload
 
 [JSON Schema](schema/SignedOfficialUpload.json), input validation.
@@ -42952,11 +43225,16 @@ Example:
 | blocklist | no | [Signed.json](schema/Signed.json) |  |
 | verified | no | [Signed.json](schema/Signed.json) |  |
 | official | no | [Signed.json](schema/Signed.json) |  |
+| notices | no | [Signed.json](schema/Signed.json) |  |
 
 Example:
 
 ```json
 {
+  "notices": {
+    "body": null,
+    "signature": "4z_FtTfV8gzFmV0IFq0310qk4dr7dRlTQUJsEpgNu1Ix6iFP953Br0KNJKIbveOQ01gwE0BRNzxDoBL6OEQ-Y5"
+  },
   "official": {
     "body": null,
     "signature": "XTphgr7SOjOc-eNBOR9xr1_YRkPUte2qRBnz4T2I8KLGwQ-8fNBbGZE8iB0OFXdO5jX85KCirdRjALCgHFq88q"

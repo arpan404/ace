@@ -14,6 +14,7 @@ import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { FakeSpadeA2aAgents } from "./spade-a2a-agents.ts";
 import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
 import { FakeSpadeCases } from "./spade-cases.ts";
@@ -175,6 +176,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly cases: FakeSpadeCases;
   /** How Spade reaches the person (ADR 0195). */
   readonly reach = new FakeSpadeReach();
+  readonly a2aAgents = new FakeSpadeA2aAgents();
   /** The task manager and the person's Stop, Pause and Resume (ADR 0200 §6.3). */
   readonly running: FakeSpadeRunning;
   /** Packaged bots' panels (ADR 0200 §5.2). */
@@ -608,6 +610,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "agents" && id && sub === "wakes")
       return this.wakes.route(request.method, id, subId, parts[4]);
     if (root === "reach" && !id) return this.reach.route(request.method, body);
+    if (root === "a2a-agents") return this.a2aAgents.route(request.method, id, body);
     if (root === "agents" && id && sub === "reach")
       return this.reach.agentRoute(request.method, id, body);
     if (root === "digests" && request.method === "GET")

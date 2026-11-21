@@ -456,7 +456,16 @@ function readActivity(
           : stretch.start +
             stretch.idle +
             ledger.waitedWithin(stretch.start, Number.POSITIVE_INFINITY, stretch.start);
-      const current = currentAction(stretch.current, options.labels) ?? status.detail;
+      let currentTool = stretch.current;
+      if (status.activity === "tool" && status.itemId && currentTool?.id !== status.itemId) {
+        watch.push(`item:${status.itemId}`);
+        const item = reader.item(status.itemId);
+        if (item?.type === "tool_call" && !item.complete) currentTool = item;
+      }
+      const current =
+        currentAction(currentTool, options.labels) ??
+        status.detail ??
+        (status.activity === "tool" && status.itemId ? "Using a tool" : undefined);
       const label =
         activityLabels[status.activity] ??
         (elapsedFrom === undefined && status.activity === "thinking" ? "Thinking" : "Working");

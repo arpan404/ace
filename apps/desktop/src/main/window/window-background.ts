@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { durableJson } from "@ace/service";
 import { WindowBackground } from "../../shared/contract.ts";
 import { solidBackground } from "./options.ts";
 
@@ -17,6 +17,7 @@ export function windowBackground(saved: WindowBackground | undefined, osDark: bo
 export class WindowBackgroundStore {
   private value: WindowBackground | undefined;
   private path: string;
+  private writing = Promise.resolve();
 
   constructor(path: string) {
     this.path = path;
@@ -28,10 +29,18 @@ export class WindowBackgroundStore {
   /** True when the colours changed; `saved` settles once they are on disk (or failed to be). */
   set(next: WindowBackground): { changed: boolean; saved: Promise<void> } {
     const now = this.value;
-    if (now && now.mode === next.mode && now.light === next.light && now.dark === next.dark)
+    if (
+      now &&
+      now.mode === next.mode &&
+      now.light === next.light &&
+      now.dark === next.dark &&
+      JSON.stringify(now.tray) === JSON.stringify(next.tray) &&
+      JSON.stringify(now.trayUsage) === JSON.stringify(next.trayUsage)
+    )
       return { changed: false, saved: Promise.resolve() };
     this.value = next;
-    return { changed: true, saved: writeFile(this.path, JSON.stringify(next)).catch(() => {}) };
+    this.writing = this.writing.then(() => durableJson(this.path, next)).catch(() => {});
+    return { changed: true, saved: this.writing };
   }
 }
 
