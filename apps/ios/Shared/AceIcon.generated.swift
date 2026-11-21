@@ -3,12 +3,14 @@
 extension AceIcon {
     /// Every icon in `Icons.xcassets`, drawn as `icon-<raw value>`.
     enum Name: String, CaseIterable, Sendable {
+        case alarm = "alarm"
         case appWindow = "app-window"
         case archive = "archive"
         case arrowBendDownRight = "arrow-bend-down-right"
         case arrowBendUpLeft = "arrow-bend-up-left"
         case arrowBendUpRight = "arrow-bend-up-right"
         case arrowCircleDown = "arrow-circle-down"
+        case arrowCircleUp = "arrow-circle-up"
         case arrowClockwise = "arrow-clockwise"
         case arrowDown = "arrow-down"
         case arrowRight = "arrow-right"
@@ -76,7 +78,9 @@ extension AceIcon {
         case fileCode = "file-code"
         case fileDashed = "file-dashed"
         case fileMagnifyingGlass = "file-magnifying-glass"
+        case filePlus = "file-plus"
         case fileText = "file-text"
+        case flashlight = "flashlight"
         case flask = "flask"
         case folder = "folder"
         case folderPlus = "folder-plus"
@@ -147,6 +151,7 @@ extension AceIcon {
         case pushPin = "push-pin"
         case pushPinSlash = "push-pin-slash"
         case puzzlePiece = "puzzle-piece"
+        case qrCode = "qr-code"
         case question = "question"
         case queue = "queue"
         case record = "record"
@@ -154,9 +159,12 @@ extension AceIcon {
         case rocket = "rocket"
         case rocketLaunch = "rocket-launch"
         case scroll = "scroll"
+        case sealCheck = "seal-check"
+        case selection = "selection"
         case shield = "shield"
         case shieldCheck = "shield-check"
         case shieldWarning = "shield-warning"
+        case sidebarRight = "sidebar-right"
         case sidebarSimple = "sidebar-simple"
         case slidersHorizontal = "sliders-horizontal"
         case smiley = "smiley"
@@ -167,6 +175,8 @@ extension AceIcon {
         case speakerSlash = "speaker-slash"
         case square = "square"
         case squareSplitHorizontal = "square-split-horizontal"
+        case squaresLinked = "squares-linked"
+        case stack = "stack"
         case star = "star"
         case stop = "stop"
         case stopCircle = "stop-circle"
@@ -200,4 +210,22 @@ extension AceIcon {
         case xSquare = "x-square"
         case aceComputerUse = "ace-computer-use"
     }
+
+    /// The icons also drawn filled, as `icon-<raw value>-fill`.
+    static let filled: Set<Name> = [
+        .alarm,
+        .checkCircle,
+        .checkSquare,
+        .clockCountdown,
+        .flashlight,
+        .funnelSimple,
+        .gauge,
+        .handPalm,
+        .question,
+        .sparkle,
+        .star,
+        .terminalWindow,
+        .warningCircle,
+        .xCircle,
+    ]
 }

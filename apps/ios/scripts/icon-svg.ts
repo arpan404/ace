@@ -106,3 +106,16 @@ export function assetSvg(icon: Icon, weight: AssetWeight, turn = 0, size = 20): 
   const markup = renderToStaticMarkup(createElement(icon, { size, weight, color: "#000000" }));
   return `${turnedSvg(clippedSvg(markup), turn)}\n`;
 }
+
+/**
+ * The filled SVG for a small mark (`filledIcons`: row status marks, a starred model), its cuts
+ * left as masks. A filled glyph's cut is often a curve or several strokes (the check in a circle,
+ * a question mark) that a clip can't take out, and iOS paints a mask sharp at the asset's own
+ * 20pt and below, the size these marks draw at.
+ */
+export function filledAssetSvg(icon: Icon, turn = 0, size = 20): string {
+  const markup = renderToStaticMarkup(
+    createElement(icon, { size, weight: "fill", color: "#000000" }),
+  );
+  return `${turnedSvg(markup, turn)}\n`;
+}
