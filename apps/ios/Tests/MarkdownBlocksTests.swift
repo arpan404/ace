@@ -89,6 +89,21 @@ import Testing
         #expect(MarkdownBlocks.split("Intro\n\n| a | b |\n|--|--") == [.prose("Intro"), .table("| a | b |\n|--|--")])
     }
 
+    @Test func aListItemRightAfterATableStaysProseEvenWithAPipeInIt() {
+        let text = "| a | b |\n|---|---|\n| 1 | 2 |\n- Follow up on A | B\n1. Then C | D"
+        #expect(MarkdownBlocks.split(text) == [.table("| a | b |\n|---|---|\n| 1 | 2 |"), .prose("- Follow up on A | B\n1. Then C | D")])
+    }
+
+    @Test func aTableWithWindowsLineEndingsIsATable() {
+        let text = "Intro\r\n\r\n| a | b |\r\n|---|---|\r\n| 1 | 2 |\r\n\r\nAfter."
+        #expect(MarkdownBlocks.split(text) == [.prose("Intro"), .table("| a | b |\n|---|---|\n| 1 | 2 |"), .prose("After.")])
+    }
+
+    @Test func bodyRowsNeedOnlyAPipeSomewhereNotAtTheirEdges() {
+        let text = "| a | b |\n|---|---|\n1 | 2\n| 3 | 4\n5 | 6 |\nAfter."
+        #expect(MarkdownBlocks.split(text) == [.table("| a | b |\n|---|---|\n1 | 2\n| 3 | 4\n5 | 6 |"), .prose("After.")])
+    }
+
     @Test func escapedPipesStayInsideTheirCell() {
         let cells = MarkdownBlocks.cells("| `a \\| b` | c |").map(String.init)
         #expect(cells == [" `a \\| b` ", " c "])

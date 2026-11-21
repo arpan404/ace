@@ -15,9 +15,11 @@ enum MarkdownBlocks {
         case table(String)
     }
 
-    static func split(_ text: String) -> [Piece] {
+    static func split(_ written: String) -> [Piece] {
         // Most text has no table at all: no delimiter row can be there without both.
-        guard text.contains("|"), text.contains("-") else { return [.prose(text)] }
+        guard written.contains("|"), written.contains("-") else { return [.prose(written)] }
+        // Swift reads "\r\n" as one character, so lines are cut only once every ending is "\n".
+        let text = written.utf8.contains(UInt8(ascii: "\r")) ? written.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n") : written
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         var pieces: [Piece] = []
         var prose: [Substring] = []
@@ -72,9 +74,12 @@ enum MarkdownBlocks {
         return rule.allSatisfy(isDelimiterCell)
     }
 
-    /// A line that carries on the table: not blank, holding a pipe, and not a new block.
+    /// A line that carries on the table: not blank, holding a pipe anywhere (edge pipes are
+    /// optional), and not the start of another block. A list item ends the table even with a
+    /// pipe in it: markit reads it as a list, which the table view wouldn't draw.
     private static func isRow(_ line: Substring) -> Bool {
         !isBlank(line) && line.contains("|") && !startsOtherBlock(line) && Fence(opening: line) == nil
+            && !isListItem(line.drop { $0 == " " || $0 == "\t" })
     }
 
     /// A line at the margin that is plain prose, not part of a list, quote or code.
