@@ -122,7 +122,7 @@ pub(crate) fn identity(metadata: &Metadata) -> (u64, u64) {
 /// folder while its handle is open, so it records this before publishing and checks it after.
 #[cfg(windows)]
 pub(crate) fn identity_of(dir: &Dir) -> Result<(u64, u64), Error> {
-    let facts = windows::handle_facts(&crate::handle::dir_handle(dir)?)?;
+    let facts = files_safe::handle_facts(&crate::handle::dir_handle(dir)?)?;
     Ok((facts.0, facts.1))
 }
 
@@ -143,7 +143,7 @@ pub(crate) fn identity_of_entry(
     _metadata: &Metadata,
 ) -> Result<(u64, u64), Error> {
     let handle = crate::handle::attribute_handle(dir, name)?;
-    let facts = windows::handle_facts(&handle)?;
+    let facts = files_safe::handle_facts(&handle)?;
     Ok((facts.0, facts.1))
 }
 
@@ -156,7 +156,7 @@ pub(crate) fn identity_of_handle(_file: &File, metadata: &Metadata) -> Result<(u
 
 #[cfg(windows)]
 pub(crate) fn identity_of_handle(file: &File, _metadata: &Metadata) -> Result<(u64, u64), Error> {
-    let facts = windows::handle_facts(file)?;
+    let facts = files_safe::handle_facts(file)?;
     Ok((facts.0, facts.1))
 }
 
