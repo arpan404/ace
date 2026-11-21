@@ -262,8 +262,17 @@ with `device.standing { proof }`: that key's signature over
 binding as §3. A collected token, or a proof made for another socket or channel, proves nothing;
 revoking the device ends its sockets.
 
-Devices paired before this change, or by an app that names no key (the iPhone app until it
-does), are not the person's until paired again from a person's link by an app that does.
+The iPhone app makes one such key per machine it pairs, in the Secure Enclave (P-256,
+`kSecAttrTokenIDSecureEnclave`, this device only, usable after first unlock), and keeps only its
+tag in the Keychain. Swift hands the bridge the public half to name at redemption and signs for
+it through the host's `standing.sign`, which signs only `pairedStandingText` for that runtime's
+own machine and device, so the script can't make the key sign anything else. The key goes when
+the machine is removed and is replaced when it is paired again. A phone without a Secure Enclave
+(the Simulator) names none. Its paired sockets are direct and pinned, so their binding is `none`.
+A machine that refuses the proof says so in Machines with Pair again.
+
+Devices paired before this change, or by an app that names no key (the iPhone app before it
+did), are not the person's until paired again from a person's link by an app that does.
 
 ### 8. Sign-in and migration
 
@@ -303,8 +312,8 @@ Nothing else is the person:
 - a paired device's bearer token, however it was got;
 - devices paired before this change, or by an app that names no standing key;
 - the person's grant of any account but the owner's;
-- the iPhone app, until it proves on its sockets (account route) or names a standing key when it
-  pairs (paired route).
+- the iPhone app on an account route, until it proves there (§3); on a paired route it names a
+  standing key when it pairs (§7).
 
 ## Residuals
 
