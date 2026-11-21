@@ -24,6 +24,8 @@ const Origin = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("user-tab") }),
   z.strictObject({ kind: z.literal("embedded") }),
   z.strictObject({ kind: z.literal("screen"), platform: text }),
+  /** A screen whose helper sends only JPEG: ace-media encodes its pictures (X2). */
+  z.strictObject({ kind: z.literal("screen-pictures"), platform: text }),
   z.strictObject({ kind: z.literal("simulator"), streamUrl: text, stillUrl: text }),
   z.strictObject({ kind: z.literal("scrcpy"), host: text, port: u32 }),
   z.strictObject({
@@ -48,7 +50,8 @@ export type ViewerTarget = z.infer<typeof ViewerTarget>;
 const Settings = z.strictObject({
   recordings: z.enum(["auto", "legacy"]),
   stills: z.enum(["auto", "legacy"]),
-  encode: z.enum(["auto", "legacy"]),
+  /** Phase 2 removed the daemon's own encoders: ace-media always encodes. */
+  encode: z.literal("auto"),
   delivery: z.enum(["auto", "legacy"]),
 });
 const Remote = z.strictObject({
@@ -161,6 +164,9 @@ export const ToMedia = z.discriminatedUnion("type", [
     sessionId: id.optional(),
     deviceId: id.optional(),
     epoch: u32,
+    /** Whether `epoch` is private (M8): sent, only when true, for a JPEG source on a build that
+     * agreed to `privacy-open`. */
+    private: z.boolean().optional(),
     origin: Origin,
   }),
   z.strictObject({
@@ -171,7 +177,6 @@ export const ToMedia = z.discriminatedUnion("type", [
     scale: z.number().finite().nonnegative(),
   }),
   z.strictObject({ type: z.literal("source.codecs"), source: id, codecs: z.array(text) }),
-  z.strictObject({ type: z.literal("source.picture"), source: id, ageMs: u32, epoch: u32 }),
   z.strictObject({
     type: z.literal("source.epoch"),
     source: id,
@@ -293,6 +298,8 @@ export const ToMedia = z.discriminatedUnion("type", [
     maxPixels: u32,
     quality: u32,
     deadlineMs: u32,
+    /** The newest public epoch the daemon announced (M8): no still from a picture before it. */
+    minEpoch: u32.optional(),
   }),
   /**
    * A poster for a subscribe reply (ADR 0149): the source's picture fitted to the box at
@@ -446,7 +453,6 @@ function validatePayload(
     case "listen":
       length = message.remote ? message.remote.certificateBytes + message.remote.keyBytes : 0;
       break;
-    case "source.picture":
     case "relay.out":
     case "relay.in":
     case "still.done":
@@ -523,7 +529,13 @@ const fromMediaTypes: ReadonlySet<string> = new Set(
  * Optional features this daemon speaks, offered to ace-media at spawn (`ACE_MEDIA_FEATURES`); a
  * binary that knows one lists it in `ready.features`, and only then is it used.
  */
-export const mediaFeatures = ["source.ingest", "source.sync"] as const;
+export const mediaFeatures = [
+  "source.ingest",
+  "source.sync",
+  "picture-ingest",
+  // `source.open.private` and `still.take.minEpoch` (M8): sent only to a build that reads them.
+  "privacy-open",
+] as const;
 export type MediaFeature = (typeof mediaFeatures)[number];
 
 export function decodeToMedia(

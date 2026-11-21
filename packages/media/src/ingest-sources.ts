@@ -8,18 +8,19 @@ import {
   type SourceRoute,
 } from "./routes.ts";
 import type { MediaSettings } from "./supervision-policy.ts";
-import type { FromMedia, ToMedia } from "./wire.ts";
+import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
  * Producers that stream into ace-media's ingest (docs/media/plan.md, phase 2, E1–E4): the
- * daemon's side, one for every kind (browser tabs, screens, devices). While a kind's route says
- * `producer: "ace-media"`, each producer's source is opened in ace-media with a fresh id,
- * single-use token and egress handle, and once ace-media reports it `starting` the producer is
- * pointed at the ingest. When the route moves back (a setting, or ace-media restarting or
- * unavailable) the producer is pointed back at the daemon, and its handle keeps delivering until
- * ace-media's end marker for it arrives on egress, after its last unit. The handle closes only
- * then; a marker that never comes within `drainMs` is reported as a cut path, never as a clean
- * one. The daemon's state is the truth: every ace-media start opens each source again.
+ * daemon's side, one for every kind (browser tabs, screens, devices). ace-media is the only
+ * path a producer has. While a kind's route says `producer: "ace-media"`, each producer's source
+ * is opened in ace-media with a fresh id, single-use token and egress handle, and once ace-media
+ * reports it `starting` the producer is pointed at the ingest. When the route stops it (ace-media
+ * restarting or unavailable) the producer is told to stop streaming, and its handle keeps
+ * delivering until ace-media's end marker for it arrives on egress, after its last unit. The
+ * handle closes only then; a marker that never comes within `drainMs` is reported as a cut path,
+ * never as a clean one. The daemon's state is the truth: every ace-media start opens each source
+ * again, including one whose earlier opens failed.
  */
 
 export type Origin = Extract<ToMedia, { type: "source.open" }>["origin"];
@@ -54,12 +55,14 @@ export type IngestProducer = {
   deviceId?: string;
   /** The privacy epoch the producer stamps now. */
   epoch: () => number;
+  /** Whether that epoch is private (M8), for a JPEG source's open in ace-media. */
+  private?: () => boolean;
   /** The daemon's legacy consumers of this source, fed from egress. */
   consumers: LegacyConsumers;
   /**
-   * Points the producer at ace-media (an address) or back at the daemon (undefined). Resolves
-   * once the producer has switched; a rejection keeps this source on the daemon until its route
-   * changes again.
+   * Points the producer at ace-media (an address), or stops it streaming (undefined): it has no
+   * other path. Resolves once the producer has switched; a rejection keeps this source stopped
+   * until its route changes or ace-media starts again.
    */
   point: (address: IngestAddress | undefined) => Promise<void>;
   /** ace-media's egress dropped deltas or a consumer needs one: a keyframe of this encode. */
@@ -69,8 +72,17 @@ export type IngestProducer = {
    * or it was cut and units may be missing. Always after the `point` that left it.
    */
   pathEnded?: (path: string, interrupted: boolean) => void;
-  /** ace-media ended the source with a reason: it stays on the daemon until its route changes. */
+  /**
+   * ace-media ended the source with a reason, or its opens kept failing: it stays stopped until
+   * its route changes or ace-media starts again. Its live views say why.
+   */
   refused?: (reason: string | undefined) => void;
+  /**
+   * The source's video stopped and won't come back on its own soon (ace-media exited, is
+   * unavailable, or kept failing it): why, for its live views. The next `point` with an address
+   * means it streams again.
+   */
+  stopped?: (reason: string, status: StopStatus) => void;
   /**
    * The privacy epochs this producer stamped that the daemon knows were clear: the source was
    * public for all of each one. A poster shows a picture only from these (D1). Absent: none, so
@@ -89,6 +101,8 @@ export type IngestPort = {
   send: (message: ToMedia, payload?: Uint8Array) => boolean;
   ingest: () => { socket: string; websocketPort: number; pid?: number } | undefined;
   need: () => () => void;
+  /** Whether the running ace-media agreed to an optional feature (`ready.features`). */
+  speaks: (feature: MediaFeature) => boolean;
 };
 
 export type IngestSourcesOptions = {
@@ -104,6 +118,11 @@ export type IngestSourcesOptions = {
   id: () => string;
   schedule: (callback: () => void, milliseconds: number) => () => void;
   log?: (message: string, fields: Record<string, unknown>) => void;
+  /**
+   * Why sources can't stream now, while ace-media is restarting or unavailable; undefined while
+   * it is only starting (a source then waits without a word).
+   */
+  why?: () => string | undefined;
   /**
    * A producer's open in ace-media changed: its id there now, or none. Viewers delivered by
    * ace-media follow it (D1).
@@ -122,25 +141,52 @@ export type IngestSourcesOptions = {
  */
 export const h264Only: readonly string[] = ["avc1.42E033"];
 
-/** Reconnects after the producer's connection ended, before the source stays on the daemon. */
+/** Reconnects after the producer's connection ended, before the source stays stopped. */
 export const maxIngestReopens = 3;
+/**
+ * Whether a stopped source comes back by itself soon (`retrying`: ace-media is restarting) or
+ * not (`unavailable`: crash-looping, missing, or it can't take this source).
+ */
+export type StopStatus = "retrying" | "unavailable";
+
+/** What a source's views say when ace-media stopped and gave no reason of its own. */
+export const restartingReason = "ace-media stopped and is starting again";
+/** What they say when ace-media kept failing the source. */
+export const failedReason = "ace-media couldn't take this video";
+/**
+ * What a JPEG source's views say when the running ace-media is older than this daemon and
+ * can't encode pictures off the ingest (`picture-ingest` not agreed). Its other video goes on.
+ */
+export const pictureIngestMissing =
+  "This ace-media is too old to encode this video. Update ace to see it.";
+
+/** Sources whose pictures ace-media encodes off their ingest (X2): only with `picture-ingest`. */
+const pictureKinds: ReadonlySet<SourceKind> = new Set<SourceKind>([
+  "tab-pictures",
+  "user-tab",
+  "screen-pictures",
+]);
+
 /** Longest a handle waits for its end marker after its producer was pointed away. */
 export const drainMs = 2_000;
 
 /**
- * Kinds ace-media reads itself: pictures from the control lane, and a Simulator's serve-sim
- * stream, which it opens. Only ace-media's close ends their reading, so leaving closes them
- * there at once; the end marker follows the last unit.
+ * Kinds ace-media reads itself: a Simulator's serve-sim stream, which it opens. Only ace-media's
+ * close ends its reading, so leaving closes it there at once; the end marker follows the last
+ * unit. Every other source (JPEG picture sources too) ends on its producer's ingest end, and is
+ * closed once ace-media's marker follows its last unit, or at the drain limit.
  */
-const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>([
-  "tab-pictures",
-  "user-tab",
-  "simulator",
-]);
+const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>(["simulator"]);
 
 type Entry = {
   producer: IngestProducer;
-  state: "daemon" | "opening" | "ingest";
+  /**
+   * Privacy epochs the producer announced that its open in ace-media hasn't heard yet, oldest
+   * first. Each goes as it was: merging them would lose which epoch was the private one.
+   */
+  held: { epoch: number; followsPrivate: boolean }[];
+  /** `off`: not streaming anywhere (ace-media isn't up, or the source failed there). */
+  state: "off" | "opening" | "ingest";
   /** The open in the running ace-media, while there is one. */
   live: Path | undefined;
   /** Keeps ace-media running while settings want this source there, through restarts. */
@@ -152,12 +198,14 @@ type Entry = {
   page: IngestPage | undefined;
   /** Bumped by every switch, so a late answer to an older one is ignored. */
   generation: number;
-  /** Ingest failed or was refused: it stays on the daemon until its route changes. */
+  /** Ingest failed or was refused: it stays off until its route changes or ace-media restarts. */
   failed: boolean;
   reopens: number;
   closed: boolean;
   /** The path whose acceleration report stands for this source. */
   acceleratedBy?: string | undefined;
+  /** The stop reason the producer was last told, while it stays stopped. */
+  told?: string | undefined;
 };
 
 /** One open in ace-media: an id, its token until pointed, and its egress handle. */
@@ -179,6 +227,10 @@ type Path = {
   reported: boolean;
   /** ace-media's last plan for it (`source.want`), for the producer once it is pointed here. */
   want: Extract<FromMedia, { type: "source.want" }>["encodes"] | undefined;
+  /** The privacy epoch ace-media has for it: the open's, then each announced since (M8). */
+  epoch: number;
+  /** ace-media answered its open: a privacy epoch sent now can't overtake it. */
+  acknowledged: boolean;
 };
 
 /** A page's CSS size and its device pixel ratio, as a producer shows it. */
@@ -205,15 +257,20 @@ export type IngestSource = {
   codecs(codecs: string[]): void;
   /**
    * The page the producer shows, on every change: ace-media plans its views at this shape
-   * (its own guess is the first unit's, which a resize leaves behind).
+   * (its own guess is the first unit's, which a resize leaves behind). Only producers that show
+   * a page have one.
    */
-  page(page: IngestPage): void;
+  page?(page: IngestPage): void;
   /** For a JPEG source: the encodes ace-media runs for it. */
   encodes(encodes: EncodeSpec[]): void;
   /** For a JPEG source: the encode's next unit is a keyframe. */
   key(encode: number): void;
-  /** For a JPEG source: one screencast picture, its base64 text as the browser sent it. */
-  picture(base64: string, ageMs?: number): boolean;
+  /**
+   * The source's privacy epoch from now on (M8), for a producer whose frames ace-media stamps
+   * as it reads them (a JPEG source's pictures): `followsPrivate` says the one it replaces was
+   * private, so pictures read in the next 100 ms keep that one and nothing from it is a still.
+   */
+  epoch?(epoch: number, followsPrivate: boolean): void;
   close(): void;
 };
 
@@ -221,6 +278,8 @@ export class IngestSources {
   readonly #options: IngestSourcesOptions;
   readonly #entries = new Set<Entry>();
   readonly #paths = new Map<string, Path>();
+  /** `source.epoch`'s sequence, for its `epoch.applied` answer. */
+  #epochs = 0;
 
   constructor(options: IngestSourcesOptions) {
     this.#options = options;
@@ -229,7 +288,7 @@ export class IngestSources {
   add(producer: IngestProducer): IngestSource {
     const entry: Entry = {
       producer,
-      state: "daemon",
+      state: "off",
       live: undefined,
       release: undefined,
       encodes: undefined,
@@ -239,9 +298,14 @@ export class IngestSources {
       failed: false,
       reopens: 0,
       closed: false,
+      held: [],
     };
     this.#entries.add(entry);
     this.#sync(entry);
+    if (entry.state === "off") {
+      const why = this.#options.why?.();
+      if (why) this.#tell(entry, why);
+    }
     return {
       streaming: () => entry.state === "ingest",
       reconnect: () => this.#reconnect(entry),
@@ -267,13 +331,15 @@ export class IngestSources {
         const live = entry.live;
         if (live) this.#send({ type: "source.key", source: live.id, encode });
       },
-      picture: (base64, ageMs = 0) => {
+      epoch: (epoch, followsPrivate) => {
+        // Held until the open is acknowledged: on the priority lane it could overtake the
+        // open, and ace-media ignores an epoch for a source it doesn't have yet.
+        // With no open in flight there is nothing to hold for: the next open carries the
+        // state the producer is in then.
         const live = entry.live;
-        if (!live || entry.state !== "ingest") return false;
-        return this.#options.port.send(
-          { type: "source.picture", source: live.id, ageMs, epoch: entry.producer.epoch() },
-          new TextEncoder().encode(base64),
-        );
+        if (!live) return;
+        entry.held.push({ epoch, followsPrivate });
+        if (live.acknowledged) this.#announce(entry, live);
       },
       close: () => this.#close(entry),
     };
@@ -302,13 +368,20 @@ export class IngestSources {
       if (kinds.includes(entry.producer.kind)) {
         entry.failed = false;
         entry.reopens = 0;
+        const was = entry.state;
         this.#sync(entry);
+        if (was !== "off" && entry.state === "off")
+          this.#tell(entry, this.#options.why?.() ?? restartingReason);
       }
   }
 
-  /** The supervisor's `replay`: ace-media is up, with a new ingest. */
+  /** The supervisor's `replay`: ace-media is up, with a new ingest. Failed sources try again. */
   replay(): void {
-    for (const entry of this.#entries) this.#sync(entry);
+    for (const entry of this.#entries) {
+      entry.failed = false;
+      entry.reopens = 0;
+      this.#sync(entry);
+    }
   }
 
   /** The supervisor's `onExit`: every id, token and handle of that process is gone. */
@@ -318,12 +391,23 @@ export class IngestSources {
       this.#live(entry, undefined);
       entry.generation++;
       const was = entry.state;
-      entry.state = "daemon";
+      entry.state = "off";
       if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
       if (live) this.#finish(live, true, false);
+      // A source still waiting for its first start hears each new reason too: a launch that dies
+      // before it is ready changes nothing else it could see.
+      const why = this.#options.why?.() ?? (was !== "off" ? restartingReason : undefined);
+      if (why) this.#tell(entry, why);
     }
     // Deleting while iterating a Map is safe: finished paths aren't visited again.
     for (const path of this.#paths.values()) this.#finish(path, true, false);
+  }
+
+  /** Tells a stopped producer why, once per reason while it stays stopped. */
+  #tell(entry: Entry, reason: string): void {
+    if (entry.closed || entry.told === reason) return;
+    entry.told = reason;
+    entry.producer.stopped?.(reason, reason === restartingReason ? "retrying" : "unavailable");
   }
 
   #live(entry: Entry, path: Path | undefined): void {
@@ -394,6 +478,11 @@ export class IngestSources {
   }
 
   #status(entry: Entry, path: Path, message: Status): void {
+    // ace-media's first word about the open: privacy epochs held for it go now, in order.
+    if (!path.acknowledged) {
+      path.acknowledged = true;
+      this.#announce(entry, path);
+    }
     if (message.status === "starting") return this.#started(entry, path);
     if (message.status === "playing") {
       entry.reopens = 0;
@@ -403,6 +492,7 @@ export class IngestSources {
       entry.failed = true;
       this.#leave(entry);
       entry.producer.refused?.(message.reason);
+      this.#tell(entry, message.reason);
       return;
     }
     if (entry.state === "ingest") this.#reconnect(entry);
@@ -418,8 +508,8 @@ export class IngestSources {
     }
     const route = this.#options.routes()[kind];
     const desired = route.producer === "ace-media" && !entry.failed;
-    if (desired && entry.state === "daemon") this.#open(entry, route);
-    else if (!desired && entry.state !== "daemon") this.#leave(entry);
+    if (desired && entry.state === "off") this.#open(entry, route);
+    else if (!desired && entry.state !== "off") this.#leave(entry);
     else if (desired && entry.live && entry.live.route.egress !== route.egress) {
       entry.live.route = route;
       this.#send({ type: "source.egress", source: entry.live.id, on: route.egress });
@@ -430,6 +520,12 @@ export class IngestSources {
     const { port, router, randomBytes } = this.#options;
     if (!port.ingest()) return; // Not up yet: `replay` opens it.
     const { producer } = entry;
+    // An older ace-media would take the pictures as they are and never encode them: a blank
+    // view that says it plays. The source stays off, saying why, until a newer one runs.
+    if (pictureKinds.has(producer.kind) && !port.speaks("picture-ingest")) {
+      this.#tell(entry, pictureIngestMissing);
+      return;
+    }
     const id = this.#options.id();
     let path: Path | undefined;
     const consumers: LegacyConsumers = {
@@ -442,12 +538,22 @@ export class IngestSources {
       path?.draining ? path.route : this.#options.routes()[producer.kind],
     );
     const token = randomBytes(32);
+    const epoch = producer.epoch();
+    // The open carries the state the producer is in now: what it announced before is old news.
+    entry.held = entry.held.filter((privacy) => privacy.epoch > epoch);
     const opened = port.send(
       {
         type: "source.open",
         source: id,
         handle,
-        epoch: producer.epoch(),
+        epoch,
+        // A private JPEG source says so in its open, so ace-media knows even if the next epoch
+        // overtakes it: only to a build that agreed to `privacy-open`, and only when true.
+        ...(pictureKinds.has(producer.kind) &&
+        producer.private?.() === true &&
+        port.speaks("privacy-open")
+          ? { private: true }
+          : {}),
         origin: producer.origin,
         ...(producer.threadId === undefined ? {} : { threadId: producer.threadId }),
         ...(producer.tabId === undefined ? {} : { tabId: producer.tabId }),
@@ -474,6 +580,8 @@ export class IngestSources {
       release: undefined,
       reported: false,
       want: undefined,
+      epoch,
+      acknowledged: false,
     };
     this.#paths.set(id, path);
     this.#live(entry, path);
@@ -484,6 +592,22 @@ export class IngestSources {
     if (entry.encodes) this.#send({ type: "source.encodes", source: id, encodes: entry.encodes });
   }
 
+  /** The producer's held privacy epochs, in order, to its open once that is acknowledged (M8). */
+  #announce(entry: Entry, path: Path): void {
+    for (const privacy of entry.held.splice(0)) {
+      // The open carried the epoch the producer was in then: only a newer one is news.
+      if (privacy.epoch <= path.epoch) continue;
+      path.epoch = privacy.epoch;
+      this.#send({
+        type: "source.epoch",
+        source: path.id,
+        seq: this.#epochs++,
+        epoch: privacy.epoch,
+        followsPrivate: privacy.followsPrivate,
+      });
+    }
+  }
+
   /** ace-media has the source: hand the producer its address. */
   #started(entry: Entry, path: Path): void {
     const token = path.token;
@@ -492,6 +616,7 @@ export class IngestSources {
     path.token = undefined;
     path.pointed = true;
     entry.state = "ingest";
+    entry.told = undefined;
     const generation = ++entry.generation;
     const address: IngestAddress = {
       url: this.endpoint() ?? "",
@@ -514,17 +639,18 @@ export class IngestSources {
         });
         entry.failed = true;
         this.#leave(entry);
+        this.#tell(entry, failedReason);
       },
     );
   }
 
-  /** Points the producer back at the daemon; its path drains until its marker. */
+  /** Stops the producer streaming; its path drains until its marker. */
   #leave(entry: Entry): void {
     const live = entry.live;
     this.#live(entry, undefined);
     entry.generation++;
     const was = entry.state;
-    entry.state = "daemon";
+    entry.state = "off";
     if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
     if (live) this.#retire(live);
     if (!this.wanted(entry.producer.kind)) {
@@ -534,18 +660,19 @@ export class IngestSources {
   }
 
   #reconnect(entry: Entry): void {
-    if (entry.closed || entry.state === "daemon") return;
+    if (entry.closed || entry.state === "off") return;
     const live = entry.live;
     this.#live(entry, undefined);
-    entry.state = "daemon";
+    entry.state = "off";
     entry.generation++;
     if (live) this.#retire(live);
     if (++entry.reopens > maxIngestReopens) {
       entry.failed = true;
       void entry.producer.point(undefined).catch(() => {});
+      this.#tell(entry, failedReason);
       return;
     }
-    // Reopened at once, without a detour to the daemon: the producer gets its new address.
+    // Reopened at once: the producer gets its new address.
     this.#sync(entry);
   }
 
@@ -608,9 +735,13 @@ export class IngestSources {
     this.#entries.delete(entry);
     const live = entry.live;
     this.#live(entry, undefined);
-    entry.state = "daemon";
-    // The capture is gone: nothing is left to deliver to.
-    if (live) this.#finish(live, true, true);
+    entry.state = "off";
+    // A JPEG source's producer finishes its pictures as it closes, and ace-media's encoder
+    // still holds the last of them: its path is retired, its handle kept until the marker
+    // after that encoder's last unit (or the drain limit). Any other capture is gone, and
+    // nothing is left to deliver to.
+    if (live && pictureKinds.has(entry.producer.kind)) this.#retire(live);
+    else if (live) this.#finish(live, true, true);
     entry.release?.();
     entry.release = undefined;
   }

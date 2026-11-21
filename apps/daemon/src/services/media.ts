@@ -26,8 +26,8 @@ import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
  * The daemon's ace-media (ADR 0147): one `MediaRuntime`, made once the binary is found. It is
- * the only deliverer of live views (X3) and the only recorder (X1), so it is made at start;
- * while ace-media isn't healthy, captures take the producers' own paths, live views say why, and
+ * the only encoder (X2), the only deliverer of live views (X3) and the only recorder (X1), so it
+ * is made at start; while ace-media isn't healthy, live views say they are retrying and why, and
  * a recording refuses to start, saying why.
  */
 
@@ -121,8 +121,8 @@ export type DaemonMedia = BrowserMedia & {
   delivery(): DaemonDelivery | undefined;
   /**
    * For a long-lived producer (a screen session): its source, kept until closed. Before the
-   * runtime exists (`media.encode` never asked for it) the producer waits, and is added once it
-   * does, so a session started under `legacy` still moves when the setting turns `auto`.
+   * runtime exists (it is made once the binary's version is read) the producer waits, and is
+   * added once it does.
    */
   attach(producer: IngestProducer): IngestSource;
   /** What ace-media runs on, kept across its restarts and before the runtime exists (empty). */
@@ -131,6 +131,14 @@ export type DaemonMedia = BrowserMedia & {
   pid(): number | undefined;
   /** Every recording goes through ace-media (X1). */
   recorder: MediaRecorder;
+};
+
+/** A long-lived producer waiting for the runtime, and what it told its source meanwhile. */
+type Waiting = {
+  source: IngestSource | undefined;
+  codecs?: string[] | undefined;
+  encodes?: Parameters<IngestSource["encodes"]>[0] | undefined;
+  page?: IngestPage | undefined;
 };
 
 /** The recorder producers use on a daemon that has no ace-media at all. */
@@ -173,14 +181,7 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
   let closed = false;
   let runtimeDir: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
-  const waiting = new Map<
-    IngestProducer,
-    {
-      source: IngestSource | undefined;
-      codecs?: string[] | undefined;
-      page?: IngestPage | undefined;
-    }
-  >();
+  const waiting = new Map<IngestProducer, Waiting>();
   /** The runtime's relay port (D2): one for the runtime's life. */
   let relayPort: RuntimeRelayPort | undefined;
   const acceleration = new MediaAccelerationStore();
@@ -227,7 +228,8 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       for (const [producer, slot] of waiting) {
         slot.source = runtime.sources.add(producer);
         if (slot.codecs) slot.source.codecs(slot.codecs);
-        if (slot.page) slot.source.page(slot.page);
+        if (slot.page) slot.source.page?.(slot.page);
+        if (slot.encodes) slot.source.encodes(slot.encodes);
       }
       failure = undefined;
       failures = 0;
@@ -239,6 +241,8 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       failedAs = trying;
       failures++;
       context.log.log("warn", `ace-media is not available: ${String(error)}`);
+      // Producers waiting for the runtime get none from this try: their views say why.
+      for (const producer of waiting.keys()) producer.stopped?.(failure, "unavailable");
     }));
   };
 
@@ -269,40 +273,49 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
           : undefined,
     acceleration,
     pid: () => runtime?.supervisor.snapshot().pid,
-    add: (producer) => runtime?.sources.add(producer),
+    // A producer that comes while the runtime is still being made waits for it, as a screen does.
+    // After a failed start a tab has no source; asking tries again (within the cooldown, not).
+    add: (producer) => {
+      if (runtime || failure === undefined) return attach(producer);
+      void start();
+      return undefined;
+    },
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,
     pictureCodecs: () => runtime?.pictureCodecs() ?? [],
     endpoint: () => runtime?.sources.endpoint(),
-    attach: (producer) => {
-      if (runtime) return runtime.sources.add(producer);
-      const slot: {
-        source: IngestSource | undefined;
-        codecs?: string[] | undefined;
-        page?: IngestPage | undefined;
-      } = { source: undefined };
-      waiting.set(producer, slot);
-      return {
-        streaming: () => slot.source?.streaming() ?? false,
-        reconnect: () => slot.source?.reconnect(),
-        codecs: (codecs) => {
-          slot.codecs = [...codecs];
-          slot.source?.codecs(codecs);
-        },
-        page: (page) => {
-          slot.page = { ...page };
-          slot.source?.page(page);
-        },
-        encodes: (encodes) => slot.source?.encodes(encodes),
-        key: (encode) => slot.source?.key(encode),
-        picture: (base64, ageMs) => slot.source?.picture(base64, ageMs) ?? false,
-        close: () => {
-          waiting.delete(producer);
-          slot.source?.close();
-        },
-      };
-    },
+    attach: (producer) => attach(producer),
   };
+
+  function attach(producer: IngestProducer): IngestSource {
+    if (runtime) return runtime.sources.add(producer);
+    const slot: Waiting = { source: undefined };
+    waiting.set(producer, slot);
+    if (failure !== undefined) producer.stopped?.(failure, "unavailable");
+    return {
+      streaming: () => slot.source?.streaming() ?? false,
+      reconnect: () => slot.source?.reconnect(),
+      codecs: (codecs) => {
+        slot.codecs = [...codecs];
+        slot.source?.codecs(codecs);
+      },
+      page: (page) => {
+        slot.page = { ...page };
+        slot.source?.page?.(page);
+      },
+      // Kept for the source the runtime will open: a JPEG source's encodes are asked once.
+      encodes: (encodes) => {
+        slot.encodes = encodes;
+        slot.source?.encodes(encodes);
+      },
+      key: (encode) => slot.source?.key(encode),
+      epoch: (epoch, followsPrivate) => slot.source?.epoch?.(epoch, followsPrivate),
+      close: () => {
+        waiting.delete(producer);
+        slot.source?.close();
+      },
+    };
+  }
 }
 
 /**

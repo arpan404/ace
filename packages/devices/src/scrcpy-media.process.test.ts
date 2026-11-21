@@ -36,7 +36,7 @@ async function until(condition: () => boolean, ms = 15_000): Promise<void> {
 const markOf = (frame: Frame) => frame.payload.readUInt16BE(frame.payload.length - 2);
 
 it.runIf(!!binary)(
-  "an Android device's units are forwarded to ace-media and come back as today's frames, four route flips lose and repeat none, and a killed ace-media hands them back within 2 s",
+  "an Android device's units are forwarded only to ace-media and come back as today's frames, none lost or repeated, and after ace-media is killed they are back through the new one within 2 s",
   { timeout: 120_000 },
   async () => {
     const directory = mkdtempSync(join(tmpdir(), "ace-e3b-scrcpy-"));
@@ -117,21 +117,9 @@ it.runIf(!!binary)(
       scale: 0.5,
     });
 
-    for (const encode of ["legacy", "auto", "legacy", "auto"] as const) {
-      const before = video().length;
-      capabilities.ingest = encode === "auto" ? ["scrcpy"] : [];
-      runtime.settingsChanged();
-      await until(
-        () =>
-          video()
-            .slice(before)
-            .filter(([, egress]) => egress === (encode === "auto")).length >= 5,
-      );
-    }
-    // Every unit the device sent from the first one through ace-media on arrived once, in order.
-    const marks = video().map(([frame]) => markOf(frame));
-    const first = video().findIndex(([, egress]) => egress);
-    const run = marks.slice(Math.max(0, first - 1));
+    // Every unit came through ace-media, once and in order from its first keyframe.
+    expect(video().every(([, egress]) => egress)).toBe(true);
+    const run = video().map(([frame]) => markOf(frame));
     expect(run).toEqual(Array.from({ length: run.length }, (_, index) => (run[0] ?? 0) + index));
 
     const pid = runtime.supervisor.snapshot().pid ?? 0;
@@ -139,17 +127,12 @@ it.runIf(!!binary)(
     const killed = performance.now();
     const before = video().length;
     process.kill(pid, "SIGKILL");
-    await until(
-      () =>
-        video()
-          .slice(before)
-          .some(([, egress]) => !egress),
-      5_000,
-    );
+    // The daemon forwards to the new ace-media's ingest: back from its keyframe within 2 s.
+    await until(() => video().length > before, 10_000);
     expect(performance.now() - killed).toBeLessThan(2_000);
-    const back = video()
-      .slice(before)
-      .find(([, egress]) => !egress)?.[0];
+    const [back, egress] = video()[before] ?? [];
+    expect(egress).toBe(true);
     expect(back?.header.keyframe).toBe(true);
+    expect(runtime.supervisor.snapshot().pid).not.toBe(pid);
   },
 );

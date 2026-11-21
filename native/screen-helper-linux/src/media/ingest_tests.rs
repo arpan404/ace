@@ -20,7 +20,6 @@ fn unit(sequence: u64) -> VideoUnit {
 
 struct Harness {
     ingest: Ingest,
-    legacy: Arc<Mutex<Vec<u64>>>,
     closed: Arc<Mutex<Vec<Option<u64>>>>,
     _dir: tempdir::Dir,
 }
@@ -43,20 +42,17 @@ mod tempdir {
 }
 
 fn harness() -> Harness {
-    let legacy: Arc<Mutex<Vec<u64>>> = Arc::default();
     let closed: Arc<Mutex<Vec<Option<u64>>>> = Arc::default();
-    let (l, c) = (legacy.clone(), closed.clone());
+    let c = closed.clone();
     let ingest = Ingest::spawn(
         Clock::start(),
         Outlets {
-            legacy: Box::new(move |unit| l.lock().unwrap().push(unit.sequence)),
             keyframe: Arc::new(|| {}),
             closed: Box::new(move |boundary| c.lock().unwrap().push(boundary)),
         },
     );
     Harness {
         ingest,
-        legacy,
         closed,
         _dir: tempdir::new(),
     }
@@ -104,7 +100,7 @@ async fn settle() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn route_flips_lose_and_repeat_nothing_and_each_replaced_path_ends_cleanly() {
+async fn moves_between_ingests_lose_and_repeat_nothing_and_each_replaced_path_ends_cleanly() {
     let h = harness();
     let (first, a) = h.listener("a.sock");
     let (second, b) = h.listener("b.sock");
@@ -113,12 +109,13 @@ async fn route_flips_lose_and_repeat_nothing_and_each_replaced_path_ends_cleanly
     for n in 0..5 {
         h.ingest.unit(unit(n));
     }
+    // Before any ingest those units went nowhere: the first switch claims no boundary.
     let moved = h.ingest.route(Some(a)).await.unwrap();
     assert_eq!(
         moved,
         Moved {
             switched: true,
-            boundary: Some(4)
+            boundary: None
         }
     );
     for n in 5..12 {
@@ -156,20 +153,19 @@ async fn route_flips_lose_and_repeat_nothing_and_each_replaced_path_ends_cleanly
     );
     assert_eq!(b.last().map(|f| f.kind), Some(4));
     assert_eq!(sequences(&a), (5..12).collect::<Vec<_>>());
-    let mut all = h.legacy.lock().unwrap().clone();
-    all.extend(sequences(&a));
+    let mut all = sequences(&a);
     all.extend(sequences(&b));
     all.sort_unstable();
     assert_eq!(
         all,
-        (0..17).collect::<Vec<_>>(),
-        "every unit once, none twice"
+        (5..15).collect::<Vec<_>>(),
+        "every unit sent while an ingest was set, once, none twice"
     );
     assert!(h.closed.lock().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn ace_media_dying_puts_video_back_on_the_daemons_socket_within_two_seconds() {
+async fn ace_media_dying_stops_video_and_says_so_within_two_seconds() {
     let h = harness();
     let (listener, a) = h.listener("a.sock");
     let accepted = tokio::spawn(async move { listener.accept().await.unwrap().0 });
@@ -185,22 +181,17 @@ async fn ace_media_dying_puts_video_back_on_the_daemons_socket_within_two_second
     }
     assert!(died.elapsed() < Duration::from_secs(2));
     assert_eq!(*h.closed.lock().unwrap(), vec![Some(1)]);
-    h.ingest.unit(unit(2));
-    settle().await;
-    assert_eq!(*h.legacy.lock().unwrap(), vec![2]);
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn a_socket_that_cannot_be_opened_leaves_video_on_the_daemons_socket() {
+async fn a_socket_that_cannot_be_opened_leaves_video_stopped() {
     let h = harness();
     let missing = Address {
         socket: h._dir.0.join("none.sock").to_string_lossy().into_owned(),
         token: zeroize::Zeroizing::new([0; 32]),
     };
     assert!(h.ingest.route(Some(missing)).await.is_err());
-    h.ingest.unit(unit(0));
-    settle().await;
-    assert_eq!(*h.legacy.lock().unwrap(), vec![0]);
+    assert!(h.closed.lock().unwrap().is_empty());
 }
 
 fn sized(sequence: u64, key: bool, bytes: usize) -> VideoUnit {
@@ -214,19 +205,28 @@ fn sized(sequence: u64, key: bool, bytes: usize) -> VideoUnit {
 #[tokio::test(flavor = "current_thread")]
 async fn a_stalled_route_admits_a_bounded_backlog_then_drops_to_the_next_keyframe_and_asks_for_one()
 {
-    let legacy: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let dir = tempdir::new();
+    let path = dir.0.join("stalled.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let received = tokio::spawn(frames(listener));
     let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let (l, a) = (legacy.clone(), asked.clone());
+    let a = asked.clone();
     let ingest = Ingest::spawn(
         Clock::start(),
         Outlets {
-            legacy: Box::new(move |unit| l.lock().unwrap().push(unit.sequence)),
             keyframe: Arc::new(move || {
                 a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }),
             closed: Box::new(|_| {}),
         },
     );
+    ingest
+        .route(Some(Address {
+            socket: path.to_string_lossy().into_owned(),
+            token: zeroize::Zeroizing::new([7; 32]),
+        }))
+        .await
+        .unwrap();
     // Nothing awaits here, so the route's task can't run: routing is stalled while the
     // capture keeps producing 1 MiB units.
     let mib = 1024 * 1024;
@@ -241,10 +241,6 @@ async fn a_stalled_route_admits_a_bounded_backlog_then_drops_to_the_next_keyfram
     settle().await;
     // What was admitted is routed, in order; nothing past the limit was kept, the keyframe at
     // 30 included, since routing was still stalled when it came.
-    assert_eq!(
-        *legacy.lock().unwrap(),
-        admitted.clone().collect::<Vec<_>>()
-    );
     // The keyframe at 30 was dropped too: on a still desktop nothing else would come, so once
     // routing caught up and there is room again, it is asked for again.
     assert_eq!(
@@ -257,9 +253,10 @@ async fn a_stalled_route_admits_a_bounded_backlog_then_drops_to_the_next_keyfram
     ingest.unit(sized(41, true, mib));
     ingest.unit(sized(42, false, mib));
     settle().await;
+    ingest.close();
     let mut expected: Vec<u64> = admitted.collect();
     expected.extend([41, 42]);
-    assert_eq!(*legacy.lock().unwrap(), expected);
+    assert_eq!(sequences(&received.await.unwrap()), expected);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -286,13 +283,10 @@ async fn starting_and_stopping_captures_leaves_no_task_or_descriptor_behind() {
     // What the capture hands its route: its publisher, controls and wake socket.
     let held = Arc::new(());
     let cycle = |held: Arc<()>| {
-        let (a, b, c) = (held.clone(), held.clone(), held);
+        let (b, c) = (held.clone(), held);
         Ingest::spawn(
             Clock::start(),
             Outlets {
-                legacy: Box::new(move |_| {
-                    let _ = &a;
-                }),
                 keyframe: Arc::new(move || {
                     let _ = &b;
                 }),

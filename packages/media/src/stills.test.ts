@@ -18,7 +18,9 @@ const steps = [
   { step: "jpeg-encode", backend: "vt", hardware: true, readbacks: 0, uploads: 0 },
 ] as const;
 
-function stills(options: { health?: MediaHealth; up?: boolean } = {}) {
+function stills(
+  options: { health?: MediaHealth; up?: boolean; features?: string[]; minEpoch?: number } = {},
+) {
   const clock = new ManualClock();
   const sent: ToMedia[] = [];
   let next = 0;
@@ -32,10 +34,11 @@ function stills(options: { health?: MediaHealth; up?: boolean } = {}) {
     },
     clock,
     nextId: () => `still-${++next}`,
+    speaks: (feature) => (options.features ?? []).includes(feature),
   });
   const take = () =>
     media.take(
-      request,
+      options.minEpoch === undefined ? request : { ...request, minEpoch: options.minEpoch },
       async () => {
         sourceCalls++;
         return "source";
@@ -115,4 +118,17 @@ it("takes every waiting still from its source when ace-media goes away, and each
   await expect(Promise.all([first, second])).resolves.toEqual(["source", "source"]);
   expect(sourceCalls()).toBe(2);
   expect(media.pending).toBe(0);
+});
+
+it("a still fenced on the newest public epoch carries it to an ace-media that honours it, and never to one that doesn't", async () => {
+  const fenced = stills({ features: ["picture-ingest", "privacy-open"], minEpoch: 4 });
+  void fenced.take();
+  expect(fenced.sent).toEqual([
+    { type: "still.take", request: "still-1", ...request, minEpoch: 4 },
+  ]);
+  // A build without privacy-open (even one with picture-ingest) would refuse the field: the
+  // source's own capture answers instead.
+  const older = stills({ features: ["picture-ingest"], minEpoch: 4 });
+  await expect(older.take()).resolves.toBe("source");
+  expect(older.sent).toEqual([]);
 });

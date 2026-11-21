@@ -15,8 +15,10 @@ export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
    */
   cowork?: ScreenCowork;
   /**
-   * ace-media (ADR 0147, phase 2): a Mac session's video goes to ace-media's ingest while the
-   * route says so, and comes back on egress. Absent: every frame takes the helper socket.
+   * ace-media (ADR 0147, X2): every session's live video goes through it and comes back on
+   * egress. Absent: no live video, and a view that asks says so; stills still work.
    */
   media?: ScreenMedia;
+  /** Unix ms, for frames ace-media encodes from a JPEG-only helper's pictures. */
+  wallClock?: () => number;
 };

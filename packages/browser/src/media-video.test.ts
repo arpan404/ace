@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { maxStillPictureBytes } from "@ace/media/ingest-writer";
+import { ingestServer, until } from "@ace/media/testing/ingest-server";
 import type { IngestAddress, IngestProducer } from "@ace/media/ingest-sources";
 import type {
   BrowserCdp,
@@ -9,7 +11,7 @@ import type {
   VideoIngestTarget,
   VideoMediaKind,
 } from "./backend.ts";
-import { mediaVideoHost, type BrowserMedia } from "./media-video.ts";
+import { mediaMissing, mediaVideoHost, noMedia, type BrowserMedia } from "./media-video.ts";
 import type { VideoEncode } from "./backend.ts";
 
 const page = {} as BrowserCdp;
@@ -28,8 +30,8 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
     producer: IngestProducer;
     encodes: unknown[];
     codecs: string[][];
-    pictures: string[];
     keys: number[];
+    epochs: [number, boolean][];
     reconnects: number;
     closed: boolean;
   }[] = [];
@@ -39,8 +41,8 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         producer,
         encodes: [],
         codecs: [],
-        pictures: [],
         keys: [],
+        epochs: [],
         reconnects: 0,
         closed: false,
       } as (typeof added)[number];
@@ -49,13 +51,9 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         streaming: () => state.routed,
         encodes: (encodes) => void record.encodes.push(encodes),
         codecs: (codecs) => void record.codecs.push([...codecs]),
-        page: () => {},
         key: (encode) => void record.keys.push(encode),
+        epoch: (epoch, followsPrivate) => void record.epochs.push([epoch, followsPrivate]),
         reconnect: () => void record.reconnects++,
-        picture: (base64) => {
-          record.pictures.push(base64);
-          return true;
-        },
         close: () => {
           record.closed = true;
         },
@@ -163,6 +161,37 @@ describe("live video routed through ace-media", () => {
     expect(captures[0]?.closed).toBe(true);
   });
 
+  it("while ace-media can't take a capture, the capture says why, and stops saying it once it streams again", async () => {
+    const { media, added } = fakeMedia({ routed: true });
+    const { host, captures } = fakeHost("tab", true);
+    const stalls: (string | undefined)[] = [];
+    await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, {
+      ...events().sink,
+      stalled: (reason) => void stalls.push(reason),
+    });
+    const producer = added[0]?.producer;
+    await producer?.point(address("m1"));
+    await producer?.point(undefined);
+    producer?.stopped?.("ace-media stopped and is starting again", "retrying");
+    // Nothing is sent anywhere meanwhile: the encoder has no target.
+    expect(captures[0]?.targets.at(-1)).toBeUndefined();
+    await producer?.point(address("m2"));
+    expect(stalls).toEqual([undefined, "ace-media stopped and is starting again", undefined]);
+  });
+
+  it("without ace-media a capture doesn't open, and says why; its encoder's capture is closed", async () => {
+    const { host, captures } = fakeHost("tab", true);
+    await expect(
+      mediaVideoHost(host, noMedia, () => ({})).open(page, 640, 400, events().sink),
+    ).rejects.toThrow(mediaMissing);
+    expect(captures.map((capture) => capture.closed)).toEqual([true]);
+    const pictures = fakeHost("user-tab", false);
+    await expect(
+      mediaVideoHost(pictures.host, noMedia, () => ({})).open(page, 640, 400, events().sink),
+    ).rejects.toThrow(mediaMissing);
+    expect(pictures.captures).toEqual([]);
+  });
+
   it("a screencast tab routed to ace-media never opens the browser's encoder: pictures and encodes go to ace-media", async () => {
     const { media, added } = fakeMedia({ routed: true });
     const { host, captures } = fakeHost("tab-pictures", false);
@@ -173,17 +202,172 @@ describe("live video routed through ace-media", () => {
     ]);
     const handle = await routed.open(page, 640, 400, e.sink);
     expect(captures).toEqual([]);
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    await added[0]?.producer.point({ ...address("m0"), socket: ingest.path });
     handle.encodes([spec("avc1/640")]);
-    handle.pictures?.push("aGVsbG8=");
+    handle.pictures?.push("aGVsbG8=", 0);
     handle.keyframe("avc1/640");
     expect(added[0]?.encodes).toEqual([
       [{ id: 2 ** 20, codec: "avc1.42E033", width: 640, height: 400, fps: 60, bitrate: 4_000_000 }],
     ]);
-    expect(added[0]?.pictures).toEqual(["aGVsbG8="]);
+    await until(() => ingest.received.some((f) => f.kind === 3));
+    expect(Buffer.from(ingest.received.find((f) => f.kind === 3)?.payload ?? []).toString()).toBe(
+      "hello",
+    );
     expect(added[0]?.keys).toEqual([2 ** 20]);
   });
 
-  it("codecs ace-media can't encode end the capture, and the tab's next captures stay with the browser's encoder", async () => {
+  it.each(["tab-pictures", "user-tab"] as const)(
+    "a %s picture at ace-media's limit goes whole on the ingest as a still picture, never through the control lane",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true });
+      const ingest = await ingestServer();
+      onTestFinished(ingest.close);
+      const handle = await mediaVideoHost(fakeHost(kind, false).host, media, () => ({})).open(
+        page,
+        1280,
+        800,
+        events().sink,
+      );
+      await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+      handle.encodes([spec("avc1/640")]);
+      const sent = added[0];
+      const before = JSON.stringify([sent?.encodes, sent?.codecs, sent?.keys]);
+      const jpeg = Buffer.alloc(maxStillPictureBytes, 0xab);
+      handle.pictures?.push(jpeg.toString("base64"), 3);
+      await until(() => ingest.received.some((f) => f.kind === 3), 10_000);
+      const picture = ingest.received.find((f) => f.kind === 3);
+      // With the privacy epoch it was captured in.
+      expect(picture).toMatchObject({
+        kind: 3,
+        codec: 7,
+        flags: 1,
+        width: 1280,
+        height: 800,
+        epoch: 3,
+      });
+      expect(Buffer.compare(Buffer.from(picture?.payload ?? []), jpeg)).toBe(0);
+      // The source in ace-media was told nothing more: its control lane carried no picture.
+      expect(JSON.stringify([sent?.encodes, sent?.codecs, sent?.keys])).toBe(before);
+      expect(handle.pictures?.dropped?.()).toBe(0);
+    },
+  );
+
+  it.each(["tab-pictures", "user-tab"] as const)(
+    "a %s capture tells ace-media its privacy epochs, opens in the current one, and a waiting private picture is never sent",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true });
+      const ingest = await ingestServer();
+      onTestFinished(ingest.close);
+      const handle = await mediaVideoHost(fakeHost(kind, false).host, media, () => ({})).open(
+        page,
+        640,
+        400,
+        events().sink,
+      );
+      handle.pictures?.epoch?.({ epoch: 1, private: true }, false);
+      // A reopen opens in the epoch the tab is in.
+      expect(added[0]?.producer.epoch()).toBe(1);
+      expect(added[0]?.producer.private?.()).toBe(true);
+      await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+      await until(ingest.connected);
+      ingest.pause();
+      // Past the writer's budget, the newest private picture waits for room...
+      for (let n = 1; n <= 12; n++)
+        handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"), 1);
+      // ...and the tab stops being private before it goes: it never does.
+      handle.pictures?.epoch?.({ epoch: 2, private: false }, true);
+      handle.pictures?.push(Buffer.alloc(1024, 99).toString("base64"), 2);
+      ingest.resume();
+      await until(() => ingest.received.some((f) => f.kind === 3 && f.payload[0] === 99));
+      expect(ingest.received.some((f) => f.kind === 3 && f.payload[0] === 12)).toBe(false);
+      expect(added[0]?.epochs).toEqual([
+        [1, false],
+        [2, true],
+      ]);
+    },
+  );
+
+  it("closing a tab's JPEG capture sends its last picture and its ingest end before the source closes", async () => {
+    const { media, added } = fakeMedia({ routed: true });
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    const handle = await mediaVideoHost(
+      fakeHost("tab-pictures", false).host,
+      media,
+      () => ({}),
+    ).open(page, 640, 400, events().sink);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+    await until(ingest.connected);
+    ingest.pause();
+    for (let n = 1; n <= 12; n++)
+      handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"), 0);
+    handle.close();
+    expect(added[0]?.closed).toBe(true);
+    ingest.resume();
+    // The newest picture, which was waiting for room, goes; then the ingest's end frame.
+    await until(() => ingest.received.some((f) => f.kind === 4));
+    const last = ingest.received.findLast((f) => f.kind === 3);
+    expect(last?.payload[0]).toBe(12);
+    expect(ingest.received.at(-1)?.kind).toBe(4);
+  });
+
+  it.each(["tab-pictures", "user-tab"] as const)(
+    "a %s capture opened while the tab is private registers in the private epoch",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true });
+      await mediaVideoHost(fakeHost(kind, false).host, media, () => ({})).open(
+        page,
+        640,
+        400,
+        events().sink,
+        { epoch: 3, private: true },
+      );
+      expect(added[0]?.producer.epoch()).toBe(3);
+      expect(added[0]?.producer.private?.()).toBe(true);
+    },
+  );
+
+  it("a tab picture too large for ace-media is dropped and counted, and the next one still goes", async () => {
+    const { media, added } = fakeMedia({ routed: true });
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    const handle = await mediaVideoHost(
+      fakeHost("tab-pictures", false).host,
+      media,
+      () => ({}),
+    ).open(page, 640, 400, events().sink);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+    handle.pictures?.push(Buffer.alloc(maxStillPictureBytes + 1).toString("base64"), 0);
+    handle.pictures?.push("aGVsbG8=", 0);
+    await until(() => ingest.received.some((f) => f.kind === 3));
+    expect(handle.pictures?.dropped?.()).toBe(1);
+    expect(ingest.received.filter((f) => f.kind === 3).map((f) => f.payload.length)).toEqual([5]);
+  });
+
+  it("while ace-media reads a tab's pictures slowly only the newest waits: the queue never grows with the tab", async () => {
+    const { media, added } = fakeMedia({ routed: true });
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    const handle = await mediaVideoHost(
+      fakeHost("tab-pictures", false).host,
+      media,
+      () => ({}),
+    ).open(page, 640, 400, events().sink);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+    await until(ingest.connected);
+    ingest.pause();
+    for (let n = 1; n <= 40; n++)
+      handle.pictures?.push(Buffer.alloc(512 * 1024, n).toString("base64"), 0);
+    ingest.resume();
+    await until(() => ingest.received.some((f) => f.kind === 3 && f.payload[0] === 40));
+    const pictures = ingest.received.filter((f) => f.kind === 3);
+    expect(pictures.length).toBeLessThan(40);
+    expect(pictures.at(-1)?.payload[0]).toBe(40);
+  });
+
+  it("codecs ace-media can't encode end the capture, saying so, and no other encoder takes the tab", async () => {
     const { media } = fakeMedia({ routed: true, codecs: ["avc1.640020"] });
     const { host, captures } = fakeHost("user-tab", false);
     const e = events();
@@ -191,22 +375,29 @@ describe("live video routed through ace-media", () => {
     const handle = await routed.open(page, 640, 400, e.sink);
     handle.encodes([{ ...spec("vp8/640"), codec: "vp8" }]);
     expect(e.failed).toEqual(["vp8/640"]);
-    expect(e.ended).toHaveLength(1);
+    expect(e.ended).toEqual(["ace-media can't encode these codecs here"]);
     await routed.open(page, 640, 400, events().sink);
-    expect(captures).toHaveLength(1);
+    expect(captures).toHaveLength(0);
   });
 
-  it("while ace-media starts, the browser's encoder serves the screencast, and the capture hands over once it is up", async () => {
-    const { media, added } = fakeMedia({ routed: false, wanted: true });
+  it("while ace-media starts, a screencast capture waits for it with no encoder of its own, and streams once it is up", async () => {
+    const { media, added } = fakeMedia({ routed: false, wanted: true, codecs: [] });
     const { host, captures } = fakeHost("tab-pictures", false);
-    const e = events();
-    await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink);
-    expect(captures).toHaveLength(1);
+    const stalls: (string | undefined)[] = [];
+    const routed = mediaVideoHost(host, media, () => ({}));
+    // Before ace-media has said what it encodes, every codec is offered.
+    expect(await routed.supported(["avc1.42E033", "vp8"], 640, 400)).toEqual([
+      "avc1.42E033",
+      "vp8",
+    ]);
+    await routed.open(page, 640, 400, { ...events().sink, stalled: (r) => void stalls.push(r) });
+    expect(captures).toHaveLength(0);
     expect(added).toHaveLength(1);
-    await added[0]?.producer.point(address("m1"));
-    expect(captures[0]?.closed).toBe(true);
-    expect(added[0]?.closed).toBe(true);
-    expect(e.ended).toEqual(["ace-media takes over encoding this tab"]);
+    const ingest = await ingestServer();
+    onTestFinished(ingest.close);
+    await added[0]?.producer.point({ ...address("m1"), socket: ingest.path });
+    expect(added[0]?.closed).toBe(false);
+    expect(stalls).toEqual([undefined]);
   });
 
   it("an encoder that must be made to reach ace-media is told its endpoint before the capture opens", async () => {
@@ -225,15 +416,6 @@ describe("live video routed through ace-media", () => {
     await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, events().sink);
     expect(order).toEqual(["reach ws://127.0.0.1:9/ingest", "open"]);
     expect(captures).toHaveLength(1);
-  });
-
-  it("a host with no ace-media kind is left alone", () => {
-    const { media } = fakeMedia({ routed: true });
-    const plain: VideoHost = {
-      supported: () => Promise.resolve([]),
-      open: () => Promise.reject(new Error("no")),
-    };
-    expect(mediaVideoHost(plain, media, () => ({}))).toBe(plain);
   });
 });
 

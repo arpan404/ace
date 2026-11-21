@@ -225,14 +225,15 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     if (opened?.type !== "connection.open") throw new Error("no connection");
     expect(tab.bind(opened.connection)).toMatch(/^view-/);
     expect(await firstChunk(client)).toBe(true);
-    const picture = { type: "source.picture", source: "none", ageMs: 0, epoch: 0 } as const;
+    // Relay frames for a stream ace-media never dialed: it drops them, after reading them.
+    const bulk = { type: "relay.out", stream: "none" } as const;
     const latencies: number[] = [];
     // 121 samples, so the p99 is the second-worst rather than the single worst: one stall of a
     // shared, loaded host shouldn't decide it.
     const loadBefore = loadavg()[0] ?? 0;
     for (let i = 0; i < 120; i++) {
-      // 8 MiB of pictures ahead of every revocation on the normal lane.
-      for (let j = 0; j < 8; j++) t.supervisor.send(picture, new Uint8Array(1024 * 1024));
+      // 8 MiB of relay frames ahead of every revocation on the normal lane.
+      for (let j = 0; j < 8; j++) t.supervisor.send(bulk, new Uint8Array(1024 * 1024));
       const started = performance.now();
       const answer = await t.supervisor.revoke({
         type: "revoke",
@@ -245,7 +246,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     }
     // The phone's own revocation shuts its relay stream before it is answered.
     const started = performance.now();
-    for (let j = 0; j < 8; j++) t.supervisor.send(picture, new Uint8Array(1024 * 1024));
+    for (let j = 0; j < 8; j++) t.supervisor.send(bulk, new Uint8Array(1024 * 1024));
     expect(
       await t.supervisor.revoke({
         type: "revoke",

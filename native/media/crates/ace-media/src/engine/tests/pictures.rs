@@ -3,14 +3,25 @@
 use super::*;
 
 fn open(engine: &mut Engine, kind: &str) {
+    let origin = if kind == "screen-pictures" {
+        json!({ "kind": kind, "platform": "windows" })
+    } else {
+        json!({ "kind": kind })
+    };
     send(
         engine,
         json!({ "type": "source.open", "source": "p", "handle": 3, "epoch": 2,
-                "origin": { "kind": kind } }),
+                "origin": origin }),
         &[9; 32],
         NOW,
     );
+    // Its producer connects to its ingest with the source's token, as the daemon's does.
+    engine.ingest_hello(7, &[9; 32]);
+    let _: Vec<Effect> = engine.effects().collect();
 }
+
+/// The JPEG every picture in these tests carries.
+const JPEG: [u8; 4] = [0xff, 0xd8, 0xff, 0xd9];
 
 fn encodes(engine: &mut Engine, list: Value) -> Vec<Effect> {
     send(
@@ -25,13 +36,12 @@ fn spec() -> Value {
     json!([{ "id": 1, "codec": "avc1.42E01F", "width": 640, "height": 400, "fps": 30, "bitrate": 2_000_000 }])
 }
 
+/// One picture on the source's ingest, captured 5 ms before it was sent.
 fn picture(engine: &mut Engine, epoch: u32, now: Now) -> Vec<Effect> {
-    send(
-        engine,
-        json!({ "type": "source.picture", "source": "p", "ageMs": 5, "epoch": epoch }),
-        b"aGVsbG8=",
-        now,
-    )
+    let mut picture = frame(3, 1, epoch, JPEG.to_vec());
+    picture.codec = 7;
+    picture.age_us = 5_000;
+    ingest(engine, 7, picture, now)
 }
 
 fn encode_effects(effects: &[Effect]) -> Vec<String> {
@@ -56,9 +66,9 @@ fn pictures_of_a_source_with_encodes_go_to_its_encoder_stamped_and_aged() {
         let effects = picture(&mut engine, 2, at(2_000));
         assert_eq!(encode_effects(&effects), ["Picture(p, epoch 2)"]);
         let aged = effects.iter().any(|e| {
-            matches!(e, Effect::Encode(EncodeEffect::Picture { age_us: 5_000, text, .. }) if text == b"aGVsbG8=")
+            matches!(e, Effect::Encode(EncodeEffect::Picture { age_us: 5_000, jpeg, .. }) if jpeg == &JPEG)
         });
-        assert!(aged, "the text as received, with its age");
+        assert!(aged, "the JPEG as received, with its age");
         assert!(statuses(&effects).is_empty(), "playing waits for a unit");
     }
 }
@@ -78,6 +88,97 @@ fn a_picture_newer_than_a_private_epoch_keeps_the_private_one_within_the_read_ga
     let late = picture(&mut engine, 3, at(2_200));
     assert_eq!(encode_effects(&early), ["Picture(p, epoch 2)"]);
     assert_eq!(encode_effects(&late), ["Picture(p, epoch 3)"]);
+}
+
+#[test]
+fn a_picture_captured_before_a_privacy_change_and_delivered_after_never_reaches_encoder_or_egress()
+{
+    // Egress carries a source's units to the daemon's recording and to every viewer.
+    let lane = Kept::default();
+    let mut engine = Engine::new(
+        Box::new(super::super::recorder::NoRecorders),
+        Box::new(lane.clone()),
+    );
+    open(&mut engine, "tab-pictures");
+    send(
+        &mut engine,
+        json!({ "type": "source.egress", "source": "p", "on": true }),
+        &[],
+        NOW,
+    );
+    // Not encoding yet: pictures go to egress as they are. Then the tab changes privacy
+    // (epoch 4) and a picture captured before it (epoch 3) arrives late.
+    picture(&mut engine, 4, at(2_000));
+    picture(&mut engine, 3, at(2_010));
+    assert_eq!(lane.order(), ["unit"], "only the epoch-4 picture went on");
+    // Encoding now: the late one never reaches the encoder either.
+    encodes(&mut engine, spec());
+    assert!(encode_effects(&picture(&mut engine, 3, at(2_020))).is_empty());
+    assert_eq!(
+        encode_effects(&picture(&mut engine, 4, at(2_030))),
+        ["Picture(p, epoch 4)"]
+    );
+}
+
+#[test]
+fn an_older_daemons_picture_on_the_control_lane_ends_its_source_saying_why_once() {
+    let mut engine = engine();
+    open(&mut engine, "tab-pictures");
+    let _: Vec<Effect> = engine.effects().collect();
+    engine.skipped("source.picture", Some("p"));
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(
+        statuses(&effects),
+        [(
+            "p".to_owned(),
+            Status::Ended,
+            Some("picture-ingest-required".to_owned())
+        )]
+    );
+    // Said once; one naming no source, or a source that isn't a JPEG source, says nothing.
+    engine.skipped("source.picture", Some("p"));
+    engine.skipped("source.picture", None);
+    engine.skipped("source.someday", Some("p"));
+    assert!(statuses(&engine.effects().collect::<Vec<_>>()).is_empty());
+    let mut tab = super::engine();
+    open_tab(&mut tab, "t", 4, 8);
+    let _: Vec<Effect> = tab.effects().collect();
+    tab.skipped("source.picture", Some("t"));
+    assert!(statuses(&tab.effects().collect::<Vec<_>>()).is_empty());
+}
+
+#[test]
+fn opened_private_then_public_then_private_again_never_stamps_a_new_private_picture_public() {
+    let lane = Kept::default();
+    let mut engine = Engine::new(
+        Box::new(super::super::recorder::NoRecorders),
+        Box::new(lane.clone()),
+    );
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "p", "handle": 3, "epoch": 1, "private": true,
+                "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    engine.ingest_hello(7, &[9; 32]);
+    encodes(&mut engine, spec());
+    let epoch = |engine: &mut Engine, seq: u64, epoch: u32, follows: bool, now: Now| {
+        send(
+            engine,
+            json!({ "type": "source.epoch", "source": "p", "seq": seq, "epoch": epoch,
+                    "followsPrivate": follows }),
+            &[],
+            now,
+        )
+    };
+    // Private 1 (the open) → public 2 → private 3.
+    epoch(&mut engine, 1, 2, true, at(2_000));
+    epoch(&mut engine, 2, 3, false, at(3_000));
+    // An epoch-3 picture read 50 ms after private 3 began keeps epoch 3: the read gap after
+    // a public epoch holds nothing.
+    let effects = picture(&mut engine, 3, at(3_050));
+    assert_eq!(encode_effects(&effects), ["Picture(p, epoch 3)"]);
 }
 
 #[test]
@@ -235,6 +336,29 @@ fn closing_an_encoding_source_waits_for_its_encoder_to_drain_before_a_clean_end(
     // Nothing after the end.
     engine.encoded("p", 1, unit(2, false), NOW);
     assert_eq!(lane.order().len(), 4);
+}
+
+#[test]
+fn a_picture_sources_ingest_end_drains_its_encoder_and_the_clean_marker_follows_its_last_unit() {
+    let (mut engine, lane) = encoding();
+    // The producer's last picture is in, and its ingest ends gracefully.
+    let effects = ingest(&mut engine, 7, frame(4, 0, 0, Vec::new()), NOW);
+    assert_eq!(encode_effects(&effects), ["Drain(p)"]);
+    // What the encoder still held comes out after: delivered, not thrown away.
+    engine.encoded("p", 1, unit(2, true), NOW);
+    engine.encoded("p", 1, unit(2, false), NOW);
+    assert_eq!(
+        lane.order(),
+        ["unit", "unit"],
+        "no marker while output may be pending"
+    );
+    engine.encoder_drained("p", 1);
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(encode_effects(&effects), ["Close(p)"]);
+    assert_eq!(lane.order(), ["unit", "unit", "end"]);
+    // The daemon's close after the marker changes nothing.
+    close(&mut engine, NOW);
+    assert_eq!(lane.order(), ["unit", "unit", "end"]);
 }
 
 #[test]
@@ -422,4 +546,20 @@ fn stuck_encoder_threads_count_against_the_source_limit() {
         NOW,
     );
     assert_eq!(statuses(&refused)[0].2.as_deref(), Some("source-limit"));
+}
+
+#[test]
+fn a_jpeg_on_a_picture_sources_ingest_lane_goes_to_its_encoder_as_it_is() {
+    let mut engine = engine();
+    open(&mut engine, "screen-pictures");
+    encodes(&mut engine, spec());
+    let effects = picture(&mut engine, 2, at(2_000));
+    let given = effects
+        .iter()
+        .any(|e| matches!(e, Effect::Encode(EncodeEffect::Picture { jpeg, .. }) if jpeg == &JPEG));
+    assert!(
+        given,
+        "the JPEG bytes themselves: {:?}",
+        encode_effects(&effects)
+    );
 }

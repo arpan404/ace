@@ -69,7 +69,7 @@ export class EmbeddedVideo {
     const decoded = decodeEmbeddedVideo(frame);
     if (!decoded) return false;
     const event = VideoEncoderEvent.safeParse(decoded.header);
-    if (event.success) deliverVideoEvent(this.captures, event.data, decoded.bytes);
+    if (event.success) deliverVideoEvent(this.captures, event.data);
     return true;
   }
   /** The desktop is gone: every capture has ended. */

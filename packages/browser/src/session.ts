@@ -161,7 +161,11 @@ export class BrowserSession {
       },
       () => {
         const access = this.tabs.viewed()?.access;
-        return { epoch: access?.epoch ?? 0, since: access?.since ?? -Infinity };
+        return {
+          epoch: access?.epoch ?? 0,
+          since: access?.since ?? -Infinity,
+          private: access?.private ?? false,
+        };
       },
       () => this.viewedPage().viewport(),
       () => (this.options.backend.tabs ? this.captured : undefined),
@@ -316,6 +320,7 @@ export class BrowserSession {
       state: () => this.state,
       emit: () => this.emit(),
       privacyChanged: () => {
+        this.live.privacyChanged();
         this.options.backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
         this.persist();
       },
@@ -338,7 +343,13 @@ export class BrowserSession {
    * person's Chrome, the desktop's view); undefined while it has no encoder.
    */
   videoKind(): import("./backend.ts").VideoMediaKind | undefined {
-    return this.viewedPage().video?.()?.mediaKind;
+    // A page already gone (the session closing, its tab lost) has no video: ace-media's views
+    // still hear its source end, and asking must not throw into that.
+    try {
+      return this.viewedPage().video?.()?.mediaKind;
+    } catch {
+      return undefined;
+    }
   }
   pageStates(): { tabId: string; page: BrowserPageState }[] {
     return this.tabs.all().flatMap((tab) => {

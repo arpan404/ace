@@ -1,5 +1,3 @@
-import { SharedPictureVideos } from "./shared-picture-video.ts";
-import type { PicturesToVideoOptions } from "./picture-video.ts";
 import {
   hostPermissions,
   unavailablePermissions,
@@ -43,18 +41,14 @@ import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
 import { helperEncodesVideo } from "./helper-codecs.ts";
 import { ScreenMediaSource } from "./media-source.ts";
-import { nodeScheduler } from "./runtime.ts";
+import { ScreenPictureSource } from "./picture-source.ts";
+import { nodeScheduler, systemWallClock } from "./runtime.ts";
 import { type Session, type ControllerBinding } from "./session.ts";
 import { type RecordingArtifact } from "./recording.ts";
 
 export type { ScreenOptions } from "./options.ts";
 import type { ScreenOptions } from "./options.ts";
 export class ScreenManager {
-  private readonly pictureVideos = new SharedPictureVideos();
-
-  openPictureVideo(options: PicturesToVideoOptions) {
-    return this.pictureVideos.open(options);
-  }
   private readonly policy = new ScreenPolicy();
   private readonly sessions = new Map<string, Session>();
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();
@@ -78,8 +72,10 @@ export class ScreenManager {
       ...options,
       onFrame: (frame) => {
         const session = this.sessions.get(frame.header.sessionId);
-        if (session?.media) session.media.daemonFrame(frame);
-        else if (session) this.acceptFrame(session, frame);
+        // The helper's socket carries stills only: video goes to ace-media and back on egress.
+        if (!session || frame.header.codec !== "jpeg") return;
+        if (session.media) session.media.daemonFrame(frame);
+        else this.acceptFrame(session, frame);
       },
       onStreamIngestClosed: (id) => this.sessions.get(id)?.media?.ingestClosed(),
       onPermissionsChanged: (permissions) => {
@@ -491,12 +487,29 @@ export class ScreenManager {
     await Promise.all([...this.sessions.values()].map((session) => session.pixels.settle()));
     return ScreenInventory.parse(await this.inspect("targets"));
   }
-  /** A Mac, Windows or Linux session streams into ace-media while the route says so (ADR 0147, phase 2). */
+  /**
+   * A Mac, Windows or Linux session's way into ace-media (ADR 0147, X2): its helper's own encoder
+   * streams there, or a JPEG-only helper's pictures go there to be encoded (ADR 0148).
+   */
   private attachMedia(session: Session): void {
     const media = this.options.media;
     const capabilities = session.helper.capabilities;
-    if (!media || session.media || !capabilities || !helperEncodesVideo(capabilities)) return;
+    if (!media || session.media || !capabilities) return;
+    const stalled = (video: ScreenState["video"]) => this.videoStatus(session, video);
+    if (!helperEncodesVideo(capabilities)) {
+      session.media = new ScreenPictureSource({
+        sessionId: session.state.sessionId,
+        platform: capabilities.platform,
+        helper: session.helper,
+        media,
+        accept: (frame) => this.acceptOrdered(session, frame),
+        stalled,
+        now: this.options.wallClock ?? systemWallClock,
+      });
+      return;
+    }
     session.media = new ScreenMediaSource({
+      stalled,
       sessionId: session.state.sessionId,
       platform: capabilities.platform,
       codecs: capabilities.codecs,
@@ -569,8 +582,18 @@ export class ScreenManager {
   screenshot(id: string): Frame {
     return this.observations.screenshot(id);
   }
-  configureStream(id: string, settings: ScreenStreamSettings) {
-    return this.observations.configureStream(id, settings);
+  async configureStream(id: string, settings: ScreenStreamSettings) {
+    const result = await this.observations.configureStream(id, settings);
+    // Live video comes only from ace-media: a view that asks for it here says why it can't.
+    const session = this.sessions.get(id);
+    if (session && settings.codec === "h264" && !session.media)
+      this.videoStatus(session, {
+        status: "unavailable",
+        reason: this.options.media
+          ? "This screen's helper can't send pictures for live video"
+          : "ace-media isn't available on this computer",
+      });
+    return result;
   }
   requestKeyframe(id: string): Promise<void> {
     return this.observations.requestKeyframe(id);
@@ -917,6 +940,13 @@ export class ScreenManager {
       ...(pointer ? { agentPointer: pointer } : {}),
       ...(cowork.personActive(apps) ? { personActive: true } : {}),
     };
+  }
+  /** Why the session's live video can't play now; undefined once a picture arrives. */
+  private videoStatus(session: Session, video: ScreenState["video"]): void {
+    if (JSON.stringify(session.state.video) === JSON.stringify(video)) return;
+    if (video) session.state.video = video;
+    else delete session.state.video;
+    this.emit(session);
   }
   private emit(session: Session): void {
     for (const listener of this.listeners) {

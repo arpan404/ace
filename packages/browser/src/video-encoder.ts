@@ -10,7 +10,7 @@ export { encodeEmbeddedVideo } from "./embedded-video-wire.ts";
 
 /**
  * The encoder's script (`video-extension/offscreen.ts`, bundled): defines `aceVideo` and reports
- * through `aceVideoEmit(event, bytes)` when the page provides it.
+ * through `aceVideoEmit(event)` when the page provides it.
  */
 export function videoEncoderScript(): string {
   const script = videoExtensionFiles["offscreen.js"];

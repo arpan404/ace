@@ -2,7 +2,6 @@
 //! ace-media's decisions, with no I/O: every control message and ingest frame goes in, and
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
-pub mod base64;
 pub mod delivery;
 pub mod egress;
 pub mod grants;
@@ -80,7 +79,8 @@ pub enum EncodeEffect {
         source: String,
         /// The encoder this is for (`Sources` gives each encoder one).
         token: u64,
-        text: Vec<u8>,
+        /// The JPEG, as it came on the source's ingest connection.
+        jpeg: Vec<u8>,
         epoch: u32,
         age_us: u32,
     },
@@ -268,6 +268,17 @@ impl Engine {
 
     /// One control message from either lane. Its payload is wiped when this returns, unless it
     /// was handed on (pictures).
+    /// A control message of a type this build doesn't speak was skipped. An older daemon's
+    /// `source.picture` (pictures on the control lane, before X2) names its source, which then
+    /// says why it has no video rather than wait silently.
+    pub fn skipped(&mut self, kind: &str, source: Option<&str>) {
+        if kind == "source.picture"
+            && let Some(source) = source
+        {
+            self.sources.needs_picture_ingest(source, &mut self.out);
+        }
+    }
+
     pub fn control(&mut self, message: ToMedia, payload: Zeroizing<Vec<u8>>, now: Now) {
         self.apply_control(message, payload, now);
         self.closed_connections(now);
@@ -294,6 +305,7 @@ impl Engine {
                 source,
                 handle,
                 epoch,
+                private,
                 origin,
                 ..
             } => {
@@ -309,7 +321,10 @@ impl Engine {
                     out,
                 );
                 match self.sources.handle(source.get()) {
-                    Some(handle) => self.stills.open(source.get(), handle),
+                    Some(handle) => {
+                        self.stills
+                            .open(source.get(), handle, private.unwrap_or(false))
+                    }
                     None => self.stills.close(source.get(), out),
                 }
             }
@@ -325,24 +340,6 @@ impl Engine {
                 self.delivery
                     .codecs(source.get(), &codecs, now.mono_ms, out)
             }
-            ToMedia::SourcePicture {
-                source,
-                epoch,
-                age_ms,
-            } => {
-                let mut payload = payload;
-                let bytes = std::mem::take(&mut *payload);
-                self.stills.picture(source.get(), &bytes, epoch);
-                self.sources.picture(
-                    source.get(),
-                    epoch,
-                    age_ms,
-                    bytes,
-                    now,
-                    self.egress.as_mut(),
-                    out,
-                );
-            }
             ToMedia::SourceSync {
                 source,
                 seq,
@@ -354,9 +351,16 @@ impl Engine {
                 seq,
                 epoch,
                 follows_private,
-            } => self
-                .sources
-                .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out),
+            } => {
+                // A source that opened private: its first epoch since follows a private one,
+                // even if this announcement reached ace-media without saying so.
+                // The open's word holds for this first epoch only: consumed whatever it says.
+                let opened_private = self.stills.take_opened_private(source.get());
+                let follows_private = follows_private || opened_private;
+                self.stills.epoch(source.get(), epoch, follows_private);
+                self.sources
+                    .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out);
+            }
             ToMedia::RecordEpochs {
                 source,
                 recording,
@@ -612,6 +616,7 @@ impl Engine {
                 max_pixels,
                 quality,
                 deadline_ms,
+                min_epoch,
             } => self.stills.take(
                 request,
                 &source,
@@ -622,6 +627,7 @@ impl Engine {
                 max_pixels,
                 quality,
                 deadline_ms,
+                min_epoch,
                 now.mono_ms,
                 out,
             ),
@@ -786,7 +792,14 @@ impl Engine {
     }
 
     /// A frame from an ingest connection the engine admitted.
-    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
+    pub fn ingest(&mut self, conn: IngestId, mut frame: MediaFrame, now: Now) {
+        // One epoch rule for every place a picture goes: it is checked here, before them all.
+        if !self
+            .sources
+            .admits(conn, &mut frame, now.mono_ms, &mut self.out)
+        {
+            return;
+        }
         if let Some(source) = self.sources.bound(conn) {
             self.stills.frame(source, &frame, &mut self.out);
             self.delivery

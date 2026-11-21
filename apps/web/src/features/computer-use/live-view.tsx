@@ -1,6 +1,7 @@
 import type { SourcePicture } from "@ace/client/screen-stream";
 import { deviceVideoSupported, screenStreamProfile } from "@ace/client/devices";
-import type { AgentPointer, ScreenInput } from "@ace/protocol";
+import type { AgentPointer, LiveVideoStatus, ScreenInput } from "@ace/protocol";
+import { liveVideoSentence } from "@ace/ui-core";
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
@@ -37,6 +38,8 @@ export function LiveView(props: {
   onInput?: ((input: ScreenInput) => void) | undefined;
   /** The agent sharing the window: its pointer (in picture pixels) drawn where it last acted. */
   agent?: { name: string; pointer: AgentPointer | undefined; mark: ReactNode } | undefined;
+  /** Why the session's video can't play now, from its state: the pane says so, never blank. */
+  video?: LiveVideoStatus | undefined;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   /** The newest picture's size and scale, to turn a page point into a window point. */
@@ -293,12 +296,12 @@ export function LiveView(props: {
           mark={props.agent.mark}
         />
       )}
-      {(noVideo ?? undelivered) && (
+      {(liveVideoSentence(props.video) ?? noVideo ?? undelivered) && (
         <p
           role="status"
           className="absolute inset-0 grid place-items-center p-4 text-center text-xs text-muted-foreground"
         >
-          {noVideo ?? undelivered}
+          {liveVideoSentence(props.video) ?? noVideo ?? undelivered}
         </p>
       )}
     </>

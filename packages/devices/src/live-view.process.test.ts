@@ -14,6 +14,9 @@ import { DevicesService, DevicePlatform, reserveDevices, agentOwner } from "./in
 import type { DevicePeer } from "./bridge.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { updateReason } from "@ace/media/media-viewers";
+import { loopbackMedia } from "./testing/loopback-media.ts";
+
+const loopbackCleanups: (() => Promise<void> | void)[] = [];
 
 /*
  * The iOS Simulator live view end to end, minus macOS: a fake `xcrun simctl` keeps the
@@ -79,7 +82,13 @@ async function fixture(
   const slow = join(home, "slow-read");
   const env = { PATH: bin, SIMULATOR_STATE: state, SIMULATOR_READS: reads, SIMULATOR_SLOW: slow };
   let id = 0;
+  // A screen session's video comes only through ace-media: a loopback ingest stands in for it.
+  const media = await loopbackMedia(loopbackCleanups);
+  onTestFinished(async () => {
+    for (const close of loopbackCleanups.splice(0)) await close();
+  });
   const screen = new ScreenManager({
+    media,
     command: process.execPath,
     args: [new URL("./testing/simulator-helper.ts", import.meta.url).pathname],
     platform: "darwin",
@@ -149,6 +158,7 @@ async function fixture(
     state,
     service,
     screen,
+    media,
     grant,
     helperJournal,
     logged,
@@ -376,7 +386,7 @@ it("without an open Devices view no scheduled inventory ticks read device state"
   expect(await f.readCount()).toBe(closed);
 });
 
-it("a Simulator that can only make JPEG refuses the live view and names serve-sim", async () => {
+it("a Simulator whose screen helper can only make JPEG still gets a live view: ace-media encodes its pictures", async () => {
   const f = await fixture({ video: false });
   await writeFile(f.state, "booted");
   const { client } = connect(f.service);
@@ -389,22 +399,18 @@ it("a Simulator that can only make JPEG refuses the live view and names serve-si
     client.ack(picture);
   });
   await client.request({ op: "start", deviceId, fps: 60 });
-  await expect(client.request({ op: "subscribe", deviceId })).rejects.toMatchObject({
-    code: "tool_missing",
-    hint: expect.stringContaining(
-      "Download device tools in Devices for ace's serve-sim 0.1.49-beta.139.1",
-    ),
-  });
+  await client.request({ op: "subscribe", deviceId });
   await expect(
     client.request({
       op: "stream.configure",
       deviceId,
       settings: { codec: "h264", maxWidth: 1170, maxHeight: 2532, fps: 60, bitrate: 8000000 },
     }),
-  ).rejects.toMatchObject({ code: "tool_missing" });
-  // The capture keeps making JPEG for agents; none of it reaches the view.
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  expect(shown).toEqual([]);
+  ).resolves.toMatchObject({ codec: "h264" });
+  // The helper's pictures go to ace-media to encode; none of the JPEG reaches the view itself.
+  await waitFor(() => expect(f.media.pictures.length).toBeGreaterThan(0));
+  expect(f.media.pictures[0]?.toString()).toMatch(/^simulator:/);
+  expect(shown.every((codec) => codec !== "jpeg")).toBe(true);
 });
 
 it("input is refused without control and reaches the simulator with it", async () => {

@@ -40,6 +40,14 @@ async fn fill<R: AsyncRead + Unpin>(reader: &mut R, buffer: &mut [u8]) -> io::Re
     Ok(true)
 }
 
+/// A message of a type this build doesn't know (a newer daemon's, or an older one's that this
+/// build no longer speaks), skipped: its type, and the source it names if it names one.
+#[derive(Debug, PartialEq)]
+pub struct Skipped {
+    pub kind: String,
+    pub source: Option<String>,
+}
+
 /// The next control frame, `None` at a clean end of stream.
 /// A message of a type this build doesn't know (a newer daemon's) is skipped.
 pub async fn read_control<R: AsyncRead + Unpin>(
@@ -47,22 +55,54 @@ pub async fn read_control<R: AsyncRead + Unpin>(
     lane: Lane,
 ) -> io::Result<Option<ControlFrame<ToMedia>>> {
     loop {
-        let mut prefix = [0u8; 4];
-        if !fill(reader, &mut prefix).await? {
-            return Ok(None);
+        match read_control_or_skipped(reader, lane).await? {
+            Some(Ok(frame)) => return Ok(Some(frame)),
+            Some(Err(_)) => continue,
+            None => return Ok(None),
         }
-        let length = u32::from_be_bytes(prefix) as usize;
-        if !(4..=lane_limit(lane)).contains(&length) {
-            return Err(invalid("control frame length"));
-        }
-        let mut frame = Zeroizing::new(vec![0u8; 4 + length]);
-        frame[..4].copy_from_slice(&prefix);
-        reader.read_exact(&mut frame[4..]).await?;
-        match ControlFrame::decode(&frame, lane) {
-            Ok(frame) => return Ok(Some(frame)),
-            Err(_) if ControlFrame::<ToMedia>::unknown_type(&frame) => continue,
-            Err(_) => return Err(invalid("control frame")),
-        }
+    }
+}
+
+/// The next control frame or, for one of a type this build doesn't know, what it was
+/// (`Skipped`), so a caller can say why; `None` at a clean end of stream.
+pub async fn read_control_or_skipped<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    lane: Lane,
+) -> io::Result<Option<Result<ControlFrame<ToMedia>, Skipped>>> {
+    let mut prefix = [0u8; 4];
+    if !fill(reader, &mut prefix).await? {
+        return Ok(None);
+    }
+    let length = u32::from_be_bytes(prefix) as usize;
+    if !(4..=lane_limit(lane)).contains(&length) {
+        return Err(invalid("control frame length"));
+    }
+    let mut frame = Zeroizing::new(vec![0u8; 4 + length]);
+    frame[..4].copy_from_slice(&prefix);
+    reader.read_exact(&mut frame[4..]).await?;
+    match ControlFrame::decode(&frame, lane) {
+        Ok(frame) => Ok(Some(Ok(frame))),
+        Err(_) if ControlFrame::<ToMedia>::unknown_type(&frame) => Ok(Some(Err(skipped(&frame)))),
+        Err(_) => Err(invalid("control frame")),
+    }
+}
+
+/// What a skipped frame was: `unknown_type` has already read its JSON as an object with a type.
+fn skipped(frame: &[u8]) -> Skipped {
+    let json = frame
+        .get(4..8)
+        .map(|j| u32::from_be_bytes([j[0], j[1], j[2], j[3]]) as usize)
+        .and_then(|j| frame.get(8..8 + j))
+        .and_then(|json| serde_json::from_slice::<serde_json::Value>(json).ok());
+    let text = |key: &str| {
+        json.as_ref()
+            .and_then(|v| v.get(key))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    Skipped {
+        kind: text("type").unwrap_or_default(),
+        source: text("source"),
     }
 }
 
@@ -215,6 +255,42 @@ mod tests {
         let mut reader = malformed.as_slice();
         run(async {
             assert!(read_control(&mut reader, Lane::Normal).await.is_err());
+        });
+    }
+
+    #[test]
+    fn an_older_daemons_source_picture_with_its_picture_is_skipped() {
+        let json = r#"{"type":"source.picture","source":"s1","ageMs":0,"epoch":1}"#;
+        let picture = vec![b'A'; 512 * 1024];
+        let mut bytes = ((4 + json.len() + picture.len()) as u32)
+            .to_be_bytes()
+            .to_vec();
+        bytes.extend((json.len() as u32).to_be_bytes());
+        bytes.extend(json.as_bytes());
+        bytes.extend(&picture);
+        bytes.extend(ping_frame());
+        let mut reader = bytes.as_slice();
+        run(async {
+            // Said what it was, so its source can say why it has no video...
+            assert_eq!(
+                read_control_or_skipped(&mut reader, Lane::Normal)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(Result::err),
+                Some(Skipped {
+                    kind: "source.picture".into(),
+                    source: Some("s1".into())
+                })
+            );
+            // ...and the stream goes on with the next frame.
+            assert!(matches!(
+                read_control(&mut reader, Lane::Normal).await,
+                Ok(Some(ControlFrame {
+                    message: ToMedia::Ping { .. },
+                    ..
+                }))
+            ));
         });
     }
 

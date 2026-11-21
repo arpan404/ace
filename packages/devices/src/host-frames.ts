@@ -5,7 +5,7 @@ import { streamScreen, type ScreenStream } from "./emulator-grpc.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
 import { startFrameEncoder } from "./frame-encoder.ts";
-import type { DaemonUnit, Switched } from "./media-paths.ts";
+import type { Switched } from "./media-paths.ts";
 
 /**
  * An Android emulator's screen encoded on the host (the Mac's hardware H.264 encoder) instead of
@@ -30,8 +30,8 @@ export interface HostFrames {
   bitrate(bitrate: number): void;
   keyframe(): void;
   /**
-   * Sends the encoder's units to ace-media's ingest (`socket` with its base64 `token`), or back
-   * to stdout. Resolves once it has switched, with the last sequence the previous path took.
+   * Sends the encoder's units to ace-media's ingest (`socket` with its base64 `token`), or
+   * nowhere. Resolves once it has switched, with the last sequence the previous ingest took.
    */
   ingest(address: { socket: string; token: string } | undefined): Promise<Switched>;
   stop(): Promise<void>;
@@ -49,10 +49,8 @@ export async function startHostFrames(options: {
   bitrate: number;
   runtime: Pick<DeviceRuntime, "spawn" | "id" | "after">;
   env: NodeJS.ProcessEnv;
-  /** A unit off the encoder's stdout, with its sequence. */
-  unit(unit: DaemonUnit): void;
   failed(error: unknown): void;
-  /** The encoder's ingest connection failed: its units come on stdout again. */
+  /** The encoder's ingest connection failed: its units stop until a new address. */
   ingestClosed?(): void;
 }): Promise<HostFrames> {
   const file = join(options.directory, `emulator-frames-${options.runtime.id()}.rgba`);
@@ -77,7 +75,6 @@ export async function startHostFrames(options: {
     file,
     runtime: options.runtime,
     env: options.env,
-    unit: options.unit,
     failed: fail,
     ...(options.ingestClosed ? { ingestClosed: options.ingestClosed } : {}),
   });

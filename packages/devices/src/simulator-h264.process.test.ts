@@ -55,8 +55,8 @@ const video = {
   bitrate: 12000000,
 };
 
-it("a live view gets serve-sim's H.264 untouched, and agents get JPEG back once nobody watches", async () => {
-  const home = await mkdtemp(join(tmpdir(), "sim-h264-"));
+it("without ace-media a live view is refused, saying why, and agents keep their JPEG stills", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sim-nomedia-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   const sim = await fakeServeSim(home, "0.1.49-beta.139.1");
   const platform = platformFor(home);
@@ -75,75 +75,12 @@ it("a live view gets serve-sim's H.264 untouched, and agents get JPEG back once 
   });
   onTestFinished(() => capture.stop());
   await expect.poll(() => frames.length).toBeGreaterThan(0);
-  expect(frames[0]?.header.codec).toBe("jpeg");
-
-  expect(await capture.configure?.(video)).toEqual({ codec: "h264" });
-  const key = frames.find((frame) => frame.header.codec === "h264");
-  // Native size whatever the viewer's budget: nothing is scaled or re-encoded.
-  expect(key?.header).toMatchObject({
-    codec: "h264",
-    keyframe: true,
-    videoCodec: "avc1.640033",
-    width: 1206,
-    height: 2622,
-    scale: 1,
-  });
-  expect(key?.payload.toString("hex")).toBe(
-    [
-      "0000000127640033ac13143c04c0149e6a9a81010103c20108f8",
-      "0000000128ee3cb0",
-      "00000001258801",
-    ].join(""),
-  );
-  await expect.poll(sim.mjpegOpen).toBe(0);
-
-  sim.delta(0x55);
-  await expect.poll(() => frames.at(-1)?.payload.toString("hex")).toBe("000000012155");
-  expect(frames.at(-1)?.header).toMatchObject({ codec: "h264", keyframe: false });
-
-  // A keyframe request opens a fresh subscription and leaves only that one open.
-  await capture.keyframe?.();
-  expect(sim.opened()).toBe(2);
-  expect(frames.at(-1)?.payload.subarray(-3).toString("hex")).toBe("258802");
-  await expect.poll(() => sim.avcc.length).toBe(1);
-  const sequences = frames.map((frame) =>
-    frame.header.version === 1 ? frame.header.sequence : -1,
-  );
-  expect(sequences).toEqual(sequences.map((_, index) => index));
-
-  expect(await capture.configure?.({ ...video, codec: "jpeg" })).toEqual({ codec: "jpeg" });
-  await expect.poll(() => frames.at(-1)?.header.codec).toBe("jpeg");
-  await expect.poll(() => sim.avcc.length).toBe(0);
-  expect(failures).toEqual([]);
-});
-
-it("serve-sim video that won't start refuses the live view instead of handing it JPEG", async () => {
-  const home = await mkdtemp(join(tmpdir(), "sim-novideo-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
-  await fakeServeSim(home, "0.1.49-beta.139.1", { video: false });
-  const platform = platformFor(home);
-  onTestFinished(() => platform.close());
-  const frames: Frame[] = [];
-  const failures: unknown[] = [];
-  const capture = await startCapture({
-    device,
-    streamId: "native",
-    fps: 30,
-    platform,
-    runtime,
-    env: { PATH: home },
-    publish: (frame) => frames.push(frame),
-    failure: (error) => failures.push(error),
-  });
-  onTestFinished(() => capture.stop());
-  await expect.poll(() => frames.length).toBeGreaterThan(0);
   await expect(capture.configure?.(video)).rejects.toMatchObject({
     code: "command_failed",
-    hint: expect.stringContaining(
-      "download device tools again in Devices (serve-sim 0.1.49-beta.139.1)",
-    ),
+    message: expect.stringContaining("ace-media"),
   });
-  // The capture itself lives on for agents' stills.
+  // The daemon never reads serve-sim's video itself; the capture lives on for agents' stills.
+  expect(sim.avcc.length).toBe(0);
   expect(failures).toEqual([]);
   expect(frames.every((frame) => frame.header.codec === "jpeg")).toBe(true);
 });
@@ -243,6 +180,7 @@ it("a notice serve-sim prints before announcing its helper doesn't stop the stre
     failure: () => {},
   });
   onTestFinished(() => capture.stop());
-  expect(await capture.configure?.(video)).toEqual({ codec: "h264" });
-  expect(frames.some((frame) => frame.header.codec === "h264")).toBe(true);
+  // The stream serve-sim announced after its notice runs: its pictures arrive.
+  await expect.poll(() => frames.length).toBeGreaterThan(0);
+  expect(frames.every((frame) => frame.header.codec === "jpeg")).toBe(true);
 });

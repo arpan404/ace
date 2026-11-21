@@ -149,15 +149,14 @@ export const SettingsValues = z.object({
    */
   "devices.emulatorWindow": z.boolean(),
   /**
-   * Who encodes live video (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps today's
-   * encoders (the browser's WebCodecs over its CDP binding, the daemon's encoder Chrome for
-   * pictures, the Mac screen helper's own socket); `auto` streams through ace-media, which
-   * encodes picture-only sources on this computer's hardware encoder and hands every unit back
-   * to the daemon's legacy viewers, recordings and stills while those stay legacy. It falls
-   * back to `legacy` whenever ace-media isn't healthy.
-   * Global only; read live, so a change moves running producers at their next keyframe.
+   * Who encodes live video (ADR 0147, docs/media/plan.md "Routes"): always `auto`. Every
+   * producer streams into ace-media, which encodes picture-only sources on this computer's
+   * hardware encoder and hands every unit back to the daemon's legacy viewers, recordings and
+   * stills while those stay legacy. While ace-media isn't healthy, live views say they are
+   * retrying and why. The old `legacy` value is gone; a stored one reads as `auto`.
+   * Global only.
    */
-  "media.encode": z.enum(["auto", "legacy"]),
+  "media.encode": z.enum(["auto"]),
   /**
    * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): always `auto`,
    * ace-media on each client's media connection, which paces, scales and sends every viewer's

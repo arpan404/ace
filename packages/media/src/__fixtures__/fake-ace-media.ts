@@ -11,7 +11,13 @@ import { join } from "node:path";
 import { encodeEgress } from "../frame.ts";
 import { deriveLaneKeys, LaneRecords, laneTranscript } from "../lane-records.ts";
 import { controlFrameReader, laneAccepted } from "../lanes.ts";
-import { decodeToMedia, encodeControl, type ControlLane, type FromMedia } from "../wire.ts";
+import {
+  decodeToMedia,
+  encodeControl,
+  mediaFeatures,
+  type ControlLane,
+  type FromMedia,
+} from "../wire.ts";
 
 let secret: Uint8Array | undefined;
 const lanes = new Set<number>();
@@ -156,12 +162,20 @@ process.stdin.on("data", (chunk: Uint8Array) => {
             ingest: { socket: join(message.runtimeDir, "ingest.sock"), websocketPort: 0 },
             control: { socket: control },
             listen: { loopbackPort: 0 },
+            // As the real binary: the offered features it speaks (`ACE_MEDIA_FEATURES`).
+            ...(process.env.ACE_MEDIA_FEATURES === undefined
+              ? {}
+              : {
+                  features: process.env.ACE_MEDIA_FEATURES.split(",").filter((f) =>
+                    (mediaFeatures as readonly string[]).includes(f),
+                  ),
+                }),
           },
           "normal",
         ),
       );
     }
-    if (message.type === "source.picture" && flood) egressLane?.write(egressUnit);
+    if (message.type === "relay.out" && flood) egressLane?.write(egressUnit);
     if (message.type === "ping")
       send(
         process.stdout,

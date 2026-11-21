@@ -2,6 +2,8 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
 import { ScreenHelperRequest } from "@ace/protocol";
+import { encodeMediaFrame } from "@ace/media/frame";
+import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import { framePacket } from "@ace/screen";
 
 /**
@@ -25,6 +27,34 @@ let heldPointer = false;
 const video = process.env["HELPER_VIDEO"] !== "off";
 let codec: "jpeg" | "h264" = "jpeg";
 let screen = "home";
+/** ace-media's ingest while `stream.configure` names one: video goes there, and only there. */
+let ingest: ReturnType<typeof connect> | undefined;
+
+const mediaFrame = (
+  kind: number,
+  flags: number,
+  codecString: string,
+  extension: Uint8Array,
+  payload: Uint8Array,
+) =>
+  encodeMediaFrame({
+    kind,
+    flags,
+    ageUs: 0,
+    width: kind === 1 ? 780 : 0,
+    height: kind === 1 ? 1688 : 0,
+    displayWidth: kind === 1 ? 390 : 0,
+    displayHeight: kind === 1 ? 844 : 0,
+    scale: 2000,
+    rotation: 0,
+    codec: kind === 1 ? 1 : 0,
+    encode: 0,
+    epoch: 1,
+    codecString,
+    description: new Uint8Array(0),
+    extension,
+    payload,
+  });
 
 const permissions = (): {
   screenRecording: boolean;
@@ -38,6 +68,12 @@ function paint(next: string) {
   screen = next;
   if (!capturing) return;
   const payload = Buffer.from(`simulator:${next}`);
+  if (codec === "h264") {
+    // The real helper's video goes only to ace-media's ingest.
+    const extension = encodeProducerStamp({ sequence: sequence++, timestamp: 1, scale: 2 });
+    ingest?.write(mediaFrame(1, 1, "avc1.42E01F", extension, payload));
+    return;
+  }
   frames.write(
     framePacket(
       {
@@ -48,8 +84,7 @@ function paint(next: string) {
         width: 780,
         height: 1688,
         scale: 2,
-        codec,
-        ...(codec === "h264" ? { keyframe: true, videoCodec: "avc1.42E01F" } : {}),
+        codec: "jpeg",
         bytes: payload.length,
       },
       payload,
@@ -111,7 +146,17 @@ commands.on("line", (line) => {
     case "stream.configure":
       // No hardware HEVC here: HEVC runs as H.264, as on such a Mac.
       codec = request.settings.codec === "hevc" ? "h264" : request.settings.codec;
-      data = { codec };
+      if (request.ingest && !ingest) {
+        ingest = connect(request.ingest.socket);
+        ingest.on("error", () => {});
+        ingest.write(
+          mediaFrame(5, 0, "", new Uint8Array(0), Buffer.from(request.ingest.token, "base64")),
+        );
+      } else if (!request.ingest && ingest) {
+        ingest.end();
+        ingest = undefined;
+      }
+      data = { codec, ingest: ingest ? "on" : "off", switched: true };
       setTimeout(() => paint(screen), 5);
       break;
     case "stream.keyframe":

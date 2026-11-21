@@ -98,7 +98,7 @@ function legacy() {
 }
 
 it.runIf(real)(
-  "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route returns to the daemon when ace-media dies",
+  "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route stops the producer when ace-media dies",
   async () => {
     // Share one condition-wait budget, leaving room for cleanup within the process tier.
     const deadline = performance.now() + processBudgetMs - cleanupBudgetMs;
@@ -180,8 +180,8 @@ it.runIf(real)(
       await removeWhenFree(runtimeDir, cleanupBudgetMs - 1_000);
     });
 
-    // Before ace-media is up the producer streams to the daemon.
-    expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
+    // Before ace-media is up the producer streams nowhere.
+    expect(watch.routes().tab).toMatchObject({ producer: "none", egress: false });
     supervisor.need();
     await until(
       () => supervisor.health() === "healthy" && starting.has("a") && starting.has("b"),
@@ -230,18 +230,18 @@ it.runIf(real)(
     supervisor.send({ type: "source.close", source: "a" });
     expect(router.drops().unknown).toBe(0);
 
-    // ace-media dies: the route goes back to the daemon within 2 s.
+    // ace-media dies: the route stops the tab's producer within 2 s.
     const pid = supervisor.snapshot().pid ?? 0;
     const killed = performance.now();
     process.kill(pid, "SIGKILL");
     await until(
-      () => changes.some((c) => c.at > killed && c.routes.tab.producer === "daemon"),
+      () => changes.some((c) => c.at > killed && c.routes.tab.producer === "none"),
       deadline,
       "route fallback after process death",
     );
-    const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "daemon");
+    const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "none");
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
-    expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "none" });
+    expect(back?.routes.tab).toMatchObject({ egress: false, deliverer: "none" });
   },
   processBudgetMs,
 );

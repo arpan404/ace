@@ -15,6 +15,7 @@ function fakeHost(supported = ["avc1.42E033"]) {
   const pages: { width: number; height: number; scale: number }[] = [];
   let closed = 0;
   const host: VideoHost = {
+    mediaKind: "tab",
     supported: async (asked) => asked.filter((codec) => supported.includes(codec)),
     open: async (_page, _width, _height, events) => {
       opened.push(events);

@@ -29,7 +29,7 @@ export function mediaPipelineState(
   return { on: encode === "auto", partly: false };
 }
 
-/** The value both settings take when the switch turns on or off. */
+/** The value the setting takes when the switch turns on or off. */
 export function mediaPipelineValue(on: boolean): "auto" | "legacy" {
   return on ? "auto" : "legacy";
 }

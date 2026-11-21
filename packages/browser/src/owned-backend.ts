@@ -177,10 +177,6 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
       platform: process.platform,
       launch,
       cleanup,
-      encoder: {
-        profileDir: join(options.dataDir, "browser", "encoder"),
-        idleMs: options.videoEncoderIdleMs ?? 30_000,
-      },
       // Windows without a usable GPU draws ace's Chrome at device scale 1 (`gpu-scale.ts`),
       // unless the embedder chose a scale.
       ...(process.platform === "win32" &&
@@ -205,8 +201,6 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
         launch: { ...launch, deviceScaleFactor: 1, idleMs: 60_000 },
         cleanup,
       })),
-    /** Video for a backend without an encoder of its own ("Use my Chrome"). */
-    videoEncoder: () => owned?.encoder(),
     subscribe: (listener: (value: BrowserDownloadProgress) => void) => {
       if (listeners.size >= 64) throw new Error("Browser download subscriber limit");
       listeners.add(listener);

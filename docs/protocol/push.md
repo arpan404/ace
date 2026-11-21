@@ -3279,6 +3279,12 @@ Example:
 ```json
 {
   "state": {
+    "agentPointer": {
+      "at": 4,
+      "kind": "scroll",
+      "x": 8,
+      "y": 6
+    },
     "cleanupRequired": false,
     "controller": "none",
     "device": {
@@ -3297,7 +3303,7 @@ Example:
     "leaseExpiresAt": 9,
     "lifecycle": "idle",
     "ownedHere": false,
-    "personActive": false,
+    "personActive": true,
     "posture": "closed",
     "recordingNotice": "example",
     "sharing": "cowork",

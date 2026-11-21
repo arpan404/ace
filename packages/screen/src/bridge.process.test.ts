@@ -335,3 +335,35 @@ it("a session's view refused at ace-media's viewer limit says so in its reply an
     undelivered: limit,
   });
 });
+
+it("a view on a media connection shows the session's video whether its helper encodes or ace-media encodes its pictures", async () => {
+  const test = await manager({ FAKE_V2: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const d = fakeDelivery();
+  // Only JPEG-only screens stream into ace-media here.
+  const port = { ...d.port, serves: (kind: string) => kind === "screen-pictures" };
+  const results: ScreenServerMessage[] = [];
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: (message) => results.push(message),
+    delivery: { owner: () => phoneOwner, port: () => port },
+  });
+  cleanups.push(async () => connection.close());
+  await connection.request({
+    type: "screen.request",
+    requestId: "view",
+    operation: {
+      op: "subscribe",
+      sessionId: state.sessionId,
+      media: { connection: "mc_aaaaaaaaaaaa" },
+    },
+  });
+  expect(results.at(-1)).toMatchObject({ type: "screen.result", requestId: "view", ok: true });
+  expect(results.at(-1)).toHaveProperty("media");
+  const [intent] = [...d.views.values()];
+  const producer = (kind: "screen" | "screen-pictures", sessionId: string) =>
+    ({ kind, sessionId }) as Parameters<NonNullable<typeof intent>["shows"]>[0];
+  expect(intent?.shows(producer("screen-pictures", state.sessionId))).toBe(true);
+  expect(intent?.shows(producer("screen", state.sessionId))).toBe(true);
+  expect(intent?.shows(producer("screen-pictures", "another-session"))).toBe(false);
+});

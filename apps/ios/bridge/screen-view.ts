@@ -1,4 +1,5 @@
 import type { ScreenState } from "@ace/protocol";
+import { liveVideoSentence } from "@ace/ui-core";
 import { degradedSentence } from "./video-degraded.ts";
 import { chooserWaitingCopy, screenSession, visibleSessions } from "@ace/ui-core/computer-use";
 
@@ -46,6 +47,9 @@ export function phoneScreenSessions(
       error: view.error ?? "",
       /** One sentence while this app's video runs degraded on the processor; empty otherwise. */
       degraded: degradedSentence(state.acceleration),
+      /** Why this app's live video can't play now (ace-media restarting or unavailable); empty
+       * while it plays. Shown in the degraded sentence's place. */
+      stopped: liveVideoSentence(state.video) ?? "",
       stoppable: view.stoppable,
       secureInputAllowed: view.secureInputAllowed,
     };

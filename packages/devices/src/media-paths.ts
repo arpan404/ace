@@ -5,6 +5,7 @@ import {
   type IngestProducer,
   type IngestSource,
   type Origin,
+  type StopStatus,
 } from "@ace/media/ingest-sources";
 import { PathMerge } from "@ace/media/path-merge";
 import { readProducerStamp } from "@ace/media/producer-stamp";
@@ -14,14 +15,13 @@ import { wantedStreamSettings } from "@ace/screen";
 import type { VideoUnit } from "./scrcpy-video.ts";
 
 /**
- * A device's video while it moves between the daemon's path and ace-media (ADR 0147, phase 2,
- * E3). Every unit goes through one shared `PathMerge`, so the capture downstream sees one
- * ordered stream whichever way it came, and numbers its frames as before.
+ * A device's video, which comes only through ace-media (ADR 0147, phase 2, E3, X2). Every unit
+ * off egress goes through one shared `PathMerge`, so the capture downstream sees one ordered
+ * stream across ace-media paths (a reconnect, a restart), and numbers its frames as before.
  *
- * Leaving the daemon's path, that path ends once the producer's boundary (the last sequence it
- * sent there) has been handed on. Leaving ace-media, the old path ends with ace-media's end
- * marker after its last unit. A producer whose ingest connection fails is back on the daemon's
- * path at once; that path is cut, and video starts again at its next keyframe.
+ * Leaving a path, it ends with ace-media's end marker after its last unit. While the producer
+ * isn't pointed at ace-media nothing streams; a producer whose ingest connection fails stops,
+ * that path is cut, and video starts again at a keyframe on the next one.
  */
 
 /** Where device sources are opened in ace-media: the daemon's shared sources. */
@@ -59,6 +59,31 @@ export function withMediaWant(
   };
 }
 
+/** Why a device's video can't play now; undefined once a picture arrives again. */
+export type DeviceVideoStatus = { status: StopStatus; reason: string } | undefined;
+
+/**
+ * A device's media whose producers report why their video stopped (ace-media restarting,
+ * unavailable, or refusing the source), for the device's state (`DeviceState.video`). What
+ * clears it is the session's own next picture, after the path merge, whichever source carried
+ * it, so a source opened again never leaves an older reason standing.
+ */
+export function withVideoStatus(
+  media: DeviceMedia,
+  status: (video: DeviceVideoStatus) => void,
+): DeviceMedia {
+  return {
+    attach: (producer) =>
+      media.attach({
+        ...producer,
+        stopped: (reason, kind) => {
+          status({ status: kind, reason });
+          producer.stopped?.(reason, kind);
+        },
+      }),
+  };
+}
+
 /**
  * The producer's answer to a switch: where it sends now, and the last sequence the previous
  * path took. `cut` instead: the paths carry the same live stream (serve-sim broadcasts one to
@@ -66,9 +91,6 @@ export function withMediaWant(
  * fresh keyframe; older units still coming are superseded, never repeated.
  */
 export type Switched = { ingest: "on" | "off"; boundary: number | null; cut?: boolean };
-
-/** A unit on the daemon's path, with the producer's own sequence for the switch boundary. */
-export type DaemonUnit = VideoUnit & { sequence: number };
 
 export type DeviceVideoPathsOptions = {
   media: DeviceMedia;
@@ -78,16 +100,17 @@ export type DeviceVideoPathsOptions = {
   deviceId: string;
   /** The capture's own handling of one unit, in order. */
   emit: (unit: VideoUnit) => void;
-  /** Points the producer at ace-media (an address) or back at the daemon. */
+  /** Points the producer at ace-media (an address), or stops it. */
   switch: (address: IngestAddress | undefined) => Promise<Switched>;
   keyframe: () => void;
   schedule: (callback: () => void, milliseconds: number) => () => void;
 };
 
-const daemonPath = "daemon";
+/** The merge's name for "nothing streams": nothing is ever delivered on it. */
+const offPath = "off";
 const Keyframe = 1;
 
-/** An egress unit as the unit its producer's daemon path would have carried. */
+/** An egress unit as the capture's own video unit. */
 export function egressVideoUnit(unit: EgressUnit, codec: string): VideoUnit | undefined {
   const frame = unit.frame;
   if (frame.kind !== 1 || frame.codec !== 1 || !frame.width || !frame.height) return undefined;
@@ -108,9 +131,11 @@ export class DeviceVideoPaths {
   readonly #options: DeviceVideoPathsOptions;
   readonly #merge: PathMerge<VideoUnit>;
   readonly #source: IngestSource;
-  #onPath = daemonPath;
-  #daemonBoundary: number | undefined;
-  #lastDaemon = -1;
+  #onPath = offPath;
+  /** The path the merge last moved to: stopping never moves it. */
+  #mergeOn = offPath;
+  /** Paths whose end has come (interrupted?): the merge moves on from them at once. */
+  readonly #ended = new Map<string, boolean>([[offPath, false]]);
   #codec = "avc1.640033";
   #lastUnit: EgressUnit | undefined;
   #tail: Promise<unknown> = Promise.resolve();
@@ -118,7 +143,7 @@ export class DeviceVideoPaths {
 
   constructor(options: DeviceVideoPathsOptions) {
     this.#options = options;
-    this.#merge = new PathMerge<VideoUnit>(daemonPath, {
+    this.#merge = new PathMerge<VideoUnit>(offPath, {
       emit: (unit) => {
         if (unit.keyframe) this.#codec = unit.videoCodec;
         options.emit(unit);
@@ -139,6 +164,7 @@ export class DeviceVideoPaths {
       point: (address) => this.#point(address),
       keyframe: () => options.keyframe(),
       pathEnded: (path, interrupted) => {
+        this.#ended.set(path, interrupted);
         this.#merge.ended(path, interrupted);
         // Units may be missing: whatever comes next decodes only from a keyframe.
         if (interrupted) options.keyframe();
@@ -154,20 +180,12 @@ export class DeviceVideoPaths {
     return this.#merge.stale;
   }
 
-  /** A unit on the daemon's path. */
-  daemon(unit: DaemonUnit): void {
-    if (this.#closed) return;
-    this.#lastDaemon = Math.max(this.#lastDaemon, unit.sequence);
-    this.#merge.deliver(daemonPath, unit);
-    this.#reached();
-  }
-
   /**
    * A keyframe while the source streams from ace-media: ace-media reads it, so it is asked.
-   * False on the daemon's path, where the capture asks its own producer.
+   * False while nothing streams.
    */
   keyframe(): boolean {
-    if (this.#closed || this.#onPath === daemonPath) return false;
+    if (this.#closed || this.#onPath === offPath) return false;
     this.#source.key(0);
     return true;
   }
@@ -177,13 +195,10 @@ export class DeviceVideoPaths {
     if (!this.#closed) this.#source.encodes(encodes);
   }
 
-  /** The producer's ingest connection failed: it is on the daemon's path again already. */
+  /** The producer's ingest connection failed: it has stopped already. The source reopens. */
   ingestClosed(): void {
-    if (this.#closed || this.#onPath === daemonPath) return;
-    const lost = this.#onPath;
-    this.#onPath = daemonPath;
-    this.#merge.switching(daemonPath);
-    this.#merge.ended(lost, true);
+    if (this.#closed || this.#onPath === offPath) return;
+    this.#onPath = offPath;
     this.#options.keyframe();
     this.#source.reconnect();
   }
@@ -193,13 +208,6 @@ export class DeviceVideoPaths {
     this.#closed = true;
     this.#source.close();
     this.#merge.dispose();
-  }
-
-  #reached(): void {
-    const boundary = this.#daemonBoundary;
-    if (boundary === undefined || this.#lastDaemon < boundary) return;
-    this.#daemonBoundary = undefined;
-    this.#merge.ended(daemonPath, false);
   }
 
   #egress(unit: EgressUnit): void {
@@ -212,37 +220,27 @@ export class DeviceVideoPaths {
   #point(address: IngestAddress | undefined): Promise<void> {
     const run = this.#tail.then(async () => {
       if (this.#closed) return;
-      const from = this.#onPath;
-      const to = address ? address.path : daemonPath;
-      if (to !== from) this.#merge.switching(to);
-      let switched: Switched;
-      try {
-        switched = await this.#options.switch(address);
-      } catch (error) {
-        if (to !== from) this.#merge.switching(from);
-        throw error;
-      }
-      if ((switched.ingest === "on") !== (to !== daemonPath)) {
-        // It didn't move (an address it couldn't reach): the switch is abandoned.
-        if (to !== from) this.#merge.switching(from);
+      const to = address ? address.path : offPath;
+      const switched = await this.#options.switch(address);
+      if ((switched.ingest === "on") !== (to !== offPath))
+        // It didn't move (an address it couldn't reach): nothing changes.
         throw new Error("The producer refused ace-media's ingest");
-      }
       this.#onPath = to;
+      if (to === offPath || to === this.#mergeOn) return;
+      const previous = this.#mergeOn;
+      this.#mergeOn = to;
+      this.#merge.switching(to);
       if (switched.cut) {
-        this.#merge.ended(from, true);
-        // ace-media's reader starts the new path at a keyframe of the picture as it is now.
-        if (to !== daemonPath) this.#source.key(0);
+        // The paths carry the same live stream: the old one ends at the switch, and ace-media's
+        // reader starts the new one at a keyframe of the picture as it is now.
+        this.#merge.ended(previous, true);
+        this.#source.key(0);
         return;
       }
-      // Off the daemon's path: its end is its boundary arriving. Out of ace-media, the path ends
-      // with ace-media's marker instead (`pathEnded`).
-      if (from === daemonPath && to !== daemonPath) {
-        if (switched.boundary === null) this.#merge.ended(daemonPath, false);
-        else {
-          this.#daemonBoundary = switched.boundary;
-          this.#reached();
-        }
-      }
+      // Its units wait for the old path's marker (`pathEnded`), or go on at once from one
+      // already ended, or from none.
+      const end = this.#ended.get(previous);
+      if (end !== undefined) this.#merge.ended(previous, end);
     });
     this.#tail = run.catch(() => {});
     return run;

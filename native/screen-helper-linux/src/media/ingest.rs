@@ -39,10 +39,9 @@ impl Clock {
     }
 }
 
-/// What the route reports outward: units for the daemon's socket, a keyframe owed, and the
-/// current connection's cut.
+/// What the route reports outward: a keyframe owed, and the current connection's cut. Video
+/// goes only to ace-media's ingest.
 pub struct Outlets {
-    pub legacy: Box<dyn FnMut(VideoUnit) + Send>,
     pub keyframe: Arc<dyn Fn() + Send + Sync>,
     pub closed: Box<dyn FnMut(Option<u64>) + Send>,
 }
@@ -318,7 +317,6 @@ fn carry(
                     }
                 }
             }
-            RouteAction::Legacy(unit) => (outlets.legacy)(unit),
             RouteAction::IngestClosed { boundary, cut } => {
                 eprintln!("ingest: cut ({})", cut.reason());
                 (outlets.closed)(boundary);

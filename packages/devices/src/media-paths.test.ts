@@ -24,10 +24,8 @@ function device() {
           streaming: () => false,
           reconnect: () => {},
           codecs: (told) => void codecs.push([...told]),
-          page: () => {},
           encodes: () => {},
           key: () => {},
-          picture: () => false,
           close: () => {},
         };
       },
@@ -48,16 +46,6 @@ function device() {
     if (!producer) throw new Error("no producer");
     return producer;
   };
-  const daemon = (sequence: number, keyframe = false) =>
-    paths.daemon({
-      sequence,
-      payload: annexB(keyframe, sequence),
-      keyframe,
-      videoCodec: "avc1.640033",
-      width: 4,
-      height: 4,
-      pts: BigInt(sequence),
-    });
   const egress = (path: string, sequence: number, keyframe = false) =>
     ready().consumers.deliver({
       source: path,
@@ -83,7 +71,7 @@ function device() {
       },
     });
   const marks = () => emitted.map((unit) => unit.payload[5]);
-  return { paths, answers, during, keyframes, producer: ready, daemon, egress, marks, codecs };
+  return { paths, answers, during, keyframes, producer: ready, egress, marks, codecs };
 }
 
 const address = (path: string) => ({
@@ -98,79 +86,74 @@ it("a device tells ace-media it encodes H.264 only, so no view is planned in HEV
   expect(device().codecs).toEqual([["avc1.42E033"]]);
 });
 
-it("a move into ace-media hands on the daemon path's units up to its boundary before ace-media's", async () => {
-  const d = device();
-  d.daemon(1, true);
-  d.answers.push({ ingest: "on", boundary: 3 });
-  await d.producer().point(address("p1"));
-  // ace-media's keyframe overtakes the daemon path's last two deltas.
-  d.egress("p1", 4, true);
-  d.daemon(2);
-  d.daemon(3);
-  d.egress("p1", 5);
-  expect(d.marks()).toEqual([1, 2, 3, 4, 5]);
-  expect(d.paths.stale).toBe(0);
-});
-
-it("a move back while ace-media still holds the old path's units loses and repeats none", async () => {
+it("a first move into ace-media hands its units on at once: nothing streamed before", async () => {
   const d = device();
   d.answers.push({ ingest: "on", boundary: null });
   await d.producer().point(address("p1"));
   d.egress("p1", 1, true);
-  d.answers.push({ ingest: "off", boundary: 3 });
-  await d.producer().point(undefined);
-  // The daemon path's new keyframe arrives while units 2 and 3 are still on their way.
-  d.daemon(4, true);
+  d.egress("p1", 2);
+  expect(d.marks()).toEqual([1, 2]);
+  expect(d.paths.stale).toBe(0);
+});
+
+it("a move to a new ace-media path holds its units until the old path's last ones are in", async () => {
+  const d = device();
+  d.answers.push({ ingest: "on", boundary: null });
+  await d.producer().point(address("p1"));
+  d.egress("p1", 1, true);
+  d.answers.push({ ingest: "on", boundary: 3 });
+  await d.producer().point(address("p2"));
+  // The new path's keyframe overtakes the old path's last deltas.
+  d.egress("p2", 4, true);
   d.egress("p1", 2);
   d.egress("p1", 3);
   d.producer().pathEnded?.("p1", false);
-  d.daemon(5);
+  d.egress("p2", 5);
   expect(d.marks()).toEqual([1, 2, 3, 4, 5]);
   expect(d.paths.stale).toBe(0);
 });
 
-it("a failed ingest connection puts video back on the daemon path from its next keyframe", async () => {
+it("a failed ingest connection stops video, and the next path starts at its keyframe", async () => {
   const d = device();
   d.answers.push({ ingest: "on", boundary: null });
   await d.producer().point(address("p1"));
   d.egress("p1", 1, true);
   d.egress("p1", 2);
   d.paths.ingestClosed();
+  expect(d.keyframes).toEqual(["key"]);
+  d.producer().pathEnded?.("p1", true);
+  d.answers.push({ ingest: "on", boundary: null });
+  await d.producer().point(address("p2"));
   // Units the producer had sent ace-media may be lost: a delta before the keyframe can't decode.
-  d.daemon(4);
-  d.daemon(5, true);
-  d.daemon(6);
+  d.egress("p2", 4);
+  d.egress("p2", 5, true);
+  d.egress("p2", 6);
   expect(d.marks()).toEqual([1, 2, 5, 6]);
 });
 
-it("a producer that refuses ace-media's address stays on the daemon path", async () => {
+it("a producer that refuses ace-media's address streams nothing", async () => {
   const d = device();
   d.answers.push({ ingest: "off", boundary: null });
   await expect(d.producer().point(address("p1"))).rejects.toThrow("refused");
-  d.daemon(1, true);
   d.egress("p1", 2, true);
-  expect(d.marks()).toEqual([1]);
+  expect(d.marks()).toEqual([]);
 });
 
 it("paths that carry one live stream are cut at a switch: the new path starts at its keyframe and nothing older repeats", async () => {
   const d = device();
-  d.daemon(1, true);
-  d.daemon(2);
   d.answers.push({ ingest: "on", boundary: null, cut: true });
   await d.producer().point(address("p1"));
-  // ace-media's reader was already running: its older deltas are superseded by its keyframe.
+  d.egress("p1", 1, true);
   d.egress("p1", 2);
-  d.egress("p1", 3, true);
-  d.egress("p1", 4);
-  d.daemon(3);
+  d.answers.push({ ingest: "on", boundary: null, cut: true });
+  await d.producer().point(address("p2"));
+  // The new reader was already running: its older deltas are superseded by its keyframe.
+  d.egress("p2", 2);
+  d.egress("p2", 3, true);
+  d.egress("p2", 4);
+  // The old path's late units are never repeated.
+  d.egress("p1", 3);
   expect(d.marks()).toEqual([1, 2, 3, 4]);
-  d.answers.push({ ingest: "off", boundary: null, cut: true });
-  // The daemon's fresh subscription opens with a keyframe; ace-media's last deltas are older.
-  d.during.push(() => d.daemon(6, true));
-  await d.producer().point(undefined);
-  d.egress("p1", 5);
-  d.daemon(7);
-  expect(d.marks()).toEqual([1, 2, 3, 4, 6, 7]);
 });
 
 it("a path that ends interrupted asks the producer for the keyframe its successor needs", async () => {
@@ -178,13 +161,15 @@ it("a path that ends interrupted asks the producer for the keyframe its successo
   d.answers.push({ ingest: "on", boundary: null });
   await d.producer().point(address("p1"));
   d.egress("p1", 1, true);
-  // ace-media went away: its path ends cut, and the daemon's path restarts at a keyframe.
+  // ace-media went away: video stops, and its path ends cut.
   d.answers.push({ ingest: "off", boundary: null });
   await d.producer().point(undefined);
   expect(d.keyframes).toEqual([]);
   d.producer().pathEnded?.("p1", true);
   expect(d.keyframes).toEqual(["key"]);
-  d.daemon(2);
-  d.daemon(3, true);
+  d.answers.push({ ingest: "on", boundary: null });
+  await d.producer().point(address("p2"));
+  d.egress("p2", 2);
+  d.egress("p2", 3, true);
   expect(d.marks()).toEqual([1, 3]);
 });

@@ -20,8 +20,9 @@ import {
  * (`@ace/browser/video-encoder`). A view is captured with Electron's
  * `webContents.getMediaSourceId(encoderPage)` and `getUserMedia({ chromeMediaSource: "tab" })`:
  * Chromium's own tab capture, which needs no user gesture and no screen-recording permission,
- * and keeps the view producing frames while it is captured. The page's events (encoded chunks
- * with their bytes) arrive over IPC from its preload and go to `onEvent`.
+ * and keeps the view producing frames while it is captured. The page streams its chunks into
+ * ace-media's ingest; its events (an encode's failure, a capture's end) arrive over IPC from its
+ * preload and go to `onEvent`.
  *
  * The page is a WebContentsView in no window, so it never counts as an app window, in its own
  * in-memory partition that grants it the media permission and nothing else (Electron asks the
@@ -37,10 +38,9 @@ const defaultIdleMs = 30_000;
 
 /** What the encoder reports; the daemon parses the full event, this reads what routing needs. */
 export const EncoderEvent = z.looseObject({
-  t: z.enum(["chunk", "audio", "failed", "ended", "moved"]),
+  t: z.enum(["failed", "ended"]),
   capture: z.string().min(1).max(256),
   encode: z.string().max(256).optional(),
-  key: z.boolean().optional(),
 });
 export type EncoderEvent = z.infer<typeof EncoderEvent>;
 
@@ -65,7 +65,7 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
   private ready: Promise<WebContents> | undefined;
   private configured = false;
   private captures = new Set<string>();
-  private listeners = new Set<(event: EncoderEvent, bytes: Uint8Array | undefined) => void>();
+  private listeners = new Set<(event: EncoderEvent) => void>();
   private stopped = new Set<(capture: string) => void>();
   private cancelIdle: (() => void) | undefined;
   /** ace-media's ingest the daemon named last, and the one the loaded page may reach. */
@@ -77,7 +77,7 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
   }
 
   /** Every event of every capture, as the encoder reports it. */
-  onEvent(listener: (event: EncoderEvent, bytes: Uint8Array | undefined) => void): () => void {
+  onEvent(listener: (event: EncoderEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -170,7 +170,7 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
 
   private end(capture: string): void {
     if (!this.captures.delete(capture)) return;
-    this.emit({ t: "ended", capture }, undefined);
+    this.emit({ t: "ended", capture });
     for (const listener of this.stopped) listener(capture);
     this.idle();
   }
@@ -184,8 +184,8 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
     );
   }
 
-  private emit(event: EncoderEvent, bytes: Uint8Array | undefined): void {
-    for (const listener of this.listeners) listener(event, bytes);
+  private emit(event: EncoderEvent): void {
+    for (const listener of this.listeners) listener(event);
   }
 
   /** The encoder page goes once nothing has used it for a while. */
@@ -228,11 +228,11 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
     });
     this.view = view;
     const contents = view.webContents;
-    contents.ipc.on(channel, (_event, raw: unknown, bytes: unknown) => {
+    contents.ipc.on(channel, (_event, raw: unknown) => {
       const event = EncoderEvent.safeParse(raw);
       if (!event.success || !this.captures.has(event.data.capture)) return;
       if (event.data.t === "ended") return this.end(event.data.capture);
-      this.emit(event.data, bytes instanceof Uint8Array ? bytes : undefined);
+      this.emit(event.data);
     });
     contents.on("render-process-gone", (_event, details) => {
       this.options.log(`Video encoder page gone: ${details.reason}`);

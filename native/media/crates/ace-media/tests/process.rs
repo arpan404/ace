@@ -136,6 +136,65 @@ fn a_daemon_that_offers_the_features_gets_them_listed_in_ready() {
     media.start();
     assert_eq!(
         media.features,
-        Some(vec!["source.ingest".to_owned(), "source.sync".to_owned()])
+        Some(vec![
+            "source.ingest".to_owned(),
+            "source.sync".to_owned(),
+            "picture-ingest".to_owned(),
+            "privacy-open".to_owned()
+        ])
     );
+}
+
+#[test]
+fn a_daemon_that_offers_picture_ingest_without_privacy_open_is_never_agreed_privacy_open() {
+    let mut media = Media::spawn_offering("no-privacy-open", Some("source.ingest,picture-ingest"));
+    media.start();
+    assert_eq!(
+        media.features,
+        Some(vec![
+            "source.ingest".to_owned(),
+            "picture-ingest".to_owned()
+        ])
+    );
+}
+
+#[test]
+fn an_older_daemons_picture_on_the_control_lane_ends_its_source_saying_why_and_the_rest_goes_on() {
+    let mut media = Media::spawn_unoffered("old-pictures");
+    media.start();
+    media.send(
+        json!({ "type": "source.open", "source": "jpeg", "handle": 1, "epoch": 1,
+                "origin": { "kind": "tab-pictures" } }),
+        &[3; 32],
+    );
+    assert_eq!(status_of(media.read()), ("jpeg".into(), Status::Starting));
+    // As an older daemon sends a screencast picture: base64 text on the control lane.
+    // This build no longer has the message, so it is written as that daemon would.
+    let json = br#"{"type":"source.picture","source":"jpeg","ageMs":0,"epoch":1}"#;
+    let picture = b"aGVsbG8=";
+    let mut old = ((4 + json.len() + picture.len()) as u32)
+        .to_be_bytes()
+        .to_vec();
+    old.extend((json.len() as u32).to_be_bytes());
+    old.extend(json);
+    old.extend(picture);
+    media.write(&old);
+    loop {
+        match media.read() {
+            FromMedia::SourceStatus {
+                source,
+                status,
+                reason,
+                ..
+            } if source.get() == "jpeg" => {
+                assert_eq!(status, Status::Ended);
+                assert_eq!(reason.as_deref(), Some("picture-ingest-required"));
+                break;
+            }
+            FromMedia::Log { .. } => {}
+            other => panic!("expected the source's status, got {other:?}"),
+        }
+    }
+    // The process goes on: another source opens as before.
+    open_source(&mut media, "tab", 2, 4);
 }

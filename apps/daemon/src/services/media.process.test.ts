@@ -6,15 +6,22 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { createLogger } from "@ace/diagnostics";
 import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
+import type { IngestProducer } from "@ace/media/ingest-sources";
+import { phoneOwner } from "@ace/media/testing/fake-delivery";
 import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import { Resources } from "./resources.ts";
 import { startMedia } from "./media.ts";
+import type { ServiceContext } from "./types.ts";
 import { tabProducer } from "../media-relay/testing-producer.ts";
 import { until } from "../media-relay/testing-relay.ts";
 
 // ace-media is the only media path: the daemon starts it reading no media setting at all, so a
 // fresh install (or one whose opt-in setting is gone) still shows live views. The real binary,
 // from the Cargo build (`native/media/target`) or ACE_MEDIA_PATH.
+//
+// It is also the only encoder, so a producer that comes before the daemon has made its runtime
+// (while the binary's version is read) must wait for it rather than fail, and one whose binary
+// never answers must be told why. A fake binary stands in for those, named by ACE_MEDIA_PATH.
 const root = fileURLToPath(new URL("../../../../native/media/target/", import.meta.url));
 const built =
   process.env.ACE_MEDIA_PATH?.trim() ||
@@ -48,9 +55,9 @@ it.skipIf(!built || process.platform === "win32")(
     });
     if (!media) throw new Error("no ace-media on this machine");
     // A tab producer streams into it, without any setting turning that on.
-    const producer = tabProducer("t1");
-    cleanups.push(() => producer.stop());
-    const source = media.attach(producer);
+    const tab = tabProducer("t1");
+    cleanups.push(() => tab.stop());
+    const source = media.attach(tab);
     cleanups.push(() => source.close());
     await until(() => media.routed("tab") && source.streaming(), 10_000);
     const delivery = media.delivery();
@@ -282,3 +289,84 @@ it.skipIf(!built || process.platform === "win32")(
   },
   30_000,
 );
+
+async function daemonWith(script: string, settings?: unknown) {
+  const dir = await mkdtemp(join(tmpdir(), "ace-media-service-"));
+  const binary = join(dir, "ace-media");
+  await writeFile(binary, `#!/bin/sh\n${script}\n`);
+  await chmod(binary, 0o755);
+  const before = process.env.ACE_MEDIA_PATH;
+  process.env.ACE_MEDIA_PATH = binary;
+  const resources = new Resources();
+  const logged: string[] = [];
+  const context = {
+    services: settings ? { settings } : {},
+    id: () => "id",
+    config: { dataDir: dir },
+    resources,
+    log: { log: (_level: string, message: string) => void logged.push(message) },
+  } as unknown as ServiceContext;
+  cleanups.push(async () => {
+    await resources.close();
+    if (before === undefined) delete process.env.ACE_MEDIA_PATH;
+    else process.env.ACE_MEDIA_PATH = before;
+    await rm(dir, { recursive: true, force: true });
+  });
+  return { media: startMedia(context), logged, dir };
+}
+
+function producer(stops: string[]): IngestProducer {
+  return {
+    source: "tab-1",
+    kind: "tab",
+    origin: { kind: "tab" },
+    epoch: () => 0,
+    consumers: { deliver: () => {} },
+    point: () => Promise.resolve(),
+    keyframe: () => {},
+    stopped: (reason) => void stops.push(reason),
+  };
+}
+
+it("a producer that comes while the binary's version is still being read gets a source, not a refusal", async () => {
+  const { media } = await daemonWith('sleep 1; echo "ace-media 0.0.0"');
+  const stops: string[] = [];
+  const source = media?.add(producer(stops));
+  expect(source, "added before the runtime exists").toBeDefined();
+  expect(stops).toEqual([]);
+  source?.close();
+});
+
+it("a binary that never answers its version leaves every producer told why, before and after", async () => {
+  const { media } = await daemonWith("exit 3");
+  const early: string[] = [];
+  const waiting = media?.add(producer(early));
+  expect(waiting).toBeDefined();
+  await expect.poll(() => early.length).toBe(1);
+  expect(early[0]).toMatch(/^Live video can't start: ace's media process didn't run/);
+  // After the failure a tab has no source to open; a long-lived producer is told at once.
+  expect(media?.add(producer([]))).toBeUndefined();
+  const late: string[] = [];
+  media?.attach(producer(late));
+  expect(late).toEqual(early);
+});
+
+it("a client's media connection starts ace-media whatever media.delivery says: it is the only delivery", async () => {
+  const read: string[] = [];
+  // A home whose Beta switch was left off: the setting says the daemon delivers.
+  const settings = {
+    get: async (key: string) => {
+      read.push(key);
+      return key === "media.delivery" ? { value: "legacy" } : undefined;
+    },
+    onChange: () => () => {},
+  };
+  const { media, dir } = await daemonWith(
+    `if [ "$1" = "--version" ]; then echo "ace-media 0.0.0"; else touch "$(dirname "$0")/ran"; sleep 5; fi`,
+    settings,
+  );
+  await expect.poll(() => media?.delivery()).toBeDefined();
+  void media?.delivery()?.connect(phoneOwner);
+  await expect.poll(() => existsSync(join(dir, "ran")), { timeout: 5_000 }).toBe(true);
+  expect(read).not.toContain("media.delivery");
+});

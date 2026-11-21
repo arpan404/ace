@@ -61,11 +61,10 @@ export interface CaptureEvents {
    */
   ended(reason?: string): void;
   /**
-   * The encoder moved its chunks to ace-media's ingest, or back to the daemon (E4). Sent on the
-   * daemon's path in order with its chunks: the last thing there before the move to ace-media,
-   * the first thing after the move back.
+   * The capture's video stopped because ace-media can't take it now (`reason` says why: it is
+   * restarting, unavailable, or refused the source), or (undefined) it streams again.
    */
-  moved?(to: "ingest" | "daemon"): void;
+  stalled?(reason: string | undefined): void;
   /**
    * ace-media's plan for the views it delivers (`source.want`, D1): the capture runs these too,
    * in place of any the daemon would plan for those views. Replaces the previous plan.
@@ -77,7 +76,7 @@ export interface CaptureEvents {
 }
 /** What ace-media calls a host's sources (docs/media/plan.md, "Routes"). */
 export type VideoMediaKind = "tab" | "tab-pictures" | "user-tab" | "embedded";
-/** Where a capture streams instead of the daemon: ace-media's ingest, with the source's token. */
+/** Where a capture streams: ace-media's ingest, with the source's token. */
 export interface VideoIngestTarget {
   url: string;
   /** Base64 of the single-use token. */
@@ -94,10 +93,22 @@ export interface VideoCaptureHandle {
    * Present on a capture fed by the page's own screencast (a tab the encoder can't capture):
    * the live capture keeps its screencast running at this size and hands every frame here.
    */
-  pictures?: { width: number; height: number; push(base64: string): void };
   /**
-   * Present where the encoder can stream into ace-media (E4): its chunks go to `target` from
-   * the moment its socket opens, or back to the daemon (undefined). Never both.
+   * A JPEG screencast's pictures, for ace-media to encode: `push` takes each one as the browser
+   * sent it (base64), with the tab's privacy epoch it was captured in (its provenance already
+   * checked); `dropped` counts those too large for ace-media, never sent.
+   */
+  pictures?: {
+    width: number;
+    height: number;
+    push(base64: string, epoch: number): void;
+    dropped?(): number;
+    /** The tab's privacy from now on; `followsPrivate`: the epoch it replaces was private. */
+    epoch?(privacy: CapturePrivacy, followsPrivate: boolean): void;
+  };
+  /**
+   * Present on an encoder of its own (a tab capture): its chunks go to `target` from the moment
+   * its socket opens, or (undefined) nowhere. They never come to the daemon.
    */
   ingest?(target: VideoIngestTarget | undefined): void;
   /** What ace-media runs the capture on, while it carries it (ADR 0148). */
@@ -115,9 +126,12 @@ export interface VideoCaptureHandle {
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
+/** A tab's privacy (M8): its epoch, and whether that epoch is private. */
+export type CapturePrivacy = { epoch: number; private: boolean };
+
 export interface VideoHost {
-  /** The kind of ace-media source this host's captures are; absent: never routed there. */
-  mediaKind?: VideoMediaKind;
+  /** The kind of ace-media source this host's captures are. */
+  mediaKind: VideoMediaKind;
   /**
    * ace-media's ingest is at `url` now: an encoder whose page must be made to reach it (the
    * desktop's, whose policy names one port) gets ready before its next capture.
@@ -126,21 +140,13 @@ export interface VideoHost {
   /** The codecs (of those asked, in order) the encoder supports at this size. */
   supported(codecs: readonly string[], width: number, height: number): Promise<string[]>;
   /** Captures the tab `page` shows, at exactly this many pixels. */
+  /** `privacy`: the tab's privacy as the capture opens (M8), for one fed by pictures. */
   open(
     page: BrowserCdp,
     width: number,
     height: number,
     events: CaptureEvents,
-  ): Promise<VideoCaptureHandle>;
-  /**
-   * An encode fed JPEG pictures (its handle's `pictures.push`) with no tab behind it: another service's
-   * pictures as video, e.g. a computer-use session whose helper only makes JPEG (Linux,
-   * Windows). Present on an encoder-only Chrome.
-   */
-  encodePictures?(
-    width: number,
-    height: number,
-    events: CaptureEvents,
+    privacy?: CapturePrivacy,
   ): Promise<VideoCaptureHandle>;
 }
 export interface BackendLog {

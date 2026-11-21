@@ -89,7 +89,10 @@ impl Drop for Media {
 impl Media {
     /// ace-media as this daemon starts it: offered the optional features it speaks.
     pub fn spawn(name: &str) -> Self {
-        Self::spawn_offering(name, Some("source.ingest,source.sync"))
+        Self::spawn_offering(
+            name,
+            Some("source.ingest,source.sync,picture-ingest,privacy-open"),
+        )
     }
 
     /// ace-media as an older daemon starts it: offered nothing.
@@ -97,7 +100,7 @@ impl Media {
         Self::spawn_offering(name, None)
     }
 
-    fn spawn_offering(name: &str, offer: Option<&str>) -> Self {
+    pub fn spawn_offering(name: &str, offer: Option<&str>) -> Self {
         let dir = std::env::temp_dir().join(format!("am-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(error) = std::fs::create_dir_all(&dir) {
@@ -423,6 +426,54 @@ pub fn media_frame(kind: u8, flags: u32, payload: Vec<u8>) -> Vec<u8> {
     match frame.encode() {
         Ok(bytes) => bytes,
         Err(_) => panic!("frame did not encode"),
+    }
+}
+
+/// A producer's ingest connection, after its hello with the source's token: JPEG pictures go on
+/// it as still-picture frames (kind 3, codec JPEG), as the daemon's picture sources send them.
+#[cfg(unix)]
+pub struct PictureProducer(std::os::unix::net::UnixStream);
+
+#[cfg(unix)]
+impl PictureProducer {
+    pub fn connect(ingest: &str, token: u8) -> Self {
+        use std::io::Write;
+        let mut socket = match std::os::unix::net::UnixStream::connect(ingest) {
+            Ok(socket) => socket,
+            Err(error) => panic!("ingest socket: {error}"),
+        };
+        if let Err(error) = socket.write_all(&media_frame(5, 0, vec![token; 32])) {
+            panic!("ingest hello: {error}");
+        }
+        Self(socket)
+    }
+
+    pub fn picture(&mut self, jpeg: &[u8], width: u16, height: u16) {
+        use std::io::Write;
+        let frame = MediaFrame {
+            kind: 3,
+            flags: 1,
+            age_us: 0,
+            width,
+            height,
+            display_width: width,
+            display_height: height,
+            scale: 1000,
+            rotation: 0,
+            codec: 7,
+            encode: 0,
+            epoch: 1,
+            codec_string: String::new(),
+            description: Vec::new(),
+            extension: Vec::new(),
+            payload: jpeg.to_vec(),
+        };
+        let Ok(bytes) = frame.encode() else {
+            panic!("picture did not encode");
+        };
+        if let Err(error) = self.0.write_all(&bytes) {
+            panic!("ingest picture: {error}");
+        }
     }
 }
 

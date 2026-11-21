@@ -52,15 +52,6 @@ final class VideoCodecTests: XCTestCase {
         XCTAssertEqual(ingestFrame(unit(.hevc), now: 0)?[31], 3)
         XCTAssertEqual(ingestFrame(unit(.h264), now: 0)?[31], 1)
     }
-
-    func testTheDaemonSocketNeverCarriesHEVC() {
-        let unit = { (codec: VideoCodec) in
-            EncodedVideo(keyframe: true, codec: codec.fallbackString, format: codec, width: 64, height: 64, scale: 1, sequence: 1,
-                timestamp: 0, epoch: 0, capturedAt: 0, payloadBytes: 1, packet: { header in header + Data([0]) })
-        }
-        XCTAssertNil(legacyFramePacket(unit(.hevc), sessionId: "s", version: 2))
-        XCTAssertNotNil(legacyFramePacket(unit(.h264), sessionId: "s", version: 2))
-    }
 }
 
 import CoreVideo
@@ -120,7 +111,6 @@ final class HEVCEncodeTests: XCTestCase {
         let nals = nalUnits(payload)
         XCTAssertEqual(nals.prefix(3).map { hevcNALType($0[0]) }, [32, 33, 34])
         XCTAssertTrue(nals.dropFirst(3).contains { [19, 20].contains(hevcNALType($0[0])) }, "an IDR slice follows the parameter sets")
-        XCTAssertNil(legacyFramePacket(unit, sessionId: "s", version: 2))
 
         // Decode it as a client would: a format from the parameter sets, the slices length-prefixed.
         var format: CMFormatDescription?
@@ -180,7 +170,6 @@ final class HEVCEncodeTests: XCTestCase {
         XCTAssertEqual(unit.format, .h264)
         XCTAssertTrue(unit.keyframe)
         XCTAssertTrue(unit.codec?.hasPrefix("avc1.") == true)
-        XCTAssertNotNil(legacyFramePacket(unit, sessionId: "s", version: 2))
         encoder.close()
     }
 }

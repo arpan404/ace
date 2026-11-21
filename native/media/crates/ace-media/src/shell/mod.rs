@@ -35,7 +35,7 @@ use crate::encode::worker::Output;
 use crate::engine::relay::CloseMode;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
-use crate::framing::{encode, read_control};
+use crate::framing::{encode, read_control, read_control_or_skipped};
 use crate::probe::{Cancel, TRIAL_DEADLINE, probe, trials};
 use crate::secret::LaneSecret;
 use effects::{Outputs, Step, apply};
@@ -277,7 +277,7 @@ async fn serve(
     let (normal_tx, mut normal_rx) = mpsc::channel(4);
     tokio::spawn(async move {
         loop {
-            let frame = read_control(&mut stdin, Lane::Normal).await;
+            let frame = read_control_or_skipped(&mut stdin, Lane::Normal).await;
             let end = !matches!(frame, Ok(Some(_)));
             if normal_tx.send(frame).await.is_err() || end {
                 return;
@@ -362,7 +362,8 @@ async fn serve(
                 });
             }
             frame = normal_rx.recv() => match frame {
-                Some(Ok(Some(frame))) => engine.control(frame.message, frame.payload, clock.now()),
+                Some(Ok(Some(Ok(frame)))) => engine.control(frame.message, frame.payload, clock.now()),
+                Some(Ok(Some(Err(skipped)))) => engine.skipped(&skipped.kind, skipped.source.as_deref()),
                 Some(Err(_)) => {
                     eprintln!("ace-media: invalid control frame on stdin");
                     break EXIT_PROTOCOL;

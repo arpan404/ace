@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `still.take` through the real binary: the JPEG comes back as `still.done`'s payload, from a
-//! screencast frame the daemon passed on (base64 text) and from H.264 a producer streams on the ingest socket, and a
+//! screencast picture a producer sends on the ingest socket and from H.264 streamed there, and a
 //! request past its deadline fails so the daemon's legacy still maker answers in time.
 #![cfg(unix)]
 mod support;
@@ -29,9 +29,25 @@ fn answer(media: &mut Media) -> (FromMedia, Vec<u8>) {
         match frame.message {
             // A trial that finished late may report at any time after `ready`.
             FromMedia::SourceStatus { .. }
+            | FromMedia::SourceIngest { .. }
             | FromMedia::Log { .. }
             | FromMedia::CapabilitiesChanged { .. } => continue,
             message => return (message, frame.payload.to_vec()),
+        }
+    }
+}
+
+/// A picture on the source's ingest, waited for: the ingest and control are separate sockets,
+/// so a request sent at once could reach ace-media before its picture.
+fn pictured(media: &mut Media, producer: &mut PictureProducer, jpeg: &[u8], size: (u16, u16)) {
+    producer.picture(jpeg, size.0, size.1);
+    media.send(
+        json!({ "type": "source.sync", "source": "s1", "seq": 1, "frames": 1, "decided": 0 }),
+        &[],
+    );
+    loop {
+        if let (FromMedia::SourceSynced { .. }, _) = answer(media) {
+            return;
         }
     }
 }
@@ -60,24 +76,6 @@ fn done(media: &mut Media) -> (Size, Vec<SourceStep>, Vec<u8>) {
     }
 }
 
-/// Standard base64 with padding (RFC 4648 §4).
-fn base64(bytes: &[u8]) -> Vec<u8> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let at = |i: usize| u32::from(*chunk.get(i).unwrap_or(&0));
-        let n = at(0) << 16 | at(1) << 8 | at(2);
-        for i in 0..4 {
-            out.push(if i <= chunk.len() {
-                ALPHABET[(n >> (18 - 6 * i) & 63) as usize]
-            } else {
-                b'='
-            });
-        }
-    }
-    out
-}
-
 fn picture(width: u32, height: u32) -> Vec<u8> {
     let data = (0..width * height * 3).map(|i| (i % 251) as u8).collect();
     let picture = CpuPicture::new(
@@ -98,15 +96,13 @@ fn picture(width: u32, height: u32) -> Vec<u8> {
 #[test]
 fn a_still_of_a_jpeg_source_comes_back_as_the_payload_at_the_requested_box() {
     let mut media = Media::spawn("stills-jpeg");
-    media.start();
+    let (_, ingest, _) = media.start();
     #[cfg(target_os = "macos")]
     media.settle_probe();
     open_source(&mut media, "s1", 1, 3);
-    // As the daemon forwards a screencast frame: Chrome's base64 JPEG text, as received.
-    media.send(
-        json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
-        &base64(&picture(800, 400)),
-    );
+    // As a picture source sends a screencast picture: the JPEG, on its ingest.
+    let mut producer = PictureProducer::connect(&ingest, 3);
+    pictured(&mut media, &mut producer, &picture(800, 400), (800, 400));
     take(&mut media, "q1", "s1", 200, 2_000);
     let (size, steps, jpeg) = done(&mut media);
     assert_eq!(
@@ -230,11 +226,14 @@ fn a_still_of_an_h264_stream_is_decoded_and_encoded_by_videotoolbox() {
 #[test]
 fn a_poster_comes_back_fitted_to_the_viewport_within_twenty_kilobytes() {
     let mut media = Media::spawn("stills-poster");
-    media.start();
+    let (_, ingest, _) = media.start();
     open_source(&mut media, "s1", 1, 3);
-    media.send(
-        json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
-        &base64(&picture(1600, 1000)),
+    let mut producer = PictureProducer::connect(&ingest, 3);
+    pictured(
+        &mut media,
+        &mut producer,
+        &picture(1600, 1000),
+        (1600, 1000),
     );
     media.send(
         json!({ "type": "still.poster", "request": "p1", "source": "s1", "width": 390,

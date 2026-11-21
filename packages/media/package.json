@@ -19,6 +19,7 @@
     "./stills": "./src/stills.ts",
     "./tee": "./src/tee.ts",
     "./tee-recordings": "./src/tee-recordings.ts",
+    "./testing/fake-runtime": "./src/testing/fake-runtime.ts",
     "./session-link": "./src/session-link.ts",
     "./ingest-sources": "./src/ingest-sources.ts",
     "./ingest-writer": "./src/ingest-writer.ts",
@@ -27,6 +28,7 @@
     "./media-connections": "./src/media-connections.ts",
     "./testing/media-test-client": "./src/testing/media-test-client.ts",
     "./testing/fake-delivery": "./src/testing/fake-delivery.ts",
+    "./testing/ingest-server": "./src/testing/ingest-server.ts",
     "./media-viewers": "./src/media-viewers.ts"
   },
   "scripts": {

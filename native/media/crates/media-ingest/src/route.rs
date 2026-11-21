@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Where a producer's video goes: the daemon's path (`Legacy`) or ace-media's ingest. A unit is
-//! routed and written in one call, so a switch has an exact boundary: the sequence of the last
-//! video unit the previous path took; stills never count.
+//! Where a producer's video goes: ace-media's ingest, the only place it goes. With no connection
+//! a unit is dropped (stills take the daemon's path, outside the route). A unit is routed and
+//! written in one call, so a switch has an exact boundary: the sequence of the last video unit
+//! the previous connection took.
 //!
 //! Every connection has a generation of its own, carried by every event and action about it,
 //! so a report about a replaced connection never touches its successor (an address or a
@@ -9,8 +10,8 @@
 //! writing what it had queued and then its end frame, so ace-media ends that path cleanly. A
 //! retirement is bounded by the writer's own finish deadline, and at most `max_retired` writers
 //! or `max_retired_bytes` of backlog are kept; past either the oldest is closed and its path
-//! cut. Retired writers' failures are their own: only the current writer's cut moves video
-//! back to the daemon's path, reported once with its boundary.
+//! cut. Retired writers' failures are their own: only the current writer's cut stops video,
+//! reported once with its boundary.
 use crate::VideoUnit;
 use crate::frame::{TOKEN_LEN, video_frame};
 use crate::writer::{Action, Bytes, Cut, DRAIN_LIMIT_MS, QUEUE_LIMIT, Writer, WriterState};
@@ -54,10 +55,8 @@ pub enum RouteAction {
     Shutdown { generation: u64 },
     /// Close connection `generation` at once.
     Destroy { generation: u64 },
-    /// Send this unit on the daemon's path.
-    Legacy(VideoUnit),
-    /// The current connection was cut: video is on the daemon's path again. `boundary` is the
-    /// last sequence that connection took.
+    /// The current connection was cut: video goes nowhere until a new address. `boundary` is
+    /// the last sequence that connection took.
     IngestClosed { boundary: Option<u64>, cut: Cut },
     /// The producer should send a keyframe next.
     Keyframe,
@@ -70,7 +69,7 @@ pub enum Switch {
     /// Open a connection to `socket`, then report `connected` or `connect_failed` with
     /// `generation`. Video stays where it is until then.
     Connect { generation: u64, socket: String },
-    /// Video moved. `boundary` is the last sequence the previous path took.
+    /// Video moved. `boundary` is the last sequence the previous connection took, if any.
     Switched { boundary: Option<u64> },
     /// A connection superseded before it was reported open: destroy it.
     Stale,
@@ -83,7 +82,6 @@ pub struct Route {
     pending: Option<(u64, Address)>,
     retired: BTreeMap<u64, Writer>,
     next_generation: u64,
-    last_legacy: Option<u64>,
     last_ingest: Option<u64>,
 }
 
@@ -96,7 +94,6 @@ impl Route {
             pending: None,
             retired: BTreeMap::new(),
             next_generation: 1,
-            last_legacy: None,
             last_ingest: None,
         }
     }
@@ -111,8 +108,8 @@ impl Route {
         self.retired.len()
     }
 
-    /// Sends to `target` from now on (the daemon's path for `None`). The daemon's path is
-    /// switched to at once; an address needs its connection opened first.
+    /// Sends to `target` from now on (nowhere for `None`, at once); an address needs its
+    /// connection opened first.
     pub fn begin(
         &mut self,
         target: Option<Address>,
@@ -149,11 +146,7 @@ impl Route {
             self.config.drain_limit_ms,
         );
         let previous = self.current.replace((generation, writer));
-        let boundary = if previous.is_some() {
-            self.last_ingest
-        } else {
-            self.last_legacy
-        };
+        let boundary = previous.as_ref().and(self.last_ingest);
         self.address = Some(address);
         self.last_ingest = None;
         self.apply(generation, actions, out);
@@ -168,7 +161,7 @@ impl Route {
         self.pending.take_if(|(g, _)| *g == generation);
     }
 
-    /// Routes one unit and writes it on that path.
+    /// Writes one unit to the current connection; with none it is dropped.
     pub fn publish(
         &mut self,
         unit: &VideoUnit,
@@ -177,8 +170,6 @@ impl Route {
         out: &mut Vec<RouteAction>,
     ) {
         let Some((generation, writer)) = &mut self.current else {
-            self.last_legacy = Some(unit.sequence);
-            out.push(RouteAction::Legacy(unit.clone()));
             return;
         };
         let generation = *generation;
@@ -191,12 +182,6 @@ impl Route {
         }
         self.apply(generation, actions, out);
     }
-
-    /// A still went on the daemon's path as sequence `sequence`. Stills always take that path
-    /// and the daemon orders them on their own, so a switch's boundary is the last *video*
-    /// unit only: a still never moves it (a boundary the daemon's video merge never sees
-    /// would hold the switch until its timeout and end the path interrupted).
-    pub fn legacy_still(&mut self, _sequence: u64) {}
 
     pub fn written(&mut self, generation: u64, id: u64, out: &mut Vec<RouteAction>) {
         self.event(generation, out, |w, a| w.written(id, a));
@@ -257,7 +242,7 @@ impl Route {
         self.apply(generation, actions, out);
     }
 
-    /// One writer's actions, as the route's; a current writer's cut moves video back.
+    /// One writer's actions, as the route's; a current writer's cut stops video.
     fn apply(&mut self, generation: u64, actions: Vec<Action>, out: &mut Vec<RouteAction>) {
         let current = self.current.as_ref().is_some_and(|(g, _)| *g == generation);
         for action in actions {

@@ -3,6 +3,7 @@ import { WebSocket } from "ws";
 import { afterEach, expect, it, vi } from "vitest";
 import { ScreenState, ServerMessage } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
+import { fakeScreenMedia } from "@ace/screen/testing/support";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,7 +15,10 @@ afterEach(async () => {
 it("authenticated devices receive visible screen state, no pictures on their socket, and disconnect relinquishes control", async () => {
   const directory = await mkdtemp(join(tmpdir(), "daemon-screen-"));
   let id = 0;
+  // The session's video comes only from ace-media's egress, handed back here.
+  const ace = fakeScreenMedia();
   const screen = new ScreenManager({
+    media: ace.media,
     command: process.execPath,
     args: [
       new URL("../../../packages/screen/src/testing/fake-helper.ts", import.meta.url).pathname,

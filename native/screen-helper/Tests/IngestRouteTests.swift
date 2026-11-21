@@ -14,47 +14,51 @@ final class IngestRouteTests: XCTestCase {
             packet: { header in header + payload })
     }
 
-    private func route() -> IngestRoute { IngestRoute(legacy: { _ in }, now: { 0 }) }
+    private func route() -> IngestRoute { IngestRoute(now: { 0 }) }
 
-    func testAnHEVCUnitNeverReachesTheDaemonSocketNorMovesItsBoundary() throws {
+    func testWithoutAnIngestVideoGoesNowhereAndNoBoundaryIsClaimed() throws {
         let listener = try Listener()
-        var legacy: [UInt64] = []
-        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 })
+        let route = route()
         defer { route.close() }
+        // No ingest yet: these units have no path at all, so none is a boundary.
         route.publish(unit(1, bytes: 100, keyframe: true))
-        var hevc = unit(2, bytes: 100, keyframe: true)
-        hevc.format = .hevc
-        route.publish(hevc)
-        XCTAssertEqual(legacy, [1])
+        route.publish(unit(2, bytes: 100))
         let moved = try route.route(to: (listener.path, token))
         listener.accept()
-        XCTAssertEqual(moved.boundary, 1, "the daemon waits only for units its socket carries")
+        XCTAssertEqual(moved.switched, true)
+        XCTAssertNil(moved.boundary, "nothing went anywhere before the first ingest")
+        route.publish(unit(3, bytes: 100, keyframe: true))
+        XCTAssertEqual(listener.read(44 + 32).count, 44 + 32, "the hello")
+        XCTAssertEqual(listener.read(44 + 11 + 28 + 100).count, 44 + 11 + 28 + 100, "only the unit after the switch")
     }
 
-    func testSubmittedOutputStaysOnTheOldRouteBeforeAPlannedSwitch() throws {
-        let listener = try Listener()
-        var legacy: [UInt64] = []
+    func testSubmittedOutputStaysOnTheOldIngestBeforeAPlannedSwitch() throws {
+        let first = try Listener(), second = try Listener()
+        var completing = false
         var route: IngestRoute!
         // Completing an outstanding hardware encode publishes its delta synchronously.
-        route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 },
-            beforeSwitch: { route.publish(self.unit(1, bytes: 100)) })
+        route = IngestRoute(now: { 0 }, beforeSwitch: { if completing { route.publish(self.unit(2, bytes: 100)) } })
         defer { route.close(); route = nil }
-        let moved = try route.route(to: (listener.path, token))
-        listener.accept()
-        XCTAssertEqual(legacy, [1], "the submitted delta completes on the old route")
-        XCTAssertEqual(moved.boundary, 1)
+        _ = try route.route(to: (first.path, token))
+        first.accept()
+        route.publish(unit(1, bytes: 100, keyframe: true))
+        completing = true
+        let moved = try route.route(to: (second.path, Data(repeating: 8, count: 32)))
+        second.accept()
+        XCTAssertEqual(moved.boundary, 2, "the submitted delta completes on the old ingest")
+        let (received, ended) = first.readToEnd()
+        XCTAssertTrue(ended)
+        XCTAssertEqual(received.count, 44 + 32 + (44 + 11 + 28 + 100) + (44 + 28 + 100) + 44)
     }
 
     func testFailureWaitsForTheEncoderOwnerBeforeChangingTheRoute() throws {
         let listener = try Listener()
         var recovery: (() -> Void)?
         var drain: () -> Void = {}
-        var legacy: [UInt64] = []
         let notified = expectation(description: "failure queued on encoder owner")
-        let closed = expectation(description: "fallback reported")
+        let closed = expectation(description: "stop reported")
         var boundary: UInt64?
-        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 },
-            beforeSwitch: { drain() }, recover: { work in recovery = work; notified.fulfill() })
+        let route = IngestRoute(now: { 0 }, beforeSwitch: { drain() }, recover: { work in recovery = work; notified.fulfill() })
         defer { route.close() }
         route.onClosed = { boundary = $0; closed.fulfill() }
         _ = try route.route(to: (listener.path, token))
@@ -62,35 +66,34 @@ final class IngestRouteTests: XCTestCase {
         route.publish(unit(1, bytes: 100, keyframe: true))
         listener.drop()
         wait(for: [notified], timeout: 5)
-        // Drain the in-flight delta while the failed route still owns it. It must never leak
-        // onto stdout ahead of the fallback keyframe.
+        // Drain the in-flight delta while the failed route still owns it: it is the failed
+        // writer's, so the boundary the daemon hears is still the last unit that writer took.
         var submitted: (() -> Void)? = { route.publish(self.unit(2, bytes: 100)) }
         drain = { submitted?(); submitted = nil }
         recovery?()
         submitted?()
         wait(for: [closed], timeout: 5)
-        route.publish(unit(3, bytes: 100, keyframe: true))
-        XCTAssertEqual(legacy, [3])
-        XCTAssertEqual(boundary, 1)
+        XCTAssertFalse(route.ingesting, "video goes nowhere until a new ingest is given")
+        XCTAssertNotNil(boundary)
     }
 
     func testAStillAfterTheLastVideoUnitNeverBecomesTheSwitchBoundary() throws {
-        let listener = try Listener()
-        var legacy: [UInt64] = []
-        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 })
+        let first = try Listener(), second = try Listener()
+        let route = route()
+        _ = try route.route(to: (first.path, token))
+        first.accept()
         route.publish(unit(1, bytes: 100, keyframe: true))
         route.publish(unit(2, bytes: 100))
         // A still goes out on the daemon's socket after the last video unit, numbered after it.
         var stills = 0
-        route.legacyStill { stills += 1 }
-        let moved = try route.route(to: (listener.path, token))
-        listener.accept()
-        XCTAssertEqual(legacy, [1, 2])
+        route.still { stills += 1 }
+        let moved = try route.route(to: (second.path, Data(repeating: 8, count: 32)))
+        second.accept()
         XCTAssertEqual(stills, 1)
         // The daemon compares the boundary with video sequences: a still's would never arrive,
         // and the switch would wait out its limit and end interrupted.
         XCTAssertEqual(moved.switched, true)
-        XCTAssertEqual(moved.boundary, 2, "the boundary is the last video unit on the daemon's path")
+        XCTAssertEqual(moved.boundary, 2, "the boundary is the last video unit the old ingest took")
         route.close()
     }
 
@@ -137,7 +140,7 @@ final class IngestRouteTests: XCTestCase {
 
     func testAReplacedWriterThatNeverDrainsIsClosedAfterTheLimit() throws {
         let listener = try Listener()
-        let route = IngestRoute(legacy: { _ in }, now: { 0 }, drainLimit: 0.2)
+        let route = IngestRoute(now: { 0 }, drainLimit: 0.2)
         _ = try route.route(to: (listener.path, token))
         listener.accept()
         for sequence in 1...3 { route.publish(unit(UInt64(sequence), bytes: 1 << 20, keyframe: sequence == 1)) }
@@ -162,10 +165,9 @@ final class IngestRouteTests: XCTestCase {
         }
     }
 
-    func testAWriterAceMediaClosedBeforeItWasInstalledFallsBackToTheDaemonSocket() throws {
+    func testAWriterAceMediaClosedBeforeItWasInstalledStopsVideo() throws {
         let listener = try Listener()
-        var legacy: [UInt64] = []
-        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 }, connect: { socket, token, onClosed, onKeyframe in
+        let route = IngestRoute(now: { 0 }, connect: { socket, token, onClosed, onKeyframe in
             let writer = try IngestWriter(path: socket, token: token, onClosed: onClosed, onKeyframe: onKeyframe)
             // ace-media refuses the connection before the route has installed the writer.
             listener.accept(); listener.drop()
@@ -175,15 +177,13 @@ final class IngestRouteTests: XCTestCase {
         })
         let moved = try route.route(to: (listener.path, token))
         XCTAssertTrue(moved.switched)
-        XCTAssertFalse(route.ingesting, "a writer closed at installation is a failure: video stays on the daemon's socket")
-        route.publish(unit(1, bytes: 100, keyframe: true))
-        XCTAssertEqual(legacy, [1])
+        XCTAssertFalse(route.ingesting, "a writer closed at installation is a failure: video goes nowhere")
     }
 
     func testADrainedWritersTimerIsCancelled() throws {
         let listener = try Listener()
         let timers = Timers()
-        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: timers.schedule)
+        let route = IngestRoute(now: { 0 }, schedule: timers.schedule)
         _ = try route.route(to: (listener.path, token))
         listener.accept()
         _ = try route.route(to: nil)
@@ -197,7 +197,7 @@ final class IngestRouteTests: XCTestCase {
         let timers = Timers()
         // Each writer's address as the route made it, without keeping the writer alive.
         var made: [ObjectIdentifier] = []
-        let route = IngestRoute(legacy: { _ in }, now: { 0 }, connect: { socket, token, onClosed, onKeyframe in
+        let route = IngestRoute(now: { 0 }, connect: { socket, token, onClosed, onKeyframe in
             let writer = try IngestWriter(path: socket, token: token, onClosed: onClosed, onKeyframe: onKeyframe)
             made.append(ObjectIdentifier(writer))
             return writer
@@ -238,7 +238,7 @@ final class IngestRouteTests: XCTestCase {
     func testATimerThatFiresBeforeItsRetirementIsRecordedStillEndsIt() throws {
         let listener = try Listener()
         // The limit passes at once: the timer fires inside `schedule`, before it returns.
-        let route = IngestRoute(legacy: { _ in }, now: { 0 }, drainLimit: 0, schedule: { _, work in work(); return {} })
+        let route = IngestRoute(now: { 0 }, drainLimit: 0, schedule: { _, work in work(); return {} })
         _ = try route.route(to: (listener.path, token))
         listener.accept()
         // ace-media isn't reading, so the writer can't drain on its own.
@@ -251,7 +251,7 @@ final class IngestRouteTests: XCTestCase {
     }
 
     func testRetiredWritersHoldingMoreThanTheByteLimitLoseTheOldest() throws {
-        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: { _, _ in {} })
+        let route = IngestRoute(now: { 0 }, schedule: { _, _ in {} })
         var listeners: [Listener] = []
         // Three blocked writers each holding two 3.5 MiB keyframes (a writer drops deltas past its
         // own bound, never keyframes): about 21 MiB, past 16 MiB, under four writers. Closing the
@@ -272,7 +272,7 @@ final class IngestRouteTests: XCTestCase {
     }
 
     func testRapidFlipsKeepAtMostFourRetiredWritersClosingTheOldest() throws {
-        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: { _, _ in {} })
+        let route = IngestRoute(now: { 0 }, schedule: { _, _ in {} })
         var listeners: [Listener] = []
         for index in 0..<5 {
             let listener = try Listener()

@@ -116,6 +116,13 @@ pub enum Origin {
         #[serde(rename = "platform")]
         platform: String,
     },
+    /// A screen whose helper sends only JPEG pictures (on the control lane, as a private tab's
+    /// are): ace-media encodes them itself.
+    #[serde(rename = "screen-pictures")]
+    ScreenPictures {
+        #[serde(rename = "platform")]
+        platform: String,
+    },
     #[serde(rename = "simulator")]
     Simulator {
         #[serde(rename = "streamUrl")]
@@ -376,6 +383,15 @@ pub enum ToMedia {
         device_id: Option<Id>,
         #[serde(rename = "epoch")]
         epoch: u32,
+        /// Whether `epoch` is private (M8), for a JPEG source: the next `source.epoch` then
+        /// follows a private one, whatever reaches ace-media first.
+        #[serde(
+            rename = "private",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        private: Option<bool>,
         #[serde(rename = "origin")]
         origin: Origin,
     },
@@ -396,15 +412,6 @@ pub enum ToMedia {
         source: Id,
         #[serde(rename = "codecs")]
         codecs: Vec<String>,
-    },
-    #[serde(rename = "source.picture")]
-    SourcePicture {
-        #[serde(rename = "source")]
-        source: Id,
-        #[serde(rename = "ageMs")]
-        age_ms: u32,
-        #[serde(rename = "epoch")]
-        epoch: u32,
     },
     #[serde(rename = "source.epoch")]
     SourceEpoch {
@@ -671,6 +678,15 @@ pub enum ToMedia {
         quality: u32,
         #[serde(rename = "deadlineMs")]
         deadline_ms: u32,
+        /// The newest public epoch the daemon announced for the source (M8): the still comes
+        /// only from a picture of that epoch or later, whatever ace-media has applied yet.
+        #[serde(
+            rename = "minEpoch",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        min_epoch: Option<u32>,
     },
     /// A poster for a subscribe reply (ADR 0149, D1): the source's current picture fitted to
     /// `width` × `height` at 10–20 KB. Answered like `still.take`, with `still.done` (the JPEG
@@ -970,8 +986,16 @@ pub fn lane(kind: &str) -> Lane {
 pub struct InvalidControl;
 
 /// The optional features this build speaks when a daemon offers them (`ready.features`):
-/// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers.
-pub const FEATURES: [&str; 2] = ["source.ingest", "source.sync"];
+/// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers;
+/// `picture-ingest` encodes a JPEG source's still pictures (kind 3) off its ingest (X2), so a
+/// daemon sends them there only to a build that says so; `privacy-open` reads
+/// `source.open.private` and `still.take.minEpoch` (M8), which a stricter build would refuse.
+pub const FEATURES: [&str; 4] = [
+    "source.ingest",
+    "source.sync",
+    "picture-ingest",
+    "privacy-open",
+];
 
 /// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own
 /// order; `None` when nothing was offered.
@@ -1012,7 +1036,7 @@ fn validate<M: Message>(message: &M, payload: &[u8], expected: Lane) -> Result<(
             value["remote"]["certificateBytes"].as_u64().unwrap_or(0)
                 + value["remote"]["keyBytes"].as_u64().unwrap_or(0)
         }
-        "source.picture" | "relay.out" | "relay.in" | "still.done" => return Ok(()),
+        "relay.out" | "relay.in" | "still.done" => return Ok(()),
         _ => 0,
     };
     if payload.len() as u64 != length {

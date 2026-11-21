@@ -8,7 +8,12 @@ import type { DeviceRuntime } from "./runtime.ts";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import type { Actor } from "./lease.ts";
 import { mirrorDeviceController } from "./screen-controller.ts";
-import { withMediaWant, type DeviceMedia } from "./media-paths.ts";
+import {
+  withMediaWant,
+  withVideoStatus,
+  type DeviceMedia,
+  type DeviceVideoStatus,
+} from "./media-paths.ts";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { DeviceRecordingArtifact, PublishedRecording } from "./recording.ts";
 
@@ -45,6 +50,8 @@ export interface LifecycleOwner {
    * undefined once it no longer holds.
    */
   mediaWant?(session: DeviceSession, settings: ScreenStreamSettings | undefined): void;
+  /** Why the device's live video can't play now; undefined once it plays again. */
+  videoStatus?(session: DeviceSession, video: DeviceVideoStatus): void;
 }
 function noop() {}
 
@@ -108,7 +115,16 @@ export async function startDevice(
       ...(options.screen ? { screen: options.screen } : {}),
       ...(options.media
         ? {
-            media: withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+            media: withVideoStatus(
+              withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+              (video) => {
+                if (session.generation !== generation) return;
+                owner.videoStatus?.(session, video);
+                // The capture holds the device whatever its video does: a view whose video
+                // can't reach ace-media yet opens with the device's control, saying why.
+                if (video) firstResolve?.();
+              },
+            ),
           }
         : {}),
       runtime: options.runtime,
@@ -117,6 +133,8 @@ export async function startDevice(
         if (session.generation !== generation || !["starting", "live"].includes(session.lifecycle))
           return;
         session.latest = frame;
+        // The current capture's picture is back: whatever stopped its video no longer holds.
+        if (session.video) owner.videoStatus?.(session, undefined);
         firstResolve?.();
         session.hub.publish(frame);
         session.recording?.push(frame);

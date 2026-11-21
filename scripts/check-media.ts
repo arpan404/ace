@@ -116,6 +116,13 @@ if (process.platform === "win32") {
       stdio: "inherit",
     },
   );
+  // X2: a JPEG-only screen's video back from a killed ace-media through the real restart, its
+  // pictures encoded by the new process (p95 under 2 s).
+  execFileSync("bun", ["--bun", "x", "vitest", "run", "src/picture-restart.process.test.ts"], {
+    cwd: new URL("../packages/screen/", import.meta.url),
+    env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+    stdio: "inherit",
+  });
   // E3: the Mac screen helper keeps its signing identity, and (with ACE_SCREEN_INTEGRATION=1,
   // which shows a fixture window) streams through this binary and back on egress.
   if (process.platform === "darwin")
