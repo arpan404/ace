@@ -1,7 +1,8 @@
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { PinnedDirectory } from "@ace/workspace";
 import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import { Device, HostId, WorkspaceId, type TransferBegin } from "@ace/protocol";
 import { Store } from "../store.ts";
@@ -49,7 +50,11 @@ async function target(origin: string) {
     archive: {} as TransferArchive,
     projects: {
       list: () => [{ workspaceId: project, path }],
-      parent: unreached,
+      // Origin can't be cloned here (no SSH key for it), so a transfer by origin falls back.
+      parent: async (requested) => {
+        const handle = PinnedDirectory.open(requested ?? root);
+        return { path: requested ?? root, handle, close: async () => handle.close() };
+      },
       clone: unreached,
     } as Partial<TargetProjects> as TargetProjects,
     threads: {} as never,
@@ -58,9 +63,20 @@ async function target(origin: string) {
   });
   cleanup.push(() => incoming.close());
   return {
+    /** The transfer's row as it stands. */
+    row: (transferId: string) =>
+      store
+        .statement("SELECT state,method,has_origin FROM transfer_incoming WHERE transfer_id=?")
+        .get(transferId),
+    /** Commit a transfer by origin, with nothing uploaded. */
+    commit: (transferId: string) =>
+      incoming.call(device, { op: "commit", transferId }, () => device),
     /** The project here a transfer from `url` was set to land in, with the sender's own key. */
-    async landing(url: string, senderKey: string) {
-      const transferId = `t-${Math.random().toString(36).slice(2)}`;
+    async landing(
+      url: string,
+      senderKey: string,
+      transferId = `t-${Math.random().toString(36).slice(2)}`,
+    ) {
       const begin: TransferBegin = {
         op: "begin",
         transferId,
@@ -147,4 +163,20 @@ it("re-checks a project chosen before an upgrade, and never lands in one whose o
   await expect.poll(() => newFolders.length).toBe(1);
   // Its origin was read, and nothing else was done there: the work went for a new folder.
   expect(touched.filter((call) => call.endsWith(` ${path}`))).toEqual([`transferOrigin ${path}`]);
+});
+
+it("a self-hosted forge's SSH origin never lands in its HTTPS checkout, and is sent whole instead", async () => {
+  // Known limitation: outside the public forges, scp and HTTPS spellings may be one repository
+  // on a GitLab or Gitea server, but nothing here can tell such a server from a plain SSH host.
+  const here = await target("https://gitlab.corp/team/app.git");
+  const sent = "t-self-hosted";
+  expect(
+    await here.landing("git@gitlab.corp:team/app.git", "gitlab.corp/team/app", sent),
+  ).toBeNull();
+  // Origin can't be cloned here either: the sender is asked for the whole repository, which
+  // lands as a fresh copy, never in the checkout above.
+  await here.commit(sent);
+  await vi.waitFor(() =>
+    expect(here.row(sent)).toMatchObject({ state: "receiving", method: "bundle", has_origin: 0 }),
+  );
 });

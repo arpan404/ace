@@ -1,3 +1,4 @@
+import { wireTrims } from "@ace/projection/wire-trim";
 import {
   MachineCommandJobsResult,
   MachineDelegateResult,
@@ -90,6 +91,7 @@ export class MachineCaller {
       threadTitle: clip(this.deps.store.getThread(threadId)?.title ?? "", 256),
       ...providerOf(this.deps.store.getThread(threadId)?.provider),
       ceiling: this.deps.ceiling(threadId),
+      accepts: [wireTrims.movedStatus],
     };
   }
   /** Whether a linked machine last seen online lets agents here use a tool group there. */

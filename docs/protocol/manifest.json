@@ -33,12 +33,12 @@
       "sha256": "4a34aa975bbbe8db127c3bdbbf8a6078cf10c4937f2f10b311ba76b0cec78a46"
     },
     "push.md": {
-      "bytes": 133213,
-      "sha256": "a5d8d13d369dae26405f126eb832a003e6f7cdad90692f240b04216d26358f75"
+      "bytes": 133316,
+      "sha256": "7f2b9c184dfacc595b3bb3f9b742e14f75872965581d6524c3aafa9a1bf9a94a"
     },
     "requests.md": {
-      "bytes": 126869,
-      "sha256": "5ff3437506b830653fb043509821ea0d19fd294a1ba870d6e958c8a684587b9d"
+      "bytes": 126954,
+      "sha256": "4de93e409220ed79e0a0283d74f103244e5cc93b42d72be47e542ea78ef81f6a"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -2685,8 +2685,8 @@
       "sha256": "9e8f48b925fcbb4ed91c46569cc7bfd2e47b17972eea4a4f46a13d5641f6c403"
     },
     "schema/MachineCallOrigin.json": {
-      "bytes": 873,
-      "sha256": "88e48de037cccbc689374941f4701073caef7142aa26e04f1a713981a3c1b533"
+      "bytes": 1017,
+      "sha256": "bb0c8b4d0818df1c8b43b1e4b88071e2643b4610fef03d96e497da90715efe44"
     },
     "schema/MachineCallRequest.json": {
       "bytes": 394,
@@ -6405,8 +6405,8 @@
       "sha256": "90fefcae9b0849146c82f5bf796e9288fc1545d2a6dbe3205fd86b0e1f11dd50"
     },
     "schema/WorkspaceActionResult.json": {
-      "bytes": 11311,
-      "sha256": "ef818b58d709952f9d80812b62f99fcd06c677fe9f71e0add32f54de3492e80b"
+      "bytes": 11511,
+      "sha256": "931284b4bfcbcbe0d89e8e2b7631bec339de94a9e1357b7428e64ad04df4a2c3"
     },
     "schema/WorkspaceChanged.json": {
       "bytes": 635,
@@ -6733,10 +6733,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1370443,
-      "sha256": "4ef599f81ee1985fff09a469c163e427387592ded50015951b07296aaa348ff0"
+      "bytes": 1370654,
+      "sha256": "2a166404a89497ac5f1545a1147fce16f4727c182c7d40840410aa9024c585a1"
     }
   },
-  "input": "f4b5c387243f256f498868dd93a62f3981715ad4b899832c2ac34e03e596474b",
+  "input": "47c7d7f6f3a6c32a0c89b166963e03243e4aa1c03eec092c4630cd0e20056a10",
   "version": 1
 }

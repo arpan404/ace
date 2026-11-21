@@ -21,6 +21,9 @@ test.each([
   ["git@forge:~bob/app", "ssh://alice@forge/~bob/app"],
   // Port rules are unchanged.
   ["https://forge:443/team/app", "http://forge:80/team/app"],
+  // A path from the root whose first folder starts with `~`, however it's spelled.
+  ["git@box:/~git/team/app.git", "ssh://git@box//~git/team/app"],
+  ["git@box:/~git/team/app", "https://box/~git/team/app"],
 ])("%s and %s are one repository", (a, b) => {
   expect(same(a, b)).toBe(true);
 });
@@ -31,6 +34,10 @@ test.each([
   ["git@forge:team/app", "git@forge:/team/app"],
   ["ssh://git@forge/~/team/app", "ssh://git@forge/team/app"],
   ["git@forge:team/app", "https://forge/team/app"],
+  // A home against a folder from the root that happens to be named like one.
+  ["git@box:team/app.git", "git@box:/~git/team/app.git"],
+  ["ssh://git@box/~git/team/app", "ssh://git@box//~git/team/app"],
+  ["git@box:~bob/app", "https://box/~bob/app"],
   // Two users' homes.
   ["alice@forge:app", "bob@forge:app"],
   ["ssh://forge/~alice/app", "ssh://forge/~bob/app"],
@@ -47,10 +54,13 @@ test.each([
   expect(same(a, b)).toBe(false);
 });
 
-test("keys outside public forges stay the same for a path from the root", () => {
-  // A stored key of this spelling reads the same before and after the home rule.
-  expect(normalizeRemoteUrl("ssh://git@host.example/srv/git/app.git")).toBe(
-    "host.example/srv/git/app",
-  );
-  expect(normalizeRemoteUrl("git@forge:team/app.git")).toBe("forge/~git/team/app");
+test("a key outside a public forge names its version, so an older daemon's key never equals it", () => {
+  // An older daemon keyed both of these `forge/team/app`, from the root or not.
+  expect(normalizeRemoteUrl("ssh://git@forge/team/app.git")).toBe("v2:forge/team/app");
+  expect(normalizeRemoteUrl("git@forge:team/app.git")).toBe("v2:forge/~git/team/app");
+  expect(normalizeRemoteUrl("git@forge:/~git/team/app.git")).toBe("v2:forge//~git/team/app");
+  // A public forge's key means what it always did, so it stays as it was.
+  expect(normalizeRemoteUrl("git@github.com:o/r.git")).toBe("github.com/o/r");
+  // As does a path on this machine's own disk.
+  expect(normalizeRemoteUrl("/srv/git/app.git")).toBe("/srv/git/app.git");
 });

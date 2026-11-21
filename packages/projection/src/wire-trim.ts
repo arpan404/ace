@@ -11,6 +11,8 @@ import type { SuitServerMessage } from "@ace/protocol/suits";
 import type { MarketServerMessage } from "@ace/protocol/marketplace";
 import { historyMessageIdentity, isRawHistoryItem } from "./history-visibility.ts";
 import { olderStatuses } from "./older-status.ts";
+
+export { olderStatus } from "./older-status.ts";
 import { providerNotice } from "./provider-notices.ts";
 import { structuredCopy } from "./structured-copy.ts";
 

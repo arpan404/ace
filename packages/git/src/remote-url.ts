@@ -2,7 +2,7 @@
  * Pure, with no Node imports, so browser code (the fake daemon) compares origins exactly as the
  * daemon does through the `@ace/git/remote-url` export.
  */
-import { publicForgeHosts } from "@ace/protocol";
+import { publicForgeHosts, remoteKeyVersionPrefix } from "@ace/protocol";
 
 const schemeUrl = /^([a-z][a-z0-9+.-]*):\/\/([^/]*)(\/.*)?$/i;
 // `[user@]host:path`, as Git reads it: no slash before the colon, and not a drive letter.
@@ -33,8 +33,12 @@ const sshSchemes = new Set(["ssh", "git+ssh", "ssh+git"]);
  * home, while `ssh://git@box/team/app` is `/team/app` from the root. So a home-relative path
  * keys as `box/~user/team/app` (its home's user: the one named with `~name`, else the login
  * user, else just `~`), apart from the absolute `box/team/app`, which an HTTPS spelling shares.
+ * An absolute path whose first folder starts with `~` keeps a slash (`box//~git/team/app`), so
+ * it never reads as a home. Every such key starts with `remoteKeyVersionPrefix` (`v2:`): an
+ * older daemon keyed both kinds alike, so its key never equals one of these.
+ *
  * A public forge (`publicForgeHosts`) serves repositories by name, so there every spelling,
- * SSH or not, is the one `host/owner/repo`.
+ * SSH or not, is the one `host/owner/repo`, unprefixed: those keys mean what they always did.
  */
 export function normalizeRemoteUrl(url: string, base = "/"): string {
   const value = url.trim();
@@ -48,7 +52,7 @@ export function normalizeRemoteUrl(url: string, base = "/"): string {
     // `ssh://box/~/x` and `ssh://box/~name/x` are home-relative; any other path is from the root.
     if (sshSchemes.has(name) && !isPublicForge(host) && path.startsWith("/~"))
       return homeKey(host, loginUser(authority), path.slice(1));
-    return networkKey(host, path);
+    return serverKey(host, path);
   }
   if (/^[a-z]:[\\/]/i.test(value) || value.startsWith("/") || value.startsWith("."))
     return localPath(value, base);
@@ -57,7 +61,7 @@ export function normalizeRemoteUrl(url: string, base = "/"): string {
     const authority = scp[1] ?? "";
     const host = addressOf(authority, undefined);
     const path = scp[2] ?? "";
-    if (isPublicForge(host) || path.startsWith("/")) return networkKey(host, path);
+    if (isPublicForge(host) || path.startsWith("/")) return serverKey(host, path);
     const user = /^([^@/]+)@/.exec(value)?.[1];
     return homeKey(host, user, path.startsWith("~") ? path : `~/${path}`);
   }
@@ -80,7 +84,19 @@ function loginUser(authority: string): string | undefined {
 function homeKey(host: string, user: string | undefined, path: string): string {
   const named = /^~([^/]*)(.*)$/.exec(path);
   const owner = named?.[1] || user || "";
-  return networkKey(host, `~${owner}${named?.[2] ?? ""}`);
+  return `${remoteKeyVersionPrefix}${networkKey(host, `~${owner}${named?.[2] ?? ""}`)}`;
+}
+
+/**
+ * The key of a path the server reads from its root (or, for a public forge, a repository's
+ * name). Outside the forges it is versioned, and a first folder starting with `~` keeps a
+ * slash, so `box//~git/x` is never the home key `box/~git/x`.
+ */
+function serverKey(host: string, path: string): string {
+  const key = networkKey(host, path);
+  if (isPublicForge(host)) return key;
+  const rest = key.slice(host.length + 1);
+  return `${remoteKeyVersionPrefix}${rest.startsWith("~") ? `${host}//${rest}` : key}`;
 }
 
 /**
