@@ -470,12 +470,25 @@ test("a person's attached image reaches the phone as a picture it can fetch by h
     ],
   });
 
-  expect(await ask({ type: "spade.image", sha256: hash })).toEqual({
+  expect(await ask({ type: "spade.image", sha256: hash, variant: "original" })).toEqual({
     ok: true,
     kind: "image",
     name: "Image",
     mimeType: "image/jpeg",
     data: btoa(`bytes of ${hash}`),
   });
-  expect(await ask({ type: "spade.image", sha256: "c".repeat(64) })).toMatchObject({ ok: false });
+  expect(
+    await ask({ type: "spade.image", sha256: "c".repeat(64), variant: "original" }),
+  ).toMatchObject({ ok: false });
+});
+
+test("a picture's thumbnail asks for the daemon's small preview, its viewer for the image itself", async () => {
+  const hash = "d".repeat(64);
+  const { api, ask } = await setUp((fake) => fake.images.set(hash, "image/png"));
+
+  await ask({ type: "spade.image", sha256: hash, variant: "thumbnail" });
+  await ask({ type: "spade.image", sha256: hash, variant: "original" });
+
+  expect(api.sent("GET", `/v1/images/${hash}?preview`)).toHaveLength(1);
+  expect(api.sent("GET", `/v1/images/${hash}`)).toHaveLength(1);
 });

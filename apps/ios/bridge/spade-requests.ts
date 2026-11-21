@@ -171,7 +171,8 @@ export async function answerSpade(
       return readBack(spade, request.conversationId, (route) => ask("GET", route));
     case "spade.image":
       try {
-        return { ok: true, ...(await readSpadeImage(owner, deps.id, request.sha256, signal)) };
+        const image = await readSpadeImage(owner, spade.images, deps.id, request, signal);
+        return { ok: true, ...image };
       } catch (error) {
         return refused("Couldn't show the image", error);
       }
