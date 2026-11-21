@@ -83,6 +83,27 @@ describe("MediaSupervisor", () => {
     expect(supervisor.capabilities()?.[0]?.codec).toBe("avc1.640028");
   });
 
+  it("skips a newer ace-media's message type instead of killing it, and still kills on a malformed known one", async () => {
+    const { host, events, clock } = await running();
+    const raw = (json: string) => {
+      const body = new TextEncoder().encode(json);
+      const bytes = new Uint8Array(8 + body.length);
+      const view = new DataView(bytes.buffer);
+      view.setUint32(0, 4 + body.length);
+      view.setUint32(4, body.length);
+      bytes.set(body, 8);
+      return bytes;
+    };
+    host.last.stdout.emit(raw(JSON.stringify({ type: "source.someday", source: "s1" })));
+    await clock.advance(0);
+    expect(host.last.killed).toBe(false);
+    expect(events.messages).toEqual([]);
+    host.last.stdout.emit(raw(JSON.stringify({ type: "source.status", source: "s1" })));
+    await clock.advance(0);
+    expect(host.last.killed).toBe(true);
+    expect(events.exits[0]).toMatchObject({ cause: "protocol" });
+  });
+
   it("treats capabilities.changed before ready as a protocol failure and never forwards it", async () => {
     const h = harness();
     h.host.behaviour.ready = false;

@@ -114,3 +114,28 @@ fn the_ingest_websocket_admits_only_its_path_and_allowed_origins() {
     assert_eq!(ingest_of(media.read()), "s1");
     assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
 }
+
+#[test]
+fn an_older_daemon_that_offers_nothing_gets_the_ready_it_knows_and_no_source_ingest() {
+    let mut media = Media::spawn_unoffered("unoffered");
+    let (_, ingest_socket, _) = media.start();
+    assert_eq!(media.features, None, "ready carries no features field");
+    open_source(&mut media, "s1", 1, 3);
+    let Ok(mut producer) = UnixStream::connect(&ingest_socket) else {
+        panic!("ingest socket refused the connection");
+    };
+    let _ = producer.write_all(&media_frame(5, 0, vec![3; 32]));
+    let _ = producer.write_all(&media_frame(1, 1, vec![0; 1000]));
+    // Straight to the status an older daemon expects: no source.ingest before it.
+    assert_eq!(status_of(media.read()), ("s1".into(), Status::Playing));
+}
+
+#[test]
+fn a_daemon_that_offers_the_features_gets_them_listed_in_ready() {
+    let mut media = Media::spawn("offered");
+    media.start();
+    assert_eq!(
+        media.features,
+        Some(vec!["source.ingest".to_owned(), "source.sync".to_owned()])
+    );
+}

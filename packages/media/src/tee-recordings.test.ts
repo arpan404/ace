@@ -27,6 +27,8 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
     bind: true,
     /** ace-media answers each `source.sync` once it holds. */
     synced: true,
+    /** ace-media agreed to the optional features; an older binary didn't. */
+    speaks: true,
   };
   let needs = 0;
   let next = 0;
@@ -56,6 +58,7 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
     },
     health: () => state.health,
     reason: () => state.reason,
+    speaks: () => state.speaks,
     connect: () => {
       const closes: (() => void)[] = [];
       const socket: IngestSocket = {
@@ -68,7 +71,7 @@ function media(initial: { health?: MediaHealth; reason?: string } = {}) {
       socket.ready.catch(() => {});
       // ace-media reads the hello and binds the connection to its source.
       const source = opened;
-      if (!state.refuse && state.bind)
+      if (!state.refuse && state.bind && state.speaks)
         queueMicrotask(() => recordings.message({ type: "source.ingest", source }));
       sockets.push({ drop: () => closes.splice(0).forEach((close) => close()) });
       return socket;
@@ -359,4 +362,34 @@ it("a stop goes out only after ace-media confirms the barrier; without that it s
   expect(m.types()).toContain("record.stop");
   m.recordings.message({ type: "record.done", recording: id, parts: [part(0)] });
   await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)], truncated: "final-epoch" });
+});
+
+it("with an older ace-media, a recording starts at its ingest connect and its stop says the end may be incomplete", async () => {
+  const m = media();
+  m.state.speaks = false;
+  m.up();
+  const { recording, id } = await started(m);
+  recording.push(video);
+  const stopping = recording.stop();
+  await m.clock.advance(0);
+  // No barrier the older binary would exit on: the stop goes out at once.
+  expect(m.sent.some((message) => message.type === "source.sync")).toBe(false);
+  expect(m.types()).toContain("record.stop");
+  m.recordings.message({ type: "record.done", recording: id, parts: [part(0)] });
+  await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)], truncated: "final-epoch" });
+});
+
+it("a stop during an unexplained ingest loss stays a failure, even when a restart's recovery follows", async () => {
+  const m = media();
+  m.up();
+  const { recording, id } = await started(m);
+  // A real loss: ace-media keeps running, and the person stops in the grace window.
+  m.sockets[0]?.drop();
+  const stopping = recording.stop();
+  // Then ace-media dies and comes back before the stop is answered.
+  m.crash();
+  m.up();
+  await m.clock.advance(200);
+  m.recordings.message({ type: "record.done", recording: id, parts: [part(0)] });
+  await expect(stopping).resolves.toEqual({ ok: false, reason: "ingest-closed", parts: [part(0)] });
 });

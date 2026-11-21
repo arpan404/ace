@@ -239,6 +239,8 @@ async fn serve(
     let mut pictures = pictures::Pictures::new(shared.clone(), chrome, encoded_tx);
 
     let mut stdout = Writer::spawn(tokio::io::stdout(), NORMAL_LIMIT);
+    let features =
+        media_wire::control::agreed_features(std::env::var("ACE_MEDIA_FEATURES").ok().as_deref());
     let ready = FromMedia::Ready {
         protocol: Protocol::new(1).unwrap_or_else(|_| unreachable!()),
         version: version.to_owned(),
@@ -255,6 +257,7 @@ async fn serve(
             loopback_port,
             remote_port: None,
         },
+        features: features.clone(),
     };
     let sent = encode(ready, Lane::Normal).map(|bytes| stdout.send(bytes));
     if !matches!(sent, Ok(Ok(()))) {
@@ -284,6 +287,7 @@ async fn serve(
 
     let egress_lane = EgressLane::default();
     let mut engine = Engine::new(recorders(), Box::new(egress_lane.clone()));
+    engine.agree(features.as_deref().unwrap_or_default());
     let (still_tx, mut still_rx) = mpsc::unbounded_channel();
     let started = clock.0;
     let threads = crate::stills::StillThreads::probed(

@@ -711,6 +711,15 @@ pub enum FromMedia {
         control: Control,
         #[serde(rename = "listen")]
         listen: Listen,
+        /// The optional features the daemon offered at spawn (`ACE_MEDIA_FEATURES`) that this
+        /// build speaks; absent when none were offered, so an older daemon never sees it.
+        #[serde(
+            rename = "features",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        features: Option<Vec<String>>,
     },
     /// The whole list again, after a trial finished late or a backend changed.
     #[serde(rename = "capabilities.changed")]
@@ -956,6 +965,23 @@ pub fn lane(kind: &str) -> Lane {
 }
 #[derive(Debug, PartialEq)]
 pub struct InvalidControl;
+
+/// The optional features this build speaks when a daemon offers them (`ready.features`):
+/// `source.ingest` reports a bound hello; `source.sync` answers ingest barriers.
+pub const FEATURES: [&str; 2] = ["source.ingest", "source.sync"];
+
+/// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own
+/// order; `None` when nothing was offered.
+pub fn agreed_features(offered: Option<&str>) -> Option<Vec<String>> {
+    let offered: Vec<&str> = offered?.split(',').map(str::trim).collect();
+    Some(
+        FEATURES
+            .iter()
+            .filter(|feature| offered.contains(feature))
+            .map(|feature| (*feature).to_owned())
+            .collect(),
+    )
+}
 pub struct ControlFrame<M> {
     pub message: M,
     pub payload: zeroize::Zeroizing<Vec<u8>>,
@@ -1009,6 +1035,31 @@ impl<M: Message> ControlFrame<M> {
         b.extend_from_slice(&(json.len() as u32).to_be_bytes());
         b.extend(json);
         Ok(b)
+    }
+    /// Whether a frame `decode` refused is a well-formed message of a type this build doesn't
+    /// know: a newer peer's. Such a frame is skipped, never fatal (decode leniently); a known
+    /// type that is malformed still is.
+    pub fn unknown_type(b: &[u8]) -> bool
+    where
+        M: serde::de::DeserializeOwned,
+    {
+        let Some(json) = b
+            .get(4..8)
+            .map(|j| u32::from_be_bytes([j[0], j[1], j[2], j[3]]) as usize)
+            .and_then(|j| b.get(8..8 + j))
+        else {
+            return false;
+        };
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(json) else {
+            return false;
+        };
+        if !value.get("type").is_some_and(serde_json::Value::is_string) {
+            return false;
+        }
+        match serde_json::from_value::<M>(value) {
+            Ok(_) => false,
+            Err(error) => error.to_string().starts_with("unknown variant"),
+        }
     }
     pub fn decode(b: &[u8], lane: Lane) -> Result<Self, InvalidControl> {
         if b.len() < 8 {

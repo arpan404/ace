@@ -591,8 +591,17 @@ fn sync(engine: &mut Engine, seq: u64, frames: u64, decided: u32) -> Vec<Effect>
 }
 
 #[test]
-fn a_hello_bound_to_its_source_is_reported_on_the_control_lane() {
+fn a_hello_bound_to_its_source_is_reported_on_the_control_lane_once_the_daemon_agreed() {
+    let mut quiet = engine();
+    open_tab(&mut quiet, "s1", 1, 9);
+    // A daemon that didn't agree to source.ingest never gets one.
+    assert!(
+        !hello(&mut quiet, 1, 9)
+            .iter()
+            .any(|e| matches!(e, Effect::Normal(FromMedia::SourceIngest { .. })))
+    );
     let mut engine = engine();
+    engine.agree(&["source.ingest".to_owned()]);
     open_tab(&mut engine, "s1", 1, 9);
     let bound = hello(&mut engine, 1, 9);
     assert!(bound.iter().any(|e| matches!(
@@ -626,4 +635,22 @@ fn a_sync_is_answered_only_once_its_frames_arrived_and_its_epoch_is_decided_so_s
     assert_eq!(written(&log), ["write 1 1", "write 1 0"]);
     // A barrier that already holds is answered at once.
     assert_eq!(synced(&sync(&mut engine, 1, 2, 1)), [1]);
+}
+
+#[test]
+fn a_sync_waits_while_clear_audio_is_still_held_for_a_video_fragment() {
+    let log = Log::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
+    open_tab(&mut engine, "s1", 1, 9);
+    start(&mut engine, "r1", "/tmp/r");
+    hello(&mut engine, 1, 9);
+    // Opus audio before any video: no fragment can take it yet.
+    let mut audio = frame(2, 0, 1, vec![0xfc, 1, 2]);
+    audio.codec = 9;
+    ingest(&mut engine, 1, audio, NOW);
+    let decided = decide(&mut engine, 0, 1, json!([[1, 1]]), json!([]), NOW);
+    assert!(synced(&decided).is_empty());
+    // Received and decided, but the audio is neither written nor dropped: not answered.
+    assert!(synced(&sync(&mut engine, 0, 1, 1)).is_empty());
+    assert!(written(&log).is_empty());
 }

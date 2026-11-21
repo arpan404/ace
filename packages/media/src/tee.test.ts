@@ -3,7 +3,8 @@ import { decodeMediaFrame } from "./frame.ts";
 import { MediaTee, teeQueueLimit, type IngestSocket, type TeeUnit } from "./tee.ts";
 import type { ToMedia } from "./wire.ts";
 
-function tee() {
+/** `speaks`: ace-media agreed to the optional features (an older binary didn't). */
+function tee(speaks = true) {
   const sent: ToMedia[] = [];
   const written: Uint8Array[] = [];
   const state = { now: 0, queued: 0, keyframes: 0, connected: 0, destroyed: 0 };
@@ -30,6 +31,7 @@ function tee() {
       randomBytes: (n) => new Uint8Array(n).fill(9),
       keyframe: () => void state.keyframes++,
       lost: (reason) => void lost.push(reason),
+      speaks: () => speaks,
     },
     1,
   );
@@ -106,6 +108,18 @@ it("an acceptance still waiting is settled false by a reopen, a close or a lost 
   const lost = media.accepted();
   drop();
   await expect(lost).resolves.toBe(false);
+});
+
+it("with an ace-media that never agreed to the features, it is taken at its connect and a sync can't hold", async () => {
+  const { media, sent } = tee(false);
+  media.open();
+  const accepted = media.accepted();
+  media.message({ type: "source.status", source: "s1", status: "starting" });
+  await expect(accepted).resolves.toBe(true);
+  media.push(unit(true));
+  await expect(media.sync(1)).resolves.toBe(false);
+  // Nothing an older binary would exit on is sent.
+  expect(sent.some((message) => message.type === "source.sync")).toBe(false);
 });
 
 it("a sync asks ace-media for every frame written on the connection, and holds once it says so", async () => {

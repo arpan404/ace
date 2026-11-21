@@ -134,6 +134,7 @@ export class MediaRuntime {
       need: () => this.supervisor.need(),
       health: () => this.supervisor.health(),
       reason: () => this.supervisor.snapshot().unavailableReason,
+      speaks: (feature) => this.supervisor.speaks(feature),
       connect: options.connect ?? nodeIngestConnect,
       handle: () => this.egress.reserve(),
       randomBytes,

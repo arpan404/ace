@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import {
   ToMedia,
+  unknownFromMedia,
   FromMedia,
   controlLane,
   encodeControl,
@@ -49,6 +50,21 @@ test("every control variant has a shared fixture and survives its binary lane", 
   expect(seen.FromMedia).toEqual(
     new Set(FromMedia.options.map((option) => option.shape.type.value)),
   );
+});
+test("a newer ace-media's message type is recognised as unknown; a malformed known one isn't", () => {
+  const raw = (message: object) => {
+    const body = new TextEncoder().encode(JSON.stringify(message));
+    const bytes = new Uint8Array(8 + body.length);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, 4 + body.length);
+    view.setUint32(4, body.length);
+    bytes.set(body, 8);
+    return bytes;
+  };
+  expect(unknownFromMedia(raw({ type: "source.someday", source: "s1" }), "normal")).toBe(true);
+  expect(unknownFromMedia(raw({ type: "source.status", source: "s1" }), "normal")).toBe(false);
+  expect(unknownFromMedia(raw({ source: "s1" }), "normal")).toBe(false);
+  expect(unknownFromMedia(new Uint8Array(3), "normal")).toBe(false);
 });
 test("control boundaries reject malformed grants while opaque metadata retains unknown fields", () => {
   const metadata = {

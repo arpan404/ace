@@ -222,3 +222,27 @@ it("a record.stop a live ace-media never answers ends the stop in bounded time w
     parts: [part(0)],
   });
 });
+
+it("an exit while the stop's barrier is pending sends one record.stop in the new process, after marking the end truncated", async () => {
+  let up = true;
+  const drained = Promise.withResolvers<boolean>();
+  const { media, sent } = recording({ up: () => up, drain: () => drained.promise });
+  media.start();
+  const stopping = media.stop();
+  // ace-media dies with the barrier unanswered, and comes back.
+  up = false;
+  media.lost("media-exited");
+  up = true;
+  const before = sent.length;
+  media.replay();
+  const stops = () => sent.slice(before).filter((m) => m.type === "record.stop").length;
+  expect(stops()).toBe(1);
+  // The old process's barrier answering late sends nothing more.
+  drained.resolve(true);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(stops()).toBe(1);
+  // A record.done as fast as it can come still finds the end marked.
+  media.message({ type: "record.done", recording: "r1", parts: [part(0)] });
+  await expect(stopping).resolves.toEqual({ ok: true, parts: [part(0)], truncated: "final-epoch" });
+});

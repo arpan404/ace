@@ -1,7 +1,7 @@
 import { createConnection } from "node:net";
 import { ReadStamper, type IssuedEpoch } from "./epochs.ts";
 import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
-import type { FromMedia, ToMedia } from "./wire.ts";
+import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
  * The tee (docs/media/plan.md, "Routes and setting combinations"): frames the daemon already
@@ -58,6 +58,8 @@ export type MediaTeeOptions = {
    * read from now on reach nobody, so the owner must not go on as if they were recorded.
    */
   lost?: (reason: string) => void;
+  /** Whether the running ace-media agreed to an optional feature (`ready.features`). */
+  speaks?: (feature: MediaFeature) => boolean;
 };
 
 /** Past this many queued bytes, deltas are dropped until the next keyframe. */
@@ -146,10 +148,19 @@ export class MediaTee {
     this.#bound = false;
     this.#frames = 0;
     // Accepted only once ace-media says it bound the hello (`source.ingest`), never on the
-    // socket's own connect: it may still refuse the token and close.
-    socket.ready.catch(() => {
-      if (this.#socket === socket) this.#lose("ingest-refused");
-    });
+    // socket's own connect: it may still refuse the token and close. An ace-media that never
+    // agreed to say so is taken at its connect, as before.
+    const reports = this.#options.speaks?.("source.ingest") ?? false;
+    socket.ready.then(
+      () => {
+        if (reports || this.#socket !== socket) return;
+        this.#bound = true;
+        this.#settle(true);
+      },
+      () => {
+        if (this.#socket === socket) this.#lose("ingest-refused");
+      },
+    );
     socket.onClose(() => {
       if (this.#socket === socket) this.#lose("ingest-closed");
     });
@@ -217,7 +228,9 @@ export class MediaTee {
    * if the connection goes first or the message can't be sent. The caller bounds the wait.
    */
   sync(decided: number): Promise<boolean> {
-    if (!this.#bound) return Promise.resolve(false);
+    // An ace-media that didn't agree to barriers can't confirm one.
+    if (!this.#bound || !(this.#options.speaks?.("source.sync") ?? false))
+      return Promise.resolve(false);
     const seq = this.#nextSync++;
     const sent = this.#options.send(
       { type: "source.sync", source: this.#options.source, seq, frames: this.#frames, decided },

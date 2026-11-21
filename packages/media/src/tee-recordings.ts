@@ -3,7 +3,7 @@ import { MediaRecording, type RecordedPart, type RecordingEnd } from "./recordin
 import type { MediaClock } from "./supervisor-host.ts";
 import type { MediaHealth } from "./supervision-policy.ts";
 import { MediaTee, type IngestSocket, type TeeUnit } from "./tee.ts";
-import type { FromMedia, ToMedia } from "./wire.ts";
+import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
  * Recordings until X2 (docs/media/plan.md, phase 1): the daemon has a source's frames (from its
@@ -26,6 +26,8 @@ export type TeeRecordingsPort = {
   health(): MediaHealth;
   /** Why ace-media isn't available, when it isn't. */
   reason(): string | undefined;
+  /** Whether the running ace-media agreed to an optional feature (`ready.features`). */
+  speaks(feature: MediaFeature): boolean;
   connect(path: string): IngestSocket;
   /** A source handle never used before in this ace-media process. */
   handle(): number;
@@ -225,6 +227,7 @@ export class TeeRecording implements ActiveRecording {
         randomBytes: (length) => port.randomBytes(length),
         keyframe: () => spec.keyframe(),
         lost: (reason) => this.#lost(reason),
+        speaks: (feature) => port.speaks(feature),
       },
       1,
     );
@@ -368,6 +371,9 @@ export class TeeRecording implements ActiveRecording {
    * replaced makes it a failure, even when the stop itself went through.
    */
   stop(): Promise<RecordingEnd> {
+    // A loss no exit explains when the stop begins is latched: no later restart or recovery
+    // turns it back into a clean recording.
+    if (this.#loss && !this.#loss.restarting) this.#failure ??= this.#loss.reason;
     this.#stopping = true;
     return this.#media.stop().then((end) => this.#failed(end));
   }

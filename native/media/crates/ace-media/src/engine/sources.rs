@@ -99,6 +99,8 @@ const MAX_SYNCS: usize = 8;
 
 #[derive(Default)]
 pub struct Sources {
+    /// The daemon agreed to `source.ingest`: a bound hello is reported.
+    pub(crate) report_ingest: bool,
     by_id: HashMap<String, Source>,
     /// Every handle this process was given: handles are never reused while it lives.
     handles: HashSet<u32>,
@@ -742,12 +744,14 @@ impl Sources {
         source.ingest = Some(conn);
         source.received = 0;
         self.bindings.insert(conn, source.id.get().to_owned());
-        normal(
-            out,
-            FromMedia::SourceIngest {
-                source: source.id.clone(),
-            },
-        );
+        if self.report_ingest {
+            normal(
+                out,
+                FromMedia::SourceIngest {
+                    source: source.id.clone(),
+                },
+            );
+        }
         true
     }
 
@@ -783,8 +787,12 @@ impl Sources {
         let recording = source.recording.as_ref();
         let (held, waiting): (Vec<_>, Vec<_>) =
             source.syncs.drain(..).partition(|(_, frames, decided)| {
+                // Every counted frame settled: decided, and none held (clear audio waiting on
+                // a video fragment is neither written nor dropped yet).
                 received >= *frames
-                    && recording.is_none_or(|r| r.barrier.decided(*decided).is_some())
+                    && recording.is_none_or(|r| {
+                        r.barrier.decided(*decided).is_some() && r.barrier.held() == 0
+                    })
             });
         source.syncs = waiting;
         for (seq, _, _) in held {

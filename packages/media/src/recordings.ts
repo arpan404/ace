@@ -84,6 +84,8 @@ export class MediaRecording {
   #stopAck: (() => void) | undefined;
   /** The stop's barrier didn't hold: the last epoch was left out. */
   #truncated = false;
+  /** The stop's barrier is waiting on the current ace-media. */
+  #draining = false;
   #ended: RecordingEnd | undefined;
   #waiters: ((end: RecordingEnd) => void)[] = [];
 
@@ -125,8 +127,8 @@ export class MediaRecording {
     // Stopped while ace-media was away: the new process recovers the part the crash cut at
     // `record.start` and reports it; nothing new is recorded before the stop.
     if (this.#stopSent) return;
-    // A stop still draining sends `record.stop` itself once it has.
-    if (this.#sendStart() && this.#recovering) this.#sendStop();
+    // A barrier still waiting on this process sends `record.stop` itself once it settles.
+    if (this.#sendStart() && !this.#draining) this.#sendStop();
   }
 
   /** A privacy transition: a new epoch at once, so no epoch spans it. */
@@ -192,9 +194,13 @@ export class MediaRecording {
     this.#next();
     const decided = this.#ledger.current - 1;
     const drain = this.#options.drain;
+    this.#draining = true;
     void (drain ? drain(decided) : Promise.resolve(true))
       .catch(() => false)
       .then((held) => {
+        // An exit settled this barrier as lost already; the replay sent the stop.
+        if (!this.#draining) return;
+        this.#draining = false;
         if (!held) this.#truncated = true;
         if (!this.#ended && !this.#sendStop()) this.#awaitRecovery("media-unavailable");
       });
@@ -204,12 +210,20 @@ export class MediaRecording {
   /** ace-media went away. A stopping recording waits for the next process to recover it. */
   lost(reason: string): void {
     if (!this.#stopping || this.#ended) return;
+    // A barrier the old process never answered can't hold: settled lost before any replay may
+    // stop, so the end is marked before the new process's record.done can arrive.
+    if (this.#draining) {
+      this.#draining = false;
+      this.#truncated = true;
+    }
     this.#stopSent = false;
     this.#stopAck?.();
     this.#awaitRecovery(reason);
   }
 
+  /** At most one `record.stop` per ace-media process. */
   #sendStop(): boolean {
+    if (this.#stopSent) return true;
     this.#stopSent = this.#options.send({
       type: "record.stop",
       recording: this.#options.recording,
