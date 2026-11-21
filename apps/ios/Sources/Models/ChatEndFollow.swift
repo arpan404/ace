@@ -10,8 +10,8 @@ enum ScrollEnd {
 
 /// Whether a messenger-style chat keeps its end on screen (Spade's conversation). It follows from
 /// opening, stops the moment the person drags back toward older messages, and follows again only
-/// when their own scroll comes to rest at the end, or they send. Growth (a streaming reply, rows
-/// measuring, the keyboard) never decides it: while it doesn't follow, the rows the person reads
+/// when a scroll comes to rest at the end (theirs, VoiceOver's, the status bar's), or they send.
+/// Growth (a streaming reply, rows measuring, the keyboard) is no scroll and never decides it: while it doesn't follow, the rows the person reads
 /// hold still. The same rule as the thread's transcript (`ConversationFeed`), without its history
 /// windows. Pure.
 struct ChatEndFollow: Equatable, Sendable {
@@ -20,9 +20,6 @@ struct ChatEndFollow: Equatable, Sendable {
     private(set) var following = true
     /// A finger is on the scroll, or its fling hasn't come to rest.
     private var touching = false
-    /// Following stopped because something other than a drag scrolled away (VoiceOver, the
-    /// status bar): the same kind of scroll back to the end follows again.
-    private var leftByOtherScroll = false
 
     init(slack: Double) { self.slack = slack }
 
@@ -35,38 +32,32 @@ struct ChatEndFollow: Equatable, Sendable {
 
     /// The scroll moved while the person held or flung it.
     mutating func scrolled(towardOlder: Bool) {
-        if touching, towardOlder { following = false; leftByOtherScroll = false }
+        if touching, towardOlder { following = false }
     }
 
-    /// The scroll came to rest, `fromEnd` above the end in a `viewport` this tall.
+    /// A scroll came to rest, `fromEnd` above the end in a `viewport` this tall. Only a scroll's
+    /// phase ending calls it, never a change of size: at the end it follows again, however the
+    /// scroll was made and however following had stopped (a drag, VoiceOver, a card's jump).
     mutating func rested(fromEnd: Double, viewport: Double) {
-        if touching {
-            following = fromEnd <= slack
-            touching = false
-            leftByOtherScroll = false
-        } else if leftByOtherScroll, fromEnd <= slack {
-            // VoiceOver, which can't drag, brought the person back to the end.
+        if fromEnd <= slack {
             following = true
-            leftByOtherScroll = false
+        } else if touching {
+            following = false
         } else if TranscriptEndButton.leftByOtherScroll(following: following, fromEnd: fromEnd, viewport: viewport, settling: false) {
             // Moved a screen away by something other than a drag (the status bar, VoiceOver).
             following = false
-            leftByOtherScroll = true
         }
+        touching = false
     }
 
     /// The person sent a message: the chat goes to its end, wherever they were.
     mutating func sent() {
         following = true
         touching = false
-        leftByOtherScroll = false
     }
 
     /// The feed jumped to a row the person asked for (a card for later).
-    mutating func jumped() {
-        following = false
-        leftByOtherScroll = false
-    }
+    mutating func jumped() { following = false }
 }
 
 /// Whether a drag has moved back toward older messages: by more than a point from the newest

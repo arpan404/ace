@@ -32,15 +32,6 @@ import Testing
         #expect(follow.following)
     }
 
-    @Test func growthBelowTheReaderNeverChangesWhetherItFollows() {
-        // A streaming answer moves the end away with no finger on the screen.
-        var follow = ChatEndFollow(slack: 24)
-        follow.touched()
-        follow.rested(fromEnd: 400, viewport: 800)
-        follow.rested(fromEnd: 20, viewport: 800)
-        #expect(!follow.following, "only the person's own scroll coming to rest at the end follows again")
-    }
-
     @Test func aScrollThePersonDidntDragFarFromTheEndStopsFollowing() {
         // The status bar's tap to the top, or VoiceOver.
         var follow = ChatEndFollow(slack: 24)
@@ -56,13 +47,24 @@ import Testing
         #expect(follow.following)
     }
 
-    @Test func aScrollThePersonDidntDragToTheEndDoesntUndoTheirDragBack() {
+    @Test func aScrollThePersonDidntDragBackToTheEndFollowsAgainAfterADragBack() {
         var follow = ChatEndFollow(slack: 24)
         follow.touched()
         follow.scrolled(towardOlder: true)
         follow.rested(fromEnd: 3_000, viewport: 800)
         follow.rested(fromEnd: 10, viewport: 800)
-        #expect(!follow.following, "only their own scroll, or VoiceOver's after VoiceOver's, follows again")
+        #expect(follow.following)
+    }
+
+    @Test func voiceOverScrollingToTheEndAfterACardForLaterFollowsAgain() {
+        // The card's jump stopped following; VoiceOver then scrolls back to the newest message.
+        var follow = ChatEndFollow(slack: 24)
+        follow.jumped()
+        follow.rested(fromEnd: 1_200, viewport: 800)
+        #expect(!follow.following)
+        follow.rested(fromEnd: 0, viewport: 800)
+        #expect(follow.following)
+        #expect(follow.mayRestack, "the lazy stack held back for the reader may switch now")
     }
 
     @Test func theRowsChangeStackOnlyWhileTheChatFollowsItsEnd() {
