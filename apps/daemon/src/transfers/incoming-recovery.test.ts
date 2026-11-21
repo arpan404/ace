@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { PinnedDirectory } from "@ace/workspace";
 import { RunId, type Device, type TransferCommit } from "@ace/protocol";
 import { Store } from "../store.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
@@ -9,6 +10,7 @@ import { IncomingTransfers, type IncomingDeps } from "./incoming.ts";
 import { ThreadOwnership } from "./live/ownership.ts";
 import { LiveTarget, type LiveTargetPorts } from "./live/target.ts";
 import { LiveStarts } from "./live/target-rows.ts";
+import { folderIdentity } from "./files.ts";
 import { incomingPath } from "./incoming-files.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -44,7 +46,8 @@ const record = (transferId: string, change: Partial<IncomingRecord> = {}): Incom
 
 /** A target with a real store and folder; its projects, threads and Git are the edges faked. */
 async function target(options: { setUp?: () => void; threadStatus?: () => never } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "ace-incoming-recovery-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-incoming-recovery-")));
+  const unregistered: string[] = [];
   const directory = join(root, "incoming");
   await mkdir(directory, { recursive: true });
   const store = new Store(join(root, "store.sqlite"));
@@ -77,7 +80,16 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     directory,
     git: {},
     archive: {},
-    projects: { list: () => [] },
+    projects: {
+      list: () => [],
+      parent: async (requested: string | undefined) => {
+        const handle = PinnedDirectory.open(requested ?? root);
+        return { path: requested ?? root, handle, close: async () => handle.close() };
+      },
+      unregister: async (workspaceId: string) => {
+        unregistered.push(workspaceId);
+      },
+    },
     threads: {
       create: async () => {
         throw new Error("not made here");
@@ -99,7 +111,7 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     store.close();
     await rm(root, { recursive: true, force: true });
   });
-  return { incoming, store, directory, rows: new IncomingRows(store) };
+  return { incoming, store, root, directory, unregistered, rows: new IncomingRows(store) };
 }
 
 const thread = {
@@ -175,6 +187,59 @@ describe("a target's recovery after a restart", () => {
         state: "completed",
         live: { running: false },
       });
+  });
+
+  it("finishes a landed import whose upload an earlier build left under its old name, keeping its checkout", async () => {
+    const t = await target();
+    // An earlier build made the thread and its new checkout, then crashed before the setup.
+    const checkout = join(t.root, "app-there");
+    await mkdir(checkout);
+    await writeFile(join(checkout, "work.ts"), "the moved thread's work");
+    t.rows.insert(record("move.1"), 0);
+    t.rows.update(
+      "move.1",
+      {
+        commit: { op: "commit", transferId: "move.1", live, thread },
+        result: { ...result, path: checkout },
+        createdPath: checkout,
+        createdId: folderIdentity(await stat(checkout)),
+        registeredId: "w",
+      },
+      0,
+    );
+    // Its upload still under the name that build gave it, the id itself.
+    await writeFile(join(t.directory, "move.1.part"), "bytes");
+    await t.incoming.recover();
+    // Past its cutoff the move stands: set up here, never cancelled, so the sender never
+    // resumes it; its checkout and registration stay.
+    await expect
+      .poll(() => t.incoming.call(device, { op: "status", transferId: "move.1" }))
+      .toMatchObject({ state: "completed" });
+    expect(await readFile(join(checkout, "work.ts"), "utf8")).toBe("the moved thread's work");
+    expect(t.unregistered).toEqual([]);
+  });
+
+  it("never removes the checkout of an import past its cutoff that an earlier build cancelled", async () => {
+    const t = await target();
+    const checkout = join(t.root, "app-there");
+    await mkdir(checkout);
+    await writeFile(join(checkout, "work.ts"), "the moved thread's work");
+    // As the build before this fix left it: cancelled at recovery though its thread was made.
+    t.rows.insert(record("move.2", { state: "cancelled" }), 0);
+    t.rows.update(
+      "move.2",
+      {
+        commit: { op: "commit", transferId: "move.2", live, thread },
+        result: { ...result, path: checkout },
+        createdPath: checkout,
+        createdId: folderIdentity(await stat(checkout)),
+        registeredId: "w",
+      },
+      0,
+    );
+    await t.incoming.recover();
+    expect(await readFile(join(checkout, "work.ts"), "utf8")).toBe("the moved thread's work");
+    expect(t.unregistered).toEqual([]);
   });
 
   it("finishes every import a restart left, past one batch", async () => {

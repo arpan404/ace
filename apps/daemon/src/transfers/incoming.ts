@@ -148,6 +148,11 @@ export class IncomingTransfers {
   private sweeping = new Map<string, Promise<void>>();
   /** Sweeps running now, whole, so closing waits for each to stop rather than for one removal. */
   private sweeps = new Set<Promise<void>>();
+  /**
+   * Recovery is rolling back the imports a restart left: every importing row it reads is undone,
+   * so no commit starts an import until it is done (`admitImport`).
+   */
+  private rollingBack = false;
   /** Recovery removing files no live transfer owns: a begin waits for it to end. */
   private strays: Promise<void> | undefined;
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
@@ -159,6 +164,27 @@ export class IncomingTransfers {
   }
   /** After a restart: imports that were running start again from the file that is still here. */
   async recover(): Promise<void> {
+    // Set before the first await: the transfer endpoints answer while recovery runs.
+    this.rollingBack = true;
+    try {
+      await this.rollBackLeft();
+    } finally {
+      this.rollingBack = false;
+    }
+    // Moved threads whose first turn a restart interrupted, every one of them.
+    if (this.deps.live)
+      for await (const start of this.deps.live.unfinished()) this.startLive(start.transferId);
+    // Rows a cancel or failure settled before their rollback finished, every one of them.
+    await batches(
+      (after) => this.rows.leftovers(after),
+      (record) => this.rollback(record),
+    );
+    // Files a crash left behind, and the old-named files of transfers cancelled above.
+    await this.holdingBegins(() => this.removeStrays());
+    await this.sweep();
+  }
+  /** Undoes and starts again each import a restart left; past its cutoff, finishes it. */
+  private async rollBackLeft(): Promise<void> {
     await ensureDirectory(this.deps.directory);
     // Rows from before the side tables are indexed first, in pages (ADR 0170).
     await this.rows.ready();
@@ -178,17 +204,14 @@ export class IncomingTransfers {
         this.import(this.rows.get(record.transferId) ?? record);
       },
     );
-    // Moved threads whose first turn a restart interrupted, every one of them.
-    if (this.deps.live)
-      for await (const start of this.deps.live.unfinished()) this.startLive(start.transferId);
-    // Rows a cancel or failure settled before their rollback finished, every one of them.
-    await batches(
-      (after) => this.rows.leftovers(after),
-      (record) => this.rollback(record),
-    );
-    // Files a crash left behind, and the old-named files of transfers cancelled above.
-    await this.holdingBegins(() => this.removeStrays());
-    await this.sweep();
+  }
+  /**
+   * Refuses, as retryable, a commit while recovery rolls back: an import it started would be
+   * among the rows recovery reads and undoes. The sender waits and sends it again.
+   */
+  private admitImport(): void {
+    if (this.rollingBack)
+      throw new TargetRefusal("unavailable", "This machine's ace is still starting up.");
   }
   /**
    * Runs `run` with no transfer beginning meanwhile (`strays`), so the live rows it reads are all
@@ -228,6 +251,9 @@ export class IncomingTransfers {
     await batches(
       (after) => this.rows.live(after),
       async (record) => {
+        // Past its cutoff (the thread made, this machine its owner) it never needs its upload
+        // again: recovery finishes its setup, and a cancel would let the sender resume it too.
+        if (record.result) return;
         for (const part of incomingParts) {
           const name = legacyIncomingName(record.transferId, part);
           if (owned.has(name)) continue;
@@ -240,6 +266,8 @@ export class IncomingTransfers {
       },
     );
     for (const transferId of stranded) {
+      // Read again with the claim: only a row that is still before its cutoff is cancelled.
+      if (this.rows.get(transferId)?.result) continue;
       const cancelled = this.rows.claim(
         transferId,
         ["receiving", "cloning", "importing"],
@@ -555,6 +583,7 @@ export class IncomingTransfers {
   ): Promise<IncomingTransfer> {
     const record = this.owned(device, call.transferId);
     if (record.state !== "receiving") return this.view(record);
+    this.admitImport();
     // What it checks below is this upload's; one reopened meanwhile is another (`reopen`).
     const upload = this.upload(call.transferId);
     const file = this.file(call.transferId);
@@ -602,7 +631,10 @@ export class IncomingTransfers {
     // and the device may have lost its scopes. Only a transfer still receiving the upload it
     // checked is claimed, for a device that may still send it, so only one copy ever claims it.
     // Nothing is awaited between these checks and the claim.
-    if (this.upload(call.transferId) === upload) this.still(device, check);
+    if (this.upload(call.transferId) === upload) {
+      this.still(device, check);
+      this.admitImport();
+    }
     const claimed =
       this.upload(call.transferId) === upload &&
       this.rows.claim(
@@ -920,6 +952,12 @@ export class IncomingTransfers {
    * that can't be removed is left in place and recorded, never removed by guess.
    */
   private async rollback(record: IncomingRecord): Promise<void> {
+    // Past the cutoff what landed is the thread's: its project and checkout are never undone,
+    // whatever state the row says (an earlier build could cancel such a row at recovery).
+    if (record.result) {
+      if (record.state !== "importing") this.forgetMade(record.transferId);
+      return;
+    }
     if (record.registeredId)
       await this.deps.projects
         .unregister(WorkspaceId.parse(record.registeredId))
@@ -945,8 +983,12 @@ export class IncomingTransfers {
         this.deps.log("Transfer folder left in place", { transferId: record.transferId });
       }
     }
+    this.forgetMade(record.transferId);
+  }
+  /** Drops the record of what the transfer made, leaving whatever it names in place. */
+  private forgetMade(transferId: string): void {
     this.rows.update(
-      record.transferId,
+      transferId,
       { createdPath: undefined, createdId: undefined, registeredId: undefined },
       this.deps.now(),
     );
