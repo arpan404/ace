@@ -41,6 +41,8 @@ export class AceOrgError extends AceAccountError {
 }
 
 const segment = (value: string) => encodeURIComponent(value);
+/** An organization's routes: `orgs/{id}`, the id checked first. */
+const org = (id: string) => `orgs/${AceOrgId.parse(id)}`;
 
 /**
  * Organizations on the account backend (ADR 0206 §1, §2.7): the person's spaces, an
@@ -78,7 +80,6 @@ export function aceOrgClient(options: { origin: string; fetch: typeof fetch }) {
     }
     return httpJson(response, 256 * 1024);
   }
-  const org = (id: string) => `orgs/${AceOrgId.parse(id)}`;
   return {
     /** The person's organizations, for the space switcher (the mirror's active memberships). */
     async spaces(token: string, signal: AbortSignal): Promise<Space[]> {

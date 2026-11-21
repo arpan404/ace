@@ -158,17 +158,20 @@ export function SpaceProvider(props: { store: AceAccountStore | undefined; child
     },
     [store, queryClient, account],
   );
-  const value: SpaceState = {
-    spaces,
-    shown,
-    choose,
-    hostsOf,
-    calls: orgs && token ? { orgs, token } : undefined,
-    signInNeeded,
-    failed,
-    refresh,
-    error: list.error,
-  };
+  const value = useMemo<SpaceState>(
+    () => ({
+      spaces,
+      shown,
+      choose,
+      hostsOf,
+      calls: orgs && token ? { orgs, token } : undefined,
+      signInNeeded,
+      failed,
+      refresh,
+      error: list.error,
+    }),
+    [spaces, shown, choose, hostsOf, orgs, token, signInNeeded, failed, refresh, list.error],
+  );
   return <SpaceContext value={value}>{props.children}</SpaceContext>;
 }
 

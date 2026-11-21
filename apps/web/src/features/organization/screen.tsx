@@ -5,8 +5,11 @@ import { openExternalWhenReady } from "@/boot/open-external.ts";
 import { SettingCard, SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useAceAccountStore, useSpace } from "@/features/ace-account/index.ts";
-import { SettingsBody } from "../settings-body.tsx";
-import { organizationPageNeeds, type SettingsPath } from "../settings-pages.ts";
+import {
+  organizationPageNeeds,
+  SettingsBody,
+  type SettingsPath,
+} from "@/features/settings/index.ts";
 
 const MembersPage = lazy(() =>
   import("./members-page.tsx").then((module) => ({ default: module.MembersPage })),

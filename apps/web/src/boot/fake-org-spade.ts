@@ -8,6 +8,16 @@ import { fakeOrgHostId, fakeOrgs } from "./fake-orgs.ts";
  * waiting for one of them; Research is shared too, approved by Dana alone; the host's log holds a
  * few entries, each naming who allowed it.
  */
+const entry = (seq: number, action: string, at: number, extra: Record<string, unknown>) => ({
+  kind: "entry",
+  seq,
+  prev: seq === 1 ? "0".repeat(64) : `${seq - 1}`.padStart(64, "0"),
+  hash: `${seq}`.padStart(64, "0"),
+  action,
+  occurred_at: at,
+  ...extra,
+});
+
 export function seedFakeOrgSpade(remote: FakeSpadeApi, now: number) {
   const minutes = (count: number) => now - count * 60_000;
   remote.org.binding = {
@@ -56,15 +66,6 @@ export function seedFakeOrgSpade(remote: FakeSpadeApi, now: number) {
     repo: "acme/api",
     issue: 412,
     body: "Contract tests fail on main after this merge: `orders.v2` drops `currency`.",
-  });
-  const entry = (seq: number, action: string, at: number, extra: Record<string, unknown>) => ({
-    kind: "entry",
-    seq,
-    prev: seq === 1 ? "0".repeat(64) : `${seq - 1}`.padStart(64, "0"),
-    hash: `${seq}`.padStart(64, "0"),
-    action,
-    occurred_at: at,
-    ...extra,
   });
   remote.org.audit = [
     entry(1, "org.host.enrolled", minutes(60 * 24 * 6), {

@@ -47,7 +47,7 @@ export function AuditPage(props: { org: AceOrgSpace }) {
       host?.client ? readAuditExport(host.client, {}, signal) : Promise.resolve(""),
   });
   const read = log.data === undefined ? undefined : readAuditLines(log.data);
-  const rows = read ? read.rows.slice(-shownEntries).reverse() : [];
+  const rows = read ? read.rows.slice(-shownEntries).toReversed() : [];
   const [error, setError] = useState("");
   return (
     <>
