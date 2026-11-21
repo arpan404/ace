@@ -1,7 +1,7 @@
 # Android Phase 0 measurements
 
-The owner accepts #565 as Phase 0 evidence. It stays an unmerged draft, and the
-Phase 0 gate remains held. Phase 1 waits for the owner and real-device measurements. End-to-end input latency passes on the accelerated
+The owner accepts #565 as Phase 0 evidence, merged 2026-10-12. The Phase 0
+performance and real-device gates remain held. Phase 1 waits for the owner and real-device measurements. End-to-end input latency passes on the accelerated
 emulator, and SQLite restart replay passes. Scrolling improves substantially with
 host GPU rendering, but the current and legacy frame metrics disagree. A bounded
 five-minute memory observation does not certify long-run memory behaviour. This

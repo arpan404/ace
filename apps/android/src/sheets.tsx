@@ -18,6 +18,7 @@ import {
   Box,
 } from "./components.tsx";
 import { useSelection, sameIds } from "./selection.ts";
+import { isInstrumentedBuild } from "./native-mode.ts";
 export function AceSheet({
   title,
   dismiss,
@@ -151,6 +152,9 @@ export function MachinesSheet({
 }) {
   const theme = useTheme();
   const state = useSelection(useMemo(() => client.connectionState(), [client]));
+  // Spike controls exist only in fixture builds; measurement also needs them
+  // even though __DEV__ is false there. Production fails closed to no controls.
+  const instrumented = useMemo(() => isInstrumentedBuild(), []);
   return (
     <AceSheet title="Machines" dismiss={dismiss}>
       <Group>
@@ -161,7 +165,7 @@ export function MachinesSheet({
           textColour={state === "ready" ? theme.statusText.done : theme.statusText.waiting}
         />
       </Group>
-      {__DEV__ ? (
+      {instrumented ? (
         <Group>
           <AceText role="label">Spike controls</AceText>
           <Row horizontalArrangement={{ spacedBy: tokens.spacing.sm }}>

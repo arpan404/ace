@@ -1,0 +1,615 @@
+import {
+  Client,
+  ClientError,
+  type ClientApi,
+  type ConnectionState,
+  type Intent,
+  type Lease,
+  type OneWayMessage,
+  type RequestOptions,
+  type Scheduler,
+  type Selection,
+  type ServiceRequest,
+  type ServiceResponse,
+  type SidebarSource,
+  type Storage,
+  type ThreadSource,
+  type Transport,
+} from "@ace/client";
+import { DeviceId, HostId, type ServerMessage } from "@ace/protocol";
+import { FilesClientMessage, WorkspaceActionRequest } from "@ace/protocol";
+import {
+  projectSidebarLease,
+  projectThreadLease,
+  snapshotSidebar,
+  snapshotThread,
+  wrapSelection,
+} from "./read-projection.ts";
+import { PinnedTransportError, TrustMonitor } from "../security/pinned-transport.ts";
+import {
+  bridgePinnedHttp,
+  bridgeSocketTransport,
+  ticketFetch,
+  type ExpoPinnedBridge,
+} from "../security/expo-bridge.ts";
+import { isPin } from "../security/trust.ts";
+import { loadCredential, type CredentialStore } from "../pairing/credentials.ts";
+import { pairedSocketCredential } from "../pairing/tickets.ts";
+import { ProductionTransportError, type MachineRuntime } from "./machines-runtime.ts";
+import type { MachineEntry } from "@ace/client/machines";
+
+/**
+ * Production per-machine runtime wiring.
+ *
+ * Mirrors the iOS `ClientModel.connect` boundary (`ClientRuntime` over a
+ * `ConnectionTarget`): one SDK `Client` per paired entry with its own pinned
+ * WSS transport, its own credential closure and its own per-machine `Storage`
+ * namespace (outbox plus immutable host binding, one owner per
+ * daemon/device). The manager (`machines-runtime.ts`) owns lifecycle:
+ * serialized replacement, close-before-remove and per-machine epochs.
+ *
+ * Fail-closed rules:
+ *
+ * - Relay targets and malformed pins never reach the network: relay entries
+ *   throw `ProductionTransportError` (Android supports direct pairings only,
+ *   like iOS `connectionTarget` returning nil for relay entries), and a bad
+ *   pin throws `PinnedTransportError` before any socket, fetch or credential
+ *   is touched.
+ * - Every connection attempt re-reads the device token from the Keystore
+ *   store and exchanges it for a fresh single-use ticket over pinned HTTPS.
+ *   Tickets are never cached and tokens never leave the credential store.
+ * - The `Storage` namespace is derived from the entry's host and device
+ *   identity, so two machines never share an outbox. The database tables
+ *   must be ensured (via `ensureOutboxTables`) before the first runtime is
+ *   built; `storageFor` itself is synchronous because the manager's
+ *   `makeRuntime` boundary is.
+ */
+
+export interface ProductionEpochs {
+  isCurrent(hostId: string, epoch: number): boolean;
+  epochOf(hostId: string): number | undefined;
+}
+
+export interface ProductionRuntimeDeps {
+  readonly bridge: ExpoPinnedBridge;
+  readonly credentials: CredentialStore;
+  /** Per-machine `Storage` namespace. Must be scoped by `namespaceFor`. */
+  readonly storageFor: (entry: MachineEntry) => Storage;
+  /** Manager epochs for the stale-callback guard; absent in standalone use. */
+  readonly epochs?: ProductionEpochs | undefined;
+  readonly scheduler?: Scheduler | undefined;
+  readonly id?: (() => string) | undefined;
+  readonly random?: (() => number) | undefined;
+  readonly now?: (() => number) | undefined;
+  readonly socketId?: (() => string) | undefined;
+  readonly trustFor?: ((entry: MachineEntry) => TrustMonitor) | undefined;
+  /**
+   * Test seam for the socket transport. Production always uses the pinned
+   * native bridge; tests substitute a loopback transport to exercise the
+   * credential, namespace and lifecycle wiring without a device or daemon.
+   */
+  readonly transportFor?:
+    | ((
+        entry: MachineEntry,
+        context: { trust: TrustMonitor; isCurrent: () => boolean },
+      ) => Transport)
+    | undefined;
+  /**
+   * Per-call admission guard. Production startup supplies a closure that
+   * throws when the entry's recorded grant is view-only; the guarded
+   * admission below runs it on every mutating call, so even a leaked
+   * admission object fails closed after revocation.
+   */
+  readonly assertAdmission?: ((entry: MachineEntry) => void) | undefined;
+  /**
+   * Observes connection readiness only. Receives a read-only signals view
+   * (`connectionState`/`error`); the SDK `Client` itself never escapes, so
+   * an observer cannot cache a mutation handle around the grant.
+   */
+  readonly observe?: ((entry: MachineEntry, signals: ProductionRuntimeSignals) => void) | undefined;
+}
+
+/**
+ * Read-only connection signals for tests. Deliberately omits every command
+ * admission method: polling readiness must never hand out a mutation handle.
+ */
+export interface ProductionRuntimeSignals {
+  connectionState(): Selection<ConnectionState>;
+  readonly error: ClientError | undefined;
+}
+
+/**
+ * Outbox/database scope for one paired computer, mirroring iOS's per-machine
+ * database name. Encoded as the JSON pair also used for the credential key
+ * (`machineSecretKey`): raw NUL separators are unsafe here because the
+ * namespace travels as a bound SQLite TEXT value, where an embedded NUL
+ * truncates the comparison and can alias two machines onto one namespace.
+ * The JSON encoding is injective and NUL-free.
+ */
+export function namespaceFor(entry: { hostId: string; deviceId: string }): string {
+  return JSON.stringify([entry.hostId, entry.deviceId]);
+}
+
+/** HTTPS origin of the same daemon listener, for the pinned ticket exchange. */
+export function httpsOriginForSocketUrl(socketUrl: string): string {
+  const url = new URL(socketUrl);
+  if (url.protocol !== "wss:") throw new PinnedTransportError("invalid");
+  url.protocol = "https:";
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.href;
+}
+
+/**
+ * Fresh single-use ticket credential for one paired entry. Re-reads the
+ * Keystore token on every attempt so revocation and re-pairing take effect
+ * without restarting the app; a missing or malformed token surfaces as an
+ * authentication failure that routes the machine back to pairing.
+ */
+export function createProductionCredential(
+  deps: Pick<ProductionRuntimeDeps, "bridge" | "credentials">,
+  entry: MachineEntry,
+  trust?: TrustMonitor | undefined,
+): () => Promise<{ ticket: string }> {
+  if (entry.target.kind !== "direct" || !isPin(entry.target.fingerprint ?? ""))
+    throw new PinnedTransportError("invalid");
+  const origin = httpsOriginForSocketUrl(entry.target.url);
+  const fingerprint = entry.target.fingerprint ?? "";
+  const http = bridgePinnedHttp(deps.bridge, { origin, fingerprint });
+  return pairedSocketCredential({
+    socketUrl: entry.target.url,
+    token: () => loadCredential(deps.credentials, entry),
+    fetch: ticketFetch(http, { trust }),
+  });
+}
+
+export interface ProductionMutations extends Pick<
+  ClientApi,
+  "enqueue" | "command" | "submitNew" | "intent"
+> {}
+
+/**
+ * Read-only file operations the production viewer may use, without ever
+ * touching a mutation. `files.request` stays at list/stat/read/download of
+ * the checkout plus `link.download` (a file one assistant message links to,
+ * which the daemon resolves itself); every write/create/rename/move/delete,
+ * upload and archive op is refused before it reaches the socket.
+ * `workspace.request` stays at `git.status`/`git.diff` (the change letters
+ * and marks the viewer paints); drafts and every other workspace op are
+ * refused. `files.pull` is the download channel's continuation read.
+ *
+ * Scope notes (accurate boundaries, not aspirations):
+ *
+ * - `files.pull` carries no thread field per protocol
+ *   (`{requestId, channel}` only), so neither this allowlist nor the adapter
+ *   pin can bind a pull to a thread. Confinement of a channel to its download
+ *   is entirely daemon-side; a hostile pull with a guessed channel is limited
+ *   to the same connection and fails closed at the daemon when the channel is
+ *   unknown. Shape-invalid pulls (missing/non-integer channel) throw here,
+ *   before the socket, via the protocol schema.
+ * - `link.download` forwards any `itemId`/`reference` for the pinned thread.
+ *   The client does not check that the item links the reference: the daemon
+ *   resolves `reference` only after finding that link in `itemId`
+ *   (`linkedKey(threadId, itemId, reference)` in the file wire), so a foreign
+ *   `itemId` fails to resolve daemon-side.
+ * - `observeFiles` below is host-wide, not thread-scoped: `files.changed`
+ *   carries no thread and event batches carrying `workspace.files_changed`
+ *   carry a `workspaceId` that is not filtered. Batches are narrowed to
+ *   their `workspace.files_changed` entries before delivery, so unrelated
+ *   event content never crosses even though the tap itself is host-wide.
+ *   The effect is refresh-only (the viewer re-reads its own thread); no
+ *   content leaks, but cross-thread churn is expected.
+ */
+export const PRODUCTION_FILES_REQUEST_OPS: ReadonlySet<string> = new Set([
+  "list",
+  "stat",
+  "read",
+  "download",
+  "link.download",
+]);
+export const PRODUCTION_WORKSPACE_READ_OPS: ReadonlySet<string> = new Set([
+  "git.status",
+  "git.diff",
+]);
+
+export type ProductionFilesRequest =
+  | Extract<ServiceRequest, { type: "files.request" }>
+  | Extract<ServiceRequest, { type: "files.pull" }>
+  | Extract<ServiceRequest, { type: "workspace.request" }>;
+export type ProductionFilesResponse = ServiceResponse<ProductionFilesRequest>;
+export type ProductionFilesCancel = Extract<OneWayMessage, { type: "files.cancel" }>;
+
+/**
+ * Fail closed for anything outside the read-only file allowlist above.
+ * Unknown shapes, uploads, writes and non-git workspace ops throw before any
+ * network use; the daemon re-validates the scope. `files.pull` and
+ * `files.cancel` are shape-checked with the protocol schemas (a dummy
+ * `requestId` fills the client-added field for request/pull validation, since
+ * `Client.request` stamps it after this boundary); a missing or out-of-range
+ * channel throws here. `files.pull`/`files.cancel` carry no thread field, so
+ * channel confinement stays daemon-side (see the allowlist note above).
+ */
+export function assertProductionFilesRequest(
+  input: unknown,
+): asserts input is ProductionFilesRequest {
+  if (typeof input !== "object" || input === null) throw new Error("Files are read-only here.");
+  const request = input as { type?: unknown };
+  if (request.type === "files.pull") {
+    const parsed = FilesClientMessage.safeParse({
+      ...(input as Record<string, unknown>),
+      requestId: (input as { requestId?: unknown }).requestId ?? "production-pre-socket-check",
+    });
+    if (!parsed.success || parsed.data.type !== "files.pull")
+      throw new Error("Files are read-only here.");
+    return;
+  }
+  if (request.type === "files.request") {
+    const parsed = FilesClientMessage.safeParse({
+      ...(input as Record<string, unknown>),
+      requestId: (input as { requestId?: unknown }).requestId ?? "production-pre-socket-check",
+    });
+    if (!parsed.success || parsed.data.type !== "files.request")
+      throw new Error("Files are read-only here.");
+    if (PRODUCTION_FILES_REQUEST_OPS.has(parsed.data.operation.op)) return;
+  }
+  if (request.type === "workspace.request") {
+    const parsed = WorkspaceActionRequest.safeParse({
+      ...(input as Record<string, unknown>),
+      requestId: (input as { requestId?: unknown }).requestId ?? "production-pre-socket-check",
+    });
+    if (!parsed.success) throw new Error("Files are read-only here.");
+    if (PRODUCTION_WORKSPACE_READ_OPS.has(parsed.data.operation.op)) return;
+  }
+  throw new Error("Files are read-only here.");
+}
+
+/**
+ * Only a download-channel cleanup may send; everything else throws. The
+ * message is parsed with the protocol schema, so a missing or out-of-range
+ * channel throws before the socket. The cancel carries no thread field: any
+ * well-formed channel on this connection may be cancelled (own-connection
+ * DoS at most); channel ownership stays daemon-side.
+ */
+export function assertProductionFilesSend(
+  message: unknown,
+): asserts message is ProductionFilesCancel {
+  const parsed = FilesClientMessage.safeParse(message);
+  if (!parsed.success || parsed.data.type !== "files.cancel")
+    throw new Error("Files are read-only here.");
+}
+
+/**
+ * Read-only inbox/thread view over one machine's live SDK `Client`. Mirrors
+ * the iOS `ClientModel` read path (inbox rows and the open thread stay
+ * readable while `canOperate` is false): no grant check runs here, only
+ * liveness plus the binding pin below. Only synchronous selection leases,
+ * the connection selection, the durable receipt view and the read-only file
+ * burst below are exposed; every other network-fetching read
+ * (`threadsWindow`, `loadOlder`, `itemsWindow`, `threadSearch`,
+ * `markThreadRead`, …) and every mutation stays unreachable so a view-only
+ * phone cannot reach a mutating path through this boundary.
+ * At runtime every lease store is a null-prototype projected view with only
+ * the reader methods (no `Sidebar`/`ThreadStore` prototype or mutator
+ * escapes, frozen copies out), every `Selection` re-checks the pin on
+ * `getSnapshot`/`subscribe`, and every lease invalidates on release plus
+ * releases its inner subscription and tracked taps. Cached rows are frozen
+ * point-in-time snapshots, never the live store.
+ */
+export interface ProductionReads {
+  connectionState(): Selection<ConnectionState>;
+  /** Counts daemon sockets; a file transfer fails once it moves past its socket. */
+  connectionGeneration(): Selection<number | undefined>;
+  readonly error: ClientError | undefined;
+  threads(): Lease<SidebarSource>;
+  thread(id: string): Lease<ThreadSource>;
+  cachedThreads(): SidebarSource | undefined;
+  cachedThread(id: string): ThreadSource | undefined;
+  intent(id: string): Selection<Intent | undefined>;
+  /**
+   * One read-only file burst (tree, read, download, git marks) over the
+   * pinned client. Re-checks the exact-owner pin per call with no grant
+   * check, so the viewer reads while view-only; anything outside
+   * `assertProductionFilesRequest` throws before the socket. Never the raw
+   * `Client.request`: only this allowlisted entry.
+   */
+  filesRequest(
+    input: ProductionFilesRequest,
+    options?: RequestOptions,
+  ): Promise<ProductionFilesResponse>;
+  /** Download-channel cleanup only; anything else throws. Never raw `send`. */
+  filesSend(message: ProductionFilesCancel): void;
+  /**
+   * File-change taps only: `files.changed` passes through, and `events`
+   * batches are narrowed to their `workspace.files_changed` entries so
+   * unrelated batch content (titles, statuses, other payloads) never crosses
+   * this boundary. Every other server message is dropped, and a pin failure
+   * detaches instead of delivering. Never raw `onMessage`. Coverage fields
+   * (`subscriptionId`/`afterSeq`/`throughSeq`) are preserved as-is; the tap
+   * is refresh-only (the viewer re-reads its own thread).
+   */
+  observeFiles(listener: (message: ServerMessage) => void): () => void;
+}
+
+export interface ProductionMachineRuntime extends MachineRuntime {
+  /** Binds the manager epoch captured after this runtime attached. */
+  bindEpoch(epoch: number): void;
+}
+
+/**
+ * Per-factory admission registry. The callable builds lifecycle-only
+ * runtimes for the manager (`manager.client` never sees command admission
+ * at runtime, not just in the types); `admissionFor` resolves the guarded
+ * admission for one connected host, or `undefined` once its runtime closed.
+ * Every admission object is pinned to the exact runtime record observed at
+ * lookup: every method re-runs `assertAdmission` against the current entry
+ * and re-checks the binding identity plus the epoch guard, so a cached
+ * admission fails closed after revocation, same-host replacement or re-pair,
+ * disconnect or removal instead of forwarding to the new owner. `intent`
+ * checks binding liveness only.
+ */
+export interface ProductionMakeRuntime {
+  (entry: MachineEntry): ProductionMachineRuntime;
+  admissionFor(hostId: string): ProductionMutations | undefined;
+  readsFor(hostId: string): ProductionReads | undefined;
+}
+
+function notConnected(): Error {
+  return new Error("This machine is not connected.");
+}
+
+/**
+ * Narrow one server message to a file-change tap. `files.changed` passes
+ * through untouched; `events` batches pass through only their
+ * `workspace.files_changed` entries (same message shell, filtered events)
+ * so unrelated batch content never crosses the production file boundary;
+ * batches with no file-change entry and every other message drop to
+ * `undefined`. Pure: no I/O, no pin checks; `observeFiles` applies the pin
+ * around it.
+ */
+export function filterProductionFileTap(message: ServerMessage): ServerMessage | undefined {
+  if (message.type === "files.changed") return message;
+  if (message.type === "events") {
+    const relevant = message.events.filter(
+      (event) => event.payload?.type === "workspace.files_changed",
+    );
+    if (relevant.length === 0) return undefined;
+    if (relevant.length === message.events.length) return message;
+    return { ...message, events: relevant };
+  }
+  return undefined;
+}
+
+export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): ProductionMakeRuntime {
+  let ids = 0;
+  const scheduler: Scheduler = deps.scheduler ?? {
+    set(delayMs, callback) {
+      const timer = setTimeout(callback, delayMs);
+      return () => clearTimeout(timer);
+    },
+  };
+  const id = deps.id ?? (() => `client-${Date.now()}-${(ids += 1)}`);
+  const random = deps.random ?? (() => Math.random());
+  const live = new Map<string, { client: Client; entry: MachineEntry; isCurrent: () => boolean }>();
+  const resolveCurrent = (hostId: string): { client: Client; entry: MachineEntry } => {
+    const current = live.get(hostId);
+    if (current === undefined || !current.isCurrent()) {
+      if (current !== undefined) live.delete(hostId);
+      throw notConnected();
+    }
+    return current;
+  };
+  const makeRuntime = ((entry: MachineEntry): ProductionMachineRuntime => {
+    if (entry.target.kind !== "direct") throw new ProductionTransportError();
+    const fingerprint = entry.target.kind === "direct" ? (entry.target.fingerprint ?? "") : "";
+    if (!isPin(fingerprint)) throw new PinnedTransportError("invalid");
+    const trust = deps.trustFor?.(entry) ?? new TrustMonitor();
+    let epoch: number | undefined;
+    const isCurrent = () => {
+      if (epoch === undefined || deps.epochs === undefined) return true;
+      return deps.epochs.isCurrent(entry.hostId, epoch);
+    };
+    const transport =
+      deps.transportFor?.(entry, { trust, isCurrent }) ??
+      bridgeSocketTransport(deps.bridge, {
+        url: entry.target.url,
+        fingerprint,
+        id: deps.socketId ?? (() => id()),
+        trust,
+        isCurrent,
+      });
+    const client = new Client({
+      deviceId: DeviceId.parse(entry.deviceId),
+      expectedHostId: HostId.parse(entry.hostId),
+      transport: () => transport,
+      credential: createProductionCredential(deps, entry, trust),
+      storage: deps.storageFor(entry),
+      scheduler,
+      id,
+      random,
+      ...(deps.now === undefined ? {} : { now: deps.now }),
+      // The production tail is the shared default (200 items); the 2,200-item
+      // spike cap must never leak into this configuration.
+      limits: { items: 200 },
+    });
+    // Read-only readiness view: no mutation handle escapes to observers.
+    // Every signal re-checks the exact-owner pin and hands out frozen copies,
+    // so a cached observer cannot read past replacement or mutate the live store.
+    live.set(entry.hostId, { client, entry, isCurrent });
+    {
+      const observedClient = client;
+      const checkObserverPin = (): void => {
+        if (!isCurrent()) throw notConnected();
+      };
+      const signals = Object.create(null) as {
+        connectionState: () => Selection<ConnectionState>;
+        error: ClientError | undefined;
+      };
+      Object.defineProperties(signals, {
+        error: {
+          enumerable: true,
+          get: () => {
+            checkObserverPin();
+            const failure = observedClient.error;
+            if (failure === undefined) return undefined;
+            return Object.freeze(new ClientError(failure.code, failure.message));
+          },
+        },
+      });
+      signals.connectionState = () =>
+        wrapSelection(checkObserverPin, observedClient.connectionState());
+      deps.observe?.(entry, Object.freeze(signals));
+    }
+    return {
+      bindEpoch(next: number) {
+        epoch = next;
+      },
+      async start() {
+        await client.start();
+      },
+      async close() {
+        // A failed close keeps the single owner attached (the manager retries
+        // it): only a successful close detaches the guarded admission below.
+        await client.close();
+        if (live.get(entry.hostId)?.client === client) live.delete(entry.hostId);
+      },
+      networkOnline(online: boolean) {
+        client.networkOnline(online);
+      },
+      reconnectNow() {
+        client.reconnectNow();
+      },
+      wake() {
+        client.wake();
+      },
+    };
+  }) as ProductionMakeRuntime;
+  makeRuntime.admissionFor = (hostId: string): ProductionMutations | undefined => {
+    const bound = live.get(hostId);
+    if (bound === undefined || !bound.isCurrent()) {
+      if (bound !== undefined) live.delete(hostId);
+      return undefined;
+    }
+    const boundRecord = bound;
+    const boundClient = bound.client;
+    // Pinned to the exact runtime record observed here. A same-host
+    // replacement or re-pair mints a new record, so a cached admission must
+    // fail instead of forwarding to the new owner; the grant below is always
+    // read from the current record, never the stale capture.
+    const checkBound = (): { client: Client; entry: MachineEntry } => {
+      const current = resolveCurrent(hostId);
+      if (current !== boundRecord || current.client !== boundClient) {
+        throw notConnected();
+      }
+      return current;
+    };
+    // Fresh guarded admission per lookup, and every method re-checks: a
+    // previously returned admission object still fails closed after
+    // revocation (assertAdmission on the current entry), replacement or
+    // re-pair (binding identity above), or close/removal (registry delete in
+    // `close`).
+    return {
+      enqueue: async (payload, commandId) => {
+        const current = checkBound();
+        deps.assertAdmission?.(current.entry);
+        if (live.get(hostId) !== boundRecord) throw notConnected();
+        return current.client.enqueue(payload, commandId);
+      },
+      command: async (payload, options, commandId) => {
+        const current = checkBound();
+        deps.assertAdmission?.(current.entry);
+        if (live.get(hostId) !== boundRecord) throw notConnected();
+        return current.client.command(payload, options, commandId);
+      },
+      submitNew: async (payload, record, options) => {
+        const current = checkBound();
+        deps.assertAdmission?.(current.entry);
+        if (live.get(hostId) !== boundRecord) throw notConnected();
+        return current.client.submitNew(payload, record, options);
+      },
+      intent: (commandId) => {
+        const current = checkBound();
+        return current.client.intent(commandId);
+      },
+    };
+  };
+  makeRuntime.readsFor = (hostId: string): ProductionReads | undefined => {
+    const bound = live.get(hostId);
+    if (bound === undefined || !bound.isCurrent()) {
+      if (bound !== undefined) live.delete(hostId);
+      return undefined;
+    }
+    const boundRecord = bound;
+    const boundClient = bound.client;
+    // Pinned to the exact runtime record observed here, like the guarded
+    // admission above, but with no grant check: inbox and thread rows stay
+    // readable while view-only. A same-host replacement or re-pair mints a
+    // new record, so a cached read handle fails instead of following the new
+    // owner; close and removal detach through the registry delete in `close`.
+    // Every surface below is projected: lease stores are null-prototype
+    // reader-only views (no concrete `Sidebar`/`ThreadStore` escapes),
+    // selections re-check the pin per call, and leases invalidate plus
+    // release their inner subscription on `release`.
+    const checkBound = (): { client: Client; entry: MachineEntry } => {
+      const current = resolveCurrent(hostId);
+      if (current !== boundRecord || current.client !== boundClient) {
+        throw notConnected();
+      }
+      return current;
+    };
+    const checkPin = (): void => {
+      checkBound();
+    };
+    return {
+      connectionState: () => wrapSelection(checkPin, checkBound().client.connectionState()),
+      connectionGeneration: () =>
+        wrapSelection(checkPin, checkBound().client.connectionGeneration()),
+      get error() {
+        const failure = checkBound().client.error;
+        if (failure === undefined) return undefined;
+        return Object.freeze(new ClientError(failure.code, failure.message));
+      },
+      threads: () => projectSidebarLease(checkPin, checkBound().client.threads()),
+      thread: (threadId: string) =>
+        projectThreadLease(checkPin, checkBound().client.thread(threadId)),
+      cachedThreads: () => {
+        const held = checkBound().client.cachedThreads?.();
+        return held === undefined ? undefined : snapshotSidebar(held);
+      },
+      cachedThread: (threadId: string) => {
+        const held = checkBound().client.cachedThread?.(threadId);
+        return held === undefined ? undefined : snapshotThread(held);
+      },
+      intent: (commandId) => wrapSelection(checkPin, checkBound().client.intent(commandId)),
+      filesRequest: (input, options) => {
+        const current = checkBound();
+        assertProductionFilesRequest(input);
+        return current.client.request(input, options) as Promise<ProductionFilesResponse>;
+      },
+      filesSend: (message) => {
+        const current = checkBound();
+        assertProductionFilesSend(message);
+        current.client.send(message);
+      },
+      observeFiles: (listener) => {
+        checkPin();
+        let stop: (() => void) | undefined;
+        const wrapped = (message: ServerMessage): void => {
+          try {
+            checkPin();
+          } catch {
+            stop?.();
+            return;
+          }
+          const tap = filterProductionFileTap(message);
+          if (tap !== undefined) listener(tap);
+        };
+        stop = boundClient.onMessage(wrapped);
+        return () => {
+          stop?.();
+        };
+      },
+    };
+  };
+  return makeRuntime;
+}
