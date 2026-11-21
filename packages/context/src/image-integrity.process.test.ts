@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import sharp from "sharp";
 import { expect, test } from "vitest";
+import { AttachmentBytes, previewLimit } from "./attachment-bytes.ts";
 import { uploads, hash, thread, attachment } from "./test-support.ts";
 
 for (const [extension, mime] of [
@@ -40,7 +41,37 @@ for (const [extension, mime] of [
     }
   });
 }
-test("HEIC keeps its exact bytes as an opaque file without requesting a thumbnail", async () => {
+for (const extension of ["heic", "tiff", "bmp"] as const)
+  test(`a ${extension} stays an opaque file the agent reads by path, with a 512-pixel preview the apps draw`, async () => {
+    const f = await uploads();
+    try {
+      const bytes = await readFile(new URL(`../fixtures/colours.${extension}`, import.meta.url));
+      const id = await f.begin(bytes, thread, hash(bytes), `Pasted image.${extension}`);
+      for (let offset = 0; offset < bytes.length; offset += 65531)
+        await f.chunk(id, bytes.subarray(offset, offset + 65531), offset);
+      const file = attachment(await f.commit(id));
+      expect(file).toMatchObject({ kind: "binary", thumbnailAvailable: true });
+
+      const stored = await f.store.attachment("device", thread, file.sha256);
+      const previews = new AttachmentBytes();
+      const parts: Buffer[] = [];
+      for (let offset = 0, total = 1; offset < total; offset += 65536) {
+        const window = await previews.read(stored, "thumbnail", offset, 65536);
+        total = window.bytes;
+        parts.push(window.data);
+      }
+      const preview = Buffer.concat(parts);
+      expect(preview.length).toBeLessThanOrEqual(previewLimit);
+      expect(await sharp(preview).metadata()).toMatchObject({
+        format: "png",
+        width: 320,
+        height: 240,
+      });
+    } finally {
+      await f.close();
+    }
+  });
+test("HEIC that doesn't decode keeps its exact bytes as an opaque file without requesting a thumbnail", async () => {
   const f = await uploads();
   try {
     const bytes = Buffer.from("00000018667479706865696300000000686569636d696631", "hex");
