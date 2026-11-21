@@ -174,7 +174,6 @@ export const ToMedia = z.discriminatedUnion("type", [
     scale: z.number().finite().nonnegative(),
   }),
   z.strictObject({ type: z.literal("source.codecs"), source: id, codecs: z.array(text) }),
-  z.strictObject({ type: z.literal("source.picture"), source: id, ageMs: u32, epoch: u32 }),
   z.strictObject({
     type: z.literal("source.epoch"),
     source: id,
@@ -449,7 +448,6 @@ function validatePayload(
     case "listen":
       length = message.remote ? message.remote.certificateBytes + message.remote.keyBytes : 0;
       break;
-    case "source.picture":
     case "relay.out":
     case "relay.in":
     case "still.done":

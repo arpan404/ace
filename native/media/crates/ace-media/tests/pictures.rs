@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! A JPEG source on the real binary (E4): screencast pictures in as `source.picture`, encoded on
+//! A JPEG source on the real binary (E4, X2): screencast pictures in on its ingest, encoded on
 //! VideoToolbox, and out on the egress lane as H.264 under the source's handle.
 #![cfg(target_os = "macos")]
 mod support;
@@ -16,28 +16,7 @@ use support::*;
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 400;
 
-fn base64(bytes: &[u8]) -> Vec<u8> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = Vec::new();
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
-        for i in 0..4 {
-            out.push(if i <= chunk.len() {
-                ALPHABET[(n >> (18 - 6 * i) & 63) as usize]
-            } else {
-                b'='
-            });
-        }
-    }
-    out
-}
-
-/// A screencast-like picture: a bar that moves with `step`, as quality-80 JPEG in base64.
+/// A screencast-like picture: a bar that moves with `step`, as quality-80 JPEG.
 fn picture(step: u32) -> Vec<u8> {
     let mut data = vec![40u8; (WIDTH * HEIGHT * 3) as usize];
     for y in 0..HEIGHT {
@@ -58,7 +37,7 @@ fn picture(step: u32) -> Vec<u8> {
         panic!("picture");
     };
     match StillCodec::encode(&mut CpuJpegCodec::default(), &cpu, 80) {
-        Ok(jpeg) => base64(&jpeg),
+        Ok(jpeg) => jpeg,
         Err(error) => panic!("jpeg: {error}"),
     }
 }
@@ -114,6 +93,7 @@ fn jpeg_source_round_trip(name: &str, origin: serde_json::Value) {
     let FromMedia::Ready {
         capabilities,
         control,
+        ingest,
         ..
     } = media.read()
     else {
@@ -137,6 +117,14 @@ fn jpeg_source_round_trip(name: &str, origin: serde_json::Value) {
                 "origin": origin }),
         &[3; 32],
     );
+    // Its token is known once ace-media has taken the open: only then does a hello bind.
+    loop {
+        if let FromMedia::SourceStatus { source, .. } = media.read()
+            && source.get() == "private"
+        {
+            break;
+        }
+    }
     media.send(
         json!({ "type": "source.egress", "source": "private", "on": true }),
         &[],
@@ -147,11 +135,10 @@ fn jpeg_source_round_trip(name: &str, origin: serde_json::Value) {
         ] }),
         &[],
     );
+    // The pictures come on the source's ingest, as the daemon's picture sources send them.
+    let mut producer = PictureProducer::connect(&ingest.socket, 3);
     for step in 0..30 {
-        media.send(
-            json!({ "type": "source.picture", "source": "private", "ageMs": 0, "epoch": 1 }),
-            &picture(step),
-        );
+        producer.picture(&picture(step), WIDTH as u16, HEIGHT as u16);
         std::thread::sleep(Duration::from_millis(33));
     }
 

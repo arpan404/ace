@@ -401,15 +401,6 @@ pub enum ToMedia {
         #[serde(rename = "codecs")]
         codecs: Vec<String>,
     },
-    #[serde(rename = "source.picture")]
-    SourcePicture {
-        #[serde(rename = "source")]
-        source: Id,
-        #[serde(rename = "ageMs")]
-        age_ms: u32,
-        #[serde(rename = "epoch")]
-        epoch: u32,
-    },
     #[serde(rename = "source.epoch")]
     SourceEpoch {
         #[serde(rename = "source")]
@@ -1016,7 +1007,7 @@ fn validate<M: Message>(message: &M, payload: &[u8], expected: Lane) -> Result<(
             value["remote"]["certificateBytes"].as_u64().unwrap_or(0)
                 + value["remote"]["keyBytes"].as_u64().unwrap_or(0)
         }
-        "source.picture" | "relay.out" | "relay.in" | "still.done" => return Ok(()),
+        "relay.out" | "relay.in" | "still.done" => return Ok(()),
         _ => 0,
     };
     if payload.len() as u64 != length {

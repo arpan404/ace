@@ -2,7 +2,6 @@
 //! ace-media's decisions, with no I/O: every control message and ingest frame goes in, and
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
-pub mod base64;
 pub mod delivery;
 pub mod egress;
 pub mod grants;
@@ -80,10 +79,8 @@ pub enum EncodeEffect {
         source: String,
         /// The encoder this is for (`Sources` gives each encoder one).
         token: u64,
-        /// The picture: base64 JPEG text off the control lane, or (`raw`) the JPEG itself off the
-        /// source's ingest connection.
-        text: Vec<u8>,
-        raw: bool,
+        /// The JPEG, as it came on the source's ingest connection.
+        jpeg: Vec<u8>,
         epoch: u32,
         age_us: u32,
     },
@@ -325,24 +322,6 @@ impl Engine {
             ToMedia::SourceCodecs { source, codecs } => {
                 self.delivery
                     .codecs(source.get(), &codecs, now.mono_ms, out)
-            }
-            ToMedia::SourcePicture {
-                source,
-                epoch,
-                age_ms,
-            } => {
-                let mut payload = payload;
-                let bytes = std::mem::take(&mut *payload);
-                self.stills.picture(source.get(), &bytes, epoch);
-                self.sources.picture(
-                    source.get(),
-                    epoch,
-                    age_ms,
-                    bytes,
-                    now,
-                    self.egress.as_mut(),
-                    out,
-                );
             }
             ToMedia::SourceSync {
                 source,

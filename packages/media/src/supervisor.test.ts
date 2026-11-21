@@ -45,7 +45,8 @@ function egressUnit(payloadBytes: number): Uint8Array {
     payload: new Uint8Array(payloadBytes),
   });
 }
-const picture = (): ToMedia => ({ type: "source.picture", source: "source-1", ageMs: 0, epoch: 0 });
+/** A large normal-lane message as real code sends it: a relay stream's frame. */
+const bulk = (): ToMedia => ({ type: "relay.out", stream: "stream-1" });
 
 async function running(overrides: Parameters<typeof harness>[0] = {}) {
   const h = harness(overrides);
@@ -228,7 +229,7 @@ describe("MediaSupervisor", () => {
     const h = await running();
     const stdin = h.host.last.stdin;
     stdin.blocked = true;
-    for (let i = 0; i < 5; i++) h.supervisor.send(picture(), new Uint8Array(1024 * 1024));
+    for (let i = 0; i < 5; i++) h.supervisor.send(bulk(), new Uint8Array(1024 * 1024));
     await h.clock.advance(30_000);
     expect(h.host.last.killed).toBe(false);
     stdin.unblock();
@@ -240,7 +241,7 @@ describe("MediaSupervisor", () => {
   it("kills a child whose normal lane completes no write across six ping intervals", async () => {
     const h = await running();
     h.host.last.stdin.blocked = true;
-    h.supervisor.send(picture(), new Uint8Array(1024));
+    h.supervisor.send(bulk(), new Uint8Array(1024));
     // The 5 s tick first sees the stuck write; six intervals later, at 35 s, it is hung.
     await h.clock.advance(34_999);
     expect(h.host.last.killed).toBe(false);
@@ -358,7 +359,7 @@ describe("MediaSupervisor", () => {
     await h.clock.advance(60_000);
     expect(h.supervisor.snapshot().phase).toBe("stopping");
     h.supervisor.need();
-    expect(h.supervisor.send(picture(), new Uint8Array(1))).toBe(false);
+    expect(h.supervisor.send(bulk(), new Uint8Array(1))).toBe(false);
     expect(h.supervisor.health()).toBe("restarting");
     h.host.last.exit(0, null);
     await h.clock.advance(0);
@@ -412,14 +413,14 @@ describe("MediaSupervisor", () => {
     const h = await running();
     const stdin = h.host.last.stdin;
     stdin.blocked = true;
-    for (let i = 0; i < 20; i++) h.supervisor.send(picture(), new Uint8Array(1024 * 1024));
+    for (let i = 0; i < 20; i++) h.supervisor.send(bulk(), new Uint8Array(1024 * 1024));
     // The egress lane is full too: 4 MiB of frames arriving while the revocation goes out.
     const egress = h.host.last.lane("egress");
     const unit = egressUnit(64 * 1024);
     for (let i = 0; i < 64; i++) egress.source.emit(unit);
     const result = await h.supervisor.revoke({ type: "revoke", id: "r1", issued: 1, device: "d1" });
     expect(result).toBe("answered");
-    expect(stdin.types("normal").filter((t) => t === "source.picture")).toHaveLength(1);
+    expect(stdin.types("normal").filter((t) => t === "relay.out")).toHaveLength(1);
     expect(h.events.egress).toHaveLength(64);
   });
 
@@ -427,7 +428,7 @@ describe("MediaSupervisor", () => {
     const h = await running();
     const stdin = h.host.last.stdin;
     stdin.blocked = true;
-    h.supervisor.send(picture(), new Uint8Array(1024));
+    h.supervisor.send(bulk(), new Uint8Array(1024));
     const keys = new Uint8Array(120).fill(0xaa);
     h.supervisor.send(viewerOpen("v1", owner("d1"), 5));
     h.supervisor.send(
@@ -563,7 +564,7 @@ describe("MediaSupervisor", () => {
       sources: ["s1"],
       recordings: ["rec-1"],
     });
-    expect(h.supervisor.send(picture(), new Uint8Array(1))).toBe(false);
+    expect(h.supervisor.send(bulk(), new Uint8Array(1))).toBe(false);
   });
 });
 

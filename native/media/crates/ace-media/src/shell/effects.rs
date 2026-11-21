@@ -171,12 +171,11 @@ fn apply_once(
                     } => pictures.configure(&source, token, encodes, now_ms),
                     EncodeEffect::Picture {
                         token,
-                        text,
-                        raw,
+                        jpeg,
                         epoch,
                         age_us,
                         ..
-                    } => pictures.picture(token, text, raw, epoch, age_us),
+                    } => pictures.picture(token, jpeg, epoch, age_us),
                     EncodeEffect::Read { source, token, url } => readers.open(&source, token, &url),
                     // A token is a reader's or an encoder's, never both.
                     EncodeEffect::Key { token, .. } if readers.has(token) => readers.key(token),

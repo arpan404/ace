@@ -284,28 +284,6 @@ fn feed(engine: &mut Engine, frames: impl IntoIterator<Item = MediaFrame>) -> Ve
         .collect()
 }
 
-/// Standard base64, as Chrome sends a screencast frame.
-fn base64(bytes: &[u8]) -> Vec<u8> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = Vec::new();
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
-        for i in 0..4 {
-            out.push(if i <= chunk.len() {
-                ALPHABET[(n >> (18 - 6 * i) & 63) as usize]
-            } else {
-                b'='
-            });
-        }
-    }
-    out
-}
-
 fn jpeg(width: u32, height: u32) -> Vec<u8> {
     use media_codec::{CpuJpegCodec, CpuPicture, PixelFormat, Plane, StillCodec};
     let picture = CpuPicture::new(
@@ -324,19 +302,23 @@ fn jpeg(width: u32, height: u32) -> Vec<u8> {
 }
 
 #[test]
-fn a_screencast_frames_base64_jpeg_is_the_still_fitted_to_the_box() {
+fn a_screencast_picture_off_its_ingest_is_the_still_fitted_to_the_box() {
     let (mut engine, maker) = with_maker();
-    open_tab(&mut engine, "s1", 1, 9);
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "s1", "handle": 1, "epoch": 1,
+                "origin": { "kind": "tab-pictures" } }),
+        &[9; 32],
+        NOW,
+    );
+    assert!(engine.ingest_hello(1, &[9; 32]));
     let picture = jpeg(1200, 600);
-    let screencast = |engine: &mut Engine, text: &[u8]| {
-        send(
-            engine,
-            json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
-            text,
-            NOW,
-        )
+    let screencast = |engine: &mut Engine, bytes: Vec<u8>| {
+        let mut frame = frame(3, 1, 1, bytes);
+        frame.codec = 7;
+        ingest(engine, 1, frame, NOW)
     };
-    screencast(&mut engine, &base64(&picture));
+    screencast(&mut engine, picture.clone());
     assert_eq!(
         shot(&mut engine, &maker, "q1", 400),
         [Answer::Still {
@@ -345,8 +327,12 @@ fn a_screencast_frames_base64_jpeg_is_the_still_fitted_to_the_box() {
             size: (400, 200)
         }]
     );
-    // Raw bytes aren't what Chrome sends: no picture rather than a guess.
-    screencast(&mut engine, &picture);
+    // Bytes that aren't a JPEG, with no size of their own: no picture rather than a guess.
+    let mut junk = frame(3, 1, 1, b"not a jpeg".to_vec());
+    junk.codec = 7;
+    junk.width = 0;
+    junk.height = 0;
+    ingest(&mut engine, 1, junk, NOW);
     assert_eq!(
         shot(&mut engine, &maker, "q2", 400),
         [failed("q2", "no-picture")]

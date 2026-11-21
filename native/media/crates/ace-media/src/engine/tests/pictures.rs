@@ -15,7 +15,13 @@ fn open(engine: &mut Engine, kind: &str) {
         &[9; 32],
         NOW,
     );
+    // Its producer connects to its ingest with the source's token, as the daemon's does.
+    engine.ingest_hello(7, &[9; 32]);
+    let _: Vec<Effect> = engine.effects().collect();
 }
+
+/// The JPEG every picture in these tests carries.
+const JPEG: [u8; 4] = [0xff, 0xd8, 0xff, 0xd9];
 
 fn encodes(engine: &mut Engine, list: Value) -> Vec<Effect> {
     send(
@@ -30,13 +36,12 @@ fn spec() -> Value {
     json!([{ "id": 1, "codec": "avc1.42E01F", "width": 640, "height": 400, "fps": 30, "bitrate": 2_000_000 }])
 }
 
+/// One picture on the source's ingest, captured 5 ms before it was sent.
 fn picture(engine: &mut Engine, epoch: u32, now: Now) -> Vec<Effect> {
-    send(
-        engine,
-        json!({ "type": "source.picture", "source": "p", "ageMs": 5, "epoch": epoch }),
-        b"aGVsbG8=",
-        now,
-    )
+    let mut picture = frame(3, 1, epoch, JPEG.to_vec());
+    picture.codec = 7;
+    picture.age_us = 5_000;
+    ingest(engine, 7, picture, now)
 }
 
 fn encode_effects(effects: &[Effect]) -> Vec<String> {
@@ -61,9 +66,9 @@ fn pictures_of_a_source_with_encodes_go_to_its_encoder_stamped_and_aged() {
         let effects = picture(&mut engine, 2, at(2_000));
         assert_eq!(encode_effects(&effects), ["Picture(p, epoch 2)"]);
         let aged = effects.iter().any(|e| {
-            matches!(e, Effect::Encode(EncodeEffect::Picture { age_us: 5_000, text, .. }) if text == b"aGVsbG8=")
+            matches!(e, Effect::Encode(EncodeEffect::Picture { age_us: 5_000, jpeg, .. }) if jpeg == &JPEG)
         });
-        assert!(aged, "the text as received, with its age");
+        assert!(aged, "the JPEG as received, with its age");
         assert!(statuses(&effects).is_empty(), "playing waits for a unit");
     }
 }
@@ -240,6 +245,24 @@ fn closing_an_encoding_source_waits_for_its_encoder_to_drain_before_a_clean_end(
     // Nothing after the end.
     engine.encoded("p", 1, unit(2, false), NOW);
     assert_eq!(lane.order().len(), 4);
+}
+
+#[test]
+fn a_picture_source_whose_pictures_end_keeps_its_encoders_video_until_the_source_closes() {
+    let (mut engine, lane) = encoding();
+    // The producer moves to another path: its pictures end on this ingest.
+    ingest(&mut engine, 7, frame(4, 0, 0, Vec::new()), NOW);
+    engine.encoded("p", 1, unit(2, true), NOW);
+    let _ = engine.effects().count();
+    assert_eq!(
+        lane.order(),
+        ["unit"],
+        "the encoder's video goes on, unended"
+    );
+    close(&mut engine, NOW);
+    engine.encoder_drained("p", 1);
+    let _ = engine.effects().count();
+    assert_eq!(lane.order(), ["unit", "end"]);
 }
 
 #[test]
@@ -430,20 +453,16 @@ fn stuck_encoder_threads_count_against_the_source_limit() {
 }
 
 #[test]
-fn a_jpeg_on_a_picture_sources_ingest_lane_goes_to_its_encoder_as_it_is_with_no_base64() {
+fn a_jpeg_on_a_picture_sources_ingest_lane_goes_to_its_encoder_as_it_is() {
     let mut engine = engine();
     open(&mut engine, "screen-pictures");
     encodes(&mut engine, spec());
-    assert!(engine.ingest_hello(7, &[9; 32]), "the source's own token");
-    let jpeg = vec![0xff, 0xd8, 0xff, 0xd9];
-    let mut picture = frame(3, 1, 2, jpeg.clone());
-    picture.codec = 7;
-    let effects = ingest(&mut engine, 7, picture, at(2_000));
-    let raw = effects.iter().any(|e| {
-        matches!(e, Effect::Encode(EncodeEffect::Picture { text, raw: true, .. }) if *text == jpeg)
-    });
+    let effects = picture(&mut engine, 2, at(2_000));
+    let given = effects
+        .iter()
+        .any(|e| matches!(e, Effect::Encode(EncodeEffect::Picture { jpeg, .. }) if jpeg == &JPEG));
     assert!(
-        raw,
+        given,
         "the JPEG bytes themselves: {:?}",
         encode_effects(&effects)
     );

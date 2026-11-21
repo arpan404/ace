@@ -362,20 +362,6 @@ impl Stills {
         }
     }
 
-    /// `source.picture`: a screencast frame the daemon passes on, as the base64 JPEG text
-    /// Chrome sent. Text that doesn't decode leaves the source with no picture.
-    pub fn picture(&mut self, source: &str, text: &[u8], epoch: u32) {
-        if let Some(entry) = self.current.get_mut(source) {
-            entry.epochs = Some((epoch, epoch));
-            let no_size = Size {
-                width: 0,
-                height: 0,
-            };
-            entry.current =
-                super::base64::decode(text).map_or(Current::Nothing, |bytes| jpeg(&bytes, no_size));
-        }
-    }
-
     /// `still.take`.
     #[allow(clippy::too_many_arguments)]
     pub fn take(

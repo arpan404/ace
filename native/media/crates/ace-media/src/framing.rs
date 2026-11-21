@@ -219,6 +219,29 @@ mod tests {
     }
 
     #[test]
+    fn an_older_daemons_source_picture_with_its_picture_is_skipped() {
+        let json = r#"{"type":"source.picture","source":"s1","ageMs":0,"epoch":1}"#;
+        let picture = vec![b'A'; 512 * 1024];
+        let mut bytes = ((4 + json.len() + picture.len()) as u32)
+            .to_be_bytes()
+            .to_vec();
+        bytes.extend((json.len() as u32).to_be_bytes());
+        bytes.extend(json.as_bytes());
+        bytes.extend(&picture);
+        bytes.extend(ping_frame());
+        let mut reader = bytes.as_slice();
+        run(async {
+            assert!(matches!(
+                read_control(&mut reader, Lane::Normal).await,
+                Ok(Some(ControlFrame {
+                    message: ToMedia::Ping { .. },
+                    ..
+                }))
+            ));
+        });
+    }
+
+    #[test]
     fn refuses_frames_over_the_lane_limit_and_cut_off_frames() {
         run(async {
             let huge = ((64 * 1024 + 1) as u32).to_be_bytes();

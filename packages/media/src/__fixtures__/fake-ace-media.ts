@@ -161,7 +161,7 @@ process.stdin.on("data", (chunk: Uint8Array) => {
         ),
       );
     }
-    if (message.type === "source.picture" && flood) egressLane?.write(egressUnit);
+    if (message.type === "relay.out" && flood) egressLane?.write(egressUnit);
     if (message.type === "ping")
       send(
         process.stdout,

@@ -333,7 +333,11 @@ impl Sources {
         if let Some(conn) = source.ingest.take() {
             self.bindings.remove(&conn);
             out.push(Effect::CloseIngest(conn));
-            source.egress.end(source.handle, false, egress);
+            // An encoding JPEG source's ingest is only its input: its marker follows the
+            // encoder's last unit, once it has drained.
+            if source.encoder.is_none() {
+                source.egress.end(source.handle, false, egress);
+            }
         }
         if let Some(recording) = source.recording.take() {
             finish(recording, &mut self.ended, out);
@@ -557,58 +561,6 @@ impl Sources {
         }
     }
 
-    /// `source.picture`: a screencast frame the daemon passes on, read by ace-media as producer.
-    #[allow(clippy::too_many_arguments)]
-    pub fn picture(
-        &mut self,
-        id: &str,
-        epoch: u32,
-        age_ms: u32,
-        payload: Vec<u8>,
-        now: Now,
-        egress: &mut dyn EgressSink,
-        out: &mut Vec<Effect>,
-    ) {
-        let Some(source) = self.by_id.get(id) else {
-            return;
-        };
-        // The stricter of the two stamps: a lower epoch is never released by a later decision.
-        let stamped = source
-            .stamper
-            .as_ref()
-            .map_or(epoch, |s| s.stamp(now.mono_ms).min(epoch));
-        if let Some(token) = source.encoder {
-            out.push(Effect::Encode(EncodeEffect::Picture {
-                source: id.to_owned(),
-                token,
-                text: payload,
-                raw: false,
-                epoch: stamped,
-                age_us: age_ms.saturating_mul(1000),
-            }));
-            return;
-        }
-        let frame = MediaFrame {
-            kind: KIND_PICTURE,
-            flags: FLAG_KEYFRAME,
-            age_us: 0,
-            width: 0,
-            height: 0,
-            display_width: 0,
-            display_height: 0,
-            scale: 1000,
-            rotation: 0,
-            codec: CODEC_JPEG,
-            encode: 0,
-            epoch: stamped,
-            codec_string: String::new(),
-            description: Vec::new(),
-            extension: Vec::new(),
-            payload,
-        };
-        self.unit(id, frame, now, egress, out);
-    }
-
     /// `source.epoch`, for sources ace-media produces: stamp `epoch` from now on, then
     /// acknowledge it.
     pub fn epoch(
@@ -717,8 +669,7 @@ impl Sources {
             out.push(Effect::Encode(EncodeEffect::Picture {
                 source: id.clone(),
                 token,
-                text: frame.payload,
-                raw: true,
+                jpeg: frame.payload,
                 epoch,
                 age_us: frame.age_us,
             }));
@@ -737,6 +688,11 @@ impl Sources {
                 out.push(Effect::CloseIngest(conn));
                 if let Some(source) = self.by_id.get_mut(&id) {
                     source.ingest = None;
+                    // An encoding JPEG source's pictures stopped, not its video: its encoder's
+                    // output ends with its close, after the encoder drains.
+                    if source.encoder.is_some() {
+                        return;
+                    }
                     source.status = Status::Ended;
                     source.egress.end(source.handle, false, egress);
                     status(out, &source.id, Status::Ended, None, None);
@@ -848,7 +804,10 @@ impl Sources {
             return;
         };
         source.ingest = None;
-        source.egress.end(source.handle, true, egress);
+        // An encoding JPEG source's output is its encoder's, which goes on: only its input went.
+        if source.encoder.is_none() {
+            source.egress.end(source.handle, true, egress);
+        }
         source.drops += 1;
         source.status = Status::Retrying;
         status(
