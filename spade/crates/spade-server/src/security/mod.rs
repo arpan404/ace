@@ -373,10 +373,24 @@ impl Security {
             .person(stamp, target, value, self.clock.now_ms(), &claim)
     }
 
-    /// The member whose stamp (`member`, ADR 0206 §2.3) is their say on `target` becoming
-    /// `value`, with the role it was signed for; the stamp is used up. `None` for anything that
-    /// isn't one now.
-    pub fn member_says(
+    /// The member whose answer stamp (`member`, ADR 0206 §2.3, as ace's daemon makes it) is
+    /// their answer `value` to the request `target`; the stamp is used up. Read as a member:
+    /// the answer stamp carries no role. `None` for anything that isn't one now.
+    pub fn member_answers(
+        &self,
+        stamp: Option<&str>,
+        target: &str,
+        value: &str,
+    ) -> Option<spade_core::org::Member> {
+        let (stamp, key) = (stamp?, self.attestor.key()?);
+        let now = self.clock.now_ms();
+        let (member, nonce) = member::check_answer(&key, stamp, target, value, now).ok()?;
+        attest::claim_in(&self.store, &nonce, now).then_some(member)
+    }
+
+    /// The member whose write stamp is their say on the request `target` (`<METHOD> <path>`)
+    /// with body digest `value`, with the role it was signed for; the stamp is used up.
+    pub fn member_requests(
         &self,
         stamp: Option<&str>,
         role: Option<&str>,
@@ -386,7 +400,8 @@ impl Security {
     ) -> Option<spade_core::org::Member> {
         let (stamp, key) = (stamp?, self.attestor.key()?);
         let now = self.clock.now_ms();
-        let (mut member, nonce) = member::check(&key, stamp, role, target, value, now).ok()?;
+        let (mut member, nonce) =
+            member::check_request(&key, stamp, role, target, value, now).ok()?;
         if !attest::claim_in(&self.store, &nonce, now) {
             return None;
         }

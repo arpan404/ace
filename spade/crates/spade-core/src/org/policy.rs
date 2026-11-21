@@ -257,10 +257,11 @@ impl Policy {
         (NEVER_MEMBERS.contains(&effect) && !role.admin()).then_some(ADMINS_ONLY)
     }
 
-    /// Whether `role`, configuring the bot, may raise a shared bot to Full access. Off unless
-    /// the policy allows it (§2.3).
+    /// Whether `role`, configuring the bot, may raise a shared bot to Full access: off unless
+    /// the policy allows it, and then only for the organization's owners and admins (§2.3), even
+    /// where the policy names approvers.
     pub fn may_raise_full_access(&self, role: Role, configurer: bool) -> bool {
-        raise_allows(self.full_access, role, configurer)
+        self.full_access_allowed() && configurer && role.admin()
     }
 
     /// Whether the policy allows Full access for shared bots at all: a bot raised before the
@@ -362,14 +363,6 @@ impl Policy {
     /// Whether audit entries keep only targets, without argument digests.
     pub fn targets_only(&self) -> bool {
         self.targets_only
-    }
-}
-
-fn raise_allows(rule: Option<Raise>, role: Role, configurer: bool) -> bool {
-    match rule {
-        None | Some(Raise::Never) => false,
-        Some(Raise::Admins) => configurer && role.admin(),
-        Some(Raise::Approvers) => configurer,
     }
 }
 

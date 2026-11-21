@@ -40,12 +40,29 @@ impl Engine {
         allowed: bool,
         always: bool,
     ) -> Result<(), super::AnswerError> {
-        // A plugin is the person's, read from their ace: a shared bot's never runs outside the
-        // sandbox on anyone's answer (ADR 0206 §2.3).
-        if allowed && self.shared_over(conversation).is_some() {
-            return Err(super::AnswerError::ApproverOnly(
-                super::org::NO_PLUGIN_OUTSIDE,
-            ));
+        self.answer_outside_by(conversation, id, allowed, always, None)
+    }
+
+    /// [`Engine::answer_outside`] as `by`, a member an answer stamp named. A shared bot's request
+    /// is answered only by one of its approvers, and only with a no: a plugin is the person's,
+    /// read from their ace, and a shared bot's never runs outside the sandbox (ADR 0206 §2.3).
+    pub fn answer_outside_by(
+        &self,
+        conversation: &str,
+        id: &str,
+        allowed: bool,
+        always: bool,
+        by: Option<&spade_core::org::Member>,
+    ) -> Result<(), super::AnswerError> {
+        if let Some((_, access)) = self.shared_over(conversation) {
+            if !by.is_some_and(|member| access.may(member, spade_core::org::Right::Approve)) {
+                return Err(super::AnswerError::ApproverOnly(super::org::NOT_APPROVER));
+            }
+            if allowed {
+                return Err(super::AnswerError::ApproverOnly(
+                    super::org::NO_PLUGIN_OUTSIDE,
+                ));
+            }
         }
         if !self.reachable(conversation)? {
             return Err(super::AnswerError::NotFound);

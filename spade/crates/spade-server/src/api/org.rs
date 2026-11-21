@@ -18,7 +18,7 @@ use crate::engine::{AgentInput, OrgError};
 use crate::org::{Binding, Offered};
 use crate::security::{attest, member};
 
-/// The member a request's stamp names, if it carries one good for exactly this request.
+/// The member a write's stamp names, if it carries one good for exactly this request.
 pub(super) fn stamped(
     state: &AppState,
     method: &Method,
@@ -29,13 +29,36 @@ pub(super) fn stamped(
     let text = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
     let target = format!("{method} {}", uri.0.path());
     let value = spade_core::org::audit::digest(body);
-    state.engine.security()?.member_says(
-        text(member::HEADER),
+    state.engine.security()?.member_requests(
+        text(member::REQUEST_HEADER),
         text(member::ROLE_HEADER),
         text(member::NAME_HEADER),
         &target,
         &value,
     )
+}
+
+/// The member whose answer stamp (ace's daemon's, on an org host) is their answer to `target`,
+/// `allowed` and `always` as the body says.
+pub(super) fn answered(
+    state: &AppState,
+    headers: &HeaderMap,
+    target: &str,
+    allowed: bool,
+    always: bool,
+) -> Option<Member> {
+    let stamp = headers.get(member::HEADER).and_then(|v| v.to_str().ok());
+    let mut found = state.engine.security()?.member_answers(
+        stamp,
+        target,
+        &member::answer_value(allowed, always),
+    )?;
+    found.name = member::name(
+        headers
+            .get(member::NAME_HEADER)
+            .and_then(|v| v.to_str().ok()),
+    );
+    Some(found)
 }
 
 fn org_problem(error: &OrgError) -> Response {

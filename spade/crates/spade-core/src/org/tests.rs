@@ -227,6 +227,11 @@ fn members_never_turn_on_paying_sending_or_publishing_and_the_policy_narrows_adm
     let raise = Policy::parse(r#"{"full_access": "admins"}"#).unwrap_or_else(|| panic!("policy"));
     assert!(raise.may_raise_full_access(Role::Admin, true));
     assert!(!raise.may_raise_full_access(Role::Member, true));
+    // A policy that names approvers still leaves the raise to owners and admins.
+    let approvers =
+        Policy::parse(r#"{"full_access": "approvers"}"#).unwrap_or_else(|| panic!("policy"));
+    assert!(!approvers.may_raise_full_access(Role::Member, true));
+    assert!(approvers.may_raise_full_access(Role::Owner, true));
 }
 
 #[test]

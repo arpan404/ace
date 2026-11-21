@@ -56,15 +56,26 @@ async fn answer_as(
     conversation: &str,
     call: &str,
 ) -> Result<u16> {
-    let (status, _) = as_member(
-        &w.spade,
-        &w.person_key,
-        who,
-        Method::POST,
-        &format!("/v1/conversations/{conversation}/approvals/{call}"),
-        &json!({ "allowed": true }),
-    )
-    .await?;
+    let account = who.map(|m| m.account.as_str());
+    org::answer(&w.spade, &w.person_key, account, conversation, call, true).await
+}
+
+/// An answer to `call` carrying `header: value`, as something other than ace's daemon might.
+async fn answer_with(
+    w: &World,
+    conversation: &str,
+    call: &str,
+    header: &str,
+    value: &str,
+) -> Result<u16> {
+    let (status, _) = w
+        .spade
+        .post_with(
+            &format!("/v1/conversations/{conversation}/approvals/{call}"),
+            json!({ "allowed": true }),
+            &[(header, value)],
+        )
+        .await?;
     Ok(status)
 }
 
@@ -108,15 +119,54 @@ async fn a_shared_bots_send_waits_for_an_approver_and_runs_only_on_a_stamped_ans
     assert_eq!(answer_as(&w, Some(&bob), &conversation, "k1").await?, 403);
     assert_eq!(answer_as(&w, Some(&admin), &conversation, "k1").await?, 403);
     assert_eq!(answer_as(&w, None, &conversation, "k1").await?, 403);
-    let person = w.stamp("k1", "allow");
-    let (status, _) = w
-        .spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/k1"),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert_eq!(status, 403, "{person}");
+    // Forged: the maker's answer stamped with a key that isn't the daemon's, a stamp for
+    // another call, their write stamp in an answer's place, the person's stamp.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0));
+    let member_header = spade_server::security::member::HEADER;
+    let allow = spade_server::security::member::answer_value(true, false);
+    let target = spade_server::security::member::approval_target(&conversation, "k1");
+    let nonces = [
+        "00112233445566778899aabbccddeef0",
+        "00112233445566778899aabbccddeef1",
+    ];
+    let wrong_key = spade_server::security::member::sign_answer(
+        b"not the daemon's key, not at all",
+        "user_maker",
+        &target,
+        &allow,
+        now,
+        nonces[0],
+    );
+    let other_call = spade_server::security::member::sign_answer(
+        &w.person_key,
+        "user_maker",
+        &spade_server::security::member::approval_target(&conversation, "k2"),
+        &allow,
+        now,
+        nonces[1],
+    );
+    let request = spade_server::security::member::sign_request(
+        &w.person_key,
+        &maker,
+        &target,
+        &allow,
+        now,
+        "00112233445566778899aabbccddeef2",
+    );
+    for forged in [&wrong_key, &other_call, &request] {
+        assert_eq!(
+            answer_with(&w, &conversation, "k1", member_header, forged).await?,
+            403
+        );
+    }
+    let person = w.stamp(&target, &allow);
+    let person_header = spade_server::security::attest::HEADER;
+    assert_eq!(
+        answer_with(&w, &conversation, "k1", person_header, &person).await?,
+        403
+    );
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(ran(&calls), 0, "nothing ran before an approver answered");
 

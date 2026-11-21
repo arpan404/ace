@@ -514,17 +514,12 @@ struct Approval {
 async fn approve(
     State(state): State<AppState>,
     Path((id, call_id)): Path<(String, String)>,
-    method: axum::http::Method,
-    uri: axum::extract::OriginalUri,
     headers: axum::http::HeaderMap,
-    raw: axum::body::Bytes,
+    Json(body): Json<Approval>,
 ) -> Response {
-    let body: Approval = match serde_json::from_slice(&raw) {
-        Ok(body) => body,
-        Err(error) => return problem(StatusCode::BAD_REQUEST, &error.to_string()),
-    };
-    // A shared bot's approver answers with their stamp (ADR 0206 §2.3).
-    let member = org::stamped(&state, &method, &uri, &headers, &raw);
+    // A shared bot's approver answers with the daemon's stamp of them (ADR 0206 §2.3).
+    let target = crate::security::member::approval_target(&id, &call_id);
+    let member = org::answered(&state, &headers, &target, body.allowed, body.always);
     match state
         .engine
         .answer_by(&id, &call_id, body.allowed, body.always, member.as_ref())
@@ -547,11 +542,14 @@ async fn approve(
 async fn answer_outside(
     State(state): State<AppState>,
     Path((id, ask_id)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<Approval>,
 ) -> Response {
+    let target = crate::security::member::outside_target(&id, &ask_id);
+    let member = org::answered(&state, &headers, &target, body.allowed, body.always);
     match state
         .engine
-        .answer_outside(&id, &ask_id, body.allowed, body.always)
+        .answer_outside_by(&id, &ask_id, body.allowed, body.always, member.as_ref())
     {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(AnswerError::ApproverOnly(why)) => problem(StatusCode::FORBIDDEN, why),

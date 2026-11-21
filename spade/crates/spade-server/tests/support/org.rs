@@ -89,7 +89,7 @@ pub async fn as_member(
     if let Some(member) = member {
         let target = format!("{method} {path}");
         let value = spade_core::org::audit::digest(&bytes);
-        let stamp = spade_server::security::member::sign(
+        let stamp = spade_server::security::member::sign_request(
             person_key,
             member,
             &target,
@@ -98,7 +98,7 @@ pub async fn as_member(
             &nonce(),
         );
         request = request
-            .header(spade_server::security::member::HEADER, stamp)
+            .header(spade_server::security::member::REQUEST_HEADER, stamp)
             .header(spade_server::security::member::ROLE_HEADER, &member.role)
             .header(spade_server::security::member::NAME_HEADER, "A member");
     }
@@ -184,4 +184,37 @@ pub fn entries(export: &str, action: &str) -> Vec<Value> {
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter(|line| line["kind"] == "entry" && line["action"] == action)
         .collect()
+}
+
+/// An answer to `call` in `conversation`, stamped as ace's daemon stamps a member's answer
+/// (`apps/daemon/src/spade/member-stamp.ts`): over the request it answers and what it says, with
+/// the member's account; `None` sends it unstamped.
+pub async fn answer(
+    spade: &Spade,
+    person_key: &[u8],
+    account: Option<&str>,
+    conversation: &str,
+    call: &str,
+    allowed: bool,
+) -> Result<u16> {
+    let mut request = spade
+        .http
+        .post(format!(
+            "{}/v1/conversations/{conversation}/approvals/{call}",
+            spade.base
+        ))
+        .bearer_auth(TOKEN)
+        .json(&json!({ "allowed": allowed }));
+    if let Some(account) = account {
+        let stamp = spade_server::security::member::sign_answer(
+            person_key,
+            account,
+            &spade_server::security::member::approval_target(conversation, call),
+            &spade_server::security::member::answer_value(allowed, false),
+            now_ms(),
+            &nonce(),
+        );
+        request = request.header(spade_server::security::member::HEADER, stamp);
+    }
+    Ok(request.send().await?.status().as_u16())
 }
