@@ -10,18 +10,18 @@ Nothing is kept by itself. A stopped, failed, interrupted or still-open reply ca
 
 `spade_core::quality::case` reads the run out of the conversation's events:
 
-| Field          | What it holds                                                                                                 |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| `id`, `bot`    | The case's id and its bot                                                                                     |
-| `reply`        | The reply it was kept from; a reply is kept once                                                              |
-| `package`      | `{name, version, hash}` of the package the bot ran, for a packaged bot                                       |
-| `trigger`      | `{kind, name?}`: `message`, `bot`, `routine`, `group`, `thread` or `contract`                                 |
-| `given`        | `{messages, input?}`: the message it answered, any steered in while it ran, and a contract call's input       |
-| `steps`        | Each model step's words and calls (`{id, tool, arguments}`); the model's thoughts are not kept               |
-| `tool_results` | Every outside answer in the order the run got it: `{call, tool, arguments, content, is_error}`               |
+| Field          | What it holds                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `id`, `bot`    | The case's id and its bot                                                                                             |
+| `reply`        | The reply it was kept from; a reply is kept once                                                                      |
+| `package`      | `{name, version, hash}` of the package the bot ran, for a packaged bot                                                |
+| `trigger`      | `{kind, name?}`: `message`, `bot`, `routine`, `group`, `thread` or `contract`                                         |
+| `given`        | `{messages, input?}`: the message it answered, any steered in while it ran, and a contract call's input               |
+| `steps`        | Each model step's words and calls (`{id, tool, arguments}`); the model's thoughts are not kept                        |
+| `tool_results` | Every outside answer in the order the run got it: `{call, tool, arguments, content, is_error}`                        |
 | `outcome`      | `{text, cards, contract?, effects, verdict?}`: the reply, its cards, a contract's ending, effects, ADR 0159's verdict |
-| `mark`, `why`  | `right` or `wrong`, and one line of why (at most 280 characters)                                              |
-| `made_at`      | When it was kept                                                                                              |
+| `mark`, `why`  | `right` or `wrong`, and one line of why (at most 280 characters)                                                      |
+| `made_at`      | When it was kept                                                                                                      |
 
 A case larger than 4 MB as JSON isn't kept.
 
@@ -55,6 +55,6 @@ arrive with the bot, are checked to be its own, and leave the machine it left.
   `200` with the case that reply already has. `404` for a reply that isn't there, `409` for one
   that didn't finish, `400` for a mark other than `right` or `wrong`.
 - `GET /v1/agents/{id}/cases`: `{cases}`, each a summary `{id, reply, mark, why, trigger, given,
-  outcome, made_at}` with `given` and `outcome` on one line, newest first (at most 200).
+outcome, made_at}` with `given` and `outcome` on one line, newest first (at most 200).
 - `GET /v1/agents/{id}/cases/{case}`: `{summary, case}`.
 - `DELETE /v1/agents/{id}/cases/{case}`: `204`.

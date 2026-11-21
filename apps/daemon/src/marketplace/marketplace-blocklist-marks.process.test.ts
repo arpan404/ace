@@ -260,18 +260,18 @@ describe("marks on list rows", () => {
   });
 });
 
-describe("subscriptions' terms notices", () => {
-  const noticesBy = (key: typeof harness.key, at: number) =>
-    signNotices(
-      {
-        format: "ace-market-notices",
-        issued: at,
-        notices: [{ provider: "codex", status: "refused", note: "Not for bots", at }],
-        key: key.id,
-      },
-      key,
-    );
+const noticesBy = (key: typeof harness.key, at: number) =>
+  signNotices(
+    {
+      format: "ace-market-notices",
+      issued: at,
+      notices: [{ provider: "codex", status: "refused", note: "Not for bots", at }],
+      key: key.id,
+    },
+    key,
+  );
 
+describe("subscriptions' terms notices", () => {
   it("hands Spade the signed notices with every refresh, and nothing no trusted key signed", async () => {
     lists["notices"] = noticesBy(testKey("stranger", 9), issued);
     await harness.ask({ op: "refresh" }, "sources");

@@ -80,14 +80,14 @@ export async function signerRoute(
       // Only versions waiting for the signer: held and blocked ones wait for a maintainer.
       const [versions, withdrawals, list, blocklist, verified, official, notices] =
         await Promise.all([
-        pendingVersions(dbs),
-        pendingWithdrawals(dbs),
-        withdrawnList(dbs.lists),
-        signedList(listDb(dbs, "blocklist"), "blocklist"),
-        signedList(listDb(dbs, "verified"), "verified"),
-        signedList(listDb(dbs, "official"), "official"),
-        signedList(listDb(dbs, "notices"), "notices"),
-      ]);
+          pendingVersions(dbs),
+          pendingWithdrawals(dbs),
+          withdrawnList(dbs.lists),
+          signedList(listDb(dbs, "blocklist"), "blocklist"),
+          signedList(listDb(dbs, "verified"), "verified"),
+          signedList(listDb(dbs, "official"), "official"),
+          signedList(listDb(dbs, "notices"), "notices"),
+        ]);
       return json({
         versions,
         withdrawals,

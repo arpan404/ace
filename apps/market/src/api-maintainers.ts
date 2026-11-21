@@ -40,13 +40,7 @@ import {
   setPublisherState,
   type Decided,
 } from "./store/maintainers.ts";
-import {
-  setBlocklist,
-  setNotices,
-  setOfficial,
-  setVerified,
-  signedText,
-} from "./store/lists.ts";
+import { setBlocklist, setNotices, setOfficial, setVerified, signedText } from "./store/lists.ts";
 import { markUsageDirty } from "./store/me-limits.ts";
 import { listReports, resolveReport } from "./store/reports.ts";
 

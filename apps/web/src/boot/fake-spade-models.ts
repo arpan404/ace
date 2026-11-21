@@ -4,7 +4,9 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
  * Models the person controls, in the fake world (ADR 0205): an Ollama on this computer the
  * picker offers first, the subscriptions' terms as Spade's record reads them (every provider
  * unclear until its record is written), a bot whose subscription's maker no longer allows it,
- * and a bot whose route moved a step to its next model.
+ * and a bot whose route moved a step to its next model. Spade's checks on the local models
+ * (ADR 0205 §3): Qwen3 called the fake tool and ace measured its family; Gemma's small model
+ * didn't, so it writes titles and summaries only. Helpers and bots' fallbacks have routes.
  */
 
 const acknowledgement = (name: string) =>
@@ -31,9 +33,41 @@ export function seedFakeModelAccess(here: FakeSpadeApi, minutes: (count: number)
         context: 128_000,
         capabilities: ["tools"],
         source: "listed",
+        probes: {
+          state: "checked",
+          at_ms: minutes(60),
+          plain: "passed",
+          tools: "passed",
+          structured: "passed",
+          why: null,
+        },
+        known_good: { name: "Qwen3", passed: 0.92, cases: 48, checked: "2026-11-18" },
+      },
+      {
+        id: "gemma3:1b",
+        name: "Gemma 3 1B",
+        context: 32_000,
+        capabilities: [],
+        source: "listed",
+        probes: {
+          state: "checked",
+          at_ms: minutes(30),
+          plain: "passed",
+          tools: "failed",
+          structured: "passed",
+          why: "This model didn't call tools in Spade's check, so it can't run a bot.",
+        },
+        known_good: null,
       },
     ],
   });
+  here.roles.global.title = "ollama/gemma3:1b";
+  here.roles.globalRoutes = {
+    main: ["ollama/qwen3:8b", "openrouter/anthropic/claude-sonnet-5.5"],
+    helper: ["ollama/qwen3:8b", "openrouter/anthropic/claude-haiku-5.5"],
+    title: ["ollama/gemma3:1b"],
+  };
+  here.roles.global.helper = "ollama/qwen3:8b";
   for (const subscription of here.subscriptions)
     subscription.terms = {
       status: "unclear",

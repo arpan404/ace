@@ -39,7 +39,8 @@ export class FakeSpadeCases {
     const at = events.findIndex((e) => e.type === "reply_finished" && e.reply === body.reply);
     if (at < 0) return "no such reply";
     const hide = Array.isArray(body.hide) ? body.hide.map(text).filter((v) => v.length > 1) : [];
-    const hidden = (words: string) => hide.reduce((out, value) => out.split(value).join("•••"), words);
+    const hidden = (words: string) =>
+      hide.reduce((out, value) => out.split(value).join("•••"), words);
     let first = at;
     while (first > 0 && events[first - 1]?.type !== "reply_finished") first -= 1;
     const span = events.slice(first, at + 1);
@@ -52,7 +53,12 @@ export class FakeSpadeCases {
       steps: [],
       tool_results: span
         .filter((e) => e.type === "tool_finished" && e.reply === body.reply)
-        .map((e) => ({ call: e.call_id, tool: e.name, arguments: {}, content: hidden(text(e.content)) })),
+        .map((e) => ({
+          call: e.call_id,
+          tool: e.name,
+          arguments: {},
+          content: hidden(text(e.content)),
+        })),
       outcome: { text: hidden(text(events[at]?.text)) },
       ...(body.mark ? { mark: body.mark } : {}),
       ...(body.why ? { why: hidden(text(body.why)) } : {}),
@@ -100,7 +106,10 @@ export class FakeSpadeCases {
     if (!found) return problem(404, "no such case");
     if (method === "GET") return reply(found);
     if (method === "DELETE") {
-      this.kept.set(agent, kept.filter((each) => each !== found));
+      this.kept.set(
+        agent,
+        kept.filter((each) => each !== found),
+      );
       return { status: 204 };
     }
     return problem(404, "Not found.");

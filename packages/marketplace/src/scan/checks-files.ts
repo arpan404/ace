@@ -59,7 +59,9 @@ function isWasm(bytes: Uint8Array): boolean {
 
 /** A bot package's WebAssembly component: a component (never a core module) at `code/<name>.wasm`. */
 const packageComponent = (type: MarketEntryType, path: string, bytes: Uint8Array): boolean =>
-  type === "spade-bot" && /^code\/[a-z][a-z0-9]{0,23}\.wasm$/.test(path) && wasmKind(bytes) === "component";
+  type === "spade-bot" &&
+  /^code\/[a-z][a-z0-9]{0,23}\.wasm$/.test(path) &&
+  wasmKind(bytes) === "component";
 
 /** A compiled AppleScript by its `FasdUAS` marker near the start. */
 function isCompiledAppleScript(bytes: Uint8Array): boolean {

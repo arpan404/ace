@@ -223,7 +223,9 @@ export function spadePort(
       return { ids: new Set(listed.agents.map((agent) => agent.id)), linked: links };
     },
     async packageTools() {
-      const routes = PackageRoutes.parse(await spadeCall(live(), "GET", "/v1/models/package-routes"));
+      const routes = PackageRoutes.parse(
+        await spadeCall(live(), "GET", "/v1/models/package-routes"),
+      );
       return { fast: routes.fast.tools, capable: routes.capable.tools };
     },
     async termsNotices(signed) {

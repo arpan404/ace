@@ -88,3 +88,26 @@ test("the model picker offers a running Ollama's models, and picking one chooses
     expect(screen.getByRole("button", { name: "Model" }).textContent).toBe("qwen3:8b · Ollama"),
   );
 });
+
+test("a local model that didn't call tools in Spade's check isn't taken as a bot's model", async () => {
+  const { spade } = await spadeApp("/spade", (here) => {
+    withLocal(here);
+    here.localChecks.set("gemma3:4b", "failed");
+  });
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  const local = within(await screen.findByRole("group", { name: "On this computer" }));
+  await userEvent.click(local.getByRole("option", { name: /^gemma3:4b/ }));
+  // The checks run, then the picker says why it can't run a bot and keeps the choice as it was.
+  const why = "This model didn't call tools in Spade's check, so it can't run a bot.";
+  expect(await screen.findAllByText(why)).toHaveLength(2);
+  expect(screen.getByRole("button", { name: "Model" }).textContent).not.toContain("gemma3:4b");
+  // Listed again, it reads why, and picking it doesn't choose it.
+  const ollama = within(await screen.findByRole("group", { name: "Ollama" }));
+  const option = ollama.getByRole("option", { name: /^gemma3:4b/ });
+  expect(option.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(option);
+  expect(screen.getByRole("button", { name: "Model" }).textContent).not.toContain("gemma3:4b");
+  expect(spade.sent("POST", "/v1/endpoints/local/ollama")).toEqual([{ model: "gemma3:4b" }]);
+});

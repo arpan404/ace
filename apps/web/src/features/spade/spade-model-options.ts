@@ -1,5 +1,8 @@
 import {
+  spadeCantRunBots,
+  spadeChecking,
   spadeLocalFirst,
+  spadeWorksWell,
   spadeModelFacts,
   splitCliModel,
   splitSpadeModel,
@@ -32,6 +35,8 @@ export interface SpadeModelOption {
   adds?: { server: string; model: string };
   /** A subscription whose terms the person hasn't acknowledged: they read this and tick Use it. */
   acknowledge?: { provider: string; text: string };
+  /** Why it can't be picked here: a local model that can't run a bot (ADR 0205 §3). */
+  cant?: string;
 }
 
 export interface SpadeModelGroup {
@@ -49,6 +54,8 @@ export interface SpadeModelSources {
   adds?: readonly { server: { id: string; name: string }; model: string }[];
   /** Empty where only an endpoint's model may be picked (a role, a default). */
   subscriptions: readonly SpadeSubscriptionSource[];
+  /** The model runs a bot (its own model, a tool role): one that can't call tools can't be picked. */
+  forBots?: boolean;
 }
 
 const matches = (query: string, ...words: string[]) =>
@@ -77,14 +84,21 @@ export function spadeModelGroups(
   for (const { endpoint, models } of endpoints) {
     const options: SpadeModelOption[] = models
       .filter((model) => !typed || matches(typed, model.name, model.id, endpoint.name))
-      .map((model) => ({
-        value: `${endpoint.id}/${model.id}`,
-        name: model.name,
-        source: endpoint.name,
-        facts: endpoint.local
-          ? [spadeModelFacts(model), "Runs on this computer"].filter(Boolean).join(" · ")
-          : spadeModelFacts(model),
-      }));
+      .map((model) => {
+        const option: SpadeModelOption = {
+          value: `${endpoint.id}/${model.id}`,
+          name: model.name,
+          source: endpoint.name,
+          facts: endpoint.local
+            ? [model.knownGood ? spadeWorksWell : spadeModelFacts(model), "Runs on this computer"]
+                .filter(Boolean)
+                .join(" · ")
+            : spadeModelFacts(model),
+        };
+        const cant = sources.forBots ? spadeCantRunBots(model) : undefined;
+        if (cant) option.cant = cant;
+        return option;
+      });
     if (typed && !models.some((model) => model.id === typed))
       options.push({
         value: `${endpoint.id}/${typed}`,
@@ -157,3 +171,25 @@ export function spadeModelLabel(
  */
 export const firstUsableWords = (model: string | undefined) =>
   model ? "First usable model" : "No model set up yet";
+
+/**
+ * Why a local model just added can't run a bot, once Spade's checks on it end (ADR 0205 §3):
+ * reads the person's models with `read` each second until they say, for at most `most` reads.
+ * Undefined when it can.
+ */
+export async function spadeWaitForChecks(
+  value: string,
+  read: () => Promise<{ endpoints: readonly SpadeEndpoint[] }>,
+  most = 400,
+  wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+): Promise<string | undefined> {
+  const { endpoint: id, model } = splitSpadeModel(value);
+  for (let tries = 0; tries < most; tries += 1) {
+    const { endpoints } = await read();
+    const info = endpoints.find((each) => each.id === id)?.models.find((each) => each.id === model);
+    const cant = info ? spadeCantRunBots(info) : spadeChecking;
+    if (cant !== spadeChecking) return cant;
+    await wait(1000);
+  }
+  return spadeChecking;
+}

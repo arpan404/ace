@@ -324,7 +324,13 @@ describe("the signed lists", () => {
       { provider: "codex", status: "unclear" },
     ]);
     const stranger = testKey("other", 4);
-    const answer = await signNoticeChange(io, stranger, now, keySetOf(marketKey, stranger), tighten);
+    const answer = await signNoticeChange(
+      io,
+      stranger,
+      now,
+      keySetOf(marketKey, stranger),
+      tighten,
+    );
     expect(answer.status).toBe(422);
   });
 
