@@ -50,3 +50,11 @@ export function roomAsk(input: {
   const width = bare >= compactBelowPx && explorer.open ? bare + explorer.width : bare;
   return panel.size >= width ? undefined : width;
 }
+
+/**
+ * A pick in a compact explorer: a glance (single click) previews the file and leaves the
+ * explorer open for the next look, so a double-click can still land on the same row; a
+ * deliberate open (double-click, Enter, beside) keeps the file and puts the explorer away.
+ */
+export const closesExplorerOnPick = (how: "preview" | "keep" | "side"): boolean =>
+  how !== "preview";

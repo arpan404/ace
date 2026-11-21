@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { explorerPlace, roomAsk, showsExplorerToggle } from "./editor-room.ts";
+import { closesExplorerOnPick, explorerPlace, roomAsk, showsExplorerToggle } from "./editor-room.ts";
 
 test.each([
   [
@@ -49,4 +49,12 @@ test.each([
   ["a bottom panel asks nothing", 640, { dock: "bottom", expanded: false, size: 480 }, undefined],
 ] as const)("%s", (_name, needed, panel, ask) => {
   expect(roomAsk({ needed, panel, explorer })).toBe(ask);
+});
+
+test.each([
+  ["a single click previews and leaves the compact explorer open", "preview", false],
+  ["a double-click or Enter keeps the file and closes it", "keep", true],
+  ["an open beside closes it", "side", true],
+] as const)("%s", (_name, how, closes) => {
+  expect(closesExplorerOnPick(how)).toBe(closes);
 });

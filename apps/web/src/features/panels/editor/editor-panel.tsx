@@ -75,7 +75,12 @@ import {
   type SaveProblem,
 } from "./editor-actions.ts";
 import { useCompactExplorer } from "./compact-explorer.ts";
-import { explorerPlace, roomAsk, showsExplorerToggle } from "./editor-room.ts";
+import {
+  closesExplorerOnPick,
+  explorerPlace,
+  roomAsk,
+  showsExplorerToggle,
+} from "./editor-room.ts";
 import { CheckoutGone, useCheckoutGone } from "./checkout-gone.tsx";
 import { EditorExplorer, type ExplorerOpen } from "./editor-explorer.tsx";
 import { EditorTabMenuItems } from "./editor-tab-menu.tsx";
@@ -260,7 +265,7 @@ export function EditorPanel(props: TabViewProps) {
       length: how.length,
       focus: how.how === "keep",
     });
-    if (compact) setOverlay(false);
+    if (compact && closesExplorerOnPick(how.how)) setOverlay(false);
   };
 
   // The status line's left side (spec 41, 45, 66).
