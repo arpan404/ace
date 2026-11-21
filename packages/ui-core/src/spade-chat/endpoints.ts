@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
+import {
+  spadeCantRunBots,
+  spadeChecksOf,
+  spadeKnownGoodOf,
+  type SpadeKnownGood,
+  type SpadeModelChecks,
+} from "./model-checks.ts";
 
 /*
  * The person's model endpoints and their models (ADR 0126), as `GET /v1/models` and the endpoint
@@ -26,6 +33,10 @@ export interface SpadeModelInfo {
   capabilities: string[];
   /** `listed`: from the endpoint's list; `typed`: the person's; `preset`: the shipped file's. */
   source: "listed" | "typed" | "preset" | undefined;
+  /** On this computer: what Spade's checks found (ADR 0205 §3). */
+  checks?: SpadeModelChecks | undefined;
+  /** On this computer: the family ace measured it in, if it did. */
+  knownGood?: SpadeKnownGood | undefined;
 }
 
 export interface SpadeEndpoint {
@@ -99,6 +110,8 @@ const modelShape = z.object({
   context: z.number().int().positive().nullish().catch(undefined),
   capabilities: z.unknown().optional(),
   source: z.enum(["listed", "typed", "preset"]).nullish().catch(undefined),
+  probes: z.unknown().optional(),
+  known_good: z.unknown().optional(),
 });
 
 function modelOf(raw: unknown): SpadeModelInfo | undefined {
@@ -111,6 +124,10 @@ function modelOf(raw: unknown): SpadeModelInfo | undefined {
     context: model.context ?? undefined,
     capabilities: capabilitiesOf(model.capabilities),
     source: model.source ?? undefined,
+    ...(spadeChecksOf(model.probes) ? { checks: spadeChecksOf(model.probes) } : {}),
+    ...(spadeKnownGoodOf(model.known_good)
+      ? { knownGood: spadeKnownGoodOf(model.known_good) }
+      : {}),
   };
 }
 
@@ -244,13 +261,17 @@ export function mergeSpadeModels(
   const listed = (live ?? []).map((model): SpadeModelInfo => {
     const mine = byId.get(model.id);
     if (!mine) return model;
-    return {
+    const merged: SpadeModelInfo = {
       id: model.id,
       name: mine.name !== mine.id ? mine.name : model.name,
       context: mine.context ?? model.context,
       capabilities: mine.capabilities.length ? mine.capabilities : model.capabilities,
       source: mine.source,
     };
+    // What Spade measured about it on this computer is the saved model's (ADR 0205 §3).
+    if (mine.checks) merged.checks = mine.checks;
+    if (mine.knownGood) merged.knownGood = mine.knownGood;
+    return merged;
   });
   const seen = new Set(listed.map((model) => model.id));
   const rest = saved.filter((model) => !seen.has(model.id));
@@ -290,7 +311,8 @@ export function spadeLocalFirst<T>(items: readonly T[], local: (item: T) => bool
 export function spadeFirstUsableModel(endpoints: readonly SpadeEndpoint[]): string | undefined {
   for (const endpoint of spadeLocalFirst(endpoints, (each) => each.local)) {
     if (endpoint.needsKey && !endpoint.keySet) continue;
-    const model = endpoint.models[0];
+    // Only a model that can run a bot: one whose checks found it calls tools (ADR 0205 §3).
+    const model = endpoint.models.find((each) => !spadeCantRunBots(each));
     if (model) return `${endpoint.id}/${model.id}`;
   }
   return undefined;

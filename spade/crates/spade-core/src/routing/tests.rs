@@ -12,6 +12,10 @@ impl Models for Table {
     fn strength(&self, reference: &str) -> Option<f64> {
         self.0.get(reference).copied().flatten()
     }
+    /// `local/tiny` didn't call tools in Spade's check.
+    fn calls_tools(&self, reference: &str) -> bool {
+        reference != "local/tiny"
+    }
 }
 
 fn table() -> Table {
@@ -21,6 +25,7 @@ fn table() -> Table {
         ("a/fast", Some(1.5)),
         ("b/stronger", Some(90.0)),
         ("local/llama", None),
+        ("local/tiny", None),
     ]))
 }
 
@@ -361,4 +366,53 @@ fn a_route_never_gains_a_subscription() {
         route_of("a/strong", &stored, &none, Role::Helper),
         ["a/fast"]
     );
+}
+
+#[test]
+fn a_model_that_cant_call_tools_serves_only_titles_and_summaries() {
+    let tiny = |roles: &[Role]| -> Overrides {
+        Overrides {
+            roles: roles
+                .iter()
+                .map(|r| (*r, Route(vec!["local/tiny".to_owned(), "a/mid".to_owned()])))
+                .collect(),
+            ..Overrides::default()
+        }
+    };
+    let global = tiny(&Role::ALL);
+    let defaults = Defaults {
+        fast: Some("local/tiny".to_owned()),
+        in_use: Vec::new(),
+    };
+    for role in [Role::Title, Role::Compact] {
+        assert_eq!(
+            choose("a/strong", &Overrides::default(), &global, &defaults, role),
+            ("local/tiny".to_owned(), Source::Global),
+            "{role:?}"
+        );
+    }
+    for role in [Role::Helper, Role::Verify, Role::Review] {
+        assert_eq!(
+            choose("a/strong", &Overrides::default(), &global, &defaults, role),
+            ("a/mid".to_owned(), Source::Global),
+            "{role:?} passes over it"
+        );
+    }
+    // Nor is it a fast default for helper work, a bot's fallback or a model it may name.
+    let none = Overrides::default();
+    assert_eq!(
+        choose("a/strong", &none, &none, &defaults, Role::Helper),
+        ("a/strong".to_owned(), Source::Own)
+    );
+    let models = table();
+    let routing = Routing {
+        own: "a/strong",
+        bot: &none,
+        global: &global,
+        defaults: &defaults,
+        models: &models,
+    };
+    assert_eq!(routing.route(Role::Main), vec!["a/strong", "a/mid"]);
+    assert_eq!(routing.route(Role::Title), vec!["local/tiny", "a/mid"]);
+    assert!(routing.pick("local/tiny").is_err());
 }

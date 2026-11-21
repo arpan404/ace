@@ -1,4 +1,9 @@
-import { spadeRoleNames, spadeRoles, type SpadeGlobalRoles } from "@ace/ui-core/spade-chat";
+import {
+  spadeRoleNames,
+  spadeRoleNeedsTools,
+  spadeRoles,
+  type SpadeGlobalRoles,
+} from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -12,13 +17,16 @@ import {
   type SpadeRolesChange,
 } from "./spade-roles-api.ts";
 import { LoadingRows } from "./spade-settings-loading.tsx";
-import { CouldNotRead, fault, ModelSettingRow, Refusal } from "./spade-settings-rows.tsx";
+import { CouldNotRead, fault, Refusal } from "./spade-settings-rows.tsx";
+import { RouteSettingRow } from "./spade-settings-route.tsx";
 
 /**
  * Settings › Spade › Models › Models for other work (ADR 0162): the model every bot uses for
  * each role unless it sets its own. Unset, a role takes the fast model (checking done: the
  * strongest model the person uses), which its picker shows. Reviewing steps is the review's
- * model, set here and only here. Then whether a failed helper runs again on the bot's own model.
+ * model, set here and only here. Each role is a route (ADR 0205 §2): up to four models in order,
+ * the next serving when one can't answer; Bots' fallbacks is what every bot's own model falls
+ * back to. Then whether a failed helper runs again on the bot's own model.
  */
 export function GlobalRoles(props: { fastModel: string | undefined }) {
   const client = useSpadeClient();
@@ -52,13 +60,26 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
       </SettingSection>
     );
   const set = roles.data.roles;
+  const routes = roles.data.routes;
   const fast = props.fastModel;
   return (
     <SettingSection label={label}>
+      <RouteSettingRow
+        title="Bots' fallbacks"
+        description={
+          routes.main?.length
+            ? undefined
+            : "When a bot's own model can't answer, it runs on these, in order"
+        }
+        route={routes.main ?? []}
+        none="None"
+        forBots
+        save={(route) => change({ roles: { main: route } })}
+      />
       {spadeRoles.map((role) => {
         const strongest = role === "verify";
         return (
-          <ModelSettingRow
+          <RouteSettingRow
             key={role}
             title={spadeRoleNames[role]}
             description={
@@ -68,10 +89,11 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
                   ? "Default: the fast model"
                   : "Default: each bot's own model"
             }
-            value={set[role]}
+            route={routes[role] ?? []}
             none={strongest ? "Strongest model" : fast ? "Fast model" : "Each bot's own"}
             follows={strongest ? undefined : fast}
-            save={(model) => change({ roles: { [role]: model } })}
+            forBots={spadeRoleNeedsTools(role)}
+            save={(route) => change({ roles: { [role]: route } })}
           />
         );
       })}

@@ -7,6 +7,7 @@ export * from "./bubbles.ts";
 export * from "./steps.ts";
 export * from "./undo.ts";
 export * from "./local-models.ts";
+export * from "./model-checks.ts";
 export * from "./provenance.ts";
 export * from "./first-run.ts";
 export type { SpadeStepWeight } from "./step-facts.ts";

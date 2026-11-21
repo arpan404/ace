@@ -52,6 +52,12 @@ impl Role {
     pub fn routed(self) -> bool {
         self != Self::Main
     }
+
+    /// Whether the role's calls offer tools (ADR 0205 §3): every role but `title` and
+    /// `compact`, so only those two may run on a model that can't call them.
+    pub fn needs_tools(self) -> bool {
+        !matches!(self, Self::Title | Self::Compact)
+    }
 }
 
 /// The most models a role's route holds (ADR 0205 §2).
@@ -110,6 +116,9 @@ pub trait Models {
     fn configured(&self, reference: &str) -> bool;
     /// The listed price, input plus output per million tokens; `None` when unpriced.
     fn strength(&self, reference: &str) -> Option<f64>;
+    /// Whether `reference` can call tools, as the person's endpoints list it (measured, for a
+    /// local model).
+    fn calls_tools(&self, reference: &str) -> bool;
 }
 
 /// The facts the defaults are drawn from.
@@ -165,6 +174,12 @@ impl<M: Models> Routing<'_, M> {
         !CliModel::is(reference) && self.models.configured(reference)
     }
 
+    /// Whether `role` can run on `reference`: usable, and able to call tools when the role's
+    /// calls offer them.
+    fn usable_for(&self, role: Role, reference: &str) -> bool {
+        self.usable(reference) && (!role.needs_tools() || self.models.calls_tools(reference))
+    }
+
     /// The model `role` uses: the bot's override, else the global one, else the default. An
     /// override whose model is gone is skipped.
     pub fn resolve(&self, role: Role) -> Choice {
@@ -179,7 +194,7 @@ impl<M: Models> Routing<'_, M> {
             if let Some(model) = overrides
                 .roles
                 .get(&role)
-                .and_then(|route| route.0.iter().find(|m| self.usable(m)))
+                .and_then(|route| route.0.iter().find(|m| self.usable_for(role, m)))
             {
                 return Choice {
                     model: model.clone(),
@@ -193,7 +208,7 @@ impl<M: Models> Routing<'_, M> {
                 .defaults
                 .fast
                 .clone()
-                .filter(|fast| fast != self.own && self.usable(fast)),
+                .filter(|fast| fast != self.own && self.usable_for(role, fast)),
         };
         match default {
             Some(model) => Choice {
@@ -216,7 +231,14 @@ impl<M: Models> Routing<'_, M> {
             overrides
                 .roles
                 .get(&role)
-                .map(|route| route.0.iter().filter(|m| self.usable(m)).cloned().collect())
+                .map(|route| {
+                    route
+                        .0
+                        .iter()
+                        .filter(|m| self.usable_for(role, m))
+                        .cloned()
+                        .collect()
+                })
                 .unwrap_or_default()
         };
         let chosen = [self.bot, self.global]
@@ -244,7 +266,7 @@ impl<M: Models> Routing<'_, M> {
         let floor = self.models.strength(self.own)?;
         let mut best: Option<(f64, &String)> = None;
         for model in self.defaults.in_use.iter().chain(&self.defaults.fast) {
-            if model == self.own || !self.usable(model) {
+            if model == self.own || !self.usable_for(Role::Verify, model) {
                 continue;
             }
             let Some(strength) = self.models.strength(model) else {
@@ -286,7 +308,8 @@ impl<M: Models> Routing<'_, M> {
             .allowed
             .as_ref()
             .is_none_or(|list| list.iter().any(|m| m == wanted));
-        if self.usable(wanted) && allowed {
+        // A named model runs helper-level work, which calls tools.
+        if self.usable_for(Role::Helper, wanted) && allowed {
             return Ok(wanted.to_owned());
         }
         Err(self.refusal(wanted))
@@ -305,7 +328,7 @@ impl<M: Models> Routing<'_, M> {
         if let Some(list) = &self.bot.allowed {
             let usable: Vec<&str> = list
                 .iter()
-                .filter(|m| self.usable(m))
+                .filter(|m| self.usable_for(Role::Helper, m))
                 .map(String::as_str)
                 .collect();
             if !usable.is_empty() {

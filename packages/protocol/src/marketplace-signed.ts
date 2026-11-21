@@ -170,3 +170,25 @@ export const MarketOfficialList = z.strictObject({
   key: MarketKeyId,
 });
 export type MarketOfficialList = z.infer<typeof MarketOfficialList>;
+
+/**
+ * A change to a coding subscription's terms between builds (ADR 0205 §4): one provider's status
+ * as ace read its maker's terms, a line for the person, and when it was read. Signed by the
+ * signer and served at `/v1/notices`. A device only ever lets one make a status stricter than
+ * the record its build ships; loosening needs a new build.
+ */
+export const MarketTermsNotice = z.strictObject({
+  provider: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
+  status: z.enum(["allowed", "unclear", "refused"]),
+  note: z.string().max(500),
+  at: z.number().int().nonnegative(),
+});
+export type MarketTermsNotice = z.infer<typeof MarketTermsNotice>;
+
+export const MarketNotices = z.strictObject({
+  format: z.literal("ace-market-notices"),
+  issued: z.number().int().nonnegative(),
+  notices: z.array(MarketTermsNotice).max(64),
+  key: MarketKeyId,
+});
+export type MarketNotices = z.infer<typeof MarketNotices>;

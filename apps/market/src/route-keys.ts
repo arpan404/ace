@@ -29,6 +29,7 @@ export type Route =
   | { kind: "blocklist" }
   | { kind: "verified" }
   | { kind: "official" }
+  | { kind: "notices" }
   | { kind: "discover" }
   | ({ kind: "entry" } & EntryKey)
   | ({ kind: "version" } & VersionKey)
@@ -92,6 +93,7 @@ export type Route =
   | { kind: "signer-blocklist" }
   | { kind: "signer-verified" }
   | { kind: "signer-official" }
+  | { kind: "signer-notices" }
   | { kind: "signer-reports" }
   | { kind: "signer-report"; id: string }
   | { kind: "signer-appeal"; id: string };
