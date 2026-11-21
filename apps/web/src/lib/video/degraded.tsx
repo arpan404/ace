@@ -1,4 +1,5 @@
-import type { MediaAcceleration } from "@ace/protocol";
+import type { LiveVideoStatus, MediaAcceleration } from "@ace/protocol";
+import { liveVideoSentence } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 
 /*
@@ -25,6 +26,30 @@ export function DegradedLine(props: {
 }) {
   const sentence = degradedSentence(props.acceleration);
   if (!sentence) return null;
+  return (
+    <p role="status" className={cn("text-xs text-muted-foreground", props.className)}>
+      {sentence}
+    </p>
+  );
+}
+
+/**
+ * A screen's or device's live video that can't play now says why (X2), in the same muted status
+ * line; it takes the degraded sentence's place while it lasts, since nothing plays to degrade.
+ */
+export function VideoStatusLine(props: {
+  video: LiveVideoStatus | undefined;
+  acceleration: MediaAcceleration | undefined;
+  className?: string;
+}) {
+  const sentence = liveVideoSentence(props.video);
+  if (!sentence)
+    return (
+      <DegradedLine
+        acceleration={props.acceleration}
+        {...(props.className ? { className: props.className } : {})}
+      />
+    );
   return (
     <p role="status" className={cn("text-xs text-muted-foreground", props.className)}>
       {sentence}

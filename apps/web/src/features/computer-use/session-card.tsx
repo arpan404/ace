@@ -13,7 +13,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { LiveView } from "./live-view.tsx";
-import { DegradedLine } from "@/lib/video/degraded.tsx";
+import { VideoStatusLine } from "@/lib/video/degraded.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 import { part } from "@/lib/suit-part.ts";
 
@@ -79,6 +79,7 @@ export function SessionCard(props: {
           <LiveView
             session={session}
             sessionId={state.sessionId}
+            video={state.video}
             label={`${view.app} live view`}
             onInput={
               // Shared (cowork): the person's input goes straight in, the agent yielding to it.
@@ -123,7 +124,11 @@ export function SessionCard(props: {
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
         {view.lifecycle === "live" && (
-          <DegradedLine acceleration={state.acceleration} className="text-sm" />
+          <VideoStatusLine
+            video={state.video}
+            acceleration={state.acceleration}
+            className="text-sm"
+          />
         )}
         {view.watchOnlyReason && view.lifecycle === "live" && (
           <p className="text-sm text-muted-foreground">{view.watchOnlyReason}</p>

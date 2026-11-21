@@ -111,6 +111,7 @@ export default function BotScreen(props: BotScreenProps) {
       className="size-full"
       onInput={acts ? send : undefined}
       agent={{ ...props.agent, pointer: state?.agentPointer }}
+      video={state?.video}
     />
   );
 }
