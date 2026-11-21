@@ -249,6 +249,13 @@ function shaped(op: V1Op, result: MarketResult, words: BrowseWords): object | un
 type Owner = Pick<ClientCore, "request" | "state">;
 /** The reads whose rows carry a button, so they read what's installed beside them. */
 const withRows = new Set<string>(["discover", "home", "search", "publisher"]);
+
+/** A git catalog's address: https, with a host. Anything else never leaves the phone. */
+function isCatalogAddress(address: string): boolean {
+  if (!URL.canParse(address)) return false;
+  const url = new URL(address);
+  return url.protocol === "https:" && url.hostname.length > 0;
+}
 /** The SDK's ways of saying the request never reached the machine or never came back. */
 const unreachable = new Set<string>(["offline", "stale", "timeout", "not_dispatched"]);
 const wait = { timeoutMs: 30_000 };
@@ -290,6 +297,8 @@ export class NativeMarket {
     const key = kept.has(op) ? JSON.stringify(operation) : undefined;
     const step = stepOf(op);
     const changes = step !== "read" && step !== "review";
+    if (operation.op === "addSource" && !isCatalogAddress(operation.address))
+      return refusalAnswer("invalid", "add");
     // Not connected: the request can't leave the phone, so nothing was changed.
     if (this.#owner.state !== "ready") return changes ? offlineWrite : this.#offline(key);
     const installed = withRows.has(op) ? this.#readInstalled(signal) : undefined;

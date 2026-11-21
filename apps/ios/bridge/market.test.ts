@@ -408,3 +408,16 @@ test("browse rows carry their button from what the machine has installed", async
   await ask({ op: "install", id: review.id, hash: review.hash });
   expect(await buttonOf()).toEqual(["Installed"]);
 });
+
+test("a catalog address that isn't https is refused on the phone, even with the machine away", async () => {
+  const { ask, client } = await market();
+  await client.close();
+  for (const address of ["http://example.com/c.git", "git@host:x.git", "https://"])
+    expect(await ask({ op: "addSource", address })).toEqual({
+      ok: false,
+      offline: false,
+      code: "invalid",
+      message: "That isn't a git catalog's https address.",
+      way: null,
+    });
+});
