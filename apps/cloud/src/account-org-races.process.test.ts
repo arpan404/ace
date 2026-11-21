@@ -270,6 +270,6 @@ it("a slow events run never moves the cursor back nor puts older details over ne
   slowPage.release();
   await slowRun;
 
-  expect(await cursor()).toBe(latest);
   expect(await bobsName()).toBe("Bobby");
+  expect(await cursor()).toBe(latest);
 });
