@@ -18,6 +18,7 @@ use crate::engine::{OversightError, RolesChange};
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/models/roles", get(global).put(change_global))
+        .route("/models/package-routes", get(package_routes))
         .route("/agents/{id}/models", get(agent).put(change_agent))
 }
 
@@ -98,4 +99,9 @@ pub(super) fn entries_with_roles(entries: &[spade_core::activity::Entry]) -> Vec
             value
         })
         .collect()
+}
+
+/// What a package's bot would think with (ADR 0205 §3): for the install review's warning.
+async fn package_routes(State(state): State<AppState>) -> Response {
+    off_thread(move || Json(state.engine.package_routes_view()).into_response()).await
 }

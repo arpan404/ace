@@ -75,7 +75,6 @@ struct Body {
     version: String,
     hash: String,
     files: Vec<File>,
-    key: String,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +92,34 @@ fn listed(files: &[File], path: &str, text: &str) -> bool {
             && file.bytes == text.len() as u64
             && file.sha256 == hex(&Sha256::digest(text.as_bytes()))
     })
+}
+
+/// The body of `signed` (`{body, signature}`), when a key of `keys` signed it behind `label`:
+/// Ed25519 over `label`, a line break and the body's canonical JSON; the key is the one the body
+/// names. Else why not.
+pub fn verify_signed(signed: &Value, keys: &[MarketKey], label: &str) -> Result<Value, String> {
+    let signed: Signed = serde_json::from_value(signed.clone())
+        .map_err(|_| "the signed statement is malformed".to_owned())?;
+    let named = signed
+        .body
+        .get("key")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "the signed statement names no key".to_owned())?;
+    let key = keys
+        .iter()
+        .find(|key| key.id == named)
+        .ok_or_else(|| format!("signed by a key this Spade doesn't trust ({named})"))?;
+    let public = URL_SAFE_NO_PAD
+        .decode(&key.public_key)
+        .map_err(|_| "a trusted key doesn't read".to_owned())?;
+    let signature = URL_SAFE_NO_PAD
+        .decode(&signed.signature)
+        .map_err(|_| "the signature doesn't match".to_owned())?;
+    let message = format!("{label}\n{}", canonical(&signed.body));
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &public)
+        .verify(message.as_bytes(), &signature)
+        .map_err(|_| "the signature doesn't match".to_owned())?;
+    Ok(signed.body)
 }
 
 /// Whether the market's signed manifest in `envelope` lists `bytes` at `path`, by size and
@@ -113,27 +140,18 @@ pub fn lists_bytes(envelope: &Envelope, path: &str, bytes: &[u8]) -> bool {
 /// The identity `envelope` proves, and the `bot.json` it covers, read as JSON with its
 /// contracts' schema files written in (each one the manifest lists, by its bytes); else why not.
 pub fn verify(envelope: &Envelope, keys: &[MarketKey]) -> Result<(PackageId, Value), String> {
-    let signed: Signed = serde_json::from_value(envelope.signed.clone())
-        .map_err(|_| "the signed manifest is malformed".to_owned())?;
-    let body: Body = serde_json::from_value(signed.body.clone())
-        .map_err(|_| "the signed manifest is malformed".to_owned())?;
+    let body = verify_signed(&envelope.signed, keys, LABEL).map_err(|error| {
+        if error == "the signed statement is malformed" || error.ends_with("names no key") {
+            "the signed manifest is malformed".to_owned()
+        } else {
+            error
+        }
+    })?;
+    let body: Body =
+        serde_json::from_value(body).map_err(|_| "the signed manifest is malformed".to_owned())?;
     if body.format != "ace-market-manifest" || body.kind != "spade-bot" {
         return Err("the signed manifest isn't a bot package's".to_owned());
     }
-    let key = keys
-        .iter()
-        .find(|key| key.id == body.key)
-        .ok_or_else(|| format!("signed by a key this Spade doesn't trust ({})", body.key))?;
-    let public = URL_SAFE_NO_PAD
-        .decode(&key.public_key)
-        .map_err(|_| "a trusted key doesn't read".to_owned())?;
-    let signature = URL_SAFE_NO_PAD
-        .decode(&signed.signature)
-        .map_err(|_| "the signature doesn't match".to_owned())?;
-    let message = format!("{LABEL}\n{}", canonical(&signed.body));
-    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &public)
-        .verify(message.as_bytes(), &signature)
-        .map_err(|_| "the signature doesn't match".to_owned())?;
     if content_hash(&body.files) != body.hash {
         return Err("the signed manifest's files don't make its hash".to_owned());
     }

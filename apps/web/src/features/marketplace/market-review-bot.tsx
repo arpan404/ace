@@ -162,6 +162,11 @@ export function RecipeChoices(props: {
   ];
   return (
     <>
+      {recipe.modelWarning && (
+        <p role="note" className="mk-withdrawn-line">
+          {recipe.modelWarning}
+        </p>
+      )}
       <EffectChoices
         recipe={recipe}
         byAce={props.byAce}

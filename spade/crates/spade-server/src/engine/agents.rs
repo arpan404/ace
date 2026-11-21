@@ -52,7 +52,9 @@ impl Engine {
     /// serves it, or it is a well-formed subscription (ace says at its first turn whether the
     /// CLI is there).
     pub fn model_usable(&self, model: &str) -> bool {
-        self.check_model(model).is_ok() && self.check_terms(model).is_ok()
+        self.check_model(model).is_ok()
+            && self.check_terms(model).is_ok()
+            && self.check_runs_bots(model).is_ok()
     }
 
     /// A model reference the person may pick: `endpoint/model` on one of their endpoints, or a
@@ -149,6 +151,8 @@ impl Engine {
         let model = self.check_model(&input.model)?;
         // A subscription is the person's informed choice, never a default (ADR 0205 §1).
         self.check_terms(&model)?;
+        // A model that can't call tools serves titles and summaries only (ADR 0205 §3).
+        self.check_runs_bots(&model)?;
         let id = self.ids.next("a");
         let avatar = self.avatar(&id, input.avatar)?;
         let conversation = self.ids.next("c");
@@ -240,6 +244,7 @@ impl Engine {
             && model != agent.model
         {
             self.check_terms(model)?;
+            self.check_runs_bots(model)?;
         }
         let new_avatar = change
             .avatar
