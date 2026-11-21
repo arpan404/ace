@@ -69,6 +69,10 @@ const sizes = {
   row: { tile: "size-7 rounded-lg text-xs", mark: 16 },
   /** Beside a name in a menu, a request or a step line. */
   inline: { tile: "size-5 rounded-md text-2xs", mark: 12 },
+  /** A fact row in the Marketplace's review and entry pages. */
+  fact: { tile: "size-8 rounded-lg text-sm", mark: 20 },
+  /** The Marketplace's app rows. */
+  market: { tile: "size-10 rounded-xl text-base", mark: 28 },
 } as const;
 
 /** An app's mark, by its catalogue id; its name's first letter when it has none. */
@@ -94,7 +98,9 @@ export function AppMark(props: {
       {...part("avatar", undefined, "app")}
       data-app={id}
       className={cn(
-        "grid shrink-0 place-items-center bg-surface-2 font-medium text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]",
+        "grid shrink-0 place-items-center font-medium text-muted-foreground",
+        // A real mark is bare; only the letter sits on a tile.
+        !art && "bg-surface-2 shadow-[inset_0_0_0_1px_var(--border)]",
         size.tile,
         props.className,
       )}

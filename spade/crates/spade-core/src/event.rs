@@ -277,6 +277,10 @@ pub enum Known {
         /// Allow this tool without asking again in this conversation.
         #[serde(default)]
         always: bool,
+        /// For a shared bot (ADR 0206 §2.3), the member whose stamped answer this is: one of
+        /// its approvers, checked. Absent for every other bot's answer and older events.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<Box<crate::org::Member>>,
     },
     ToolStarted {
         reply: String,

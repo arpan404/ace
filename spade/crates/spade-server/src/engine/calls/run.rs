@@ -150,7 +150,10 @@ pub(super) async fn run_tools(
                 background,
                 effect,
             });
-            if let Err(error) = engine.record(id, &started) {
+            // A shared bot's outward step is on the host's audit log with who allowed it,
+            // written with its start, so no step runs without its entry (ADR 0206 §4.2).
+            let entry = engine.effect_entry(id, &call.id, &name, &arguments, effect);
+            if let Err(error) = engine.record_audited(id, &started, entry) {
                 return Handled::Failed(error.to_string());
             }
             engine.computer_tool_started(id, &name);

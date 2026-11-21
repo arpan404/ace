@@ -13,6 +13,7 @@ schemars.workspace = true
 serde.workspace = true
 percent-encoding = "2"
 serde_json.workspace = true
+sha2.workspace = true
 spade-models = { path = "../spade-models" }
 regex = "1"
 url = "2"
