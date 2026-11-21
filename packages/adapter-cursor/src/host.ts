@@ -25,6 +25,9 @@ import {
 } from "./contracts.ts";
 
 const HostErrorBody = z.object({ message: z.string() });
+function mayHoldRpcMessage(line: string): boolean {
+  return /"jsonrpc"\s*:/.test(line);
+}
 function isJson(line: string): boolean {
   try {
     JSON.parse(line);
@@ -34,6 +37,11 @@ function isJson(line: string): boolean {
   }
 }
 export interface HostOptions {
+  /**
+   * Per-session secrets the host's output may repeat, such as the ace MCP bearer. They are
+   * redacted by exact value wherever host text is kept; they are never put in the host's env.
+   */
+  secrets?: Readonly<Record<string, string | undefined>>;
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   env: NodeJS.ProcessEnv;
   slots?: CursorHostSlots;
@@ -82,6 +90,7 @@ export class CursorHost {
   ) {
     this.generation = (options.generation ?? randomUUID)();
     this.limits = Limits.parse(options.limits ?? {});
+    const redaction = { ...options.env, ...options.secrets };
     const release = options.slots?.acquire();
     try {
       this.process = (options.spawn ?? spawnSupervised)({
@@ -122,15 +131,16 @@ export class CursorHost {
       maxPendingRequests: 16,
       // Text that is not JSON is stray output (a console write that slipped past the host's
       // routing): kept as bounded, redacted diagnostics, never fatal. JSON that is not a
-      // JSON-RPC message comes from ace's own host, so the protocol itself broke.
+      // JSON-RPC message comes from ace's own host, so the protocol itself broke. So does text
+      // that may hold one: an unterminated native write joins the next message's line, and
+      // keeping that line as output would silently drop the reply or fence notice inside it.
       onMalformed: (line) => {
-        if (isJson(line)) this.fail("Cursor SDK host sent a malformed message");
-        else if (this.strayLines++ < 64) onStrayOutput(safeCursorErrorMessage(line, options.env));
+        if (isJson(line) || mayHoldRpcMessage(line))
+          this.fail("Cursor SDK host sent a malformed message");
+        else if (this.strayLines++ < 64) onStrayOutput(safeCursorErrorMessage(line, redaction));
       },
       onError: (error: unknown) => {
-        this.fail(
-          `Cursor SDK host connection failed: ${safeCursorErrorMessage(error, options.env)}`,
-        );
+        this.fail(`Cursor SDK host connection failed: ${safeCursorErrorMessage(error, redaction)}`);
       },
     });
     const receiveFrame = async (params: unknown) => {
@@ -143,14 +153,14 @@ export class CursorHost {
       } catch (error) {
         // The frame was valid; ace's own storage failed. Say so, never blame Cursor.
         throw new Error(
-          `ace could not store a Cursor SDK frame: ${safeCursorErrorMessage(error, options.env)}`,
+          `ace could not store a Cursor SDK frame: ${safeCursorErrorMessage(error, redaction)}`,
           { cause: error },
         );
       }
       if (frame.kind === "error") {
         const error = HostErrorBody.safeParse(frame.body);
         if (error.success)
-          this.errorMessage = safeCursorErrorMessage(error.data.message, options.env);
+          this.errorMessage = safeCursorErrorMessage(error.data.message, redaction);
       }
     };
     this.rpc.onRequest = async ({ method, params }) => {
@@ -169,7 +179,7 @@ export class CursorHost {
         // An unacknowledged frame that was not stored leaves the turn's record incomplete, so
         // the host stops either way; the cause says whose fault it was.
         void receiveFrame(params).catch((error: unknown) => {
-          const reason = safeCursorErrorMessage(error, options.env);
+          const reason = safeCursorErrorMessage(error, redaction);
           this.fail(
             reason.startsWith("ace could not store")
               ? reason
@@ -181,8 +191,8 @@ export class CursorHost {
     // Retain only bounded, scrubbed prose. Auth workers never publish this buffer.
     this.process.stderr.on("line", (line: string) => {
       const fatal = fatalDetail(line);
-      if (fatal) this.fatalMessage ??= safeCursorErrorMessage(fatal, options.env);
-      else if (!isNoiseLine(line)) this.errorMessage = safeCursorErrorMessage(line, options.env);
+      if (fatal) this.fatalMessage ??= safeCursorErrorMessage(fatal, redaction);
+      else if (!isNoiseLine(line)) this.errorMessage = safeCursorErrorMessage(line, redaction);
       const code = discoveryFailureCode({ message: line });
       if (code !== "discovery_failed") this.metadataFailureCode = code;
       if (
@@ -192,10 +202,7 @@ export class CursorHost {
           code !== "discovery_failed" ||
           /\b[A-Za-z]*Error[:[]/.test(line))
       )
-        this.metadataFailureDetail = discoveryFailureReason(
-          { message: line },
-          { env: options.env },
-        );
+        this.metadataFailureDetail = discoveryFailureReason({ message: line }, { env: redaction });
     });
   }
   request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {

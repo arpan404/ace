@@ -8,6 +8,8 @@ import { openCursorSession, CursorEnvelopeSchema } from "./index.ts";
 import { CursorHost } from "./host.ts";
 
 const secret = "crsr_0123456789abcdef0123456789abcdef";
+// The session's ace MCP bearer: bare hex, which only an exact-value redaction catches.
+const bearer = "7f3a9c1e5b8d2f4a6c0e9b7d5f3a1c8e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a";
 
 /** A host that writes `stray` to stdout before answering "send", as stray SDK output would. */
 const hostWriting = (stray: string) => `
@@ -35,7 +37,9 @@ async function fixture(source: string) {
 }
 
 it("a non-JSON line on the host's stdout is kept as redacted raw output and the turn goes on", async () => {
-  const files = await fixture(hostWriting(`Warning, gif stream shorter than expected ${secret}`));
+  const files = await fixture(
+    hostWriting(`Warning, gif stream shorter than expected ${secret} lease ${bearer}`),
+  );
   const exits: unknown[] = [];
   const kinds = new Map<string, unknown>();
   const session = await openCursorSession(
@@ -53,6 +57,7 @@ it("a non-JSON line on the host's stdout is kept as redacted raw output and the 
       env: { HOME: files.root, CURSOR_API_KEY: secret },
       entry: files.entry,
       instanceId: "instance",
+      mcp: { url: "http://127.0.0.1:4321/mcp", bearer },
     },
   );
   try {
@@ -62,6 +67,7 @@ it("a non-JSON line on the host's stdout is kept as redacted raw output and the 
     const output = JSON.stringify(kinds.get("host-output"));
     expect(output).toContain("gif stream shorter than expected");
     expect(output).not.toContain(secret);
+    expect(output).not.toContain(bearer);
   } finally {
     await session.close("shutdown");
     await files.remove();
@@ -76,6 +82,27 @@ it("a JSON line from the host that is not a JSON-RPC message still stops the hos
   const host = new CursorHost({ env: { HOME: files.root }, entry: files.entry }, () => {});
   try {
     await host.process.exited;
+    expect(host.stopCause).toBe("Cursor SDK host sent a malformed message");
+  } finally {
+    await host.stop();
+    await files.remove();
+  }
+});
+
+// A native write with no newline joins the next JSON-RPC line; keeping that line as output would
+// silently drop the reply (or the fence notice) inside it.
+it("stray text joined to a JSON-RPC message on one line still stops the host", async () => {
+  const files = await fixture(`
+import {createInterface} from 'node:readline';
+createInterface({input:process.stdin}).on('line',line=>{
+ const {id}=JSON.parse(line);
+ process.stdout.write('native warning without a newline ');
+ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id,result:{models:[]}})+'\\n');
+});
+`);
+  const host = new CursorHost({ env: { HOME: files.root }, entry: files.entry }, () => {});
+  try {
+    await expect(host.request("models")).rejects.toThrow();
     expect(host.stopCause).toBe("Cursor SDK host sent a malformed message");
   } finally {
     await host.stop();

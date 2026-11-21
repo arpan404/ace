@@ -81,7 +81,11 @@ export async function openCursorSession(
     });
   };
   const host = new CursorHost(
-    { ...options, ...(context.outputFlow ? { outputFlow: context.outputFlow } : {}) },
+    {
+      ...options,
+      ...(context.outputFlow ? { outputFlow: context.outputFlow } : {}),
+      ...(options.mcp ? { secrets: { ACE_MCP_BEARER: options.mcp.bearer } } : {}),
+    },
     async (data, payload) => {
       if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
       if (data.kind === "open") {
