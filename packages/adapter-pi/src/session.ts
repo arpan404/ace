@@ -21,7 +21,7 @@ import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import { readJsonLines } from "@ace/provider-kit/jsonl";
+import { lineReader } from "@ace/provider-kit/process";
 import { PiCommandRefused, PiRpc } from "./rpc.ts";
 import { runtime, type PiRuntime } from "./runtime.ts";
 import { Dialog, State, Cancelled, obj, str, list, isBlockingDialogMethod } from "./native.ts";
@@ -260,13 +260,13 @@ export async function openPiSession(
       "stderr",
       new ProviderPayload(JSON.stringify(`ace dropped a stderr line of ${bytes} bytes`)),
     );
-  const detachStderr = readJsonLines(
-    proc.stderr,
-    1024 * 1024,
-    (line) => emit("stderr", new ProviderPayload(JSON.stringify(redact(line)))),
-    fatal,
-    ctx.outputFlow,
-  );
+  // Framed on CR and LF like the spawn's own line limit, so every line here is within it.
+  const stderrLines = lineReader(proc.stderr, 1024 * 1024, fatal, ctx.outputFlow);
+  const stderrLine = (line: string) => {
+    if (line) emit("stderr", new ProviderPayload(JSON.stringify(redact(line))));
+  };
+  stderrLines.on("line", stderrLine);
+  const detachStderr = () => stderrLines.off("line", stderrLine);
   const stderrEnded = finished(proc.stderr, { writable: false }).catch(() => {});
   /**
    * Once Pi exits, what it printed last (often why it stopped) is still in the pipe: read it to
