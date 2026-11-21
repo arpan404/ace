@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! File inputs (ADR 0201 §5), read only from inside the directory the daemon named at start
-//! (`--root`, its data directory): the path is walked from that directory's handle one name at
-//! a time without following a link (`openat` with `O_NOFOLLOW`), the file is opened without
-//! blocking and read only if it is a regular file, so a link, a FIFO or a device can't hang or
-//! redirect a worker. A job's files together hold at most [`MAX_JOB_FILE_BYTES`].
+//! (`--root`, its data directory). That directory is opened once, when the process starts, and
+//! its handle is kept: every input is walked from it one name at a time without following a
+//! link, so neither a link nor a directory swapped in under the same name later can send a read
+//! elsewhere. The file is opened without blocking and read only if it is a regular file, so a
+//! FIFO or a device can't hang a worker. A job's files together hold at most
+//! [`MAX_JOB_FILE_BYTES`]. Hard links are not refused: the inputs are files ace itself wrote
+//! under its data directory (ADR 0201 §5).
 use media_image::{Failed, ImageFailure};
 use media_wire::image::ImageInput;
 use std::io::Read;
@@ -18,17 +21,21 @@ fn unreadable(message: impl Into<String>) -> Failed {
     Failed::new(ImageFailure::Unreadable, message)
 }
 
-/// The directory file inputs must be inside, as named and as resolved.
+/// The directory file inputs must be inside: its names, and its handle, opened at start.
 pub struct FileRoot {
     named: Option<PathBuf>,
     resolved: Option<PathBuf>,
+    handle: Option<Root>,
 }
 
 impl FileRoot {
     pub fn new(root: Option<&Path>) -> Self {
+        let resolved = root.and_then(|r| std::fs::canonicalize(r).ok());
+        let handle = resolved.as_deref().and_then(|r| Root::pin(r).ok());
         Self {
             named: root.map(Path::to_path_buf),
-            resolved: root.and_then(|r| std::fs::canonicalize(r).ok()),
+            resolved,
+            handle,
         }
     }
 
@@ -87,8 +94,12 @@ impl FileRoot {
     }
 
     fn read(&self, path: &Path, cap: u64) -> Result<Vec<u8>, Failed> {
-        let (root, names) = self.names(path)?;
-        let file = open_inside(root, &names)?;
+        let (resolved, names) = self.names(path)?;
+        let root = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| unreadable("The image process could not open its root."))?;
+        let file = root.open(resolved, &names)?;
         let meta = file
             .metadata()
             .map_err(|e| unreadable(format!("The image file could not be read: {}.", e.kind())))?;
@@ -113,89 +124,144 @@ impl FileRoot {
     }
 }
 
-/// `root/names…`, each directory opened from the last one's handle, never following a link.
+/// The root directory's handle, held for the process's life.
+#[cfg(unix)]
+struct Root(std::os::fd::OwnedFd);
+
 #[cfg(unix)]
 #[allow(unsafe_code)]
-fn open_inside(root: &Path, names: &[&std::ffi::OsStr]) -> Result<std::fs::File, Failed> {
-    use std::ffi::CString;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    use std::os::unix::ffi::OsStrExt;
-    let c = |bytes: &[u8]| CString::new(bytes).map_err(|_| unreadable("The image path has a NUL."));
-    let failed = |what: &str| {
-        let e = std::io::Error::last_os_error();
-        unreadable(format!(
-            "The image file could not be opened ({what}): {}.",
-            e.kind()
-        ))
-    };
-    let root = c(root.as_os_str().as_bytes())?;
-    // SAFETY: a valid NUL-terminated path; the result is checked before it is owned.
-    let fd = unsafe {
-        libc::open(
-            root.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
-        )
-    };
-    if fd < 0 {
-        return Err(failed("root"));
-    }
-    // SAFETY: `fd` was just opened and is owned by nothing else.
-    let mut dir = unsafe { OwnedFd::from_raw_fd(fd) };
-    let (last, dirs) = names
-        .split_last()
-        .ok_or_else(|| unreadable("The image path names no file."))?;
-    for name in dirs {
-        let name = c(name.as_bytes())?;
-        // SAFETY: `dir` is an open directory and `name` a valid NUL-terminated name.
+impl Root {
+    fn pin(path: &Path) -> std::io::Result<Self> {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::other("NUL in the root"))?;
+        // SAFETY: a valid NUL-terminated path; the result is checked before it is owned.
         let fd = unsafe {
-            libc::openat(
-                dir.as_raw_fd(),
-                name.as_ptr(),
+            libc::open(
+                path.as_ptr(),
                 libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
             )
         };
         if fd < 0 {
-            return Err(failed("a folder on its path"));
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: `fd` was just opened and is owned by nothing else.
+        Ok(Self(unsafe { OwnedFd::from_raw_fd(fd) }))
+    }
+
+    /// `names…` under the root, each directory opened from the last one's handle (`openat`),
+    /// never following a link.
+    fn open(&self, _resolved: &Path, names: &[&std::ffi::OsStr]) -> Result<std::fs::File, Failed> {
+        use std::ffi::CString;
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+        let c =
+            |bytes: &[u8]| CString::new(bytes).map_err(|_| unreadable("The image path has a NUL."));
+        let failed = |what: &str| {
+            let e = std::io::Error::last_os_error();
+            unreadable(format!(
+                "The image file could not be opened ({what}): {}.",
+                e.kind()
+            ))
+        };
+        let (last, dirs) = names
+            .split_last()
+            .ok_or_else(|| unreadable("The image path names no file."))?;
+        let mut held: Option<OwnedFd> = None;
+        for name in dirs {
+            let name = c(name.as_bytes())?;
+            let parent = held.as_ref().map_or(self.0.as_raw_fd(), AsRawFd::as_raw_fd);
+            // SAFETY: `parent` is an open directory and `name` a valid NUL-terminated name.
+            let fd = unsafe {
+                libc::openat(
+                    parent,
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if fd < 0 {
+                return Err(failed("a folder on its path"));
+            }
+            // SAFETY: as above.
+            held = Some(unsafe { OwnedFd::from_raw_fd(fd) });
+        }
+        let parent = held.as_ref().map_or(self.0.as_raw_fd(), AsRawFd::as_raw_fd);
+        let name = c(last.as_bytes())?;
+        // SAFETY: as above. O_NONBLOCK: opening a FIFO returns at once instead of waiting.
+        let fd = unsafe {
+            libc::openat(
+                parent,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(failed("the file"));
         }
         // SAFETY: as above.
-        dir = unsafe { OwnedFd::from_raw_fd(fd) };
+        Ok(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
     }
-    let name = c(last.as_bytes())?;
-    // SAFETY: as above. O_NONBLOCK: opening a FIFO returns at once instead of waiting.
-    let fd = unsafe {
-        libc::openat(
-            dir.as_raw_fd(),
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-        )
-    };
-    if fd < 0 {
-        return Err(failed("the file"));
-    }
-    // SAFETY: as above.
-    Ok(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
 }
 
-/// Windows: each name on the way is checked not to be a link (a reparse point) before the file
-/// is opened, and the open itself doesn't follow one.
-#[cfg(not(unix))]
-fn open_inside(root: &Path, names: &[&std::ffi::OsStr]) -> Result<std::fs::File, Failed> {
-    use std::os::windows::fs::OpenOptionsExt;
+/// Windows: the root and every directory on an input's path are opened as handles that don't
+/// follow a reparse point (`FILE_FLAG_OPEN_REPARSE_POINT`) and refuse to be renamed or deleted
+/// while held (no `FILE_SHARE_DELETE`), and each opened handle is checked not to be a reparse
+/// point. With every ancestor held, the path walked can't change under the walk.
+#[cfg(windows)]
+struct Root(std::fs::File);
+
+#[cfg(windows)]
+impl Root {
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    let mut path = root.to_path_buf();
-    for name in names {
-        path.push(name);
-        let meta = std::fs::symlink_metadata(&path)
-            .map_err(|e| unreadable(format!("The image file could not be read: {}.", e.kind())))?;
-        if meta.file_type().is_symlink() {
-            return Err(unreadable("The image path goes through a link."));
+    const FILE_SHARE_READ: u32 = 1;
+    const FILE_SHARE_WRITE: u32 = 2;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
+    /// One name, opened without following it and held against renames.
+    fn held(path: &Path, directory: bool) -> std::io::Result<std::fs::File> {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        let mut flags = Self::FILE_FLAG_OPEN_REPARSE_POINT;
+        if directory {
+            flags |= Self::FILE_FLAG_BACKUP_SEMANTICS;
         }
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(Self::FILE_SHARE_READ | Self::FILE_SHARE_WRITE)
+            .custom_flags(flags)
+            .open(path)?;
+        let meta = file.metadata()?;
+        if meta.file_attributes() & Self::FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || meta.is_dir() != directory
+        {
+            return Err(std::io::Error::other("a link or the wrong kind of entry"));
+        }
+        Ok(file)
     }
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(&path)
-        .map_err(|e| unreadable(format!("The image file could not be opened: {}.", e.kind())))
+
+    fn pin(path: &Path) -> std::io::Result<Self> {
+        Self::held(path, true).map(Self)
+    }
+
+    fn open(&self, resolved: &Path, names: &[&std::ffi::OsStr]) -> Result<std::fs::File, Failed> {
+        let (last, dirs) = names
+            .split_last()
+            .ok_or_else(|| unreadable("The image path names no file."))?;
+        let mut path = resolved.to_path_buf();
+        let mut ancestors = Vec::with_capacity(dirs.len());
+        for name in dirs {
+            path.push(name);
+            ancestors.push(Self::held(&path, true).map_err(|e| {
+                unreadable(format!("A folder on the image path can't be used: {e}."))
+            })?);
+        }
+        path.push(last);
+        let file = Self::held(&path, false)
+            .map_err(|e| unreadable(format!("The image file can't be used: {e}.")))?;
+        drop(ancestors);
+        Ok(file)
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -272,6 +338,27 @@ mod tests {
                 .err()
                 .map(|f| f.reason),
             Some(ImageFailure::Deadline)
+        );
+        std::fs::remove_dir_all(&base)
+    }
+
+    #[test]
+    fn the_root_is_the_directory_named_at_start_even_if_its_name_is_reused() -> std::io::Result<()>
+    {
+        let base = std::env::temp_dir().join(format!("ace-media-pinned-{}", std::process::id()));
+        let root = base.join("root");
+        std::fs::create_dir_all(&root)?;
+        std::fs::write(root.join("a"), b"first")?;
+        let files = FileRoot::new(Some(&root));
+        // The directory is moved away and another put in its place: reads stay in the first.
+        std::fs::rename(&root, base.join("moved"))?;
+        std::fs::create_dir_all(&root)?;
+        std::fs::write(root.join("a"), b"second")?;
+        assert_eq!(
+            files
+                .read_all(&[input(&root.join("a"), 64)], &|| false)
+                .ok(),
+            Some(vec![b"first".to_vec()])
         );
         std::fs::remove_dir_all(&base)
     }

@@ -35,8 +35,16 @@ thread_local! {
     static JPEG: RefCell<CpuJpegCodec> = RefCell::new(CpuJpegCodec::default());
 }
 
-/// `f` with this thread's JPEG codec.
-pub(crate) fn with_jpeg<T>(f: impl FnOnce(&mut CpuJpegCodec) -> T) -> T {
+/// Pictures up to this many pixels (screenshots) keep their codec's buffers on the thread for
+/// the next job; a larger one gets a codec of its own, dropped with it, so nothing outside a
+/// job's reservation stays behind (at most about 15 MiB a thread).
+const RETAINED_PIXELS: u64 = 4 * 1024 * 1024;
+
+/// `f` with a JPEG codec for a picture of `pixels`: this thread's own, or a passing one.
+pub(crate) fn with_jpeg<T>(pixels: u64, f: impl FnOnce(&mut CpuJpegCodec) -> T) -> T {
+    if pixels > RETAINED_PIXELS {
+        return f(&mut CpuJpegCodec::default());
+    }
     JPEG.with(|codec| f(&mut codec.borrow_mut()))
 }
 use media_wire::image::{DoneFormat, ImageOp, ImageOutput, SourceFormat, SourceImage};
@@ -147,12 +155,22 @@ pub fn run(inputs: &[Input], op: &ImageOp, expired: &dyn Fn() -> bool) -> Result
             };
             let decoded = decode::decode(input, target, *max_pixels)?;
             step()?;
-            let mut raster = decoded.raster;
-            if *auto_orient {
-                raster = raster.orient(decoded.source.orientation);
-            }
-            let (w, h) = fit::inside(raster.width, raster.height, *width, *height, false);
-            let raster = raster.resize(w, h)?;
+            // Scaled first, in the stored layout, then turned: the turn copies only the small
+            // picture, so a big photo is never held twice.
+            let orientation = if *auto_orient {
+                decoded.source.orientation
+            } else {
+                1
+            };
+            let swap = orientation >= 5;
+            let stored = (decoded.raster.width, decoded.raster.height);
+            let shown = if swap { (stored.1, stored.0) } else { stored };
+            let (w, h) = fit::inside(shown.0, shown.1, *width, *height, false);
+            let scaled = if swap { (h, w) } else { (w, h) };
+            let raster = decoded
+                .raster
+                .resize(scaled.0, scaled.1)?
+                .orient(orientation);
             step()?;
             let (format, bytes) = encode::encode(&raster, output)?;
             Ok(Done {
@@ -241,7 +259,12 @@ fn planar_jpeg(
         width: w,
         height: h,
     };
-    if with_jpeg(|codec| codec.transcode_into(bytes, target, quality, &mut out)).is_err() {
+    let pixels = u64::from(header.width) * u64::from(header.height);
+    if with_jpeg(pixels, |codec| {
+        codec.transcode_into(bytes, target, quality, &mut out)
+    })
+    .is_err()
+    {
         return Ok(None);
     }
     let (format, bytes) = encode::sized(DoneFormat::Jpeg, out)?;

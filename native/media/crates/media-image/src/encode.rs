@@ -40,7 +40,8 @@ pub fn encode(raster: &Raster, output: &ImageOutput) -> Result<(DoneFormat, Vec<
             )
             .map_err(|e| Failed::invalid(format!("The JPEG could not be written: {e}")))?;
             let mut out = Vec::new();
-            crate::with_jpeg(|codec| codec.encode_into(&picture, q, &mut out))
+            let pixels = u64::from(raster.width) * u64::from(raster.height);
+            crate::with_jpeg(pixels, |codec| codec.encode_into(&picture, q, &mut out))
                 .map_err(|e| Failed::invalid(format!("The JPEG could not be written: {e}")))?;
             (DoneFormat::Jpeg, out)
         }

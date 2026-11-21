@@ -20,7 +20,7 @@ pub enum Target {
 }
 
 impl Target {
-    fn icon_width(self) -> u32 {
+    pub(crate) fn icon_width(self) -> u32 {
         match self {
             Self::Fit { width, height, .. } | Self::Exact { width, height } => width.max(height),
             Self::Natural => 256,
@@ -87,8 +87,10 @@ pub fn header(input: &Input, max_pixels: u32) -> Result<SourceImage> {
             (w, h, 1)
         }
         SourceFormat::Ico => {
-            let raster = icon(bytes, Target::Natural, max_pixels)?;
-            (raster.width, raster.height, 1)
+            // The entry a natural-size decode starts with, from its own header.
+            let first = ico::entries(bytes, Target::Natural.icon_width())?;
+            let entry = first.first().ok_or_else(|| Failed::truncated("ICO"))?;
+            (entry.width, entry.height, 1)
         }
         SourceFormat::Svg => {
             let (w, h) = Svg::parse(bytes)?.pixels(1.0);
@@ -158,6 +160,11 @@ pub fn decode(input: &Input, target: Target, max_pixels: u32) -> Result<Decoded>
 fn icon(bytes: &[u8], target: Target, max_pixels: u32) -> Result<Raster> {
     let mut last = None;
     for entry in ico::entries(bytes, target.icon_width())? {
+        // Each entry is checked at the size its own header gives, before it is decoded.
+        if let Err(failed) = check_input(entry.width, entry.height, max_pixels) {
+            last = Some(failed);
+            continue;
+        }
         let raster = if entry.png() {
             crate::png::decode(entry.image, max_pixels)
         } else {
@@ -169,9 +176,14 @@ fn icon(bytes: &[u8], target: Target, max_pixels: u32) -> Result<Raster> {
             })
         };
         match raster {
-            Ok(raster) => {
-                check_input(raster.width, raster.height, max_pixels)?;
+            Ok(raster) if (raster.width, raster.height) == (entry.width, entry.height) => {
                 return Ok(raster);
+            }
+            Ok(_) => {
+                last = Some(Failed::decode(
+                    "ICO",
+                    "an entry decodes to a size other than its header's",
+                ));
             }
             Err(failed) => last = Some(failed),
         }
