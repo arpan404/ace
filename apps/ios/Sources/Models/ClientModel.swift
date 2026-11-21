@@ -218,6 +218,8 @@ import QuartzCore
     /// batch and that can navigate (a snapshot retry opens the thread again), which takes the
     /// rest from here in order, so none is ever held ahead of one before it.
     @ObservationIgnored private var taken: [FrameIntake.Frame] = []
+    /// Bytes of the early-ack cap the frames held in the batch take, handed back once applied.
+    @ObservationIgnored private var heldEarly = 0
     @ObservationIgnored private let frameTiming: FrameTiming
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
@@ -288,6 +290,7 @@ import QuartzCore
         let decoder = FrameDecoder()
         let intake = FrameIntake()
         self.intake = intake
+        heldEarly = 0
         let answers = FrameAnswers()
         let runtime = makeRuntime(target, database, { [weak self] data in
             decoder.decode(data) { patches, bytes in
@@ -347,6 +350,8 @@ import QuartzCore
         flushTask?.cancel(); flushTask = nil
         let bytes = batch.bytes
         let patches = batch.take(at: frameTiming.now())
+        // Applied below, so the room they took under the early-ack cap is free again.
+        defer { intake.applied(heldEarly); heldEarly = 0 }
         guard !patches.isEmpty else { return }
         let began = CACurrentMediaTime()
         let patchesBefore = patchCount, updatesBefore = streamedUpdates
@@ -378,6 +383,7 @@ import QuartzCore
         taken.append(contentsOf: frames ?? intake.take())
         while !taken.isEmpty {
             let frame = taken.removeFirst()
+            heldEarly += frame.counted
             let accepted = hold(frame.patches, bytes: frame.bytes)
             if !frame.answered { runtime?.acknowledge(accepted: accepted) }
         }

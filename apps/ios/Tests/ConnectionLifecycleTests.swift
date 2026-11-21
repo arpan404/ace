@@ -177,6 +177,21 @@ import Testing
         #expect(model.thread?.items["big"] != nil)
         await close(model, session)
     }
+    /// The cap counts frames answered early until the main thread has applied them, not only
+    /// until it has taken them: taken but still batched, they are rows the bridge counts as shown.
+    @Test func framesTakenButNotYetAppliedStillCountTowardTheCap() throws {
+        let intake = FrameIntake()
+        intake.opened("t", epoch: 1)
+        var frames = BridgeFrames()
+        let patches = try frames.decode(try frame([item(1, "a", "A", index: 0)]))
+        let half = FrameIntake.answeredLimit / 2 + 1
+        #expect(intake.push(patches, bytes: half) == true)
+        let taken = intake.take()
+        // Taken into the main thread's batch, not applied yet: the next one would pass the cap.
+        #expect(intake.push(patches, bytes: half) == nil)
+        intake.applied(taken.map(\.counted).reduce(0, +))
+        #expect(intake.push(patches, bytes: half) == true)
+    }
     private func fragment(_ index: Int, last: Bool, _ chunk: Data) -> [String: Any] {
         ["type": "fragment", "id": "transfer", "index": index, "last": last, "data": chunk.base64EncodedString()]
     }
