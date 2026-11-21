@@ -101,8 +101,11 @@ pub fn serve(
     // would race the daemon's own stop and read as a crash.
     while let Ok(message) = inbox.recv() {
         let ToMain::Op(op) = message else { continue };
-        server.handle(op);
+        let (id, reply) = server.handle(op);
+        // Idle before the reply is out: the daemon's next request, sent the moment it reads the
+        // reply, must never find this one still in progress.
         busy.store(false, Ordering::SeqCst);
+        server.publish(id, reply);
     }
     0
 }
@@ -175,12 +178,25 @@ fn summary_value(source: Option<crate::session::Source>) -> Result<Value> {
 }
 
 impl Server {
-    fn handle(&mut self, op: Op) {
-        let id = op.id;
+    /// Run one operation to its end, its state settled, and return what it answers.
+    fn handle(&mut self, op: Op) -> (i64, Result<Reply>) {
         let reply = match op.request {
             Ok(request) => self.run(request, &op.bodies),
             Err(name) => Err(Error::message(format!("Unhandled history request: {name}"))),
         };
+        if reply.is_err() {
+            // A failed import step ends the import, closing its files and plan.
+            self.pull = None;
+        }
+        (op.id, reply)
+    }
+
+    fn publish(&self, id: i64, reply: Result<Reply>) {
+        self.send_reply(id, reply);
+        crate::hooks::at("reply-sent");
+    }
+
+    fn send_reply(&self, id: i64, reply: Result<Reply>) {
         match reply {
             Ok(Reply::Value(value)) => self.out.reply(id, value),
             Ok(Reply::Bodies(value, bodies)) => self.out.reply_bodies(id, value, &bodies),
@@ -189,11 +205,7 @@ impl Server {
                 &[],
                 id,
             ),
-            Err(error) => {
-                // A failed import step ends the import, closing its files and plan.
-                self.pull = None;
-                self.out.error(id, &error.to_string());
-            }
+            Err(error) => self.out.error(id, &error.to_string()),
         }
     }
 

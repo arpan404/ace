@@ -44,6 +44,38 @@ fn alive(pid: i32) -> bool {
     crate::setup::process_alive(pid)
 }
 
+/// The lock file a live owner holds in each of its directories. The operating system releases it
+/// when the owner exits, however it exits, so a directory whose lock can be taken has no owner,
+/// whatever its pid now names (Windows reuses pids quickly, and a pid check alone can keep a dead
+/// reader's multi-gigabyte snapshot forever).
+const OWNER_LOCK: &str = "owner.lock";
+
+fn hold(dir: &Path) -> Result<std::fs::File> {
+    let path = dir.join(OWNER_LOCK);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| io_at(e, &path))?;
+    file.try_lock()
+        .map_err(|e| Error::message(format!("Could not lock {}: {e}", path.display())))?;
+    Ok(file)
+}
+
+/// Whether the directory is still owned: by its lock where it has one, else by its pid, as a
+/// directory made before locks were is.
+fn owned(dir: &Path, name: &str, me: i32) -> bool {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.join(OWNER_LOCK))
+    {
+        Ok(file) => matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+        Err(_) => owner(name).is_some_and(|pid| pid != me && alive(pid)),
+    }
+}
+
 fn owner(name: &str) -> Option<i32> {
     let rest = PREFIXES.iter().find_map(|p| name.strip_prefix(p))?;
     let (pid, _) = rest.split_once('-')?;
@@ -60,6 +92,7 @@ pub struct SnapshotScratch {
 /// A private work directory, removed when dropped (or by the next start's sweep after a crash).
 pub struct WorkDir {
     dir: Option<tempfile::TempDir>,
+    lock: Option<std::fs::File>,
 }
 
 impl WorkDir {
@@ -70,6 +103,8 @@ impl WorkDir {
 
 impl Drop for WorkDir {
     fn drop(&mut self) {
+        // Unlocked and closed first: Windows cannot remove a folder holding an open file.
+        drop(self.lock.take());
         if let Some(dir) = self.dir.take() {
             let _ = dir.close();
         }
@@ -79,6 +114,7 @@ impl Drop for WorkDir {
 /// The one snapshot stage; released by [`SnapshotScratch::release`].
 pub struct Stage {
     pub dir: PathBuf,
+    lock: Option<std::fs::File>,
 }
 
 impl SnapshotScratch {
@@ -108,13 +144,10 @@ impl SnapshotScratch {
             if !prefixes.iter().any(|p| name.starts_with(p)) {
                 continue;
             }
-            if let Some(pid) = owner(&name)
-                && pid != self.pid
-                && alive(pid)
-            {
+            if !entry.file_type().is_ok_and(|t| t.is_dir()) {
                 continue;
             }
-            if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+            if owned(&entry.path(), &name, self.pid) {
                 continue;
             }
             let _ = std::fs::remove_dir_all(entry.path());
@@ -128,7 +161,11 @@ impl SnapshotScratch {
             .prefix(&format!("{kind}-{}-", self.pid))
             .tempdir_in(&self.root)
             .map_err(|e| io_at(e, &self.root))?;
-        Ok(WorkDir { dir: Some(dir) })
+        let lock = hold(dir.path())?;
+        Ok(WorkDir {
+            dir: Some(dir),
+            lock: Some(lock),
+        })
     }
 
     pub fn acquire(&mut self, cancel: &Cancel) -> Result<Stage> {
@@ -143,11 +180,23 @@ impl SnapshotScratch {
             .tempdir_in(&self.root)
             .map_err(|e| io_at(e, &self.root))?
             .keep();
+        let lock = match hold(&dir) {
+            Ok(lock) => lock,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(error);
+            }
+        };
+        crate::hooks::snapshot(&dir);
         self.held = true;
-        Ok(Stage { dir })
+        Ok(Stage {
+            dir,
+            lock: Some(lock),
+        })
     }
 
-    pub fn release(&mut self, stage: Stage) {
+    pub fn release(&mut self, mut stage: Stage) {
+        drop(stage.lock.take());
         let _ = std::fs::remove_dir_all(&stage.dir);
         self.held = false;
     }
@@ -228,5 +277,44 @@ impl SnapshotScratch {
             let _ = std::fs::remove_file(target);
         }
         ok
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    fn scratch(root: &Path) -> SnapshotScratch {
+        SnapshotScratch::new(root.to_owned(), Policy::from_limits(None))
+    }
+
+    #[test]
+    fn a_directory_whose_owner_lock_is_free_is_swept_whatever_pid_it_names() {
+        let root = tempfile::tempdir().unwrap();
+        // The pid of this very process: alive, as a reused pid would be.
+        let me = std::process::id();
+        let dir = root.path().join(format!("sqlite-read-{me}-Ab12Cd"));
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join(OWNER_LOCK), "").unwrap();
+        std::fs::write(dir.join("snapshot.sqlite"), "big").unwrap();
+        let mut other = scratch(root.path());
+        other.pid = -1;
+        assert_eq!(other.sweep().unwrap(), 1);
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_directory_whose_owner_holds_its_lock_is_kept() {
+        let root = tempfile::tempdir().unwrap();
+        let held = scratch(root.path()).work_dir("history-plan").unwrap();
+        let mut other = scratch(root.path());
+        other.pid = -1;
+        assert_eq!(other.sweep().unwrap(), 0);
+        assert!(held.path().exists());
+        let path = held.path().to_owned();
+        drop(held);
+        assert!(!path.exists());
     }
 }

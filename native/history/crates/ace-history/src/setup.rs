@@ -74,8 +74,34 @@ pub fn process_alive(pid: i32) -> bool {
     }
 }
 
-/// The parent watch relies on stdin closing here.
-#[cfg(not(unix))]
+/// Whether a process with this pid is running: it opens, and has not exited. A process this one
+/// may not query is running.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub fn process_alive(pid: i32) -> bool {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_ACCESS_DENIED, GetLastError, STILL_ACTIVE,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    let Ok(pid) = u32::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: plain Win32 calls on a handle this function opens and closes itself.
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return GetLastError() == ERROR_ACCESS_DENIED;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut code) != 0;
+        CloseHandle(handle);
+        ok && code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn process_alive(_pid: i32) -> bool {
     true
 }

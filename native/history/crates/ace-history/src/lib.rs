@@ -9,6 +9,7 @@ mod cancel;
 mod catalog;
 mod error;
 mod fsread;
+mod hooks;
 mod import;
 mod json;
 mod options;

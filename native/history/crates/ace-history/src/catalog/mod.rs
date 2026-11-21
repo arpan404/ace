@@ -133,17 +133,32 @@ impl Catalog {
         // Crash-ledger marks are written between samples; wait out another writer's brief commit.
         db.busy_timeout(Duration::from_millis(2000))?;
         db.execute_batch(WRITER_PRAGMAS)?;
-        let fresh: bool = db
-            .query_row(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sources'",
-                [],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_none();
-        db.execute_batch(SCHEMA)?;
-        if fresh {
-            db.execute("INSERT INTO catalog_settings VALUES('format',?1)", [FORMAT])?;
+        // One transaction from the freshness check to the format marker: no reader can see the
+        // tables without the marker, and a crash between them leaves a fresh file, never one
+        // that is refused at the next start.
+        db.execute_batch("BEGIN IMMEDIATE")?;
+        let created = (|| -> Result<()> {
+            let fresh: bool = db
+                .query_row(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sources'",
+                    [],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_none();
+            db.execute_batch(SCHEMA)?;
+            crate::hooks::at("index-schema");
+            if fresh {
+                db.execute("INSERT INTO catalog_settings VALUES('format',?1)", [FORMAT])?;
+            }
+            Ok(())
+        })();
+        match created {
+            Ok(()) => db.execute_batch("COMMIT")?,
+            Err(error) => {
+                let _ = db.execute_batch("ROLLBACK");
+                return Err(error);
+            }
         }
         let format: Option<String> = db
             .query_row(

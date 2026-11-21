@@ -33,6 +33,7 @@ pub struct Record {
 
 /// Decode one JSON record as `JSON.parse(buffer.toString("utf8"))` would.
 pub fn decode(bytes: &[u8]) -> Option<Value> {
+    crate::hooks::decoding(bytes);
     match std::str::from_utf8(bytes) {
         Ok(text) => serde_json::from_str(text).ok(),
         Err(_) => serde_json::from_str(&String::from_utf8_lossy(bytes)).ok(),

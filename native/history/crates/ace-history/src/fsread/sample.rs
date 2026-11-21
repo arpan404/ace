@@ -29,6 +29,7 @@ pub struct Sample {
 }
 
 fn lines(bytes: &[u8], records: &mut Vec<Value>) -> bool {
+    crate::hooks::decoding(bytes);
     let text = String::from_utf8_lossy(bytes);
     let mut failed = false;
     for line in text.split('\n') {

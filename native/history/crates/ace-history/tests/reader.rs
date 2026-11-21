@@ -26,7 +26,13 @@ struct Message {
 
 impl Reader {
     fn start(options: Value) -> Reader {
+        Reader::start_with(options, &Value::Null)
+    }
+
+    /// Started with test hooks (`ACE_HISTORY_TEST_HOOKS`).
+    fn start_with(options: Value, hooks: &Value) -> Reader {
         let mut child = Command::new(env!("CARGO_BIN_EXE_ace-history"))
+            .env("ACE_HISTORY_TEST_HOOKS", hooks.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -240,4 +246,39 @@ fn a_second_operation_while_one_runs_is_refused_not_queued() {
     }
     let refused = answers.iter().find(|a| a["id"] == 2).unwrap();
     assert_eq!(refused["error"], "History operation already in progress");
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_request_sent_the_moment_the_last_reply_arrives_is_never_refused_as_in_progress() {
+    let root = tempfile::tempdir().unwrap();
+    let home = claude_home(root.path(), &session("q"));
+    // The reader lingers after each reply, as a loaded machine can make it.
+    let hooks = json!({ "delay": { "at": "reply-sent", "ms": 30 } });
+    let mut reader = Reader::start_with(options(root.path(), vec![home]), &hooks);
+    reader.next();
+    for id in 1..=10 {
+        let reply = reader.call(id, json!({ "op": "archive.thread", "id": "missing" }));
+        assert!(
+            reply.value.get("error").is_none(),
+            "request {id} was refused: {}",
+            reply.value
+        );
+    }
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_reader_that_dies_while_creating_a_fresh_index_leaves_one_the_next_start_opens() {
+    let root = tempfile::tempdir().unwrap();
+    let home = claude_home(root.path(), &session("q"));
+    let opts = options(root.path(), vec![home]);
+    let hooks = json!({ "crash": { "at": "index-schema" } });
+    let mut dying = Reader::start_with(opts.clone(), &hooks);
+    let status = dying.child.wait().unwrap();
+    assert!(!status.success());
+    drop(dying);
+    let mut reader = Reader::start(opts);
+    let ready = reader.next().value;
+    assert_eq!(ready, json!({ "id": 0, "value": "ready" }));
 }
