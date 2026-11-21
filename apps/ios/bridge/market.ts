@@ -174,6 +174,8 @@ function shaped(op: V1Op, result: MarketResult, words: MarketWords): object | un
 }
 
 type Owner = Pick<ClientCore, "request">;
+/** The SDK's ways of saying the request never reached the machine or never came back. */
+const unreachable = new Set<string>(["offline", "stale", "timeout", "not_dispatched"]);
 const wait = { timeoutMs: 30_000 };
 
 export class NativeMarket {
@@ -199,6 +201,7 @@ export class NativeMarket {
       ));
     } catch (error) {
       if (!(error instanceof ClientError) || error.code === "aborted") throw error;
+      if (!unreachable.has(error.code)) return refusalAnswer("failed", stepOf(op));
       if (!key)
         return stepOf(op) === "read" || stepOf(op) === "review" ? offlineRead : offlineWrite;
       const last = this.#last.get(key);
