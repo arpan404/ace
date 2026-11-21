@@ -191,7 +191,11 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       executable(binary) === failedAs
     )
       return Promise.resolve();
-    return (starting ??= (async () => {
+    if (starting) return starting;
+    // Fingerprinted before its probe runs: an update landing mid-probe is a different program,
+    // so the failure that comes is cached against the one that ran, never the replacement.
+    const trying = executable(binary);
+    return (starting = (async () => {
       const { stdout } = await promisify(execFile)(binary, ["--version"], { timeout: 5_000 });
       if (closed) return;
       runtimeDir = mkdtempSync(join(tmpdir(), "acem-"));
@@ -227,7 +231,7 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       starting = undefined;
       failure = mediaFailure(error);
       retryAt = performance.now() + Math.min(1_000 * 2 ** failures, 60_000);
-      failedAs = executable(binary);
+      failedAs = trying;
       failures++;
       context.log.log("warn", `ace-media is not available: ${String(error)}`);
     }));
