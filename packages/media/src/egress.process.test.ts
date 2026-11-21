@@ -12,12 +12,7 @@ import { EgressRouter, type EgressUnit, type LegacyConsumers } from "./egress.ts
 import { encodeMediaFrame } from "./frame.ts";
 import { RouteWatch } from "./route-watch.ts";
 import type { MediaRoutes, RouteCapabilities } from "./routes.ts";
-import {
-  MediaSupervisor,
-  nodeMediaHost,
-  systemMediaClock,
-  type MediaSettings,
-} from "./supervisor.ts";
+import { MediaSupervisor, nodeMediaHost, systemMediaClock } from "./supervisor.ts";
 
 // One route end to end on the real binary: `encode` on auto with every consumer legacy, so a
 // producer streams into ace-media and the egress lane carries its units back to the daemon's
@@ -104,12 +99,6 @@ it.runIf(real)(
     const deadline = performance.now() + processBudgetMs - cleanupBudgetMs;
     const binary = real ?? "";
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-egress-"));
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
     const capabilities: RouteCapabilities = {
       ingest: ["tab"],
       delivery: false,
@@ -128,7 +117,6 @@ it.runIf(real)(
       binary,
       runtimeDir,
       dataDir: runtimeDir,
-      settings: () => settings,
       // Every lane through a transparent relay, as a squatting pipe instance could place
       // itself: it passes the hello and every byte, and must learn nothing of the media.
       host: relay.host,
@@ -169,7 +157,6 @@ it.runIf(real)(
       log: () => {},
     });
     const watch: RouteWatch = new RouteWatch({
-      settings: () => settings,
       health: () => supervisor.health(),
       capabilities: () => capabilities,
       onChange: (routes) => void changes.push({ at: performance.now(), routes }),

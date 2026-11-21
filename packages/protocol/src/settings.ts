@@ -149,23 +149,6 @@ export const SettingsValues = z.object({
    */
   "devices.emulatorWindow": z.boolean(),
   /**
-   * Who encodes live video (ADR 0147, docs/media/plan.md "Routes"): always `auto`. Every
-   * producer streams into ace-media, which encodes picture-only sources on this computer's
-   * hardware encoder and hands every unit back to the daemon's legacy viewers, recordings and
-   * stills while those stay legacy. While ace-media isn't healthy, live views say they are
-   * retrying and why. The old `legacy` value is gone; a stored one reads as `auto`.
-   * Global only.
-   */
-  "media.encode": z.enum(["auto"]),
-  /**
-   * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): always `auto`,
-   * ace-media on each client's media connection, which paces, scales and sends every viewer's
-   * pictures itself. The daemon's own fanout is gone (X3) and nothing reads this key any more: a
-   * stored or written `legacy`, from an older build, means `auto`. While ace-media can't serve,
-   * live views say why.
-   */
-  "media.delivery": z.enum(["auto", "legacy"]),
-  /**
    * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
    * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off
    * across restarts until turned on again.

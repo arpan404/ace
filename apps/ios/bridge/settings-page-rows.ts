@@ -17,7 +17,6 @@ import {
   emulatorWindowSwitch,
   followUpChoices,
   limitPolicyChoices,
-  mediaPipelineSwitch,
   remotePushSwitch,
   sortByChoices,
   type LimitPolicyChoice,
@@ -71,11 +70,7 @@ export type AgentRow =
   | { kind: "defaultProvider" }
   | { kind: "role"; role: "build" | "judgment" | "review" | "verify" }
   | { kind: "utilityModel" };
-/** Beta's new media pipeline: one switch over two settings (`settings-page-media.ts`). */
-export interface MediaPipelineRow {
-  kind: "mediaPipeline";
-}
-export type RowSpec = StaticRow | AgentRow | MediaPipelineRow;
+export type RowSpec = StaticRow | AgentRow;
 
 export interface SectionSpec {
   id: string;
@@ -433,12 +428,6 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
         title: "Features",
         footer: betaSwitches.spade.description,
         rows: [toggle("beta.spade", betaSwitches.spade.title)],
-      },
-      {
-        id: "video",
-        title: "Video",
-        footer: mediaPipelineSwitch.description,
-        rows: [{ kind: "mediaPipeline" }],
       },
     ],
   },

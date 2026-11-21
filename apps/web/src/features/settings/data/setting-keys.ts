@@ -60,7 +60,6 @@ export const settingKeys = {
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
   forkOnSwitch: setting("threads.forkOnSwitch", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),
-  mediaEncode: setting("media.encode", SettingsValues.shape["media.encode"], "legacy"),
   betaSpade: setting("beta.spade", z.boolean(), false),
   betaMarketplace: setting("beta.marketplace", z.boolean(), false),
   marketAskBeforeAgentPublish: setting("market.askBeforeAgentPublish", z.boolean(), false),

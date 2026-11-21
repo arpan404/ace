@@ -32,20 +32,13 @@ function consumers() {
 
 const marks = (units: EgressUnit[]) => units.map((unit) => unit.frame.payload[0]);
 
-/** encode auto, delivery legacy, with ace-media ingesting every kind. */
-const allLegacy: SourceRoute = sourceRoute(
-  "tab",
-  { encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" },
-  "healthy",
-  { ingest: sourceKinds, delivery: true },
-);
+/** ace-media ingesting every kind. */
+const allLegacy: SourceRoute = sourceRoute("tab", "healthy", {
+  ingest: sourceKinds,
+  delivery: true,
+});
 /** A kind whose producer can't stream into ace-media: nothing comes back on egress. */
-const onDaemon: SourceRoute = sourceRoute(
-  "tab",
-  { encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" },
-  "healthy",
-  { ingest: [], delivery: true },
-);
+const onDaemon: SourceRoute = sourceRoute("tab", "healthy", { ingest: [], delivery: true });
 
 /** A router whose route table the test changes, as `RouteWatch` would. */
 function routed(initial: SourceRoute) {
@@ -119,19 +112,13 @@ it("a gap in a source's sequence is counted and marked on the next unit", () => 
 });
 
 it("once the route moves the producer back to the daemon, egress still in flight is dropped, never delivered twice", () => {
-  const settings = {
-    encode: "auto",
-    delivery: "auto",
-    recordings: "auto",
-    stills: "auto",
-  } as const;
   const capabilities = { ingest: sourceKinds, delivery: true };
-  const { table, router } = routed(sourceRoute("tab", settings, "healthy", capabilities));
+  const { table, router } = routed(sourceRoute("tab", "healthy", capabilities));
   const { got, sinks } = consumers();
   const handle = router.open("s", "tab", sinks);
   router.push(encodeEgress(handle, 0, frame(1)));
   // Health drops without an exit: the table changes, and nobody tells the router.
-  table.route = sourceRoute("tab", settings, "restarting", capabilities);
+  table.route = sourceRoute("tab", "restarting", capabilities);
   router.push(encodeEgress(handle, 1, frame(2)));
   router.push(encodeEgress(handle, 2, frame(3)));
   expect(marks(got.deliver)).toEqual([1]);

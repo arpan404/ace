@@ -6,7 +6,7 @@ export type ServiceName = (typeof serviceOrder)[number]["name"];
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceOrder = [
   { name: "settings", phase: "core", requires: [], after: [] },
-  // Screens read `media.delivery` when they start.
+  // Screens start once settings have loaded.
   { name: "screen", phase: "core", requires: [], after: ["settings"] },
   {
     name: "sourceControl",

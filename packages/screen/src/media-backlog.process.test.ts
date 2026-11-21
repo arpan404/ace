@@ -18,7 +18,7 @@ import { encodeMediaFrame } from "@ace/media/frame";
 import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import { MediaRuntime } from "@ace/media/runtime";
 import type { RouteCapabilities } from "@ace/media/routes";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { IngestSource } from "@ace/media/ingest-sources";
 import { ScreenMediaSource } from "./media-source.ts";
@@ -75,12 +75,6 @@ it.runIf(!!binary)(
   async () => {
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-backlog-"));
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true }));
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
     // The flip below: the screen's producer can't stream into ace-media any more.
     const capabilities: RouteCapabilities = { ingest: ["screen"], delivery: false };
     const runtime = new MediaRuntime({
@@ -90,7 +84,6 @@ it.runIf(!!binary)(
       binary: binary ?? "",
       runtimeDir,
       dataDir: runtimeDir,
-      settings: () => settings,
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,

@@ -110,8 +110,8 @@ test("a batch that includes a setting the daemon handles on its own is refused w
 const adminOnlyBatches: { name: string; entries: { key: SettingsKey; value: JsonValue }[] }[] = [
   { name: "storage retention", entries: [{ key: "storage.retentionDays", value: 30 }] },
   {
-    name: "the new media pipeline",
-    entries: [{ key: "media.delivery", value: "auto" }],
+    name: "a beta feature",
+    entries: [{ key: "beta.spade", value: true }],
   },
 ];
 test.each(adminOnlyBatches)(

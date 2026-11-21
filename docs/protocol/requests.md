@@ -1602,7 +1602,7 @@ Example:
 
 ```json
 {
-  "key": "browser.profile",
+  "key": "browser.backendLoss",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"

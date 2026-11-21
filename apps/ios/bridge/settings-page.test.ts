@@ -558,42 +558,11 @@ test("without a Downloads folder on the machine, the Browser page says downloads
   );
 });
 
-const pipeline = (shown: SettingsPage) => row(shown, "beta.mediaPipeline");
-const media = (daemon: FakeDaemon) => ({
-  delivery: daemon.services.settings.get("media.delivery"),
-});
-
-test("Beta's media pipeline switch reads in web's words and turns delivery on", async () => {
-  const p = await ports();
-  const shown = await page(p, "beta");
-  expect(shown.title).toBe("Beta");
-  const video = shown.sections.find((section) => section.id === "video");
-  expect(video?.footer).toMatch(/^Streams live video to your devices with ace-media/);
-  expect(pipeline(shown)).toMatchObject({
-    title: "New media pipeline",
-    control: { kind: "toggle" },
-    value: false,
-    note: null,
-  });
-
-  const written = await writeSettingsPage(p, {
-    type: "settings.page.set",
-    page: "beta",
-    row: "beta.mediaPipeline",
-    value: true,
-  });
-
-  expect(written.ok).toBe(true);
-  expect(written.page && pipeline(written.page).value).toBe(true);
-  expect(media(p.daemon)).toEqual({ delivery: "auto" });
-});
-
 test("Beta's Spade switch shows the machine's setting, and turning it off saves it there", async () => {
   const p = await ports();
   p.daemon.services.settings.write("beta.spade", true);
   const shown = await page(p, "beta");
-  // As web lists Settings › Beta: the features first, then video.
-  expect(shown.sections.map((section) => section.id)).toEqual(["features", "video"]);
+  expect(shown.sections.map((section) => section.id)).toEqual(["features"]);
   expect(row(shown, "beta.spade")).toMatchObject({
     title: "Spade",
     control: { kind: "toggle" },
@@ -612,45 +581,23 @@ test("Beta's Spade switch shows the machine's setting, and turning it off saves 
   expect(row(await page(p, "beta"), "beta.spade").value).toBe(false);
 });
 
-test("turning the switch off puts delivery back on the daemon", async () => {
-  const p = await ports();
-  p.daemon.services.settings.write("media.delivery", "auto");
-  expect(pipeline(await page(p, "beta"))).toMatchObject({ value: true, note: null });
-
-  await writeSettingsPage(p, {
-    type: "settings.page.set",
-    page: "beta",
-    row: "beta.mediaPipeline",
-    value: false,
-  });
-
-  expect(media(p.daemon)).toEqual({ delivery: "legacy" });
-});
-
-test("the switch shows a change made on another device when the page is read again", async () => {
-  const p = await ports();
-  expect(pipeline(await page(p, "beta")).value).toBe(false);
-  p.daemon.services.settings.write("media.delivery", "auto");
-  expect(pipeline(await page(p, "beta")).value).toBe(true);
-});
-
 test("a phone the machine won't let change it is told so politely and nothing is written", async () => {
   const daemon = fixture();
+  daemon.services.settings.write("beta.spade", false);
   daemon.refuseRequests("forbidden", "settings.set");
   const p = await ports(daemon);
 
   const written = await writeSettingsPage(p, {
     type: "settings.page.set",
     page: "beta",
-    row: "beta.mediaPipeline",
+    row: "beta.spade",
     value: true,
   });
 
   expect(written).toMatchObject({
     ok: false,
-    message:
-      "Couldn't turn the new media pipeline on: this phone isn't allowed to change settings on this machine.",
+    message: "This phone isn't allowed to change settings on this machine.",
   });
-  expect(written.page && pipeline(written.page).value).toBe(false);
-  expect(media(daemon)).toEqual({ delivery: "legacy" });
+  expect(written.page && row(written.page, "beta.spade").value).toBe(false);
+  expect(daemon.services.settings.get("beta.spade")).toBe(false);
 });

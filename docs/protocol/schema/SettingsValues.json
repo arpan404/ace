@@ -121,19 +121,6 @@
     "market.askBeforeAgentPublish": {
       "type": "boolean"
     },
-    "media.delivery": {
-      "enum": [
-        "auto",
-        "legacy"
-      ],
-      "type": "string"
-    },
-    "media.encode": {
-      "enum": [
-        "auto"
-      ],
-      "type": "string"
-    },
     "notifications.pushGatewayUrl": {
       "examples": [
         "https://push.acehq.dev"
@@ -558,8 +545,6 @@
     "beta.marketplace",
     "market.askBeforeAgentPublish",
     "devices.emulatorWindow",
-    "media.encode",
-    "media.delivery",
     "devices.enabled",
     "access.defaultMode",
     "access.nativeModes",

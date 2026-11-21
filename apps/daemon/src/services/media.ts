@@ -13,12 +13,10 @@ import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import { refusingRecorder, type MediaRecorder } from "@ace/media/tee-recordings";
 import {
-  defaultMediaSettings,
   mediaBinaryPath,
   nodeMediaHost,
   systemMediaClock,
   systemWallClock,
-  type MediaSettings,
 } from "@ace/media/supervisor";
 import type { ServiceContext } from "./types.ts";
 import type { MediaRelayPort } from "../media-relay/port.ts";
@@ -30,12 +28,6 @@ import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
  * is made at start; while ace-media isn't healthy, live views say they are retrying and why, and
  * a recording refuses to start, saying why.
  */
-
-/**
- * What ace-media is started with: everything through it. No setting is read (ADR 0147: ace-media
- * is the only media path); the wire still carries the values for older binaries.
- */
-const mediaSettings: MediaSettings = { ...defaultMediaSettings, encode: "auto" };
 
 /** What makes an executable the one it is: path, size, mtime and inode; undefined if it's gone. */
 function executable(path: string): string | undefined {
@@ -208,7 +200,6 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
         binary,
         runtimeDir,
         dataDir: config.dataDir,
-        settings: () => mediaSettings,
         host: nodeMediaHost(process.env),
         clock: systemMediaClock,
         wallClock: systemWallClock,
@@ -231,7 +222,7 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
       }
       failure = undefined;
       failures = 0;
-      runtime.settingsChanged();
+      runtime.reroute();
     })().catch((error: unknown) => {
       starting = undefined;
       failure = mediaFailure(error);

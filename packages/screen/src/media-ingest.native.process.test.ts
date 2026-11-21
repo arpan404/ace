@@ -25,7 +25,7 @@ import type { EgressUnit } from "@ace/media/egress";
 import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import { readProducerStamp } from "@ace/media/producer-stamp";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
 import { ScreenInventory, type ScreenStreamSettings } from "@ace/protocol";
 import { z } from "zod";
@@ -63,13 +63,7 @@ it.runIf(runs)(
       ).toBe(0);
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-e3-"));
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true }));
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
-    const producers = mediaRuntime(runtimeDir, settings, "darwin");
+    const producers = mediaRuntime(runtimeDir, "darwin");
     onTestFinished(() => producers.dispose());
     const watched = observe(producers);
     const manager = new ScreenManager({
@@ -134,7 +128,7 @@ it.runIf(runs)(
 );
 
 /** The daemon's ace-media runtime on this platform's route capabilities. */
-function mediaRuntime(runtimeDir: string, settings: MediaSettings, platform: string) {
+function mediaRuntime(runtimeDir: string, platform: string) {
   return new MediaRuntime({
     version: execFileSync(binary ?? "", ["--version"])
       .toString()
@@ -142,7 +136,6 @@ function mediaRuntime(runtimeDir: string, settings: MediaSettings, platform: str
     binary: binary ?? "",
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => settings,
     host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
     clock: systemMediaClock,
     random: Math.random,
@@ -300,13 +293,7 @@ it.runIf(windowsRuns)(
   async () => {
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-e1-"));
     onTestFinished(() => rmSync(runtimeDir, { recursive: true, force: true, maxRetries: 10 }));
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
-    const producers = mediaRuntime(runtimeDir, settings, "win32");
+    const producers = mediaRuntime(runtimeDir, "win32");
     onTestFinished(() => producers.dispose());
     const watched = observe(producers);
     const manager = new ScreenManager({

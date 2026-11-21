@@ -3,16 +3,6 @@ import type { ToMedia } from "./wire.ts";
 /** The supervision rules of docs/media/plan.md ("Supervision"), as pure values and functions. */
 
 type WireSettings = Extract<ToMedia, { type: "init" }>["settings"];
-/**
- * The daemon's media settings. Recordings and stills are always ace-media's (X1), and so are
- * encoding (X2) and delivery (X3): the wire keeps their `legacy` value for older binaries, but
- * the daemon never sends it, and no route reads them.
- */
-export type MediaSettings = Omit<WireSettings, "recordings" | "stills" | "delivery"> & {
-  recordings: "auto";
-  stills: "auto";
-  delivery: "auto";
-};
 export type MediaHealth = "healthy" | "restarting" | "unavailable";
 
 export const supervisionTimings = {
@@ -45,10 +35,11 @@ export function crashLoop(failures: readonly number[], now: number) {
 }
 
 /**
- * The settings a daemon starts with: ace-media encodes, delivers, records and makes stills for
- * every source; no `media.*` setting has another value the daemon acts on.
+ * What `init` tells ace-media (ADR 0201): it encodes, delivers, records and makes stills for every
+ * source. There are no media settings any more; protocol 1 still carries these fields, and every
+ * ace-media binary is sent the same values.
  */
-export const defaultMediaSettings: MediaSettings = {
+export const initSettings: WireSettings = {
   recordings: "auto",
   stills: "auto",
   encode: "auto",

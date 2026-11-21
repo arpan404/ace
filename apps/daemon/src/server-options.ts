@@ -190,7 +190,7 @@ export interface ServerOptions {
   /** Collects the live checks devices answer after an agent's preview or keep. */
   suitChecks?: import("./suits/live-checks.ts").SuitLiveChecks;
   browser?: BrowserService;
-  /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
+  /** Delivery by ace-media (D1), while ace-media runs. */
   mediaDelivery?: () => import("./services/media.ts").DaemonDelivery | undefined;
   /** ace-media's process while it runs: its listeners are ace's own (ADR 0194). */
   mediaPid?: () => number | undefined;

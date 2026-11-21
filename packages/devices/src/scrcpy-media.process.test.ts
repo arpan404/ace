@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { afterEach, expect, it, onTestFinished } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
 import type { RouteCapabilities } from "@ace/media/routes";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import type { Frame } from "@ace/screen";
 import { fixture, media, nal, type Cleanup } from "./testing/fake-scrcpy.ts";
 
@@ -41,12 +41,6 @@ it.runIf(!!binary)(
   async () => {
     const directory = mkdtempSync(join(tmpdir(), "ace-e3b-scrcpy-"));
     onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
-    const settings: MediaSettings = {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    };
     // A route flips when the kind's producer can or can't stream into ace-media; no setting
     // chooses it.
     const capabilities: RouteCapabilities = { ingest: ["scrcpy"], delivery: false };
@@ -57,7 +51,6 @@ it.runIf(!!binary)(
       binary: binary ?? "",
       runtimeDir: directory,
       dataDir: directory,
-      settings: () => settings,
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,

@@ -12,7 +12,7 @@ import {
   type IngestProducer,
 } from "./ingest-sources.ts";
 import { mediaRoutes, type RouteCapabilities, type SourceKind } from "./routes.ts";
-import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
+import type { MediaHealth } from "./supervision-policy.ts";
 import type { ToMedia } from "./wire.ts";
 
 const capabilities: RouteCapabilities = {
@@ -45,12 +45,6 @@ function unitFrame(mark: number): MediaFrame {
 function world() {
   const state = {
     why: undefined as string | undefined,
-    settings: {
-      encode: "auto",
-      delivery: "auto",
-      recordings: "auto",
-      stills: "auto",
-    } as MediaSettings,
     health: "healthy" as MediaHealth,
     /** What this build can stream into ace-media: emptied, a kind's route leaves it. */
     capabilities,
@@ -64,7 +58,7 @@ function world() {
   let now = 0;
   let ids = 0;
   let bytes = 0;
-  const routes = () => mediaRoutes(state.settings, state.health, state.capabilities);
+  const routes = () => mediaRoutes(state.health, state.capabilities);
   const router = new EgressRouter((kind) => routes()[kind]);
   const sources = new IngestSources({
     port: {
@@ -82,7 +76,6 @@ function world() {
     },
     router,
     routes,
-    settings: () => state.settings,
     capabilities: () => state.capabilities,
     randomBytes: (length) => new Uint8Array(length).fill(++bytes),
     id: () => `s${++ids}`,

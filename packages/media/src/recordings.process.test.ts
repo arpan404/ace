@@ -5,12 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { MediaRuntime } from "./runtime.ts";
-import {
-  defaultMediaSettings,
-  nodeMediaHost,
-  systemMediaClock,
-  type MediaExit,
-} from "./supervisor.ts";
+import { nodeMediaHost, systemMediaClock, type MediaExit } from "./supervisor.ts";
 
 // The daemon's recordings against the real ace-media (`bun run check:media` builds it and sets
 // ACE_MEDIA_TEST_BINARY), through `MediaRuntime.recordings`, the path every recorder takes since
@@ -108,7 +103,6 @@ function makeRuntime(exits: MediaExit[] = []) {
     binary: binary ?? "",
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => defaultMediaSettings,
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     random: Math.random,

@@ -6,7 +6,7 @@ import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MediaRuntime } from "@ace/media/runtime";
-import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import { BrowserService, connectBrowser, detectChromium } from "../src/index.ts";
 import type { BrowserMedia } from "../src/media-video.ts";
@@ -88,19 +88,12 @@ const address = server.address();
 if (!address || typeof address === "string") throw new Error("Missing server address");
 
 const home = await mkdtemp(join(tmpdir(), "ace-media-link-"));
-let settings: MediaSettings = {
-  encode: "auto",
-  delivery: "auto",
-  recordings: "auto",
-  stills: "auto",
-};
 let ids = 0;
 const runtime = new MediaRuntime({
   version: execFileSync(binary, ["--version"]).toString().trim(),
   binary,
   runtimeDir: home,
   dataDir: home,
-  settings: () => settings,
   host: nodeMediaHost(process.env),
   clock: systemMediaClock,
   random: Math.random,
@@ -244,7 +237,7 @@ function quantile(values: readonly number[], q: number): number | null {
 }
 
 try {
-  runtime.settingsChanged();
+  runtime.reroute();
   await service.open({ threadId: "bench", workspaceId: "bench", profile: "persistent" });
   await service.execute("bench", { action: "navigate", url: `http://127.0.0.1:${address.port}/` });
   await service.execute("bench", { action: "resize", width: pane.width, height: pane.height });

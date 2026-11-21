@@ -14,7 +14,7 @@ import {
   type BrowserMedia,
 } from "@ace/browser";
 import { MediaRuntime } from "@ace/media/runtime";
-import { defaultMediaSettings, nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
+import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import {
   decodeStreamMessage,
   StreamAssembler,
@@ -100,7 +100,6 @@ function mediaRuntime(): { media: BrowserMedia; runtime: MediaRuntime } {
     binary: path,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => defaultMediaSettings,
     host: nodeMediaHost(process.env),
     clock: systemMediaClock,
     random: Math.random,
@@ -113,7 +112,7 @@ function mediaRuntime(): { media: BrowserMedia; runtime: MediaRuntime } {
     runtime.dispose();
     rmSync(runtimeDir, { recursive: true, force: true });
   });
-  runtime.settingsChanged();
+  runtime.reroute();
   return {
     runtime,
     media: {

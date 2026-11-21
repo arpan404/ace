@@ -7,7 +7,6 @@ import {
   type SourceKind,
   type SourceRoute,
 } from "./routes.ts";
-import type { MediaSettings } from "./supervision-policy.ts";
 import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
@@ -110,9 +109,8 @@ export type IngestSourcesOptions = {
   router: EgressRouter;
   /** The daemon's current table (`RouteWatch.routes()`). */
   routes: () => MediaRoutes;
-  /** The settings and capabilities the table comes from: which sources want ace-media running
-   * while it restarts. */
-  settings: () => MediaSettings;
+  /** The capabilities the table comes from: which sources want ace-media running while it
+   * restarts. */
   capabilities: () => RouteCapabilities;
   randomBytes: (length: number) => Uint8Array;
   id: () => string;
@@ -189,7 +187,7 @@ type Entry = {
   state: "off" | "opening" | "ingest";
   /** The open in the running ace-media, while there is one. */
   live: Path | undefined;
-  /** Keeps ace-media running while settings want this source there, through restarts. */
+  /** Keeps ace-media running while this source streams there, through restarts. */
   release: (() => void) | undefined;
   encodes: EncodeSpec[] | undefined;
   /** What the producer encodes (`source.codecs`), told to every open. */
@@ -316,10 +314,9 @@ export class IngestSources {
     };
   }
 
-  /** Whether the settings route a kind through ace-media once it is healthy. */
+  /** Whether a kind streams through ace-media once it is healthy. */
   wanted(kind: SourceKind): boolean {
-    const { settings, capabilities } = this.#options;
-    return sourceRoute(kind, settings(), "healthy", capabilities()).producer === "ace-media";
+    return sourceRoute(kind, "healthy", this.#options.capabilities()).producer === "ace-media";
   }
 
   /** ace-media's ingest WebSocket now, while it runs. */
@@ -659,7 +656,7 @@ export class IngestSources {
       this.#finish(path, path.marked?.interrupted ?? false, true);
       return;
     }
-    // ace-media stays up until the path's last unit is in, whatever the settings say now.
+    // ace-media stays up until the path's last unit is in, whatever the routes say now.
     path.release = this.#options.port.need();
     path.draining = this.#options.schedule(() => this.#finish(path, true, true), drainMs);
     if (readByMedia.has(path.entry.producer.kind)) this.#closeInMedia(path);

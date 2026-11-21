@@ -7,7 +7,6 @@ import { afterEach, expect, it } from "vitest";
 import { createLogger } from "@ace/diagnostics";
 import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
 import type { IngestProducer } from "@ace/media/ingest-sources";
-import { phoneOwner } from "@ace/media/testing/fake-delivery";
 import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import { Resources } from "./resources.ts";
 import { startMedia } from "./media.ts";
@@ -290,7 +289,7 @@ it.skipIf(!built || process.platform === "win32")(
   30_000,
 );
 
-async function daemonWith(script: string, settings?: unknown) {
+async function daemonWith(script: string) {
   const dir = await mkdtemp(join(tmpdir(), "ace-media-service-"));
   const binary = join(dir, "ace-media");
   await writeFile(binary, `#!/bin/sh\n${script}\n`);
@@ -300,7 +299,7 @@ async function daemonWith(script: string, settings?: unknown) {
   const resources = new Resources();
   const logged: string[] = [];
   const context = {
-    services: settings ? { settings } : {},
+    services: {},
     id: () => "id",
     config: { dataDir: dir },
     resources,
@@ -349,24 +348,4 @@ it("a binary that never answers its version leaves every producer told why, befo
   const late: string[] = [];
   media?.attach(producer(late));
   expect(late).toEqual(early);
-});
-
-it("a client's media connection starts ace-media whatever media.delivery says: it is the only delivery", async () => {
-  const read: string[] = [];
-  // A home whose Beta switch was left off: the setting says the daemon delivers.
-  const settings = {
-    get: async (key: string) => {
-      read.push(key);
-      return key === "media.delivery" ? { value: "legacy" } : undefined;
-    },
-    onChange: () => () => {},
-  };
-  const { media, dir } = await daemonWith(
-    `if [ "$1" = "--version" ]; then echo "ace-media 0.0.0"; else touch "$(dirname "$0")/ran"; sleep 5; fi`,
-    settings,
-  );
-  await expect.poll(() => media?.delivery()).toBeDefined();
-  void media?.delivery()?.connect(phoneOwner);
-  await expect.poll(() => existsSync(join(dir, "ran")), { timeout: 5_000 }).toBe(true);
-  expect(read).not.toContain("media.delivery");
 });
