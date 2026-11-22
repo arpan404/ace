@@ -36,9 +36,11 @@ struct ThreadFileRoutes: ViewModifier {
             .environment(\.fileLinks, FileLinkOpener { url, itemId in open(url, itemId: itemId) })
             .navigationDestination(isPresented: $showFiles) {
                 FilesScreen(model: model, scope: .thread(threadId), subtitle: subtitle, mention: mentionAndReturn)
+                    .environment(\.codeNotesHandOff, toComposer)
             }
             .navigationDestination(item: $linked) { target in
                 EditorGroups(model: model, scope: .thread(threadId), target: target, mention: mentionAndReturn)
+                    .environment(\.codeNotesHandOff, toComposer)
             }
             .quickLookPreview($preview)
             .overlay(alignment: .top) {
@@ -56,6 +58,15 @@ struct ThreadFileRoutes: ViewModifier {
             .alert("Couldn't open the file", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                 Button("Dismiss") { problem = nil }
             } message: { Text(problem ?? "") }
+    }
+
+    /// Send notes to agent: back to the composer, where the editor's notes wait on the message.
+    private var toComposer: (() -> Void)? {
+        guard mention != nil else { return nil }
+        return {
+            showFiles = false
+            linked = nil
+        }
     }
 
     private var mentionAndReturn: ((ComposerMention) -> Void)? {

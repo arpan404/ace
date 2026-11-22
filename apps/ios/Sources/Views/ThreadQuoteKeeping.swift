@@ -20,6 +20,8 @@ private struct ThreadQuoteKeeping: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task(id: thread.epoch) {
+                // Each visit's session hears the editor's code notes for this thread, too.
+                if !model.codeNotes[thread.id].isEmpty { model.sendCodeNotes(thread.id) }
                 // A view-only pairing takes no quotes, so it never keeps an emptied list over them.
                 guard model.canOperate, let key, let drafts else { return }
                 model.restoreQuotes(drafts.quotes(for: key))
