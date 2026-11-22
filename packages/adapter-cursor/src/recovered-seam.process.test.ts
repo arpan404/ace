@@ -31,11 +31,11 @@ const updates = [
   {
     type: "tool-call-completed",
     callId: "sh",
-    // The SDK stores a shortened copy of this result.
-    truncateStored: true,
     toolCall: {
       type: "shell",
       args: { command: "ls" },
+      // The SDK shortened this result; it stores the update as it carried it (1.0.35).
+      truncated: { result: true },
       result: {
         status: "success",
         value: { exitCode: 0, stdout: "a.ts\n", stderr: "", signal: "", executionTime: 1 },
@@ -84,7 +84,7 @@ function stored(update: Record<string, unknown>, runId: string): unknown {
         status: update.type === "tool-call-completed" ? "completed" : "running",
         args: call.args,
         ...("result" in call ? { result: call.result } : {}),
-        ...(update.truncateStored ? { truncated: { result: true } } : {}),
+        ...(call.truncated ? { truncated: call.truncated } : {}),
       };
     }
     default:

@@ -11,30 +11,28 @@ import { object, string } from "./contracts.ts";
  */
 
 const digest = (key: string) => createHash("sha256").update(key).digest("hex");
-/** How much of each field a shortened copy is trusted to keep, to tell its update apart. */
-const kept = 256;
 /**
- * A tool call's state as one update carries it, `exact:fingerprint`: exact by its phase and all
- * it holds, so a start and every partial differ; fingerprinted by its call, phase and the first
- * part of each field, which a copy the SDK shortened still shares with the update it came from.
+ * A tool call's state as one update carries it: its call, phase and the whole of every field,
+ * with whether the SDK marked a field shortened. A start and every partial differ, and two
+ * partials alike in all but their last character differ too. SDK 1.0.35 stores the message it
+ * maps the update itself to, `truncated` included, so a shortened stored copy is identical to
+ * the update it came from: it matches that one update, and only by equality.
  */
-const fingerprint = (callId: string, phase: string, args: unknown, result: unknown) =>
-  digest(
-    `tool_call\0${callId}\0${phase}\0${JSON.stringify(args ?? null).slice(0, kept)}\0${JSON.stringify(result ?? null).slice(0, kept)}`,
+const toolIdentity = (
+  callId: string,
+  phase: string,
+  args: unknown,
+  result: unknown,
+  truncated: unknown,
+) => {
+  const cut = object(truncated);
+  return digest(
+    `tool_call\0${callId}\0${phase}\0${JSON.stringify(args ?? null)}\0${JSON.stringify(result ?? null)}\0${cut.args === true ? 1 : 0}${cut.result === true ? 1 : 0}`,
   );
-const toolIdentity = (callId: string, phase: string, args: unknown, result: unknown) =>
-  `${digest(`tool_call\0${callId}\0${phase}\0${JSON.stringify(args ?? null)}\0${JSON.stringify(result ?? null)}`)}:${fingerprint(callId, phase, args, result)}`;
-/** A stored copy the SDK shortened: only its fingerprint can match. */
-const shortened = (callId: string, phase: string, args: unknown, result: unknown) =>
-  `~:${fingerprint(callId, phase, args, result)}`;
-/**
- * Whether stored event `stored` is the one update `framed` became: the same exact identity, or,
- * for a copy the SDK shortened, the same call, phase and leading content: a different update of
- * the same call (another partial) never matches it.
- */
+};
+/** Whether stored event `stored` is the one update `framed` became. */
 export function sameUpdate(stored: string, framed: string): boolean {
-  if (!stored.startsWith("~:")) return stored === framed;
-  return framed.endsWith(stored.slice(1));
+  return stored === framed;
 }
 
 /** The identity of the event the SDK stores for this onDelta update; none when it stores none. */
@@ -53,7 +51,7 @@ export function updateIdentity(update: unknown): string | undefined {
     case "tool-call-completed": {
       const call = object(body.toolCall);
       const phase = body.type === "tool-call-completed" ? "ended" : "running";
-      return toolIdentity(string(body.callId) ?? "", phase, call.args, call.result);
+      return toolIdentity(string(body.callId) ?? "", phase, call.args, call.result, call.truncated);
     }
     case "user-message-appended":
       return digest(`user\0${string(object(body.userMessage).text) ?? ""}`);
@@ -82,9 +80,13 @@ export function storedIdentity(message: unknown): string | undefined {
       return digest(`thinking\0${string(body.text) ?? ""}`);
     case "tool_call": {
       const phase = body.status === "running" ? "running" : "ended";
-      if (object(body.truncated).args === true || object(body.truncated).result === true)
-        return shortened(string(body.call_id) ?? "", phase, body.args, body.result);
-      return toolIdentity(string(body.call_id) ?? "", phase, body.args, body.result);
+      return toolIdentity(
+        string(body.call_id) ?? "",
+        phase,
+        body.args,
+        body.result,
+        body.truncated,
+      );
     }
     case "user": {
       const content = object(body.message).content;

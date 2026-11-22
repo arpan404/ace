@@ -329,20 +329,21 @@ it("an earlier build's send in doubt gives up its run search at the budget and s
   }
 });
 
-/** A partial update of call "rd" reading `path`. */
-const partial = (path: string) => ({
+/** A partial update of call "rd" reading `path`, shortened as the SDK marks it if `cut`. */
+const partial = (path: string, cut = false) => ({
   type: "partial-tool-call",
   callId: "rd",
-  toolCall: { type: "read", args: { path } },
+  toolCall: { type: "read", args: { path }, ...(cut ? { truncated: { args: true } } : {}) },
 });
 const shortened = (found: Recovered[]) => found.filter((item) => item.kind === "recovered");
 
-it("a shortened stored copy is matched only to the committed update it shortens", async () => {
+it("a shortened stored copy is matched only to the committed update it was stored from", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-shortened-")));
   try {
     const store = await storeWith(root, [{ runId: "run", status: "finished" }]);
     const long = `a.ts${"x".repeat(600)}`;
-    // Cursor's store holds a shortened copy of partial B; ace committed partial A, or B.
+    // Cursor's store holds partial B, shortened. SDK 1.0.35 stores what the update carried:
+    // B's update was shortened and marked so before ace or the store saw it.
     await store.runEvents.append({
       runId: "run",
       eventType: "run_stream_event",
@@ -359,16 +360,21 @@ it("a shortened stored copy is matched only to the committed update it shortens"
         },
       },
     });
-    const afterA = await recover(root, store, {
-      runs: [{ runId: "run", through: 0, pending: [updateIdentity(partial("a")) ?? ""] }],
-    });
-    // A's write was lost: B is not A, so it comes back.
-    expect(shortened(afterA.found)).toHaveLength(1);
-    const afterB = await recover(root, store, {
-      runs: [{ runId: "run", through: 0, pending: [updateIdentity(partial(long)) ?? ""] }],
-    });
-    // Ace has B itself: its shortened copy is not shown again.
-    expect(shortened(afterB.found)).toEqual([]);
+    const committed = async (update: ReturnType<typeof partial>) =>
+      shortened(
+        (
+          await recover(root, store, {
+            runs: [{ runId: "run", through: 0, pending: [updateIdentity(update) ?? ""] }],
+          })
+        ).found,
+      );
+    // Ace committed a different partial A and its write was lost: B comes back.
+    expect(await committed(partial("a"))).toHaveLength(1);
+    // A shares B's first 300 characters and differs after them: still not B.
+    expect(await committed(partial(`${long.slice(0, 300)}DIFFERENT`))).toHaveLength(1);
+    expect(await committed(partial(`${long.slice(0, 300)}DIFFERENT`, true))).toHaveLength(1);
+    // Ace has B itself: it is not shown again.
+    expect(await committed(partial(long.slice(0, 300), true))).toEqual([]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
