@@ -129,17 +129,24 @@ struct SpadeRoute: Hashable {
     var machine = ""
 }
 
-/// The bots of every machine that shows Spade, or what each Spade says while it can't list them.
+/// The bots of every machine that shows Spade, or what each Spade says while it can't list them;
+/// the pinned ones in the strip above the rest, and Pin or Unpin on a row's long press and swipe.
 private struct SpadeList: View {
     let inbox: MachineInbox
+
+    /// Why the last Pin or Unpin was refused, until the person closes it.
+    @State private var pinProblem: String?
 
     private var entries: [SpadeRoster.Entry] { inbox.spadeRoster }
     private var machines: [MachineSession] { inbox.spadeSessions }
 
     var body: some View {
         List { rows }
+            .alert(pinProblem ?? "", isPresented: Binding(get: { pinProblem != nil }, set: { if !$0 { pinProblem = nil } })) {
+                Button("Close", role: .cancel) { pinProblem = nil }
+            }
             .listStyle(.plain)
-            .scrollsToTop(on: .spade, first: entries.first.map { AnyHashable($0.id) })
+            .scrollsToTop(on: .spade, first: SpadePins.split(entries).rows.first.map { AnyHashable($0.id) })
             .refreshable { for machine in machines { machine.client.spadeRefresh() } }
             .accessibilityIdentifier("spade.list")
     }
@@ -156,10 +163,18 @@ private struct SpadeList: View {
             ProblemRow(problem(machine.hostId), id: "spade.listProblem") { machine.client.spadeRefresh() }
         }
         if !entries.isEmpty {
-            ForEach(entries) { entry in
-                NavigationLink(value: SpadeRoute(conversation: entry.bot.conversation, group: entry.bot.group, machine: entry.machine)) {
+            let pins = SpadePins.split(entries)
+            if !pins.strip.isEmpty {
+                SpadePinStrip(entries: pins.strip, route: route) { pin($0, false) }
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(pins.rows) { entry in
+                NavigationLink(value: route(entry)) {
                     SpadeBotRow(bot: entry.bot, machine: machineName(entry.machine))
                 }
+                .contextMenu { pinButton(entry) }
+                .swipeActions(edge: .leading) { pinButton(entry).tint(AceDesign.Ink.action) }
                 .accessibilityIdentifier(entry.bot.group.map { "spade.group.\($0)" } ?? "spade.bot.\(entry.bot.id)")
             }
         } else if let failed = machines.first(where: { $0.client.spade.listFailed && $0.client.spade.bots == nil }),
@@ -172,6 +187,30 @@ private struct SpadeList: View {
             SkeletonRows(count: 4, retry: { for machine in machines { machine.client.spadeRefresh() } })
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
+        }
+    }
+
+    private func route(_ entry: SpadeRoster.Entry) -> SpadeRoute {
+        SpadeRoute(conversation: entry.bot.conversation, group: entry.bot.group, machine: entry.machine)
+    }
+
+    /// Pin or Unpin, on every row but Spade's own.
+    @ViewBuilder private func pinButton(_ entry: SpadeRoster.Entry) -> some View {
+        if SpadePins.pinnable(entry.bot) {
+            let on = !entry.bot.pinned
+            Button { pin(entry, on) } label: { Label(on ? "Pin" : "Unpin", ace: on ? .pushPin : .pushPinSlash) }
+                .accessibilityIdentifier(on ? "spade.pin" : "spade.unpin")
+        }
+    }
+
+    /// Pins or unpins on the machine the bot or group lives on; a refusal says why.
+    private func pin(_ entry: SpadeRoster.Entry, _ on: Bool) {
+        guard let client = inbox.client(entry.machine) else { return }
+        Task {
+            let outcome: SpadeOutcome
+            if let group = entry.bot.group { outcome = await client.spadeGroupPin(group, pinned: on) }
+            else { outcome = await client.spadePin(entry.bot.id, pinned: on) }
+            pinProblem = outcome.problem
         }
     }
 

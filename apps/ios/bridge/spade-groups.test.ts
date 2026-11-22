@@ -313,3 +313,17 @@ test("group faces prefer the current roster avatar matched by machine and bot id
     storedBotFace(updated),
   );
 });
+
+test("a group pinned from the phone is pinned in Spade, and its row says since when", async () => {
+  const { api, patches, ask } = await setUp((fake) => team(fake));
+  const row = () => patches.state?.list.rows?.find((each) => each.group === "launch");
+  await until(() => row()?.pinnedAt === null);
+
+  expect(await ask({ type: "spade.group.pin", groupId: "launch", pinned: true })).toEqual({
+    ok: true,
+  });
+
+  const pinnedAt = api.teams.groups[0]?.pinned_at;
+  expect(typeof pinnedAt).toBe("number");
+  await until(() => row()?.pinnedAt === pinnedAt);
+});

@@ -53,6 +53,8 @@ export interface SpadeListRow {
   state: SpadeRowState;
   line: string;
   pinned: boolean;
+  /** When the person pinned it (ms), for the pin strip's order, oldest first; null when it isn't. */
+  pinnedAt: number | null;
   /** "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3); null otherwise. */
   shared: string | null;
   /** Its latest activity (ms): the merged list across machines orders by it within a rank. */
@@ -123,6 +125,7 @@ export function spadeListRows(
       state: row.state,
       line: unconfirmed ?? workerWaitLine(shown, row.line),
       pinned: agent.pinnedAt !== undefined,
+      pinnedAt: agent.pinnedAt ?? null,
       shared: agent.kind === "main" ? null : sharedIn(agent.id),
       at: agent.lastActivity,
       createdAt: agent.createdAt,
@@ -145,6 +148,7 @@ export function spadeListRows(
       state: row.state,
       line: club.unconfirmed ?? row.line,
       pinned: group.pinnedAt !== undefined,
+      pinnedAt: group.pinnedAt ?? null,
       shared: null,
       at: group.lastActivity,
       createdAt: group.createdAt,

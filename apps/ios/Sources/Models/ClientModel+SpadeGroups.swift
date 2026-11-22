@@ -11,4 +11,9 @@ extension ClientModel {
     func spadeGroupStop(_ group: String) async -> SpadeOutcome {
         await spadeRequest(["type": "spade.group.stop", "groupId": group], failing: "Couldn't stop")
     }
+    /// Pins the group to the strip above the list, or unpins it, on every device.
+    func spadeGroupPin(_ group: String, pinned: Bool) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.group.pin", "groupId": group, "pinned": pinned],
+                           failing: pinned ? "Couldn't pin" : "Couldn't unpin")
+    }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
-/// A conversation with a bot: send, stop, answer an approval or a card of questions, and turn
-/// Spade on (`bridge/spade-requests-conversation.ts`).
+/// A conversation with a bot: send, stop, answer an approval or a card of questions, turn Spade
+/// on, and pin the bot (`bridge/spade-requests-conversation.ts`).
 extension ClientModel {
     /// A message: its words, the files staged for it (`AttachmentStaging`) and a recording. Words
     /// may be empty when it carries something; the bridge checks Spade's limits before any of it
@@ -33,5 +33,10 @@ extension ClientModel {
     }
     func spadeTurnOn() async -> SpadeOutcome {
         await spadeRequest(["type": "spade.enable"], failing: "Couldn't turn on Spade")
+    }
+    /// Pins the bot to the strip above the list, or unpins it, on every device.
+    func spadePin(_ agent: String, pinned: Bool) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.pin", "agentId": agent, "pinned": pinned],
+                           failing: pinned ? "Couldn't pin" : "Couldn't unpin")
     }
 }

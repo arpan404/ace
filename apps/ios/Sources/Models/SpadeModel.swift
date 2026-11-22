@@ -54,6 +54,8 @@ import Observation
         let state: String
         let line: String
         let pinned: Bool
+        /// When the person pinned it (ms): the pin strip shows the oldest pin first.
+        var pinnedAt: Double? = nil
         /// "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3).
         var shared: String? = nil
         /// Its latest activity (ms): the list across machines orders by it within a rank.

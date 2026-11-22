@@ -21,6 +21,8 @@ export const spadeGroupRequests = spadeRequestArea(
     SpadeGroupSendRequest,
     /** Stop ends the group's run: every ask still open, on every machine. */
     z.object({ type: z.literal("spade.group.stop"), groupId }),
+    /** Pin the group to the strip above the list, or unpin it, on every device. */
+    z.object({ type: z.literal("spade.group.pin"), groupId, pinned: z.boolean() }),
   ],
   async ({ spade, deps, ask }, request): Promise<SpadeOutcome> => {
     switch (request.type) {
@@ -38,6 +40,16 @@ export const spadeGroupRequests = spadeRequestArea(
         }
         spade.refresh();
         return { ok: true };
+      case "spade.group.pin":
+        try {
+          await ask("PUT", `/v1/groups/${segment(request.groupId)}/pin`, {
+            pinned: request.pinned,
+          });
+          spade.refresh();
+          return { ok: true };
+        } catch (error) {
+          return spadeRefused(request.pinned ? "Couldn't pin" : "Couldn't unpin", error);
+        }
     }
   },
 );

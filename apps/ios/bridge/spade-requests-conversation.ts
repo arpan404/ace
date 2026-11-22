@@ -33,8 +33,8 @@ import {
 
 /*
  * A conversation with a bot: send a message, stop a reply, answer an approval or a card of
- * questions, read back what the live stream missed, open a picture, file or recording, and turn
- * Spade on.
+ * questions, read back what the live stream missed, open a picture, file or recording, turn
+ * Spade on, and pin the bot.
  */
 
 const conversationId = z.string().min(1).max(256);
@@ -79,6 +79,12 @@ export const spadeConversationRequests = spadeRequestArea(
       callId: z.string().min(1).max(256),
     }),
     z.object({ type: z.literal("spade.enable") }),
+    /** Pin a bot to the strip above the list, or unpin it: kept in Spade, so on every device. */
+    z.object({
+      type: z.literal("spade.pin"),
+      agentId: z.string().min(1).max(256),
+      pinned: z.boolean(),
+    }),
     /** A picture in a conversation, by its hash, for its thumbnail or the full-screen viewer. */
     SpadeImageRequest,
     SpadeDocumentRequest,
@@ -158,6 +164,16 @@ export const spadeConversationRequests = spadeRequestArea(
         }
       case "spade.enable":
         return setRunning(owner, spade, true, signal);
+      case "spade.pin":
+        try {
+          await ask("PUT", `/v1/agents/${segment(request.agentId)}/pin`, {
+            pinned: request.pinned,
+          });
+          spade.refresh();
+          return { ok: true };
+        } catch (error) {
+          return spadeRefused(request.pinned ? "Couldn't pin" : "Couldn't unpin", error);
+        }
     }
   },
 );
