@@ -25,9 +25,9 @@ enum AccountGrantError: Error, Equatable {
 /// paired daemon or a provider. Redirects are refused and responses are bounded.
 struct AceAccountAPI: Sendable {
     let origin: URL
-    private let http: URLSession
-    private let aceClient: String?
-    private let allowLoopback: Bool
+    fileprivate let http: URLSession
+    fileprivate let aceClient: String?
+    fileprivate let allowLoopback: Bool
 
     init(origin: URL, aceClient: String? = AceCloudRequest.defaultClient, allowLoopback: Bool = false) {
         self.origin = origin
@@ -71,7 +71,7 @@ struct AceAccountAPI: Sendable {
         let _: Ignored = try await call("machines/\(hostId)", method: "DELETE", token: token)
     }
 
-    private struct Ignored: Decodable {}
+    fileprivate struct Ignored: Decodable {}
     private func call<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AccountGrantError) -> T {
         var request = AceCloudRequest.make(
             url: origin.appending(path: "v1/\(path)"),
@@ -97,6 +97,89 @@ struct AceAccountAPI: Sendable {
         if status == 401 { throw .signedOut }
         if status == 429 || status >= 500 { throw .unavailable }
         throw .refused
+    }
+}
+
+/// An organization the person is an active member of (`GET /v1/orgs`, ADR 0206 §1.4).
+struct AceOrgSpace: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    /// The WorkOS role slug: `owner`, `admin`, `member`, `billing`, or one ace doesn't know.
+    let role: String
+    var plan: String? = nil
+    var directoryManaged: Bool? = nil
+}
+/// A member as the organization's list names them, for a shared bot's approvers.
+struct AceOrgMember: Decodable, Sendable, Equatable {
+    let account: String
+    var email: String? = nil
+    var name: String? = nil
+}
+/// An org call the backend refused, with its `error` word (`last_owner`, `email_unverified`, …).
+enum AceOrgError: Error, Equatable {
+    case signedOut
+    case refused(String)
+    case unavailable
+}
+
+/// Organizations on the account backend (`packages/client/src/ace-org.ts`): the person's spaces,
+/// a new one, an organization's hosts and members, and Leave. Every call is the person's session.
+extension AceAccountAPI {
+    func spaces(token: String) async throws(AceOrgError) -> [AceOrgSpace] {
+        struct List: Decodable { let orgs: [AceOrgSpace] }
+        let list: List = try await orgCall("orgs", method: "GET", token: token)
+        return list.orgs.filter { Self.isOrgId($0.id) }
+    }
+    func createOrg(token: String, name: String) async throws(AceOrgError) -> AceOrgSpace {
+        let body = try? JSONEncoder().encode(["name": name])
+        return try await orgCall("orgs", method: "POST", token: token, body: body)
+    }
+    /// An organization's hosts, which the phone reaches like its own account machines.
+    func hosts(token: String, org: String) async throws(AceOrgError) -> [AceMachine] {
+        struct List: Decodable { let machines: [AceMachine] }
+        guard Self.isOrgId(org) else { throw .refused("invalid") }
+        let list: List = try await orgCall("orgs/\(org)/hosts", method: "GET", token: token)
+        return list.machines
+    }
+    func members(token: String, org: String) async throws(AceOrgError) -> [AceOrgMember] {
+        struct List: Decodable { let members: [AceOrgMember] }
+        guard Self.isOrgId(org) else { throw .refused("invalid") }
+        let list: List = try await orgCall("orgs/\(org)/members", method: "GET", token: token)
+        return list.members
+    }
+    /// Leave: deletes the person's membership on the backend, nothing on the phone.
+    func leave(token: String, org: String, account: String) async throws(AceOrgError) {
+        guard Self.isOrgId(org), let segment = account.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { throw .refused("invalid") }
+        let _: Ignored = try await orgCall("orgs/\(org)/members/\(segment)", method: "DELETE", token: token)
+    }
+    /// `org_` and up to 64 letters or digits, as the backend names organizations.
+    static func isOrgId(_ id: String) -> Bool {
+        id.range(of: "^org_[A-Za-z0-9]{1,64}$", options: .regularExpression) != nil
+    }
+
+    private struct Refusal: Decodable { let error: String }
+    private func orgCall<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AceOrgError) -> T {
+        var request = AceCloudRequest.make(
+            url: origin.appending(path: "v1/\(path)"),
+            timeoutInterval: 15,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            client: aceClient,
+            allowLoopback: allowLoopback
+        )
+        request.httpMethod = method
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        let data: Data, response: URLResponse
+        do { (data, response) = try await http.data(for: request) } catch { throw .unavailable }
+        guard let status = (response as? HTTPURLResponse)?.statusCode else { throw .unavailable }
+        guard data.count <= 256 * 1024 else { throw .refused("too_large") }
+        if status == 401 { throw .signedOut }
+        if status == 429 || status >= 500 { throw .unavailable }
+        guard (200..<300).contains(status) else {
+            throw .refused((try? JSONDecoder().decode(Refusal.self, from: data))?.error ?? "refused")
+        }
+        if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
+        do { return try JSONDecoder().decode(T.self, from: data) } catch { throw .refused("invalid") }
     }
 }
 

@@ -281,7 +281,7 @@ export function spadeConversationRows(
   workers: SpadeWorkerFacts = unknownWorkers,
   approvers: string | null = null,
 ): { key: string; row: SpadeBubbleRow }[] {
-  return spadeBubbles(view).flatMap((bubble) => {
+  return spadeBubbles(view).flatMap((bubble): { key: string; row: SpadeBubbleRow }[] => {
     const row = spadeBubbleRow(bubble, who, workers);
     if (row?.kind === "ask") return [{ key: bubble.key, row: { ...row, approvers } }];
     return row ? [{ key: bubble.key, row }] : [];

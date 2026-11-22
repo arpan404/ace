@@ -26,7 +26,11 @@ test("on an org host a shared bot's row says Shared in its organization, and its
     bindToAcme(fake);
     const triage = fake.addAgent({ name: "Triage" });
     fake.addAgent({ name: "Notes" });
-    fake.org.access.set(triage.id, { org: "org_acme", maker: "acct_dana", approvers: ["acct_dana"] });
+    fake.org.access.set(triage.id, {
+      org: "org_acme",
+      maker: "acct_dana",
+      approvers: ["acct_dana"],
+    });
   });
   spade.handle({ type: "spade.watch", on: true });
 

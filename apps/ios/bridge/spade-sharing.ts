@@ -88,26 +88,29 @@ export class SpadeSharing {
   private readOrg(agents: readonly SpadeAgent[]) {
     if (this.orgReading) return;
     this.orgReading = true;
-    void this.deps.read("/v1/org").then(
-      (text) => {
-        const view = safe(() => spadeOrgView(text));
-        const before = this.org;
-        this.org = view?.org ? { id: view.org, name: view.name } : null;
-        this.orgAt = this.deps.now();
-        if (!this.org) this.access.clear();
-        if (before?.id !== this.org?.id || before?.name !== this.org?.name) this.deps.changed();
-      },
-      // A Spade before organizations answers 404: the machine is a personal one.
-      (error: unknown) => {
-        if (error instanceof SpadeRequestError && error.status === 404) {
-          this.org = null;
+    void this.deps
+      .read("/v1/org")
+      .then(
+        (text) => {
+          const view = safe(() => spadeOrgView(text));
+          const before = this.org;
+          this.org = view?.org ? { id: view.org, name: view.name } : null;
           this.orgAt = this.deps.now();
-        }
-      },
-    ).finally(() => {
-      this.orgReading = false;
-      this.readAccess(agents);
-    });
+          if (!this.org) this.access.clear();
+          if (before?.id !== this.org?.id || before?.name !== this.org?.name) this.deps.changed();
+        },
+        // A Spade before organizations answers 404: the machine is a personal one.
+        (error: unknown) => {
+          if (error instanceof SpadeRequestError && error.status === 404) {
+            this.org = null;
+            this.orgAt = this.deps.now();
+          }
+        },
+      )
+      .finally(() => {
+        this.orgReading = false;
+        this.readAccess(agents);
+      });
   }
 
   private readAccess(agents: readonly SpadeAgent[]) {

@@ -1,5 +1,6 @@
 import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
-import { seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
+import { seededSpade, seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
+import { seedSpace } from "./space-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -321,6 +322,9 @@ seedProjectMarks(daemon, { host: hostId, name: machineName });
 seedChats(daemon);
 seedOutside(daemon, Date.now());
 seedSpade(daemon, Date.now());
+// Opt-in, for the spaces screenshots: `ACE_IOS_SPIKE_SPACE=personal|acme`.
+const space = process.env.ACE_IOS_SPIKE_SPACE;
+if (space === "personal" || space === "acme") seedSpace(daemon, details, space, seededSpade());
 // Opt-in, so other UI tests keep the list they expect: `ACE_IOS_SPIKE_ROUTING=1`.
 if (process.env.ACE_IOS_SPIKE_ROUTING === "1") seedRouting(daemon, details, machineName);
 // GitHub pull requests, issues and notifications for the Pulls tab.

@@ -217,6 +217,8 @@ import Observation
     /// The app's scene is active, as the bridge was last told (`spadeActive`).
     var active = true
     var opened: String?
+    /// Who the person is and their organizations' members' names, as last sent (`spade.people`).
+    @ObservationIgnored var people: SpadePeople?
     /// The group whose conversation `opened` is, when it is a group's.
     var openedGroup: String?
 

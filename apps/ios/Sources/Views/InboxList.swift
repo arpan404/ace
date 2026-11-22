@@ -243,7 +243,13 @@ struct InboxList: View {
     }
 
     @ViewBuilder private var emptyState: some View {
-        if inbox.sessions.isEmpty, let pair {
+        if inbox.sessions.isEmpty, let block = inbox.spaceBlock?() {
+            // An organization's space with none of its machines here (ADR 0206 §2.4): its threads
+            // start only on its own machines, never on a personal one in their place.
+            EmptyState(icon: .users, title: block, line: "Threads in this space start on its machines.")
+                .padding(.top, AceDesign.Space.section * 2)
+                .accessibilityIdentifier("inbox.empty.space")
+        } else if inbox.sessions.isEmpty, let pair {
             NoComputerPaired(pair: pair).padding(.top, AceDesign.Space.section * 2)
         } else if !inbox.anyLoaded || !inbox.allReady {
             if let asking = inbox.sessions.first(where: { $0.client.connection == "fatal" && $0.client.machineCodeAsk != nil }) {
