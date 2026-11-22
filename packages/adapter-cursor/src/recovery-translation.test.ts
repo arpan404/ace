@@ -281,3 +281,81 @@ test("a cut saved answer that is the start of what streamed adds nothing", () =>
   expect(t.notices().join(" | ")).not.toContain("differs");
   expect(t.status()).toBe("done");
 });
+
+/**
+ * A turn that streamed `streamed` in deltas of about 64 KiB, split also at `alsoAt`, then read
+ * back `saved`, cut at 4 MiB.
+ */
+function streamedThenCut(streamed: string, saved: string, alsoAt?: number) {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  for (let at = 0; at < streamed.length;) {
+    let end = Math.min(streamed.length, at + 65_537);
+    if (alsoAt !== undefined && at < alsoAt && end > alsoAt) end = alsoAt;
+    t.frame("delta", { type: "text-delta", text: streamed.slice(at, end) });
+    at = end;
+  }
+  const after = { generation: "host2", operationId: "open", runId: "run" };
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  let parts = 0;
+  for (let at = 0; at < saved.length; at += 8_000, parts++)
+    t.frame("recovered-result", { text: saved.slice(at, at + 8_000) }, after);
+  t.frame(
+    "recovery",
+    { nativeStatus: "finished", interrupted: false, resultParts: parts, resultCut: true },
+    after,
+  );
+  return t;
+}
+/** What recovery keeps of a saved answer: its first 4 MiB of UTF-8, between whole characters. */
+const cut4MiB = (text: string) =>
+  text.slice(0, new TextEncoder().encodeInto(text, new Uint8Array(4 * 1024 * 1024)).read);
+const differs =
+  "The answer above is Cursor's saved result for this turn; what ace showed of it as it streamed differs.";
+
+/** Another character of the same UTF-8 width, so a cut lands where it did. */
+const swap = (char: string) => ({ a: "b", é: "è", "🌊": "🌀" })[char] ?? "x";
+
+test.each([
+  ["ends on a two-byte character", `${"a".repeat(4 * 1024 * 1024 - 1000)}`, "é".repeat(2000)],
+  ["ends on a four-byte character", `${"a".repeat(4 * 1024 * 1024 - 6)}🌊`, "🌊tail"],
+  ["two-byte characters, odd length", `${"é".repeat(2 * 1024 * 1024 - 1)}ab`, "é".repeat(999)],
+] as const)(
+  "a cut saved answer that differs from what streamed only at its last character is shown whole (%s)",
+  (_name, head, rest) => {
+    const streamed = head + rest;
+    const kept = cut4MiB(streamed);
+    // Never on a 4,096-unit boundary: the overlap ends between any two checkpoints.
+    expect(kept.length % 4096).not.toBe(0);
+    const last = Array.from(kept).at(-1) ?? "";
+    // Cursor's answer matches ace's stream up to its very last kept character.
+    const saved = cut4MiB(
+      `${kept.slice(0, -last.length)}${swap(last)}${streamed.slice(kept.length)}`,
+    );
+    expect(saved.length).toBe(kept.length);
+    const t = streamedThenCut(streamed, saved);
+    expect(t.text("assistant")).toEqual([streamed, saved]);
+    expect(t.notices().join(" | ")).toContain(differs);
+    expect(t.status()).toBe("done");
+  },
+);
+
+test.each([
+  ["ASCII, not on a 4,096 boundary", `${"a".repeat(4 * 1024 * 1024 + 1237)}`],
+  [
+    "a four-byte character astride the cut, split between deltas",
+    `${"a".repeat(4 * 1024 * 1024 - 2)}🌊tail`,
+  ],
+  ["6 MiB streamed, far past the cut", "é".repeat(3 * 1024 * 1024 + 5)],
+] as const)(
+  "a cut saved answer that is exactly the start of what streamed adds nothing (%s)",
+  (_name, streamed) => {
+    // A delta ends between the halves of the four-byte character at the cut (second case).
+    const t = streamedThenCut(streamed, cut4MiB(streamed), 4 * 1024 * 1024 - 1);
+    expect(t.text("assistant")).toEqual([streamed]);
+    expect(t.notices().join(" | ")).not.toContain("differs");
+    expect(t.status()).toBe("done");
+  },
+);
