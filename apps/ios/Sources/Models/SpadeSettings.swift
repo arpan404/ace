@@ -5,13 +5,14 @@ import Foundation
 /// key's value: Spade only says whether one is set and where it comes from (ADR 0119).
 enum SpadeSettings {
     enum Page: String, CaseIterable, Identifiable, Sendable {
-        case general, models, apps
+        case general, models, apps, security
         var id: String { rawValue }
         var title: String {
             switch self {
             case .general: "General"
             case .models: "Models and keys"
             case .apps: "Apps"
+            case .security: "Security"
             }
         }
         /// Its glyph, from ace's own icon set.
@@ -20,6 +21,7 @@ enum SpadeSettings {
             case .general: .gear
             case .models: .key
             case .apps: .puzzlePiece
+            case .security: .shield
             }
         }
     }
@@ -105,6 +107,42 @@ enum SpadeSettings {
         let skills: [Skill]
     }
 
+    /// One of the Permissions (ADR 0171, amendment 7), as a bot or the machine's default holds it.
+    struct Permission: Decodable, Equatable, Sendable, Identifiable {
+        let key: String
+        let title: String
+        let line: String
+        let on: Bool
+        /// A bot sets it itself, so it offers Use default; never on the machine's defaults.
+        let own: Bool
+        var id: String { key }
+    }
+    struct AutonomyChoice: Decodable, Equatable, Sendable, Hashable {
+        let value: String
+        let label: String
+    }
+    /// Turning Full access on asks first, in these words.
+    struct Confirm: Decodable, Equatable, Sendable {
+        let title: String
+        let message: String
+        let button: String
+    }
+    /// How bots decide: Auto-review, or Full access with what still asks.
+    struct Autonomy: Decodable, Equatable, Sendable {
+        let value: String
+        let choices: [AutonomyChoice]
+        let fullAccess: String?
+        let confirm: Confirm
+    }
+    struct Security: Decodable, Equatable, Sendable {
+        /// Whether this machine seals commands off, said first.
+        let line: String
+        /// Nil from a Spade before Permissions.
+        let permissions: [Permission]?
+        let neverApps: [String]?
+        let autonomy: Autonomy
+    }
+
     /// One page's read or change: the page, or Spade's state when it can't answer, or a refusal.
     struct Answer: Decodable, Equatable, Sendable {
         let ok: Bool
@@ -117,12 +155,13 @@ enum SpadeSettings {
         let general: General?
         let models: Models?
         let apps: Apps?
+        var security: Security? = nil
 
         static func failed(_ title: String, _ message: String?) -> Answer {
             Answer(ok: false, title: title, message: message, line: nil, general: nil, models: nil, apps: nil)
         }
         /// It carries a page to show, not only Spade's state or a word.
-        var hasPage: Bool { general != nil || models != nil || apps != nil }
+        var hasPage: Bool { general != nil || models != nil || apps != nil || security != nil }
         /// Why it failed, in one line; nil when it went.
         var problem: String? {
             guard !ok else { return nil }
