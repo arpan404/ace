@@ -127,10 +127,14 @@ export function useTurnReview(input: {
       setState({ index: next, done: finished });
       return reveal(at);
     }
-    // Past this file's last change: on to the turn's next file, else back to the first here.
+    // Past this file's last change: on to the turn's next file (its progress kept first, so
+    // coming back finds the changes kept), else back to the first here.
     const paths = files.map((file) => file.path);
     const other = paths[paths.indexOf(path) + direction];
-    if (other !== undefined) return open(other, { keep: true, focus: true });
+    if (other !== undefined) {
+      setState({ index, done: finished });
+      return open(other, { keep: true, focus: true });
+    }
     const wrap = located.findIndex((hunk, at) => hunk !== undefined && !finished.has(at));
     const at = located[wrap];
     setState({ index: Math.max(0, wrap), done: finished });

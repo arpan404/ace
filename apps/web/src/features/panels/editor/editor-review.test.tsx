@@ -3,6 +3,7 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkCard } from "@/test/open-work.ts";
 import { bytes } from "../files/tree-test-queries.ts";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -94,4 +95,29 @@ test("after a line is typed above a change, Keep acts on the change at its new p
 
   await userEvent.click(within(await peekOf()).getByRole("button", { name: "Keep" }));
   await waitFor(async () => expect((await peekOf()).textContent).toContain("2 of 3"));
+});
+
+test("a two-file turn: keeping a file's last change moves on, and coming back finds it kept", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("root-replied");
+  await app.open(`/t/${thread}`);
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  // Turn 2 changed replay.ts, then outbox.ts: the Work card reviews the last turn with edits.
+  const card = await openWorkCard();
+  await userEvent.click(
+    await within(card).findByRole("button", { name: /^Review turn 2 in editor/ }),
+  );
+  const peek = await peekOf();
+  expect(peek.textContent).toContain("turn 2 · 1 of 1");
+
+  // Keeping replay.ts's only change goes on to the turn's next file.
+  await userEvent.click(within(peek).getByRole("button", { name: "Keep" }));
+  await screen.findByRole("region", { name: "Source of apps/web/src/relay/outbox.ts" });
+
+  // Back to replay.ts: its change was kept, so nothing waits there.
+  const panel = screen.getByRole("region", { name: "Thread panel" });
+  await userEvent.click(within(panel).getByRole("tab", { name: /replay\.ts/ }));
+  await screen.findByRole("region", { name: `Source of ${replayTs.path}` });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(screen.queryByRole("group", { name: /^Review change at line/ })).toBeNull();
 });
