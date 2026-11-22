@@ -39,7 +39,7 @@ export interface GutterState {
   /** Lines agents wrote, in the text's 0-based lines. */
   agent: readonly AgentBlock[];
   /** What the hunks were worked out on: a hunk acts only while all of it still holds. */
-  basis?: { doc: EditorDocument; version: number; head: string } | undefined;
+  basis?: { doc: EditorDocument; version: number; head: string; generation: string } | undefined;
 }
 
 export interface LiveGutterDeps {
@@ -87,6 +87,10 @@ export class LiveGutter {
   readonly #off: () => void;
   /** The committed text; undefined compares against what is on disk. */
   #head: string | undefined;
+  /** Which read of git's diff the committed text came from (the commit and the disk version). */
+  #generation = "";
+  /** That read is the one for the text on disk now: until it is, Revert does nothing. */
+  #settled = true;
   #state: GutterState = empty;
   /**
    * The text as the agent last left it, and its lines in that text. What is shown is these lines
@@ -121,11 +125,21 @@ export class LiveGutter {
     return () => this.#listeners.delete(listener);
   }
 
-  /** The committed text, as git's diff of the file rebuilds it; undefined for none known. */
-  setHead(head: string | undefined): void {
-    if (head === this.#head) return;
+  /**
+   * The committed text, as git's diff of the file rebuilds it, from the read `generation` names
+   * (the commit and the disk version it was read for); undefined for none known.
+   */
+  setHead(head: string | undefined, generation = ""): void {
+    if (head === this.#head && generation === this.#generation && this.#settled) return;
     this.#head = head;
+    this.#generation = generation;
+    this.#settled = true;
     this.edited();
+  }
+
+  /** A new read of git's diff is under way (a commit, a new disk version): Revert waits for it. */
+  unsettle(): void {
+    this.#settled = false;
   }
 
   /** The text changed (a view's edit): the marks are worked out again once typing pauses. */
@@ -154,6 +168,8 @@ export class LiveGutter {
       basis.doc === doc &&
       basis.version === doc.version() &&
       basis.head === head &&
+      this.#settled &&
+      basis.generation === this.#generation &&
       this.#state.hunks.includes(hunk);
     if (!current) {
       this.edited();
@@ -301,7 +317,7 @@ export class LiveGutter {
       hunks,
       marks: marks.size ? marks : undefined,
       agent: this.#shown,
-      basis: head === undefined ? undefined : { doc, version, head },
+      basis: head === undefined ? undefined : { doc, version, head, generation: this.#generation },
     });
   }
 

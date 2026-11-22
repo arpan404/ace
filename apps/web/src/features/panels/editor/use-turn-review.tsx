@@ -2,17 +2,21 @@ import { useThreadField } from "@ace/client-react/thread-field";
 import {
   groupFileChanges,
   locateHunk,
+  mapHunk,
   providerDisplayName,
   revertChange,
   turnHunks,
   type ChangeHunk,
   type FileDiff,
+  type TurnHunk,
+  type WholeLineChange,
 } from "@ace/ui-core";
 import { workspaceRelative } from "@ace/ui-core/file-references";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
@@ -28,7 +32,9 @@ import {
   useEditorReview,
   useOpenInEditorPanel,
 } from "@/lib/workspace/index.ts";
+import type { FileChange } from "@ace/protocol";
 import { providerOf } from "./agent-changes.ts";
+import { sharedDiff } from "./gutter-store.ts";
 import { ReviewPeek } from "./hunk-peek.tsx";
 import type { LiveGutter } from "./live-gutter.ts";
 
@@ -79,17 +85,48 @@ export function useTurnReview(input: {
   const own = useMemo(() => files.filter((file) => file.path === path), [files, path]);
   const diff = useFileChanges(own).files[0];
   const hunks = useMemo(() => (diff ? turnHunks(diff.rows) : []), [diff]);
+  // The file as the turn left it, when the turn recorded its text: the hunks are then carried to
+  // the text now by the exact changes between the two, never matched by their words.
+  const turnText = useMemo(() => textAfter(own[0]?.changes ?? []), [own]);
 
   // Found again whenever the text has moved (the gutter settles after each pause in typing).
   const subscribe = useCallback((changed: () => void) => gutter.subscribe(changed), [gutter]);
   const marks = useSyncExternalStore(subscribe, () => gutter.state());
-  const located = useMemo(() => {
+  const [mapping, setMapping] = useState<Mapping>();
+  useEffect(() => {
     const doc = buffer.document();
-    return doc
-      ? hunks.map((hunk) => locateHunk(hunk, (line) => doc.line(line), doc.lenLines()))
-      : [];
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the gutter's state moves with the text.
-  }, [hunks, buffer, marks]);
+    if (turnText === undefined || !doc) return;
+    let live = true;
+    const version = doc.version();
+    void sharedDiff()
+      .lineChanges(turnText, doc.text())
+      .then(
+        (changes) => {
+          if (live && buffer.document() === doc && doc.version() === version)
+            setMapping({ doc, version, changes });
+        },
+        () => undefined,
+      );
+    return () => {
+      live = false;
+    };
+  }, [turnText, buffer, marks]);
+  /** Where each hunk is now, and whether its origin is proven (so Revert may act on it). */
+  const find = (
+    hunk: TurnHunk,
+    fresh: boolean,
+  ): { at: ChangeHunk; proven: boolean } | undefined => {
+    const doc = buffer.document();
+    if (!doc) return undefined;
+    if (turnText !== undefined) {
+      if (!mapping || mapping.doc !== doc) return undefined;
+      const at = mapHunk(hunk, mapping.changes);
+      return at && { at, proven: !fresh || mapping.version === doc.version() };
+    }
+    const at = locateHunk(hunk, (line) => doc.line(line), doc.lenLines());
+    return at && { at, proven: !at.moved };
+  };
+  const located = hunks.map((hunk) => find(hunk, false)?.at);
 
   // Progress lives outside the view: a tab switch or a remount comes back to the same change.
   const key = review ? `${threadId}\u0000${review.token}\u0000${path}` : "";
@@ -140,15 +177,19 @@ export function useTurnReview(input: {
     step(1, finished);
   };
   const keep = () => current && finish(current);
-  // Revert finds the turn's lines again as the text is now (they may have moved since the last
-  // look) and lands unsaved, for the person's own Save; gone or edited lines revert nothing.
+  // Revert acts only on a hunk whose origin is proven for the text as it is at the press (carried
+  // by the exact changes since the turn, or found unmoved), and lands unsaved for the person's
+  // own Save; gone, edited, moved or duplicated lines revert nothing.
+  const turnHunk = hunks[index];
+  const provenNow = turnHunk && find(turnHunk, true);
+  const canRevert = provenNow?.proven === true;
   const revert = () => {
     const doc = buffer.document();
-    const turnHunk = hunks[index];
-    const now = doc && turnHunk && locateHunk(turnHunk, (line) => doc.line(line), doc.lenLines());
-    const change =
-      now && doc && revertChange(now, (line) => doc.line(line), doc.lenLines(), doc.lineEnding());
-    if (!now || !change || !buffer.editLines([change], { manualSave: true })) return;
+    const found = turnHunk && find(turnHunk, true);
+    if (!doc || !found?.proven) return;
+    const now = found.at;
+    const change = revertChange(now, (line) => doc.line(line), doc.lenLines(), doc.lineEnding());
+    if (!change || !buffer.editLines([change], { manualSave: true })) return;
     gutter.edited();
     finish(now);
   };
@@ -172,7 +213,7 @@ export function useTurnReview(input: {
   const lost = located.filter((hunk) => hunk === undefined).length;
   const where = `${agent} · turn ${turn.number} · ${index + 1} of ${hunks.length}${
     lost ? ` · ${lost} changed since` : ""
-  }`;
+  }${current && !canRevert ? " · moved since the turn" : ""}`;
   const peek =
     current && !done.has(index)
       ? {
@@ -182,7 +223,7 @@ export function useTurnReview(input: {
               hunk={current}
               where={where}
               onKeep={keep}
-              onRevert={revert}
+              onRevert={canRevert ? revert : undefined}
               onComment={comment || undefined}
               onStep={(direction) => step(direction)}
               onSideBySide={() => sideBySide(true)}
@@ -204,6 +245,25 @@ export function useTurnReview(input: {
 }
 
 const noneDone: ReadonlySet<number> = new Set();
+
+/** The changes from the turn's text of the file to the text now, for one document version. */
+interface Mapping {
+  doc: object;
+  version: number;
+  changes: readonly WholeLineChange[];
+}
+
+/** The file's text after the turn, when every change of it recorded its whole text in order. */
+function textAfter(changes: readonly FileChange[]): string | undefined {
+  if (changes.length === 0) return undefined;
+  let text: string | undefined;
+  for (const change of changes) {
+    if (change.kind === "delete" || change.newText === undefined) return undefined;
+    if (text !== undefined && change.oldText !== text) return undefined;
+    text = change.newText;
+  }
+  return text;
+}
 
 /** Where a file's review is: the change shown, and those kept or reverted. */
 interface Progress {

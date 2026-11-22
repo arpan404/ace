@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { revertChange } from "./change-hunks.ts";
 import { linesOf } from "./live-hunks.ts";
-import { locateHunk, turnHunks } from "./turn-hunks.ts";
+import { locateHunk, mapHunk, turnHunks } from "./turn-hunks.ts";
 import { diffFile } from "./turns.ts";
 
 /** The turn's diff of one file, as Changes builds it from a full-text edit. */
@@ -86,4 +86,35 @@ test("a reverted turn hunk on a last line with no newline adds none", () => {
     end: 2,
     text: "two",
   });
+});
+
+test("a hunk maps through the changes since the turn to exactly where its own lines are now", () => {
+  const [, gap] = turnHunks(rowsOf(before, after));
+  // Since the turn: two lines added at the top, and a duplicate of "four\nsix" pasted below.
+  const changes = [
+    { start: 0, end: 0, text: "x\ny\n" },
+    { start: 6, end: 6, text: "four\nsix\n" },
+  ];
+  expect(gap && mapHunk(gap, changes)).toMatchObject({ start: 7, added: [], removed: ["five"] });
+});
+
+test("a hunk whose own lines were removed since the turn maps nowhere, even with a copy elsewhere", () => {
+  const [first] = turnHunks(rowsOf(before, after));
+  // Lines 1–2 ("one", "TWO") removed since the turn; the same text was pasted at the end.
+  const changes = [
+    { start: 0, end: 2, text: "" },
+    { start: 6, end: 6, text: "one\nTWO\nthree\n" },
+  ];
+  expect(first && mapHunk(first, changes)).toBeUndefined();
+});
+
+test("found without the turn's text, a hunk that moved or appears twice says so", () => {
+  const [first] = turnHunks(rowsOf(before, after));
+  const twice = linesOf(`${after}one\nTWO\nthree\n`);
+  const lineAt = (line: number) => twice[line] ?? "";
+  // Two places fit: nothing is picked.
+  expect(first && locateHunk(first, lineAt, twice.length)).toBeUndefined();
+  const moved = linesOf(`x\n${after}`);
+  const at = first && locateHunk(first, (line) => moved[line] ?? "", moved.length);
+  expect(at).toMatchObject({ start: 3, moved: true });
 });

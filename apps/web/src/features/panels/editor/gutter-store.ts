@@ -32,13 +32,18 @@ export function whoOf(author: Author | undefined): AgentWho | undefined {
   return { name: author.agent, provider: providerOf(author.agent), turn: author.turn };
 }
 
+/** The editor core's line diff, off the main thread for large texts; one for every gutter. */
+export function sharedDiff(): MergePort {
+  diff ??= workerMerge(ensureEditorReady);
+  return diff;
+}
+
 /** The file's change marks, made on first ask. */
 export function liveGutterFor(buffer: TextBuffer): LiveGutter {
   let gutter = gutters.get(buffer);
   if (gutter) return gutter;
-  diff ??= workerMerge(ensureEditorReady);
   gutter = new LiveGutter(buffer, {
-    diff,
+    diff: sharedDiff(),
     schedule: (run, ms) => {
       const timer = setTimeout(run, ms);
       return () => clearTimeout(timer);

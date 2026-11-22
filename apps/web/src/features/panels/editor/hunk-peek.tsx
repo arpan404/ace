@@ -106,7 +106,8 @@ export function ReviewPeek(props: {
   /** "Claude Code · turn 2 · 1 of 3". */
   where: string;
   onKeep(): void;
-  onRevert(): void;
+  /** Unset when the change's origin can't be proven in the text now: Revert would guess. */
+  onRevert?: (() => void) | undefined;
   /** Unset while the thread has no composer to take a comment. */
   onComment?: (() => void) | undefined;
   onStep(direction: 1 | -1): void;
@@ -125,7 +126,13 @@ export function ReviewPeek(props: {
           <Button size="sm" variant="secondary" onClick={props.onKeep}>
             Keep
           </Button>
-          <Button size="sm" variant="ghost" onClick={props.onRevert}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!props.onRevert}
+            title={props.onRevert ? undefined : "It moved since the turn: review it in Changes"}
+            onClick={props.onRevert}
+          >
             Revert
           </Button>
           {props.onComment && (

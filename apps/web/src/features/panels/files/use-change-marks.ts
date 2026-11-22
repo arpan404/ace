@@ -21,8 +21,12 @@ export function useChangeMarks(
    * means the file is as committed. False while a read runs, fails or shows an older one.
    */
   settled: boolean;
+  /** The commit the diff is read against. */
+  head: string | undefined;
 } {
-  const changed = useThreadMeta(threadId)?.details?.diff?.files;
+  const details = useThreadMeta(threadId)?.details;
+  const changed = details?.diff?.files;
+  const head = details?.head ?? undefined;
   const { files, query } = useWorkingTreeDiff(threadId, {
     also: [version],
     enabled: path !== undefined && version !== undefined && changed !== 0,
@@ -34,8 +38,8 @@ export function useChangeMarks(
   return useMemo(
     () =>
       file?.rows.length
-        ? { marks: lineMarks(file.rows), hunks: changeHunks(file.rows), settled }
-        : { marks: undefined, hunks: undefined, settled },
-    [file, settled],
+        ? { marks: lineMarks(file.rows), hunks: changeHunks(file.rows), settled, head }
+        : { marks: undefined, hunks: undefined, settled, head },
+    [file, settled, head],
   );
 }

@@ -291,3 +291,21 @@ test("the agent's lines come back after a reload while the text is the same, and
   const third = await reopened();
   expect(agentOf(third)).toEqual([]);
 });
+
+test("while git's diff of this version is still being read, Revert does nothing", async () => {
+  const { buffer, gutter, pause } = await opened("one\nTWO\nthree\nfour\n");
+  const [hunk] = gutter.state().hunks;
+  if (!hunk) throw new Error("no hunk");
+  // A commit moved HEAD; the diff for it is not in yet (the shown hunks are the old read's).
+  gutter.unsettle();
+  expect(gutter.revert(hunk)).toBe(false);
+  expect(buffer.document()?.text()).toBe("one\nTWO\nthree\nfour\n");
+
+  // The read settles for the new commit: the new hunks act, the old one doesn't.
+  gutter.setHead("one\nTWO\nthree\nfour, committed\n", "commit-2");
+  expect(gutter.revert(hunk)).toBe(false);
+  await pause();
+  const [now] = gutter.state().hunks;
+  expect(now?.removed).toEqual(["four, committed"]);
+  if (now) expect(gutter.revert(now)).toBe(true);
+});

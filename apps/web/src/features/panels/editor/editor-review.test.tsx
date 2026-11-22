@@ -44,7 +44,10 @@ test("a turn's change opens inline, named as the agent's, and Revert puts it bac
     0,
   );
 
-  await userEvent.click(within(peek).getByRole("button", { name: "Revert" }));
+  // Revert waits until the change is carried to the text now by the exact changes since the turn.
+  const revert = async () => within(await peekOf()).getByRole("button", { name: "Revert" });
+  await waitFor(async () => expect((await revert()).hasAttribute("disabled")).toBe(false));
+  await userEvent.click(await revert());
 
   // On to the next change; that hunk went back in the editor, and nothing was written.
   expect((await peekOf()).textContent).toContain("2 of 3");
