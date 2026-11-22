@@ -17,6 +17,13 @@ import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   /**
+   * Who owns a thread on an org host (ADR 0209 §5.3), for the member gate. Unset, no thread has
+   * a member owner, as on every personal machine; the access policy fills it in.
+   */
+  ownerOf?: import("../member-work/gate.ts").OwnerOf;
+  /** Members' work to use instead of the daemon's own (tests on an org host's rules). */
+  memberWork?: import("../member-work/member-work.ts").MemberWork;
+  /**
    * A daemon the app started on a saved PATH (`login-path-handoff.ts`): provider discovery, and
    * so restart recovery and sessions, waits for its final PATH, and environments copied at
    * start take it.

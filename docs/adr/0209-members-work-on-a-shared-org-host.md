@@ -252,7 +252,7 @@ Others still help:
 #### 5.3 Where it is kept
 
 - A daemon table, `thread_access (root_id PRIMARY KEY, owner, visibility, readers, changed_at,
-  changed_by)`, written from an event, `thread.access.changed`, in the same transaction. Additive:
+changed_by)`, written from an event, `thread.access.changed`, in the same transaction. Additive:
   a new table, nothing to fill, no index on an existing table (ADR 0170).
 - **Threads from before enrollment** keep their person (ADR 0206 §2.1). Enrollment writes the
   previous owner's account into `ace-owner.json` (`{kind: "org", org, generation, before}`). A
@@ -348,7 +348,7 @@ member's work sooner while the host is cut off.
 
 - **The roster** is the organization's member list as the backend signs it for this host:
   `{v: 1, kind: "org-roster", org, host, version, at, members: [{account, status, role}],
-  hosts: [{id, fleet_key}]}`, signed with the grant key, `version` increasing. The host fetches
+hosts: [{id, fleet_key}]}`, signed with the grant key, `version` increasing. The host fetches
   it with its organization credential every 60 seconds and on a relay nudge
   (`GET /v1/orgs/{org}/hosts/{hostId}/roster`). It never takes a lower version, so an old one
   can't be replayed to bring a removed member back. It also carries names and verified emails
@@ -744,3 +744,44 @@ its phase gate.
 ## Verification
 
 None yet: this is a design. Each phase's done line is its verification.
+
+## Amendment 1 (2026-11-21): §7 as built in phase 1
+
+Decided while building §7 (#2527) and after its security review. Each is the simplest safe choice.
+
+- **Containment is under the user's systemd manager, so it stops accidental escapes, not a hostile
+  member.** §7.3 asks for a scope made by the system manager. An unprivileged daemon can't make
+  one: the system manager needs root or polkit's `manage-units`, which is the administrator's by
+  default. So each member's provider processes start inside a transient scope under a slice of
+  their own (`systemd-run --user --scope`, no delegation), in it before any of their code runs; a
+  scope that can't be made starts nothing. A stop kills the slice's cgroup. The slice is in the
+  host user's own systemd tree, which that user can write, so a process set on leaving it can.
+  That matches §1: against a hostile trusted member nothing on the host holds in phase 1. It
+  contains dev servers, daemonizing tools and `setsid`. Needs systemd 254 or later.
+- **macOS, phase 1:** a member's processes are their sessions' process groups, which a stop
+  kills. Best effort, as §7.3 says.
+- **The roster carries an epoch and, per member, when WorkOS made their state.** The epoch is the
+  backend's restore generation (`ACE_ROSTER_EPOCH`, raised after any restore of its database):
+  a host refuses a lower epoch, and versions compare within one. The same version is taken again
+  only with the same body. A revocation is lifted only by a roster showing the member active in
+  a state WorkOS made after the revoking one, so a backend restored from a backup that predates
+  a removal can't bring the member back.
+- **The backend versions one committed snapshot.** A roster's members, hosts and last version are
+  read in one transaction, and its next version is taken only while the members are still at
+  that snapshot's revision.
+- **The offline allowance is for an unreachable backend only.** A backend that answers and refuses
+  (401, 403, a bad signature, another host's roster, a stale one) gives no allowance beyond the
+  two minutes. Leases run on a clock that never goes back and never runs slower than the
+  monotonic clock. A host whose clock starts behind the last time it recorded renews nothing on a
+  roster from before the restart. A lease that ran out is stopped, never renewed.
+- **A stop is pending until confirmed.** It is recorded before anything is torn down and retried
+  each pass, after a restart too, until the tree's sessions are closed and the member's
+  contained processes are gone.
+- **A member stop reads failed, with why.** Thread status has no interrupted state, and a
+  deliberate stop reads done. So what was unsettled ends as failed with "Stopped · its owner is
+  no longer in this organization" (or "…couldn't confirm…"), recorded for the whole tree before
+  anything is awaited. Children on other hosts get the cross-machine stop (ADR 0052).
+- **The gate.** Before a provider process is spawned, before any input reaches a provider and
+  before work is delegated to another host, an owned thread's owner must be able to run work here.
+  Who owns a thread is a resolver that answers none on personal machines and for the host's own
+  threads; the access policy fills it in from `thread_access`.

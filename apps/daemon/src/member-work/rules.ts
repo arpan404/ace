@@ -16,32 +16,45 @@ export const memberWorkTimes = {
 export const DEFAULT_OFFLINE_MINUTES = 60;
 export const MAX_OFFLINE_MINUTES = 1440;
 
-/** One member as the held roster names them. */
-export type RosterMember = { status: string; role: string };
+/**
+ * One member as the held roster names them. `changed` is when WorkOS made the membership what
+ * `status` says, in milliseconds; undefined when the roster didn't say.
+ */
+export type RosterMember = { status: string; role: string; changed?: number };
 
 /** The roster a host holds: the backend's signed version, and when this host received it. */
 export type HeldRoster = {
   org: string;
+  epoch: number;
   version: number;
+  /** The SHA-256 of the body, as its statement signs it. */
+  digest: string;
   /** The backend's clock when it signed this roster. */
   at: number;
-  /** This host's clock when it took it. */
+  /** This host's lease clock when it took it. */
   receivedAt: number;
   members: ReadonlyMap<string, RosterMember>;
 };
 
+type Signed = Pick<HeldRoster, "epoch" | "version" | "digest" | "at">;
+
 /**
- * What a host does with a verified roster, given the one it holds: `take` a higher version,
- * `refresh` the same version signed later (the members are the same; only its time moves on),
- * and `refuse` anything lower or older. A lower version is never taken, so an old roster that
- * still listed a removed member can't be replayed to bring them back (§7.2).
+ * What a host does with a verified roster, given the one it holds (§7.2):
+ * - a higher epoch (the backend's database was restored) starts a new series: `take`;
+ * - a lower epoch, or a lower version in the same epoch, is refused, so an old roster that still
+ *   listed a removed member can't be replayed to bring them back;
+ * - the same version is taken again only with the same body, signed later (`refresh`): its
+ *   members don't change, only its time moves on. The same version with another body is refused.
  */
 export function rosterStep(
-  held: { version: number; at: number } | undefined,
-  incoming: { version: number; at: number },
+  held: Signed | undefined,
+  incoming: Signed,
 ): "take" | "refresh" | "refuse" {
-  if (!held || incoming.version > held.version) return "take";
-  if (incoming.version === held.version && incoming.at > held.at) return "refresh";
+  if (!held || incoming.epoch > held.epoch) return "take";
+  if (incoming.epoch < held.epoch) return "refuse";
+  if (incoming.version > held.version) return "take";
+  if (incoming.version === held.version && incoming.digest === held.digest && incoming.at > held.at)
+    return "refresh";
   return "refuse";
 }
 
@@ -53,7 +66,8 @@ export function rosterTime(roster: Pick<HeldRoster, "at" | "receivedAt">): numbe
   return Math.min(roster.at, roster.receivedAt);
 }
 
-const clamp = (minutes: number) => Math.min(MAX_OFFLINE_MINUTES, Math.max(0, Math.floor(minutes)));
+const clampMinutes = (minutes: number) =>
+  Math.min(MAX_OFFLINE_MINUTES, Math.max(0, Math.floor(minutes)));
 
 /**
  * The offline allowance in milliseconds: the policy's `threads.offline_minutes`, else 60, kept
@@ -64,15 +78,24 @@ export function offlineAllowanceMs(
   policyMinutes: number | undefined,
   hostMinutes?: number,
 ): number {
-  const policy = clamp(policyMinutes ?? DEFAULT_OFFLINE_MINUTES);
-  const minutes = hostMinutes === undefined ? policy : Math.min(policy, clamp(hostMinutes));
+  const policy = clampMinutes(policyMinutes ?? DEFAULT_OFFLINE_MINUTES);
+  const minutes = hostMinutes === undefined ? policy : Math.min(policy, clampMinutes(hostMinutes));
   return minutes * 60_000;
 }
 
 /**
+ * How the last roster fetch went. Only `unreachable` (no answer at all: the network, a timeout,
+ * the backend's edge failing) earns the offline allowance. A backend that answers and refuses
+ * (401, 403, a bad signature, another host's roster, a stale one) earns none: something is
+ * wrong with this host's standing, not with the network. `unknown` until the first fetch after
+ * a start.
+ */
+export type Reachability = "ok" | "unreachable" | "refused" | "unknown";
+
+/**
  * Whether `account` may run work here now: not durably revoked, `active` on the held roster,
- * and that roster recent enough, within two minutes or the offline allowance, whichever is
- * longer (§7.1).
+ * and that roster recent enough. Two minutes always; the offline allowance only while the
+ * backend can't be reached at all (§7.1).
  */
 export function mayRun(input: {
   account: string;
@@ -80,11 +103,15 @@ export function mayRun(input: {
   revoked: boolean;
   now: number;
   offlineMs: number;
+  reachability: Reachability;
 }): boolean {
   const { roster } = input;
   if (input.revoked || !roster) return false;
   if (roster.members.get(input.account)?.status !== "active") return false;
-  const window = Math.max(memberWorkTimes.freshRosterMs, input.offlineMs);
+  const window =
+    input.reachability === "unreachable"
+      ? Math.max(memberWorkTimes.freshRosterMs, input.offlineMs)
+      : memberWorkTimes.freshRosterMs;
   return input.now - rosterTime(roster) <= window;
 }
 
@@ -93,28 +120,45 @@ export type StopReason = "revoked" | "lease_expired" | "stopped";
 
 export type Lease = { root: string; account: string; expiresAt: number };
 
+/** A durable revocation: the WorkOS time of the state that revoked the member. */
+export type Revocation = { account: string; changed: number };
+
 /**
- * Who a new roster revokes and whose revocation it lifts (§7.2): every member it lists as
- * anything but `active`, and every account this host knew (an earlier roster's member, or a
- * lease's owner) that it no longer lists. Only a roster that shows a member active clears them.
+ * Who a new roster revokes and whose revocation it lifts (§7.2). It revokes every member it
+ * lists as anything but `active`, and every account this host knew (an earlier roster's member,
+ * a lease's owner) that it no longer lists, at the roster's own time. It lifts a revocation only
+ * for a member it lists as active in a state WorkOS made after the revoking one, so a backend
+ * restored from a backup that predates a removal can't bring the member back.
  */
 export function revocationChanges(
-  roster: Pick<HeldRoster, "members">,
+  roster: Pick<HeldRoster, "members" | "at">,
   known: Iterable<string>,
-): { revoke: string[]; clear: string[] } {
-  const revoke = new Set<string>();
+  revoked: ReadonlyMap<string, number>,
+): { revoke: Revocation[]; clear: string[] } {
+  const revoke = new Map<string, number>();
   const clear: string[] = [];
-  for (const [account, member] of roster.members)
-    if (member.status === "active") clear.push(account);
-    else revoke.add(account);
-  for (const account of known) if (!roster.members.has(account)) revoke.add(account);
-  return { revoke: [...revoke].toSorted(), clear: clear.toSorted() };
+  for (const [account, member] of roster.members) {
+    if (member.status !== "active") revoke.set(account, member.changed ?? roster.at);
+    else {
+      const since = revoked.get(account);
+      if (since !== undefined && member.changed !== undefined && member.changed > since)
+        clear.push(account);
+    }
+  }
+  for (const account of known) if (!roster.members.has(account)) revoke.set(account, roster.at);
+  return {
+    revoke: [...revoke]
+      .map(([account, changed]) => ({ account, changed }))
+      .toSorted((a, b) => (a.account < b.account ? -1 : 1)),
+    clear: clear.toSorted(),
+  };
 }
 
 /**
- * One reconciliation pass (§7.2): each lease of a revoked owner stops now; each lease of an
- * owner who may still run is renewed for another fifteen minutes; any other lease stops once it
- * has run out, and is otherwise left to run out. Work is proportional to the leases held.
+ * One reconciliation pass (§7.2): a lease of a revoked owner stops now, and so does one that has
+ * run out, which is never renewed however fresh the roster; a lease of an owner who may still
+ * run work is renewed for another fifteen minutes; any other is left to run out. Work is
+ * proportional to the leases held.
  */
 export function reconcile(input: {
   now: number;
@@ -126,9 +170,39 @@ export function reconcile(input: {
   const stop: (Lease & { reason: StopReason })[] = [];
   for (const lease of input.leases) {
     if (input.revoked(lease.account)) stop.push({ ...lease, reason: "revoked" });
+    else if (lease.expiresAt <= input.now) stop.push({ ...lease, reason: "lease_expired" });
     else if (input.mayRun(lease.account))
       renew.push({ ...lease, expiresAt: input.now + memberWorkTimes.leaseMs });
-    else if (lease.expiresAt <= input.now) stop.push({ ...lease, reason: "lease_expired" });
   }
   return { renew, stop };
+}
+
+/**
+ * The lease clock (§7.1): it never runs slower than the monotonic clock, so a wall clock
+ * stepped backwards buys nobody time, and it follows the wall clock forward, so time a host
+ * spent suspended counts. It never goes back. `trusted` is false when the wall clock at start
+ * was behind the last time this host recorded: how long it was down is unknown, so a roster
+ * held from before the start renews nothing.
+ */
+export function leaseClock(input: {
+  wall: () => number;
+  monotonic: () => number;
+  /** The latest lease time this host recorded before it started. */
+  highWater: number | undefined;
+}) {
+  const startWall = input.wall();
+  const trusted = input.highWater === undefined || startWall >= input.highWater;
+  let last = Math.max(startWall, input.highWater ?? Number.NEGATIVE_INFINITY);
+  let lastMono = input.monotonic();
+  return {
+    trusted,
+    /** When this run's lease clock started. */
+    startedAt: last,
+    now(): number {
+      const mono = input.monotonic();
+      last = Math.max(last + Math.max(0, mono - lastMono), input.wall());
+      lastMono = mono;
+      return last;
+    },
+  };
 }

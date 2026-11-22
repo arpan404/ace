@@ -1,3 +1,5 @@
+import { noOwners, ownerGate } from "./member-work/gate.ts";
+import { memberTreeStopper, startMemberWork } from "./member-work/wire.ts";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
@@ -599,6 +601,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
         handler: {
           handle: (command) => ({ commandId: command.id, ok: false, error: "engine_unavailable" }),
         },
+        // Before any service starts, so a session resumed at startup is gated too (ADR 0209 §7).
+        ownerGate: ownerGate({
+          ownerOf: options.ownerOf ?? noOwners,
+          work: () => serviceContext.services.memberWork,
+        }),
       },
       onListen: [],
       maintenance,
@@ -687,6 +694,18 @@ export async function startDaemon(options: DaemonOptions = {}) {
     await account.load();
     services.marketAgent?.bindAccount(account);
     resources.own(() => account.close(), "ace account");
+    const memberWork =
+      options.memberWork ??
+      startMemberWork({
+        account,
+        store,
+        instance: config.dataDir,
+        fetch: namedFetch(globalThis.fetch, config.aceClient),
+        stopper: () => memberTreeStopper(services),
+        log: (error) => log.log("warn", "Members' work", logError(error)),
+      });
+    services.memberWork = memberWork;
+    resources.own(() => memberWork.close(), "members' work");
 
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
@@ -726,6 +745,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       ready: socketReady.promise,
       remoteConfig: config,
       machineAccount: account,
+      memberWork,
       webRoot: existsSync(resolve(import.meta.dirname, "web/index.html"))
         ? resolve(import.meta.dirname, "web")
         : resolve(import.meta.dirname, "../../web/dist"),

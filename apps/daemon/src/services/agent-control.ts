@@ -1,3 +1,4 @@
+import { OwnerRefused } from "../member-work/gate.ts";
 import { freshLimitsWaitMs } from "../account-management.ts";
 import { logError } from "@ace/diagnostics";
 import type { RunRole } from "@ace/protocol";
@@ -113,6 +114,19 @@ export function startAgentControl(context: ServiceContext): void {
           ? services.machines.caller.list(caller)
           : { ok: false, code: "unsupported" },
       delegate: async (caller, request, signal) => {
+        // A member's tree delegates to another host only while its owner may run work here.
+        try {
+          services.ownerGate?.delegate(caller.threadId);
+        } catch (error) {
+          if (error instanceof OwnerRefused)
+            throw new AgentControlError(
+              "delegation_cancelled",
+              "owner_not_active",
+              undefined,
+              error.message,
+            );
+          throw error;
+        }
         const machines = services.machines;
         if (!machines) throw new AgentControlError("machine_unavailable", "machines_not_ready");
         return machines.caller.delegate(caller, request, signal);

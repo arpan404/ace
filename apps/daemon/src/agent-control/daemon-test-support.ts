@@ -23,6 +23,8 @@ export async function daemonFixture(
     | "outsideClients"
     | "spade"
     | "personGrantKeys"
+    | "ownerOf"
+    | "memberWork"
   > & {
     /** Engine limits, e.g. one active thread so the engine is full. */
     engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
@@ -69,6 +71,8 @@ export async function daemonFixture(
       ...(options.parcels ? { parcels: options.parcels } : {}),
       ...(options.spade ? { spade: options.spade } : {}),
       ...(options.personGrantKeys ? { personGrantKeys: options.personGrantKeys } : {}),
+      ...(options.ownerOf ? { ownerOf: options.ownerOf } : {}),
+      ...(options.memberWork ? { memberWork: options.memberWork } : {}),
       workspaceActions: {
         forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
         ...options.workspaceActions,

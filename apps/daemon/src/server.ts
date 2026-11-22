@@ -64,7 +64,6 @@ import {
   GRANT_EXPIRED_REASON,
 } from "./account-access/grant-lease.ts";
 import { admitCommand } from "./socket-commands.ts";
-import { startMemberWork } from "./member-work/wire.ts";
 import { startOrgHost } from "./org-host/wire.ts";
 import { startRegistrySigner } from "./org-registry/wire.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
@@ -333,7 +332,12 @@ export async function startServer(options: ServerOptions): Promise<{
   const stopAccountChange = options.machineAccount?.onChange(recheckAccountSockets);
   // Members' rosters, leases and contained work on an org host (ADR 0209 §7); a member a roster
   // revokes loses their open sockets at once, as an account change closes them.
-  const memberWork = startMemberWork(options);
+  const memberWork = options.memberWork;
+  // A member a roster revoked stays admitted on no path, for hellos, commands and grant
+  // refreshes alike (ADR 0209 §7.4). Never on a personal machine: nobody is revoked there.
+  const unrevoked = (account: string | undefined, admitted: (() => boolean) | undefined) =>
+    admitted &&
+    (() => admitted() && (account === undefined || memberWork?.revoked(account) !== true));
   const stopMemberRevoked = memberWork?.onRevoked(recheckAccountSockets);
   // An org host keeps its Spade bound, on its policy and its audit log forwarded (ADR 0206).
   const orgHost = startOrgHost(options, memberWork);
@@ -417,7 +421,7 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     // An account device holds admin only while the machine stays on its account (ADR 0111),
     // whichever path its hello came by.
-    let accountAdmitted = relayed?.stillAdmitted;
+    let accountAdmitted = unrevoked(relayed?.account, relayed?.stillAdmitted);
     let accountId = relayed?.account;
     // An NK stream not yet confirmed (ADR 0155): what a hello runs on the device waits for the
     // confirmation, and only bounded early answers are read before it (`answerEarly`).
@@ -749,26 +753,16 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           auth.accountDeviceSeen(message.deviceId, message.link);
           actor = accountDeviceActor(message.deviceId, auth.now(), admitted.member);
-          accountAdmitted = admitted.stillAdmitted;
+          accountAdmitted = unrevoked(admitted.account, admitted.stillAdmitted);
           accountId = admitted.account;
           // Dedicated channels end with their main connection's access; the main socket refreshes.
           if (message.channel === undefined) holdGrant(admitted.grantExpiresAt, actor);
         } else actor = helloActor(message, auth, isLocal);
-        if (!actor) {
+        if (!actor || accountAdmitted?.() === false) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        if (accountAdmitted) {
-          const admitted = accountAdmitted;
-          const admittedAccount = accountId;
-          // On an org host, a member a roster revoked keeps no socket (never on a personal one).
-          accountSockets.set(
-            socket,
-            () =>
-              admitted() &&
-              (admittedAccount === undefined || memberWork?.revoked(admittedAccount) !== true),
-          );
-        }
+        if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
         // An NK account session holds its grant as an XX one does: the welcome's `grantTtlMs`
         // starts the client's keeper, and the hold is a timer released with the socket.
         if (relayed) holdGrant(relayed.grantExpiresAt, actor);
@@ -884,13 +878,15 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         case "account.grant.refresh": {
           const { requestId } = message;
-          const result = grant
-            ? await grant.refresh(message.grant)
-            : ({
-                ok: false,
-                code: "unsupported",
-                message: "No account grant to refresh.",
-              } as const);
+          const result = !stillAdmitted()
+            ? ({ ok: false, code: "unauthorized", message: "No longer admitted here." } as const)
+            : grant
+              ? await grant.refresh(message.grant)
+              : ({
+                  ok: false,
+                  code: "unsupported",
+                  message: "No account grant to refresh.",
+                } as const);
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({ type: "account.grant.refresh.result", requestId, result });
           return;
@@ -1181,7 +1177,6 @@ export async function startServer(options: ServerOptions): Promise<{
     stopAccountChange?.();
     void orgHost?.close();
     stopMemberRevoked?.();
-    void memberWork?.close();
     registrySigner?.stop();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -1236,7 +1231,6 @@ export async function startServer(options: ServerOptions): Promise<{
         stopAccountChange?.();
         void orgHost?.close();
         stopMemberRevoked?.();
-        void memberWork?.close();
         registrySigner?.stop();
         tunnel.close();
         machineUpdates?.close();

@@ -6,14 +6,19 @@ import { grantPublicKey, policyBodySha256, signOrgPolicy, signOrgRoster } from "
 import type { AceOrgRoster } from "@ace/protocol/ace-org";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Containment } from "./containment.ts";
-import { memberWork, type MemberWorkOptions } from "./member-work.ts";
+import {
+  BackendUnreachable,
+  memberWork,
+  type MemberWorkOptions,
+  type TreeStop,
+} from "./member-work.ts";
 import { memberWorkStore } from "./store.ts";
 
 /*
  * Members' work on an org host (ADR 0209 §7) through its public surface: rosters taken or
- * refused, leases renewed or run out, revocations kept across a restart, and what that does to
- * the member's trees and contained processes. The trees and processes are stand-ins at the
- * boundary; storage is a real SQLite file.
+ * refused, leases renewed or run out, revocations kept across restarts and restores, stops
+ * retried until confirmed, and what that does to the member's trees and contained processes.
+ * The trees and processes are stand-ins at the boundary; storage is a real SQLite file.
  */
 
 const org = "org_01ACME";
@@ -21,6 +26,8 @@ const host = "A".repeat(52);
 const key = { id: "k1", privateKey: new Uint8Array(32).fill(9) };
 const keys = { keys: [grantPublicKey(key)] };
 const minute = 60_000;
+const start = Date.parse("2026-11-21T12:00:00.000Z");
+const iso = (at: number) => new Date(at).toISOString();
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -35,7 +42,6 @@ function database() {
   return () => {
     const db = new DatabaseSync(path);
     return {
-      db,
       atomic<T>(run: (db: DatabaseSync) => T): T {
         db.exec("BEGIN");
         try {
@@ -51,64 +57,91 @@ function database() {
   };
 }
 
-/** A roster the backend signed for `forHost` in `forOrg`, as the route serves it. */
+type Member = { status: string; changed?: number };
+
+/** A roster the backend signed, as the route serves it. */
 function roster(
   version: number,
   at: number,
-  members: Record<string, string>,
-  signer = key,
-  forOrg = org,
-  forHost = host,
+  members: Record<string, Member | string>,
+  options: { epoch?: number; signer?: typeof key; org?: string; host?: string } = {},
 ): AceOrgRoster {
   const body = JSON.stringify({
-    members: Object.entries(members).map(([account, status]) => ({
-      account,
-      status,
-      role: "member",
-    })),
-    hosts: [{ id: forHost }],
+    members: Object.entries(members).map(([account, member]) => {
+      const { status, changed } = typeof member === "string" ? { status: member } : member;
+      const entry: { account: string; status: string; role: string; changed?: string } = {
+        account,
+        status,
+        role: "member",
+      };
+      if (changed !== undefined) entry.changed = iso(changed);
+      return entry;
+    }),
+    hosts: [{ id: options.host ?? host }],
   });
   return {
     body,
     statement: signOrgRoster(
-      { org: forOrg, host: forHost, version, at, body_sha256: policyBodySha256(body) },
-      signer,
+      {
+        org: options.org ?? org,
+        host: options.host ?? host,
+        epoch: options.epoch ?? 1,
+        version,
+        at,
+        body_sha256: policyBodySha256(body),
+      },
+      options.signer ?? key,
     ),
   };
 }
 
 /** Running trees and contained processes, as the daemon's engine and containment hold them. */
 function world() {
-  const trees = new Map<string, "working" | "interrupted" | "done">();
-  const processes = new Map<string, number>();
+  const trees = new Map<string, "working" | "failed" | "done">();
+  const processes = new Set<string>();
+  const faults = { stop: 0, kill: 0 };
   const containment: Containment = {
-    kind: "process-group",
-    async contain(account) {
-      processes.set(account, (processes.get(account) ?? 0) + 1);
-      return true;
-    },
+    kind: "cgroup",
+    launchEnv: (account) => ({ slice: account }),
     async kill(account) {
+      if (faults.kill > 0) {
+        faults.kill--;
+        return false;
+      }
       processes.delete(account);
+      return true;
     },
   };
   return {
     trees,
     processes,
+    faults,
     containment,
-    stopTree: async (root: string) => {
-      if (trees.get(root) !== "working") return false;
-      trees.set(root, "interrupted");
-      return true;
+    stopTree: async (root: string): Promise<TreeStop> => {
+      if (faults.stop > 0) {
+        faults.stop--;
+        throw new Error("The engine didn't stop it");
+      }
+      if (trees.get(root) !== "working") return "idle";
+      trees.set(root, "failed");
+      return "stopped";
     },
   };
 }
 
+/** The host's clocks: wall and monotonic move together unless a test steps the wall. */
+type Clock = { wall: number; mono: number };
+const advance = (clock: Clock, ms: number) => {
+  clock.wall += ms;
+  clock.mono += ms;
+};
+
 function onHost(
   open: ReturnType<typeof database>,
   w: ReturnType<typeof world>,
-  overrides: Partial<MemberWorkOptions> & { clock?: { now: number } } = {},
+  overrides: Partial<MemberWorkOptions> & { clock?: Clock; answer?: () => AceOrgRoster } = {},
 ) {
-  const clock = overrides.clock ?? { now: 1_000_000 };
+  const clock = overrides.clock ?? { wall: start, mono: 0 };
   const fetched: string[] = [];
   const work = memberWork({
     store: memberWorkStore(open()),
@@ -116,62 +149,98 @@ function onHost(
     host: () => host,
     fetchRoster: async (forOrg) => {
       fetched.push(forOrg);
-      throw new Error("offline");
+      if (overrides.answer) return overrides.answer();
+      throw new BackendUnreachable("offline");
     },
     keys: () => keys,
     stopTree: w.stopTree,
     containment: w.containment,
-    now: () => clock.now,
+    wall: () => clock.wall,
+    monotonic: () => clock.mono,
     delay: () => () => {},
     ...overrides,
   });
   return { work, clock, fetched };
 }
 
+/** Mia's tree, running with its lease held. */
+function running(w: ReturnType<typeof world>, work: ReturnType<typeof memberWork>, root = "t_mia") {
+  expect(work.admit("user_mia", root, "person")).toBe(true);
+  w.trees.set(root, "working");
+  w.processes.add("user_mia");
+}
+
 it("a lower roster version is refused, so a removed member stays revoked and stopped", async () => {
   const w = world();
   const { work, clock } = onHost(database(), w);
-  expect(work.takeRoster(roster(2, clock.now, { user_mia: "active" }))).toBe("taken");
-  expect(work.hold("user_mia", "t_mia")).toBe(true);
-  w.trees.set("t_mia", "working");
-  await work.contain("user_mia", 4242);
+  expect(work.takeRoster(roster(2, clock.wall, { user_mia: "active" }))).toBe("taken");
+  running(w, work);
 
-  clock.now += minute;
-  expect(work.takeRoster(roster(3, clock.now, {}))).toBe("taken");
+  advance(clock, minute);
+  expect(work.takeRoster(roster(3, clock.wall, {}))).toBe("taken");
   await work.pass();
-  expect(w.trees.get("t_mia")).toBe("interrupted");
+  expect(w.trees.get("t_mia")).toBe("failed");
   expect(w.processes.has("user_mia")).toBe(false);
   expect(work.stopReason("t_mia")).toBe("revoked");
 
   // The old roster that still listed Mia active, even signed again later, brings nobody back.
-  clock.now += minute;
-  expect(work.takeRoster(roster(2, clock.now, { user_mia: "active" }))).toBe("refused");
+  advance(clock, minute);
+  expect(work.takeRoster(roster(2, clock.wall, { user_mia: "active" }))).toBe("refused");
   expect(work.revoked("user_mia")).toBe(true);
   expect(work.active("user_mia")).toBe(false);
-  expect(work.hold("user_mia", "t_mia")).toBe(false);
-  // The same version signed later only refreshes it.
-  expect(work.takeRoster(roster(3, clock.now, {}))).toBe("refreshed");
-  expect(work.takeRoster(roster(3, clock.now - 5 * minute, {}))).toBe("refused");
+  expect(work.admit("user_mia", "t_mia", "person")).toBe(false);
+  // The same version signed later only refreshes it; signed earlier, it is refused.
+  expect(work.takeRoster(roster(3, clock.wall, {}))).toBe("refreshed");
+  expect(work.takeRoster(roster(3, clock.wall - 5 * minute, {}))).toBe("refused");
+});
+
+it("the same version with another body is refused, however late it was signed", () => {
+  const { work, clock } = onHost(database(), world());
+  expect(work.takeRoster(roster(4, clock.wall, { user_mia: "removed" }))).toBe("taken");
+  advance(clock, minute);
+  expect(work.takeRoster(roster(4, clock.wall, { user_mia: "active" }))).toBe("refused");
+  expect(work.revoked("user_mia")).toBe(true);
+});
+
+it("a restored backend's new epoch can't lift a revocation with a state older than the removal", () => {
+  const { work, clock } = onHost(database(), world());
+  const joined = start - 60 * minute;
+  const removed = start - 10 * minute;
+  work.takeRoster(roster(5, clock.wall, { user_mia: { status: "active", changed: joined } }));
+  work.takeRoster(roster(6, clock.wall, { user_mia: { status: "removed", changed: removed } }));
+  expect(work.revoked("user_mia")).toBe(true);
+  // Restored from a backup taken before the removal: a new series, showing her active as then.
+  advance(clock, minute);
+  const restored = { user_mia: { status: "active", changed: joined } };
+  expect(work.takeRoster(roster(1, clock.wall, restored, { epoch: 2 }))).toBe("taken");
+  expect(work.revoked("user_mia")).toBe(true);
+  expect(work.active("user_mia")).toBe(false);
+  // The old series can't come back after it.
+  expect(work.takeRoster(roster(7, clock.wall, restored))).toBe("refused");
+  // Only WorkOS adding her again, after the removal, lifts it.
+  const rejoined = { user_mia: { status: "active", changed: start } };
+  expect(work.takeRoster(roster(2, clock.wall, rejoined, { epoch: 2 }))).toBe("taken");
+  expect(work.revoked("user_mia")).toBe(false);
+  expect(work.active("user_mia")).toBe(true);
 });
 
 it("a roster for another host or organization, or not signed by the backend, is refused", () => {
   const { work, clock } = onHost(database(), world());
   const other = { id: "k1", privateKey: new Uint8Array(32).fill(3) };
   const mia = { user_mia: "active" };
-  expect(work.takeRoster(roster(1, clock.now, mia, key, org, "B".repeat(52)))).toBe("refused");
-  expect(work.takeRoster(roster(1, clock.now, mia, key, "org_01OTHER"))).toBe("refused");
-  expect(work.takeRoster(roster(1, clock.now, mia, other))).toBe("refused");
-  const forged = roster(1, clock.now, mia);
+  expect(work.takeRoster(roster(1, clock.wall, mia, { host: "B".repeat(52) }))).toBe("refused");
+  expect(work.takeRoster(roster(1, clock.wall, mia, { org: "org_01OTHER" }))).toBe("refused");
+  expect(work.takeRoster(roster(1, clock.wall, mia, { signer: other }))).toBe("refused");
+  const forged = roster(1, clock.wall, mia);
   expect(work.takeRoster({ ...forged, body: forged.body.replace("member", "owner") })).toBe(
     "refused",
   );
   expect(work.active("user_mia")).toBe(false);
 });
 
-it("an offline host keeps a member's work for the policy's allowance plus a lease, then stops it", async () => {
+it("an unreachable backend leaves a member's work running for the allowance plus a lease, then stops it", async () => {
   const w = world();
   const { work, clock } = onHost(database(), w);
-  const start = clock.now;
   expect(work.takeRoster(roster(1, start, { user_mia: "active" }))).toBe("taken");
   const body = JSON.stringify({ threads: { offline_minutes: 10 } });
   work.policySeen({
@@ -183,114 +252,218 @@ it("an offline host keeps a member's work for the policy's allowance plus a leas
       key,
     ),
   });
-  expect(work.hold("user_mia", "t_mia")).toBe(true);
-  w.trees.set("t_mia", "working");
+  running(w, work);
 
-  // Every fetch fails from here. At the allowance's edge the roster still renews the lease.
-  clock.now = start + 10 * minute;
+  // Every fetch gets no answer from here. At the allowance's edge the roster still renews.
+  advance(clock, 10 * minute);
   await work.sync();
   expect(work.active("user_mia")).toBe(true);
   // Past it nothing renews, but the lease runs its fifteen minutes.
-  clock.now = start + 11 * minute;
+  advance(clock, minute);
   await work.sync();
   expect(work.active("user_mia")).toBe(false);
-  clock.now = start + 24 * minute;
+  advance(clock, 13 * minute);
   await work.sync();
   expect(w.trees.get("t_mia")).toBe("working");
-  clock.now = start + 25 * minute;
+  advance(clock, minute);
   await work.sync();
-  expect(w.trees.get("t_mia")).toBe("interrupted");
+  expect(w.trees.get("t_mia")).toBe("failed");
   expect(work.stopReason("t_mia")).toBe("lease_expired");
-  // Back online with Mia still active: the stopped tree waits for her to resume it.
-  expect(work.takeRoster(roster(1, clock.now, { user_mia: "active" }))).toBe("refreshed");
-  await work.pass();
-  expect(w.trees.get("t_mia")).toBe("interrupted");
-  expect(work.hold("user_mia", "t_mia")).toBe(true);
+  // Back with Mia still active: queued and automated work waits for her to resume it herself.
+  expect(work.takeRoster(roster(1, clock.wall, { user_mia: "active" }))).toBe("refreshed");
+  expect(work.admit("user_mia", "t_mia", "other")).toBe(false);
+  expect(work.admit("user_mia", "t_mia", "person")).toBe(true);
   expect(work.stopReason("t_mia")).toBeUndefined();
 });
 
 it("without a policy the allowance is sixty minutes", async () => {
   const w = world();
   const { work, clock } = onHost(database(), w);
-  const start = clock.now;
   work.takeRoster(roster(1, start, { user_mia: "active" }));
-  work.hold("user_mia", "t_mia");
-  w.trees.set("t_mia", "working");
-  clock.now = start + 60 * minute;
-  await work.sync();
-  clock.now = start + 74 * minute;
-  await work.sync();
+  running(w, work);
+  for (let passed = 0; passed < 74; passed += 2) {
+    advance(clock, 2 * minute);
+    await work.sync();
+  }
   expect(w.trees.get("t_mia")).toBe("working");
-  clock.now = start + 75 * minute;
+  advance(clock, 2 * minute);
   await work.sync();
-  expect(w.trees.get("t_mia")).toBe("interrupted");
+  expect(w.trees.get("t_mia")).toBe("failed");
+});
+
+it("a backend that answers but refuses this host gives no offline allowance", async () => {
+  const w = world();
+  const fresh = roster(1, start, { user_mia: "active" });
+  let answer = (): AceOrgRoster => fresh;
+  const { work, clock } = onHost(database(), w, { answer: () => answer() });
+  await work.sync();
+  running(w, work);
+  // From here it answers 401, as for a credential it no longer takes.
+  answer = () => {
+    throw new Error("The organization's roster was refused (401).");
+  };
+  advance(clock, 3 * minute);
+  await work.sync();
+  expect(work.active("user_mia")).toBe(false);
+  advance(clock, 12 * minute);
+  await work.sync();
+  expect(w.trees.get("t_mia")).toBe("failed");
+});
+
+it("a wall clock stepped backwards buys nobody time", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w);
+  work.takeRoster(roster(1, start, { user_mia: "active" }));
+  work.policySeen({
+    org,
+    version: 1,
+    body: '{"threads":{"offline_minutes":0}}',
+    statement: signOrgPolicy(
+      {
+        org,
+        version: 1,
+        body_sha256: policyBodySha256('{"threads":{"offline_minutes":0}}'),
+        set_by: "user_owner",
+        set_at: 1,
+      },
+      key,
+    ),
+  });
+  running(w, work);
+  advance(clock, 3 * minute);
+  await work.sync();
+  // The wall clock goes back an hour; the monotonic clock keeps going.
+  clock.wall -= 60 * minute;
+  expect(work.active("user_mia")).toBe(false);
+  clock.mono += 12 * minute;
+  await work.sync();
+  expect(w.trees.get("t_mia")).toBe("failed");
+});
+
+it("a host restarted with its clock behind its last pass renews nothing on the roster from before", async () => {
+  const open = database();
+  const before = world();
+  const first = onHost(open, before);
+  first.work.takeRoster(roster(1, start, { user_mia: "active" }));
+  running(before, first.work);
+  advance(first.clock, 5 * minute);
+  await first.work.pass();
+  await first.work.close();
+
+  // Back up with the wall clock behind the last pass: how long it was down is unknown.
+  const after = world();
+  after.trees.set("t_mia", "working");
+  const restarted = onHost(open, after, { clock: { wall: start + minute, mono: 0 } });
+  await restarted.work.start();
+  expect(restarted.work.active("user_mia")).toBe(false);
+  restarted.clock.mono += 15 * minute;
+  await restarted.work.sync();
+  expect(after.trees.get("t_mia")).toBe("failed");
+});
+
+it("a lease that ran out is stopped, never renewed, even by a fresh roster", async () => {
+  const w = world();
+  const fresh = { current: roster(1, start, { user_mia: "active" }) };
+  const { work, clock } = onHost(database(), w, { answer: () => fresh.current });
+  await work.sync();
+  running(w, work);
+  // The host slept through every pass; it wakes to a fresh roster with Mia active.
+  advance(clock, 20 * minute);
+  fresh.current = roster(1, clock.wall, { user_mia: "active" });
+  expect(work.admit("user_mia", "t_mia", "other")).toBe(false);
+  await work.sync();
+  expect(w.trees.get("t_mia")).toBe("failed");
+  expect(work.stopReason("t_mia")).toBe("lease_expired");
+});
+
+it("a stop that fails is retried, after a restart too, until its tree and processes are confirmed gone", async () => {
+  const open = database();
+  const w = world();
+  const first = onHost(open, w);
+  first.work.takeRoster(roster(1, start, { user_mia: "active" }));
+  running(w, first.work);
+  advance(first.clock, minute);
+  first.work.takeRoster(roster(2, first.clock.wall, {}));
+  // The engine fails the first stop and the processes outlive the kill: the stop stays pending.
+  w.faults.stop = 1;
+  w.faults.kill = 1;
+  await first.work.pass();
+  expect(w.trees.get("t_mia")).toBe("working");
+  expect(w.processes.has("user_mia")).toBe(true);
+  expect(first.work.pendingStops()).toEqual(["t_mia"]);
+  expect(first.work.admit("user_mia", "t_mia", "person")).toBe(false);
+  // The next pass stops the tree, but the processes outlive the kill: still pending.
+  w.faults.kill = 1;
+  await first.work.pass();
+  expect(w.trees.get("t_mia")).toBe("failed");
+  expect(w.processes.has("user_mia")).toBe(true);
+  expect(first.work.pendingStops()).toEqual(["t_mia"]);
+  await first.work.close();
+
+  // After a restart, offline, the first pass finishes it.
+  const restarted = onHost(open, w, { clock: { wall: first.clock.wall, mono: 0 } });
+  await restarted.work.start();
+  expect(w.processes.has("user_mia")).toBe(false);
+  expect(restarted.work.pendingStops()).toEqual([]);
+  expect(restarted.work.stopReason("t_mia")).toBe("revoked");
 });
 
 it("a revocation seen before a restart stops the member's work at the restarted host's first pass, offline", async () => {
   const open = database();
-  const before = world();
-  const first = onHost(open, before);
-  first.work.takeRoster(roster(1, first.clock.now, { user_mia: "active", user_ben: "active" }));
-  first.work.hold("user_mia", "t_mia");
-  first.work.hold("user_ben", "t_ben");
+  const first = onHost(open, world());
+  first.work.takeRoster(roster(1, start, { user_mia: "active", user_ben: "active" }));
+  first.work.admit("user_mia", "t_mia", "person");
+  first.work.admit("user_ben", "t_ben", "person");
   // The roster that removes Mia lands, and the daemon dies before any pass runs.
-  first.work.takeRoster(roster(2, first.clock.now, { user_ben: "active" }));
+  first.work.takeRoster(roster(2, start, { user_ben: "active" }));
 
   const after = world();
   after.trees.set("t_mia", "working");
   after.trees.set("t_ben", "working");
-  const restarted = onHost(open, after, { clock: { now: first.clock.now + minute } });
+  const restarted = onHost(open, after, { clock: { wall: start + minute, mono: 0 } });
   await restarted.work.start();
   expect(restarted.fetched).toEqual([org]);
-  expect(after.trees.get("t_mia")).toBe("interrupted");
+  expect(after.trees.get("t_mia")).toBe("failed");
   expect(after.trees.get("t_ben")).toBe("working");
   expect(restarted.work.revoked("user_mia")).toBe(true);
-  expect(restarted.work.takeRoster(roster(1, restarted.clock.now, { user_mia: "active" }))).toBe(
-    "refused",
-  );
-  // Only a later roster that shows her active lifts it.
-  expect(restarted.work.takeRoster(roster(3, restarted.clock.now, { user_mia: "active" }))).toBe(
-    "taken",
-  );
-  expect(restarted.work.revoked("user_mia")).toBe(false);
   await restarted.work.close();
 });
 
 it("stopping a member's work stops each of their trees and kills their contained processes only", async () => {
   const w = world();
   const { work, clock } = onHost(database(), w);
-  work.takeRoster(roster(1, clock.now, { user_mia: "active", user_ben: "active" }));
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active", user_ben: "active" }));
   for (const [account, root] of [
     ["user_mia", "t_mia_1"],
     ["user_mia", "t_mia_2"],
     ["user_ben", "t_ben"],
   ] as const) {
-    work.hold(account, root);
+    work.admit(account, root, "person");
     w.trees.set(root, "working");
-    await work.contain(account, 1);
+    w.processes.add(account);
   }
   await work.stop("user_mia");
   expect(Object.fromEntries(w.trees)).toEqual({
-    t_mia_1: "interrupted",
-    t_mia_2: "interrupted",
+    t_mia_1: "failed",
+    t_mia_2: "failed",
     t_ben: "working",
   });
-  expect([...w.processes.keys()]).toEqual(["user_ben"]);
+  expect([...w.processes]).toEqual(["user_ben"]);
 });
 
-it("on a personal machine no roster is asked for and no work is held, contained or stopped", async () => {
+it("on a personal machine no roster is asked for and no work is admitted, contained or stopped", async () => {
   const w = world();
   const { work, clock, fetched } = onHost(database(), w, { org: () => undefined });
   w.trees.set("t_mine", "working");
+  w.processes.add("user_pat");
   await work.start();
-  expect(work.hold("user_pat", "t_mine")).toBe(false);
-  expect(await work.contain("user_pat", 7)).toBe(false);
-  clock.now += 24 * 60 * minute;
+  expect(work.admit("user_pat", "t_mine", "person")).toBe(false);
+  advance(clock, 24 * 60 * minute);
   await work.sync();
   await work.stop("user_pat");
   expect(fetched).toEqual([]);
   expect(w.trees.get("t_mine")).toBe("working");
-  expect(w.processes.size).toBe(0);
+  expect(w.processes.has("user_pat")).toBe(true);
   expect(work.active("user_pat")).toBe(false);
   await work.close();
 });
