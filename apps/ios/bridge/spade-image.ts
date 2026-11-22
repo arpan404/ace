@@ -115,11 +115,15 @@ export async function readSpadeImage(
   signal: AbortSignal,
 ): Promise<NativeAttachment> {
   const path = `/v1/images/${request.sha256}${request.variant === "thumbnail" ? "?preview" : ""}`;
-  return budget.run(inFlight[request.variant], async () => ({
-    kind: "image",
-    name: "Image",
-    ...(await readBytes(owner, id, path, "image/png", signal)),
-  }));
+  return budget.run(
+    inFlight[request.variant],
+    async () => ({
+      kind: "image",
+      name: "Image",
+      ...(await readBytes(owner, id, path, "image/png", signal)),
+    }),
+    signal,
+  );
 }
 
 /** Spade's answer to a read, as base64 with its media type (`fallback` when it names none). */

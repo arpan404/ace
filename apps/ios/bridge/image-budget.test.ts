@@ -53,3 +53,35 @@ test("a read that fails gives its bytes back to the budget", async () => {
 
   await expect(budget.run(8, async () => "next")).resolves.toBe("next");
 });
+
+test("a cancelled read leaves the line at once, so a smaller live read behind it starts", async () => {
+  const budget = new ImageBudget(10);
+  const gate = Promise.withResolvers<void>();
+  const holder = budget.run(6, () => gate.promise);
+  const cancel = new AbortController();
+  const large = budget.run(8, async () => "large", cancel.signal);
+  const small = budget.run(4, async () => "small");
+  const refused = expect(large).rejects.toThrow("cancelled");
+  await settled();
+
+  cancel.abort(new Error("cancelled"));
+
+  await refused;
+  await expect(small).resolves.toBe("small");
+  gate.resolve();
+  await holder;
+});
+
+test("a read whose signal is already aborted never joins the line or counts its bytes", async () => {
+  const budget = new ImageBudget(10);
+  const cancel = new AbortController();
+  cancel.abort(new Error("cancelled"));
+  let started = false;
+
+  await expect(budget.run(8, async () => (started = true), cancel.signal)).rejects.toThrow(
+    "cancelled",
+  );
+
+  expect(started).toBe(false);
+  await expect(budget.run(10, async () => "whole")).resolves.toBe("whole");
+});
