@@ -49,7 +49,9 @@ function currentStep(node: AgentForestNode, facts: ForestRowFacts): string {
   const contact = node.live ? undefined : remoteContactStep(node.agent);
   if (contact) return contact;
   if (facts.request) {
-    const asks = askWords(facts.request.request);
+    // An approval's command is shown once, in the composer's strip: the row only says it waits.
+    const asks =
+      facts.request.request.kind === "approval" ? undefined : askWords(facts.request.request);
     return asks ? `asks: ${asks}` : agentStep({ status, interaction: facts.request });
   }
   // Its own words are in its view; a raw provider error doesn't belong in the tree.
