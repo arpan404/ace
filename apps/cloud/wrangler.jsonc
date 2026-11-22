@@ -68,17 +68,19 @@
       "namespace_id": "1008",
       "simple": { "limit": 1200, "period": 60 },
     },
-    // ace search's bursts (ADR 0210 §4): per account, then per caller address. The daily and
-    // monthly limits are counted in D1, since these count per Cloudflare location.
+    // ace search (ADR 0210 §4): the tight burst per account after authentication, then a coarse
+    // one per caller address before it. The daily and monthly limits are counted in D1, since
+    // these count per Cloudflare location.
     {
       "name": "SEARCH_ACCOUNT_BURST",
       "namespace_id": "1009",
       "simple": { "limit": 10, "period": 60 },
     },
+    // Coarse, before authentication, so unauthenticated noise can't lock out a shared network.
     {
-      "name": "SEARCH_ADDRESS_BURST",
+      "name": "SEARCH_ADDRESS_REQUESTS",
       "namespace_id": "1010",
-      "simple": { "limit": 30, "period": 60 },
+      "simple": { "limit": 300, "period": 60 },
     },
   ],
   // Workers AI (ace search, ADR 0210) is bound in production only: locally it would reach
@@ -102,8 +104,11 @@
         "ACE_ACCOUNT_PUBLIC_URL": "https://cloud.acehq.dev",
         "ACE_ACCOUNT_PUBLIC_ORIGINS": "https://cloud.acehq.dev,https://relay.acehq.dev",
         "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,https://beta.app.acehq.dev,app://ace",
-        // ace search (ADR 0210 §4). The gateway must exist, with log collection off, before
-        // this deploys; the limits below are the defaults, written out to be changed here.
+        // ace search (ADR 0210 §4). The gateway must exist, with logs, Logpush and caching off.
+        // The Worker reads those settings with the ACE_SEARCH_CF_ACCOUNT_ID and
+        // ACE_SEARCH_CF_API_TOKEN secrets (AI Gateway Read) and searches only while they hold.
+        // Without them it searches only if ACE_SEARCH_GATEWAY_VERIFIED is "logs-off-cache-off",
+        // the owner's word that they checked by hand. The limits are the defaults written out.
         "ACE_SEARCH_GATEWAY": "ace-search",
         "ACE_SEARCH_MONTHLY": "1000",
         "ACE_SEARCH_NEW_ACCOUNT_MONTHLY": "100",
@@ -167,16 +172,17 @@
           "namespace_id": "1008",
           "simple": { "limit": 1200, "period": 60 },
         },
-        // ace search's bursts (ADR 0210 §4): per account, then per caller address.
+        // ace search (ADR 0210 §4): per account after authentication, per address before it.
         {
           "name": "SEARCH_ACCOUNT_BURST",
           "namespace_id": "1009",
           "simple": { "limit": 10, "period": 60 },
         },
+        // Coarse, before authentication, so unauthenticated noise can't lock out a network.
         {
-          "name": "SEARCH_ADDRESS_BURST",
+          "name": "SEARCH_ADDRESS_REQUESTS",
           "namespace_id": "1010",
-          "simple": { "limit": 30, "period": 60 },
+          "simple": { "limit": 300, "period": 60 },
         },
       ],
       // ace search: Ceramic through the AI Gateway named in ACE_SEARCH_GATEWAY (ADR 0210 §2).

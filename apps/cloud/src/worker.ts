@@ -17,6 +17,7 @@ import {
 import { orgStore } from "./account/org-store.ts";
 import type { Env } from "./env.ts";
 import { forwardPath } from "./http-path.ts";
+import { VERIFIED_BY_HAND, gatewayCheck } from "./search/gateway.ts";
 import { readLimits } from "./search/limits.ts";
 import type { ForwardPath } from "./http-path.ts";
 
@@ -91,6 +92,7 @@ function accounts(env: Env) {
   let found = isolates.get(env);
   if (!found) {
     const setup = readAccountSetup(env);
+    const gatewayId = env.ACE_SEARCH_GATEWAY?.trim() || undefined;
     const api = accountApi(setup, {
       db: env.ACCOUNTS,
       fetch: (input, init) => fetch(input, init),
@@ -103,14 +105,28 @@ function accounts(env: Env) {
       addressLimited: (request) => limited(env.ACCOUNT_REQUESTS, request),
       // ace search (ADR 0210): Ceramic through the owner's AI Gateway, once both are set.
       search: {
-        ai:
-          env.AI && env.ACE_SEARCH_GATEWAY?.trim()
-            ? { binding: env.AI, gatewayId: env.ACE_SEARCH_GATEWAY.trim() }
-            : undefined,
+        ai: env.AI && gatewayId ? { binding: env.AI, gatewayId } : undefined,
+        // The gateway's settings, read with an AI Gateway Read token when one is set; else
+        // the owner's word that they checked by hand (ADR 0210 §4).
+        gateway: gatewayCheck({
+          gatewayId: gatewayId ?? "",
+          api:
+            env.ACE_SEARCH_CF_ACCOUNT_ID?.trim() && env.ACE_SEARCH_CF_API_TOKEN?.trim()
+              ? {
+                  accountId: env.ACE_SEARCH_CF_ACCOUNT_ID.trim(),
+                  token: env.ACE_SEARCH_CF_API_TOKEN.trim(),
+                }
+              : undefined,
+          verifiedByHand: env.ACE_SEARCH_GATEWAY_VERIFIED?.trim() === VERIFIED_BY_HAND,
+          fetch: (input, init) => fetch(input, init),
+          now: () => Date.now(),
+          log: (outcome) => console.log(JSON.stringify({ search: outcome })),
+        }),
         limits: readLimits(env),
         addressOf: rateKey,
         burst: {
-          address: (key) => limited(env.SEARCH_ADDRESS_BURST, undefined, key),
+          // Coarse, before authentication; the tight burst is the account's, after it.
+          address: (key) => limited(env.SEARCH_ADDRESS_REQUESTS, undefined, key),
           account: (id) => limited(env.SEARCH_ACCOUNT_BURST, undefined, id),
         },
         // An outcome code only: a query, account or token never reaches a log line.

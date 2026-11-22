@@ -10,3 +10,8 @@ CREATE TABLE search_counts (
   PRIMARY KEY (scope, period)
 ) STRICT;
 CREATE INDEX search_counts_until ON search_counts (until);
+
+-- A cloud credential searches only while its machine holds a live machine credential on the
+-- account (ADR 0210 §3), checked on every search by host and account. machine_credentials has
+-- one row per signed-in machine, so this index is small.
+CREATE INDEX machine_credentials_host ON machine_credentials (host_id, account_id);

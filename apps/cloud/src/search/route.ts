@@ -1,21 +1,22 @@
 import { z } from "zod";
 import { verifyCloudGrant } from "@ace/account-grant";
 import type { GrantKeySet } from "@ace/account-grant";
-import type { PrincipalReader } from "../account/principal.ts";
 import { fail, json, jsonBody } from "../account/respond.ts";
 import { CeramicFailed, MOST_RESULTS, searchCeramic } from "./ceramic.ts";
 import type { WebSearchBinding } from "./ceramic.ts";
 import type { SearchCounters } from "./counters.ts";
+import type { GatewayCheck } from "./gateway.ts";
 import { REASONS, countersFor, dayOf, isNewAccount, monthOf, secondsUntil } from "./limits.ts";
 import type { Counter, Refusal, SearchLimits, Searcher } from "./limits.ts";
 import type { RepeatGuard } from "./repeats.ts";
 
 /**
  * ace search (ADR 0210): `POST /v1/search` and `GET /v1/search/usage`, for Spade's `web_search`
- * only. A Spade shows its cloud credential (the `spade-cloud` grant) or a machine credential; a
- * browser session, anything carrying an Origin, and an organization's host credential are
- * refused. Every limit is the Worker's (§4). Query text is never stored or logged: the log
- * lines below carry an outcome code and nothing else.
+ * only (§3). A Spade shows its cloud credential (the `spade-cloud` grant), which counts only
+ * while the machine it names holds a live machine credential on the account, read on every
+ * call. Anything else is refused: a bare session or machine credential, a grant for a machine
+ * the account doesn't hold, anything carrying an Origin. Every limit is the Worker's (§4).
+ * Query text is never stored or logged: the log lines below carry an outcome code only.
  */
 
 export const MOST_QUERY = 400;
@@ -33,10 +34,11 @@ export type SearchLog = { search: string };
 
 export type SearchDeps = {
   keys: GrantKeySet;
-  principals: Pick<PrincipalReader, "read">;
   counters: SearchCounters;
   /** Workers AI with the gateway it bills; undefined until both are configured. */
   ai: { binding: WebSearchBinding; gatewayId: string } | undefined;
+  /** Whether the gateway keeps nothing (logs, Logpush, cache): no query is sent until it does. */
+  gateway: Pick<GatewayCheck, "safe">;
   limits: SearchLimits;
   repeats: RepeatGuard;
   now: () => number;
@@ -44,12 +46,13 @@ export type SearchDeps = {
   addressOf: (request: Request) => string;
   /** Salts the address's digest, so no counter row holds an address. */
   addressSalt: string;
-  /** The per-minute bursts, from rate-limit bindings: true when over. */
+  /**
+   * The per-minute limits, from rate-limit bindings: true when over. `address` is coarse and
+   * taken before authentication; `account` is the tight burst, taken after it.
+   */
   burst: { address(key: string): Promise<boolean>; account(id: string): Promise<boolean> };
   log: (entry: SearchLog) => void;
 };
-
-const opaque = /^[A-Za-z0-9_-]{43}$/;
 
 /** The caller's address as its counter knows it: a salted SHA-256, never the address. */
 async function addressDigest(salt: string, address: string): Promise<string> {
@@ -67,28 +70,30 @@ function refuse(code: Refusal, retryAfter: number): Response {
 export function searchRoutes(deps: SearchDeps) {
   const { now, counters, limits } = deps;
 
-  /** Who is asking, as a Spade acting for an account, or the refusal. */
+  /**
+   * Who is asking: a Spade's cloud credential for a live machine of its account, or the refusal.
+   * The machine is the grant's subject, so its caps are that machine's; a grant for a host id
+   * the account holds no live credential for (as a browser session can mint) opens nothing.
+   */
   async function searcher(request: Request): Promise<Searcher | Response> {
     const token = /^Bearer (\S+)$/.exec(request.headers.get("Authorization") ?? "")?.[1];
     if (!token) return fail(401, "unauthenticated");
-    const address = await addressDigest(deps.addressSalt, deps.addressOf(request));
-    if (opaque.test(token)) {
-      const principal = await deps.principals.read(token);
-      if (!principal) return fail(401, "unauthenticated");
-      // A browser's session, or an organization's host: not a person's Spade.
-      if (principal.kind !== "machine" || principal.org !== undefined)
-        return fail(403, "spade_only");
-      return { account: principal.account.id, machine: principal.hostId, address };
-    }
+    let claims: { account: string; subject: string };
     try {
-      const claims = verifyCloudGrant(token, deps.keys, now());
-      return { account: claims.account, machine: claims.subject, address };
+      claims = verifyCloudGrant(token, deps.keys, now());
     } catch {
       return fail(401, "unauthenticated");
     }
+    if (!(await counters.machineLive(claims.account, claims.subject, now())))
+      return fail(403, "machine_unknown");
+    const address = await addressDigest(deps.addressSalt, deps.addressOf(request));
+    return { account: claims.account, machine: claims.subject, address };
   }
 
-  /** The checks every call passes first: no browser, configured, under the address burst, signed in. */
+  /**
+   * The checks every call passes first: no browser, configured, under the coarse address limit
+   * (before authentication, so it is loose), a live Spade.
+   */
   async function admit(request: Request): Promise<Searcher | Response> {
     if (request.headers.has("Origin")) return fail(403, "spade_only");
     if (!deps.ai) return fail(503, "search_unavailable");
@@ -119,19 +124,24 @@ export function searchRoutes(deps: SearchDeps) {
       const limit = parsed.data.limit ?? MOST_RESULTS;
       if (await deps.repeats.repeated(who.account, query))
         return refuse("repeated_query", BURST_SECONDS);
+      // No query goes to a gateway that may keep it.
+      if (!(await deps.gateway.safe())) return fail(503, "search_unavailable");
       const at = now();
       const young = isNewAccount(await counters.firstSeen(who.account), at, limits.newAccountDays);
       const taking: Counter[] = countersFor(who, limits, at, young);
-      const { full, counts } = await counters.take(taking);
-      if (full) {
-        deps.log({ search: full.refusal });
-        return refuse(full.refusal, secondsUntil(full.period.ends, at));
+      const taken = await counters.take(taking);
+      if (!taken.taken) {
+        const full = taken.full;
+        deps.log({ search: full?.refusal ?? "search_busy" });
+        return full
+          ? refuse(full.refusal, secondsUntil(full.period.ends, at))
+          : refuse("search_busy", BURST_SECONDS);
       }
       const ai = deps.ai;
       if (!ai) return fail(503, "search_unavailable");
       try {
         const results = await searchCeramic(ai.binding, ai.gatewayId, query, limit, freshness, at);
-        const [, month = 0, day = 0] = counts ?? [];
+        const [, month = 0, day = 0] = taken.counts;
         const allowance = taking[1]?.cap ?? limits.monthly;
         return json(200, {
           results,
@@ -139,9 +149,11 @@ export function searchRoutes(deps: SearchDeps) {
           usage: usage({ month, day }, allowance, at),
         });
       } catch (error) {
-        // A search that never ran costs nothing: its counts go back.
-        await counters.giveBack(taking);
-        deps.log({ search: error instanceof CeramicFailed ? error.message : "failed" });
+        // Once the paid call went out the search counts, whatever came back. Only a call the
+        // gateway turned away before sending it to Ceramic is given back.
+        const failed = error instanceof CeramicFailed ? error : new CeramicFailed("failed");
+        if (!failed.billed) await counters.giveBack(taking);
+        deps.log({ search: failed.message });
         return fail(502, "search_failed");
       }
     },

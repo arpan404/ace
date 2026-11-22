@@ -77,7 +77,7 @@ export function accountApi(
     /** The per-address limit, for the standing route's callers that don't authenticate. */
     addressLimited?: (request: Request) => Promise<boolean>;
     /** ace search (ADR 0210): the AI binding and gateway, its limits and bursts. */
-    search?: Pick<SearchDeps, "ai" | "limits" | "addressOf" | "burst" | "log">;
+    search?: Pick<SearchDeps, "ai" | "gateway" | "limits" | "addressOf" | "burst" | "log">;
   },
 ) {
   if (setup.status !== "ready")
@@ -179,13 +179,14 @@ export function accountApi(
   const searchCounts = searchCounters(deps.db);
   const search = searchRoutes({
     ai: undefined,
+    // Without a check of the gateway's settings, nothing is sent to it.
+    gateway: { safe: async () => false },
     limits: DEFAULT_LIMITS,
     addressOf: () => "unknown",
     burst: { address: async () => false, account: async () => false },
     log: () => {},
     ...deps.search,
     keys,
-    principals,
     addressSalt: config.encryptionKey,
     counters: searchCounts,
     repeats: repeatGuard({ now, salt: random(32) }),

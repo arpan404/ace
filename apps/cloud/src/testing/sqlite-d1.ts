@@ -2,14 +2,20 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const turn = () => new Promise((resolve) => setTimeout(resolve, 0));
+const pause = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
  * The part of D1 the account backend's stores use (prepare, bind, first, run, batch), over a real
  * in-memory SQLite with the Worker's migrations applied. A batch is one transaction, as in D1, and
  * every call yields to the event loop first, so concurrent requests interleave between them.
+ * `interrupt(n)` lets the next `n` calls run and fails every one after, as a Worker cut short
+ * mid-request would; `interrupt(undefined)` ends that.
  */
-export function sqliteD1(): { db: D1Database; sqlite: DatabaseSync } {
+export function sqliteD1(): {
+  db: D1Database;
+  sqlite: DatabaseSync;
+  interrupt: (after: number | undefined) => void;
+} {
   const sqlite = new DatabaseSync(":memory:");
   const dir = join(import.meta.dirname, "../../migrations");
   for (const file of readdirSync(dir)
@@ -17,6 +23,11 @@ export function sqliteD1(): { db: D1Database; sqlite: DatabaseSync } {
     .toSorted())
     sqlite.exec(readFileSync(join(dir, file), "utf8"));
   type Value = null | number | bigint | string | Uint8Array;
+  let left: number | undefined;
+  const turn = async () => {
+    await pause();
+    if (left !== undefined && left-- <= 0) throw new Error("D1 call interrupted");
+  };
 
   class Statement {
     readonly sql: string;
@@ -65,5 +76,11 @@ export function sqliteD1(): { db: D1Database; sqlite: DatabaseSync } {
       }
     },
   };
-  return { db: db as unknown as D1Database, sqlite };
+  return {
+    db: db as unknown as D1Database,
+    sqlite,
+    interrupt: (after) => {
+      left = after;
+    },
+  };
 }

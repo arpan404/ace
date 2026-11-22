@@ -1,8 +1,11 @@
 /**
  * The same query asked again and again (ADR 0210 §4): the third identical query from an account
- * within a minute is refused. Kept in this isolate's memory only, as a SHA-256 digest of a random
- * salt made for this isolate, the account and the normalized query: never stored, never logged,
- * gone within a minute.
+ * within a minute is refused. Best effort: it lives in this isolate's memory, so requests that
+ * land on other isolates or locations aren't seen together. It is a cheap abuse signal, never a
+ * limit: every limit that must hold is a D1 counter (counters.ts).
+ *
+ * It holds only a SHA-256 digest of a random salt made for this isolate, the account and the
+ * normalized query: never stored, never logged, gone within a minute.
  */
 
 export const REPEAT_WINDOW_MS = 60_000;

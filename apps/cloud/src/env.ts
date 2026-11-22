@@ -24,13 +24,19 @@ export interface Env extends LimitVars {
   STANDING_REQUESTS?: RateLimit;
   /** WorkOS lookups the standing route makes, all callers together. */
   STANDING_WORKOS?: RateLimit;
-  /** ace search's bursts (ADR 0210 §4): per caller address, then per account. */
-  SEARCH_ADDRESS_BURST?: RateLimit;
+  /** ace search (ADR 0210 §4): coarse per caller address before authentication. */
+  SEARCH_ADDRESS_REQUESTS?: RateLimit;
+  /** ace search's tight burst per account, after authentication. */
   SEARCH_ACCOUNT_BURST?: RateLimit;
   /** Workers AI, for ace search through the owner's AI Gateway. Absent in local tests. */
   AI?: Ai;
   /** The AI Gateway ace search bills (ADR 0210 §2). Unset: the route answers 503. */
   ACE_SEARCH_GATEWAY?: string;
+  /** The Cloudflare account id and an AI Gateway Read token, to read the gateway's settings. */
+  ACE_SEARCH_CF_ACCOUNT_ID?: string;
+  ACE_SEARCH_CF_API_TOKEN?: string;
+  /** `logs-off-cache-off`: the owner checked the gateway by hand, for when it can't be read. */
+  ACE_SEARCH_GATEWAY_VERIFIED?: string;
   /**
    * The broker's apps as JSON in place of the shipped list (tests). Each app's client
    * ID and secret are Worker secrets named in its entry, such as `SPADE_CLOUD_ASANA_CLIENT_ID`.

@@ -26,9 +26,24 @@ const MOST_TITLE = 300;
 const MOST_SNIPPET = 500;
 const FRESH_DAYS: Record<Freshness, number> = { day: 1, week: 7, month: 31, year: 366 };
 
-/** Why Ceramic gave nothing usable: a short code, never the query or the answer. */
+/**
+ * The gateway's answers that say it turned the call away before sending it to Ceramic, so
+ * nothing was billed: its key or permission refused, or no such gateway. Any other answer, or no
+ * answer, may have been billed.
+ */
+const REFUSED_BEFORE_SENDING = new Set([401, 403, 404]);
+
+/**
+ * Why Ceramic gave nothing usable: a short code, never the query or the answer. `billed` is
+ * false only when the gateway clearly turned the call away before it reached Ceramic.
+ */
 export class CeramicFailed extends Error {
   override name = "CeramicFailed";
+  readonly billed: boolean;
+  constructor(code: string, billed = true) {
+    super(code);
+    this.billed = billed;
+  }
 }
 
 async function boundedText(response: Response, most: number): Promise<string> {
@@ -127,7 +142,10 @@ export async function searchCeramic(
   }
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
-    throw new CeramicFailed(`http_${response.status}`);
+    throw new CeramicFailed(
+      `http_${response.status}`,
+      !REFUSED_BEFORE_SENDING.has(response.status),
+    );
   }
   let body: unknown;
   try {
