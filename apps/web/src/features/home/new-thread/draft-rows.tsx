@@ -7,7 +7,7 @@ import { useHostIdentity } from "@/lib/host-name.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
-import { useMachines, usePrimaryMachine } from "@/lib/machines.ts";
+import { useMachinesInSpace, usePrimaryInSpace, usePrimaryMachine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { usePreparations } from "./preparations.ts";
 import { useDiscardDraft } from "./use-discard-draft.ts";
@@ -30,12 +30,13 @@ export function DraftRows(props: {
   const device = useSidebarDevice();
   // The project filter keys this machine's checkouts by the id the scope uses for it.
   const own = usePrimaryMachine().id;
-  const others = useMachines().filter(
+  const ownShown = usePrimaryInSpace();
+  const others = useMachinesInSpace().filter(
     (machine) => !machine.primary && machine.client && inScope(device, machine.id),
   );
   return (
     <>
-      {identity && inScope(device, identity.hostId) && (
+      {identity && ownShown && inScope(device, identity.hostId) && (
         <MachineDrafts
           only={props.project}
           host={identity.hostId}

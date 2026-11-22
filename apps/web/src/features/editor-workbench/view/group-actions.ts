@@ -2,11 +2,13 @@ import {
   activateTab,
   closeTabs,
   copyTab,
+  dropFile,
   focusGroup,
   groupsOf,
   keepTab,
   moveTab,
   pinTab,
+  splitGroup,
   setViewState,
   tabsToClose,
   unpinTab,
@@ -19,7 +21,7 @@ import {
   type ViewState,
 } from "@ace/ui-core/editor-workbench";
 import type { EditorBuffers } from "./editor-buffers.ts";
-import type { TabDrag } from "./drag.ts";
+import type { GroupDrag } from "./drag.ts";
 
 /** What one group's chrome can do, bound to that group and the layout it was drawn from. */
 export interface GroupActions {
@@ -32,10 +34,12 @@ export interface GroupActions {
   setPinned(path: string, pinned: boolean): void;
   /** A second view of a tab in a new group on one side of this one. */
   splitTab(path: string, side: Side): void;
-  /** A dragged tab dropped into this group's strip at an index; ⌥ leaves the original. */
-  dropInStrip(drag: TabDrag, index: number, copy: boolean): void;
-  /** A dragged tab dropped on this group's editor: the middle, or an outer third. */
-  dropOnEditor(drag: TabDrag, zone: Side | "center", copy: boolean): void;
+  /** A new group beside this one with a second view of its active editor (or empty). */
+  split(side: Side): void;
+  /** A tab (⌥ leaves the original) or explorer files dropped into this strip at an index. */
+  dropInStrip(drag: GroupDrag, index: number, copy: boolean): void;
+  /** A tab or explorer files dropped on this group's editor: the middle, or an outer third. */
+  dropOnEditor(drag: GroupDrag, zone: Side | "center", copy: boolean): void;
   /** Store a tab's view state with the layout (Markdown's Preview or Source choice). */
   setView(path: string, view: ViewState): void;
 }
@@ -89,8 +93,22 @@ export function bindGroupActions(group: string, context: GroupContext): GroupAct
     run(result.layout);
     if (result.asking.length > 0) context.confirmClose(result.asking);
   };
-  const drop = (drag: TabDrag, target: DropTarget, copy: boolean) =>
-    run((copy ? copyTab : moveTab)(layout, drag, target, context.newGroupId));
+  const drop = (drag: GroupDrag, target: DropTarget, copy: boolean) => {
+    if (drag.kind === "tab")
+      return run((copy ? copyTab : moveTab)(layout, drag.tab, target, context.newGroupId));
+    // The first file lands at the target (making its group for an edge); the rest follow it there.
+    let next = layout;
+    drag.paths.forEach((path, index) => {
+      const at: DropTarget =
+        index === 0
+          ? target
+          : target.kind === "strip"
+            ? { ...target, index: target.index + index }
+            : { kind: "group", group: next.focused };
+      next = dropFile(next, path, at, context.newGroupId);
+    });
+    run(next);
+  };
   return {
     focus: () => run(focusGroup(layout, group)),
     activate: (path) => run(activateTab(layout, { group, path })),
@@ -101,6 +119,7 @@ export function bindGroupActions(group: string, context: GroupContext): GroupAct
     setPinned: (path, pinned) => run((pinned ? pinTab : unpinTab)(layout, { group, path })),
     splitTab: (path, side) =>
       run(copyTab(layout, { group, path }, { kind: "side", group, side }, context.newGroupId)),
+    split: (side) => run(splitGroup(layout, group, side, context.newGroupId)),
     dropInStrip: (drag, index, copy) => drop(drag, { kind: "strip", group, index }, copy),
     dropOnEditor: (drag, zone, copy) =>
       drop(

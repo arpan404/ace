@@ -16,6 +16,9 @@ pub(crate) struct Entry {
     pub inverse: EditSet,
     pub before: Vec<Selection>,
     pub after: Vec<Selection>,
+    /// The document's content id before the step and after it, so undo and redo give it back.
+    pub before_id: u64,
+    pub after_id: u64,
 }
 
 /// The two stacks plus whether the newest entry is still open to more typing.
@@ -42,7 +45,12 @@ impl History {
     ///
     /// Returns false when the entry cannot absorb the keystroke, leaving both the entry and the
     /// history untouched.
-    pub(crate) fn absorb_typing(&mut self, edits: &EditSet, after: &[Selection]) -> bool {
+    pub(crate) fn absorb_typing(
+        &mut self,
+        edits: &EditSet,
+        after: &[Selection],
+        after_id: u64,
+    ) -> bool {
         if !self.open {
             return false;
         }
@@ -74,6 +82,7 @@ impl History {
             extra += new.text.len();
         }
         entry.after = after.to_vec();
+        entry.after_id = after_id;
         true
     }
 

@@ -26,6 +26,11 @@ export const StoredSession = z.object({
   kind: z.literal("machine").optional(),
   /** With `source: "org"`: the organization whose credential it is. */
   org: AceOrgId.optional(),
+  /**
+   * The organization space `ace login --org` selected (ADR 0206 §1.4): the CLI's org commands
+   * act in it. It goes with this sign-in.
+   */
+  space: AceOrgId.optional(),
 });
 export type StoredSession = z.infer<typeof StoredSession>;
 

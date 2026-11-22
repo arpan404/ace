@@ -77,6 +77,8 @@ export function loginRoutes(deps: {
   random: RandomBytes;
   /** A join page's sign-in accepted an invitation: mirror the membership it made. */
   joined?: (account: string, org: string | undefined) => Promise<void>;
+  /** The account is an active member of `org` now, mirrored from WorkOS if it wasn't yet. */
+  entered?: (account: string, org: string) => Promise<boolean>;
 }) {
   const { config, logins, sessions, provider, now, random } = deps;
   const secure = config.publicUrl.startsWith("https:") ? "; Secure" : "";
@@ -270,7 +272,20 @@ export function loginRoutes(deps: {
           end("failed", page(403, "This ace account was deleted. Start again in ace.")),
         );
       }
-      const grant = AceAccountGrant.parse({ token, expiresAt, account: identity.account });
+      // A sign-in started for an organization (`ace login --org`) says it entered it only on
+      // WorkOS's word that the session is in it and with the membership active (ADR 0206 §1.4).
+      const org =
+        row.org &&
+        identity.organizationId === row.org &&
+        (await deps.entered?.(identity.account.id, row.org))
+          ? row.org
+          : undefined;
+      const grant = AceAccountGrant.parse({
+        token,
+        expiresAt,
+        account: identity.account,
+        ...(org ? { org } : {}),
+      });
       // A cancellation or expiry while WorkOS answered wins: the new session is discarded.
       // So does a deletion that removed the session first; the app then hears it failed.
       if (!(await logins.complete(row.id, hash, grant, now()))) {

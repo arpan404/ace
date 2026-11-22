@@ -9,3 +9,4 @@ export * from "./close.ts";
 export * from "./drag.ts";
 export * from "./schema.ts";
 export * from "./migrate.ts";
+export * from "./room.ts";

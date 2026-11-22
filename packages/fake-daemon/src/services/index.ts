@@ -46,6 +46,8 @@ export interface ServiceHost {
   thread(threadId: string): { workspaceId: string; provider: ProviderKind } | undefined;
   /** Pairing links and paired devices; `fleet.request` shares them with the HTTP routes. */
   access?: FakeAccess;
+  /** Full-text search finds only this daemon's threads, by title (`searchCorpus: "titles"`). */
+  searchOwnTitles?: boolean;
 }
 
 /** Where discovery found each CLI on the fake machine, and its version. */
@@ -747,7 +749,7 @@ export class FakeServices {
         return {
           type: "search.results",
           requestId: message.requestId,
-          ...(message.scope === "threads" && this.host.threads
+          ...((message.scope === "threads" || this.host.searchOwnTitles) && this.host.threads
             ? searchTitles(message, this.host.threads())
             : search(message, this.host.clock())),
         };

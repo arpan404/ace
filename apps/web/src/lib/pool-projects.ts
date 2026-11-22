@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { useLayout } from "./layout.tsx";
 import { useClock } from "./time.ts";
-import { useMachines, type Machine } from "./machines.ts";
+import { useMachinesInSpace, type Machine } from "./machines.ts";
+import { spaceKey, spaceStorage, useSpaceScope } from "./space-scope.ts";
 import { readProjects, type Project } from "./projects.ts";
 import {
   applyPush,
@@ -124,9 +125,11 @@ export function keptMachineProjects(
 /**
  * A machine's list is read per socket: a list read before a disconnect may miss a change pushed
  * while this window couldn't hear (an unlink there), so a new socket is a new read. `socket`
- * names the client and its socket (`useSockets`).
+ * names the client and its socket (`useSockets`); `space` the window's space (ADR 0206 §1.5), so
+ * one space's lists are never read in another.
  */
-const poolKey = (machineId: string, socket: string) => ["poolProjects", machineId, socket] as const;
+const poolKey = (space: string, machineId: string, socket: string) =>
+  ["poolProjects", space, machineId, socket] as const;
 
 /** A number per client object: a machine's worker that restarts brings a client of its own. */
 const clientSerials = new WeakMap<object, number>();
@@ -166,13 +169,17 @@ const combine = (results: readonly { data?: Project[] | undefined; isPending: bo
 });
 
 /**
- * Every machine in the pool's projects, this window's own first: online ones as they read now,
- * offline ones as last seen (`online: false`, never selectable). A machine never read and now
- * offline has no list. `loaded` is false while an online machine's first read is out.
+ * Every machine in the window's space's projects (ADR 0206 §2.4), this window's own first while
+ * it is one of them: online ones as they read now, offline ones as last seen (`online: false`,
+ * never selectable). A machine never read and now offline has no list. `loaded` is false while
+ * an online machine's first read is out.
  */
 export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolean } {
-  const machines = useMachines();
-  const { storage } = useLayout();
+  const machines = useMachinesInSpace();
+  const scope = useSpaceScope();
+  const space = spaceKey(scope);
+  const layout = useLayout().storage;
+  const storage = useMemo(() => spaceStorage(layout, scope), [layout, scope]);
   const clock = useClock();
   const queryClient = useQueryClient();
   const online = machines.filter((machine) => machine.status === "online" && machine.client);
@@ -185,7 +192,7 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
   const sockets = useSockets(onlineClients);
   const results = useQueries({
     queries: online.map((machine, index) => ({
-      queryKey: poolKey(machine.id, sockets[index] ?? ""),
+      queryKey: poolKey(space, machine.id, sockets[index] ?? ""),
       staleTime: 30_000,
       // The last socket's list stays shown while the new socket's read is out.
       placeholderData: keepPreviousData,
@@ -208,19 +215,19 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
   const clients = online.map(
     (machine, index) => [machine.id, machine.client, sockets[index] ?? ""] as const,
   );
-  const clientKey = clients.map(([id, , socket]) => `${id}:${socket}`).join("\n");
+  const clientKey = `${space}\n${clients.map(([id, , socket]) => `${id}:${socket}`).join("\n")}`;
   useEffect(() => {
     const stops = clients.map(([id, client, socket]) =>
       client?.projects.onChanged((change) => {
         const push = pushOf<Project>(change, (workspace) => workspace);
         if (!push) {
-          void queryClient.invalidateQueries({ queryKey: poolKey(id, socket), exact: true });
+          void queryClient.invalidateQueries({ queryKey: poolKey(space, id, socket), exact: true });
           return;
         }
         pushesFor(ledgers, client).record(push);
-        const held = queryClient.getQueryData<Project[]>(poolKey(id, socket));
+        const held = queryClient.getQueryData<Project[]>(poolKey(space, id, socket));
         const next = rememberMachinePush(storage, id, push, clock(), held);
-        if (held && next) queryClient.setQueryData<Project[]>(poolKey(id, socket), next);
+        if (held && next) queryClient.setQueryData<Project[]>(poolKey(space, id, socket), next);
       }),
     );
     return () => {

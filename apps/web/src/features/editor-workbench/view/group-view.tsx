@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
@@ -6,7 +6,7 @@ import { noticeClash, useSnapshot } from "./editor-buffers.ts";
 import { BufferEditor } from "./buffer-editor.tsx";
 import type { EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { BufferEditorProps, EditorHost } from "./editor-host.ts";
-import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
+import { carriesGroupDrag, copiesOnDrop, readGroupDrag } from "./drag.ts";
 import { FileProblem, LoadingLines, NoFileOpen } from "./editor-states.tsx";
 import type { GroupActions } from "./group-actions.ts";
 import { MarkdownChoice, markdownShow } from "./markdown-choice.tsx";
@@ -33,7 +33,6 @@ export function GroupView(props: {
   host: EditorHost;
   actions: GroupActions;
   stripLead?: ReactNode;
-  groupMenu?: ReactNode;
 }) {
   const { group, host, actions } = props;
   const path = group.active;
@@ -43,6 +42,8 @@ export function GroupView(props: {
   const tab = group.tabs.find((each) => each.path === path);
   const markdown = markdownShow(tab);
   const [zone, setZone] = useState<Zone | undefined>(undefined);
+  const [area, setArea] = useState<HTMLDivElement | null>(null);
+  const textStart = useTextStart(area);
   // Compare shows in place of the editor while the change it is about waits for an answer.
   const [comparing, setComparing] = useState<string | undefined>(undefined);
   const compare =
@@ -75,11 +76,12 @@ export function GroupView(props: {
         buffers={host.buffers}
         actions={actions}
         lead={props.stripLead}
-        groupMenu={props.groupMenu}
         tabMenuItems={host.tabMenuItems}
+        threadId={host.threadId}
       />
       <Breadcrumbs
         path={path}
+        textStart={textStart}
         end={
           path !== undefined &&
           markdown &&
@@ -106,11 +108,21 @@ export function GroupView(props: {
         />
       )}
       <div
+        ref={setArea}
         data-part="buffer-editor"
-        className="relative flex min-h-0 flex-1 flex-col"
-        onDragOver={(event) => {
-          if (!carriesTab(event.dataTransfer)) return;
+        // Only the focused group draws its caret: the keyboard is in one place (spec 19).
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col",
+          // Where the two scrollbars meet, the page shows through instead of a light square.
+          "[&_*::-webkit-scrollbar-corner]:bg-transparent",
+          !props.focused && "[&_[data-caret]]:invisible",
+        )}
+        // Captured, so a tab or file dropped on the code reaches the drop zones and never the
+        // text input under the pointer, which would paste its path.
+        onDragOverCapture={(event) => {
+          if (!carriesGroupDrag(event.dataTransfer)) return;
           event.preventDefault();
+          event.stopPropagation();
           event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
           const box = event.currentTarget.getBoundingClientRect();
           const next = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
@@ -120,13 +132,14 @@ export function GroupView(props: {
           const into = event.relatedTarget;
           if (!(into instanceof Node && event.currentTarget.contains(into))) setZone(undefined);
         }}
-        onDrop={(event) => {
-          const drag = readTabDrag(event.dataTransfer);
+        onDropCapture={(event) => {
+          if (!carriesGroupDrag(event.dataTransfer)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const drag = readGroupDrag(event.dataTransfer, host.threadId);
           const at = zone ?? "center";
           setZone(undefined);
-          if (!drag) return;
-          event.preventDefault();
-          actions.dropOnEditor(drag, at, copiesOnDrop(event));
+          if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
         }}
       >
         {path === undefined ? (
@@ -138,7 +151,7 @@ export function GroupView(props: {
         ) : buffer && load?.kind === "ready" ? (
           markdown === "preview" ? (
             <Suspense fallback={<LoadingLines />}>
-              <MarkdownPreview buffer={buffer} />
+              <MarkdownPreview buffer={buffer} path={path} onStatus={onStatus} />
             </Suspense>
           ) : (
             showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
@@ -164,6 +177,32 @@ export function GroupView(props: {
 }
 
 type Zone = Side | "center";
+
+/**
+ * Where the shown editor's text starts (its `data-text-start`), watched as the editor mounts,
+ * unmounts or gains a line-number digit.
+ */
+function useTextStart(area: HTMLElement | null): number | undefined {
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      if (!area || typeof MutationObserver === "undefined") return () => {};
+      const observer = new MutationObserver(changed);
+      observer.observe(area, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["data-text-start"],
+      });
+      return () => observer.disconnect();
+    },
+    [area],
+  );
+  return useSyncExternalStore(subscribe, () => {
+    const frame = area?.querySelector<HTMLElement>("[data-text-start]");
+    const value = Number(frame?.dataset.textStart);
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  });
+}
 
 /** The host's editor when it brings one (tests, the harness), else the editor's own. */
 function showEditor(host: EditorHost, editor: BufferEditorProps): ReactNode {

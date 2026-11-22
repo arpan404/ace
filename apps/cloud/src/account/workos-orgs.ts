@@ -83,6 +83,7 @@ export const MIRRORED_EVENTS = [
   "organization_membership.updated",
   "organization_membership.deleted",
   "user.updated",
+  "user.deleted",
 ] as const;
 
 const Failure = z.looseObject({ code: z.string().optional(), error: z.string().optional() });

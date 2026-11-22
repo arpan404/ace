@@ -7,8 +7,9 @@ import { matchLimit } from "./use-find.ts";
 import type { FindInFile, FindOption } from "./use-find-in-file.ts";
 
 /*
- * Find and replace in the file: rows above the text, so they never cover the first lines in a
- * narrow panel. Each field is a box inside its 36px row, so its focus ring stays in the bar.
+ * Find and replace in the file: a compact solid widget floating at the code's top right, so
+ * opening it never moves the text. Replace waits behind the caret toggle at its left. Each field
+ * is a box inside its 32px row, so its focus ring stays in the widget.
  */
 
 const field =
@@ -65,8 +66,12 @@ export function EditorFindBar(props: { finder: FindInFile; mac: boolean }) {
   };
 
   return (
-    <search className="flex shrink-0 flex-col border-b bg-popover">
-      <div className="flex h-9 items-center gap-1 pr-1 pl-1">
+    <div
+      role="search"
+      aria-label="Find in file"
+      className="ace-floating-solid absolute top-1 right-4 z-10 flex w-[min(30rem,calc(100%-2rem))] flex-col rounded-lg p-0.5"
+    >
+      <div className="flex h-8 items-center gap-0.5">
         <IconButton
           icon={finder.replacing ? CaretDownIcon : CaretRightIcon}
           label={finder.replacing ? "Hide replace" : "Show replace"}
@@ -102,7 +107,7 @@ export function EditorFindBar(props: { finder: FindInFile; mac: boolean }) {
         </Toggle>
         <span
           aria-live="polite"
-          className="min-w-[72px] text-right text-xs text-subtle-foreground tabular-nums"
+          className="shrink-0 px-1 text-right text-xs whitespace-nowrap text-subtle-foreground tabular-nums"
         >
           {finder.query ? countText(finder) : ""}
         </span>
@@ -137,7 +142,7 @@ export function EditorFindBar(props: { finder: FindInFile; mac: boolean }) {
         />
       </div>
       {finder.replacing ? (
-        <div className="flex h-9 items-center gap-1 pr-1 pl-9">
+        <div className="flex h-8 items-center gap-0.5 pr-0.5 pl-7.5">
           <input
             ref={replaceInput}
             aria-label="Replace with"
@@ -164,7 +169,7 @@ export function EditorFindBar(props: { finder: FindInFile; mac: boolean }) {
           </Button>
         </div>
       ) : null}
-    </search>
+    </div>
   );
 }
 

@@ -20,6 +20,8 @@ export type MemberGrantVerdict =
       accepted: true;
       member: Member;
       exp: number;
+      /** When the backend minted it, on a fresh org check: the standing's freshness starts here. */
+      iat: number;
       /** The device key proofs are signed with. */ key: string;
       /** The organization's policy version when the grant was minted (ADR 0206 §3). */
       policy: number;
@@ -69,6 +71,7 @@ export function memberGrantVerdict(
     accepted: true,
     member: { org: claims.org, role: claims.role, account: claims.account },
     exp: claims.exp,
+    iat: claims.iat,
     key: claims.key,
     policy: claims.policy,
   };
@@ -90,7 +93,7 @@ export async function provenMemberStanding(input: {
   org: string | undefined;
   deviceId: string;
   host: string;
-}): Promise<{ until: number; member: Member; policy: number } | undefined> {
+}): Promise<{ until: number; issuedAt: number; member: Member; policy: number } | undefined> {
   const verdict = memberGrantVerdict(input.grant, input);
   if (!verdict.accepted) return undefined;
   const signed = await signedByDeviceKey(
@@ -104,6 +107,6 @@ export async function provenMemberStanding(input: {
     }),
   );
   return signed
-    ? { until: verdict.exp, member: verdict.member, policy: verdict.policy }
+    ? { until: verdict.exp, issuedAt: verdict.iat, member: verdict.member, policy: verdict.policy }
     : undefined;
 }

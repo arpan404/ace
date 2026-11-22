@@ -9,6 +9,8 @@ import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { messageMinLength, readQuery } from "./arrange.ts";
 import type { PaletteCommand } from "./types.ts";
+import { usePrimaryInSpace } from "@/lib/machines.ts";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 
 /** Messages a query lists in the palette; full search has the rest. */
 const shown = 8;
@@ -24,9 +26,12 @@ export function useMessageHits(query: string, close: () => void): PaletteCommand
   const router = useRouter();
   const client = useClient();
   const projectName = useProjectName();
-  const enabled = !actionsOnly && settled.length >= messageMinLength;
+  // This machine's messages only in its space (ADR 0206 §2.4), kept per space.
+  const ownShown = usePrimaryInSpace();
+  const space = spaceKey(useSpaceScope());
+  const enabled = ownShown && !actionsOnly && settled.length >= messageMinLength;
   const found = useDaemonQuery({
-    queryKey: ["palette-messages", settled],
+    queryKey: ["palette-messages", space, settled],
     enabled,
     read: async (api, signal) => {
       const reply = await api.request(

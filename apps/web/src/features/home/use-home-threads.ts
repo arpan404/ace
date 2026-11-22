@@ -21,7 +21,7 @@ import { useIsChatThread, useProjectName } from "@/lib/projects.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useOrganizeOverlay, useOrganizer } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
-import { usePrimaryMachine } from "@/lib/machines.ts";
+import { usePrimaryInSpace, usePrimaryMachine } from "@/lib/machines.ts";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
 import { archivedInScope, inProjectScope } from "./project-scope.ts";
@@ -67,16 +67,21 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
     return entry ? [entry] : [];
   });
 
-/** The list's entries as this window shows them, with organize actions not yet confirmed. */
+/**
+ * The list's entries as this window shows them, with organize actions not yet confirmed; none
+ * while the window's space doesn't hold this machine (ADR 0206 §2.4).
+ */
 export function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
   const overlay = useOrganizeOverlay();
   const pending = usePendingActions();
+  const shown = usePrimaryInSpace();
   return useCallback(
     (reader: SidebarReader) => {
+      if (!shown) return [];
       const entries = entriesOf(reader);
       return pending.length ? entries.map((entry) => overlay.apply(entry)) : entries;
     },
-    [overlay, pending],
+    [overlay, pending, shown],
   );
 }
 
@@ -276,13 +281,15 @@ const itemsEqual = (a: readonly SettledEntry[], b: readonly SettledEntry[]) =>
  */
 export function useSettledEntries(ids: readonly string[]): readonly SettledEntry[] {
   const keys = useEveryEntryKey();
+  const shown = usePrimaryInSpace();
   const select = useCallback(
     (reader: SidebarReader) =>
       ids.flatMap((id): SettledEntry[] => {
+        if (!shown && machineRow(id) === undefined) return [];
         const entry = reader.thread(id);
         return entry ? [{ id, at: activityOf(entry), project: entry.workspaceId }] : [];
       }),
-    [ids],
+    [ids, shown],
   );
   return useSidebar(keys, select, itemsEqual) ?? noSettled;
 }
@@ -295,10 +302,13 @@ const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>
 export function useProjects(): ProjectCount[] {
   const keys = useEveryEntryKey();
   const read = useEntries();
+  const shown = usePrimaryInSpace();
   const select = useCallback(
     (reader: SidebarReader) =>
-      reader.homeWindow?.counts ?? reader.window?.counts ?? projectCounts(read(reader)),
-    [read],
+      shown
+        ? (reader.homeWindow?.counts ?? reader.window?.counts ?? projectCounts(read(reader)))
+        : noProjects,
+    [read, shown],
   );
   return useSidebar(keys, select, countsEqual) ?? noProjects;
 }

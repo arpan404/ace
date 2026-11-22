@@ -101,10 +101,14 @@ function showEditor(target: EditorPanelTarget, next: EditorLayout): void {
     workspace.open &&
     findTab(workspace, editorKind) !== undefined &&
     shownTab(workspace)?.key === editorKind;
+  // The first file into an editor that showed only its explorer is an opening too.
+  const hadFile = groupsOf(editorLayoutOf(workspace)).some((group) => group.tabs.length > 0);
+  const hasFile = groupsOf(next).some((group) => group.tabs.length > 0);
   target.actions.open({ kind: editorKind, data: next });
-  // Asked once per opening of the editor, never while it already shows (a tab switch, the next
-  // file): a width the person dragged since is kept.
-  if (!showing && workspace.dock !== "bottom" && !workspace.expanded) {
+  // Asked once per opening, never while a file already shows (a tab switch, the next file): a
+  // width the person dragged since is kept.
+  const opening = !showing || (!hadFile && hasFile);
+  if (opening && hasFile && workspace.dock !== "bottom" && !workspace.expanded) {
     const width = workspace.size ?? target.preferred?.() ?? editorRoom;
     if (width < editorRoom) target.actions.setSize(editorRoom, true);
   }

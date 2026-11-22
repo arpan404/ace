@@ -85,6 +85,17 @@ module.exports = {
       to: { path: `${web}features/[^/]+/.+`, pathNot: `${web}features/[^/]+/index\\.ts$` },
     },
     {
+      name: "quick-open-stays-light",
+      severity: "error",
+      comment:
+        "⌘P draws at once: quick open's chunk never reaches the code editor, its Wasm, the highlighter or the workbench view, which load with the Editor panel. Open files through files/editor-open.ts.",
+      from: { path: `${web}features/panels/files/quick-open\\.tsx$` },
+      to: {
+        path: `${web}features/(editor|editor-workbench)/|packages/(editor|markit-web)/|@ace/(editor|markit-web)`,
+        reachable: true,
+      },
+    },
+    {
       name: "foundation-not-features",
       severity: "error",
       comment: "components/, lib/, theme/, styles/ and boot/ sit below every feature.",

@@ -21,13 +21,16 @@ import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
 import { scopeNames, useScopeMachines } from "./device-filter.tsx";
-import { usePrimaryMachine } from "@/lib/machines.ts";
+import { usePrimaryInSpace, usePrimaryMachine } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList, useSettledEntries } from "./use-home-threads.ts";
 import { useSettledSearch, useThreadHits, type SearchHit } from "./use-panel-search.ts";
 import { FoundHits } from "./found-row.tsx";
 import { PanelPagingContext, usePanelRows } from "./use-panel-rows.ts";
 import { ThreadsTabs } from "./threads-tabs.tsx";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
+import { useEmptyOrgSpace, useSpaceChecking } from "./org-space-empty.ts";
+import { possessive } from "@/features/ace-account/index.ts";
 import { PanelTitleSearch } from "@/components/ui/panel-title-search.tsx";
 import {
   useOrganizer,
@@ -64,7 +67,8 @@ export function HomeSidebar() {
   const own = usePrimaryMachine().id;
   const asked = useThreadHits(query);
   // Only this machine's daemon searches: another machine's threads match by title alone.
-  const found = inScope(device, own) ? asked : noHits;
+  const ownShown = usePrimaryInSpace();
+  const found = ownShown && inScope(device, own) ? asked : noHits;
   const list = useHomeList(others, query, found);
   // Settled also lists older settled threads the search found that the list hasn't paged in.
   const settledShown = useSettledEntries(list.settled);
@@ -77,7 +81,11 @@ export function HomeSidebar() {
   const deviceName = scopeNames(useScopeMachines(device));
   useThreadsWindowSync();
   const organizer = useOrganizer();
-  const loaded = useSidebarLoaded();
+  // While a chosen organization is checked, no space's rows are drawn (ADR 0206 §1.5).
+  const checking = useSpaceChecking();
+  const loaded = useSidebarLoaded() && !checking;
+  const emptyOrg = useEmptyOrgSpace();
+  const space = spaceKey(useSpaceScope());
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
   const { rows, paging, onNearEnd } = usePanelRows({
@@ -132,6 +140,13 @@ export function HomeSidebar() {
         )}
         {!loaded ? (
           skeleton && <ListSkeleton label="threads" shape="thread" />
+        ) : empty && emptyOrg && none && !narrowed && !searching ? (
+          <EmptyState
+            className="shrink-0 justify-start pt-6"
+            icon={TrayIcon}
+            title={`No projects in ${emptyOrg} yet`}
+            description={`Projects on ${possessive(emptyOrg)} machines show here.`}
+          />
         ) : empty && searching ? (
           <div className="px-2">
             <PanelNoMatch>No threads match.</PanelNoMatch>
@@ -179,6 +194,8 @@ export function HomeSidebar() {
           <PanelPagingContext value={paging}>
             <FoundHits value={older.hits}>
               <ThreadList
+                // A new space draws its own list at once: no row of the last one fades out here.
+                key={space}
                 rows={rows}
                 needsYou={list.needsYou}
                 pinned={list.pinned}

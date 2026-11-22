@@ -1,3 +1,4 @@
+import { tabChosenEvent, type TabChosen } from "./named-events.ts";
 import { firstTab, tabForKey } from "./tab-keys.ts";
 
 /*
@@ -5,6 +6,8 @@ import { firstTab, tabForKey } from "./tab-keys.ts";
  * arrow, Home and End keys choose a tab; only the chosen one takes Tab focus, as tab lists do.
  * The root gets `data-enhanced` once the tabs work, so its styles can hide the tabs until then
  * and show every panel without the script.
+ *
+ * A choice the visitor makes dispatches `ace:tab-chosen` from the root, for analytics.
  *
  * Expects `[role="tab"]` buttons with `data-tab="<name>"` and `[role="tabpanel"]` in the same
  * order.
@@ -25,13 +28,23 @@ export function startTabs(root: HTMLElement, wanted?: string): void {
     if (focus) tabs[index]?.focus();
   };
 
+  const list = root.querySelector('[role="tablist"]')?.getAttribute("aria-label") ?? "";
+  const announce = (index: number) => {
+    const detail: TabChosen = { list, tab: tabs[index]?.dataset.tab ?? "" };
+    root.dispatchEvent(new CustomEvent(tabChosenEvent, { bubbles: true, detail }));
+  };
+
   tabs.forEach((tab, index) => {
-    tab.addEventListener("click", () => choose(index, false));
+    tab.addEventListener("click", () => {
+      choose(index, false);
+      announce(index);
+    });
     tab.addEventListener("keydown", (event) => {
       const next = tabForKey(event.key, index, tabs.length);
       if (next === undefined) return;
       event.preventDefault();
       choose(next, true);
+      announce(next);
     });
   });
 

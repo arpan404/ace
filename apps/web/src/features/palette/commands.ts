@@ -33,7 +33,7 @@ import { entryRoute, pageTitle, settingsIndex } from "@/features/settings/index.
 import { views, type View } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { useMachines } from "@/lib/machines.ts";
+import { useMachinesInSpace } from "@/lib/machines.ts";
 import {
   useFocusedScope,
   useScopeWorkspace,
@@ -112,7 +112,7 @@ export function usePaletteGroups(
   const newThread = useNewThreadEntry();
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();
-  const machines = useMachines();
+  const machines = useMachinesInSpace();
   // More than one project to choose from: here, or on another of the person's machines.
   const several = directory.projects.length > 1 || machines.length > 1;
   // Spade and the Marketplace are listed only while Settings › Beta has them on.

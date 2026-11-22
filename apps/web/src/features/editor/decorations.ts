@@ -3,7 +3,7 @@ import { visualColumn } from "./geometry.ts";
 
 /*
  * What the decoration layer draws, worked out for the visible lines only: other occurrences of
- * the word at the caret, indentation guide levels and whitespace marks. Each function reads the
+ * the word at the caret or of the selected text, indentation guide levels and whitespace marks. Each function reads the
  * lines on screen (plus a bounded look past the edge for guides), never the whole document.
  */
 
@@ -44,6 +44,34 @@ export function wordOccurrences(
         out.push({ start: { line, column: from }, end: { line, column: end } });
       if (out.length >= occurrenceCap) return out;
       from = text.indexOf(word, end);
+    }
+  }
+  return out;
+}
+
+/** The longest selection whose other occurrences are lit. */
+const selectionCap = 200;
+
+/**
+ * Every occurrence of the selected text on lines `first..last`, matched exactly (inside other
+ * words too). Empty for a selection over several lines, a long one, or only whitespace.
+ */
+export function selectionOccurrences(
+  lineAt: (line: number) => string,
+  first: number,
+  last: number,
+  selected: string,
+): Range[] {
+  const out: Range[] = [];
+  if (!selected.trim() || selected.length > selectionCap || selected.includes("\n")) return out;
+  for (let line = first; line < last; line++) {
+    const text = lineAt(line);
+    let from = text.indexOf(selected);
+    while (from !== -1) {
+      const end = from + selected.length;
+      out.push({ start: { line, column: from }, end: { line, column: end } });
+      if (out.length >= occurrenceCap) return out;
+      from = text.indexOf(selected, end);
     }
   }
   return out;

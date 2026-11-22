@@ -1,7 +1,8 @@
 import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
-import { cleanPath, fuzzyPositions, type FolderRow } from "@ace/ui-core";
+import type { FolderRow } from "@ace/ui-core";
 import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import type { ProviderKind } from "@ace/protocol";
+import { DiffStat } from "@/components/diff-stat.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
@@ -11,18 +12,21 @@ import { FileRowItems } from "./file-row-items.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 import type { TreeDrag } from "./use-tree-drag.ts";
-import { Highlighted } from "./highlighted-path.tsx";
-import { RenameField, type InlineRename } from "./file-tree-rename.tsx";
+import { MiddleName } from "./middle-name.tsx";
+import type { LineCounts } from "./use-line-counts.ts";
+import { RenameField, type RowField } from "./file-tree-rename.tsx";
 
 const rowClass =
-  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent";
+  "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset aria-selected:bg-active";
+
+const noPositions: readonly number[] = [];
 
 /** The marker before a status row's words, sized like a row's caret and icon. */
 function RowIndent() {
   return (
     <>
       <span aria-hidden className="size-4 shrink-0" />
-      <span aria-hidden className="size-3.5 shrink-0" />
+      <span aria-hidden className="size-4 shrink-0" />
     </>
   );
 }
@@ -41,8 +45,6 @@ export interface FileTreeRowViewProps {
   index: number;
   current: string | undefined;
   focusable: boolean;
-  searching: boolean;
-  query: string;
   online: boolean;
   dropTarget: string | undefined;
   /** `at`: a click's time, so a second click on a file soon after keeps it. */
@@ -66,25 +68,30 @@ export interface FileTreeRowViewProps {
   onHoverEnd(): void;
   onRetry(folder: string): void;
   onMore(folder: string): void;
-  /** This row is being renamed: its name is a field. */
-  renaming?: InlineRename | undefined;
+  /** This row is being renamed, or is a new entry being named: its name is a field. */
+  renaming?: RowField | undefined;
   /** The agent's mark, as the file's tab carries it. */
   mark?: RowMark | undefined;
+  /** A file's lines added and removed since the checkout's HEAD; folders carry none. */
+  counts?: LineCounts | undefined;
 }
 
-function rowDescription(cut: boolean, mark: RowMark | undefined): string | undefined {
-  const changed = mark && `Changed by ${mark.name} · ${mark.age}`;
-  if (cut) return changed ? `Cut. ${changed}` : "Cut";
-  return changed;
+function rowDescription(
+  cut: boolean,
+  mark: RowMark | undefined,
+  counts: LineCounts | undefined,
+): string | undefined {
+  const parts = [
+    cut && "Cut",
+    mark && `Changed by ${mark.name} · ${mark.age}`,
+    counts && `${counts.additions} added, ${counts.deletions} removed since the last commit`,
+  ].filter((part) => typeof part === "string");
+  return parts.length ? parts.join(". ") : undefined;
 }
 
 /** One row of the lazy checkout tree: an entry, or a folder's Loading, error or Show more line. */
 export function FileTreeRowView(props: FileTreeRowViewProps) {
   const { row, index } = props;
-  const positions = props.searching
-    ? (fuzzyPositions(props.query.trim(), cleanPath(row.key)) ?? [])
-    : [];
-  const nameStart = cleanPath(row.key).length - row.name.length;
   const indent = { paddingLeft: 4 + row.depth * 12 };
   if (row.kind === "loading")
     return (
@@ -96,7 +103,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
-        className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
+        className="flex h-7 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
         style={indent}
       >
         <RowIndent />
@@ -113,7 +120,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-setsize={props.place?.size}
         tabIndex={-1}
         data-part="tree-status"
-        className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
+        className="flex h-7 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
         style={indent}
       >
         <RowIndent />
@@ -131,7 +138,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
     );
   if (row.kind === "more") return <MoreRow row={row} index={index} props={props} indent={indent} />;
   const folder = row.kind === "folder";
-  if (props.renaming)
+  const field = props.renaming;
+  if (field)
     return (
       <div
         role="treeitem"
@@ -142,21 +150,23 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         data-path={row.key}
         data-row={row.key}
         style={indent}
-        className="flex min-h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui"
+        className="flex min-h-7 w-full min-w-0 items-center gap-1.5 pr-2 text-ui"
       >
         <span aria-hidden className="size-4 shrink-0" />
         <Icon
           icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
-          size={14}
-          className="shrink-0 self-start mt-2 text-subtle-foreground"
+          size={16}
+          className="mt-1.5 shrink-0 self-start text-subtle-foreground"
         />
         <RenameField
-          name={row.name}
+          name={field.name ?? (row.chain ? (row.name.split("/").at(-1) ?? row.name) : row.name)}
           folder={folder}
-          onCommit={props.renaming.commit}
+          label={field.label}
+          onCommit={field.commit}
           onCancel={(keyboard) => {
-            props.renaming?.cancel();
-            if (keyboard) requestAnimationFrame(() => props.onRefocus(row.key));
+            field.cancel();
+            const back = field.refocus ?? row.key;
+            if (keyboard) requestAnimationFrame(() => props.onRefocus(back));
           }}
         />
       </div>
@@ -175,6 +185,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         data-variant={folder ? "folder" : "file"}
         data-path={row.key}
         data-row={row.key}
+        data-chain={row.chain?.join(" ")}
         data-ignored={row.ignored || undefined}
         aria-level={row.depth + 1}
         aria-posinset={props.place?.position}
@@ -182,7 +193,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-expanded={folder ? row.expanded : undefined}
         aria-busy={folder && row.busy ? true : undefined}
         aria-selected={props.selected}
-        aria-description={rowDescription(props.cut, props.mark)}
+        aria-description={rowDescription(props.cut, props.mark, folder ? undefined : props.counts)}
         tabIndex={props.focusable ? 0 : -1}
         title={
           props.mark ? `${row.key}, changed by ${props.mark.name} · ${props.mark.age}` : row.key
@@ -213,10 +224,9 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           {folder && (
             <CaretRightIcon
               aria-hidden
-              size={10}
-              weight="bold"
+              size={12}
               className={cn(
-                "text-subtle-foreground transition-transform duration-(--motion-fast)",
+                "text-faint-foreground transition-[transform,color] duration-(--motion-fast) group-hover/file:text-subtle-foreground",
                 row.expanded && "rotate-90",
               )}
             />
@@ -224,12 +234,15 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         </span>
         <Icon
           icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
-          size={14}
-          className="text-subtle-foreground"
+          size={16}
+          className="shrink-0 text-subtle-foreground"
         />
-        <span className="min-w-0 truncate">
-          <Highlighted text={row.name} offset={nameStart} positions={positions} />
-        </span>
+        <MiddleName text={row.name} offset={0} positions={noPositions} />
+        {props.counts && !folder && (
+          <span aria-hidden data-part="line-counts" className="ml-auto shrink-0 pl-1.5">
+            <DiffStat {...props.counts} />
+          </span>
+        )}
         {props.mark && (
           <span
             aria-hidden

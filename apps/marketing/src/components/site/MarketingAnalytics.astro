@@ -1,0 +1,12 @@
+---
+/*
+ * Loads PostHog when the build has a project key. There is no banner: the script decides how
+ * much to measure, and the footer's recording button changes it.
+ */
+---
+
+<script>
+  import { setupMarketingAnalytics } from "../../scripts/marketing-analytics.ts";
+
+  void setupMarketingAnalytics().catch(() => {});
+</script>

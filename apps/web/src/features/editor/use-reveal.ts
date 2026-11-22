@@ -46,6 +46,8 @@ export function useReveal(options: {
   lineHeight: number;
   wrap: boolean;
   viewport: { width: number; height: number };
+  /** Pixels at the top a floating widget (find) covers: a revealed line lands below them. */
+  coveredTop?: () => number;
   onScroll(scroll: { top: number; left: number }): void;
 }): {
   caretBox(position: Position, side: boolean): { left: number; top: number };
@@ -53,6 +55,7 @@ export function useReveal(options: {
   reveal(position: Position, side: boolean): boolean;
 } {
   const { doc, layout, scroller, gutter, cell, lineHeight, wrap, viewport, onScroll } = options;
+  const { coveredTop } = options;
   const box = useCallback(
     (position: Position, side: boolean): { left: number; top: number } =>
       caretBox(doc, layout, position, gutter, cell, lineHeight, side),
@@ -69,7 +72,8 @@ export function useReveal(options: {
       const caret = box(position, side);
       const heightNow = element.clientHeight || viewport.height;
       let top = element.scrollTop;
-      if (caret.top < top) top = caret.top;
+      const topInset = coveredTop?.() ?? 0;
+      if (caret.top < top + topInset) top = Math.max(0, caret.top - topInset);
       else if (caret.top + lineHeight > top + heightNow) top = caret.top + lineHeight - heightNow;
       // Wrapped lines have no right edge to reach: no horizontal scroll, whatever the caret's x.
       let left = element.scrollLeft;
@@ -95,6 +99,7 @@ export function useReveal(options: {
       wrap,
       viewport.height,
       viewport.width,
+      coveredTop,
       onScroll,
     ],
   );

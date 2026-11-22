@@ -133,6 +133,8 @@ export function harness(
         clock,
         hostId: machine.hostId,
         displayName: machine.name,
+        // Its full-text search finds its own threads, not the catalog this daemon answers with.
+        searchCorpus: "titles",
         ...(machine.scopes ? { deviceScopes: { "test-device": machine.scopes } } : {}),
         ...(machine.projectIdentity === false ? { projectIdentity: false as const } : {}),
         ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),

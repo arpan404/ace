@@ -1,5 +1,6 @@
 ---
 import geistLatin from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
+import MarketingAnalytics from "../components/site/MarketingAnalytics.astro";
 import { product } from "../content/product.ts";
 import { cardFor } from "../seo/cards.ts";
 import "../styles/global.css";
@@ -124,5 +125,6 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
   </head>
   <body>
     <slot />
+    <MarketingAnalytics />
   </body>
 </html>
