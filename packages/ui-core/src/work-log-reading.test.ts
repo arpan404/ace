@@ -1,10 +1,10 @@
-import { Item, type ToolCall } from "@ace/protocol";
-import { expect, test } from "vitest";
+import { AgentStatus, Item, type ToolCall } from "@ace/protocol";
+import { describe, expect, test } from "vitest";
 import { changedFileChips } from "./file-changes.ts";
 import { groupSteps } from "./step-groups.ts";
 import { shownStep, stepGlyphKind } from "./step-shown.ts";
 import { describeStep } from "./work-log.ts";
-import { readWorkLog } from "./work-log-reading.ts";
+import { readWorkLog, thinksBetweenSteps } from "./work-log-reading.ts";
 
 const call = (id: string, detail: ToolCall["detail"], status: ToolCall["status"]): Item =>
   Item.parse({
@@ -116,4 +116,64 @@ test("a thought with words is its own row while it streams and joins the steps o
   expect(during.groups.map((group) => group.ids)).toEqual([["a"], ["t"]]);
   const done = readWorkLog([read, thinking("t", "Check the caller", true)], new Set());
   expect(groupSteps(done.facts, during).groups.map((group) => group.ids)).toEqual([["a", "t"]]);
+});
+
+const words = (id: string, complete: boolean, type: "message" | "reasoning" = "message") =>
+  Item.parse(
+    type === "message"
+      ? { id, agentId: "root", createdAt: 0, complete, type, role: "assistant", parts: [] }
+      : { id, agentId: "root", createdAt: 0, complete, type, text: "" },
+  );
+const threadOf = (status: AgentStatus, order: readonly string[]) => ({
+  thread: { rootAgentId: "root" },
+  order,
+  agent: (id: string) => (id === "root" ? { status } : undefined),
+});
+const between = (
+  status: AgentStatus,
+  items: readonly Item[],
+  order: readonly string[] = items.map((item) => item.id),
+) =>
+  thinksBetweenSteps(
+    threadOf(status, order),
+    items.map((item) => item.id),
+    readWorkLog(items, new Set()),
+  );
+
+describe("the live log thinks between steps", () => {
+  const ran = call("ran", { kind: "shell", command: "rg steer", exitCode: 0 }, "succeeded");
+  const running = call("running", { kind: "shell", command: "bun run typecheck" }, "running");
+  const planning: AgentStatus = { state: "working", activity: "starting_turn" };
+
+  test("once a call ends and nothing follows yet, the model is thinking", () => {
+    // Antigravity sends no thought before its next call: only its state says it is working.
+    expect(between(planning, [ran])).toBe(true);
+  });
+
+  test("a call in flight is the step shown, not thinking", () => {
+    const status = AgentStatus.parse({ state: "working", activity: "tool", itemId: "running" });
+    expect(between(status, [ran, running])).toBe(false);
+  });
+
+  test("a reply still arriving is the step shown, not thinking", () => {
+    expect(between({ state: "working", activity: "responding" }, [ran, words("say", false)])).toBe(
+      false,
+    );
+  });
+
+  test("a thought with no words yet already stands as the thinking row", () => {
+    expect(
+      between({ state: "working", activity: "thinking" }, [ran, words("t", false, "reasoning")]),
+    ).toBe(false);
+  });
+
+  test("only the log holding the thread's newest item thinks", () => {
+    // An earlier log of the same turn, before a steer the person sent.
+    expect(between(planning, [ran], ["ran", "steer"])).toBe(false);
+  });
+
+  test("a turn that is over or waits on the person is not thinking", () => {
+    expect(between({ state: "idle" }, [ran])).toBe(false);
+    expect(between({ state: "blocked", on: "human", refs: [] }, [ran])).toBe(false);
+  });
 });
