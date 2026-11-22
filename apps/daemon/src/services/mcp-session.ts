@@ -98,6 +98,7 @@ export async function bindMcpSession(
     const clearGoal = session.clearGoal?.bind(session);
     const backgroundTools = session.backgroundTools?.bind(session);
     return {
+      ...(session.steerViaCancel ? { steerViaCancel: session.steerViaCancel } : {}),
       get sessionConfirmed() {
         return session.sessionConfirmed ?? true;
       },
@@ -111,6 +112,10 @@ export async function bindMcpSession(
       },
       get acpSupport() {
         return session.acpSupport;
+      },
+      ...(session.refusedOptions ? { refusedOptions: session.refusedOptions } : {}),
+      get permissionMode() {
+        return session.permissionMode;
       },
       ...(session.mcp ? { mcp: session.mcp } : {}),
       ...(configure ? { configure } : {}),

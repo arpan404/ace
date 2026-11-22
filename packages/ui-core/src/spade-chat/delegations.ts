@@ -86,12 +86,13 @@ export function spadeTreeWorkers(
 }
 
 /**
- * The card's heading: "Started 4 agents" while any works or waits, "4 agents ran" once all have
- * ended (never while one still runs, AGENTS.md priority 1).
+ * The card's heading, as ace names a thread's children: "3 subagents running" while any works
+ * or waits on the person, "3 subagents ran" once every one has ended (never while one still
+ * runs, AGENTS.md priority 1).
  */
 export function spadeWorkersTitle(states: readonly SubagentState[]): string {
-  const count = pluralCount(states.length, "agent");
-  return states.length > 0 && states.every(subagentTerminal) ? `${count} ran` : `Started ${count}`;
+  const count = pluralCount(states.length, "subagent");
+  return states.length > 0 && states.every(subagentTerminal) ? `${count} ran` : `${count} running`;
 }
 
 /** The workers across the chat's cards that wait on the person now, oldest first, once each. */

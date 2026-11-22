@@ -87,7 +87,7 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
           </div>
         )}
         <ProfileSection label="Activity" bare>
-          <SpadeActivity bot={bot} />
+          <SpadeActivity bot={bot} scope="computer" />
         </ProfileSection>
       </>
     );
@@ -196,7 +196,7 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
         ) : view === "services" ? (
           <BotServices bot={bot} services={services} />
         ) : (
-          <SpadeActivity bot={bot} />
+          <SpadeActivity bot={bot} scope="computer" />
         )}
       </div>
     </>

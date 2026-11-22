@@ -31,6 +31,7 @@ import { antigravityIdentity, bindCursorSdk, createInstance } from "@ace/account
 import { activateCursorProvider } from "./cursor-activation.ts";
 import { adapterWarning, type ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
+import { readSilenceMs, watchSilenceSetting } from "./silence-setting.ts";
 import { recoverOnFreshReadings } from "./limit-recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { accessDefaults } from "../engine/access-defaults.ts";
@@ -318,11 +319,29 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   }
   const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const aceAction = engineOptions.aceToolAction ?? services.mcp?.action;
+  const silenceSetting =
+    engineOptions.silenceMs === undefined && engineOptions.resolveSilenceMs === undefined
+      ? services.settings
+      : undefined;
+  let initialSilenceMs: number | undefined;
+  if (silenceSetting) {
+    try {
+      initialSilenceMs = await readSilenceMs(store, silenceSetting, {});
+    } catch (error) {
+      log.log("warn", "Reading threads.unresponsiveAfter failed", logError(error));
+    }
+  }
   const engine = new Engine(store, {
     ...(config.providerIdleMs === undefined ? {} : { idleMs: config.providerIdleMs }),
     ...acp,
     agentHome: config.dataDir,
     ...engineOptions,
+    ...(initialSilenceMs === undefined ? {} : { silenceMs: initialSilenceMs }),
+    ...(silenceSetting
+      ? {
+          resolveSilenceMs: (scope) => readSilenceMs(store, silenceSetting, scope),
+        }
+      : {}),
     registry,
     providersActivated: activation.settled,
     waitForProvider:
@@ -480,6 +499,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         log.log("warn", `Stopping settled thread ${thread} failed`, logError(error))),
   });
   resources.own(() => engine.close(), "provider sessions");
+  if (silenceSetting) {
+    try {
+      resources.own(
+        await watchSilenceSetting({
+          store,
+          settings: silenceSetting,
+          engine,
+          report: (error) => log.log("warn", "Silence threshold update failed", logError(error)),
+        }),
+      );
+    } catch (error) {
+      log.log("warn", "Watching threads.unresponsiveAfter failed", logError(error));
+    }
+  }
   // Turns deferred while maintenance held new work start when it reopens.
   const stopReopen = context.maintenance?.onReopen(() => engine.admissionReopened());
   if (stopReopen) resources.own(() => stopReopen());

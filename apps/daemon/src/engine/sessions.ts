@@ -77,6 +77,8 @@ interface SessionDependencies {
   ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
   /** Readies the thread's model catalog row, before its model is chosen. */
   catalog?(threadId: ThreadId): Promise<void>;
+  /** Syncs the thread's silence threshold from settings before a session opens. */
+  syncSilence?(threadId: ThreadId): Promise<void>;
   /** The daemon's data dir, given to the agent's shell as `ACE_HOME`. */
   agentHome?: string;
   /** Errors from work no command waits for (a live access change). */
@@ -332,6 +334,13 @@ export class Sessions {
     const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
     if (actor.session && ownLive) return;
     await this.dependencies.waitForProvider?.(stateBefore.config.provider);
+    if (this.dependencies.syncSilence) {
+      try {
+        await this.dependencies.syncSilence(actor.id);
+      } catch (error) {
+        this.dependencies.report?.(error);
+      }
+    }
     await this.dependencies.repo.store.writable();
     if (this.dependencies.closing() || this.dependencies.repo.cleaning(actor.id))
       throw new Error("Thread is closing");

@@ -7,8 +7,9 @@
 //! - a command outside the sandbox the shell classifier reads as a payment, a send or an access
 //!   change;
 //! - a command asking to leave the sandbox this once: Full access never widens the sandbox;
-//! - a tool that declares nothing, outside the sandbox or able to reach the network: the person
-//!   decides once for the bot, as on the auto-review (its "yes" lets it run, never a send or payment the classifier raises);
+//! - a tool that declares nothing, outside the sandbox or able to reach the network, while
+//!   untrusted content is in view (ADR 0202, amendment 5). Without that content it goes to the
+//!   reviewer, as on the auto-review, unless the person allowed it;
 //!
 //! And what still goes to the reviewer: a connector's or plugin's tool that writes and can reach
 //! the network (it acts on a server, often with the person's sign-in or a token; a sandbox that
@@ -45,13 +46,19 @@ pub(super) fn route(call: Call<'_>) -> Route {
         }
         _ => {}
     }
-    // A tool that declares nothing asks once, as on the auto-review; the person's "yes" lets it
-    // run below like a declared write, never past the classifier.
+    // A tool that declares nothing goes as on the auto-review (ADR 0202, amendment 5): the
+    // person's "no" refuses it, untrusted content in view brings it to them, and otherwise the
+    // reviewer judges it. It never runs on the classifier's say alone; only the person's "yes"
+    // or their Always allow for its app lets it run below, still past the classifier.
     if call.effect.is_none() {
         let route = super::undeclared(call);
         if route != Route::Run {
             return route;
         }
+    }
+    // A read only its name vouches for, under untrusted content: the reviewer, as in every mode.
+    if call.effect == Some(Effect::Read) && call.guessed && call.tainted {
+        return super::review(call, Some(super::GUESSED_READ));
     }
     // An app's tool that writes runs on a server outside any sandbox, often as the person.
     // Sandboxed or not: containing its files doesn't contain what it does as the person.

@@ -235,6 +235,12 @@ const entries = [
     keywords: ["delegate", "children", "subagents", "parallel", "concurrency", "queue", "limit"],
   },
   {
+    id: "threads.unresponsiveAfter",
+    page: "/settings/agents",
+    title: agentSettingTitles["threads.unresponsiveAfter"],
+    keywords: ["timeout", "silence", "unresponsive", "stopped responding", "thinking"],
+  },
+  {
     id: "threads.useWorktree",
     page: "/settings/agents",
     title: agentSettingTitles["threads.useWorktree"],

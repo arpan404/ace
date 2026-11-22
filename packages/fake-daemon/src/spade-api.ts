@@ -375,7 +375,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     callId: string,
     name: string,
     args: unknown,
-    ask: "undeclared" | "outside_sandbox" | "drive",
+    ask: "undeclared" | "outside_sandbox" | "drive" | "app",
     app?: string,
   ): void {
     this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask, app });

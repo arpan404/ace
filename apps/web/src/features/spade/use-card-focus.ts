@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from "react";
+import { focusOnBehalf } from "@/lib/auto-focus.ts";
 
 const control =
   '[role="radio"]:not([disabled]), [role="checkbox"]:not([aria-disabled="true"]), input:not([disabled]), textarea:not([disabled]), [contenteditable="true"]';
@@ -33,7 +34,8 @@ export function useCardFocus(card: RefObject<HTMLElement | null>, page: number):
     const active = document.activeElement;
     if (typing(active) && !element.contains(active)) return;
     const first = element.querySelector<HTMLElement>(control);
-    (first ?? element).focus({ preventScroll: true });
+    // On the person's behalf: no ring until they press a key (lib/auto-focus.ts).
+    focusOnBehalf(first ?? element);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `page` asks again.
   }, [card, page]);
   useEffect(() => {

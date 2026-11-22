@@ -160,6 +160,7 @@ export {
   withLongAutomations,
 } from "./scenarios/long-lists.ts";
 export { FakeSpadeApi } from "./spade-api.ts";
+export { fakeAskApp, type FakeAppAsk } from "./spade-app-asks.ts";
 export type { FakeSpadeAccess, FakeSpadeOrgBinding } from "./spade-org.ts";
 export { FakeSpadeWork, type FakeSpadeTask } from "./spade-work.ts";
 /** A file's revision as the fake Spade reads and checks it (cowork saves send it as `base`). */

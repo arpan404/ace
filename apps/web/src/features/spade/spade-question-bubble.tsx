@@ -141,6 +141,8 @@ function OpenCard(props: {
   const [page, setPage] = useState(0);
   const [sending, setSending] = useState<"send" | "defer" | "dismiss">();
   const [problem, setProblem] = useState<string>();
+  /** The problem is only what is still missing ("Pick one"): said quietly, not as a refusal. */
+  const [quiet, setQuiet] = useState(false);
   const at = Math.min(page, count - 1);
   const current = questions[at];
   const last = at === count - 1;
@@ -163,6 +165,7 @@ function OpenCard(props: {
     void props.onReply(item.callId, body).then((said) => {
       setSending(undefined);
       if (!said) return;
+      setQuiet(false);
       setProblem(said);
       // Spade names the question it refused: show that one.
       const named = spadeRefusedQuestion(said, count);
@@ -172,6 +175,7 @@ function OpenCard(props: {
   // The card turns to the question that needs more, so the reason needs no prompt of its own.
   const miss = (index: number, missing: string) => {
     setPage(index);
+    setQuiet(true);
     setProblem(`${missing}.`);
   };
   const send = (next = drafts) => {
@@ -245,11 +249,17 @@ function OpenCard(props: {
               onDraft={draft}
               onSubmit={advance}
               disabled={sending !== undefined}
-              refused={problem !== undefined}
+              refused={problem !== undefined && !quiet}
             />
           )}
           {problem && (
-            <p role="alert" className="text-xs leading-4 text-destructive">
+            <p
+              role="alert"
+              className={cn(
+                "text-xs leading-4",
+                quiet ? "text-muted-foreground" : "text-destructive",
+              )}
+            >
               {problem}
             </p>
           )}

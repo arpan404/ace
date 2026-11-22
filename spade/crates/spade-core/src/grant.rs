@@ -40,6 +40,21 @@ pub enum Scope {
     /// Driving pages of one site, by its host as a browser reads it (`github.com`). Never a
     /// sensitive one, and never a page whose path is.
     DriveSite { host: String },
+    /// One connected app's ordinary writes (ADR 0202, amendment 5): the person's "Always allow
+    /// for Notion". `app` is the connection's id; `tools` the tools it covers, by the name each is
+    /// offered under, each pinned to the definition (name, description, input schema) the person
+    /// saw. It covers only a tool Spade reads as an ordinary write (`create`, `update`, `edit`,
+    /// `append`, `add`, `set`, `insert` on the app's own content, with plain arguments), and only
+    /// while its definition is the one pinned here: a tool added or changed since isn't covered
+    /// until the person sees it. Never a payment, a send, an access change, a publish, a delete,
+    /// a driving step or anything Spade can't place. Only `writes: true` covers anything.
+    App {
+        app: String,
+        #[serde(default)]
+        writes: bool,
+        #[serde(default)]
+        tools: BTreeMap<String, String>,
+    },
 }
 
 /// A grant as stored.
@@ -93,6 +108,13 @@ pub enum Action<'a> {
     DriveSite {
         host: &'a str,
     },
+    /// A connected app's ordinary write: the connection's id, the tool as offered and its
+    /// definition now.
+    App {
+        app: &'a str,
+        tool: &'a str,
+        definition: &'a str,
+    },
 }
 
 /// Whether `scope` allows `action`.
@@ -130,6 +152,14 @@ pub fn covers(scope: &Scope, action: &Action<'_>) -> bool {
         (Scope::DriveSite { host }, Action::DriveSite { host: step }) => {
             crate::effect::drive::grantable_site(host).is_ok() && same_place(host, step)
         }
+        (
+            Scope::App { app, writes, tools },
+            Action::App {
+                app: a,
+                tool,
+                definition,
+            },
+        ) => *writes && app == a && tools.get(*tool).is_some_and(|pinned| pinned == definition),
         _ => false,
     }
 }
@@ -185,6 +215,20 @@ pub fn within(child: &Scope, parent: &Scope) -> bool {
         }
         (Scope::DriveApp { app }, Scope::DriveApp { app: pa }) => same_place(app, pa),
         (Scope::DriveSite { host }, Scope::DriveSite { host: ph }) => same_place(host, ph),
+        (
+            Scope::App { app, writes, tools },
+            Scope::App {
+                app: pa,
+                writes: pw,
+                tools: pt,
+            },
+        ) => {
+            app == pa
+                && writes == pw
+                && tools
+                    .iter()
+                    .all(|(tool, pinned)| pt.get(tool) == Some(pinned))
+        }
         _ => false,
     }
 }
@@ -252,6 +296,16 @@ pub fn check(scope: &Scope, never: &dyn Fn(&str) -> Option<&'static str>) -> Res
         Scope::DriveSite { host } => {
             pattern("host", host)?;
             crate::effect::drive::grantable_site(host).map_err(|why| refused_place(host, why))
+        }
+        Scope::App { app, writes, tools } => {
+            pattern("app", app)?;
+            if !writes || tools.is_empty() {
+                return Err(
+                    "an app's Always allow names the tools it covers, each as the person saw it"
+                        .to_owned(),
+                );
+            }
+            Ok(())
         }
     }
 }
