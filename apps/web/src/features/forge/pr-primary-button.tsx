@@ -134,6 +134,8 @@ export function PrPrimaryButton(props: {
         ? "Confirm merge?"
         : "Confirm auto-merge?"
       : text;
+  // Why it can't act, said once in quiet words beside it rather than only in its tooltip.
+  const reason = props.blocked?.split("\n")[0]?.split(". ")[0];
   const button = (
     <Button
       size="xs"
@@ -160,20 +162,30 @@ export function PrPrimaryButton(props: {
   // One wrapper whether or not it's blocked, so the button keeps its identity as state changes.
   // Blocked, the wrapper takes focus so its reason still reaches the keyboard.
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so a blocked button's reason reaches the keyboard
-            tabIndex={props.blocked ? 0 : undefined}
-            className="inline-flex rounded-sm focus-ring"
-          />
-        }
-      >
-        {button}
-      </TooltipTrigger>
-      <TooltipContent className="whitespace-pre-line">{props.blocked ?? shown}</TooltipContent>
-    </Tooltip>
+    <span className="inline-flex min-w-0 items-center gap-2">
+      {reason && (
+        <span
+          title={reason}
+          className="hidden max-w-80 truncate text-xs text-muted-foreground @min-[34rem]/pr:inline"
+        >
+          {reason}
+        </span>
+      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so a blocked button's reason reaches the keyboard
+              tabIndex={props.blocked ? 0 : undefined}
+              className="inline-flex rounded-sm focus-ring"
+            />
+          }
+        >
+          {button}
+        </TooltipTrigger>
+        <TooltipContent className="whitespace-pre-line">{props.blocked ?? shown}</TooltipContent>
+      </Tooltip>
+    </span>
   );
 }
 
