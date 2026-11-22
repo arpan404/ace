@@ -37,7 +37,7 @@ const homeKeys = (requests: number) => [
   requests ? `r requests ${requests}` : "r requests",
   "p projects",
   "s Spade",
-  "m Store",
+  "m Marketplace",
   ", settings",
   "d doctor",
   "? help",
@@ -49,7 +49,7 @@ const rowKeys = ["↵ attach", "← fold", "x stop", "z snooze", "e settle", "/ 
 const helpLines = [
   "↑↓ or j k move · ↵ attach · → its agents · ← fold",
   "/ filter by words · x stop (asks first) · z snooze · e settle",
-  "n new thread · r requests · p projects · s Spade · m Store",
+  "n new thread · r requests · p projects · s Spade · m Marketplace",
   ", settings · d doctor · q quit · any key closes this",
 ];
 

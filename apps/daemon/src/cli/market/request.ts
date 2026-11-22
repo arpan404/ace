@@ -42,7 +42,8 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
 const hints: Partial<Record<MarketError["code"], string>> = {
   signed_out: "Sign in with ace login, then run it again.",
   reauth: "Do this in the ace app signed in as you: the CLI can't prove it's you.",
-  person_grant: "Do this in an ace app you're signed in on: the Store takes it only from you.",
+  person_grant:
+    "Do this in an ace app you're signed in on: the Marketplace takes it only from you.",
   not_member:
     "Install from an organization's registry in an ace app signed in to that organization.",
   registry_trust: "Trust the organization's registry key in an ace app, on this machine.",
@@ -61,7 +62,7 @@ const sourceTurnedOff = (message: string) =>
 
 const turnedOff = (error: MarketError) =>
   error.code === "unavailable" &&
-  (error.message.startsWith("The Store is turned off") ||
+  (error.message.startsWith("The Marketplace is turned off") ||
     error.message.startsWith("The marketplace is turned off") ||
     sourceTurnedOff(error.message));
 
@@ -85,7 +86,7 @@ export function marketFailure(error: MarketError): CliFailure {
       : turnedOff(error)
         ? sourceTurnedOff(error.message)
           ? "Turn the source back on with ace store source on market."
-          : "Turn the Store on with ace feature on marketplace."
+          : "Turn the Marketplace on with ace feature on marketplace."
         : hints[error.code];
   return new CliFailure(outcome, message, error.scan ? { scan: error.scan } : undefined, {
     code,
