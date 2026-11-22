@@ -153,7 +153,7 @@ export class HostRuntime {
     scope = this.sendOptions,
     nativeRun?: Pick<SdkRunBoundary, "id">,
     /** A recovered event's own place in the store, which it covers once ace has it. */
-    recoveredSeq?: number,
+    recovered?: { seq: number; offset: string },
   ): Promise<void> {
     const options = this.options;
     if (!options) return;
@@ -199,9 +199,13 @@ export class HostRuntime {
         ...(scope?.commandId ? { commandId: scope.commandId } : {}),
         segment: scope?.segment ?? 0,
         ...(this.agent ? { agentId: this.agent.agentId } : {}),
-        ...(recoveredSeq === undefined
+        ...(recovered === undefined
           ? this.seams.stamp(kind, body, nativeRun?.id, this.sending)
-          : { ...(nativeRun ? { runId: nativeRun.id } : {}), eventSeq: recoveredSeq }),
+          : {
+              ...(nativeRun ? { runId: nativeRun.id } : {}),
+              eventSeq: recovered.seq,
+              eventOffset: recovered.offset,
+            }),
         kind,
         body: safe,
         ...(prepared.raw ? { raw: prepared.raw } : {}),
@@ -333,7 +337,8 @@ export class HostRuntime {
       );
       this.store = observeRunEvents(
         this.storeOwner.store,
-        (event) => this.seams.stored(event.runId, event.seq, storedMessage(event.payload)),
+        (event) =>
+          this.seams.stored(event.runId, event.seq, storedMessage(event.payload), event.offset),
         // The run's id reaches ace before the run exists: a crash in between leaves an id with
         // no run, which recovery reads as never admitted, without any catalog search.
         async (runId) => {
@@ -393,7 +398,7 @@ export class HostRuntime {
           found.body,
           undefined,
           found.runId ? { id: found.runId } : undefined,
-          found.kind === "recovered" ? found.seq : undefined,
+          found.kind === "recovered" ? { seq: found.seq, offset: found.offset } : undefined,
         );
       await this.batch?.flush();
       return { agentId: this.agent.agentId };

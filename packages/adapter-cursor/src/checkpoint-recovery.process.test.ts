@@ -151,7 +151,7 @@ async function recover(
   root: string,
   store: LocalAgentStore,
   recoverOptions: {
-    runs: { runId: string; through: number }[];
+    runs: { runId: string; through: number; afterOffset?: string }[];
     attempt?: {
       operationId: string;
       segment: number;
@@ -288,6 +288,32 @@ it("opening a long Cursor thread with a send in doubt does not read its run hist
       { kind: "admission", body: { operationId: "op", segment: 0, admitted: false } },
     ]);
     expect(reads).toEqual({ runLists: 0, eventLists: 0 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("a cut-off run's tail is read from where ace's record ends, not from the run's first event", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-tail-offset-")));
+  try {
+    const texts = Array.from({ length: 40 }, (_, index) => `t${index} `);
+    const { store, reads } = counted(
+      await storeWith(root, [{ runId: "long", status: "finished", texts }]),
+    );
+    const events = await store.runEvents.list({ runId: "long", limit: 100 });
+    const covered = events.items[37];
+    if (!covered) throw new Error("Missing event");
+    reads.eventLists = 0;
+    const { found } = await recover(root, store, {
+      runs: [{ runId: "long", through: covered.seq, afterOffset: covered.offset }],
+    });
+    expect(texts.slice(38).map((text) => text)).toEqual(
+      found.flatMap((item) =>
+        item.kind === "recovered" ? [JSON.stringify(item.body).match(/"text":"([^"]*)"/)?.[1]] : [],
+      ),
+    );
+    // Two events left, two per page: one page and the empty one after it, never the 40.
+    expect(reads.eventLists).toBeLessThanOrEqual(2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

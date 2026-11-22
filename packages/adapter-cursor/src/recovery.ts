@@ -30,7 +30,7 @@ const StreamEvent = z.object({ type: z.literal("sdk_message"), message: z.unknow
 /** One thing recovery found, in the order the host publishes it after its open frame. */
 export type Recovered =
   | { kind: "admission"; body: Record<string, unknown>; runId?: string }
-  | { kind: "recovered"; body: unknown; runId: string; seq: number }
+  | { kind: "recovered"; body: unknown; runId: string; seq: number; offset: string }
   | { kind: "recovery"; body: Record<string, unknown>; runId: string };
 
 type Recover = OpenOptions["recover"];
@@ -95,11 +95,16 @@ export function storedMessage(payload: unknown): unknown {
 async function tail(
   store: LocalAgentStore,
   runId: string,
-  { through, pending = [] }: { through: number; pending?: string[] | undefined },
+  {
+    through,
+    pending = [],
+    afterOffset: from,
+  }: { through: number; pending?: string[] | undefined; afterOffset?: string | undefined },
   limits: Limits,
-  push: (message: unknown, seq: number) => void,
+  push: (message: unknown, seq: number, offset: string) => void,
 ): Promise<void> {
-  let afterOffset: string | undefined;
+  // From the covered event's own offset when ace has it: only the tail is read, never the run.
+  let afterOffset: string | undefined = from;
   let events = 0;
   let lastSeq = 0;
   let waiting = 0;
@@ -129,7 +134,7 @@ async function tail(
           continue;
         }
       }
-      push(message, event.seq);
+      push(message, event.seq, event.offset);
     }
     if (!page.nextOffset || page.items.length === 0) return;
     if (page.nextOffset !== afterOffset) throw new Error("SDK run event cursor did not advance");
@@ -170,11 +175,21 @@ export async function recoverCursorCheckpoint(
   if (agent.agentId !== agentId || agent.cwd !== options.cwd)
     throw new Error("SDK checkpoint belongs to another workspace/agent");
   const recover = options.recover ?? { runs: [] };
-  type Seen = { through: number; pending?: string[] | undefined; legacy?: boolean | undefined };
+  type Seen = {
+    through: number;
+    afterOffset?: string | undefined;
+    pending?: string[] | undefined;
+    legacy?: boolean | undefined;
+  };
   const through = new Map<string, Seen>(
     recover.runs.map((run) => [
       run.runId,
-      { through: run.through, pending: run.pending, legacy: run.legacy },
+      {
+        through: run.through,
+        afterOffset: run.afterOffset,
+        pending: run.pending,
+        legacy: run.legacy,
+      },
     ]),
   );
   // Unreadable, the agent counts as touched since any attempt: the catalog decides.
@@ -223,8 +238,8 @@ export async function recoverCursorCheckpoint(
     // An earlier build's frames say nothing of the SDK's events: replaying any would show
     // again what ace already has, so the run's outcome comes back without its content.
     if (!seen.legacy)
-      await tail(store, run.runId, seen, options.limits, (message, seq) =>
-        push({ kind: "recovered", body: message, runId: run.runId, seq }),
+      await tail(store, run.runId, seen, options.limits, (message, seq, offset) =>
+        push({ kind: "recovered", body: message, runId: run.runId, seq, offset }),
       );
     push({
       kind: "recovery",

@@ -16,6 +16,7 @@ const Progress = z.object({
   segment: z.number().int().nonnegative(),
   runId: z.string().min(1).max(512).optional(),
   eventSeq: z.number().int().nonnegative().optional(),
+  eventOffset: z.string().min(1).max(512).optional(),
   pendingEvents: z
     .array(z.string().regex(/^[a-f0-9]{64}$/))
     .max(64)
@@ -33,6 +34,7 @@ export type Unsettled = NonNullable<NonNullable<SessionContext["resume"]>["unset
 /** How far ace's record of one run reaches into the SDK's stored events. */
 interface Seam {
   through: number;
+  offset?: string;
   pending: string[];
   /** Seen only in frames an earlier build stored, which say nothing of the SDK's events. */
   legacy: boolean;
@@ -50,6 +52,7 @@ export class UnsettledRuns {
     runId: string,
     eventSeq: number | undefined,
     pending: string[] | undefined,
+    offset?: string,
   ): void {
     const seam = this.runs.get(runId) ?? {
       through: 0,
@@ -60,12 +63,17 @@ export class UnsettledRuns {
       this.runs.set(runId, seam);
       return;
     }
-    this.runs.set(runId, { through: eventSeq, pending: pending ?? [], legacy: false });
+    this.runs.set(runId, {
+      through: eventSeq,
+      pending: pending ?? [],
+      legacy: false,
+      ...(offset ? { offset } : {}),
+    });
   }
   add(data: unknown): void {
     const frame = Progress.safeParse(data);
     if (!frame.success) return;
-    const { kind, runId, eventSeq, pendingEvents, body } = frame.data;
+    const { kind, runId, eventSeq, eventOffset, pendingEvents, body } = frame.data;
     if (kind === "send") {
       const attempted = Attempted.safeParse(body);
       this.attempt = attempted.success
@@ -92,7 +100,7 @@ export class UnsettledRuns {
       const id = admitted.success ? admitted.data.nativeRunId : runId;
       if (id) {
         this.current = id;
-        this.advance(id, eventSeq, pendingEvents);
+        this.advance(id, eventSeq, pendingEvents, eventOffset);
       }
       return;
     }
@@ -116,12 +124,13 @@ export class UnsettledRuns {
       this.attempt = undefined;
       this.current = runId;
     }
-    this.advance(runId, eventSeq, pendingEvents);
+    this.advance(runId, eventSeq, pendingEvents, eventOffset);
   }
   result(): Unsettled {
     const runs = [...this.runs].slice(-64).map(([runId, seam]) => {
       const run: Unsettled["runs"][number] = { runId, through: seam.through };
       if (seam.pending.length) run.pending = seam.pending;
+      if (seam.offset) run.afterOffset = seam.offset;
       if (seam.legacy) run.legacy = true;
       return run;
     });

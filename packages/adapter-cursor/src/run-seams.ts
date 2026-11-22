@@ -12,6 +12,8 @@ export interface Coverage {
   through: number;
   /** Updates ace framed whose events the SDK has not stored yet, oldest first. */
   pending: string[];
+  /** The SDK's own offset of event `through`, to read on from there. */
+  offset?: string;
 }
 
 /**
@@ -27,12 +29,16 @@ export class EventCoverage {
   private stored: { seq: number; identity: string }[] = [];
   private pending: string[] = [];
   private last = 0;
+  /** Offsets of the events past the covered point, and of the covered one. */
+  private offsets = new Map<number, string>();
   private advance(): void {
     this.through = this.stored.length ? (this.stored[0]?.seq ?? 1) - 1 : this.last;
+    for (const seq of this.offsets.keys()) if (seq < this.through) this.offsets.delete(seq);
   }
   /** The SDK stored an event. */
-  storedEvent(seq: number, message: unknown): void {
+  storedEvent(seq: number, message: unknown, offset?: string): void {
     this.last = Math.max(this.last, seq);
+    if (offset !== undefined && this.offsets.size < 4096) this.offsets.set(seq, offset);
     const identity = storedIdentity(message);
     if (identity !== undefined) {
       // Paired by identity, in order: updates framed before the one this event is for, whose
@@ -57,7 +63,8 @@ export class EventCoverage {
     this.advance();
   }
   coverage(): Coverage {
-    return { through: this.through, pending: [...this.pending] };
+    const offset = this.offsets.get(this.through);
+    return { through: this.through, pending: [...this.pending], ...(offset ? { offset } : {}) };
   }
 }
 
@@ -81,9 +88,9 @@ export class RunSeams {
     return coverage;
   }
   /** The SDK stored `message` as event `seq` of `runId`. */
-  stored(runId: string, seq: number, message: unknown): void {
+  stored(runId: string, seq: number, message: unknown, offset?: string): void {
     this.current = runId;
-    this.run(runId).storedEvent(seq, message);
+    this.run(runId).storedEvent(seq, message, offset);
   }
   /** A new send: until its run stores an event, no content belongs to an earlier run. */
   sending(): void {
@@ -105,7 +112,12 @@ export class RunSeams {
     if (!run) return {};
     const coverage = this.run(run);
     if (kind === "delta") coverage.framed(body);
-    const { through, pending } = coverage.coverage();
-    return { runId: run, eventSeq: through, ...(pending.length ? { pendingEvents: pending } : {}) };
+    const { through, pending, offset } = coverage.coverage();
+    return {
+      runId: run,
+      eventSeq: through,
+      ...(offset ? { eventOffset: offset } : {}),
+      ...(pending.length ? { pendingEvents: pending } : {}),
+    };
   }
 }

@@ -40,6 +40,8 @@ export const Envelope = z
     raw: RawPayload.optional(),
     /** Every stored event of the run up to this sequence is in ace's frames (run-seams.ts). */
     eventSeq: z.number().int().nonnegative().max(100_000_000).optional(),
+    /** The SDK's offset of event `eventSeq`: recovery reads on from there. */
+    eventOffset: z.string().min(1).max(512).optional(),
     /** Updates framed so far whose events the SDK has not stored yet (run-seams.ts). */
     pendingEvents: z
       .array(z.string().regex(/^[a-f0-9]{64}$/))
@@ -65,6 +67,8 @@ export const Open = z.strictObject({
             runId: identity,
             /** The last stored event ace's record covers. */
             through: z.number().int().nonnegative(),
+            /** The SDK's offset of event `through`, when ace has it. */
+            afterOffset: z.string().min(1).max(512).optional(),
             /** Updates ace committed whose events come after it, oldest first. */
             pending: z
               .array(z.string().regex(/^[a-f0-9]{64}$/))
