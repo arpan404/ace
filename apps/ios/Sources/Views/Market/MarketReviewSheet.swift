@@ -51,8 +51,8 @@ struct MarketReviewSheet: View {
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { foot }
             // Where the person has scrolled, not what has rendered: the end counts only once it
             // is in view above the foot, with every row shown so far.
-            .onScrollGeometryChange(for: ScrollEnd.self) { geometry in
-                ScrollEnd(atEnd: MarketReviewState.atEnd(offsetY: geometry.contentOffset.y,
+            .onScrollGeometryChange(for: ReviewScrollEnd.self) { geometry in
+                ReviewScrollEnd(atEnd: MarketReviewState.atEnd(offsetY: geometry.contentOffset.y,
                                                          containerHeight: geometry.containerSize.height,
                                                          insetBottom: geometry.contentInsets.bottom,
                                                          contentHeight: geometry.contentSize.height),
@@ -202,7 +202,7 @@ struct MarketReviewSheet: View {
 
 /// Whether the content's end is in view, and how tall the content is: rows arriving change the
 /// height, so they are reported even while the end stays in view, and count as seen only then.
-private struct ScrollEnd: Equatable {
+private struct ReviewScrollEnd: Equatable {
     let atEnd: Bool
     let height: CGFloat
 }
