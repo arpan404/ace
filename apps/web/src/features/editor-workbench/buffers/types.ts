@@ -111,6 +111,11 @@ export interface BufferSnapshot {
   /** False when the draft could not be stored on the device (storage full or unavailable). */
   draftKept: boolean;
   saving: boolean;
+  /**
+   * A Revert landed: only the person's own Save writes the file now (auto save leaves it), until
+   * they save or the text is read again.
+   */
+  manualSave: boolean;
   /** The disk version the buffer is based on. */
   version: string | undefined;
 }
@@ -177,9 +182,14 @@ export interface TextBuffer {
   edited(): void;
   /**
    * Lands whole-line changes the person asked for (a hunk revert) as one undoable edit through a
-   * mounted view, leaving the buffer unsaved. False when there is no document.
+   * mounted view, leaving the buffer unsaved. With `manualSave`, the file waits for the person's
+   * own Save: it is marked before the edit runs, so the view's edit callbacks already see it.
+   * False when there is no document.
    */
-  editLines(changes: readonly { start: number; end: number; text: string }[]): boolean;
+  editLines(
+    changes: readonly { start: number; end: number; text: string }[],
+    options?: { manualSave?: boolean },
+  ): boolean;
   save(): Promise<SaveOutcome>;
   /**
    * The explicit answer to a clash on save: write the buffer over the disk version the person

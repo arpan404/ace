@@ -83,6 +83,8 @@ export class Buffer implements TextBuffer {
   /** The buffer text a conflict's blocks were cut from. */
   #conflictMine = "";
   #draftKept = true;
+  /** A Revert landed: the person's own Save writes the file. */
+  #manualSave = false;
   #saving: Promise<SaveOutcome> | undefined;
   #cancelDraft: (() => void) | undefined;
   /** Draft writes and deletes, started when asked and applied in order. */
@@ -120,6 +122,7 @@ export class Buffer implements TextBuffer {
       clash: this.#clash,
       draftKept: this.#draftKept,
       saving: this.#saving !== undefined,
+      manualSave: this.#manualSave,
       version: this.#base?.version,
     };
   }
@@ -166,9 +169,16 @@ export class Buffer implements TextBuffer {
     }, this.#ctx.draftDelay);
   }
 
-  editLines(changes: readonly { start: number; end: number; text: string }[]): boolean {
+  editLines(
+    changes: readonly { start: number; end: number; text: string }[],
+    options?: { manualSave?: boolean },
+  ): boolean {
     const doc = this.#doc;
     if (!doc) return false;
+    if (options?.manualSave && !this.#manualSave) {
+      this.#manualSave = true;
+      this.#emit({ type: "state" });
+    }
     const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
     landLineChanges(doc, changes, through && ((run) => through.edit(run)));
     this.edited();
@@ -476,6 +486,7 @@ export class Buffer implements TextBuffer {
         }
         this.#base = { text, version: result.version };
         this.#clash = undefined;
+        this.#manualSave = false;
         this.#conflictMine = "";
         if (doc.version() === at) this.#markClean();
         else this.#unclean();
@@ -557,6 +568,7 @@ export class Buffer implements TextBuffer {
     this.#doc = doc;
     this.#base = base;
     this.#dirty = dirty;
+    this.#manualSave = false;
     this.#cleanAt = dirty ? Number.NaN : doc.version();
     this.#clash = clash;
     this.bytes = utf8Length(text);

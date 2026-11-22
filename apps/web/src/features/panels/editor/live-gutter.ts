@@ -160,7 +160,7 @@ export class LiveGutter {
       return false;
     }
     const change = revertChange(hunk, (line) => doc.line(line), doc.lenLines(), doc.lineEnding());
-    if (!change || !this.#buffer.editLines([change])) return false;
+    if (!change || !this.#buffer.editLines([change], { manualSave: true })) return false;
     this.edited();
     return true;
   }

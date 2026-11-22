@@ -148,7 +148,7 @@ export function useTurnReview(input: {
     const now = doc && turnHunk && locateHunk(turnHunk, (line) => doc.line(line), doc.lenLines());
     const change =
       now && doc && revertChange(now, (line) => doc.line(line), doc.lenLines(), doc.lineEnding());
-    if (!now || !change || !buffer.editLines([change])) return;
+    if (!now || !change || !buffer.editLines([change], { manualSave: true })) return;
     gutter.edited();
     finish(now);
   };
