@@ -183,6 +183,9 @@ export class AttachmentTray {
   retry(localId: string): void {
     const file = this.#files.get(localId);
     if (!file || file.state !== "failed" || file.refused || this.#locked) return;
+    // The broken upload is cancelled first: the daemon won't start a thread from a draft that
+    // still holds an unfinished one.
+    const broken = file.uploadId;
     Object.assign(file, {
       state: "uploading",
       progress: 0,
@@ -191,7 +194,10 @@ export class AttachmentTray {
       abort: new AbortController(),
     } satisfies Partial<Staged>);
     this.#publish();
-    void this.#upload(file);
+    void (async () => {
+      if (broken) await this.#ask({ op: "upload.cancel", uploadId: broken }).catch(() => {});
+      if (!file.abort.signal.aborted) await this.#upload(file);
+    })();
   }
 
   /** Take a file off the message: an upload stops, a held file is released. */
