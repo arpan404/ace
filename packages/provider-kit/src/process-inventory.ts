@@ -182,7 +182,14 @@ export class ProcessInventory implements ProcessJournal {
         // An identity the kernel won't give proves nothing either way: unresolved, below.
         current = undefined;
       }
-      if (!this.runtime.alive(entry.group)) {
+      const alive = this.groupAlive(entry.group);
+      if (alive === undefined) {
+        // The kernel refused the probe (macOS does this while a group exits). Only ESRCH proves
+        // a group gone, so keep its evidence for a later recovery instead of failing startup.
+        unresolved++;
+        continue;
+      }
+      if (!alive) {
         this.remove(entry.pid);
         removed++;
         continue;
@@ -205,6 +212,15 @@ export class ProcessInventory implements ProcessJournal {
       killed++;
     }
     return { removed, killed, unresolved };
+  }
+  /** Liveness of a recorded group, or undefined when the kernel refuses to say (EPERM). */
+  private groupAlive(group: number): boolean | undefined {
+    try {
+      return this.runtime.alive(group);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EPERM") return undefined;
+      throw error;
+    }
   }
   close(): void {
     this.closed = true;

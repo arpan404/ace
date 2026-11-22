@@ -320,7 +320,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   try {
     const recovered = inventory.recover();
-    // A group whose leader is gone can't be proven the last run's: left alone, but said.
+    // A group whose leader is gone, or that the kernel refuses to probe while it exits, can't be
+    // proven the last run's or proven gone: left alone, kept for a later recovery, and said.
     if (recovered.unresolved > 0 && process.platform !== "win32")
       log.log(
         "warn",
