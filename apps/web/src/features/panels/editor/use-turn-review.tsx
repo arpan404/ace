@@ -110,6 +110,7 @@ export function useTurnReview(input: {
     return () => {
       live = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the gutter's state moves with the text: map again after each pause.
   }, [turnText, buffer, marks]);
   /** Where each hunk is now, and whether its origin is proven (so Revert may act on it). */
   const find = (
