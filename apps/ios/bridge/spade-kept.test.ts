@@ -22,7 +22,11 @@ function converse(api: FakeSpadeApi, bot: FakeSpadeAgent, exchanges: number, fro
  * One launch of the app on a machine whose Spade holds `history`: the bot's conversation, and
  * history reads held back while `hold` is set, as a slow relay holds them.
  */
-async function launch(keep: SpadeKeep, history: (api: FakeSpadeApi, bot: FakeSpadeAgent) => void) {
+async function launch(
+  keep: SpadeKeep,
+  history: (api: FakeSpadeApi, bot: FakeSpadeAgent) => void,
+  scope = alice,
+) {
   let bot: FakeSpadeAgent | undefined;
   const held: (() => void)[] = [];
   const gate = { hold: false };
@@ -37,7 +41,7 @@ async function launch(keep: SpadeKeep, history: (api: FakeSpadeApi, bot: FakeSpa
       };
     },
     quick,
-    { keep },
+    { keep, scope },
     // Both launches' Spade holds the same history, stamped alike.
     () => 1_000,
   );
@@ -49,6 +53,11 @@ async function launch(keep: SpadeKeep, history: (api: FakeSpadeApi, bot: FakeSpa
   };
   return { ...host, bot, gate, reads, release };
 }
+
+/** Two principals on the same machine and phone (`KeptScope.swift`): two accounts, say. */
+const alice = "a".repeat(64);
+const bob = "b".repeat(64);
+const quiet = () => new Promise((resolve) => setTimeout(resolve, 200));
 
 const texts = (rows: readonly { kind: string; text?: string }[]) =>
   rows.flatMap((row) => (row.kind === "person" || row.kind === "bot" ? [row.text] : []));
@@ -90,7 +99,8 @@ test("an 800-event conversation kept from the last launch shows at once and read
   expect(new Set(next.patches.held.get("spade:order")?.order as string[]).size).toBe(402);
   // What it keeps for the next launch is the whole history, the tail after the kept events.
   next.spade.stop();
-  const saved = JSON.parse(keep.held.get(`spade-events/${next.bot.conversation}`) ?? "[]");
+  await quiet();
+  const saved = JSON.parse(keep.held.get(`spade-events/${alice}/${next.bot.conversation}`) ?? "[]");
   expect(saved.map((stored: { seq: number }) => stored.seq)).toEqual(
     Array.from({ length: 804 }, (_, index) => index + 1),
   );
@@ -151,4 +161,45 @@ test("a reply kept while it was being written reads as neither going nor done un
   next.release();
   await until(() => (next.patches.head?.answering === true ? true : undefined));
   await until(() => (next.patches.bubbles.some((row) => row.kind === "ask") ? true : undefined));
+});
+
+test("another account's kept conversation never shows, and the store keeps none of it", async () => {
+  const keep = memoryKeep();
+  const first = await launch(keep, (api, bot) => converse(api, bot, 3));
+  first.spade.handle({ type: "spade.open", conversationId: first.bot.conversation });
+  await until(() => (first.patches.bubbles.length === 6 ? true : undefined));
+  first.spade.stop();
+  await quiet();
+  expect([...keep.held.keys()].some((key) => key.includes(alice))).toBe(true);
+
+  const other = await launch(keep, (api, bot) => converse(api, bot, 3), bob);
+  other.gate.hold = true;
+  other.spade.handle({ type: "spade.open", conversationId: other.bot.conversation });
+  await quiet();
+
+  expect(other.patches.bubbles).toEqual([]);
+  expect([...keep.held.keys()].some((key) => key.includes(alice))).toBe(false);
+  other.release();
+  await until(() => (other.patches.bubbles.length === 6 ? true : undefined));
+  expect(other.reads()[0]).toBe(
+    `/v1/conversations/${other.bot.conversation}/events?after=0&limit=200`,
+  );
+});
+
+test("a kept conversation shows only once the machine has taken who the phone signs in as", async () => {
+  const keep = memoryKeep();
+  const first = await launch(keep, (api, bot) => converse(api, bot, 3));
+  first.spade.handle({ type: "spade.open", conversationId: first.bot.conversation });
+  await until(() => (first.patches.bubbles.length === 6 ? true : undefined));
+  first.spade.stop();
+
+  const next = await launch(keep, (api, bot) => converse(api, bot, 3));
+  next.daemon.refuseConnections(true);
+  await until(() => next.owner.state !== "ready");
+  next.spade.handle({ type: "spade.open", conversationId: next.bot.conversation });
+  await quiet();
+
+  expect(next.patches.bubbles).toEqual([]);
+  next.daemon.refuseConnections(false);
+  await until(() => (next.patches.bubbles.length === 6 ? true : undefined));
 });

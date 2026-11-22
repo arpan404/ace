@@ -9,7 +9,13 @@ import {
 } from "@ace/ui-core/spade-chat";
 import type { PatchSink } from "./agents.ts";
 import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
-import { keptStored, SpadeKeptEvents, type SpadeKeep } from "./spade-kept-events.ts";
+import {
+  claimKept,
+  keptKey,
+  keptStored,
+  SpadeKeptEvents,
+  type SpadeKeep,
+} from "./spade-kept-events.ts";
 import { spadeKeptHead, spadeKeptRows } from "./spade-kept-rows.ts";
 import { SpadeRowCache } from "./spade-row-cache.ts";
 import { spadeConversationHead } from "./spade-rows.ts";
@@ -42,8 +48,15 @@ export interface SpadeOpenHost {
   approvers(bot: string): string | null;
   /** Read the bots again now, so a row settles once its conversation is seen. */
   readList(): void;
-  /** Where opened conversations' events are kept between launches; none keeps them this run only. */
+  /** Where opened conversations' events are kept between launches; none keeps none. */
   keep: SpadeKeep | undefined;
+  /** Whose they are: the principal this connection signs in as, on this machine (`KeptScope`). */
+  scope: string | undefined;
+  /**
+   * `callback` once this connection is signed in (now, if it is): kept events are someone's
+   * conversation, never shown before the machine has taken who the phone says it is.
+   */
+  whenAuthenticated(callback: () => void): () => void;
 }
 
 /** The conversation open on the phone: a bot's, or a group's. */
@@ -71,7 +84,12 @@ export class SpadeOpenChat {
 
   constructor(host: SpadeOpenHost) {
     this.host = host;
-    this.kept = new SpadeKeptEvents(host.keep, host.later, (id) => `spade-events/${id}`);
+    const { keep, scope } = host;
+    // Only for a known principal, and only once the store holds no one else's.
+    this.kept =
+      keep && scope
+        ? new SpadeKeptEvents(keep, host.later, (id) => keptKey(scope, id), claimKept(keep, scope))
+        : new SpadeKeptEvents(undefined, host.later, (id) => id);
     this.live = new SpadeDaemonLive(host.owner, host.id);
     this.workers = new SpadeWorkerWatch(host.owner, () => this.publish());
     this.tree = new SpadeWorkerTree({ read: (path) => this.read(path), later: host.later }, () =>
@@ -162,7 +180,9 @@ export class SpadeOpenChat {
     const follow = new SpadeConversationFollow(recorder.link, conversationId, deps);
     const untrack = track(follow);
     const unreset = follow.onReset(() => recorder.reset());
+    let waiting = nothing;
     const stop = () => {
+      waiting();
       unreset();
       untrack();
       recorder.stop();
@@ -171,14 +191,16 @@ export class SpadeOpenChat {
     // The list says how far its history goes, so a first open reads its pages at once.
     follow.expect(this.botOf(conversationId)?.lastMessage?.seq ?? 0);
     this.publish();
-    void this.kept.load(conversationId).then((log) => {
-      if (this.open?.follow !== follow) return;
-      if (log) {
-        recorder.adopt(log);
-        follow.seed(keptStored(log));
-      }
-      begin(follow);
-      this.publish();
+    waiting = this.host.whenAuthenticated(() => {
+      void this.kept.load(conversationId).then((log) => {
+        if (this.open?.follow !== follow) return;
+        if (log) {
+          recorder.adopt(log);
+          follow.seed(keptStored(log));
+        }
+        begin(follow);
+        this.publish();
+      });
     });
   }
 
@@ -291,3 +313,6 @@ function sameOrder(a: readonly string[], b: readonly string[]): boolean {
   for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
   return true;
 }
+
+/** Nothing to undo. */
+const nothing = () => {};

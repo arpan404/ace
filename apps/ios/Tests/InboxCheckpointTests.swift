@@ -161,11 +161,12 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let database = ClientModel.database(hostId: "host", deviceId: "device", in: directory)
         // As the bridge keeps it (`spade-checkpoint.ts`), with a conversation it never restores.
+        let scope = try #require(try target().keptScope)
         try InboxCheckpoint.writeSpade(try json([
             ["type": "spade.state", "shown": true, "line": line, "host": "host",
              "list": ["rows": [bot("Spade", main: true), bot("Research")], "failed": false]],
             ["type": "spade.conversation", "id": "c1", "loaded": true, "answering": true],
-        ]), database: database)
+        ]), database: database, scope: scope)
         let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
 
         await model.connect(target: try target(), directory: directory)
@@ -182,6 +183,24 @@ import Testing
 
         model.receive(try json([["type": "spade.state", "shown": false, "line": line, "list": ["rows": NSNull(), "failed": false]]]))
         #expect(model.spade.shown == false)
+    }
+
+    @Test func anotherPrincipalsKeptSpadeNeverShowsAndIsRemoved() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = ClientModel.database(hostId: "host", deviceId: "device", in: directory)
+        // Kept by another account on this phone: the same machine and device, another principal.
+        let other = KeptScope.of(principal: KeptScope.account(token: "someone else"), hostId: "host")
+        try InboxCheckpoint.writeSpade(try json([
+            ["type": "spade.state", "shown": true, "line": line, "list": ["rows": [bot("Private")], "failed": false]],
+        ]), database: database, scope: other)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
+
+        await model.connect(target: try target(), directory: directory)
+
+        #expect(model.spade.shown == nil)
+        #expect(model.spade.bots == nil)
+        #expect(!FileManager.default.fileExists(atPath: InboxCheckpoint.spadeURL(database: database, scope: other).path))
     }
 
     @Test func anotherRouteToTheSameMachineKeepsTheSpadeTabWhileItReconnects() async throws {

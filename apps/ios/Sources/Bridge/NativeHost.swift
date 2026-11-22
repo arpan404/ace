@@ -121,7 +121,9 @@ final class NativeHost: @unchecked Sendable {
                     return ""
                 }
                 if operation == "spade.checkpoint" {
-                    try InboxCheckpoint.writeSpade(try request.requireBody(), database: storageURL)
+                    // Kept only for whoever this connection signs in as (`KeptScope`).
+                    guard let scope = target?.keptScope else { throw HostError.unsupported }
+                    try InboxCheckpoint.writeSpade(try request.requireBody(), database: storageURL, scope: scope)
                     return ""
                 }
                 if store == nil { store = try DurableStore(url: storageURL) }

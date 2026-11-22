@@ -1,7 +1,7 @@
 import type { SpadeStatus } from "@ace/protocol";
 import type { SpadeAgent, SpadeGroup } from "@ace/ui-core/spade-chat";
 import type { SpadeHostingWire } from "./spade-hosting.ts";
-import { spadeListRows, spadePlaceLine, type SpadeReach } from "./spade-rows.ts";
+import { spadeListRows, spadePlaceLine, type SpadeListRow, type SpadeReach } from "./spade-rows.ts";
 
 /*
  * Spade as the phone draws it at its next launch, before this runtime starts
@@ -52,18 +52,25 @@ export function spadeCheckpoint(known: SpadeKnown): Record<string, unknown>[] {
       host: known.host,
       main: known.main,
       list: {
+        // Dimmed, as an away machine's: none of it is known to be current.
         rows: listed
-          ? spadeListRows(
-              known.agents ?? [],
-              known.groups ?? [],
-              known.machine,
-              { bots: unconfirmed, groups: unconfirmed },
-              known.hostId,
-              known.sharedIn,
+          ? dimmed(
+              spadeListRows(
+                known.agents ?? [],
+                known.groups ?? [],
+                known.machine,
+                { bots: unconfirmed, groups: unconfirmed },
+                known.hostId,
+                known.sharedIn,
+              ),
             )
           : null,
         failed: false,
       },
     },
   ];
+}
+
+function dimmed(rows: SpadeListRow[]): SpadeListRow[] {
+  return rows.map((row) => ({ ...row, faces: row.faces.map((face) => ({ ...face, away: true })) }));
 }

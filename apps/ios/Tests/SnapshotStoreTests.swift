@@ -16,6 +16,24 @@ import Testing
         #expect(try reopened.perform("snapshot.get", input: key("host/other")) == "")
     }
 
+    @Test func forgettingKeptSpadeRemovesEveryPrincipalsConversationsAndNothingElse() throws {
+        let database = try temporaryDatabase()
+        defer { try? FileManager.default.removeItem(at: database.deletingLastPathComponent()) }
+        let store = try SnapshotStore(database: database, now: Clock().now)
+        try store.perform("snapshot.set", input: keyed("spade-events/owner"), body: "\"a\"")
+        try store.perform("snapshot.set", input: keyed("spade-events/a/c1"), body: "[]")
+        try store.perform("snapshot.set", input: keyed("spade-events/b/c2"), body: "[]")
+        try store.perform("snapshot.set", input: keyed("host/sidebar"), body: "[1]")
+
+        SnapshotStore.forgetKeptSpade(database: database)
+
+        let reopened = try SnapshotStore(database: database, now: Clock().now)
+        for key in ["spade-events/owner", "spade-events/a/c1", "spade-events/b/c2"] {
+            #expect(try reopened.perform("snapshot.get", input: self.key(key)) == "")
+        }
+        #expect(try reopened.perform("snapshot.get", input: self.key("host/sidebar")) == "[1]")
+    }
+
     @Test func aThreadIsKeptAsOneRowPerItemAndAWriteChangesOnlyTheRowsItNames() throws {
         let database = try temporaryDatabase()
         defer { try? FileManager.default.removeItem(at: database.deletingLastPathComponent()) }

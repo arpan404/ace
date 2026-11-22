@@ -13,7 +13,12 @@ type Kept = { type: string; shown: boolean; list: { rows: SpadeListRow[] | null 
 /** The latest checkpoint the runtime wrote. */
 function written() {
   const writes: Kept[] = [];
-  return { writes, checkpoint: (json: string) => void writes.push(JSON.parse(json) as Kept) };
+  return {
+    writes,
+    checkpoint: (json: string) => void writes.push(JSON.parse(json) as Kept),
+    // Kept only for a known principal (`KeptScope.swift`).
+    scope: "a".repeat(64),
+  };
 }
 
 test("the next launch shows the Spade tab with the bots it last read, none working until read again", async () => {

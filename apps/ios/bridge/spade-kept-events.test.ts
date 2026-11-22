@@ -33,6 +33,8 @@ function slowSpade() {
 }
 
 const now = () => () => {};
+/** A save goes once the store is known to be this principal's: a tick later. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 const page = (link: SpadeFollowLink, after: number) =>
   link.read(`/v1/conversations/c1/events?after=${after}&limit=200`).catch(() => "");
 const savedSeqs = (keep: ReturnType<typeof memoryKeep>) =>
@@ -50,6 +52,7 @@ test("a page that arrives before the one ahead of it is kept only once that one 
   spade.answer(200, range(201, 400));
   await second;
   recorder.stop();
+  await settled();
   // The later page alone: nothing of it kept, since 1 to 200 aren't.
   expect(savedSeqs(keep)).toEqual([]);
 
@@ -61,6 +64,7 @@ test("a page that arrives before the one ahead of it is kept only once that one 
   spade.answer(0, range(1, 200));
   await firstAgain;
   again.stop();
+  await settled();
 
   expect(savedSeqs(keep)).toEqual(range(1, 400));
 });
@@ -94,6 +98,7 @@ test("the size cap counts what the phone stores, in UTF-8, for a log read back a
   const recorder = kept.record("c1", link);
   await page(recorder.link, 0);
   recorder.stop();
+  await settled();
 
   // Past the cap the copy goes, rather than keep a part of the history.
   expect(keep.held.get("c1")).toBe("[]");

@@ -14,7 +14,33 @@ import { parseSpadeStored, type SpadeFollowLink, type SpadeStored } from "@ace/u
 export interface SpadeKeep {
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
+  deletePrefix(prefix: string): Promise<void>;
 }
+
+/** Where every principal's kept events live: one record per principal and conversation. */
+const keptPrefix = "spade-events/";
+/** Whose kept events the store holds: only one principal's at a time. */
+const ownerKey = `${keptPrefix}owner`;
+
+/**
+ * The store's kept events for `scope` (`KeptScope.swift`: a principal on one machine): any other
+ * principal's (another account on this phone) are deleted first. What reads or writes kept
+ * events waits for this.
+ */
+export async function claimKept(keep: SpadeKeep, scope: string): Promise<void> {
+  try {
+    if ((await keep.get(ownerKey)) === scope) return;
+    await keep.deletePrefix(keptPrefix);
+    await keep.set(ownerKey, scope);
+  } catch {
+    // A cache: a store that can't be cleared isn't read either (`SpadeKeptEvents` waits on this).
+    throw new Error("Kept events couldn't be claimed.");
+  }
+}
+
+/** A conversation's record for `scope`. */
+export const keptKey = (scope: string, conversation: string) =>
+  `${keptPrefix}${scope}/${conversation}`;
 
 /** What `later` the store saves on. */
 type Later = (delay: number, callback: () => void) => () => void;
@@ -37,17 +63,28 @@ export class SpadeKeptEvents {
   private readonly keep: SpadeKeep | undefined;
   private readonly later: Later;
   private readonly key: (conversation: string) => string;
+  /** The store holds this principal's events only (`claimKept`); it is used once it does. */
+  private readonly claimed: Promise<void>;
 
-  constructor(keep: SpadeKeep | undefined, later: Later, key: (conversation: string) => string) {
+  constructor(
+    keep: SpadeKeep | undefined,
+    later: Later,
+    key: (conversation: string) => string,
+    claimed: Promise<void> = Promise.resolve(),
+  ) {
     this.keep = keep;
     this.later = later;
     this.key = key;
+    this.claimed = claimed;
+    // A store that couldn't be claimed is never read or written; nothing waits on it unhandled.
+    claimed.catch(() => {});
   }
 
   /** The events kept from an earlier open; none when there are none, or they can't be used. */
   async load(conversation: string): Promise<SpadeKeptLog | undefined> {
     let value: unknown;
     try {
+      await this.claimed;
       value = await this.keep?.get(this.key(conversation));
     } catch {
       return undefined;
@@ -73,9 +110,11 @@ export class SpadeKeptEvents {
     const save = () => {
       cancel?.();
       cancel = undefined;
-      if (!dirty || !this.keep) return;
+      const keep = this.keep;
+      if (!dirty || !keep) return;
       dirty = false;
-      void this.keep.set(this.key(conversation), over ? [] : raw.slice()).catch(() => {});
+      const value = over ? [] : raw.slice();
+      void this.claimed.then(() => keep.set(this.key(conversation), value)).catch(() => {});
     };
     const take = (event: unknown, size: number) => {
       raw.push(event);

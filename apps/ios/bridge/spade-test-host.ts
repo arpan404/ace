@@ -65,6 +65,8 @@ export async function setUp(
     keep?: SpadeKeep;
     /** Where the runtime keeps what the next launch draws first. */
     checkpoint?: (json: string) => void;
+    /** Whose kept state this connection sees (`KeptScope.swift`). */
+    scope?: string;
   } = {},
   /** The fake Spade's clock, for histories two launches must hold alike. */
   spadeNow: () => number = () => Date.now(),
@@ -124,7 +126,7 @@ export async function setUp(
       },
       new AbortController().signal,
     );
-  return { daemon, api, spade, patches, ask, stage, staged };
+  return { daemon, api, owner, spade, patches, ask, stage, staged };
 }
 
 /** The phone's snapshot store in memory, as JSON, so one launch's runtime leaves it to the next. */
@@ -137,6 +139,9 @@ export function memoryKeep(): SpadeKeep & { held: Map<string, string> } {
       return text === undefined ? undefined : (JSON.parse(text) as unknown);
     },
     set: async (key, value) => void held.set(key, JSON.stringify(value)),
+    deletePrefix: async (prefix) => {
+      for (const key of held.keys()) if (key.startsWith(prefix)) held.delete(key);
+    },
   };
 }
 

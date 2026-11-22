@@ -12,16 +12,19 @@ enum InboxCheckpoint {
 
     nonisolated static func url(database: URL) -> URL { URL(fileURLWithPath: database.path + suffix) }
     nonisolated static let suffix = "-inbox.json"
-    /// The Spade tab's kept state (`spade.checkpoint`).
-    nonisolated static let spadeSuffix = "-spade.json"
+    /// The Spade tab's kept state (`spade.checkpoint`), one file per principal (`KeptScope`).
+    nonisolated static let spadePrefix = "-spade"
+    nonisolated static func spadeURL(database: URL, scope: String) -> URL {
+        URL(fileURLWithPath: database.path + spadePrefix + "-" + scope + ".json")
+    }
 
     /// Replaces the kept copy whole: a reader sees the old file or the new one, never a mix.
     nonisolated static func write(_ json: String, database: URL) throws {
         try write(json, to: url(database: database))
     }
-    /// Replaces the kept Spade state whole, as `write` does the inbox.
-    nonisolated static func writeSpade(_ json: String, database: URL) throws {
-        try write(json, to: URL(fileURLWithPath: database.path + spadeSuffix))
+    /// Replaces the kept Spade state of `scope` whole, as `write` does the inbox.
+    nonisolated static func writeSpade(_ json: String, database: URL, scope: String) throws {
+        try write(json, to: spadeURL(database: database, scope: scope))
     }
     private nonisolated static func write(_ json: String, to file: URL) throws {
         let data = Data(json.utf8)
@@ -39,17 +42,40 @@ enum InboxCheckpoint {
     /// The kept patches, or none when there is no copy or it cannot be read.
     nonisolated static func read(database: URL) -> [BridgePatch] {
         // Only inbox patches: a copy can never restore a connection state or a thread.
-        let inbox = patches(at: url(database: database)).filter {
+        patches(at: url(database: database)).filter {
             switch $0 {
             case .inboxReset, .inbox, .inboxSections, .chatSections: true
             default: false
             }
         }
-        // Only Spade's state: never a conversation, which the runtime follows live.
-        let spade = patches(at: URL(fileURLWithPath: database.path + spadeSuffix)).filter {
+    }
+
+    /// Reads a machine's kept Spade state for whoever a connection signs in as (`KeptScope`).
+    typealias SpadeReader = @Sendable (URL, String?) async -> [BridgePatch]
+    nonisolated static let spadeBackground: SpadeReader = { database, scope in
+        await Task.detached(priority: .userInitiated) { readSpade(database: database, scope: scope) }.value
+    }
+
+    /// The Spade tab as `scope` last kept it: only its state, never a conversation, which the
+    /// runtime follows live. Every other principal's copy is removed on the way, so one account's
+    /// never shows for another's.
+    nonisolated static func readSpade(database: URL, scope: String?) -> [BridgePatch] {
+        removeSpade(database: database, keeping: scope)
+        guard let scope else { return [] }
+        return patches(at: spadeURL(database: database, scope: scope)).filter {
             if case .spade(.state) = $0 { true } else { false }
         }
-        return inbox + spade
+    }
+
+    /// Removes the machine's kept Spade state: every principal's but `scope`'s, or all of it.
+    nonisolated static func removeSpade(database: URL, keeping scope: String? = nil) {
+        let directory = database.deletingLastPathComponent()
+        let prefix = database.lastPathComponent + spadePrefix
+        let kept = scope.map { spadeURL(database: database, scope: $0).lastPathComponent }
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        where name.hasPrefix(prefix) && name != kept {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
     }
 
     private nonisolated static func patches(at file: URL) -> [BridgePatch] {

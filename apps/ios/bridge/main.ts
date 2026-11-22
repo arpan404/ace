@@ -94,6 +94,12 @@ const Config = z.object({
   account: z.strictObject({ link: PairingLinkProof.optional().catch(undefined) }).optional(),
   /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
   inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
+  /** Whose kept Spade state this connection may see and keep (`KeptScope.swift`). */
+  keptScope: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional()
+    .catch(undefined),
 });
 const Action = z.discriminatedUnion("type", [
   /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
@@ -377,6 +383,7 @@ async function start(json: string): Promise<void> {
     later: (delay, callback) => scheduler.set(delay, callback),
     // Opened conversations' events, so the next open shows at once and reads only the tail.
     ...(snapshots ? { keep: snapshots } : {}),
+    ...(config.keptScope ? { scope: config.keptScope } : {}),
     // The Spade tab as the next launch draws it first, before this runtime starts.
     checkpoint: (kept) => void call("spade.checkpoint", null, kept).catch(() => {}),
   });

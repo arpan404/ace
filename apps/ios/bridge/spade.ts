@@ -32,6 +32,11 @@ export interface SpadeDeps {
   keep?: SpadeKeep;
   /** Keeps what the next launch draws first, before its runtime starts (`spade-checkpoint.ts`). */
   checkpoint?(json: string): void;
+  /**
+   * Whose kept state this is: the principal the connection signs in as, on this machine
+   * (`KeptScope.swift`). Without one nothing is kept or shown from before.
+   */
+  scope?: string;
 }
 
 export const NativeSpadeAction = z.discriminatedUnion("type", [
@@ -121,6 +126,20 @@ export class NativeSpade {
       approvers: (bot) => this.sharing.approvers(bot),
       readList: () => this.list.read(),
       keep: deps.keep,
+      scope: deps.scope,
+      whenAuthenticated: (callback) => {
+        const connection = owner.connectionState();
+        if (connection.getSnapshot() === "ready") {
+          callback();
+          return () => {};
+        }
+        const stop = connection.subscribe(() => {
+          if (connection.getSnapshot() !== "ready") return;
+          stop();
+          callback();
+        });
+        return stop;
+      },
     });
     this.hosting = new SpadeHosting({
       read: (path) => spadeText(owner, deps.id, "GET", path),
@@ -294,7 +313,7 @@ export class NativeSpade {
   }
 
   private put() {
-    if (this.deps.checkpoint && !this.stopped) this.checkpoint.touch();
+    if (this.deps.checkpoint && this.deps.scope && !this.stopped) this.checkpoint.touch();
     const status = this.status;
     const { agents, groups } = this.list;
     this.sink.put("spade:state", () => ({
