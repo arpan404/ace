@@ -1,4 +1,5 @@
 import type { Decision, Operation, Resource } from "./decide.ts";
+import type { Principal } from "./principal.ts";
 
 /*
  * Live handles and queued effects under the access policy (ADR 0209 §4.2). A handle (a
@@ -14,8 +15,28 @@ export type BoundHandle = {
   operation: Operation;
   /** Fixed when the handle was made, never re-derived from a later request. */
   resource: Resource;
+  /**
+   * Who held it when it was made (`holderKey`): a socket that later proves someone else, even
+   * someone allowed the same, doesn't inherit it.
+   */
+  holder?: string | undefined;
   close(reason: string): void;
 };
+
+/** A key that names one principal and changes when the socket's principal does. */
+export function holderKey(principal: Principal): string {
+  switch (principal.kind) {
+    case "member":
+    case "admitted":
+      return `${principal.kind}:${principal.org}:${principal.account}`;
+    case "agent":
+      return `agent:${principal.root}`;
+    case "peer":
+      return `peer:${principal.capability.child}`;
+    default:
+      return principal.kind;
+  }
+}
 
 export class Handles {
   readonly #live = new Set<BoundHandle>();
@@ -32,12 +53,18 @@ export class Handles {
     return this.#live.size;
   }
 
-  /** Closes, and forgets, every handle `decide` no longer allows. Returns how many closed. */
-  revalidate(decide: Decider): number {
+  /**
+   * Closes, and forgets, every handle `decide` no longer allows, or that another principal than
+   * `holder` made. Returns how many closed.
+   */
+  revalidate(decide: Decider, holder?: string): number {
     let closed = 0;
     // Deleting the entry being visited is safe while iterating a Set.
     for (const handle of this.#live) {
-      const decision = decide(handle.operation, handle.resource);
+      const decision =
+        handle.holder !== undefined && handle.holder !== holder
+          ? ({ allowed: false, reason: "unproven" } as const)
+          : decide(handle.operation, handle.resource);
       if (decision.allowed) continue;
       this.#live.delete(handle);
       closed += 1;

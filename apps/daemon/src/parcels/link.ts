@@ -26,6 +26,11 @@ export interface ParcelLinkDeps {
    * before each route: an unlinked or re-paired machine is sent nothing more on any of them.
    */
   current(profile: RemoteProfile): boolean;
+  /**
+   * Whether this machine is an organization's host now (ADR 0209 §4.2): then no parcel call
+   * leaves it, by any route, whatever was queued before it was enrolled.
+   */
+  orgHost?(): boolean;
   relay: Pick<RelayLink, "call">;
   /** The paths the machine last said it serves (`describe`), kept across restarts. */
   paths(profile: RemoteProfile): MachinePath[];
@@ -74,6 +79,7 @@ export class ParcelLink {
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<unknown> {
+    this.refuseOnOrgHost();
     const { answer } = await this.machines.attempt(profile, this.machines.relays(profile), {
       send: (route) => this.once(profile, route, body, options),
       // A refusal is the machine's answer; a call that may have reached it isn't sent again; an
@@ -91,6 +97,7 @@ export class ParcelLink {
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<{ answer: unknown; route: RouteKind }> {
+    this.refuseOnOrgHost();
     try {
       return await this.machines.attempt(profile, this.machines.routes(profile), {
         send: (route) => this.once(profile, route, body, options),
@@ -109,6 +116,16 @@ export class ParcelLink {
         this.machines.forget(profile);
       throw error;
     }
+  }
+  /** An organization's host calls no other machine: final, so nothing retries it. */
+  private refuseOnOrgHost(): void {
+    if (this.deps.orgHost?.() === true)
+      throw new MachineFailure(
+        "refused",
+        "machine_forbidden",
+        "An organization's host sends no parcels to other machines.",
+        true,
+      );
   }
   private once(
     profile: RemoteProfile,

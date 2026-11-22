@@ -1,6 +1,7 @@
 import { CommandId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { tree, unplaced } from "./decide.ts";
 import { refusalMessage, socketGate } from "./gate.ts";
+import type { BoundHandle } from "./handles.ts";
 import type { PrincipalFacts } from "./principal.ts";
 import { socketResource } from "./socket-operations.ts";
 import type { TreeResolver } from "./trees.ts";
@@ -123,6 +124,16 @@ export function orgSocketPolicy(deps: {
         }),
       );
     },
+    /**
+     * Binds a live handle (a Spade request or stream, a terminal stream) to the socket's
+     * principal now and what it was allowed for; its release. A no-op on a person's machine.
+     */
+    bind(handle: Omit<BoundHandle, "holder">): () => void {
+      if (gate.personal()) return () => {};
+      return gate.handles.bind({ ...handle, holder: gate.holder() });
+    },
+    /** Who the socket is now, as a key a bound request must still match; undefined if personal. */
+    holder: (): string | undefined => (gate.personal() ? undefined : gate.holder()),
     /** Closes what the socket may no longer hold; a no-op on a person's machine. */
     revalidate(): void {
       if (!gate.personal()) gate.revalidate();

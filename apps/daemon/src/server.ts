@@ -536,7 +536,9 @@ export async function startServer(options: ServerOptions): Promise<{
         stillAdmitted() &&
         activeDevice(actor, auth.now()) &&
         (scope === "read" || scope === "operate") &&
-        actor.scopes.includes(scope)
+        actor.scopes.includes(scope) &&
+        // A member's standing, proven and current, every time it is asked (ADR 0209 §3).
+        org.speaks()
       );
     };
     const sessions = createServiceSessions({
@@ -578,6 +580,8 @@ export async function startServer(options: ServerOptions): Promise<{
       memberStandingChecked: () => memberStanding.checked(),
       orgHost: () => options.machineAccount?.accessOrg() !== undefined,
       spadeAuthorize,
+      bindHandle: (handle) => org.bind(handle),
+      holder: () => org.holder(),
       accountDevice: () => accountId,
       access: {
         auth,

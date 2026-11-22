@@ -40,7 +40,7 @@ const unpaired = () => {
  * every request that reached a route, direct or relayed, in `reached`.
  */
 function link(answers: Record<string, () => unknown> = {}) {
-  const state = { saved: true, reached: [] as string[] };
+  const state = { saved: true, orgHost: false, reached: [] as string[] };
   const answer = (url: string) => {
     state.reached.push(url);
     const reply = answers[url];
@@ -52,6 +52,7 @@ function link(answers: Record<string, () => unknown> = {}) {
     paths: () => paths,
     hosted: () => false,
     current: () => state.saved,
+    orgHost: () => state.orgHost,
     now: () => 1000,
   });
   return { parcels, state };
@@ -102,5 +103,25 @@ describe("a parcel push to a machine unlinked while it runs", () => {
       "https://100.64.0.2:5870/",
       "wss://relay.example.com/",
     ]);
+  });
+});
+
+describe("a parcel call from an organization's host", () => {
+  it("goes nowhere, on any route, once the machine is enrolled (ADR 0209 §4.2)", async () => {
+    const { parcels, state } = link();
+    // Before, a call reaches the machine.
+    await parcels.call(profile, chunk, timing);
+    expect(state.reached).not.toEqual([]);
+    state.reached.length = 0;
+    state.orgHost = true;
+    await expect(parcels.call(profile, chunk, timing)).rejects.toMatchObject({
+      kind: "refused",
+      refusal: "machine_forbidden",
+      final: true,
+    });
+    await expect(parcels.relays(profile, chunk, timing)).rejects.toMatchObject({
+      kind: "refused",
+    });
+    expect(state.reached).toEqual([]);
   });
 });

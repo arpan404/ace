@@ -1,5 +1,5 @@
 import { decide, unplaced, type Decision, type Operation, type Resource } from "./decide.ts";
-import { Handles } from "./handles.ts";
+import { Handles, holderKey } from "./handles.ts";
 import { principal, type Principal, type PrincipalFacts } from "./principal.ts";
 import { channelOperation, socketOperation, socketResource } from "./socket-operations.ts";
 import type { TreeResolver } from "./trees.ts";
@@ -65,6 +65,8 @@ export function socketGate(deps: {
     ask,
     handles,
     /** Closes every live handle the socket's current principal may no longer hold. */
-    revalidate: () => handles.revalidate(ask),
+    revalidate: () => handles.revalidate(ask, holderKey(current())),
+    /** The current principal's key, which a bound handle must still match. */
+    holder: () => holderKey(current()),
   };
 }
