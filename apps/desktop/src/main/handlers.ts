@@ -180,6 +180,7 @@ export function createHandlers(options: {
       };
     },
     session: (origin) => account.read(origin),
+    saveSession: (origin, token) => account.write(origin, token),
     accountOf,
     signInGrant: signInGrantReader(options.info),
     now: Date.now,
@@ -213,13 +214,10 @@ export function createHandlers(options: {
   return {
     "account.read": (origin) => account.read(origin),
     "account.write": async ({ origin, token }) => {
-      const previous = await account.read(origin).catch(() => null);
-      await account.write(origin, token);
-      // The device key follows the session (ADR 0190, amendment 1): signing out revokes it at
-      // the daemon, and a new session is a sign-in (rewriting the same one is not).
-      await (
-        token === null ? standing.signedOut(origin) : standing.signedIn(origin, token, previous)
-      ).catch(() => undefined);
+      // The session and the device key change together, one step at a time (ADR 0190,
+      // amendment 1): signing out writes the key's revocation before it clears the session, and
+      // a failure to write either reaches the page.
+      await standing.writeSession(origin, token);
       // The machine follows the app's account only where that moves no one's own sign-in
       // (`account-write.ts`); a failure here leaves the app signed in.
       void daemonAccount.followApp(origin).catch(() => {});

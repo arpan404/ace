@@ -2,6 +2,7 @@ import {
   APP_STANDING_MAX_SOCKETS,
   AppSocketTag,
   AppStandingChallengeRequest,
+  AppStandingRevoke,
   AppStandingStatement,
   type AppSocket as TaggedSocket,
   type AppStandingChallenge,
@@ -9,6 +10,7 @@ import {
 import {
   enrollAction,
   possessionMac,
+  revocationReceipt,
   socketsTarget,
   tagFresh,
   TAG_FRESH_MS,
@@ -68,18 +70,24 @@ const MAX_CHALLENGES = 64;
 export const ENROLL_SIGN_IN_MS = 10 * 60_000;
 
 export function appStandingDesk(deps: {
+  /** The wall clock: statements, sign-ins and a tag's own time are dated by it. */
   now(): number;
+  /** A clock that only moves forward (`performance.now`): how long a tag has been remembered. */
+  monotonic(): number;
   /** A fresh single-use nonce. */
   nonce(): string;
   machine(): AppStandingMachine | undefined;
 }) {
   const sockets = new Map<string, AppSocket>();
   /**
-   * Every tag a socket came with, until it can't be fresh again: a second socket with one gets
-   * nothing, and a tag older than that is refused for being stale, so none is ever forgotten
-   * while it could still be used.
+   * Every tag a socket came with, by when it was remembered (on the monotonic clock) and the
+   * time the tag itself carries. A second socket with one gets nothing. One is forgotten only
+   * after twice the freshness window has truly passed, and `horizon` then keeps the latest time
+   * any forgotten tag carried: no tag at or before it is ever taken again, whichever way the wall
+   * clock jumps.
    */
-  const seen = new Map<string, number>();
+  const seen = new Map<string, { at: number; made: number }>();
+  let horizon = 0;
   const challenges = new Map<string, number>();
   const take = (nonce: string): boolean => {
     const until = challenges.get(nonce);
@@ -128,11 +136,18 @@ export function appStandingDesk(deps: {
      * stale tag or one a socket already came with, which never takes a live socket's place.
      */
     attach(tag: string, socket: AppSocket): (() => void) | undefined {
-      const now = deps.now();
-      for (const [old, at] of seen) if (now - at > 2 * TAG_FRESH_MS) seen.delete(old);
-      if (!AppSocketTag.safeParse(tag).success || !tagFresh(tag, now) || seen.has(tag))
-        return undefined;
-      seen.set(tag, now);
+      const now = deps.monotonic();
+      for (const [old, entry] of seen)
+        if (now - entry.at > 2 * TAG_FRESH_MS) {
+          horizon = Math.max(horizon, entry.made);
+          seen.delete(old);
+        }
+      if (!AppSocketTag.safeParse(tag).success) return undefined;
+      const made = Number(tag.slice(0, 13));
+      // A live socket's tag never names another, whatever `seen` holds.
+      if (sockets.has(tag) || seen.has(tag) || made <= horizon) return undefined;
+      if (!tagFresh(tag, deps.now())) return undefined;
+      seen.set(tag, { at: now, made });
       sockets.set(tag, socket);
       return () => {
         if (sockets.get(tag) === socket) sockets.delete(tag);
@@ -208,10 +223,21 @@ export function appStandingDesk(deps: {
       }
       return false;
     },
-    /** Signing out: the key is forgotten, and every socket's standing from it ends now. */
-    async revoke(key: string): Promise<void> {
-      await deps.machine()?.removeAppKey(key);
+    /**
+     * Signing out: the key is forgotten, and every socket's standing from it ends now. Answers a
+     * receipt only this daemon's relay key can make, over its host and the key, so main clears
+     * the revocation only on this daemon's word; undefined when it can't make one.
+     */
+    async revoke(body: unknown): Promise<{ receipt: string } | undefined> {
+      const machine = deps.machine();
+      const parsed = AppStandingRevoke.safeParse(body);
+      const host = machine?.relayHostId();
+      if (!machine || !parsed.success || host === undefined) return undefined;
+      const { key, ephemeral } = parsed.data;
+      await machine.removeAppKey(key);
       for (const socket of sockets.values()) socket.dropApp(key);
+      const shared = await machine.relayShared(new Uint8Array(Buffer.from(ephemeral, "base64url")));
+      return shared ? { receipt: revocationReceipt(shared, { host, key }) } : undefined;
     },
   };
 }

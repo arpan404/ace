@@ -229,5 +229,17 @@ export type AppStandingStatement = z.infer<typeof AppStandingStatement>;
 /** The answer to either: how many of the named sockets now hold the person's standing. */
 export const AppStandingResult = z.object({ proven: z.number().int().nonnegative() });
 
-/** `DELETE /v1/standing/app/key`: signing out revokes the device key and its standing. */
-export const AppStandingRevoke = z.object({ key: PublicKey });
+/**
+ * `DELETE /v1/standing/app/key`: signing out revokes the device key and its standing. `ephemeral`:
+ * main's fresh X25519 key, for the receipt.
+ */
+export const AppStandingRevoke = z.object({
+  key: PublicKey,
+  ephemeral: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+/**
+ * The daemon's receipt for a revocation: an HMAC keyed by the X25519 secret between its relay
+ * key and main's ephemeral key, over its host and the revoked key. Only the daemon holding the
+ * relay key main pinned can make it, so only that daemon clears a pending revocation.
+ */
+export const AppStandingRevokeReceipt = z.object({ receipt: Mac });

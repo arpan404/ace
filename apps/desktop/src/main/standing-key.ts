@@ -37,8 +37,11 @@ const Saved = z.object({
     .string()
     .regex(/^[A-Za-z0-9_-]{43}$/)
     .optional(),
-  /** Keys signed out of whose revocation the daemon hasn't acknowledged yet. */
-  pending: z.array(PublicKey).max(64),
+  /**
+   * Keys signed out of whose revocation their daemon hasn't acknowledged yet, each with the relay
+   * key of the daemon it was enrolled at: only that daemon's receipt clears it. Never dropped.
+   */
+  pending: z.array(z.object({ key: PublicKey, pin: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })),
 });
 type Saved = z.infer<typeof Saved>;
 const empty = (): Saved => ({ keys: {}, pending: [] });
@@ -184,21 +187,22 @@ export function standingKeys(directory: string, sealer: Sealer) {
         if (!held) return;
         delete saved.keys[savedOriginKey(origin)];
         const publicKey = publicPoint(held.key);
-        if (!saved.pending.includes(publicKey))
-          saved.pending = [...saved.pending, publicKey].slice(-64);
+        // Pinned before any enrollment is sent: a key with no pin never reached a daemon.
+        if (saved.pin !== undefined && !saved.pending.some((each) => each.key === publicKey))
+          saved.pending = [...saved.pending, { key: publicKey, pin: saved.pin }];
         await write(saved);
       });
     },
-    /** The revocations the daemon hasn't acknowledged yet. */
-    pending(): Promise<readonly string[]> {
+    /** The revocations no daemon has acknowledged yet, each with its daemon's relay key. */
+    pending(): Promise<readonly { key: string; pin: string }[]> {
       return serial(async () => (await read()).pending);
     },
-    /** The daemon acknowledged revoking `publicKey`. */
+    /** `publicKey`'s daemon gave its receipt for revoking it. */
     acknowledged(publicKey: string): Promise<void> {
       return serial(async () => {
         const saved = await read();
-        if (!saved.pending.includes(publicKey)) return;
-        saved.pending = saved.pending.filter((each) => each !== publicKey);
+        if (!saved.pending.some((each) => each.key === publicKey)) return;
+        saved.pending = saved.pending.filter((each) => each.key !== publicKey);
         await write(saved);
       });
     },

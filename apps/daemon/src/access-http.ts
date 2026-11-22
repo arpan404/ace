@@ -3,7 +3,6 @@ import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   AceAccountHandover,
-  AppStandingRevoke,
   AceAccountLoginStart,
   AppUpdateReport,
   MachineCodeChange,
@@ -310,10 +309,9 @@ async function appStandingRoute(
     return { proven: 0 };
   }
   if (path === "/v1/standing/app/key" && request.method === "DELETE") {
-    const revoke = AppStandingRevoke.safeParse(await body(request));
-    if (!revoke.success) throw new AccessError(400, "Name the key to revoke");
-    await desk.revoke(revoke.data.key);
-    return { proven: 0 };
+    const receipt = await desk.revoke(await body(request));
+    if (!receipt) throw new AccessError(400, "Name the key to revoke, with an ephemeral key");
+    return receipt;
   }
   throw new AccessError(404, "Unknown endpoint");
 }

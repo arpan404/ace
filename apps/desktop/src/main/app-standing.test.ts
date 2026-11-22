@@ -7,13 +7,19 @@ import {
   appSocketTag,
   enrollAction,
   possessionMac,
+  revocationReceipt,
   socketsTarget,
   x25519Ephemeral,
   x25519Shared,
 } from "@ace/account-grant/app-channel";
 import { verifyStatement, type PersonStatement } from "@ace/account-grant/person-statement";
 import { APP_STANDING_MAX_SOCKETS } from "@ace/protocol";
-import { appStanding, ENROLL_WINDOW_MS, type DaemonHttp } from "./app-standing.ts";
+import {
+  appStanding,
+  ENROLL_WINDOW_MS,
+  MAX_PENDING_REVOCATIONS,
+  type DaemonHttp,
+} from "./app-standing.ts";
 import { standingKeys, type Sealer } from "./standing-key.ts";
 
 /*
@@ -45,6 +51,7 @@ function daemon(tags: readonly string[], relay = x25519Ephemeral(), now: () => n
   const live = new Map(tags.map((tag) => [tag, randomBytes(16).toString("base64url")]));
   const state: {
     down: boolean;
+    refuseRevocations?: boolean;
     hold?: Promise<void> | undefined;
     reached?: (() => void) | undefined;
   } = { down: false };
@@ -63,10 +70,12 @@ function daemon(tags: readonly string[], relay = x25519Ephemeral(), now: () => n
       return { status: 200, body: { ...reply, possession: possessionMac(shared, reply) } };
     }
     if (method === "DELETE") {
-      const { key } = body as { key: string };
+      if (state.refuseRevocations) return { status: 503, body: {} };
+      const { key, ephemeral } = body as { key: string; ephemeral: string };
       revoked.push(key);
       keys.delete(key);
-      return { status: 200, body: { proven: 0 } };
+      const shared = x25519Shared(relay.privateKey, Buffer.from(ephemeral, "base64url"));
+      return { status: 200, body: { receipt: revocationReceipt(shared, { host, key }) } };
     }
     const sent = body as {
       statement: string;
@@ -118,6 +127,9 @@ function setup(
     home?: Uint8Array;
     /** The relay key whatever answers holds. */
     relay?: ReturnType<typeof x25519Ephemeral>;
+    sealer?: Sealer;
+    /** Runs as main saves a session, before it is saved. */
+    beforeSave?: (token: string | null) => Promise<void>;
   } = {},
 ) {
   const tags = Array.from({ length: options.tags ?? 2 }, () =>
@@ -125,17 +137,25 @@ function setup(
   );
   const d = daemon(tags, options.relay, options.now);
   let token: string | null = null;
-  const keys = standingKeys(directory, sealer);
+  const saved: (string | null)[] = [];
+  const keys = standingKeys(directory, options.sealer ?? sealer);
+  /** What answers at the daemon's address: the daemon itself, unless the test swaps it. */
+  let answering = d.http;
   const standing = appStanding({
     keys,
     allowed: async () => options.allowed ?? true,
     tags: () => tags,
     daemon: async () => ({
-      http: d.http,
+      http: (method, path, body) => answering(method, path, body),
       host,
       relayPublicKey: b64(options.home ?? d.relay.publicKey),
     }),
     session: async () => token,
+    saveSession: async (_origin, next) => {
+      await options.beforeSave?.(next);
+      saved.push(next);
+      token = next;
+    },
     accountOf: async () => "user_1",
     // The backend's word on a recent sign-in, as the fake daemon expects it.
     signInGrant: async (_origin, _token, action) => `vouched:${action}`,
@@ -146,15 +166,10 @@ function setup(
     tags,
     keys,
     standing,
-    signIn: async (next: string) => {
-      const previous = token;
-      token = next;
-      await standing.signedIn(origin, next, previous);
-    },
-    signOut: async () => {
-      token = null;
-      await standing.signedOut(origin);
-    },
+    saved,
+    answerWith: (http: DaemonHttp) => (answering = http),
+    signIn: (next: string) => standing.writeSession(origin, next),
+    signOut: () => standing.writeSession(origin, null),
   };
 }
 
@@ -252,4 +267,90 @@ test("a build that may not keep a key enrolls and proves nothing", async () => {
   expect(await standing.enroll(origin)).toBe(false);
   expect(await standing.prove(origin)).toBe(false);
   expect(d.statements).toEqual([]);
+});
+
+test("signing out writes the key's revocation before it clears the session", async () => {
+  let pendingAtSave = -1;
+  const first = setup({
+    beforeSave: async (token) => {
+      if (token === null) pendingAtSave = (await first.keys.pending()).length;
+    },
+  });
+  await first.signIn("s".repeat(43));
+  expect(await first.standing.enroll(origin)).toBe(true);
+  first.d.state.down = true;
+  await first.signOut();
+  // A crash right as the session is cleared would leave the revocation already on disk.
+  expect(pendingAtSave).toBe(1);
+  expect(first.saved.at(-1)).toBeNull();
+});
+
+test("a sign-out whose revocation can't be written fails where the page sees it, and keeps the session", async () => {
+  // The sealed store can't be written: the key is never left enrolled with no one signed in.
+  let sealing = true;
+  const second = setup({
+    sealer: { ...sealer, available: () => sealing },
+  });
+  await second.signIn("t".repeat(43));
+  expect(await second.standing.enroll(origin)).toBe(true);
+  sealing = false;
+  await expect(second.signOut()).rejects.toThrow();
+  expect(second.saved.at(-1)).toBe("t".repeat(43));
+});
+
+test("two writes of one new session count as one sign-in, in order with everything else", async () => {
+  const { d, standing, signIn, saved } = setup();
+  await signIn("s".repeat(43));
+  expect(await standing.enroll(origin)).toBe(true);
+  // The same new session written twice at once, then a sign-out: each step sees the last.
+  await Promise.all([
+    signIn("t".repeat(43)),
+    signIn("t".repeat(43)),
+    standing.writeSession(origin, null),
+  ]);
+  expect(saved).toEqual(["s".repeat(43), "t".repeat(43), "t".repeat(43), null]);
+  // The key made under the first session was revoked once, when the new one arrived.
+  expect(d.revoked).toHaveLength(1);
+});
+
+test("a revocation clears only on a receipt from the daemon whose relay key it was enrolled at", async () => {
+  const { d, keys, standing, signIn, signOut, answerWith } = setup();
+  await signIn("s".repeat(43));
+  expect(await standing.enroll(origin)).toBe(true);
+  d.state.down = true;
+  await signOut();
+  expect(await keys.pending()).toHaveLength(1);
+  // A replacement at the daemon's address answers 200, with a receipt from its own key.
+  const replacement = daemon([], x25519Ephemeral());
+  answerWith(replacement.http);
+  await standing.retry();
+  expect(await keys.pending()).toHaveLength(1);
+  // Or a bare 200 with nothing to show for it.
+  answerWith(async () => ({ status: 200, body: { receipt: "r".repeat(43) } }));
+  await standing.retry();
+  expect(await keys.pending()).toHaveLength(1);
+  // The daemon it was enrolled at gives its receipt: now it clears.
+  d.state.down = false;
+  answerWith(d.http);
+  await standing.retry();
+  expect(await keys.pending()).toEqual([]);
+  expect(d.keys.size).toBe(0);
+});
+
+test("revocations are never dropped: while too many wait, no new key is enrolled", async () => {
+  const { d, keys, standing, signIn } = setup();
+  await keys.setPin(b64(d.relay.publicKey));
+  // More revocations than the bound, all waiting on a daemon that never answered.
+  for (let each = 0; each < MAX_PENDING_REVOCATIONS + 6; each++) {
+    await keys.make(origin, "user_1", "a".repeat(64));
+    await keys.revokeLater(origin);
+  }
+  expect(await keys.pending()).toHaveLength(MAX_PENDING_REVOCATIONS + 6);
+  d.state.down = true;
+  await signIn("s".repeat(43));
+  d.state.down = false;
+  // Its revocations still can't be confirmed (the daemon refuses them): no new key past the bound.
+  d.state.refuseRevocations = true;
+  expect(await standing.enroll(origin)).toBe(false);
+  expect(d.keys.size).toBe(0);
 });

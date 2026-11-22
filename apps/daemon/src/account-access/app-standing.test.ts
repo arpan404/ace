@@ -63,11 +63,13 @@ function socketOf(connection: string, grantProven = false) {
 /** A desk on a fake machine: its keys, its clock, and grants the "backend" vouched for. */
 function setup() {
   let now = 1_800_000_000_000;
+  let monotonic = 0;
   const keys: string[] = [];
   /** Sign-in grants, as the backend would mint them: `grant:<n>` → what it says. */
   const grants = new Map<string, { account: string; authAt: number; action: string }>();
   const desk = appStandingDesk({
     now: () => now,
+    monotonic: () => monotonic,
     nonce: () => randomBytes(24).toString("base64url"),
     machine: () => ({
       relayHostId: () => host,
@@ -123,7 +125,13 @@ function setup() {
     challenge,
     send,
     tag: () => appSocketTag(now, randomBytes(32)),
-    later: (ms: number) => (now += ms),
+    /** Time truly passes: both clocks move. */
+    later: (ms: number) => {
+      now += ms;
+      monotonic += ms;
+    },
+    /** Only the wall clock jumps. */
+    jump: (ms: number) => (now += ms),
     now: () => now,
   };
 }
@@ -204,4 +212,26 @@ test("enrolling takes the account backend's word on a sign-in from the last ten 
   const asked = await t.challenge([tag]);
   expect(await t.send("enroll", key, asked.sockets, asked.nonce, vouch(asked.nonce))).toBe(true);
   expect(t.keys).toEqual([key.raw]);
+});
+
+test("a jump of the wall clock never reopens a tag: not a live socket's, nor one forgotten", () => {
+  const t = setup();
+  const live = t.tag();
+  expect(t.desk.attach(live, t.socket("c".repeat(22)))).toBeDefined();
+  const closed = t.tag();
+  t.desk.attach(closed, t.socket("d".repeat(22)))?.();
+  // The wall clock leaps forward and back: nothing it forgot or holds is taken again.
+  t.jump(60 * 60_000);
+  expect(t.desk.attach(t.tag(), t.socket("e".repeat(22)))).toBeDefined();
+  t.jump(-60 * 60_000);
+  expect(t.desk.attach(live, t.socket("f".repeat(22)))).toBeUndefined();
+  expect(t.desk.attach(closed, t.socket("g".repeat(22)))).toBeUndefined();
+  // Time truly passes, long enough to forget both; the wall clock then goes back to when they
+  // were made. The live socket's tag is still its own, and the forgotten one stays refused.
+  t.later(TAG_FRESH_MS * 3);
+  // Any attach is when the desk forgets old tags.
+  t.desk.attach(t.tag(), t.socket("h".repeat(22)));
+  t.jump(-TAG_FRESH_MS * 3);
+  expect(t.desk.attach(live, t.socket("i".repeat(22)))).toBeUndefined();
+  expect(t.desk.attach(closed, t.socket("j".repeat(22)))).toBeUndefined();
 });

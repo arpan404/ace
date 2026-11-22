@@ -362,7 +362,7 @@ Nothing else is the person:
 
 ## Amendment 1 (2026-11-21): the owner's own machine asks once
 
-Revised after two rounds of security review of #2533.
+Revised after three rounds of security review of #2533.
 
 ### What went wrong
 
@@ -409,8 +409,11 @@ token, an MCP lease or a provider process. Everything else gets out of the way.
      exact transport address, from a page at the app's own origin, in the app's default session.
      The agents' browser and visualizations run in other partitions. A page can't read or set the
      header; main strips any it tries. A tag carries when main made it, and the daemon takes it
-     only within a minute of that. The daemon remembers every tag it took until the tag can't be
-     fresh again, so a tag names one socket ever and a replay never replaces a live socket.
+     only within a minute of that. A live socket's tag is never taken again. The daemon remembers every tag it
+     took for twice the freshness window on a monotonic clock, then keeps a horizon (the latest
+     time any forgotten tag carried) and refuses every tag at or before it, so no jump of the
+     wall clock reopens one. A backward jump can refuse new tags until the wall clock passes the
+     horizon; those sockets then prove per socket, as before.
    - **The daemon proves who it is.** Main fetches each challenge itself over HTTP with the host
      token, with no redirects followed (`POST /v1/standing/app/challenge`). It sends a fresh
      ephemeral X25519 key and its tags. The daemon answers with:
@@ -450,15 +453,24 @@ token, an MCP lease or a provider process. Everything else gets out of the way.
    the session it already has is no sign-in. "Let it go" and joining an organization still take
    an `account` proof.
 
-5. **Revocation is durable.**
-   - Signing out moves the key out of use and its public half into a pending list, in the same
-     sealed write. Main sends `DELETE /v1/standing/app/key` and keeps the revocation until the
-     daemon acknowledges it, trying again when the app starts and before every step. The daemon
+5. **Revocation is durable and authenticated.**
+   - Main writes the app's session through the same one-at-a-time queue as every other step:
+     it reads the session saved before, compares, writes and revokes, with nothing in between.
+     Two writes of one new session count as one sign-in.
+   - Signing out writes the key's revocation to the sealed store before it clears the session,
+     so a crash between leaves the key revoked, never the session gone and the key enrolled. A
+     failure to write the revocation reaches the page, and the session stays.
+   - Each pending revocation names the relay key of the daemon it was enrolled at (pinned before
+     any enrollment is sent). Main sends `DELETE /v1/standing/app/key` with a fresh ephemeral
+     X25519 key, and clears the entry only on that daemon's receipt: an HMAC over its host and
+     the revoked key, keyed by the X25519 secret with the pinned relay key. A 200 from anything
+     else clears nothing. Main tries again when the app starts and before every step. The daemon
      revoking it ends the standing it gave on open sockets.
+   - Pending revocations are never dropped. While 64 wait, main enrolls no new key.
    - Proofs, enrollments, sign-ins and sign-outs run one at a time in main, so an enrollment in
-     flight finishes before a sign-out revokes it.
-   - A new session revokes the key made under the one before, and enrolling replaces a key only
-     after revoking the old one.
+     flight finishes before a sign-out revokes it. A new session revokes the key made under the
+     one before, an enrollment that fails is revoked rather than forgotten, and enrolling
+     replaces a key only after revoking the old one.
    - A change of owner drops every enrolled key with the owner file.
 6. **Only where the store holds.** Main keeps a key only when all of these hold
    (`app-standing-gate.ts`):

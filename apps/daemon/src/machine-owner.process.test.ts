@@ -5,6 +5,7 @@ import {
   appSocketTag,
   enrollAction,
   possessionHolds,
+  receiptHolds,
   socketsTarget,
   x25519Ephemeral,
   x25519Shared,
@@ -15,7 +16,7 @@ import {
   type PersonStatement,
 } from "@ace/account-grant/person-statement";
 import { signInThroughWorker } from "@ace/cloud/testing";
-import { AppStandingChallenge, PairingResponse } from "@ace/protocol";
+import { AppStandingChallenge, AppStandingRevokeReceipt, PairingResponse } from "@ace/protocol";
 import { redeemPairing } from "./client-access.ts";
 import {
   useAccountBackend,
@@ -437,9 +438,20 @@ it("signing out revokes the key: open sockets lose the standing it gave, and it 
   const socket = await home.pageSocket(tag);
   expect(proven(await mainSends(home, "standing", [tag], app.raw, app))).toBe(1);
   expect(await changesGuardedSetting(socket.client)).toBe(true);
-  expect((await home.hostHttp("DELETE", "/v1/standing/app/key", { key: app.raw })).status).toBe(
-    200,
-  );
+  const ephemeral = x25519Ephemeral();
+  const revoked = await home.hostHttp("DELETE", "/v1/standing/app/key", {
+    key: app.raw,
+    ephemeral: Buffer.from(ephemeral.publicKey).toString("base64url"),
+  });
+  expect(revoked.status).toBe(200);
+  // Its receipt is the daemon's own: made with the relay key main pinned, over the key.
+  expect(
+    receiptHolds(
+      x25519Shared(ephemeral.privateKey, home.keys.publicKey),
+      { host: home.host, key: app.raw },
+      AppStandingRevokeReceipt.parse(revoked.body).receipt,
+    ),
+  ).toBe(true);
   expect(await changesGuardedSetting(socket.client)).toBe(false);
   expect(proven(await mainSends(home, "standing", [tag], app.raw, app))).toBe(0);
   await home.close();

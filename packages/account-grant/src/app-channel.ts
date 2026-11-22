@@ -109,6 +109,29 @@ export function possessionHolds(
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
+/** What a revocation receipt covers: the daemon's host and the revoked key. */
+const receiptText = (input: { host: string; key: string }) =>
+  ["ace-app-revoke/v1", input.host, input.key].join("\n");
+
+/** The daemon's receipt that it revoked `key`: HMAC-SHA256 keyed by the X25519 secret. */
+export function revocationReceipt(
+  shared: Uint8Array,
+  input: { host: string; key: string },
+): string {
+  return createHmac("sha256", shared).update(receiptText(input)).digest("base64url");
+}
+
+/** Whether `receipt` is the receipt for revoking `key` at `host` under `shared`. */
+export function receiptHolds(
+  shared: Uint8Array,
+  input: { host: string; key: string },
+  receipt: string,
+): boolean {
+  const expected = Buffer.from(revocationReceipt(shared, input));
+  const given = Buffer.from(receipt);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
+
 /**
  * The action a fresh-sign-in grant names to enroll a device key (ADR 0190, amendment 1): this
  * daemon, this key and the challenge's single-use nonce, so it enrolls nothing else.

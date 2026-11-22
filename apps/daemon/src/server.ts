@@ -183,6 +183,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const appStanding = appStandingDesk({
     // The clock grants are checked against: statements are dated by the same wall clock.
     now: () => options.machineAccount?.grantClock() ?? auth.now(),
+    monotonic: () => performance.now(),
     nonce: () => randomBytes(32).toString("base64url"),
     machine: () => options.machineAccount,
   });

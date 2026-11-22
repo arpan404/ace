@@ -1,6 +1,7 @@
 import {
   enrollAction,
   possessionHolds,
+  receiptHolds,
   socketsTarget,
   x25519Ephemeral,
   x25519Shared,
@@ -10,6 +11,7 @@ import {
   APP_STANDING_MAX_SOCKETS,
   AppStandingChallenge,
   AppStandingResult,
+  AppStandingRevokeReceipt,
   type AppSocket,
 } from "@ace/protocol";
 import type { DeviceKey, StandingKeys } from "./standing-key.ts";
@@ -31,6 +33,11 @@ import { sessionDigest } from "./standing-key.ts";
 export const ENROLL_WINDOW_MS = 10 * 60_000;
 /** How long a statement main makes may live: one exchange. */
 const STATEMENT_MS = 30_000;
+/**
+ * How many revocations may wait for their daemon before main enrolls no new key: never dropped,
+ * so the bound is on making more.
+ */
+export const MAX_PENDING_REVOCATIONS = 64;
 
 /** The daemon on this computer, over HTTP with the host token and no redirects. */
 export type DaemonHttp = (
@@ -75,6 +82,8 @@ export function appStanding(deps: {
   daemon(): Promise<LocalDaemon | undefined>;
   /** The app's saved session at `origin`. */
   session(origin: string): Promise<string | null>;
+  /** Saves the app's session at `origin` (null: signed out), sealed (`account-secrets.ts`). */
+  saveSession(origin: string, token: string | null): Promise<void>;
   /** The account a session is, as the backend says. */
   accountOf(origin: string, token: string): Promise<string>;
   /**
@@ -140,17 +149,31 @@ export function appStanding(deps: {
     const token = await deps.session(origin);
     return key && token && sessionDigest(token) === key.session ? key : undefined;
   };
-  /** Sends every revocation the daemon hasn't acknowledged; keeps any it didn't. */
+  /**
+   * Sends every waiting revocation, and clears one only on a receipt from the daemon holding the
+   * relay key it was enrolled at: an HMAC over its host and the key, keyed by X25519 with a fresh
+   * ephemeral key. A 200 from anything else clears nothing.
+   */
   const flush = async () => {
-    const pending = await deps.keys.pending().catch((): readonly string[] => []);
+    const pending = await deps.keys
+      .pending()
+      .catch((): readonly { key: string; pin: string }[] => []);
     if (!pending.length) return;
     const daemon = await deps.daemon().catch(() => undefined);
     if (!daemon) return;
-    for (const publicKey of pending) {
+    for (const entry of pending) {
+      const ephemeral = x25519Ephemeral();
       const answer = await daemon
-        .http("DELETE", "/v1/standing/app/key", { key: publicKey })
+        .http("DELETE", "/v1/standing/app/key", {
+          key: entry.key,
+          ephemeral: Buffer.from(ephemeral.publicKey).toString("base64url"),
+        })
         .catch(() => undefined);
-      if (answer?.status === 200) await deps.keys.acknowledged(publicKey);
+      const receipt = AppStandingRevokeReceipt.safeParse(answer?.body);
+      if (answer?.status !== 200 || !receipt.success) continue;
+      const shared = x25519Shared(ephemeral.privateKey, Buffer.from(entry.pin, "base64url"));
+      if (receiptHolds(shared, { host: daemon.host, key: entry.key }, receipt.data.receipt))
+        await deps.keys.acknowledged(entry.key);
     }
   };
   const prove = async (origin: string): Promise<boolean> => {
@@ -162,10 +185,13 @@ export function appStanding(deps: {
     if (!key || !daemon || !pinned) return false;
     return (await proveAll(origin, key, daemon, pinned)) > 0;
   };
-  /** Signing out of `origin`, or another session arriving: the key is revoked, durably. */
+  /**
+   * Signing out of `origin`, or another session arriving: the revocation is written durably
+   * first (a failure throws), then sent.
+   */
   const revoke = async (origin: string) => {
     await deps.keys.revokeLater(origin);
-    await flush();
+    await flush().catch(() => undefined);
   };
   return {
     /** "Prove me": the app's own sockets get the person's standing from this device's key. */
@@ -179,6 +205,8 @@ export function appStanding(deps: {
       serial(async () => {
         await flush();
         if (!(await deps.allowed())) return false;
+        // Revocations are never dropped: while too many wait, no new key is made.
+        if ((await deps.keys.pending()).length >= MAX_PENDING_REVOCATIONS) return false;
         const at = signedInAt.get(origin);
         if (at === undefined || deps.now() - at > ENROLL_WINDOW_MS) return false;
         const token = await deps.session(origin);
@@ -194,6 +222,8 @@ export function appStanding(deps: {
         // A key kept from before is revoked first: one enrolled key per backend, never two.
         if (await deps.keys.held(origin)) await revoke(origin);
         const key = await deps.keys.make(origin, account, sessionDigest(token));
+        // Pinned before the enrollment is sent: a revocation always knows its daemon's key.
+        await deps.keys.setPin(pinned);
         const text = statement(key, "enroll", asked, asked.sockets);
         const proof = await deps.keys.sign(origin, text);
         const signIn = await deps.signInGrant(
@@ -211,29 +241,40 @@ export function appStanding(deps: {
             })
           : undefined;
         if (answer?.status !== 200) {
-          await deps.keys.forget(origin);
+          // It may have landed even so: revoke it rather than forget it.
+          await revoke(origin);
           return false;
         }
-        await deps.keys.setPin(pinned);
         return prove(origin);
       }),
     /**
-     * A session was written for `origin`. Only a new session is a sign-in: one that differs
-     * from `previous`, the session saved before. Rewriting the same session counts for nothing.
-     * A key made under another session is revoked.
+     * Writes the app's session for `origin`, in the same queue as every other step: read the
+     * session saved before, compare, write, and revoke, so nothing runs in between.
+     * - Signing out (`null`): the revocation is written durably before the session is cleared,
+     *   so a crash between leaves the key revoked, never the session gone and the key enrolled.
+     *   A failure to write it throws, and the session stays.
+     * - A new session (not the one already saved) is a sign-in. A key made under another
+     *   session is revoked first. Rewriting the same session counts for nothing, and two writes
+     *   of one new session count once.
      */
-    signedIn: (origin: string, token: string, previous: string | null) =>
+    writeSession: (origin: string, token: string | null) =>
       serial(async () => {
-        if (token === previous) return;
-        signedInAt.set(origin, deps.now());
-        const key = await deps.keys.held(origin).catch(() => undefined);
-        if (key && key.session !== sessionDigest(token)) await revoke(origin);
-      }),
-    /** Signed out: the key's revocation waits durably until the daemon acknowledges it. */
-    signedOut: (origin: string) =>
-      serial(async () => {
-        signedInAt.delete(origin);
-        await revoke(origin);
+        const previous = await deps.session(origin);
+        if (token === null) {
+          signedInAt.delete(origin);
+          await deps.keys.revokeLater(origin);
+          await deps.saveSession(origin, null);
+          await flush().catch(() => undefined);
+          return;
+        }
+        const fresh = token !== previous;
+        if (fresh) {
+          const key = await deps.keys.held(origin);
+          if (key && key.session !== sessionDigest(token)) await deps.keys.revokeLater(origin);
+        }
+        await deps.saveSession(origin, token);
+        if (fresh) signedInAt.set(origin, deps.now());
+        await flush().catch(() => undefined);
       }),
     /** Sends any revocation still waiting: at start, and before every step. */
     retry: () => serial(flush),
