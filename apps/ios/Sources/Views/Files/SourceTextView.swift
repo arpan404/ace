@@ -11,11 +11,18 @@ struct SourceDocument: Equatable {
     let marks: [Int: String]
 }
 
-/// Lets toolbar buttons reach the text view: its find navigator and the text being edited.
+/// Lets toolbar buttons reach the text view: its find navigator, the text being edited and go to
+/// line.
 @MainActor final class SourceHandle {
     weak var view: UITextView?
     func find() { view?.findInteraction?.presentFindNavigator(showingReplace: view?.isEditable == true) }
     var text: String { view?.text ?? "" }
+    private var container: SourceContainer? { view?.superview?.superview as? SourceContainer }
+    /// Lines in the text as it is now, edits included.
+    var lineCount: Int { container?.lineStarts.count ?? 1 }
+    /// A 1-based line's length in UTF-16 units, without its line break.
+    func lineLength(_ line: Int) -> Int { container?.lineLength(line) ?? 0 }
+    func go(to target: GoToLine.Target) { container?.go(line: target.line, column: target.column) }
 }
 
 /// Source in SF Mono with line numbers in a gutter that stays put while lines scroll sideways,
@@ -105,6 +112,11 @@ final class SourceContainer: UIView {
     /// Where each line starts, in UTF-16 units, for the gutter's numbers.
     private(set) var lineStarts: [Int] = [0]
     private var longest = 0
+    /// The text's length in UTF-16 units.
+    private var length = 0
+    /// A line to bring back into view once the keyboard has resized the view.
+    private var revealOnResize: Int?
+    private var lastHeight: CGFloat = 0
     var marks: [Int: String] = [:]
     var targetLine: Int?
     var wrap = false {
@@ -192,6 +204,7 @@ final class SourceContainer: UIView {
         countLines()
         highlight.isHidden = true
         targetLine = nil
+        revealOnResize = nil
         setNeedsLayout()
         layoutIfNeeded()
         sideways.contentOffset = .zero
@@ -214,6 +227,7 @@ final class SourceContainer: UIView {
         }
         lineStarts = starts
         longest = max(widest, column)
+        length = offset
     }
 
     /// After typing: numbers and widths follow the new text.
@@ -241,7 +255,11 @@ final class SourceContainer: UIView {
         gutter.setNeedsDisplay()
         if let line = pendingLine, bounds.height > 0 {
             DispatchQueue.main.async { [weak self] in self?.reveal(line: line) }
+        } else if let line = revealOnResize, bounds.height != lastHeight {
+            revealOnResize = nil
+            DispatchQueue.main.async { [weak self] in self?.reveal(line: line) }
         }
+        lastHeight = bounds.height
     }
 
     /// The 0-based line holding UTF-16 offset `offset`.
@@ -252,6 +270,27 @@ final class SourceContainer: UIView {
             if lineStarts[middle] <= offset { low = middle } else { high = middle - 1 }
         }
         return low
+    }
+
+    /// A 1-based line's length in UTF-16 units, without its line break.
+    func lineLength(_ line: Int) -> Int {
+        guard line > 0, line <= lineStarts.count else { return 0 }
+        let end = line < lineStarts.count ? lineStarts[line] - 1 : length
+        return max(0, end - lineStarts[line - 1])
+    }
+
+    /// Go to line: the caret lands on `line` at `column` (both 1-based, clamped to the text) and
+    /// the line scrolls into view, tinted. While editing the keyboard comes up, and the line is
+    /// brought back into view once it has made the view shorter.
+    func go(line: Int, column: Int) {
+        let line = min(max(1, line), lineStarts.count)
+        let offset = lineStarts[line - 1] + min(max(0, column - 1), lineLength(line))
+        text.selectedRange = NSRange(location: offset, length: 0)
+        if text.isEditable, !text.isFirstResponder {
+            revealOnResize = line
+            text.becomeFirstResponder()
+        }
+        reveal(line: line)
     }
 
     /// A line to reveal once the view has its size.

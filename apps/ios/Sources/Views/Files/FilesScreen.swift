@@ -23,6 +23,8 @@ struct FilesScreen: View {
     let subtitle: String
     /// Puts `@path` into the message being written and goes back to it; nil where nothing is sent.
     let mention: ((ComposerMention) -> Void)?
+    /// A folder (ending in "/") to open in the tree once it first lists, as a file's breadcrumb asks.
+    var folder: String?
     @Environment(\.scenePhase) private var scenePhase
     /// Whether this Files screen is on screen (not covered by a pushed file or the background).
     @State private var isPresented = false
@@ -46,7 +48,8 @@ struct FilesScreen: View {
     @State private var uploading = false
     @State private var importProblem: String?
 
-    init(model: ClientModel, scope: FilesScope, subtitle: String, mention: ((ComposerMention) -> Void)?) {
+    init(model: ClientModel, scope: FilesScope, subtitle: String, mention: ((ComposerMention) -> Void)?, folder: String? = nil) {
+        self.folder = folder
         self.model = model
         self.scope = scope
         self.subtitle = subtitle
@@ -86,6 +89,7 @@ struct FilesScreen: View {
             if !shown {
                 shown = true
                 model.showFilesTree(scope)
+                if let folder { reveal(folder) }
             }
         }
         .onDisappear { isPresented = false }
@@ -113,7 +117,8 @@ struct FilesScreen: View {
         } message: { Text(importProblem ?? "") }
         .task(id: "\(query)|\(searchScope)") { await search() }
         .navigationDestination(item: $opened) { target in
-            FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 })
+            FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 },
+                       openFolder: { folder in reveal(folder); opened = nil })
         }
         .navigationDestination(isPresented: $showTrash) { RecentlyDeletedView(model: model, scope: scope) }
         .modifier(FileActionPrompts(actions: actions))
