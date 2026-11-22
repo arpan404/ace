@@ -43,7 +43,11 @@ test("a worker whose own thread was refused for lack of room is read again when 
   } as unknown as Owner;
   let changes = 0;
   const watch = new SpadeWorkerWatch(owner, () => changes++);
-  const facts = () => watch.facts(() => undefined, () => undefined);
+  const facts = () =>
+    watch.facts(
+      () => undefined,
+      () => undefined,
+    );
 
   expect(facts().listed("worker")).toBeUndefined();
   expect(freed).toBeDefined();
