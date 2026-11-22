@@ -475,7 +475,11 @@ export function EditorPanel(props: TabViewProps) {
       onOpenChange={(unfolded) => setExplorer({ openEditors: unfolded })}
     />
   );
-  const focusedBuffer = focused.active === undefined ? undefined : buffers.buffer(focused.active);
+  // Read through the store: the buffer is held after the layout syncs, later than this render.
+  const focusedPath = focused.active;
+  const focusedBuffer = useSyncExternalStore(buffers.subscribe, () =>
+    focusedPath === undefined ? undefined : buffers.buffer(focusedPath),
+  );
   const openCommitDiff = useCallback(
     (diffTarget: CommitDiffTarget) => {
       const group = focusedGroup(latest.current);

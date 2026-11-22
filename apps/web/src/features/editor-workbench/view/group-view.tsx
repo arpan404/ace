@@ -51,7 +51,11 @@ export function GroupView(props: {
   const { group, host, actions } = props;
   const path = group.active;
   const snapshot = useSnapshot(host.buffers, path);
-  const buffer = path === undefined ? undefined : host.buffers.buffer(path);
+  // Through the store, not a plain call: the compiler would otherwise keep the first render's
+  // answer (no buffer yet) for as long as `host.buffers` and `path` stay the same.
+  const buffer = useSyncExternalStore(host.buffers.subscribe, () =>
+    path === undefined ? undefined : host.buffers.buffer(path),
+  );
   const load = snapshot?.status;
   const tab = group.tabs.find((each) => each.path === path);
   const markdown = markdownShow(tab);
