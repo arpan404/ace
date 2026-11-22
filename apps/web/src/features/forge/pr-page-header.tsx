@@ -50,7 +50,7 @@ export function PrPageHeader(props: {
           </>
         }
       />
-      <div className="mt-2.5 border-b border-border pb-4">
+      <div className="mt-2.5 pb-4">
         <PrByline actions={actions} />
       </div>
     </header>

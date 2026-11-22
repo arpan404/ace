@@ -16,6 +16,7 @@ import { usePrReview } from "./pr-review-context.tsx";
 import { PrReplyField, replyField } from "./pr-thread.tsx";
 import { useAskFocus, useReplyOpen } from "./pr-ui-store.tsx";
 import { useQuote } from "./pr-quote.tsx";
+import { ForgeProse } from "./rich/forge-prose.tsx";
 import { TextAction } from "./pr-text-action.tsx";
 
 /** Who asked, by their avatar; a failing check by the failed status icon. */
@@ -60,6 +61,8 @@ function Row(props: {
   item: AttentionItem;
   avatar: string | undefined;
   masked: boolean;
+  /** Inside the merge box the section already carries the inset, so the row hangs on its edge. */
+  inset: boolean;
   /** What they said, or the check's first failure line; nothing when it said nothing. */
   quote: ReactNode;
   actions: ReactNode;
@@ -69,7 +72,7 @@ function Row(props: {
   return (
     <li
       {...part("list-row", item.kind === "check" ? "failed" : "waiting", item.kind)}
-      className="flex items-start gap-2.5 px-3 py-2.5"
+      className={cn("flex items-start gap-2.5 py-2.5", props.inset && "px-3")}
     >
       <Lead item={item} avatar={props.avatar} />
       <div className="min-w-0 flex-1">
@@ -123,6 +126,7 @@ function CheckRow(props: {
   workspaceId: string;
   detail: ForgePrDetail;
   open: boolean;
+  inset: boolean;
   fix: ReactNode;
   disabled: boolean;
   onRefresh(): void | Promise<unknown>;
@@ -145,6 +149,7 @@ function CheckRow(props: {
       item={props.item}
       avatar={undefined}
       masked={!line}
+      inset={props.inset}
       quote={
         line ?? (checkRunId(check) !== undefined && run.isPending ? "Reading the log…" : undefined)
       }
@@ -235,6 +240,7 @@ export function PrAttention(props: {
   if (!items.length) return null;
   const open = detail.status.state === "open" || detail.status.state === "draft";
   const avatarOf = (author: string) =>
+    (author === detail.author ? detail.authorAvatarUrl : undefined) ??
     detail.status.comments.find((c) => c.author === author && c.authorAvatarUrl)?.authorAvatarUrl;
   return (
     <ListFrame only={props.only}>
@@ -278,6 +284,7 @@ export function PrAttention(props: {
                 workspaceId={props.workspaceId}
                 detail={detail}
                 open={open}
+                inset={props.only === undefined}
                 fix={fixAction}
                 disabled={props.disabled}
                 onRefresh={props.onRefresh ?? (() => {})}
@@ -294,7 +301,17 @@ export function PrAttention(props: {
               item={item}
               avatar={root?.authorAvatarUrl ?? avatarOf(item.author)}
               masked={masked}
-              quote={words}
+              inset={props.only === undefined}
+              quote={
+                masked || !item.body ? (
+                  words
+                ) : (
+                  <ForgeProse
+                    text={item.body}
+                    className="text-ui leading-normal whitespace-normal [&_.mk-block]:mb-0! [&_p]:mb-0!"
+                  />
+                )
+              }
               actions={
                 <>
                   {fixAction}
@@ -338,10 +355,9 @@ export function PrAttention(props: {
   );
 }
 
-/** Standalone, the list is its own region; in the merge box, a bordered list in its section. */
+/** Standalone, the list is its own region; in the merge box it hangs inside the section, flat. */
 function ListFrame(props: { only: "reviews" | "checks" | undefined; children: ReactNode }) {
-  if (props.only)
-    return <div className="mt-2 rounded-md border border-border-soft">{props.children}</div>;
+  if (props.only) return <div className="mt-2 divide-y divide-border-soft">{props.children}</div>;
   return (
     <section id="pr-attention" aria-label="Blocking the merge">
       {props.children}
