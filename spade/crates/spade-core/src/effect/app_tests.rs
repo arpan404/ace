@@ -51,6 +51,8 @@ fn app_call(
         permits: Held::default(),
         connected: true,
         guessed: reading.guessed,
+        overwrites: reading.overwrites,
+        app_plain: reading.plain,
     };
     (call, reading)
 }
@@ -222,24 +224,25 @@ fn an_app_that_says_a_tool_may_write_narrows_a_read_its_name_makes() {
 }
 
 #[test]
-fn with_untrusted_content_in_view_an_apps_writes_stay_with_the_person() {
+fn with_untrusted_content_in_view_an_apps_writes_go_to_the_reviewer_told_to_check_for_steering() {
     for mode in [Mode::AutoReview, Mode::FullAccess] {
         for remembered in [None, Some(true)] {
-            let call = Call {
-                tainted: true,
-                remembered,
-                mode,
-                ..notion("create_page", "", silent())
-            };
-            assert_eq!(
-                route(call),
-                Route::ask(APP_WRITE_TAINTED),
-                "{remembered:?} {mode:?}"
-            );
+            for name in ["notion-create-pages", "duplicate_page"] {
+                let call = Call {
+                    tainted: true,
+                    remembered,
+                    mode,
+                    ..notion(name, "", silent())
+                };
+                assert_eq!(
+                    route(call),
+                    Route::Review(Some(APP_TAINTED_REVIEW.to_owned())),
+                    "{name} {remembered:?} {mode:?}"
+                );
+            }
         }
     }
-    // Only the person's Always allow for the app's writes hands it to the reviewer instead,
-    // told to check the call wasn't steered by that content.
+    // The person's Always allow for the app's writes: the reviewer checks the grant's call.
     let granted = Call {
         tainted: true,
         granted: Granted::Tool,
@@ -249,6 +252,60 @@ fn with_untrusted_content_in_view_an_apps_writes_stay_with_the_person() {
         route(granted),
         Route::Review(Some(GRANTED_TAINTED.to_owned()))
     );
+    // Their "no" for the bot still refuses it, and a send stays theirs.
+    let declined = Call {
+        tainted: true,
+        remembered: Some(false),
+        ..notion("create_page", "", silent())
+    };
+    assert!(matches!(route(declined), Route::Refuse(_)));
+    let sends = Call {
+        tainted: true,
+        ..notion("create_comment", "", silent())
+    };
+    assert!(person_decides(&route(sends)));
+}
+
+#[test]
+fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_still_asks() {
+    let marked = Mcp {
+        destructive: true,
+        annotated: true,
+        ..Mcp::default()
+    };
+    for mode in [Mode::AutoReview, Mode::FullAccess] {
+        for name in ["notion-update-page", "notion-move-pages", "get_page"] {
+            let call = Call {
+                mode,
+                ..notion(name, "", marked)
+            };
+            assert_eq!(
+                route(call),
+                Route::Review(Some(OVERWRITES.to_owned())),
+                "{name} {mode:?}"
+            );
+            let tainted = Call { tainted: true, ..call };
+            assert_eq!(
+                route(tainted),
+                Route::Review(Some(OVERWRITES_TAINTED.to_owned())),
+                "{name} tainted {mode:?}"
+            );
+            // Neither the person's earlier "yes" nor an Always allow skips the review.
+            for skip in [
+                Call { remembered: Some(true), ..call },
+                Call { granted: Granted::Tool, ..call },
+            ] {
+                assert_eq!(route(skip), Route::Review(Some(OVERWRITES.to_owned())), "{name}");
+            }
+            let declined = Call { remembered: Some(false), ..call };
+            assert!(matches!(route(declined), Route::Refuse(_)), "{name}");
+        }
+        let delete = Call {
+            mode,
+            ..notion("notion-delete-pages", "", marked)
+        };
+        assert_eq!(route(delete), Route::ask(DESTRUCTIVE), "{mode:?}");
+    }
 }
 
 #[test]

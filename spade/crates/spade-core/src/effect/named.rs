@@ -629,6 +629,42 @@ impl Reading {
     }
 }
 
+/// What a description says the tool itself does: its first sentence, the way every app's tool
+/// descriptions lead, with code spans and identifiers taken out. What follows is how to use it,
+/// and names other tools (`use it with update_data_source`) or says what it never does
+/// ("Reading never authorizes a write"): a change word there says nothing about this tool.
+fn lead(description: &str) -> String {
+    let paragraph = description
+        .trim_start()
+        .split("\n\n")
+        .next()
+        .unwrap_or_default();
+    let mut sentence = paragraph;
+    for (at, c) in paragraph.char_indices() {
+        let next = paragraph[at + c.len_utf8()..].chars().next();
+        if matches!(c, '.' | '!' | '?' | '\n') && next.is_none_or(char::is_whitespace) {
+            sentence = &paragraph[..at];
+            break;
+        }
+    }
+    let mut prose = String::with_capacity(sentence.len());
+    for (index, span) in sentence.split('`').enumerate() {
+        // Odd spans sit between backticks: code, never prose.
+        if index % 2 == 1 {
+            prose.push(' ');
+            continue;
+        }
+        for token in span.split_whitespace() {
+            // An identifier (`update_data_source`, `notion://docs`) names something else.
+            if !token.contains(['_', ':', '/', '=', '(', '.']) {
+                prose.push_str(token);
+            }
+            prose.push(' ');
+        }
+    }
+    prose
+}
+
 /// What `name` (the server's own tool name) and `description` say the tool does. The
 /// description can only keep a name from reading; it never makes one read, pay or send. A name
 /// with anything but ASCII letters, digits and separators (a look-alike letter from another
@@ -653,7 +689,7 @@ pub fn named(name: &str, description: &str) -> Named {
     if !name.is_ascii() {
         return Named::Unclear;
     }
-    if read.reads() && !Reading::new(description).has(DESCRIBED_CHANGES) {
+    if read.reads() && !Reading::new(&lead(description)).has(DESCRIBED_CHANGES) {
         return Named::Read;
     }
     if read.writes() && !Reading::new(description).has(DESCRIBED_SENSITIVE) {

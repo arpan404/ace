@@ -55,6 +55,38 @@ fn a_description_that_says_it_changes_something_keeps_a_read_from_reading() {
     );
 }
 
+/// Notion's own descriptions, as its server sends them (2026-11-22): each leads with what the
+/// tool does, then tells the model how to use it, naming other tools that write.
+#[test]
+fn a_change_named_after_a_descriptions_first_sentence_keeps_a_read() {
+    let fetch = "Retrieves details about a Notion entity (page, database, data source, or saved \
+                 database view) by URL or ID.\n\nProvide a URL or ID in `id`. Make multiple calls \
+                 for multiple entities.\n\nDatabases return data sources in `<data-source \
+                 url=\"collection://...\">` tags. Fetch the collection:// URL for its schema and \
+                 use it with update_data_source or query_data_sources.";
+    let memory = "Search memories saved in the user's Notion workspace: context, preferences, \
+                  corrections, and decisions. Returns the best matches, not every memory. \
+                  Reading never authorizes a write.";
+    assert_eq!(named("notion-fetch", fetch), Named::Read);
+    assert_eq!(named("notion-memory-search", memory), Named::Read);
+    // Code in the first sentence names something else too.
+    assert_eq!(
+        named(
+            "get_view",
+            "Returns a view's filters in the shape `update_view` takes."
+        ),
+        Named::Read
+    );
+    // What the first sentence says the tool does still counts.
+    assert_eq!(
+        named(
+            "fetch_page",
+            "Fetches a page and updates its last-viewed time.\n\nUse it before editing."
+        ),
+        Named::Unclear
+    );
+}
+
 #[test]
 fn a_description_never_makes_a_write_read() {
     assert_eq!(
