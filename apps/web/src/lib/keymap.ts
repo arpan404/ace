@@ -330,6 +330,41 @@ export const keymap = {
     scope: "editor",
     fixed: true,
   },
+  // The text editor's own keys (features/editor/keys.ts, line-keys.ts), shown here only.
+  "editor.find": { keys: "mod+f", label: "Find in the file", scope: "editor", fixed: true },
+  "editor.replace": {
+    keys: "alt+mod+f",
+    label: "Find and replace in the file",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.goToLine": { keys: "ctrl+g", label: "Go to line", scope: "editor", fixed: true },
+  "editor.moveLine": {
+    keys: "alt+arrowup",
+    also: ["alt+arrowdown"],
+    label: "Move the line up or down",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.copyLine": {
+    keys: "shift+alt+arrowup",
+    also: ["shift+alt+arrowdown"],
+    label: "Copy the line up or down",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.toggleComment": {
+    keys: "mod+/",
+    label: "Comment or uncomment the line",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.wordWrap": {
+    keys: "alt+z",
+    label: "Turn word wrap on or off",
+    scope: "editor",
+    fixed: true,
+  },
   "editor.composer": {
     keys: "escape",
     label: "Back to the composer",
