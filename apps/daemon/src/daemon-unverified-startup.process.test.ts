@@ -86,6 +86,11 @@ test.skipIf(process.platform === "win32")(
     await daemon.ready;
     const listed = await invoke(home, ["project", "list", "--json"]);
     expect(listed.code, listed.stderr).toBe(0);
+    // The barrier: proving the group gone is still under way (it is looked at until its bound,
+    // in case it ends on its own) while the socket already answered.
+    expect((await daemonLogRecords(home)).map((record) => record.message)).not.toContain(
+      "Previous run's processes could not all be verified as stopped",
+    );
     // Not provably the run's: left alone and reported, never a reason to refuse startup.
     expect(alive(group.child)).toBe(true);
     await expect

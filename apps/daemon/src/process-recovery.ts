@@ -17,8 +17,8 @@ const systemClock: RecoveryClock = {
  * Startup, on every platform: recovery ends the previous run's processes, then repeats until
  * they are verifiably gone, so the engine never reads a store a dying process may still write
  * (a Cursor host inside Agent.send, say) and never reports work stopped while it still runs. A
- * pass that ends nothing means every recorded group is gone. Returns false when some tree stays
- * unproven or ended processes outlive `limitMs`.
+ * pass that ends nothing and finds nothing unproven means every recorded group is gone. Returns
+ * false when some tree stays unproven, or ended processes outlive, `limitMs`.
  */
 export async function verifyRecovery(
   journal: RecoveryJournal,
@@ -29,7 +29,9 @@ export async function verifyRecovery(
   while (true) {
     const result = journal.recover();
     const unresolved = result.unresolved ?? 0;
-    if (result.killed === 0) return { verified: unresolved === 0, unresolved };
+    if (result.killed === 0 && unresolved === 0) return { verified: true, unresolved: 0 };
+    // A group that can't be identified may still end on its own: it is looked at again until
+    // the bound, like one that was just ended.
     if (clock.now() >= deadline) return { verified: false, unresolved: unresolved + result.killed };
     await clock.wait(100);
   }

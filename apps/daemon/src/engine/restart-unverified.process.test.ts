@@ -16,6 +16,8 @@ import {
   fixture,
   replaceProvider,
   sends,
+  dispatch,
+  text,
 } from "./recovery-test-support.ts";
 import { end, scriptFrames, start } from "./test-support.ts";
 
@@ -96,6 +98,14 @@ async function survivingGroup() {
   const inventory = new ProcessInventory(path);
   return {
     inventory,
+    /** The surviving child ends, so the group is gone. */
+    end: () => {
+      try {
+        process.kill(childPid, "SIGKILL");
+      } catch {
+        /* gone */
+      }
+    },
     alive: () => {
       try {
         process.kill(childPid, 0);
@@ -138,6 +148,9 @@ test.skipIf(process.platform === "win32")(
       registry: h.registry,
       clock: h.clock,
       previousProcessesVerified: proof.promise,
+      // The background check, against the same real group.
+      recheckPreviousProcesses: () =>
+        verifyRecovery(group.inventory, 50).then((recovery) => recovery.verified),
     });
     try {
       // While the proof is pending the turn is untouched: still working, nothing continued.
@@ -157,6 +170,72 @@ test.skipIf(process.platform === "win32")(
         text: "Some processes from the previous run may still be running",
       });
       expect(said.map((notice) => notice.code)).not.toContain("restart_interrupted");
+      // Never left reading as working: it needs the person.
+      expect(store.getThread(id)?.status.state).toBe("waiting");
+      // The person's next message waits while the old work may still run, even after a check.
+      dispatch(store, engine, {
+        type: "thread.send",
+        threadId: id,
+        delivery: "queue",
+        input: text("next step"),
+      });
+      await engine.flush();
+      h.clock.advance(h.clock.now() + 6_000);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await engine.flush();
+      expect(sends(replacement)).toEqual([]);
+      // Once the group is gone, a later check lets the thread go and the message runs.
+      group.end();
+      await expect.poll(() => group.alive()).toBe(false);
+      h.clock.advance(h.clock.now() + 20_000);
+      await expect
+        .poll(async () => {
+          await engine.flush();
+          return sends(replacement).length;
+        })
+        .toBe(1);
+      expect(store.getThread(id)?.status.state).toBe("done");
+    } finally {
+      await engine.close();
+      store.close();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "the person can continue a held thread anyway, while the last run's group may still run",
+  async () => {
+    await using group = await survivingGroup();
+    const frames = scriptFrames();
+    const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
+    const id = await h.create();
+    await h.engine.flush();
+    const replacement = replaceProvider(h, frames, [
+      { on: "send", frames: [frames.frame(start, end)] },
+    ]);
+    const path = join(h.home, "crash.sqlite");
+    await backup(
+      h.store.atomic((db) => db),
+      path,
+    );
+    const store = new Store(path);
+    const engine = new Engine(store, {
+      registry: h.registry,
+      clock: h.clock,
+      previousProcessesVerified: verifyRecovery(group.inventory, 50).then((r) => r.verified),
+    });
+    try {
+      await engine.flush();
+      expect(store.getThread(id)?.status.state).toBe("waiting");
+      dispatch(store, engine, {
+        type: "thread.resume",
+        threadId: id,
+        expectedRevision: engine.queue(id).revision,
+      });
+      await engine.flush();
+      expect(group.alive()).toBe(true);
+      expect(sends(replacement)).toHaveLength(1);
+      expect(store.getThread(id)?.status.state).toBe("done");
     } finally {
       await engine.close();
       store.close();

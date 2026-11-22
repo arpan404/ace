@@ -39,6 +39,7 @@ import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
 import { CursorReconciles } from "./cursor-reconcile.ts";
+import { Survivors } from "./survivors.ts";
 import { attachChild, updateChild } from "./child-attachment.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
@@ -135,6 +136,7 @@ export class Engine {
   );
   private reconcileRetryMs: readonly number[] | undefined;
   private processesVerified: Promise<boolean> = Promise.resolve(true);
+  private survivors: Survivors;
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -196,6 +198,9 @@ export class Engine {
     this.report = options.onError ?? console.error;
     this.reconcileRetryMs = options.cursorReconcileRetryMs;
     this.processesVerified = options.previousProcessesVerified ?? Promise.resolve(true);
+    this.survivors = new Survivors(this.clock, options.recheckPreviousProcesses, (ids) => {
+      for (const id of ids) if (this.repo.reserve(id)) this.wake(id);
+    });
     this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
@@ -411,6 +416,7 @@ export class Engine {
           const refused = personRefusal(command.id, payload, host);
           if (refused) return refused;
         }
+        this.survivors.admitted(command);
         return this.internalHandler.handle(personCommand(command), context);
       },
     };
@@ -432,6 +438,7 @@ export class Engine {
         (id) => continuesNatively(this.repo, this.registry, id),
         options.previousProcessesUnverified === true || unverified,
         (id) => this.reconciles.add(id),
+        (id) => this.survivors.hold(id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
@@ -479,7 +486,7 @@ export class Engine {
   }
   private fence?: Parameters<typeof liveMove.fenceCommand>[1];
   /** Moving or moved (ADR 0191): nothing runs here, at admission, dispatch or session open. */
-  private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
+  private fenced = (id: ThreadId) => this.fence?.(id) !== undefined || this.survivors.has(id);
   bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
     this.fence = fence;
   }
@@ -1454,6 +1461,7 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.survivors.close();
       this.stopReleaseWatch();
       await this.settledTrees.settled();
       this.flushDepth++;

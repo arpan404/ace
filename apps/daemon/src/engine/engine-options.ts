@@ -24,6 +24,8 @@ export interface EngineOptions {
    * host may still write is never read as final before then.
    */
   previousProcessesVerified?: Promise<boolean>;
+  /** Checks again whether the previous run's processes are gone; true once they are. */
+  recheckPreviousProcesses?: () => Promise<boolean>;
   /**
    * Waits between attempts to open a Cursor host whose store is busy during a restart
    * reconcile (cursor-reconcile.ts); once they run out the turn fails as a restart fails it.

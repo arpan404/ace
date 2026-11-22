@@ -347,7 +347,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
               },
               () => false,
             );
-      options = { ...options, engine: { ...options.engine, previousProcessesVerified: verified } };
+      options = {
+        ...options,
+        engine: {
+          ...options.engine,
+          previousProcessesVerified: verified,
+          // A thread held for the last run's survivors is let go once they are proven gone.
+          recheckPreviousProcesses: () =>
+            verifyRecovery(inventory, 2_000).then(
+              (recovery) => recovery.verified,
+              () => false,
+            ),
+        },
+      };
     }
   } catch (error) {
     inventory.close();
