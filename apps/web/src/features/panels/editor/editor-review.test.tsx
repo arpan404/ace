@@ -79,3 +79,19 @@ test("Side by side shows the turn's diff of the file in place of the editor, and
   await userEvent.click(within(side).getByRole("button", { name: "Back to inline" }));
   expect((await peekOf()).textContent).toContain("1 of 3");
 });
+
+test("after a line is typed above a change, Keep acts on the change at its new place", async () => {
+  await reviewTurnOne();
+  expect((await peekOf()).getAttribute("aria-label")).toBe("Review change at line 11");
+
+  const field = within(view()).getByRole("textbox");
+  field.focus();
+  fireEvent.keyDown(field, { key: "Home", ctrlKey: true });
+  fireEvent.input(field, { target: { value: "x\n" }, data: "x\n", inputType: "insertText" });
+  await waitFor(async () =>
+    expect((await peekOf()).getAttribute("aria-label")).toBe("Review change at line 12"),
+  );
+
+  await userEvent.click(within(await peekOf()).getByRole("button", { name: "Keep" }));
+  await waitFor(async () => expect((await peekOf()).textContent).toContain("2 of 3"));
+});

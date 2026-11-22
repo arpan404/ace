@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { revertChange } from "./change-hunks.ts";
 import { linesOf } from "./live-hunks.ts";
-import { locateHunk, turnHunks } from "./turn-hunks.ts";
+import { keepAt, locateHunk, turnHunks } from "./turn-hunks.ts";
 import { diffFile } from "./turns.ts";
 
 /** The turn's diff of one file, as Changes builds it from a full-text edit. */
@@ -83,4 +83,16 @@ test("a hunk whose lines appear in two places is found in neither: no guess betw
   const [first] = turnHunks(rowsOf(before, after));
   const twice = linesOf(`${after}one\nTWO\nthree\n`);
   expect(first && locateHunk(first, (line) => twice[line] ?? "", twice.length)).toBeUndefined();
+});
+
+test("Keep acts on a hunk only where it was shown: a move under it keeps nothing", () => {
+  const [first] = turnHunks(rowsOf(before, after));
+  if (!first) throw new Error("no hunk");
+  const same = linesOf(after);
+  const shown = locateHunk(first, (line) => same[line] ?? "", same.length);
+  if (!shown) throw new Error("not found");
+  expect(keepAt(first, shown, (line) => same[line] ?? "", same.length)).toEqual(shown);
+  // A line typed above it since it was shown: it is elsewhere now, so this Keep keeps nothing.
+  const moved = linesOf(`x\n${after}`);
+  expect(keepAt(first, shown, (line) => moved[line] ?? "", moved.length)).toBeUndefined();
 });

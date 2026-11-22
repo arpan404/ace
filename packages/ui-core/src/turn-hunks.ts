@@ -71,3 +71,18 @@ export function locateHunk(
       }
   return found === undefined ? undefined : placed(hunk, found);
 }
+
+/**
+ * The hunk Keep acts on at the press: found again in the text now, and only if it is where it was
+ * shown (`shown`). Undefined when the text moved under what was shown (the review hasn't caught up
+ * yet), or it is gone: then nothing is kept and the review doesn't move on.
+ */
+export function keepAt(
+  hunk: TurnHunk,
+  shown: ChangeHunk,
+  lineAt: (line: number) => string,
+  lineCount: number,
+): ChangeHunk | undefined {
+  const now = locateHunk(hunk, lineAt, lineCount);
+  return now && now.start === shown.start ? now : undefined;
+}

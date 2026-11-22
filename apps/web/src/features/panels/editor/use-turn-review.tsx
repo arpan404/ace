@@ -1,6 +1,7 @@
 import { useThreadField } from "@ace/client-react/thread-field";
 import {
   groupFileChanges,
+  keepAt,
   locateHunk,
   providerDisplayName,
   turnHunks,
@@ -84,14 +85,13 @@ export function useTurnReview(input: {
   // Found again by their lines whenever the text has moved (the gutter settles after each pause
   // in typing). Only to show, step through and keep: nothing here changes the text.
   const subscribe = useCallback((changed: () => void) => gutter.subscribe(changed), [gutter]);
-  const marks = useSyncExternalStore(subscribe, () => gutter.state());
-  const located = useMemo(() => {
-    const doc = buffer.document();
-    return doc
-      ? hunks.map((hunk) => locateHunk(hunk, (line) => doc.line(line), doc.lenLines()))
-      : [];
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the gutter's state moves with the text.
-  }, [hunks, buffer, marks]);
+  // Placed again on each render, and at least once per settled change of the text (the gutter's
+  // state moves): what the peek shows is where the change is as of that render.
+  useSyncExternalStore(subscribe, () => gutter.state());
+  const doc = buffer.document();
+  const located = doc
+    ? hunks.map((hunk) => locateHunk(hunk, (line) => doc.line(line), doc.lenLines()))
+    : [];
 
   // Progress lives outside the view: a tab switch or a remount comes back to the same change.
   const key = review ? `${threadId}\u0000${review.token}\u0000${path}` : "";
@@ -136,12 +136,18 @@ export function useTurnReview(input: {
     setState({ index: Math.max(0, wrap), done: finished });
     if (at) reveal(at);
   };
-  const finish = (lines: ChangeHunk) => {
-    const finished = new Set(done).add(index);
-    gutter.keep(lines.start - 1, lines.start - 1 + Math.max(1, lines.added.length));
-    step(1, finished);
+  // Keep acts on the change where it is at the press: found again in the text now, it must be
+  // where the peek shows it. If the text moved and the review hasn't looked again yet, nothing is
+  // kept and the review stays put (it shows the change in its new place after the pause).
+  const keep = () => {
+    const doc = buffer.document();
+    const turnHunk = hunks[index];
+    if (!doc || !turnHunk || !current) return;
+    const now = keepAt(turnHunk, current, (line) => doc.line(line), doc.lenLines());
+    if (!now) return gutter.edited();
+    gutter.keep(now.start - 1, now.start - 1 + Math.max(1, now.added.length));
+    step(1, new Set(done).add(index));
   };
-  const keep = () => current && finish(current);
   const comment =
     layer?.annotate &&
     (() =>
