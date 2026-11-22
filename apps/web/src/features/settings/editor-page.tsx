@@ -110,6 +110,7 @@ export function EditorSettings() {
         <SwitchRow entry="editor.indentGuides" field="indentGuides" />
         <SwitchRow entry="editor.stickyScroll" field="stickyScroll" />
         <SwitchRow entry="editor.cursorBlinking" field="cursorBlinking" />
+        <SwitchRow entry="editor.inlineBlame" field="inlineBlame" />
       </SettingSection>
     </>
   );

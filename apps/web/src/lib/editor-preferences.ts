@@ -37,6 +37,7 @@ const fields = z.object({
   indentGuides: z.boolean().catch(true),
   stickyScroll: z.boolean().catch(true),
   cursorBlinking: z.boolean().catch(false),
+  inlineBlame: z.boolean().catch(false),
 });
 export const EditorPreferences = fields.catch(() => fields.parse({}));
 export type EditorPreferences = z.infer<typeof EditorPreferences>;

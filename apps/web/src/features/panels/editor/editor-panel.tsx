@@ -104,6 +104,11 @@ import { draftsOf, withDrafts, withoutDrafts } from "./editor-migration.ts";
 import { editorRegistry, importDrafts } from "./editor-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
+import {
+  EditorBlameHostContext,
+  useEditorBlameHost,
+  useInlineBlame,
+} from "./use-inline-blame.tsx";
 import { useChangeGutter } from "./use-change-gutter.tsx";
 import { useTurnReview } from "./use-turn-review.tsx";
 import { ReviewIdle } from "./hunk-peek.tsx";
@@ -475,10 +480,17 @@ export function EditorPanel(props: TabViewProps) {
     />
   );
   const focusedBuffer = focused.active === undefined ? undefined : buffers.buffer(focused.active);
-  const openCommitDiff = (diffTarget: CommitDiffTarget) => {
-    const group = focusedGroup(latest.current);
-    setCommitDiff({ group: group.id, activePath: group.active, target: diffTarget });
-  };
+  const openCommitDiff = useCallback(
+    (diffTarget: CommitDiffTarget) => {
+      const group = focusedGroup(latest.current);
+      setCommitDiff({ group: group.id, activePath: group.active, target: diffTarget });
+    },
+    [setCommitDiff],
+  );
+  const blameHost = useMemo(
+    () => ({ statusStore, openCommitDiff }),
+    [statusStore, openCommitDiff],
+  );
   const activeCommitSha =
     commitDiff && commitDiff.group === focused.id && commitDiff.activePath === focused.active
       ? commitDiff.target.sha
@@ -559,8 +571,9 @@ export function EditorPanel(props: TabViewProps) {
             </aside>
           )}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-            <EditorPanelContext value={saving}>
-              <Editor
+            <EditorBlameHostContext value={blameHost}>
+              <EditorPanelContext value={saving}>
+                <Editor
                 layout={layout}
                 onLayoutChange={change}
                 newGroupId={groupIds(layout)}
@@ -607,7 +620,8 @@ export function EditorPanel(props: TabViewProps) {
                   )
                 }
               />
-            </EditorPanelContext>
+              </EditorPanelContext>
+            </EditorBlameHostContext>
             {recent !== undefined && recentTabs.length > 0 && (
               <RecentEditors tabs={recentTabs} index={recent} onPick={pickRecent} />
             )}
@@ -741,6 +755,7 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
     [preferences],
   );
   const saving = useEditorPanelSaving();
+  const blameHost = useEditorBlameHost();
   const autoSave = saving?.autoSave;
   const { path } = editor;
   // The gutter's live change marks, the agents' lines and the change under a pressed mark.
@@ -749,6 +764,19 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
     path,
     group: editor.group,
     buffer,
+  });
+  // Quiet end-of-line git blame on the caret line only (off by default in Settings › Editor).
+  const blame = useInlineBlame({
+    enabled: preferences.inlineBlame,
+    threadId,
+    path,
+    group: editor.group,
+    buffer,
+    head: gutter.head,
+    agentBlocks: gutter.agentBlocks,
+    marks: gutter.marks,
+    statusStore: blameHost?.statusStore,
+    onOpenCommit: blameHost?.openCommitDiff,
   });
   // A turn under review shows its hunks inline, to keep, revert or comment on (Review in editor).
   const review = useTurnReview({
@@ -793,6 +821,8 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
             look={look}
             onMarkClick={gutter.onMarkClick}
             peek={review?.peek ?? gutter.peek}
+            onVisibleRange={blame.onVisibleRange}
+            caretAnnotation={blame.caretAnnotation}
             onEdited={onEdited}
             onBlurred={onBlurred}
             onRevealed={onRevealed}

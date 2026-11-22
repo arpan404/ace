@@ -12,7 +12,7 @@ import type { AgentMark } from "@/features/editor";
 import type { TextBuffer } from "@/features/editor-workbench/index.ts";
 import { requestReveal } from "@/lib/workspace/index.ts";
 import { useChangeMarks } from "../files/use-change-marks.ts";
-import { blockWords } from "./agent-lines.ts";
+import { blockWords, type AgentBlock } from "./agent-lines.ts";
 import { liveGutterFor } from "./gutter-store.ts";
 import { HunkPeek } from "./hunk-peek.tsx";
 
@@ -27,6 +27,8 @@ const noMarks: ReadonlyMap<number, LineMark> = new Map();
 export interface ChangeGutterView {
   marks: ReadonlyMap<number, LineMark> | undefined;
   agentMarks: readonly AgentMark[];
+  agentBlocks: readonly AgentBlock[];
+  head: string | undefined;
   hunks: readonly ChangeHunk[];
   onMarkClick(line: number): void;
   peek: { after: number; content: ReactNode } | undefined;
@@ -122,6 +124,8 @@ export function useChangeGutter(input: {
     // Always a map, even an empty one: the live marks are the gutter's only marks.
     marks: state.marks ?? noMarks,
     agentMarks,
+    agentBlocks: state.agent,
+    head: commit,
     hunks: state.hunks,
     onMarkClick: setPeekLine,
     peek,

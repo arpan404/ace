@@ -61,6 +61,12 @@ export interface BufferEditorProps {
   onMarkClick?: ((line: number) => void) | undefined;
   /** An inline block under a line (a change's diff). */
   peek?: { after: number; content: ReactNode } | undefined;
+  /** Reports the 1-based visible line range and total line count (e.g. for inline git blame). */
+  onVisibleRange?:
+    | ((range: { firstLine: number; lastLine: number; lineCount: number }) => void)
+    | undefined;
+  /** Quiet end-of-line annotation drawn on the caret line only (e.g. inline git blame). */
+  caretAnnotation?: { line: number; content: ReactNode } | undefined;
   /** The person typed in this view (auto save waits for a pause). */
   onEdited?: (() => void) | undefined;
   /** This view's text lost the keyboard (auto save on focus change). */

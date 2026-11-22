@@ -3,6 +3,7 @@ import {
   ArrowsOutSimpleIcon,
   FileIcon,
   FolderPlusIcon,
+  GitCommitIcon,
   GitDiffIcon,
   GlobeIcon,
   MoonIcon,
@@ -24,6 +25,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useBetaEnabled } from "@/lib/beta-enabled.ts";
+import { useEditorPreferences } from "@/lib/editor-preferences.ts";
 import { useOpenMarket } from "@/lib/open-market.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 import { windowsHelpActions } from "@/boot/help-actions.ts";
@@ -119,6 +121,8 @@ export function usePaletteGroups(
   const spadeShown = useSpadeShown() === true;
   const marketplace = useBetaEnabled("marketplace") === true;
   const openMarket = useOpenMarket();
+  const [editorPrefs, updateEditorPrefs] = useEditorPreferences();
+  const inlineBlame = editorPrefs.inlineBlame;
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
       close();
@@ -242,10 +246,18 @@ export function usePaletteGroups(
       },
       {
         value: "Actions",
-        items: scope
-          ? [
-              {
-                id: "toggle-changes",
+        items: [
+          {
+            id: "editor-toggle-inline-blame",
+            label: inlineBlame ? "Hide inline git blame" : "Show inline git blame",
+            keywords: "git blame author commit history inline editor",
+            icon: GitCommitIcon,
+            run: run(() => updateEditorPrefs({ inlineBlame: !inlineBlame })),
+          } satisfies PaletteCommand,
+          ...(scope
+            ? [
+                {
+                  id: "toggle-changes",
                 label: "Show changes",
                 keys: keymap.changes.keys,
                 icon: GitDiffIcon,
@@ -321,7 +333,8 @@ export function usePaletteGroups(
                 run: run(command.run),
               })),
             ]
-          : [],
+            : []),
+        ],
       },
       {
         value: "Theme",
@@ -402,6 +415,8 @@ export function usePaletteGroups(
     spadeShown,
     marketplace,
     openMarket,
+    inlineBlame,
+    updateEditorPrefs,
   ]);
   return useMemo(
     () =>

@@ -1,7 +1,7 @@
 // oxlint-disable react/no-array-index-key -- token and match runs have no identity; position is it.
 import { tokensFit } from "@/components/markdown/code-lines.ts";
 import { CodeTokens } from "@/components/markdown/code-tokens.tsx";
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import { panelReveal } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import type { MatchSegment } from "./find-matches.ts";
@@ -86,6 +86,8 @@ export const EditorLine = memo(function EditorLine(props: {
   fold?: "open" | "closed" | undefined;
   /** This is the line's last row, where a folded line shows its ellipsis. */
   lastRow?: boolean;
+  /** Quiet trailing annotation on the caret line's last visual row (e.g. inline git blame). */
+  endNote?: ReactNode;
 }) {
   const text =
     props.clip && props.text.length > clipped ? `${props.text.slice(0, clipped)}…` : props.text;
@@ -146,6 +148,16 @@ export const EditorLine = memo(function EditorLine(props: {
           </span>
         ) : null}
       </span>
+      {props.endNote && props.lastRow !== false ? (
+        <span
+          data-part="caret-annotation"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          className="inline-flex shrink-0 items-center pr-6 select-none"
+        >
+          {props.endNote}
+        </span>
+      ) : null}
     </div>
   );
 });

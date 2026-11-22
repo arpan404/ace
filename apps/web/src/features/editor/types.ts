@@ -110,6 +110,12 @@ export interface CodeEditorProps {
   /** Called after each edit; read the text through the handle when it is actually needed. */
   onEdit?: (() => void) | undefined;
   onBlur?: (() => void) | undefined;
+  /** The 1-based inclusive visible line range and total line count, when scrolling or resizing. */
+  onVisibleRange?:
+    | ((range: { firstLine: number; lastLine: number; lineCount: number }) => void)
+    | undefined;
+  /** Optional quiet end-of-line annotation drawn on the caret line only (e.g. inline git blame). */
+  caretAnnotation?: { line: number; content: ReactNode } | undefined;
   /** The text once, as the editor unmounts, for a caller that keeps a draft. */
   onTextDispose?: ((text: string) => void) | undefined;
   onSave?: (() => void) | undefined;
