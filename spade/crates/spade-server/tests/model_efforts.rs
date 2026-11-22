@@ -67,6 +67,9 @@ async fn a_bots_turns_think_at_medium_and_its_title_at_low_until_the_person_chan
     assert_eq!(status, 200, "{global}");
     assert_eq!(global["efforts"]["main"], "low");
     assert_eq!(global["efforts"]["review"], Value::Null);
+    // What a role with nothing set thinks at, for the app to show.
+    assert_eq!(global["effort_defaults"]["review"], "medium");
+    assert_eq!(global["effort_defaults"]["title"], "low");
     let path = format!("/v1/agents/{agent}/models");
     let (status, view) = spade
         .put(&path, json!({ "efforts": { "main": "high" } }))

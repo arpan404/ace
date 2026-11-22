@@ -334,6 +334,10 @@ impl Engine {
             "roles": routed_json(&global),
             "routes": routes_json(&global),
             "efforts": efforts_json(&global),
+            "effort_defaults": Role::ALL
+                .into_iter()
+                .map(|r| (r.name(), r.default_effort().name()))
+                .collect::<BTreeMap<_, _>>(),
             "escalate": global.escalate,
         }))
     }
