@@ -284,7 +284,10 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
                 Route::Review(Some(OVERWRITES.to_owned())),
                 "{name} {mode:?}"
             );
-            let tainted = Call { tainted: true, ..call };
+            let tainted = Call {
+                tainted: true,
+                ..call
+            };
             assert_eq!(
                 route(tainted),
                 Route::Review(Some(OVERWRITES_TAINTED.to_owned())),
@@ -292,12 +295,25 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             );
             // Neither the person's earlier "yes" nor an Always allow skips the review.
             for skip in [
-                Call { remembered: Some(true), ..call },
-                Call { granted: Granted::Tool, ..call },
+                Call {
+                    remembered: Some(true),
+                    ..call
+                },
+                Call {
+                    granted: Granted::Tool,
+                    ..call
+                },
             ] {
-                assert_eq!(route(skip), Route::Review(Some(OVERWRITES.to_owned())), "{name}");
+                assert_eq!(
+                    route(skip),
+                    Route::Review(Some(OVERWRITES.to_owned())),
+                    "{name}"
+                );
             }
-            let declined = Call { remembered: Some(false), ..call };
+            let declined = Call {
+                remembered: Some(false),
+                ..call
+            };
             assert!(matches!(route(declined), Route::Refuse(_)), "{name}");
         }
         let delete = Call {

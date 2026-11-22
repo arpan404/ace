@@ -69,6 +69,10 @@ fn a_change_named_after_a_descriptions_first_sentence_keeps_a_read() {
                   Reading never authorizes a write.";
     assert_eq!(named("notion-fetch", fetch), Named::Read);
     assert_eq!(named("notion-memory-search", memory), Named::Read);
+    // An adjective that only looks like a change: `async`, `enabled`.
+    assert_eq!(named("notion-get-async-task", ""), Named::Read);
+    assert_eq!(named("notion-get-enabled-skills", ""), Named::Read);
+    assert_eq!(named("enable_skill", ""), Named::Unclear);
     // Code in the first sentence names something else too.
     assert_eq!(
         named(

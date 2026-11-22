@@ -100,7 +100,13 @@ pub fn recent_steps(events: &[Event], call_id: &str) -> Vec<String> {
         .flat_map(|calls| calls.iter().rev())
         .filter(|call| call.id != call_id)
         .take(RECENT_STEPS)
-        .map(|call| format!("{} {}", call.name, cut(&call.arguments.to_string(), STEP_CHARS)))
+        .map(|call| {
+            format!(
+                "{} {}",
+                call.name,
+                cut(&call.arguments.to_string(), STEP_CHARS)
+            )
+        })
         .collect();
     steps.reverse();
     steps
@@ -266,8 +272,16 @@ mod tests {
             )]));
         }
         events.push(step(&[
-            ("made", "notion-create-pages", serde_json::json!({ "title": "x".repeat(900) })),
-            ("now", "notion-update-page", serde_json::json!({ "page_id": "page-19" })),
+            (
+                "made",
+                "notion-create-pages",
+                serde_json::json!({ "title": "x".repeat(900) }),
+            ),
+            (
+                "now",
+                "notion-update-page",
+                serde_json::json!({ "page_id": "page-19" }),
+            ),
         ]));
         let steps = recent_steps(&events, "now");
         assert_eq!(steps.len(), RECENT_STEPS);

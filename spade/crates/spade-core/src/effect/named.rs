@@ -454,6 +454,8 @@ const BENIGN: &[&str] = &[
     "published",
     "sender",
     "senders",
+    "enabled",
+    "async",
 ];
 
 /// Words in a description that say a tool changes something: any one keeps it from reading.
