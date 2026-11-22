@@ -299,6 +299,12 @@ export const OrgRosterStatement = z.strictObject({
   kind: z.literal("org-roster"),
   org: OrgId,
   host: HostIdClaim,
+  /**
+   * The backend's restore generation: raised whenever its accounts database is restored from a
+   * backup, so versions handed out again after a restore are a new series a host can tell apart.
+   * A host refuses a lower epoch, and versions compare only within one epoch.
+   */
+  epoch: z.number().int().positive(),
   version: z.number().int().positive(),
   at: z.number().int().nonnegative(),
   body_sha256: z.string().regex(/^[0-9a-f]{64}$/),

@@ -59,6 +59,11 @@ export const AccountConfig = z.object({
     .trim()
     .regex(/^[A-Za-z0-9_-]{43}$/)
     .optional(),
+  /**
+   * The member rosters' restore generation (ADR 0209 §7.2): raise it by one whenever the accounts
+   * database is restored from a backup, before the Worker serves again. Default 1.
+   */
+  rosterEpoch: z.coerce.number().int().positive().default(1),
 });
 export type AccountConfig = z.infer<typeof AccountConfig>;
 
@@ -90,6 +95,7 @@ export type AccountEnv = {
       | "ACE_ACCOUNT_PUBLIC_ORIGINS"
       | "WORKOS_WEBHOOK_SECRET"
       | "ACE_MARKET_STANDING_TOKEN"
+      | "ACE_ROSTER_EPOCH"
   ]?: string;
 };
 
@@ -107,6 +113,7 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
     previousGrantKey: env.ACE_GRANT_PREVIOUS_KEY || undefined,
     webhookSecret: env.WORKOS_WEBHOOK_SECRET || undefined,
     marketStandingToken: env.ACE_MARKET_STANDING_TOKEN || undefined,
+    rosterEpoch: env.ACE_ROSTER_EPOCH || undefined,
     allowedOrigins:
       typeof allowed === "string"
         ? allowed

@@ -157,6 +157,7 @@ export function accountApi(
     principals,
     orgs,
     signingKey: config.grantKey,
+    epoch: config.rosterEpoch,
     now,
   });
   const outbox = auditOutbox({ db: deps.db, workos: workosOrg, now });

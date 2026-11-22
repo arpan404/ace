@@ -190,7 +190,8 @@ export type AceOrgPolicyVersion = z.infer<typeof AceOrgPolicyVersion>;
 
 /**
  * One member as an org host's roster names them (ADR 0209 §7.2): only `active` may run work on
- * the host. Name and email are for display and git authorship, never identity.
+ * the host; removed members stay listed as `removed`. Name and email are for display and git
+ * authorship, never identity.
  */
 export const AceOrgRosterMember = z.object({
   account: z.string().min(1).max(256),
@@ -198,6 +199,12 @@ export const AceOrgRosterMember = z.object({
   role: z.string().min(1).max(64),
   name: z.string().max(256).optional(),
   email: z.string().max(320).optional(),
+  /**
+   * When WorkOS made the membership what `status` says (ISO 8601, the mirror's time for it). A
+   * host lifts a revocation only for an active state WorkOS made after the one that revoked,
+   * which a backend restored from an older backup can't produce.
+   */
+  changed: z.string().max(64).optional(),
 });
 export type AceOrgRosterMember = z.infer<typeof AceOrgRosterMember>;
 /**

@@ -3,6 +3,7 @@ import { encodeBase64url, verifyOrgRoster } from "@ace/account-grant";
 import { AceOrgRoster, AceOrgRosterBody } from "@ace/protocol/ace-org";
 import { fakeWorkos } from "./testing/fake-workos.ts";
 import { startWorker } from "./testing/harness.ts";
+import { claimRosterVersion, rosterSnapshot } from "./account/org-roster.ts";
 import { orgCalls, workosUser } from "./testing/org-calls.ts";
 import { signInThroughWorker } from "./testing/sign-in.ts";
 
@@ -37,11 +38,12 @@ async function roster(credential: string, org: string, hostId: string) {
   return { signed, members: AceOrgRosterBody.parse(JSON.parse(body)).members };
 }
 
-it("an org host's roster is signed for it, and a removal gives it a higher version without the member", async () => {
-  const owner = workosUser("user_rosterowner", "Rosterowner");
-  const mia = workosUser("user_rostermia", "Rostermia");
+/** An organization with an owner and Mia, and a host enrolled in it with its own credential. */
+async function rosteredHost(name: string) {
+  const owner = workosUser(`user_${name.toLowerCase()}owner`, `${name}owner`);
+  const mia = workosUser(`user_${name.toLowerCase()}mia`, `${name}mia`);
   const ownerToken = (await signInThroughWorker(worker.http, workos, owner)).token;
-  const org = await api.createOrg(ownerToken, "Rostered");
+  const org = await api.createOrg(ownerToken, name);
   workos.orgs.addMember(mia.id, org, "member");
   await worker.cron("* * * * *");
   const daemonSession = (await signInThroughWorker(worker.http, workos, owner, "machine")).token;
@@ -51,6 +53,11 @@ it("an org host's roster is signed for it, and a removal gives it a higher versi
   ).toBe(201);
   const credential = encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
   expect((await api.orgCredential(box, org, credential)).status).toBe(201);
+  return { owner, mia, ownerToken, org, box, credential };
+}
+
+it("an org host's roster is signed for it, and a removal gives it a higher version without the member", async () => {
+  const { mia, ownerToken, org, box, credential } = await rosteredHost("Rostered");
 
   const first = await roster(credential, org, box.hostId);
   expect(first.signed).toMatchObject({ org, host: box.hostId, kind: "org-roster" });
@@ -79,4 +86,30 @@ it("an org host's roster is signed for it, and a removal gives it a higher versi
   expect(unsigned.status).toBe(401);
   const elsewhere = "A".repeat(52);
   expect((await api.call(credential, "GET", rosterPath(org, elsewhere))).status).toBe(403);
+});
+
+it("a roster read before a removal never takes a version after it", async () => {
+  const { mia, ownerToken, org, box, credential } = await rosteredHost("Stalled");
+  const first = await roster(credential, org, box.hostId);
+  expect(first.signed.epoch).toBe(1);
+  // Ben joins, so the next roster differs from the one served. One request reads it, Mia still
+  // active, and stalls while the removal lands.
+  const ben = workosUser("user_stalledben", "Stalledben");
+  workos.orgs.addMember(ben.id, org, "member");
+  await worker.cron("* * * * *");
+  const stale = await rosterSnapshot(worker.db, org);
+  expect((await api.call(ownerToken, "DELETE", `/v1/orgs/${org}/members/${mia.id}`)).status).toBe(
+    200,
+  );
+  // It wakes first: what it read is no longer the members, so it takes no version.
+  expect(await claimRosterVersion(worker.db, org, stale)).toBeUndefined();
+  const served = await roster(credential, org, box.hostId);
+  expect(served.signed).toMatchObject({ version: first.signed.version + 1, epoch: 1 });
+  // Mia is listed as removed, with the time WorkOS made that so, never active.
+  expect(served.members).toContainEqual(
+    expect.objectContaining({ account: mia.id, status: "removed", changed: expect.any(String) }),
+  );
+  expect(served.members).toContainEqual(
+    expect.objectContaining({ account: ben.id, status: "active" }),
+  );
 });
