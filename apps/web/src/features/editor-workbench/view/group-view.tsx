@@ -99,13 +99,8 @@ export function GroupView(props: {
       <div
         ref={setArea}
         data-part="buffer-editor"
-        // Only the focused group draws its caret: the keyboard is in one place (spec 19).
-        className={cn(
-          "relative flex min-h-0 flex-1 flex-col",
-          // Where the two scrollbars meet, the page shows through instead of a light square.
-          "[&_*::-webkit-scrollbar-corner]:bg-transparent",
-          !props.focused && "[&_[data-caret]]:invisible",
-        )}
+        // The code editor dims its own caret without focus and clears its scrollbar corner.
+        className="relative flex min-h-0 flex-1 flex-col"
         // Captured, so a tab or file dropped on the code reaches the drop zones and never the
         // text input under the pointer, which would paste its path.
         onDragOverCapture={(event) => {

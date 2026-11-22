@@ -1,9 +1,11 @@
 /*
  * Tab drags carry their own type, so the side panel's strip (which takes `tabDragType`) ignores
  * them, plus the path as plain text for anything else that accepts a file path. Files dragged
- * from the explorer carry the tree's rows (`application/x-ace-tree-entries`, written by
+ * from the explorer carry the tree's rows (`treeEntriesDragType`, written by
  * `panels/files/use-tree-drag.ts`): dropped on a group, the files among them open there (spec 16).
  */
+
+import { treeEntriesDragType } from "@/lib/workspace/index.ts";
 
 export const editorTabDragType = "application/x-ace-editor-tab";
 
@@ -39,9 +41,6 @@ export function readTabDrag(transfer: DataTransfer): TabDrag | undefined {
 export function copiesOnDrop(event: { altKey: boolean }): boolean {
   return event.altKey;
 }
-
-/** The explorer's drag type: rows of one thread's tree, as `use-tree-drag.ts` writes them. */
-export const treeEntriesDragType = "application/x-ace-tree-entries";
 
 /** A drag a group takes: one of its tabs, or files from the explorer. */
 export type GroupDrag = { kind: "tab"; tab: TabDrag } | { kind: "files"; paths: string[] };
