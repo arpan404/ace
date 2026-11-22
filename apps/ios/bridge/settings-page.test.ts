@@ -614,7 +614,20 @@ test("the Automation webhooks page has a switch per way in, and turning one off 
     title: "At your own URL",
     value: false,
     note: "Add your own URL under Connect an app first.",
+    // Off and unchangeable until there's a URL, as on the web.
+    locked: "Add your own URL under Connect an app first.",
   });
+  const early = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "automationWebhooks",
+    row: "remote.publicUrlWebhooks",
+    value: true,
+  });
+  expect(early).toMatchObject({
+    ok: false,
+    message: "Add your own URL under Connect an app first.",
+  });
+  expect(daemon.services.settings.get("remote.publicUrlWebhooks")).not.toBe(true);
   expect(row(shown, "remote.tailscaleWebhooks")).toMatchObject({
     title: "Over Tailscale",
     value: true,
@@ -632,7 +645,16 @@ test("the Automation webhooks page has a switch per way in, and turning one off 
   expect(daemon.services.settings.get("remote.tailscaleWebhooks")).toBe(false);
 
   daemon.seedServices({ settings: { "remote.mcpPublicUrl": "https://hooks.example.com/ace" } });
-  expect(row(await page(p, "automationWebhooks"), "remote.publicUrlWebhooks").note).toBe(
-    "Senders reach your own proxy, which keeps request bodies off ace cloud.",
-  );
+  expect(row(await page(p, "automationWebhooks"), "remote.publicUrlWebhooks")).toMatchObject({
+    note: "Senders reach your own proxy, which keeps request bodies off ace cloud.",
+    locked: null,
+  });
+  const on = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "automationWebhooks",
+    row: "remote.publicUrlWebhooks",
+    value: true,
+  });
+  expect(on.ok).toBe(true);
+  expect(daemon.services.settings.get("remote.publicUrlWebhooks")).toBe(true);
 });

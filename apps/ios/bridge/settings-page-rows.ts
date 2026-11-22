@@ -65,6 +65,8 @@ export interface StaticRow {
   note?: (current: unknown, other: (key: SettingsKey) => unknown) => string | null;
   /** Other settings the note depends on, read with the page. */
   reads?: SettingsKey[];
+  /** Why it can't change until another setting is there (read from `reads`); null when it can. */
+  blocked?: (other: (key: SettingsKey) => unknown) => string | null;
 }
 /** A row built from the machine's providers and models. */
 export type AgentRow =
@@ -429,6 +431,8 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
       reads: ["remote.mcpPublicUrl"],
       note: (_current, other) =>
         other("remote.mcpPublicUrl") ? webhookWays.custom.sub : webhookWays.custom.blocked,
+      // Off until the machine has its own URL, as the web's switch.
+      blocked: (other) => (other("remote.mcpPublicUrl") ? null : webhookWays.custom.blocked),
     },
     {
       ...toggle("remote.tailscaleWebhooks", webhookWays.tailscale.title),
