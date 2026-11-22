@@ -1,8 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { CursorHost } from "./host.ts";
+import { checkpointDirectory } from "./checkpoints.ts";
 import { bearer, runtimeFixture } from "./host-runtime-test-support.ts";
 
 const wire = new URL("./host-wire.ts", import.meta.url).pathname;
@@ -88,4 +89,34 @@ it("the session's MCP bearer in a Cursor error or message never reaches ace's st
   await settled.promise;
   expect(stored.join("\n")).toContain("MCP call failed");
   expect(stored.join("\n")).not.toContain(bearer);
+});
+
+it("frames ace stored in earlier settled turns are trimmed from the host's journal", async () => {
+  let results = 0;
+  let settled = Promise.withResolvers<void>();
+  await using fixture = await runtimeFixture(
+    {},
+    async (envelope) => {
+      if (envelope.kind === "result") {
+        results++;
+        settled.resolve();
+      }
+    },
+    { runError: "finished" },
+  );
+  await fixture.open();
+  for (const turn of ["turn-1", "turn-2", "turn-3"]) {
+    settled = Promise.withResolvers<void>();
+    await fixture.send(turn);
+    await settled.promise;
+  }
+  expect(results).toBe(3);
+  const journal = join(checkpointDirectory(fixture.root, "host-runtime"), "ace-boundary.ndjson");
+  // The trim runs after the turn's result, off the send path.
+  await expect
+    .poll(async () => (await readFile(journal, "utf8")).includes('"turn-1"'), { timeout: 10_000 })
+    .toBe(false);
+  const text = await readFile(journal, "utf8");
+  expect(text.startsWith('{"aceJournal":2,')).toBe(true);
+  expect(text).toContain('"turn-3"');
 });

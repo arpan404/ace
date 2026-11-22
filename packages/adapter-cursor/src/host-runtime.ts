@@ -120,6 +120,11 @@ export class HostRuntime {
       this.budgets.start(this.options?.limits.ackTimeoutMs ?? 300_000),
     );
   }
+  /** Stores a journal frame; once ace confirms it, compaction may drop it (ADR 0211). */
+  private async persistCommitted(frame: CursorEnvelope): Promise<void> {
+    await this.persist(frame);
+    if (frame.boundaryOffset) this.journal?.acknowledge(frame.boundaryOffset);
+  }
   private async persistWithin(frame: CursorEnvelope, budget: AckBudget): Promise<void> {
     try {
       await this.emit(frame, budget.signal);
@@ -184,7 +189,7 @@ export class HostRuntime {
         body: safe,
         ...(prepared.raw ? { raw: prepared.raw } : {}),
       };
-      await this.persist(this.journal ? await this.journal.append(envelope) : envelope);
+      await this.persistCommitted(this.journal ? await this.journal.append(envelope) : envelope);
     } catch (error) {
       await this.overflow(scope, error);
       throw error;
@@ -293,7 +298,9 @@ export class HostRuntime {
           quota,
         },
       );
-      await journal.recover(options.afterFrameOffset, (frame) => this.persist(frame));
+      await journal.recover(options.afterFrameOffset, (frame) =>
+        this.persist(frame).then(() => journal.acknowledge(frame.boundaryOffset ?? 0)),
+      );
       this.journal = journal;
       let recoveryBytes = 0;
       this.scrub = createRedactor(
@@ -384,7 +391,7 @@ export class HostRuntime {
       });
       for (const recovery of recovered) {
         const body = JSON.parse(this.scrub(boundedJson(recovery.body, 262144)));
-        await this.persist(
+        await this.persistCommitted(
           await journal.append({
             schemaVersion: 1,
             generation: options.generation,
@@ -519,6 +526,8 @@ export class HostRuntime {
         scope,
         run,
       );
+      // The turn has settled: trim what ace has stored, off the send path.
+      void this.journal?.settle();
     } catch (error) {
       const failure = sdkFailure(this.sdk, error);
       try {

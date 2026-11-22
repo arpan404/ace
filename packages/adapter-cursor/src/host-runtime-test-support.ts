@@ -140,6 +140,8 @@ export async function runtimeFixture(
   });
   return {
     host,
+    /** The child's HOME, which holds the thread's checkpoint folder. */
+    root,
     fenced: fenced.promise,
     events,
     /** Lines the fake SDK wrote, such as "sdk-send" and "sdk-cancel". */

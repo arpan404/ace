@@ -47,9 +47,16 @@ export async function checkCheckpointBudget(
       if (++entries > 2048 || directory.depth > 10)
         throw new Error("SDK checkpoint inventory exceeds budget; use explicit context handoff");
       const path = join(directory.path, entry.name);
-      paths.add(path);
       if (entry.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
-      const stat = await lstat(path);
+      let stat;
+      try {
+        stat = await lstat(path);
+      } catch (error) {
+        // Removed since the listing, as a journal compaction's scratch file is: it holds nothing.
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+        throw error;
+      }
+      paths.add(path);
       if (stat.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
       if (stat.isDirectory()) {
         pending.push({ path, depth: directory.depth + 1 });
