@@ -15,6 +15,10 @@ export interface ChangeHunk {
   added: readonly string[];
   /** The committed lines the hunk replaced; empty when lines were only added. */
   removed: readonly string[];
+  /** The unchanged line just above the hunk, when known: a revert checks it is still there. */
+  above?: string | undefined;
+  /** The unchanged line just below it. A removal has no lines of its own: these anchor it. */
+  below?: string | undefined;
 }
 
 /** An edit by whole lines, 0-based, `end` exclusive: the shape the editor lands. */
@@ -71,7 +75,8 @@ export function hunkAt(hunks: readonly ChangeHunk[], line: number): ChangeHunk |
 
 /**
  * The edit that puts a hunk's committed lines back, or undefined when the text no longer has the
- * hunk's lines where the diff said (it changed since the diff was read).
+ * hunk's lines (and the unchanged lines around it, where known) where the diff said: it changed
+ * since the diff was read.
  */
 export function revertChange(
   hunk: ChangeHunk,
@@ -83,5 +88,9 @@ export function revertChange(
   if (start < 0 || end > lineCount) return undefined;
   for (let index = 0; index < hunk.added.length; index++)
     if (lineAt(start + index) !== hunk.added[index]) return undefined;
+  if (hunk.above !== undefined && (start === 0 || lineAt(start - 1) !== hunk.above))
+    return undefined;
+  if (hunk.below !== undefined && (end >= lineCount || lineAt(end) !== hunk.below))
+    return undefined;
   return { start, end, text: hunk.removed.map((line) => `${line}\n`).join("") };
 }

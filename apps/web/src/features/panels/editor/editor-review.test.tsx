@@ -34,7 +34,7 @@ async function reviewTurnOne() {
 const view = () => screen.getByRole("region", { name: `Source of ${replayTs.path}` });
 const peekOf = () => screen.findByRole("group", { name: /^Review change at line/ });
 
-test("a turn's change opens inline, named as the agent's, and Revert puts it back and saves", async () => {
+test("a turn's change opens inline, named as the agent's, and Revert puts it back unsaved", async () => {
   const { app } = await reviewTurnOne();
   const peek = await peekOf();
   expect(peek.textContent).toContain("Claude Code · turn 1 · 1 of 3");
@@ -46,14 +46,17 @@ test("a turn's change opens inline, named as the agent's, and Revert puts it bac
 
   await userEvent.click(within(peek).getByRole("button", { name: "Revert" }));
 
-  // Only that hunk went back; turn 2's later change is still there.
+  // On to the next change; that hunk went back in the editor, and nothing was written.
+  expect((await peekOf()).textContent).toContain("2 of 3");
+  expect(view().textContent).not.toContain("const COLD_START_WINDOW = 200;");
+  expect(await bytes(app, replayTs.path)).toBe(replayTs.afterTurn2);
+
+  // Saved, only that hunk went back: turn 2's later change is still there.
+  fireEvent.keyDown(within(view()).getByRole("textbox"), { key: "s", ctrlKey: true });
   await waitFor(async () =>
     expect(await bytes(app, replayTs.path)).not.toContain("const COLD_START_WINDOW = 200;"),
   );
-  const saved = await bytes(app, replayTs.path);
-  expect(saved).toContain("headSeq: this.thread.headSeq, coldStart");
-  // On to the next change.
-  expect((await peekOf()).textContent).toContain("2 of 3");
+  expect(await bytes(app, replayTs.path)).toContain("headSeq: this.thread.headSeq, coldStart");
 });
 
 test("Keep leaves the text as it is and goes on; F7 and ⇧F7 step; Done ends the review", async () => {

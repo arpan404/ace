@@ -7,12 +7,8 @@ import type { DiffRow } from "./diff.ts";
  * may have moved it). Pure; locating is bounded by how far it looks, never the file's length.
  */
 
-export interface TurnHunk extends ChangeHunk {
-  /** The line just above the hunk in the turn's text, when the diff shows it. */
-  above?: string | undefined;
-  /** The line just below it. */
-  below?: string | undefined;
-}
+/** A hunk of a turn's diff, with the unchanged lines around it in the turn's text. */
+export type TurnHunk = ChangeHunk;
 
 /** The turn's hunks of one file's diff, with the lines around each. Linear in the rows. */
 export function turnHunks(rows: readonly DiffRow[]): TurnHunk[] {
@@ -63,6 +59,8 @@ export function locateHunk(
           marks: size ? hunk.added.map((_, index) => start + index) : [Math.max(1, start)],
           added: hunk.added,
           removed: hunk.removed,
+          above: hunk.above,
+          below: hunk.below,
         };
       }
   return undefined;

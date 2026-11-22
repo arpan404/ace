@@ -56,9 +56,8 @@ export function useTurnReview(input: {
   buffer: TextBuffer;
   gutter: LiveGutter;
   layer: EditorLayer | undefined;
-  save(): void;
 }): TurnReviewView | undefined {
-  const { threadId, path, group, buffer, gutter, layer, save } = input;
+  const { threadId, path, group, buffer, gutter, layer } = input;
   const review = useEditorReview(threadId);
   const turns = useTurns(threadId);
   const checkout = useThreadField(threadId, threadCheckoutRoot);
@@ -141,17 +140,16 @@ export function useTurnReview(input: {
     step(1, finished);
   };
   const keep = () => current && finish(current);
+  // Revert finds the turn's lines again as the text is now (they may have moved since the last
+  // look) and lands unsaved, for the person's own Save; gone or edited lines revert nothing.
   const revert = () => {
     const doc = buffer.document();
-    const change =
-      current && doc && revertChange(current, (line) => doc.line(line), doc.lenLines());
-    if (!current || !change) return;
-    // Revert saves only what it put back: other unsaved edits stay the person's to save.
-    const clean = !buffer.snapshot().dirty;
-    if (!buffer.editLines([change])) return;
+    const turnHunk = hunks[index];
+    const now = doc && turnHunk && locateHunk(turnHunk, (line) => doc.line(line), doc.lenLines());
+    const change = now && doc && revertChange(now, (line) => doc.line(line), doc.lenLines());
+    if (!now || !change || !buffer.editLines([change])) return;
     gutter.edited();
-    if (clean) save();
-    finish(current);
+    finish(now);
   };
   const comment =
     layer?.annotate &&

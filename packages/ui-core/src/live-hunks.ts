@@ -44,7 +44,15 @@ export function hunksFromChanges(
     const marks = added.length
       ? added.map((_, index) => change.start + 1 + index)
       : [Math.min(change.start + 1, Math.max(1, lineCount))];
-    hunks.push({ start: change.start + 1, marks, added, removed });
+    const end = change.start + added.length;
+    hunks.push({
+      start: change.start + 1,
+      marks,
+      added,
+      removed,
+      above: change.start > 0 ? lineAt(change.start - 1) : undefined,
+      below: end < lineCount ? lineAt(end) : undefined,
+    });
   }
   return hunks;
 }

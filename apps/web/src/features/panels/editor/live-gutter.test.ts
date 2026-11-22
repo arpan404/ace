@@ -160,3 +160,45 @@ test("keeping an agent's lines drops their mark", async () => {
   gutter.keep(1, 2);
   expect(agentOf(gutter)).toEqual([]);
 });
+
+test("Revert puts the committed lines back and leaves them unsaved", async () => {
+  const { buffer, gutter, checkout, pause } = await opened("one\nTWO\nthree\nfour\n");
+  const [hunk] = gutter.state().hunks;
+  if (!hunk) throw new Error("no hunk");
+
+  expect(gutter.revert(hunk)).toBe(true);
+
+  expect(buffer.document()?.text()).toBe(committed);
+  expect(buffer.snapshot().dirty).toBe(true);
+  // Nothing written: the person saves when they choose to.
+  expect(checkout.text("places.ts")).toBe("one\nTWO\nthree\nfour\n");
+  await pause();
+  expect(marksOf(gutter)).toEqual([]);
+});
+
+test("a hunk worked out before the text moved reverts nothing, even a removal with no lines to check", async () => {
+  // "three" was removed since the commit: the hunk is a gap above "four", with no lines of its own.
+  const { checkout, registry, buffer, gutter } = await opened("one\ntwo\nfour\n");
+  const [gap] = gutter.state().hunks;
+  expect(gap).toMatchObject({ start: 3, added: [], removed: ["three"] });
+  if (!gap) throw new Error("no hunk");
+
+  // An agent adds lines above it; the gutter hasn't looked again yet.
+  checkout.write("places.ts", "zero\nzero b\none\ntwo\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+
+  expect(gutter.revert(gap)).toBe(false);
+  expect(buffer.document()?.text()).toBe("zero\nzero b\none\ntwo\nfour\n");
+});
+
+test("a hunk worked out against an older commit reverts nothing", async () => {
+  const { buffer, gutter } = await opened("one\nTWO\nthree\nfour\n");
+  const [hunk] = gutter.state().hunks;
+  if (!hunk) throw new Error("no hunk");
+
+  gutter.setHead("one\ntwo, newer commit\nthree\nfour\n");
+
+  expect(gutter.revert(hunk)).toBe(false);
+  expect(buffer.document()?.text()).toBe("one\nTWO\nthree\nfour\n");
+});

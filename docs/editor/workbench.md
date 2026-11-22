@@ -212,8 +212,9 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     (worked out once typing pauses, off the main thread for large files): green for added lines,
     blue for changed ones, a small red wedge between lines where lines were removed. A press on a
     change mark shows that hunk under its lines (what it replaced, then what is there now) with
-    Revert, which puts the committed lines back and saves through the versioned write (only when
-    nothing else is unsaved), and Close. F7 and ⇧F7 step through the file's changes. The
+    Revert, which puts the committed lines back as one undoable edit and leaves them unsaved for
+    the person's own Save (a hunk worked out on text or a commit that has moved since reverts
+    nothing), and Close. F7 and ⇧F7 step through the file's changes. The
     scrollbar carries an overview ruler of the changes, the agents' lines, find hits and the
     caret line; a press on a tick brings its line into view.
     44a. **Review in editor** (a turn's changed files in the transcript, a file's menu in Changes, the

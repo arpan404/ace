@@ -580,7 +580,6 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
     path,
     group: editor.group,
     buffer,
-    save: () => void saving?.save(path),
   });
   // A turn under review shows its hunks inline, to keep, revert or comment on (Review in editor).
   const review = useTurnReview({
@@ -590,7 +589,6 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
     buffer,
     gutter: liveGutterFor(buffer),
     layer,
-    save: () => void saving?.save(path),
   });
   const { edited } = gutter;
   const onEdited = useCallback(() => {

@@ -1,4 +1,4 @@
-import { committedText, hunkAt, revertChange, type ChangeHunk, type LineMark } from "@ace/ui-core";
+import { committedText, hunkAt, type ChangeHunk, type LineMark } from "@ace/ui-core";
 import {
   useCallback,
   useEffect,
@@ -58,10 +58,8 @@ export function useChangeGutter(input: {
   path: string;
   group: string;
   buffer: TextBuffer;
-  /** Save through the panel (a Revert on a file with no other unsaved edits). */
-  save(): void;
 }): ChangeGutterView {
-  const { threadId, path, group, buffer, save } = input;
+  const { threadId, path, group, buffer } = input;
   const gutter = liveGutterFor(buffer);
   const subscribe = useCallback((changed: () => void) => gutter.subscribe(changed), [gutter]);
   const state = useSyncExternalStore(subscribe, () => gutter.state());
@@ -94,16 +92,10 @@ export function useChangeGutter(input: {
   const edited = useCallback(() => gutter.edited(), [gutter]);
   const [peekLine, setPeekLine] = useState<number>();
   const hunk = peekLine === undefined ? undefined : hunkAt(state.hunks, peekLine);
+  // Revert lands unsaved, for the person's own Save: a hunk worked out on text that has moved
+  // since does nothing (the marks are worked out again, and the peek shows the new one).
   const revert = () => {
-    const doc = buffer.document();
-    const change = hunk && doc && revertChange(hunk, (line) => doc.line(line), doc.lenLines());
-    setPeekLine(undefined);
-    if (!change) return;
-    // Revert saves only what it put back: other unsaved edits stay the person's to save.
-    const clean = !buffer.snapshot().dirty;
-    if (!buffer.editLines([change])) return;
-    gutter.edited();
-    if (clean) save();
+    if (hunk && gutter.revert(hunk)) setPeekLine(undefined);
   };
   const peek = hunk && {
     after: Math.max(...hunk.marks) - 1,

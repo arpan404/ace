@@ -1,6 +1,8 @@
+import type { EditorDocument } from "@ace/editor";
 import {
   hunkMarks,
   hunksFromChanges,
+  revertChange,
   type ChangeHunk,
   type LineMark,
   type WholeLineChange,
@@ -34,6 +36,8 @@ export interface GutterState {
   marks: ReadonlyMap<number, LineMark> | undefined;
   /** Lines agents wrote, in the text's 0-based lines. */
   agent: readonly AgentBlock[];
+  /** What the hunks were worked out on: a hunk acts only while all of it still holds. */
+  basis?: { doc: EditorDocument; version: number; head: string } | undefined;
 }
 
 export interface LiveGutterDeps {
@@ -96,6 +100,33 @@ export class LiveGutter {
       this.#cancel = undefined;
       this.#enqueue(() => this.#recompute());
     }, this.#deps.delay);
+  }
+
+  /**
+   * Revert: puts `hunk`'s committed lines back as one undoable edit, unsaved. Only a hunk of the
+   * marks as they are now, worked out on this very text and committed text: once either has moved
+   * (typing, an agent's write, a save, a new commit) it does nothing, and the marks are worked
+   * out again. The hunk's own lines and the unchanged lines around it are checked once more.
+   */
+  revert(hunk: ChangeHunk): boolean {
+    const doc = this.#buffer.document();
+    const basis = this.#state.basis;
+    const head = this.#head ?? this.#buffer.baseText();
+    const current =
+      doc !== undefined &&
+      basis !== undefined &&
+      basis.doc === doc &&
+      basis.version === doc.version() &&
+      basis.head === head &&
+      this.#state.hunks.includes(hunk);
+    if (!current) {
+      this.edited();
+      return false;
+    }
+    const change = revertChange(hunk, (line) => doc.line(line), doc.lenLines());
+    if (!change || !this.#buffer.editLines([change])) return false;
+    this.edited();
+    return true;
   }
 
   /** The person kept (or reverted) 0-based lines `start..end`: they stop being the agent's. */
@@ -185,7 +216,12 @@ export class LiveGutter {
       return this.#publish({ ...this.#state, agent: this.#agent });
     const hunks = hunksFromChanges(changes, (line) => doc.line(line), doc.lenLines());
     const marks = hunkMarks(hunks);
-    this.#publish({ hunks, marks: marks.size ? marks : undefined, agent: this.#agent });
+    this.#publish({
+      hunks,
+      marks: marks.size ? marks : undefined,
+      agent: this.#agent,
+      basis: head === undefined ? undefined : { doc, version, head },
+    });
   }
 
   #publish(next: GutterState): void {

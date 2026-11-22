@@ -44,3 +44,26 @@ test("a hunk edited since the turn is not found", () => {
   const [first] = turnHunks(rowsOf(before, after));
   expect(first && locateHunk(first, lineAt, now.length)).toBeUndefined();
 });
+
+test("a removal is found by the lines around its gap, and reverts there", () => {
+  const before2 = "one\ntwo\nthree\nfour\n";
+  const after2 = "one\ntwo\nfour\n";
+  const [gap] = turnHunks(rowsOf(before2, after2));
+  // Lines were added above since the turn.
+  const now = linesOf(`new\n${after2}`);
+  const lineAt = (line: number) => now[line] ?? "";
+  const found = gap && locateHunk(gap, lineAt, now.length);
+  expect(found && revertChange(found, lineAt, now.length)).toEqual({
+    start: 3,
+    end: 3,
+    text: "three\n",
+  });
+});
+
+test("a removal whose surrounding lines changed is not reverted", () => {
+  const [gap] = turnHunks(rowsOf("one\ntwo\nthree\nfour\n", "one\ntwo\nfour\n"));
+  const now = ["one", "two, edited", "four"];
+  const lineAt = (line: number) => now[line] ?? "";
+  // Where the turn left it, its anchors no longer match.
+  expect(gap && revertChange(gap, lineAt, now.length)).toBeUndefined();
+});

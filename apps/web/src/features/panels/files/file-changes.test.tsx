@@ -101,7 +101,7 @@ function pressMark(view: HTMLElement, line: number) {
   fireEvent.pointerDown(scroller, { button: 0, clientX: width - 2, clientY: (line - 1) * 22 + 5 });
 }
 
-test("a press on a change mark shows what the lines were, and Revert puts them back and saves", async () => {
+test("a press on a change mark shows what the lines were, and Revert puts them back unsaved", async () => {
   const { app, view } = await openRetry();
   await waitFor(() =>
     expect(within(view).getAllByTitle("Changed since the last commit")).toHaveLength(2),
@@ -120,13 +120,17 @@ test("a press on a change mark shows what the lines were, and Revert puts them b
   ]);
 
   await userEvent.click(within(peek).getByRole("button", { name: "Revert" }));
+  await waitFor(() => expect(view.textContent).toContain("return 1;"));
+  expect(within(view).queryByRole("group", { name: /^Change at line/ })).toBeNull();
+  // Nothing is written until the person saves.
+  expect(await bytes(app, "src/retry.ts")).toBe(source);
+  await userEvent.click(within(view).getByRole("textbox", { name: "retry.ts" }));
+  await userEvent.keyboard("{Control>}s{/Control}");
   await waitFor(async () =>
     expect(await bytes(app, "src/retry.ts")).toBe(
       "export function retry() {\n  return 1;\n}\nexport const tries = 2;\n",
     ),
   );
-  expect(view.textContent).toContain("return 1;");
-  expect(within(view).queryByRole("group", { name: /^Change at line/ })).toBeNull();
 });
 
 test("Close and Escape put a change's inline diff away without touching the file", async () => {
