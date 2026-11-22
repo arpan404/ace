@@ -66,9 +66,12 @@ struct MarketHomeView: View {
             }
             if let shelves {
                 discoverShelves(shelves)
-            } else if let home {
+            } else if let home, !home.featured.isEmpty {
                 MarketShelf(title: "Featured", items: home.featured) { MarketRow(listing: $0) }
-            } else if problem == nil {
+            } else if let home, home.categories.isEmpty {
+                // Nothing listed at all: no sources, or every one turned off.
+                MarketEmptyHome().padding(.vertical, AceDesign.Space.section)
+            } else if home == nil, problem == nil {
                 SkeletonRows(count: 5, label: "Reading the marketplace")
             }
             if let home { categories(home) }
@@ -160,6 +163,19 @@ struct MarketHomeView: View {
         let refusal = homeRefusal ?? (shelves == nil && home == nil ? discoverRefusal : nil)
         if let refusal, refusal.offline, shelves != nil || home != nil { return nil }
         return refusal
+    }
+}
+
+/// The home with nothing listed: no sources, or every one off. The way out is Sources.
+struct MarketEmptyHome: View {
+    @Environment(\.marketRows) private var rows
+
+    var body: some View {
+        EmptyState(icon: .storefront, title: "No listings yet",
+                   line: "Turn on a source, or add a git catalog, to see what's listed.") {
+            Button("Open Sources") { rows.open(.browse(.sources)) }
+                .accessibilityIdentifier("market.empty.sources")
+        }
     }
 }
 
