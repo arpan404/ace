@@ -18156,15 +18156,17 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| after | yes | [CommitSha.json](schema/CommitSha.json) |  |
+| tip | yes | [CommitSha.json](schema/CommitSha.json) |  |
 | path | yes | [ReviewPath.json](schema/ReviewPath.json) |  |
+| shown | yes | integer | {"minimum":1,"maximum":10000} |
 
 Example:
 
 ```json
 {
-  "after": "beb2fb8e5892cc68bf53d432776a7933d0500c523eb7c6ee545e09b0e42a",
-  "path": "example"
+  "path": "example",
+  "shown": 3,
+  "tip": "beb2fb8e5892cc68bf53d432776a7933d0500c523eb7c6ee545e09b0e42a"
 }
 ```
 

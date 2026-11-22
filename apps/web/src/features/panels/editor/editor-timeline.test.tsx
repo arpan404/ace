@@ -53,6 +53,18 @@ function TimelineHarness(props: { path: string }) {
   );
 }
 
+function pagedCommit(index: number, subject: string) {
+  return {
+    sha: index.toString(16).padStart(40, "0"),
+    shortSha: index.toString(16).padStart(7, "0"),
+    subject,
+    authorName: "Arpan",
+    authorEmail: "arpan@example.invalid",
+    authoredAt: nowMs - (index + 1) * 3600_000,
+    path: "src/paged.ts",
+  };
+}
+
 describe("EditorTimeline and EditorCommitCompare", () => {
   test("lists file history, pages through commits, copies commit id, and opens a read-only commit diff on click", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
@@ -248,6 +260,42 @@ describe("EditorTimeline and EditorCommitCompare", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     await screen.findByText("Commit #30");
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  test("a history rewritten between pages says so and reloads from the start", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitLog(
+      threadId,
+      "src/paged.ts",
+      Array.from({ length: 30 }, (_, index) => pagedCommit(index, `Old #${index + 1}`)),
+    );
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    render(
+      <ClientProvider client={client}>
+        <EditorTimeline
+          threadId={threadId}
+          path="src/paged.ts"
+          open
+          onOpenChange={() => {}}
+          onOpenCommit={() => {}}
+          now={() => nowMs}
+        />
+      </ClientProvider>,
+    );
+    await screen.findByText("Old #1");
+
+    // The branch was rewritten: the page the cursor continues is gone.
+    daemon.workspace.setGitLog(threadId, "src/paged.ts", [pagedCommit(100, "Rewritten")]);
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("This file's history changed.")).toBeTruthy();
+    // Nothing from another history is mixed in.
+    expect(screen.queryByText("Rewritten")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    expect(await screen.findByText("Rewritten")).toBeTruthy();
+    expect(screen.queryByText("Old #1")).toBeNull();
   });
 });
 

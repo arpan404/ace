@@ -31,8 +31,8 @@ test("fileLog follows renames, pages through commits, and reports when output hi
   expect(page1.head).toBe(fourthSha);
   expect(page1.capped).toBe(false);
   expect(page1.hasMore).toBe(true);
-  // The next page continues before the rename, at the file's name there.
-  expect(page1.next).toEqual({ after: thirdSha, path: "old.ts" });
+  // The next page resumes the same walk: from the same tip, after the rows already shown.
+  expect(page1.next).toEqual({ tip: fourthSha, path: "renamed.ts", shown: 2 });
   expect(page1.entries.map((entry) => entry.sha)).toEqual([fourthSha, thirdSha]);
   expect(page1.entries[0]?.path).toBe("renamed.ts");
   expect(page1.entries[1]).toMatchObject({
@@ -79,7 +79,7 @@ test("a long subject before the page does not hide older commits", async () => {
     await git(repo, "commit", "-m", n === 4 ? long : `Commit ${n}`);
   }
   const seen: string[] = [];
-  let cursor: { after: string; path: string } | undefined;
+  let cursor: { tip: string; path: string; shown: number } | undefined;
   for (let page = 0; page < 6; page++) {
     const read = await service.fileLog({
       worktree: repo,
@@ -93,6 +93,46 @@ test("a long subject before the page does not hide older commits", async () => {
     cursor = read.next;
   }
   expect(seen).toEqual([long.slice(0, 10), "Commit 3", "Commit 2", "Initial"]);
+});
+
+test("paging through a history with a merge shows every commit the full walk shows", async () => {
+  const repo = await repository({ "a.ts": "1\n2\n3\n" });
+  await git(repo, "checkout", "-q", "-b", "side");
+  await put(repo, "a.ts", "1\n2\n3 side\n");
+  await git(repo, "commit", "-qam", "Side change");
+  await git(repo, "checkout", "-q", "-");
+  await put(repo, "a.ts", "1 main\n2\n3\n");
+  await git(repo, "commit", "-qam", "Main change");
+  await git(repo, "merge", "-q", "--no-edit", "side");
+  await put(repo, "a.ts", "1 main\n2 after\n3 side\n");
+  await git(repo, "commit", "-qam", "After merge");
+
+  const full = (await git(repo, "log", "--follow", "--format=%H", "--", "a.ts"))
+    .toString()
+    .trim()
+    .split("\n");
+  const seen: string[] = [];
+  let cursor: { tip: string; path: string; shown: number } | undefined;
+  for (let page = 0; page < 10; page++) {
+    const read = await service.fileLog({ worktree: repo, path: "a.ts", limit: 1, cursor });
+    seen.push(...read.entries.map((entry) => entry.sha));
+    if (!read.next) break;
+    cursor = read.next;
+  }
+  expect(seen).toEqual(full);
+  expect(seen.length).toBeGreaterThanOrEqual(4);
+});
+
+test("a cursor whose tip is gone says the history changed", async () => {
+  const repo = await repository({ "a.ts": "1\n" });
+  await expect(
+    service.fileLog({
+      worktree: repo,
+      path: "a.ts",
+      limit: 1,
+      cursor: { tip: "e".repeat(40), path: "a.ts", shown: 1 },
+    }),
+  ).rejects.toMatchObject({ code: "history_changed" });
 });
 
 test("fileLog returns an empty history on an unborn repository or untracked file", async () => {

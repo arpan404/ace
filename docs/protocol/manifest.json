@@ -2365,8 +2365,8 @@
       "sha256": "31586b4a169fb16763a37f41bf516e5d197ae71a38f5c3dab3abfed32ae6e916"
     },
     "schema/GitLogCursor.json": {
-      "bytes": 377,
-      "sha256": "6e85f1bb8ff89bc20d8ea913a390a5ac67e39fff65f3ed8b8803c15d7f1aaf0d"
+      "bytes": 476,
+      "sha256": "93487ba470f46f157b99aff7a065fcbd80586e87049b1ffd750f6f351d78d0be"
     },
     "schema/GitLogEntry.json": {
       "bytes": 969,
@@ -7029,10 +7029,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1427202,
-      "sha256": "0105140749545ddac7dbc961ec1d54a1b163182bdf9bf7743ede0bb645176166"
+      "bytes": 1427270,
+      "sha256": "152512cb62f653c25696bd19870c754d9b8732c00433a2988001429ddeeb3aec"
     }
   },
-  "input": "0fcbf270d5be7948f4614db5ec169701be65f29872a41ba35404ac33a697ce22",
+  "input": "45523073d7714d1f460968e337fdaf1509b2ae8159a85c4c79dbc27af2d4b5d3",
   "version": 1
 }

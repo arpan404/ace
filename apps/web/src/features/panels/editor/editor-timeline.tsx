@@ -9,7 +9,9 @@ import {
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { CommandRefused } from "@/lib/daemon-command.ts";
 import { formatRelativeWords, readGitLog, type CommitDiffTarget } from "@/lib/git-history.ts";
 
 const pageSize = 25;
@@ -21,6 +23,8 @@ interface TimelineData {
   next: GitLogCursor | undefined;
   capped: boolean;
   error: string | undefined;
+  /** The history the next page continued is gone (rewritten): only a reload is shown. */
+  changed: boolean;
   loadingMore: boolean;
 }
 
@@ -42,7 +46,9 @@ export function EditorTimeline(props: {
   const client = useClient();
   // A new commit moves HEAD: the history is read again.
   const head = useThreadMeta(threadId)?.details?.head ?? "";
-  const requestKey = open && path !== undefined ? `${threadId}:${path}:${head}` : undefined;
+  const [reloads, setReloads] = useState(0);
+  const requestKey =
+    open && path !== undefined ? `${threadId}:${path}:${head}:${reloads}` : undefined;
   const [data, setData] = useState<TimelineData | undefined>(undefined);
   const [copiedSha, setCopiedSha] = useState<string | undefined>(undefined);
 
@@ -62,6 +68,7 @@ export function EditorTimeline(props: {
           next: result.next,
           capped: result.capped,
           error: undefined,
+          changed: false,
           loadingMore: false,
         });
       },
@@ -74,6 +81,7 @@ export function EditorTimeline(props: {
           next: undefined,
           capped: false,
           error: "Couldn't read this file's history.",
+          changed: false,
           loadingMore: false,
         });
       },
@@ -110,12 +118,14 @@ export function EditorTimeline(props: {
             : prev,
         );
       },
-      () => {
+      (error: unknown) => {
+        const changed = error instanceof CommandRefused && error.code === "git_history_changed";
         setData((prev) =>
           prev && prev.key === requestKey
             ? {
                 ...prev,
-                error: "Couldn't read older commits.",
+                error: changed ? undefined : "Couldn't read older commits.",
+                changed,
                 loadingMore: false,
               }
             : prev,
@@ -168,6 +178,13 @@ export function EditorTimeline(props: {
             <div className="flex items-center gap-2 px-3 py-2 text-xs text-subtle-foreground">
               <Spinner />
               Loading history…
+            </div>
+          ) : active.changed ? (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-subtle-foreground">
+              <span className="min-w-0 flex-1">This file&apos;s history changed.</span>
+              <Button size="sm" variant="secondary" onClick={() => setReloads((n) => n + 1)}>
+                Reload
+              </Button>
             </div>
           ) : active.error ? (
             <p className="px-3 py-2 text-xs text-subtle-foreground">{active.error}</p>

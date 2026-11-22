@@ -35,6 +35,7 @@ export async function readGitLog(
     },
     options?.signal ? { signal: options.signal } : {},
   );
+  if (reply.result.kind === "error") throw new CommandRefused(reply.result.code);
   if (reply.result.kind !== "gitLog") throw new CommandRefused("git_log_unavailable");
   return reply.result;
 }

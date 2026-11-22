@@ -49,14 +49,22 @@ export const GitBlameLine = z.object({
 });
 export type GitBlameLine = z.infer<typeof GitBlameLine>;
 
-/** Where a file's next page of history starts: before `after`, at the file's name there. */
-export const GitLogCursor = z.object({ after: CommitSha, path: ReviewPath });
+/**
+ * Where a file's next page of history resumes: the same walk from `tip` for `path` as named
+ * there, after the `shown` rows already shown. A page whose tip is gone is refused
+ * (`git_history_changed`).
+ */
+export const GitLogCursor = z.object({
+  tip: CommitSha,
+  path: ReviewPath,
+  shown: z.number().int().min(1).max(10_000),
+});
 export type GitLogCursor = z.infer<typeof GitLogCursor>;
 
 export const GitHistoryOperations = [
   /**
    * File-scoped commit history in the thread's checkout, following renames (`git log --follow`).
-   * The first page starts at HEAD; a later one at the `next` cursor the page before returned.
+   * The first page walks from HEAD; a later one resumes that walk at the `next` cursor.
    * Bounded by `gitLogMaxLimit` entries, `gitLogMaxBytes` bytes and a work budget.
    */
   z.object({

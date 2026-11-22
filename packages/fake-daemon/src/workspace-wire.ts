@@ -632,10 +632,17 @@ export class FakeWorkspaceWire {
     }
     if (op.op === "git.log") {
       const all = this.gitLogs.get(`${op.threadId}:${op.path}`) ?? [];
-      const from = op.cursor ? all.findIndex((entry) => entry.sha === op.cursor?.after) + 1 : 0;
+      // The walk's tip is the newest commit; a cursor from a tip no longer there is refused.
+      const tip = all[0]?.sha;
+      if (op.cursor && op.cursor.tip !== tip)
+        return ServerMessage.parse({
+          type: "workspace.result",
+          requestId: request.requestId,
+          result: { kind: "error", code: "git_history_changed" },
+        });
+      const from = op.cursor?.shown ?? 0;
       const entries = all.slice(from, from + op.limit);
       const hasMore = from + entries.length < all.length;
-      const last = entries.at(-1);
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
@@ -643,8 +650,8 @@ export class FakeWorkspaceWire {
           kind: "gitLog",
           entries,
           hasMore,
-          ...(hasMore && last
-            ? { next: { after: last.sha, path: last.previousPath ?? last.path } }
+          ...(hasMore && tip
+            ? { next: { tip, path: op.cursor?.path ?? op.path, shown: from + entries.length } }
             : {}),
           capped: false,
           head: this.head(op.threadId) ?? null,

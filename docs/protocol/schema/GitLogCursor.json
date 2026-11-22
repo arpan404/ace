@@ -2,16 +2,22 @@
   "$id": "https://ace.local/protocol/v1/GitLogCursor.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "after": {
-      "$ref": "https://ace.local/protocol/v1/CommitSha.json"
-    },
     "path": {
       "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+    },
+    "shown": {
+      "maximum": 10000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "tip": {
+      "$ref": "https://ace.local/protocol/v1/CommitSha.json"
     }
   },
   "required": [
-    "after",
-    "path"
+    "tip",
+    "path",
+    "shown"
   ],
   "type": "object"
 }

@@ -28,11 +28,18 @@ export const historyBudgetMs = 10_000;
 /** Blame reads the whole file at every commit it walks: larger files are refused. */
 export const blameMaxFileBytes = 2 * 1024 * 1024;
 
-/** Where the next page of a file's history starts: before `after`, at the file's name there. */
+/**
+ * Where the next page of a file's history resumes: the same walk (`git log --follow` from `tip`
+ * for `path` as named there) after the `shown` rows already shown, so merges keep both sides.
+ */
 export interface FileLogCursor {
-  after: string;
+  tip: string;
   path: string;
+  shown: number;
 }
+
+/** The most rows a cursor may have shown: each page re-walks them (ids only), bounded. */
+export const fileLogMaxShown = 10_000;
 
 export interface FileLogOptions {
   worktree: string;
@@ -124,34 +131,48 @@ async function parentsOf(
 }
 
 /**
- * A file's commits following renames, a page at a time. The first page starts at HEAD; each
- * later one at the cursor the page before returned (before its last commit, at the file's name
- * there), so a page never replays the ones before it and new commits never shift it.
+ * A file's commits following renames, a page at a time. The first page walks from HEAD; later
+ * pages resume that same walk from the cursor's tip, past the rows shown. The walk itself asks
+ * Git for ids and names only (a long subject before the page costs nothing); the page's own
+ * commits are then read for their author and subject. A cursor whose tip Git no longer has is
+ * refused (`history_changed`), never answered from another history.
  */
 export async function fileLog(
   repository: Repository,
   root: string,
   options: Omit<FileLogOptions, "worktree">,
 ): Promise<FileLogResult> {
-  const path = validatePath(options.path);
   const limit = options.limit ?? 50;
   const maxBytes = options.maxBytes ?? gitLogMaxBytes;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > gitLogMaxLimit)
     throw new GitError("invalid_argument", `limit must be between 1 and ${gitLogMaxLimit}`);
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     throw new GitError("invalid_argument", "maxBytes must be a positive integer");
-  const cursor = options.cursor && {
-    after: validateCommit(options.cursor.after),
-    path: validatePath(options.cursor.path),
-  };
+  const cursor = options.cursor;
+  const path = validatePath(cursor?.path ?? options.path);
+  const shown = cursor?.shown ?? 0;
+  if (!Number.isSafeInteger(shown) || shown < 0 || shown > fileLogMaxShown)
+    throw new GitError("invalid_argument", `shown must be between 0 and ${fileLogMaxShown}`);
+  const { signal } = options;
+  const budget = options.budgetMs ?? historyBudgetMs;
 
-  const head = await resolveHeadOrNull(repository, root, options.signal);
-  if (!head) return { entries: [], hasMore: false, capped: false, head: null };
-  const starts = cursor ? await parentsOf(repository, root, cursor.after, options.signal) : [head];
-  if (starts.length === 0) return { entries: [], hasMore: false, capped: false, head };
-  const walkPath = cursor?.path ?? path;
+  const head = await resolveHeadOrNull(repository, root, signal);
+  let tip: string;
+  if (cursor) {
+    tip = validateCommit(cursor.tip);
+    const exists = await repository.cli.call(root, ["cat-file", "-e", `${tip}^{commit}`], {
+      allowFailure: true,
+      captureBytes: 64,
+      ...(signal ? { signal } : {}),
+    });
+    if (exists.exitCode !== 0)
+      throw new GitError("history_changed", "The history this page continues is gone");
+  } else if (head) tip = head;
+  else return { entries: [], hasMore: false, capped: false, head: null };
 
-  const output = await repository.cli.call(
+  // The walk: ids and the file's names, for every row up to the end of this page and one more.
+  const rows = shown + limit + 1;
+  const walk = await repository.cli.call(
     root,
     [
       "-c",
@@ -160,28 +181,70 @@ export async function fileLog(
       "--follow",
       "--name-status",
       "-z",
-      `--max-count=${limit + 1}`,
-      "--format=tformat:%x1e%H%x00%an%x00%ae%x00%at%x00%s",
-      ...starts,
+      `--max-count=${rows}`,
+      "--format=tformat:%x1e%H%x00%x00%x00%x00",
+      tip,
       "--",
-      `:(literal)${walkPath}`,
+      `:(literal)${path}`,
     ],
     {
-      captureBytes: maxBytes,
+      captureBytes: 64 * 1024 + rows * (128 + 3 * Math.max(path.length, 64)),
       stopAtCapture: true,
-      stopAfterMs: options.budgetMs ?? historyBudgetMs,
-      ...(options.signal ? { signal: options.signal } : {}),
+      stopAfterMs: budget,
+      ...(signal ? { signal } : {}),
     },
   );
+  const walked = parseFileLog(walk.stdout, path, walk.truncated);
+  const hasExtra = walked.entries.length > shown + limit;
+  const page = walked.entries.slice(shown, shown + limit);
+  let capped = walked.incomplete && !hasExtra;
 
-  const parsed = parseFileLog(output.stdout, walkPath, output.truncated);
-  const hasExtra = parsed.entries.length > limit;
-  const entries = hasExtra ? parsed.entries.slice(0, limit) : parsed.entries;
-  const capped = parsed.incomplete && !hasExtra;
-  const hasMore = hasExtra || (capped && entries.length > 0);
-  const last = entries.at(-1);
+  // The page's own commits, for their author, time and subject.
+  const details = new Map<
+    string,
+    Pick<GitLogEntry, "authorName" | "authorEmail" | "authoredAt" | "subject">
+  >();
+  if (page.length) {
+    const read = await repository.cli.call(
+      root,
+      [
+        "show",
+        "-s",
+        "--no-notes",
+        // The final NUL keeps tformat's line ending out of the subject.
+        "--format=tformat:%x1e%H%x00%an%x00%ae%x00%at%x00%s%x00",
+        ...page.map((entry) => entry.sha),
+        "--",
+      ],
+      {
+        captureBytes: maxBytes,
+        stopAtCapture: true,
+        stopAfterMs: budget,
+        ...(signal ? { signal } : {}),
+      },
+    );
+    for (const entry of parseFileLog(read.stdout, path, read.truncated).entries)
+      details.set(entry.sha, entry);
+  }
+  const entries: GitLogEntry[] = [];
+  for (const row of page) {
+    const detail = details.get(row.sha);
+    // A commit whose details did not fit: the page ends before it.
+    if (!detail) {
+      capped = true;
+      break;
+    }
+    entries.push({
+      ...row,
+      authorName: detail.authorName,
+      authorEmail: detail.authorEmail,
+      authoredAt: detail.authoredAt,
+      subject: detail.subject,
+    });
+  }
+  const hasMore = entries.length < page.length || hasExtra || (capped && entries.length > 0);
   const next =
-    hasMore && last ? { after: last.sha, path: last.previousPath ?? last.path } : undefined;
+    hasMore && entries.length > 0 ? { tip, path, shown: shown + entries.length } : undefined;
   return { entries, hasMore, ...(next ? { next } : {}), capped, head };
 }
 
