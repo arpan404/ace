@@ -237,17 +237,21 @@ describe("a message from another bot, in the receiver's chat", () => {
       pending: true,
       rows: [{ text: "from KTM" }, { text: "Flight watcher is working on it", live: true }],
     });
+    // A return that doesn't fit the contract is not its answer.
     c.stored({
       type: "step_finished",
       reply: "r1",
       text: "",
-      calls: [
-        {
-          id: "k1",
-          name: "contract_return",
-          arguments: { call: "cc.c1.j1", output: { fare: "$182", currency: "USD" } },
-        },
-      ],
+      calls: [{ id: "k1", name: "contract_return", arguments: { call: "cc.c1.j1", output: {} } }],
+    });
+    c.stored({ type: "contract_misfit", call: "cc.c1.j1", problems: ["output.fare: missing"] });
+    expect(asked()?.pending).toBe(true);
+    c.stored({
+      type: "contract_ended",
+      call: "cc.c1.j1",
+      status: "returned",
+      output: { fare: "$182", currency: "USD" },
+      untrusted: false,
     });
     c.stored({ type: "reply_finished", reply: "r1", text: "" });
     expect(asked()).toMatchObject({
@@ -256,5 +260,39 @@ describe("a message from another bot, in the receiver's chat", () => {
     });
     // Its answer went back as the return, not as words to Quill.
     expect(shown(c).some((bubble) => bubble.kind === "bot" && bubble.to)).toBe(false);
+  });
+
+  test("a contract call it couldn't answer says so plainly", () => {
+    const c = conversation();
+    c.stored({
+      type: "user_message",
+      text: "cheapest_fare",
+      from_agent: {
+        id: "quill",
+        name: "Quill",
+        depth: 1,
+        contract: { call: "cc.c2", contract: "cheapest_fare", input: { from: "KTM" } },
+      },
+    });
+    c.stored({
+      type: "contract_ended",
+      call: "cc.c2",
+      status: "failed",
+      problems: ["output.fare: is a number"],
+    });
+    const bubble = shown(c).find((each) => each.kind === "other");
+    const card =
+      bubble?.kind === "other" && bubble.contract
+        ? spadeContractAskedCard(bubble.contract, {
+            from: "Quill",
+            self: "Flight watcher",
+            working: false,
+          })
+        : undefined;
+    expect(card?.pending).toBe(false);
+    expect(card?.rows.at(-1)).toMatchObject({
+      text: "Couldn't answer · output.fare: is a number",
+      tone: "failed",
+    });
   });
 });

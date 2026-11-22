@@ -14,8 +14,7 @@ import {
   spadeContractAsked,
   spadeContractCalled,
   spadeContractFinished,
-  spadeContractReturned,
-  spadeContractReturnTool,
+  spadeContractEnded,
   spadeTalkFinished,
   spadeTalkStarted,
   type SpadeContractAsked,
@@ -644,10 +643,6 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (index !== undefined)
         for (const call of event.calls)
           state.calls.set(call.id, { reply: event.reply, index, arguments: call.arguments });
-      // A contract answered: the message that asked keeps what this bot returned.
-      for (const call of event.calls)
-        if (call.name === spadeContractReturnTool)
-          spadeContractReturned(state.entries, call.arguments);
       return updateReply(state, event.reply, (entry) => ({
         ...entry,
         live: "",
@@ -908,6 +903,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       });
       return true;
     }
+    case "contract_ended":
+      return spadeContractEnded(state.entries, event);
     case "contract_called":
       steer(state, spadeContractCalled(key, event, stamp(stored).at));
       return true;

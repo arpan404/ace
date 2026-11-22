@@ -15,9 +15,6 @@ import { spadeRecord } from "./json.ts";
 /** The tool a bot messages another bot with. */
 export const spadeBotMessageTool = "bot_message";
 
-/** The tool a bot answers a contract call with. */
-export const spadeContractReturnTool = "contract_return";
-
 /** How one message to another bot ended: it answered, the message failed, or Stop ended it. */
 export type SpadeTalkOutcome = "answered" | "failed" | "stopped";
 
@@ -209,8 +206,8 @@ export interface SpadeContractAsked {
   contract: string;
   /** Its input's fields in one line. */
   input: string;
-  /** What this bot returned, in one line, once it did. */
-  returned?: string;
+  /** How it ended, once it did: what this bot returned in one line, or why there is none. */
+  ended?: { outcome: SpadeContractOutcome; text: string };
 }
 
 /** The call a delivered message carries, as the receiver's chat keeps it. */
@@ -236,28 +233,47 @@ interface SpadeAskedEntry {
 const isAsked = (entry: { kind: string }): entry is SpadeAskedEntry => entry.kind === "user";
 
 /**
- * This bot answered a contract call (`contract_return`): the message that asked keeps what it
- * returned. True when one did; `entries` is changed in place.
+ * A contract call made to this bot ended (`contract_ended`): the message that asked keeps how,
+ * with what it returned. True when one did; `entries` is changed in place.
  */
-export function spadeContractReturned(
+export function spadeContractEnded(
   entries: ({ kind: string } | SpadeAskedEntry)[],
-  argumentsValue: unknown,
+  event: {
+    call: string;
+    status: SpadeContractOutcome;
+    output?: unknown;
+    problems: readonly string[];
+    why: string;
+  },
 ): boolean {
-  const fields = spadeRecord(argumentsValue);
-  const call = text(fields?.call);
-  if (!call) return false;
   for (let at = entries.length - 1; at >= 0; at--) {
     const entry = entries[at];
-    const asked = entry && isAsked(entry) ? entry.fromAgent?.contract : undefined;
-    if (!entry || !isAsked(entry) || !entry.fromAgent || asked?.call !== call) continue;
-    const output = fields?.output;
-    const record = spadeRecord(output);
-    const returned = record ? fieldsLine(record) : text(output) || String(output ?? "");
-    entries[at] = { ...entry, fromAgent: { ...entry.fromAgent, contract: { ...asked, returned } } };
+    if (!entry || !isAsked(entry) || !entry.fromAgent) continue;
+    const asked = entry.fromAgent.contract;
+    if (asked?.call !== event.call) continue;
+    const output = spadeRecord(event.output);
+    const words =
+      event.status === "returned"
+        ? output
+          ? fieldsLine(output)
+          : plain(event.output)
+        : event.status === "failed"
+          ? event.problems.join("; ")
+          : event.why.trim();
+    const ended = { outcome: event.status, text: words };
+    entries[at] = { ...entry, fromAgent: { ...entry.fromAgent, contract: { ...asked, ended } } };
     return true;
   }
   return false;
 }
+
+/** A returned value that isn't an object, as one line. */
+const plain = (value: unknown) =>
+  typeof value === "string"
+    ? value.trim()
+    : value === undefined || value === null
+      ? ""
+      : JSON.stringify(value);
 
 /** `cheapest_fare` → "cheapest fare": a contract's name as words, or its declared title. */
 export function spadeContractTitle(name: string, declared?: string): string {
@@ -440,25 +456,23 @@ export function spadeContractAskedCard(
   const rows: SpadeTalkRow[] = [];
   if (asked.input)
     rows.push({ key: "input", from: "other", text: asked.input, tone: "quiet", live: false });
-  if (asked.returned !== undefined)
-    rows.push({
-      key: "returned",
-      from: "self",
-      text: asked.returned || "Returned",
-      tone: "settled",
-      live: false,
-    });
-  else
-    rows.push({
-      key: "returned",
-      from: "self",
-      text: names.working ? `${names.self} is working on it` : `${names.self} hasn't answered`,
-      tone: names.working ? "working" : "quiet",
-      live: names.working,
-    });
+  const ended = asked.ended;
+  const row = (words: string, tone: SpadeTalkTone, live = false): SpadeTalkRow => ({
+    key: "returned",
+    from: "self",
+    text: words,
+    tone,
+    live,
+  });
+  if (ended?.outcome === "returned") rows.push(row(ended.text || "Returned", "settled"));
+  else if (ended?.outcome === "failed")
+    rows.push(row(ended.text ? `Couldn't answer · ${ended.text}` : "Couldn't answer", "failed"));
+  else if (ended?.outcome === "stopped") rows.push(row(`${names.from} stopped asking`, "quiet"));
+  else if (names.working) rows.push(row(`${names.self} is working on it`, "working", true));
+  else rows.push(row(`${names.self} hasn't answered`, "quiet"));
   return {
     header: `${names.from} asked for ${title}`,
-    pending: asked.returned === undefined,
+    pending: ended === undefined,
     rows,
   };
 }
