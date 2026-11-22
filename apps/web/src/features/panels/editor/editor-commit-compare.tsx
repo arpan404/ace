@@ -85,7 +85,7 @@ export function EditorCommitCompare(props: {
   const files = useMemo(() => (patch ? gitPatchFiles(patch) : []), [patch]);
   // The commit's own change to this file: with `previousPath` the patch can also hold the file it
   // came from (a copy that `--follow` took for a rename), which is not what was asked for.
-  const diff = files.find((file) => file.path === target.path) ?? files[0];
+  const diff = files.find((file) => file.path === target.path);
 
   const loadMore = () => {
     if (!active || active.nextOffset === undefined || active.loadingMore) return;
@@ -255,7 +255,9 @@ export function EditorCommitCompare(props: {
         </>
       ) : (
         <div className="flex flex-1 items-center justify-center px-6 text-xs text-subtle-foreground">
-          No textual changes to {target.path} in {target.shortSha}.
+          {files.length === 0
+            ? `No textual changes to ${target.path} in ${target.shortSha}.`
+            : `This commit's change to ${target.path} isn't available.`}
         </div>
       )}
     </div>
