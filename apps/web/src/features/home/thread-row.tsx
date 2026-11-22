@@ -2,7 +2,7 @@ import { currentAttention, rowStatusLook, spokenRowStatus } from "@ace/ui-core";
 import { DotsSixVerticalIcon } from "@ace/icons";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
-import { use, useCallback, type ComponentType, type ReactElement } from "react";
+import { use, useCallback, useState, type ComponentType, type ReactElement } from "react";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { useMachines } from "@/lib/machines.ts";
 import {
@@ -108,6 +108,8 @@ export function ThreadRow(props: {
   const hover = useThreadHover();
   const { change: setCard } = hover;
   const closeCard = useCallback(() => setCard(false), [setCard]);
+  // While one of the row's menus is open the details card stays shut: the menu covers it.
+  const [menuOpen, setMenuOpen] = useState(false);
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing !== undefined || refused !== undefined;
@@ -225,7 +227,7 @@ export function ThreadRow(props: {
   );
   return (
     <>
-      <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
+      <HoverCard open={hover.open && !renaming && !menuOpen} onOpenChange={hover.change}>
         {menu(
           <HoverCardTrigger
             // Opens once the pointer settles; leaving the row closes it at once, so it never lingers.
@@ -286,7 +288,7 @@ export function ThreadRow(props: {
               <Actions
                 onRename={rename}
                 onHover={closeCard}
-                onMenuOpen={closeCard}
+                onMenuOpen={setMenuOpen}
                 shown={actions}
                 entry={entry}
                 flags={card.flags}
@@ -296,7 +298,7 @@ export function ThreadRow(props: {
             )}
           </HoverCardTrigger>,
         )}
-        {hover.open && !renaming && (
+        {hover.open && !renaming && !menuOpen && (
           <ThreadHoverCardContent card={card} entry={entry} instance={instance} />
         )}
       </HoverCard>

@@ -27,7 +27,7 @@ export interface RowActionsProps {
   snoozeRequested?: boolean | undefined;
   onSnoozeClosed?: (() => void) | undefined;
   /** A menu opened from the row: its details card has to go, the menu covers where it was. */
-  onMenuOpen?: (() => void) | undefined;
+  onMenuOpen?: ((open: boolean) => void) | undefined;
 }
 
 export function RowActions(props: RowActionsProps) {
@@ -38,7 +38,7 @@ export function RowActions(props: RowActionsProps) {
   const { onSnoozeClosed, onMenuOpen } = props;
   const snoozing = snoozeOpen || props.snoozeRequested === true;
   useEffect(() => {
-    if (snoozing) onMenuOpen?.();
+    onMenuOpen?.(snoozing);
   }, [snoozing, onMenuOpen]);
   // The menus stay inside the sidebar's column, never over the rail beside it.
   const [column, setColumn] = useState<Element | null>(null);
@@ -106,13 +106,13 @@ export function RowMoreMenu(props: {
   entry: ThreadListEntry;
   flags: ThreadRowFlags;
   onRename(): void;
-  onOpen?: (() => void) | undefined;
+  onOpen?: ((open: boolean) => void) | undefined;
   boundary?: Element | null | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const { onOpen } = props;
   useEffect(() => {
-    if (open) onOpen?.();
+    onOpen?.(open);
   }, [open, onOpen]);
   const onKeyDown = useRowMenuShortcuts({ ...props, onClose: () => setOpen(false) });
   const dialogs = useRowDialogs(props.entry);
