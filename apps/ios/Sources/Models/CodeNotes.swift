@@ -63,6 +63,10 @@ struct CodeNotes: Equatable, Sendable {
     /// The person typed in `path`: its notes move with the edit, and one the edit touched keeps
     /// the text it holds now (`lines`, the text after the edit).
     mutating func edited(_ thread: String, path: String, through replacements: [TextReplacement], lines: [String]) {
+        edited(thread, path: path, through: replacements) { $0 < lines.count ? lines[$0] : "" }
+    }
+    /// As above, reading only the lines a touched note holds (`line`, 0-based, after the edit).
+    mutating func edited(_ thread: String, path: String, through replacements: [TextReplacement], line: (Int) -> String) {
         update(thread) { note in
             guard note.path == path else { return }
             let moved = AnnotationAnchor.map(note.span, through: replacements)
@@ -70,7 +74,7 @@ struct CodeNotes: Equatable, Sendable {
             note.span = moved.span
             if moved.outdated { note.outdated = true }
             if touched, !moved.outdated {
-                let excerpt = AnnotationAnchor.excerpt(AnnotationAnchor.text(of: moved.span, in: lines))
+                let excerpt = AnnotationAnchor.excerpt(AnnotationAnchor.text(of: moved.span, line: line))
                 note.excerpt = excerpt.text
                 note.cut = excerpt.cut
             }
@@ -90,9 +94,16 @@ struct CodeNotes: Equatable, Sendable {
         }
     }
 
-    /// A file moved or was renamed: its notes follow it, in every thread.
+    /// A file or folder (ending in "/") moved or was renamed: its notes follow it, in every thread.
     mutating func renamed(from path: String, to destination: String) {
-        for thread in threads.keys { update(thread) { if $0.path == path { $0.path = destination } } }
+        let folder = path.hasSuffix("/")
+        let into = folder && !destination.hasSuffix("/") ? destination + "/" : destination
+        for thread in threads.keys {
+            update(thread) { note in
+                if note.path == path { note.path = destination }
+                else if folder, note.path.hasPrefix(path) { note.path = into + note.path.dropFirst(path.count) }
+            }
+        }
     }
 
     /// The thread's notes as `CodeAnnotation` records (`@ace/ui-core`), numbered 1…n.

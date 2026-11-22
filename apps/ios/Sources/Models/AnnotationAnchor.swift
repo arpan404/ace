@@ -106,7 +106,10 @@ enum AnnotationAnchor {
 
     /// The text between a range's edges.
     static func text(of span: TextSpan, in lines: [String]) -> String {
-        let line = { (index: Int) in index < lines.count ? lines[index] : "" }
+        text(of: span) { $0 < lines.count ? lines[$0] : "" }
+    }
+    /// The text between a range's edges, reading only its own lines (0-based, without breaks).
+    static func text(of span: TextSpan, line: (Int) -> String) -> String {
         let (start, end) = (span.start, span.end)
         if start.line == end.line { return slice(line(start.line), from: start.column, to: end.column) }
         var parts = [slice(line(start.line), from: start.column)]

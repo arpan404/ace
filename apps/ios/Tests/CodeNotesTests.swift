@@ -60,6 +60,9 @@ import Testing
         var notes = two()
         notes.renamed(from: "src/total.ts", to: "src/sum.ts")
         #expect(notes["t"].map(\.path) == ["src/sum.ts", "src/view.tsx"])
+        // A folder moved takes the notes on every file in it.
+        notes.renamed(from: "src/", to: "lib")
+        #expect(notes["t"].map(\.path) == ["lib/sum.ts", "lib/view.tsx"])
     }
 
     @Test func removingANoteClosesRanksAndASentMessageDropsOnlyWhatItTook() {
