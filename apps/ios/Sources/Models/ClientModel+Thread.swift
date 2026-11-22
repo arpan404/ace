@@ -61,9 +61,16 @@ extension ClientModel {
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
     /// Retry for a thread still opening (`ThreadOpening`): the connection while there is none,
-    /// else the thread is asked for again, keeping what is on screen until it answers.
+    /// else the thread once (`ThreadOpenRetry`), keeping what is on screen until it answers.
     func retryOpening(_ threadId: String) {
-        if connection != "ready" { retry() } else { open(threadId, isSnapshotRetry: thread?.id == threadId) }
+        let shown = thread.flatMap { $0.id == threadId ? $0 : nil }
+        let asked = openAsked == OpenAsked(threadId: threadId, connection: connectionEpoch)
+        switch ThreadOpenRetry.decide(connected: connection == "ready", loaded: shown?.loaded == true,
+                                      hasRows: shown?.order.isEmpty == false, asked: asked) {
+        case .reconnect: retry()
+        case .open: open(threadId, isSnapshotRetry: shown != nil)
+        case .nothing: break
+        }
     }
     func requestModels() { threadAction(["type": "models"]) }
     /// Which screen of `shown` is drawn now: its navigation generation under the current
@@ -211,4 +218,10 @@ struct HeldModelMove: Equatable {
 struct ThreadShowing: Equatable, Sendable {
     let runtime: Int
     let epoch: Int
+}
+
+/// An open sent to the bridge: which thread, on which connection (`ClientModel.connectionEpoch`).
+struct OpenAsked: Equatable, Sendable {
+    let threadId: String
+    let connection: Int
 }

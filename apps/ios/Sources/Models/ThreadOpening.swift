@@ -77,3 +77,24 @@ enum ThreadOpening: Equatable, Sendable {
         return machine
     }
 }
+
+/// What Retry does for a thread still opening (`ClientModel.retryOpening`). Idempotent: it never
+/// starts an open while one is answering or once one has, so a Retry racing a reconnect does
+/// nothing twice. Pure.
+enum ThreadOpenRetry: Equatable, Sendable {
+    /// Ask for the connection again.
+    case reconnect
+    /// Ask for the thread again, once.
+    case open
+    /// An open is answering, or has: wait for it.
+    case nothing
+
+    /// `connected` the connection is ready; `loaded` the thread has a first screen holding
+    /// `hasRows`; `asked` an open of it went out on this connection with no fence back yet.
+    static func decide(connected: Bool, loaded: Bool, hasRows: Bool, asked: Bool) -> ThreadOpenRetry {
+        guard connected else { return .reconnect }
+        if loaded && hasRows { return .nothing }
+        return asked ? .nothing : .open
+    }
+}
+

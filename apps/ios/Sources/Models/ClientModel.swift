@@ -80,6 +80,8 @@ import QuartzCore
     /// and relay starts a new runtime whose sockets count from 1 again). What was read on an
     /// earlier connection is out of date. Each `ClientModel` counts from zero.
     private(set) var connectionEpoch = 0
+    /// The open last sent, until its fence lands (`retryOpening`).
+    @ObservationIgnored var openAsked: OpenAsked?
     /// Each change of the runtime's connection state, after it applies; the machine list uses
     /// it to move a machine between its routes (`MachineRoutePlan`).
     @ObservationIgnored var onConnection: ((String) -> Void)?
@@ -776,6 +778,8 @@ import QuartzCore
                         }
                     }
                     snapshotRetries[id] = nil
+                    // The open has its answer: a Retry may ask again (`ThreadOpenRetry`).
+                    if openAsked?.threadId == id { openAsked = nil }
                     thread.requiresSnapshot = false
                     thread.loaded = true
                     ThreadOpenTrace.shared.ready(id)
@@ -877,7 +881,8 @@ import QuartzCore
         ThreadOpenTrace.shared.open(id, warm: warm)
         ThreadOpenTrace.shared.showing(true)
         thread = opened
-        action(["type": "open", "threadId": id, "warm": warm])
+        let sent = action(["type": "open", "threadId": id, "warm": warm])
+        openAsked = sent ? OpenAsked(threadId: id, connection: connectionEpoch) : nil
         intake.opened(id, epoch: generation)
     }
     /// A rejected or mismatched snapshot fence retries the current open once, preserving

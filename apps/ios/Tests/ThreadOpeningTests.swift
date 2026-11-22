@@ -93,4 +93,22 @@ import Testing
         #expect(failed.retries)
         #expect(ThreadOpening.of(facts(loaded: true, connection: "ready")) == .none)
     }
+
+    @Test func retryAsksForTheConnectionWhileThereIsNone() {
+        #expect(ThreadOpenRetry.decide(connected: false, loaded: false, hasRows: false, asked: true) == .reconnect)
+    }
+
+    @Test func retryNeverStartsASecondOpenWhileOneIsAnswering() {
+        #expect(ThreadOpenRetry.decide(connected: true, loaded: false, hasRows: false, asked: true) == .nothing)
+        #expect(ThreadOpenRetry.decide(connected: true, loaded: true, hasRows: false, asked: true) == .nothing)
+    }
+
+    @Test func retryDoesNothingOnceTheOpenHasSucceeded() {
+        #expect(ThreadOpenRetry.decide(connected: true, loaded: true, hasRows: true, asked: false) == .nothing)
+    }
+
+    @Test func retryAsksForAThreadWithNoRowsOnceWhenNoOpenIsAnswering() {
+        #expect(ThreadOpenRetry.decide(connected: true, loaded: true, hasRows: false, asked: false) == .open)
+        #expect(ThreadOpenRetry.decide(connected: true, loaded: false, hasRows: false, asked: false) == .open)
+    }
 }
