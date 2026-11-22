@@ -122,7 +122,7 @@ test("sources list the market first and only git catalogs can be removed", () =>
     { now },
   );
   expect(answer.sources.map((row) => [row.id, row.title, row.removable])).toEqual([
-    ["market", "ace's marketplace", false],
+    ["market", "ace Store", false],
     ["git:abc", "https://example.com/catalog.git", true],
   ]);
   expect(answer.stale).toBeNull();

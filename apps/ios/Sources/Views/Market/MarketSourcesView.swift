@@ -64,7 +64,7 @@ struct MarketSourcesView: View {
                 }
             }
         } message: { _ in
-            Text("Its entries leave the marketplace. What you installed from it stays.")
+            Text("Its entries leave the Store. What you installed from it stays.")
         }
         .task(id: model.marketGeneration) { await load(fresh: false) }
     }
@@ -119,7 +119,7 @@ struct MarketSourcesView: View {
         } header: {
             Text("Add a git catalog")
         } footer: {
-            Text("Its entries are listed beside ace's marketplace, marked with where they come from.")
+            Text("Its entries are listed beside the ace Store's, marked with where they come from.")
         }
         .insetRowBackground()
     }

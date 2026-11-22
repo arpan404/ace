@@ -72,7 +72,7 @@ struct MarketHomeView: View {
                 // Nothing listed at all: no sources, or every one turned off.
                 MarketEmptyHome().padding(.vertical, AceDesign.Space.section)
             } else if home == nil, problem == nil {
-                SkeletonRows(count: 5, label: "Reading the marketplace")
+                SkeletonRows(count: 5, label: "Reading the Store")
             }
             if let home { categories(home) }
             places
@@ -171,7 +171,7 @@ struct MarketEmptyHome: View {
     @Environment(\.marketRows) private var rows
 
     var body: some View {
-        EmptyState(icon: .storefront, title: "No listings yet",
+        EmptyState(icon: .store, title: "No listings yet",
                    line: "Turn on a source, or add a git catalog, to see what's listed.") {
             Button("Open Sources") { rows.open(.browse(.sources)) }
                 .accessibilityIdentifier("market.empty.sources")

@@ -91,7 +91,7 @@ struct MarketSearchResults: View {
             } else if let problem {
                 ProblemRow(problem.message, id: "market.search.problem") { Task { await read() } }
             } else {
-                SkeletonRows(count: 4, label: "Searching the marketplace")
+                SkeletonRows(count: 4, label: "Searching the Store")
             }
         }
         .marketUnreachable(page?.offline == true || problem?.offline == true)
@@ -103,10 +103,10 @@ struct MarketSearchResults: View {
 
     @ViewBuilder private var empty: some View {
         if page?.offline == true || problem?.offline == true {
-            EmptyState(icon: .wifiSlash, title: "The marketplace is offline",
+            EmptyState(icon: .wifiSlash, title: "The Store is offline",
                        line: "Your machine can't be reached. Results show again when it's back.")
         } else if query.isEmpty {
-            EmptyState(icon: .storefront, title: "Nothing here yet", line: "Try another type or category.")
+            EmptyState(icon: .store, title: "Nothing here yet", line: "Try another type or category.")
         } else {
             EmptyState.search(query)
         }
@@ -146,7 +146,7 @@ struct MarketSearchView: View {
                 .padding(.top, AceDesign.Space.related)
         }
         .background(AceDesign.Surface.background)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search the marketplace")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search the Store")
         .refreshable {
             _ = try? await model.marketRefresh()
             refreshes += 1

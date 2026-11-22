@@ -23,7 +23,7 @@ import Testing
         return [
             "id": id, "hash": String(repeating: "a", count: 64), "type": type, "name": "inbox", "title": "Inbox",
             "version": "1.0.0", "heading": "Get Inbox", "action": "Get", "pendingWord": "Getting…", "byLine": "Bot · 1.0.0",
-            "publisher": NSNull(), "signed": true, "signedText": "Signed by the marketplace", "reviewed": true,
+            "publisher": NSNull(), "signed": true, "signedText": "Signed by the Store", "reviewed": true,
             "reviewMark": "Reviewed by ace", "reviewNote": NSNull(), "updates": NSNull(), "canDo": [], "facts": [],
             "findings": [["level": "warn", "levelWord": "Warning", "sentence": "Downloads and runs code."]],
             "blocked": blocked.map { $0 as Any } ?? NSNull(), "items": 3,

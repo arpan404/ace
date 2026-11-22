@@ -86,7 +86,7 @@ struct MarketReviewSheet: View {
             if let face = review.bot?.face {
                 SpadeFaceView(face: face, size: AceDesign.Size.tap)
             } else {
-                AceIcon(.storefront, size: AceDesign.Size.barIcon, relativeTo: .title3).foregroundStyle(AceDesign.Ink.muted)
+                AceIcon(.store, size: AceDesign.Size.barIcon, relativeTo: .title3).foregroundStyle(AceDesign.Ink.muted)
                     .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {

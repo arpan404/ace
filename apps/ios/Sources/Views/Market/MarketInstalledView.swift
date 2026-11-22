@@ -119,7 +119,7 @@ struct MarketInstalledView: View {
     }
 
     private func emptyState(_ line: String) -> some View {
-        EmptyState(icon: .storefront, title: "Nothing installed", line: line)
+        EmptyState(icon: .store, title: "Nothing installed", line: line)
             .frame(maxWidth: .infinity)
             .listRowBackground(Color.clear)
     }
