@@ -51,7 +51,10 @@ export function spadeProviderGroups(
   return [...groups.values()];
 }
 
-/** A provider's plain name: its preset's, else one Spade knows; undefined for neither. */
+/**
+ * A provider's plain name: its preset's, else one Spade knows; undefined for neither (its
+ * group then goes by its first account's name).
+ */
 export function spadeProviderName(
   provider: string | undefined,
   presets: readonly SpadePreset[],
@@ -59,7 +62,7 @@ export function spadeProviderName(
   if (!provider) return undefined;
   const preset = presets.find((each) => each.id === provider);
   if (preset) return plainName(preset.name);
-  return knownNames[provider] ?? provider;
+  return knownNames[provider];
 }
 
 /** A ChatGPT plan as people say it: "plus" reads "Plus". */

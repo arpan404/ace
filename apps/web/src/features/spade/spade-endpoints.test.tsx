@@ -37,15 +37,15 @@ test("a local endpoint can be added without a key", async () => {
     withEndpoint(api);
     main(api);
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
   await userEvent.type(dialog.getByRole("textbox", { name: "Name" }), "Ollama");
   await userEvent.type(
     dialog.getByRole("textbox", { name: "Base URL" }),
     "http://localhost:11434/v1/",
   );
   await userEvent.click(dialog.getByRole("switch", { name: "Needs a key" }));
-  await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints")).toEqual([
       {
@@ -248,7 +248,7 @@ test("Settings › Models reads in setup order: endpoints, Add an endpoint, then
     main(api, "openrouter/saved/model");
   });
   const endpoint = await screen.findByRole("region", { name: "OpenRouter" });
-  const add = screen.getByRole("button", { name: "Add an endpoint" });
+  const add = screen.getByRole("button", { name: "Add a provider" });
   const roles = await screen.findByRole("region", { name: "Models for other work" });
   expect(follows(endpoint, add)).toBe(true);
   expect(follows(add, roles)).toBe(true);

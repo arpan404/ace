@@ -1,4 +1,4 @@
-import { mergeSpadeModels, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
+import { mergeSpadeModels, spadeEndpointUsable, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { readLiveModels, readLocalServers, readModels, readSubscriptions } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
@@ -35,7 +35,7 @@ export function useEndpointModels(endpoint: SpadeEndpoint | undefined) {
     queryKey: [...modelsKey, machine, "live", endpoint?.id ?? ""],
     queryFn: ({ signal }) => readLiveModels(client, endpoint?.id ?? "", { signal }),
     // Not while its key isn't known yet: the endpoint's list would wait on the keychain too.
-    enabled: endpoint !== undefined && (!endpoint.needsKey || endpoint.keySet === true),
+    enabled: endpoint !== undefined && spadeEndpointUsable(endpoint),
     staleTime: 60_000,
     retry: false,
   });
