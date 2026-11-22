@@ -17,6 +17,7 @@ struct FilesScreen: View {
     /// A folder (ending in "/") to open in the tree once it first lists, as a file's breadcrumb asks.
     var folder: String?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     /// Whether this Files screen is on screen (not covered by a pushed file or the background).
     @State private var isPresented = false
     /// The bridge counting this screen as showing the tree, until the background or a pop.
@@ -103,8 +104,8 @@ struct FilesScreen: View {
         } message: { Text(importProblem ?? "") }
         .task(id: "\(query)|\(searchScope)") { await search() }
         .navigationDestination(item: $opened) { target in
-            FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 },
-                       openFolder: { folder in reveal(folder); opened = nil })
+            EditorGroups(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 },
+                         openFolder: { folder in reveal(folder); opened = nil })
         }
         .navigationDestination(isPresented: $showTrash) { RecentlyDeletedView(model: model, scope: scope) }
         .modifier(FileActionPrompts(actions: actions))
@@ -310,6 +311,9 @@ struct FilesScreen: View {
             Button("New folder here", ace: .folderPlus) { actions.ask(.mkdir(folder: path)) }
             Button("Upload files here", ace: .export) { uploadFolder = Self.bare(path); importing = true }
             Button("Download folder", ace: .arrowCircleDown) { downloading = Self.bare(path) }
+        }
+        if !folder, sizeClass == .regular {
+            Button("Open to the side", ace: .sidebarSimple) { opened = FileTarget(path: path, side: true) }
         }
         if !folder, let mention {
             Button("Mention in message", ace: .at) { mention(ComposerMention(path: path)) }

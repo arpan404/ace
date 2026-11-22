@@ -18,36 +18,39 @@ struct FileScreen: View {
     /// Opens a breadcrumb's folder (ending in "/") in the Files screen this file came from; without
     /// one, a Files screen opens on top with that folder open.
     var openFolder: ((String) -> Void)?
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("files.wrap") private var wrap = false
-    @State private var path: String
-    @State private var content: FileContent?
-    @State private var image: UIImage?
-    @State private var failure: String?
-    @State private var source = false
-    @State private var editing = false
+    /// The editor group this file shows in (`EditorGroups`); nil for a file opened on its own.
+    var slot: EditorSlot?
+    @Environment(\.dismiss) var dismiss
+    @AppStorage("files.wrap") var wrap = false
+    @State var path: String
+    @State var content: FileContent?
+    @State var image: UIImage?
+    @State var failure: String?
+    @State var source = false
+    @State var editing = false
     /// A text file too large to edit whole, shown in parts so one can be edited.
-    @State private var inParts = false
-    @State private var editSession = 0
-    @State private var dirty = false
-    @State private var saving = false
-    @State private var conflict: String?
-    @State private var problem: String?
-    @State private var confirmDiscard = false
-    @State private var share: SharedFile?
-    @State private var showChanges = false
-    @State private var handle = SourceHandle()
+    @State var inParts = false
+    @State var editSession = 0
+    @State var dirty = false
+    @State var saving = false
+    @State var conflict: String?
+    @State var problem: String?
+    @State var confirmDiscard = false
+    @State var share: SharedFile?
+    @State var showChanges = false
+    @State var handle = SourceHandle()
     /// Lines selected while reading: Mention lines puts them in the message.
-    @State private var selectedLines: ClosedRange<Int>?
-    @State private var mentioned = 0
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var actions: FileActions
-    @State private var goingToLine = false
-    @State private var shownFolder: String?
+    @State var selectedLines: ClosedRange<Int>?
+    @State var mentioned = 0
+    @Environment(\.aceReduceMotion) var reduceMotion
+    @State var actions: FileActions
+    @State var goingToLine = false
+    @State var shownFolder: String?
 
     init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil,
-         openFolder: ((String) -> Void)? = nil) {
+         openFolder: ((String) -> Void)? = nil, slot: EditorSlot? = nil) {
         self.deleted = deleted
+        self.slot = slot
         self.openFolder = openFolder
         self.model = model
         self.scope = scope
@@ -57,31 +60,25 @@ struct FileScreen: View {
         _actions = State(initialValue: FileActions(model: model, scope: scope))
     }
 
-    private var name: String { FileActions.name(path) }
-    private var text: String? { content?.kind == "text" ? content?.text : nil }
-    private var markdownPreview: Bool { content?.markdown == true && !source && !editing }
-    private var canEdit: Bool { actions.canChange && content?.kind == "text" && content?.editable == true }
-    private var canEditParts: Bool { actions.canChange && content?.parts == true }
+    var name: String { FileActions.name(path) }
+    var text: String? { content?.kind == "text" ? content?.text : nil }
+    var markdownPreview: Bool { content?.markdown == true && !source && !editing }
+    var canEdit: Bool { actions.canChange && content?.kind == "text" && content?.editable == true }
+    var canEditParts: Bool { actions.canChange && content?.parts == true }
     /// The source view is on screen, so Find and Go to line reach it.
-    private var showsSource: Bool { text != nil && !markdownPreview && !inParts && (editing || text?.isEmpty == false) }
-    private var hasChanges: Bool { scope.changes && (target.changed || !(content?.marks ?? []).isEmpty) }
+    var showsSource: Bool { text != nil && !markdownPreview && !inParts && (editing || text?.isEmpty == false) }
+    var hasChanges: Bool { scope.changes && (target.changed || !(content?.marks ?? []).isEmpty) }
 
     var body: some View {
         main
             .background(AceTheme.Colours.background)
-            .navigationTitle(name)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: AceTheme.Spacing.none) {
-                        Text(name).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
-                        // Not while editing: a folder would leave the unsaved text.
-                        FileBreadcrumbs(path: path) { open($0) }.disabled(editing)
-                    }
-                }
-            }
+            // Beside another group, each file's bar is a row over it and the editor keeps the title.
+            .navigationTitle(inPane ? slot?.title ?? name : name)
+            .toolbar { if !inPane { ToolbarItem(placement: .principal) { titleStack(alignment: .center) } } }
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(editing)
-            .toolbar { if editing { editToolbar } else { viewToolbar } }
+            .toolbar { if !inPane { if editing { editToolbar } else { viewToolbar } } }
+            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { if inPane { paneBar } }
             .readWhenConnected(model, id: "\(path)|\(model.files.revision)") { await load() }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { strip }
             .sheet(item: $share) { ShareSheet(url: $0.url) }
@@ -96,24 +93,26 @@ struct FileScreen: View {
             .animation(.default, value: selectedLines)
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
-            .modifier(GoToLineRoute(isPresented: $goingToLine, enabled: showsSource, handle: handle))
+            .modifier(GoToLineRoute(isPresented: $goingToLine, enabled: showsSource && slot?.focused != false, handle: handle))
             .navigationDestination(item: $shownFolder) { folder in
                 FilesScreen(model: model, scope: scope, subtitle: threadTitle, mention: mention, folder: folder)
             }
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
             .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
+            .onChange(of: editing) { _, now in slot?.editing(now) }
     }
 
     /// The switcher picked another open file: show it here, as a tab switch would.
-    private func switchTo(_ picked: String) {
+    func switchTo(_ picked: String) {
         guard picked != path, !editing else { return }
+        if let slot { return slot.pick(picked) }
         content = nil; image = nil; failure = nil; source = false; inParts = false
         path = picked
     }
 
     // MARK: Content
 
-    @ViewBuilder private var main: some View {
+    @ViewBuilder var main: some View {
         if let content {
             switch content.kind {
             case "missing":
@@ -156,7 +155,7 @@ struct FileScreen: View {
         }
     }
 
-    @ViewBuilder private func textBody(_ content: FileContent) -> some View {
+    @ViewBuilder func textBody(_ content: FileContent) -> some View {
         let text = content.text ?? ""
         if text.isEmpty && !editing {
             EmptyState(icon: .fileText, title: "Empty file", line: "\(name) has no content.")
@@ -178,7 +177,7 @@ struct FileScreen: View {
 
     /// While lines are selected, one glass capsule over the text says what Mention puts in the
     /// message: "Mention line 12" or "Mention lines 12–20".
-    @ViewBuilder private var mentionLines: some View {
+    @ViewBuilder var mentionLines: some View {
         if let lines = selectedLines, mention != nil, !editing {
             Button { mentionSelection(lines) } label: {
                 Text(lines.count == 1 ? "Mention line \(lines.lowerBound)" : "Mention lines \(lines.lowerBound)–\(lines.upperBound)")
@@ -196,82 +195,13 @@ struct FileScreen: View {
             .accessibilityIdentifier("preview.mentionLines")
         }
     }
-    private func mentionSelection(_ lines: ClosedRange<Int>) {
+    func mentionSelection(_ lines: ClosedRange<Int>) {
         mentioned += 1
         selectedLines = nil
         mention?(ComposerMention(path: path, lines: lines))
     }
 
-    // MARK: Toolbars
-
-    @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
-            if showsSource {
-                Button("Find in file", ace: .magnifyingGlass) { handle.find() }.accessibilityIdentifier("file.find")
-            }
-            if canEdit {
-                Button("Edit", ace: .pencilSimple) { editing = true }.accessibilityIdentifier("file.edit")
-            } else if canEditParts, content?.kind == "text" {
-                // Over 1 MB: shown in parts, each with its own Edit.
-                Button(inParts ? "Done" : "Edit in parts", ace: inParts ? .check : .pencilSimple) { inParts.toggle() }
-                    .accessibilityIdentifier("file.editParts")
-            }
-            Menu { fileMenu } label: { Label("File options", ace: .dotsThree) }
-                .accessibilityIdentifier("file.menu")
-        }
-    }
-
-    /// This file on the computer, for Open in.
-    private var hostTarget: HostOpenTarget {
-        switch scope {
-        case .thread(let id): HostOpenTarget(threadId: id, path: path, line: target.line)
-        case .project(let id): HostOpenTarget(workspaceId: id, path: path, line: target.line)
-        }
-    }
-    @ViewBuilder private var fileMenu: some View {
-        if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", ace: .textAlignLeft) } }
-        if showsSource {
-            Button("Go to line", ace: .arrowBendDownRight) { goingToLine = true }.accessibilityIdentifier("file.goToLine")
-        }
-        if content?.markdown == true {
-            Button(source ? "View preview" : "View source", ace: source ? .eye : .code) { source.toggle() }
-        }
-        if hasChanges { Button("Show changes", ace: .plusMinus) { showChanges = true }.accessibilityIdentifier("file.changes") }
-        if let mention { Button("Mention in message", ace: .at) { mention(ComposerMention(path: path)) }.accessibilityIdentifier("preview.mention") }
-        Button("Copy path", ace: .copy) { UIPasteboard.general.string = path }
-        if content?.kind != "missing" {
-            OpenOnHostMenu(model: model, target: hostTarget) { Label("Open in…", ace: .arrowSquareOut) }
-                .accessibilityIdentifier("file.openIn")
-        }
-        if content != nil, content?.kind != "missing" { Button("Share", ace: .export) { shareFile() } }
-        if actions.canChange, content?.kind != "missing" {
-            Divider()
-            Button("Rename", ace: .pencilSimple) { actions.ask(.rename(path: path)) }
-            Button("Move", ace: .folder) { actions.ask(.move(path: path)) }
-            Button("Delete", ace: .trash, role: .destructive) { actions.ask(.delete(path: path)) }
-        }
-    }
-
-    @ToolbarContentBuilder private var editToolbar: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") { if dirty { confirmDiscard = true } else { stopEditing() } }.disabled(saving)
-                .accessibilityIdentifier("file.cancel")
-        }
-        ToolbarItem(placement: .principal) {
-            Text(dirty ? "Unsaved changes" : "Editing").aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button("Find", ace: .magnifyingGlass) { handle.find() }
-        }
-        ToolbarItem(placement: .confirmationAction) {
-            Button(saving ? "Saving…" : "Save") { save() }.fontWeight(.semibold).disabled(!dirty || saving)
-                .accessibilityIdentifier("file.save")
-        }
-    }
-
-    @ViewBuilder private var strip: some View {
+    @ViewBuilder var strip: some View {
         if let conflict {
             FilesStripView(message: "\(name) changed since you opened it. Replace it?",
                            action: ("Replace", { save(over: conflict) }), secondary: ("Keep editing", { self.conflict = nil }), dismiss: nil)
@@ -283,11 +213,11 @@ struct FileScreen: View {
     // MARK: Actions
 
     /// A breadcrumb's folder opens in Files.
-    private func open(_ folder: FileBreadcrumbs.Folder) {
+    func open(_ folder: FileBreadcrumbs.Folder) {
         if let openFolder { openFolder(folder.path) } else { shownFolder = folder.path }
     }
 
-    private func load() async {
+    func load() async {
         guard !editing else { return }
         do {
             let next = try await model.files(scope, ["op": "read", "path": path], as: FileContent.self)
@@ -300,7 +230,7 @@ struct FileScreen: View {
         }
     }
 
-    private func stopEditing() {
+    func stopEditing() {
         editing = false
         dirty = false
         conflict = nil
@@ -310,7 +240,7 @@ struct FileScreen: View {
     }
 
     /// Save over the version that was opened, or over `newer` once the person chose Replace.
-    private func save(over newer: String? = nil) {
+    func save(over newer: String? = nil) {
         guard let expected = newer ?? content?.version, !saving else { return }
         saving = true
         conflict = nil
@@ -330,7 +260,7 @@ struct FileScreen: View {
         }
     }
 
-    private func shareFile() {
+    func shareFile() {
         Task {
             do {
                 if let text {
@@ -349,36 +279,25 @@ struct FileScreen: View {
     }
 
     /// A rename or move follows the file to its new path; a delete leaves the screen.
-    private func moved(_ prompt: FilePrompt?, _ change: FileChange) {
+    func moved(_ prompt: FilePrompt?, _ change: FileChange) {
         switch prompt {
         case .delete?:
-            if let deleted, let strip = actions.strip { deleted(strip); dismiss() } else { Task { await load() } }
-        case .rename?, .move?: if let destination = change.destination { path = destination }
+            if let slot {
+                // The tab closes; the editor leaves once no file is open.
+                if let strip = actions.strip { deleted?(strip) }
+                slot.removed()
+            } else if let deleted, let strip = actions.strip { deleted(strip); dismiss() } else { Task { await load() } }
+        case .rename?, .move?:
+            guard let destination = change.destination else { return }
+            path = destination
+            slot?.renamed(destination)
         default: break
         }
     }
 
-    private var threadTitle: String {
+    var threadTitle: String {
         if case .thread(let id) = scope { return model.inbox[id]?.title ?? "" }
         return ""
     }
-    private func size(_ bytes: Int?) -> String { ByteCountFormatter.string(fromByteCount: Int64(bytes ?? 0), countStyle: .file) }
-}
-
-/// A file copied to this phone for the share sheet.
-struct SharedFile: Identifiable {
-    let url: URL
-    var id: URL { url }
-}
-
-/// The system share sheet for one file; `finished` runs once the person shares or cancels.
-struct ShareSheet: UIViewControllerRepresentable {
-    let url: URL
-    var finished: (() -> Void)? = nil
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        if let finished { controller.completionWithItemsHandler = { _, _, _, _ in finished() } }
-        return controller
-    }
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+    func size(_ bytes: Int?) -> String { ByteCountFormatter.string(fromByteCount: Int64(bytes ?? 0), countStyle: .file) }
 }

@@ -6,6 +6,8 @@ struct FileTarget: Hashable, Identifiable {
     var line: Int?
     /// The tree marked it changed since the last commit (a deleted file has no lines to mark).
     var changed = false
+    /// Opens in the editor group beside the focused one (iPad, regular width).
+    var side = false
     var id: String { "\(path):\(line ?? 0)" }
 }
 
