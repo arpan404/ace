@@ -384,6 +384,14 @@ test("another surface naming a thread uses its sidebar row's word", () => {
   expect(threadRowStatus(entry("t", { state: "done" }, now), now)).toBe("Done");
 });
 
+test("a thread whose message waits on a held Git worktree says so, and never reads as working", () => {
+  const held = entry("t", { state: "waiting", on: "queue" }, now, {
+    details: { gitBusy: { since: now } },
+  });
+  expect(threadRowStatus(held, now)).toBe("Queued · Git busy");
+  expect(threadRowStatus(entry("t", { state: "waiting", on: "queue" }, now), now)).toBe("Waiting");
+});
+
 test.each([
   { state: "done" as const },
   { state: "needs_you" as const, interactions: 2 },

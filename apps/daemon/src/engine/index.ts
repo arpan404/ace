@@ -1,4 +1,4 @@
-import { CheckoutHolds } from "./checkout-hold.ts";
+import { CheckoutHolds, type CheckoutHoldRequest } from "./checkout-hold.ts";
 import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
 import * as liveMove from "./live-move.ts";
@@ -985,15 +985,10 @@ export class Engine {
     return change;
   }
   /** Hold the Git worktree at `top` while a source control change rewrites its files. */
-  holdCheckout<T>(commandId: string, top: string, effect: (signal: AbortSignal) => Promise<T>) {
+  holdCheckout<T>(request: CheckoutHoldRequest<T>): Promise<T> {
     if (this.closing) return Promise.reject(new Error("engine_closing"));
-    return this.holds.hold({
-      commandId,
-      top,
-      live: [...this.actors.keys()],
-      opening: (owner) => this.repo.sessionOpening(owner),
-      effect,
-    });
+    const opening = (owner: ThreadId) => this.repo.sessionOpening(owner);
+    return this.holds.hold({ ...request, live: [...this.actors.keys()], opening });
   }
   /** Settles what dead providers left in the tree; genuinely live work is untouched. */
   async reconcileThread(id: ThreadId): Promise<void> {

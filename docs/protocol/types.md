@@ -44854,11 +44854,7 @@ Example:
     "details": {
       "baseBranch": "example",
       "checkoutMissing": {
-        "branch": {
-          "name": "example",
-          "state": "elsewhere"
-        },
-        "kind": "worktree"
+        "kind": "project"
       },
       "continuedOn": {
         "at": 2,
@@ -44914,6 +44910,7 @@ Example:
         "state": "preparing"
       },
       "worktree": "example",
+      "worktreeMissing": true,
       "worktreeSetup": {
         "at": 5,
         "details": [],
@@ -48607,7 +48604,9 @@ Example:
     "ahead": 9,
     "baseBranch": "example",
     "behind": 2,
-    "branch": null,
+    "gitBusy": {
+      "since": 3
+    },
     "head": null,
     "linkedIssues": [],
     "linkedPrs": [],
@@ -48634,6 +48633,7 @@ Example:
         }
       }
     },
+    "worktree": "example",
     "worktreeCreation": {
       "actions": [],
       "attempt": 5,
@@ -48647,8 +48647,7 @@ Example:
       "state": "cancelling",
       "step": "creating",
       "steps": []
-    },
-    "worktreeMissing": true
+    }
   },
   "goal": {
     "objective": "example",
@@ -48832,18 +48831,31 @@ Example:
 {
   "deletedAt": 2,
   "details": {
-    "continuedOn": {
+    "base": {
+      "head": "726990268fe76d0c0295ae0eda30e49bea5f29e5686f3bfeb4f08b338",
+      "ref": "example",
+      "remote": "EPpuypaH"
+    },
+    "branch": null,
+    "continuedFrom": {
       "at": 7,
       "hostId": "example",
       "name": "example",
       "threadId": "example"
     },
-    "linkedIssues": [],
-    "machine": {
-      "host": "example",
-      "name": "example"
+    "continuedOn": {
+      "at": 0,
+      "hostId": "example",
+      "name": "example",
+      "threadId": "example"
     },
-    "mode": "local",
+    "diff": {
+      "additions": 5,
+      "deletions": 8,
+      "files": 5
+    },
+    "linkedIssues": [],
+    "linkedPrs": [],
     "pullRequestWorkspace": {
       "baseBranch": "example",
       "baseSha": "124d9964eafb0e44cdb797adb5f7140382124193f",
@@ -48862,8 +48874,13 @@ Example:
         }
       }
     },
-    "upstream": "example",
-    "worktree": "example",
+    "workspace": {
+      "defaultIcon": null,
+      "icon": "data:image/webp;base64,PPrk8oIxCz2/9BwGP62l649bH8avX3eQyEJqb1==",
+      "id": "example",
+      "name": "example",
+      "path": "example"
+    },
     "worktreeCreation": {
       "actions": [],
       "attempt": 5,
@@ -48879,26 +48896,6 @@ Example:
     }
   },
   "listOrder": 6,
-  "live": {
-    "turnStart": {
-      "at": 2,
-      "turn": 9
-    },
-    "waitingOn": 4,
-    "watching": [],
-    "workingSince": 7
-  },
-  "movedFrom": {
-    "links": {
-      "linkedIssues": [],
-      "linkedPr": {
-        "draft": true,
-        "number": 7,
-        "state": "closed"
-      }
-    },
-    "workspaceId": "example"
-  },
   "pinned": true,
   "readAt": 3,
   "settledOverQueue": 8,
@@ -48932,9 +48929,6 @@ Example:
         "ref": "example"
       },
       "baseBranch": "example",
-      "checkoutMissing": {
-        "kind": "worktree"
-      },
       "continuedFrom": {
         "at": 9,
         "hostId": "example",
@@ -48946,6 +48940,9 @@ Example:
         "hostId": "example",
         "name": "example",
         "threadId": "example"
+      },
+      "gitBusy": {
+        "since": 9
       },
       "guest": {
         "host": "example",
@@ -48975,7 +48972,7 @@ Example:
         "step": "checking_out",
         "steps": []
       },
-      "worktreeMissing": false
+      "worktreeMissing": true
     },
     "hasSentMessage": false,
     "hostKey": "example",
@@ -49035,6 +49032,7 @@ Example:
 | linkedIssues | no | array | {"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/ForgeIssueRef.json"}} |
 | worktreeCreation | no | [WorktreeCreationProgress.json](schema/WorktreeCreationProgress.json) |  |
 | workspaceChange | no | object | {"properties":{"commandId":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["preparing","applied","failed"]},"at":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},"error":{"type":"string","maxLength":128},"lossy":{"default":true,"type":"boolean"},"uncertain":{"type":"boolean"},"mode":{"type":"string","enum":["local","worktree"]},"branch":{"type":"string","maxLength":1024}},"required":["commandId","state","at"]} |
+| gitBusy | no | object | {"properties":{"since":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"}},"required":["since"]} |
 | worktreeMissing | no | boolean |  |
 | checkoutMissing | no | object | {"properties":{"kind":{"type":"string","enum":["worktree","project"]},"branch":{"type":"object","properties":{"name":{"type":"string","maxLength":1024},"state":{"type":"string","enum":["free","gone","elsewhere"]},"holder":{"type":"string","enum":["local","worktree"]}},"required":["name","state"]}},"required":["kind"]} |
 | worktreeSetup | no | object | {"properties":{"state":{"type":"string","enum":["failed","skipped"]},"reason":{"type":"string","const":"read_only"},"details":{"maxItems":200,"type":"array","items":{"type":"string","maxLength":1024}},"at":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"}},"required":["state","details","at"]} |
@@ -49061,34 +49059,33 @@ Example:
 
 ```json
 {
-  "behind": 4,
-  "continuedOn": {
-    "at": 9,
+  "baseBranch": "example",
+  "checkoutMissing": {
+    "branch": {
+      "name": "example",
+      "state": "gone"
+    },
+    "kind": "worktree"
+  },
+  "continuedFrom": {
+    "at": 2,
     "hostId": "example",
     "name": "example",
     "threadId": "example"
   },
   "diff": {
-    "additions": 4,
+    "additions": 1,
     "deletions": 3,
-    "files": 5
+    "files": 2
   },
-  "guest": {
-    "host": "example",
-    "name": "example"
-  },
-  "head": null,
+  "head": "1b6eac8294584cce5d15afc32634eb89c28b77d9ccbc764",
   "linkedIssues": [],
   "linkedPr": {
+    "draft": false,
     "number": 4,
-    "state": "merged"
+    "state": "closed",
+    "url": "https://example.invalid/"
   },
-  "linkedPrs": [],
-  "machine": {
-    "host": "example",
-    "name": "example"
-  },
-  "mode": "worktree",
   "pullRequestWorkspace": {
     "baseBranch": "example",
     "baseSha": "344587e3b8aaef8917c9a177e51f633cb195d93a0a264765deb09b8c742a214b",
@@ -49112,18 +49109,17 @@ Example:
       }
     }
   },
-  "repository": {
-    "forge": "gitlab",
-    "host": "EgYs",
-    "name": "p.2_",
-    "owner": "k/.OS6Rj/rU/CT_/jLFZN/qd6-kG7/3/o.jhfh0XPT/KnDJV/C/FoQbW"
+  "workspace": {
+    "id": "example",
+    "kind": "chat",
+    "name": "example",
+    "path": "example"
   },
-  "worktree": "example",
   "worktreeSetup": {
-    "at": 5,
+    "at": 6,
     "details": [],
     "reason": "read_only",
-    "state": "failed"
+    "state": "skipped"
   }
 }
 ```
@@ -49295,6 +49291,9 @@ Example:
       "ref": "example"
     },
     "baseBranch": "example",
+    "checkoutMissing": {
+      "kind": "worktree"
+    },
     "continuedFrom": {
       "at": 2,
       "hostId": "example",
@@ -49365,11 +49364,6 @@ Example:
       "state": "running",
       "step": "checking_out",
       "steps": []
-    },
-    "worktreeSetup": {
-      "at": 5,
-      "details": [],
-      "state": "failed"
     }
   },
   "effectiveCapabilities": {
@@ -50105,25 +50099,21 @@ Example:
     },
     "deletedAt": 9,
     "details": {
-      "baseBranch": "example",
+      "branch": null,
       "diff": {
-        "additions": 0,
-        "deletions": 7,
+        "additions": 1,
+        "deletions": 8,
         "files": 0
+      },
+      "gitBusy": {
+        "since": 4
       },
       "guest": {
         "host": "example",
         "name": "example"
       },
-      "head": null,
-      "linkedPr": {
-        "number": 8,
-        "state": "closed"
-      },
-      "machine": {
-        "host": "example",
-        "name": "example"
-      },
+      "linkedPr": null,
+      "linkedPrs": [],
       "pullRequestWorkspace": {
         "baseBranch": "example",
         "baseSha": "647fe533f1c69b2cccd122b9869e32ac9a84535ef74",
@@ -50147,6 +50137,13 @@ Example:
           }
         }
       },
+      "repository": {
+        "forge": "github",
+        "host": "D2CL8n2t",
+        "name": "xl-04rYS",
+        "owner": "b/pJ_Uvq5jl"
+      },
+      "upstream": null,
       "workspaceChange": {
         "at": 1,
         "branch": "example",
@@ -50155,8 +50152,7 @@ Example:
         "lossy": true,
         "mode": "worktree",
         "state": "failed"
-      },
-      "worktreeMissing": true
+      }
     },
     "execution": {
       "options": {},
@@ -50176,24 +50172,6 @@ Example:
     "host": "spade-bot",
     "id": "example",
     "listOrder": 3,
-    "live": {
-      "contextMeter": {
-        "at": 9,
-        "limit": null,
-        "used": 1
-      },
-      "model": "example",
-      "runningSubagentCount": 7,
-      "step": "tests",
-      "turnStart": {
-        "at": 8,
-        "turn": 3
-      },
-      "waitingSince": 1,
-      "watching": [],
-      "watchingCount": 7,
-      "workingSince": 7
-    },
     "provider": "antigravity",
     "queue": {
       "lastFailure": {

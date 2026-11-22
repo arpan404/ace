@@ -104,6 +104,17 @@
       ],
       "type": "object"
     },
+    "gitBusy": {
+      "properties": {
+        "since": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        }
+      },
+      "required": [
+        "since"
+      ],
+      "type": "object"
+    },
     "guest": {
       "properties": {
         "host": {

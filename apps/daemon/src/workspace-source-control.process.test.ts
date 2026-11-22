@@ -31,6 +31,7 @@ async function setupFixture(
     runsProviderWork?: (id: ThreadId) => boolean;
     trashFile?: (id: ThreadId, root: string, path: string, fingerprint: string) => Promise<void>;
     holdCheckout?: <T>(
+      threadId: ThreadId,
       commandId: string,
       top: string,
       effect: (signal: AbortSignal) => Promise<T>,
@@ -237,7 +238,7 @@ describe("daemon source control handlers", () => {
     const trashDir = await mkdtemp(join(tmpdir(), "ace-daemon-trash-"));
     tempDirs.push(trashDir);
     const fixture = await setupFixture({
-      holdCheckout: async (_commandId, _top, effect) => {
+      holdCheckout: async (_threadId, _commandId, _top, effect) => {
         if (refuse) throw new Error("agent_working");
         return effect(new AbortController().signal);
       },

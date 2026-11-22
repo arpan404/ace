@@ -80,6 +80,7 @@ export interface WorkspaceRuntimeOptions {
   trashFile?(id: ThreadId, root: string, path: string, fingerprint: string): Promise<void>;
   /** Hold every thread bound to `root` quiet while a source control change runs (engine). */
   holdCheckout?<T>(
+    threadId: ThreadId,
     commandId: string,
     top: string,
     effect: (signal: AbortSignal) => Promise<T>,

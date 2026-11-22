@@ -88,6 +88,7 @@ export interface SourceControlCommandContext {
    */
   holdCheckout?:
     | (<T>(
+        threadId: ThreadId,
         commandId: string,
         top: string,
         effect: (signal: AbortSignal) => Promise<T>,
@@ -107,8 +108,11 @@ export async function runSourceControlCommand(
     if (!rewritesFiles.has(payload.type)) await apply(context, payload);
     else if (holdCheckout)
       // The whole Git worktree, whichever folder of it the thread runs in.
-      await holdCheckout(context.commandId, await context.git.worktreeTop(cwd), (signal) =>
-        context.git.cancellable(signal, () => apply(context, payload)),
+      await holdCheckout(
+        threadId,
+        context.commandId,
+        await context.git.worktreeTop(cwd),
+        (signal) => context.git.cancellable(signal, () => apply(context, payload)),
       );
     else if (isThreadAgentBusy(store, threadId, runsProviderWork))
       return { ok: false, error: "agent_working" };

@@ -27,6 +27,23 @@ async function peerThread(h: Harness, workspaceId = h.workspace, id = "peer") {
   return result.threadId;
 }
 
+/** Hold the harness's worktree for `commandId`, asked from `threadId`. */
+function holdWorktree<T>(
+  h: Harness,
+  threadId: ThreadId,
+  commandId: string,
+  effect: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  return h.engine.holdCheckout({ threadId, commandId, top: h.home, effect });
+}
+
+/** The thread asking for the hold: the first one the harness made. */
+function anyThread(h: Harness): ThreadId {
+  const thread = h.store.listThreads().at(-1);
+  if (!thread) throw new Error("No thread");
+  return thread.id;
+}
+
 /** Texts the provider received, in order. */
 function sent(h: Harness): string[] {
   return h.adapter.commands.flatMap((command) =>
@@ -53,7 +70,7 @@ test("a thread mid-turn in the worktree refuses the hold before any Git effect",
     expect(h.store.getThread(id)?.status.state).toBe("working");
     let ran = false;
     await expect(
-      h.engine.holdCheckout("discard", h.home, async () => {
+      holdWorktree(h, anyThread(h), "discard", async () => {
         ran = true;
       }),
     ).rejects.toThrow("agent_working");
@@ -70,7 +87,7 @@ test("background work left running refuses the hold", async () => {
     await h.create();
     let ran = false;
     await expect(
-      h.engine.holdCheckout("pull", h.home, async () => {
+      holdWorktree(h, anyThread(h), "pull", async () => {
         ran = true;
       }),
     ).rejects.toThrow("agent_working");
@@ -92,7 +109,7 @@ test("a message sent during the hold is accepted, waits, and reaches the provide
   try {
     const id = await h.create("first");
     const held = gate();
-    const hold = h.engine.holdCheckout("discard", h.home, async () => {
+    const hold = holdWorktree(h, anyThread(h), "discard", async () => {
       await held.opened;
       return "done";
     });
@@ -101,14 +118,16 @@ test("a message sent during the hold is accepted, waits, and reaches the provide
     ).toMatchObject({ ok: true });
     await h.engine.flush();
     expect(sent(h)).toEqual(["first"]);
-    // Waiting on the queue: never done, never shown as running.
+    // Waiting on the queue: never done, never shown as running, and it says Git is busy.
     expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
+    expect(h.store.getThread(id)?.details?.gitBusy).toBeDefined();
 
     held.release();
     expect(await hold).toBe("done");
     await h.engine.flush();
     expect(sent(h)).toEqual(["first", "racing"]);
     expect(h.store.getThread(id)?.status.state).toBe("done");
+    expect(h.store.getThread(id)?.details?.gitBusy).toBeUndefined();
   } finally {
     await h.close();
   }
@@ -129,7 +148,7 @@ test("a thread created in the worktree, or in a folder inside it, starts only af
     await mkdir(join(h.home, "packages", "app"), { recursive: true });
     const nested = h.store.createWorkspace(join(h.home, "packages", "app"), "App");
     const held = gate();
-    const hold = h.engine.holdCheckout("pull", h.home, () => held.opened);
+    const hold = holdWorktree(h, anyThread(h), "pull", () => held.opened);
     await peerThread(h, h.workspace, "same-root");
     await peerThread(h, nested, "in-a-folder");
     await h.engine.flush();
@@ -157,7 +176,7 @@ test("a failed Git effect releases the hold and what waited runs", async () => {
   try {
     const id = await h.create("first");
     const held = gate();
-    const hold = h.engine.holdCheckout("pull", h.home, async () => {
+    const hold = holdWorktree(h, anyThread(h), "pull", async () => {
       await held.opened;
       throw new Error("git_failed");
     });
@@ -183,9 +202,10 @@ test("a hold past its deadline cancels the Git work, waits for it to stop, then 
   try {
     const id = await h.create("first");
     let cancelled = false;
-    const hold = h.engine.holdCheckout(
+    const hold = holdWorktree(
+      h,
+      id,
       "pull",
-      h.home,
       (signal) =>
         new Promise<void>((_resolve, reject) => {
           signal.addEventListener("abort", () => {
@@ -226,7 +246,19 @@ test("after a crash mid-hold, the worktree stays held until Git's lock is gone, 
     await mkdir(join(h.home, ".git"), { recursive: true });
     const lock = join(h.home, ".git", "index.lock");
     await writeFile(lock, "");
-    h.store.workspaceReservations.recordCheckoutHold(h.home, "crashed-pull", h.clock.time);
+    h.store.appendEvents(
+      id,
+      [
+        {
+          type: "thread.client.updated",
+          changes: {
+            details: { ...h.store.getThread(id)?.details, gitBusy: { since: h.clock.time } },
+          },
+        },
+      ],
+      h.clock.time,
+    );
+    h.store.workspaceReservations.recordCheckoutHold(h.home, "crashed-pull", h.clock.time, [id]);
     await h.engine.close();
 
     const engine = new Engine(h.store, { registry: h.registry, clock: h.clock, idleMs: 30_000 });
@@ -250,6 +282,8 @@ test("after a crash mid-hold, the worktree stays held until Git's lock is gone, 
     h.clock.advance(h.clock.time + checkoutHoldPollMs);
     await engine.flush();
     expect(sent(h)).toEqual(["first", "after restart"]);
+    // The mark the crashed hold left on the thread is gone with it.
+    expect(h.store.getThread(id)?.details?.gitBusy).toBeUndefined();
     expect(h.store.workspaceReservations.checkoutHolds()).toEqual([]);
   } finally {
     await restarted?.close();
@@ -265,7 +299,7 @@ test("a lock a crashed hold left behind never holds the worktree past the deadli
     await h.create("first");
     await mkdir(join(h.home, ".git"), { recursive: true });
     await writeFile(join(h.home, ".git", "index.lock"), "");
-    h.store.workspaceReservations.recordCheckoutHold(h.home, "crashed-pull", h.clock.time);
+    h.store.workspaceReservations.recordCheckoutHold(h.home, "crashed-pull", h.clock.time, []);
     await h.engine.close();
     restarted = new Engine(h.store, { registry: h.registry, clock: h.clock, idleMs: 30_000 });
     expect(h.store.workspaceReservations.checkoutHolds()).toHaveLength(1);

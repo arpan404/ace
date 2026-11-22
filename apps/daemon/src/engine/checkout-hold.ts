@@ -41,6 +41,15 @@ function overlaps(a: string, b: string): boolean {
   return a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
 }
 
+/** One source control change asking to hold the Git worktree at `top`. */
+export interface CheckoutHoldRequest<T> {
+  /** The thread the change was asked from: it says Git is busy too. */
+  threadId: ThreadId;
+  commandId: string;
+  top: string;
+  effect: (signal: AbortSignal) => Promise<T>;
+}
+
 /**
  * Git worktrees held for one source control change (discard, switch, pull, stash), keyed by the
  * worktree's canonical top level. A held worktree takes new work as usual (a send, queued work,
@@ -83,19 +92,20 @@ export class CheckoutHolds {
    * it is running, opening a session or has work in flight; refused when a workspace change or
    * another hold already has it. The check and the hold happen in one synchronous step.
    */
-  async hold<T>(input: {
-    commandId: string;
-    top: string;
-    live: Iterable<ThreadId>;
-    opening: (id: ThreadId) => boolean;
-    effect: (signal: AbortSignal) => Promise<T>;
-  }): Promise<T> {
+  async hold<T>(
+    input: CheckoutHoldRequest<T> & {
+      live: Iterable<ThreadId>;
+      opening: (id: ThreadId) => boolean;
+    },
+  ): Promise<T> {
     const top = canonical(input.top);
     const reservations = this.#repo.store.workspaceReservations;
     if (this.touches([top]) || reservations.holds(top))
       throw new Error("workspace_change_in_progress");
+    const marked = new Set<ThreadId>([input.threadId]);
     for (const id of input.live) {
       if (!this.#coversPath(id, top)) continue;
+      marked.add(id);
       const state = this.#repo.state(id);
       if (
         (state && !this.#repo.quiescent(state)) ||
@@ -105,7 +115,9 @@ export class CheckoutHolds {
         throw new Error("agent_working");
     }
     this.#held.set(top, input.commandId);
-    reservations.recordCheckoutHold(top, input.commandId, this.#clock.now());
+    const threads = [...marked];
+    reservations.recordCheckoutHold(top, input.commandId, this.#clock.now(), threads);
+    this.#mark(threads, { since: this.#clock.now() });
     const deadline = new AbortController();
     const cancelTimer = this.#clock.setTimer(() => deadline.abort(), checkoutHoldDeadlineMs);
     try {
@@ -115,6 +127,7 @@ export class CheckoutHolds {
       cancelTimer();
       this.#held.delete(top);
       reservations.dropCheckoutHold(top);
+      this.#mark(threads, undefined);
       this.#released();
     }
   }
@@ -137,9 +150,30 @@ export class CheckoutHolds {
         }
         this.#held.delete(record.top);
         reservations.dropCheckoutHold(record.top);
+        this.#mark(record.threads, undefined);
         this.#released();
       };
       this.#clock.setTimer(look, checkoutHoldPollMs);
+    }
+  }
+  /** Say (or stop saying) on each thread that Git is busy in its worktree. */
+  #mark(ids: readonly ThreadId[], busy: { since: number } | undefined): void {
+    const store = this.#repo.store;
+    for (const id of ids) {
+      const thread = store.getThread(id);
+      if (!thread || thread.deletedAt !== undefined) continue;
+      const { gitBusy: _was, ...details } = thread.details ?? {};
+      if (!busy && !_was) continue;
+      store.appendEvents(
+        id,
+        [
+          {
+            type: "thread.client.updated",
+            changes: { details: busy ? { ...details, gitBusy: busy } : details },
+          },
+        ],
+        this.#clock.now(),
+      );
     }
   }
   #coversPath(id: ThreadId, top: string): boolean {

@@ -25,55 +25,77 @@ Example:
 
 ```json
 {
-  "at": 1,
+  "at": 9,
   "id": "example",
   "payload": {
-    "backend": "acp",
-    "capabilities": {
-      "accessModes": [],
-      "approvals": "interactive",
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "partial",
-      "childControls": "read-only",
-      "childFidelity": "full",
-      "fork": true,
-      "imageInput": true,
-      "interruptCascades": false,
-      "launchOptions": [],
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": true,
-      "sessionOptions": false,
-      "steer": true,
-      "steeringMode": "interrupt-restart",
-      "subagentTranscripts": true,
-      "tokenUsage": false
+    "changes": {
+      "activitySeq": 5,
+      "autoSettleAt": 9,
+      "details": {
+        "base": {
+          "head": "794de1b6fc1a233eadf724cf7febf4324b48f4fc3dc6da5e91929",
+          "ref": "example"
+        },
+        "behind": 9,
+        "branch": null,
+        "continuedFrom": {
+          "at": 1,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "guest": {
+          "host": "example",
+          "name": "example"
+        },
+        "linkedPr": {
+          "draft": false,
+          "number": 1,
+          "state": "open",
+          "url": "https://example.invalid/"
+        },
+        "machine": {
+          "host": "example",
+          "name": "example"
+        },
+        "mode": "worktree",
+        "repository": {
+          "forge": "github",
+          "host": "emIQ40",
+          "name": "niT",
+          "owner": "STfgR/fb/xMST.Mx-4v0/gdAu5s7/pbkz4T00jOK/9uO0_hcYZU/avT/Cmg/uRRYxht_r/0eSvgf3"
+        },
+        "workspaceChange": {
+          "at": 3,
+          "commandId": "example",
+          "error": "example",
+          "lossy": true,
+          "mode": "worktree",
+          "state": "failed"
+        },
+        "worktree": "example"
+      },
+      "movedFrom": {
+        "links": {
+          "linkedIssues": [],
+          "linkedPrs": [],
+          "repository": {
+            "forge": "origin",
+            "host": "0CrJDw4l5x",
+            "name": "x.iA7",
+            "owner": "AspM/lUsMj/tFYy8oED3/LTuj-qdR-S/L7K3/NJ-y/pMrg"
+          }
+        },
+        "workspaceId": "example"
+      },
+      "prSettled": null,
+      "readAt": 0,
+      "settleWhenDone": null,
+      "settledAt": 0
     },
-    "lineage": {
-      "lossy": true,
-      "mode": "native",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "itemId": "example",
-        "type": "item"
-      }
-    },
-    "permission": {
-      "effective": "auto-review",
-      "override": "ask",
-      "pending": true
-    },
-    "provider": "antigravity",
-    "startedByClient": {
-      "grantId": "D33MUuk_reR_SuL7K3vOK_ytpNshyx-jB7qDv-zY_fVS2POyXf1NQfGs3hyHE8",
-      "kind": "mcp_client",
-      "name": "example"
-    },
-    "title": "example",
-    "type": "thread.updated"
+    "type": "thread.client.updated"
   },
-  "seq": 3,
+  "seq": 9,
   "threadId": "example"
 }
 ```
@@ -4098,13 +4120,21 @@ Example:
 
 ```json
 {
-  "seq": 0,
+  "seq": 9,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "kind": "threads",
-    "seq": 0,
-    "threads": {}
+    "seq": 9,
+    "threads": {},
+    "window": {
+      "before": {
+        "at": 5,
+        "id": "example"
+      },
+      "counts": [],
+      "total": 1
+    }
   }
 }
 ```

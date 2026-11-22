@@ -4,6 +4,8 @@ import { ThreadId } from "@ace/protocol";
 import { z } from "zod";
 
 /** Durable root fences outlive transient thread guards, including uncertain Git writes. */
+const HeldThreads = z.array(ThreadId);
+
 export class WorkspaceReservations {
   private db: DatabaseSync;
   private statement: (sql: string) => StatementSync;
@@ -19,7 +21,7 @@ export class WorkspaceReservations {
     ); CREATE INDEX IF NOT EXISTS workspace_reservation_owner ON workspace_root_reservations(thread_id);
     CREATE TABLE IF NOT EXISTS workspace_canonical_roots (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), root TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS workspace_canonical_root ON workspace_canonical_roots(root,workspace_id);
-    CREATE TABLE IF NOT EXISTS checkout_holds(top TEXT PRIMARY KEY,command_id TEXT NOT NULL,at INTEGER NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS checkout_holds(top TEXT PRIMARY KEY,command_id TEXT NOT NULL,at INTEGER NOT NULL,threads TEXT NOT NULL DEFAULT '[]');`);
     for (const row of this.statement("SELECT id,path FROM workspaces").all())
       this.registerWorkspace(z.string().parse(row.id), z.string().parse(row.path));
   }
@@ -61,20 +63,31 @@ export class WorkspaceReservations {
     return Boolean(this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root));
   }
   /** A source control change holds the Git worktree at `top`: kept so a restart honours it. */
-  recordCheckoutHold(top: string, commandId: string, at: number): void {
-    this.statement("INSERT OR REPLACE INTO checkout_holds VALUES (?,?,?)").run(top, commandId, at);
+  recordCheckoutHold(
+    top: string,
+    commandId: string,
+    at: number,
+    threads: readonly ThreadId[],
+  ): void {
+    this.statement("INSERT OR REPLACE INTO checkout_holds VALUES (?,?,?,?)").run(
+      top,
+      commandId,
+      at,
+      JSON.stringify(threads),
+    );
   }
   dropCheckoutHold(top: string): void {
     this.statement("DELETE FROM checkout_holds WHERE top=?").run(top);
   }
   /** Holds a daemon that stopped mid-change left behind. */
-  checkoutHolds(): { top: string; commandId: string; at: number }[] {
-    return this.statement("SELECT top,command_id,at FROM checkout_holds")
+  checkoutHolds(): { top: string; commandId: string; at: number; threads: ThreadId[] }[] {
+    return this.statement("SELECT top,command_id,at,threads FROM checkout_holds")
       .all()
       .map((row) => ({
         top: z.string().parse(row.top),
         commandId: z.string().parse(row.command_id),
         at: z.number().parse(row.at),
+        threads: HeldThreads.parse(JSON.parse(z.string().parse(row.threads))),
       }));
   }
   /** Whether a workspace change still holds `path` (canonicalised like every stored root). */
