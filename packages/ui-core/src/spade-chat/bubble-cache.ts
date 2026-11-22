@@ -17,9 +17,16 @@ import type { SpadeView } from "./view.ts";
  * Gives what `spadeBubbles` gives for the same view.
  */
 
-/** Where the pass stood before one entry: its state, and how many bubbles came before. */
+/**
+ * Where the pass stood before one entry: only what it carries from entry to entry, never the view
+ * it was made for, so the marks of a long chat stay one small record per entry.
+ */
 interface Mark {
-  pass: SpadeBubblePass;
+  held: { paths: readonly string[]; key: string | undefined };
+  recalled: readonly string[];
+  inputs: boolean;
+  onlyBeats: boolean;
+  onlyGroups: boolean;
   count: number;
   /** How many requests had been placed (`SpadeBubblePass.shown`). */
   shown: number;
@@ -64,7 +71,11 @@ export class SpadeBubbleCache {
 /** The pass as it stands, kept apart from the one that goes on. */
 function markOf(pass: SpadeBubblePass, count: number): Mark {
   return {
-    pass: { ...pass, held: { paths: pass.held.paths.slice(), key: pass.held.key }, shown: [] },
+    held: { paths: pass.held.paths.slice(), key: pass.held.key },
+    recalled: pass.recalled,
+    inputs: pass.inputs,
+    onlyBeats: pass.onlyBeats,
+    onlyGroups: pass.onlyGroups,
     count,
     shown: pass.shown.length,
   };
@@ -73,9 +84,12 @@ function markOf(pass: SpadeBubblePass, count: number): Mark {
 /** A pass that goes on from `mark`, for `view`. */
 function resume(mark: Mark, shown: readonly string[], view: SpadeView): SpadeBubblePass {
   return {
-    ...mark.pass,
-    view,
-    held: { paths: mark.pass.held.paths.slice(), key: mark.pass.held.key },
+    ...spadeBubblePass(view),
+    held: { paths: mark.held.paths.slice(), key: mark.held.key },
+    recalled: mark.recalled,
+    inputs: mark.inputs,
+    onlyBeats: mark.onlyBeats,
+    onlyGroups: mark.onlyGroups,
     shown: shown.slice(0, mark.shown),
   };
 }
