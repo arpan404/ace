@@ -806,6 +806,15 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
   expect(compact).not.toContain("Copy link");
 });
 
+test("a finished thread's ⋯ menu lists Settle before Archive, as its row menu does", async () => {
+  await openIdleThread();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent ?? "");
+  const settle = items.findIndex((label) => label === "Settle");
+  expect(settle).toBeGreaterThan(-1);
+  expect(items.findIndex((label) => label.startsWith("Archive"))).toBeGreaterThan(settle);
+});
+
 test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archive it", async () => {
   const app = await openIdleThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
