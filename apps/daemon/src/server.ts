@@ -332,6 +332,8 @@ export async function startServer(options: ServerOptions): Promise<{
   revokePairedOnOrgHost();
   const stopAccountChange = options.machineAccount?.onChange(() => {
     revokePairedOnOrgHost();
+    // Enrolled: every open preview stream is asked about again, and ends.
+    void preview?.revalidate().catch((error: unknown) => options.log?.(error));
     for (const [socket, admitted] of accountSockets)
       if (!admitted()) {
         cleanups.get(socket)?.();
@@ -581,6 +583,7 @@ export async function startServer(options: ServerOptions): Promise<{
       orgHost: () => options.machineAccount?.accessOrg() !== undefined,
       spadeAuthorize,
       bindHandle: (handle) => org.bind(handle),
+      canWriteThread: (thread) => org.writes(thread),
       holder: () => org.holder(),
       accountDevice: () => accountId,
       access: {
@@ -1111,6 +1114,7 @@ export async function startServer(options: ServerOptions): Promise<{
             personProven,
             send,
             delay: runtime.delay,
+            recheck: org.recheck(message),
           });
           return;
       }
@@ -1208,7 +1212,12 @@ export async function startServer(options: ServerOptions): Promise<{
       remoteStarted = { direct: starting.directStarted, networks: starting.started };
     }
     if (options.preview)
-      preview = await createDaemonPreview(options.store, options.preview, auth.now);
+      preview = await createDaemonPreview(
+        options.store,
+        options.preview,
+        auth.now,
+        () => options.machineAccount?.accessOrg() !== undefined,
+      );
   } catch (error) {
     stopTimer();
     await dynamicRemote?.close();

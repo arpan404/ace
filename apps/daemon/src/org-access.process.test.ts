@@ -1,4 +1,6 @@
+import { createServer, request, type IncomingHttpHeaders } from "node:http";
 import { expect, it } from "vitest";
+import { PreviewClient } from "./preview-client.ts";
 import { DeviceId, ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol";
 import { redeemPairing } from "./client-access.ts";
 import type { Client } from "./socket-test-support.ts";
@@ -282,3 +284,72 @@ it("a person's machine answers every one of those entry points as it always has"
   expect((await home.f.ticket(paired.token)).ticket).toEqual(expect.any(String));
   await home.close();
 });
+
+it("enrolling ends every preview session made before it, the host's own included", async () => {
+  // ADR 0209 §4.2: previews are member content; a cookie the operator got earlier keeps nothing.
+  const previews = new PreviewClient();
+  const team = await orgTeamHost(backend, {
+    confirm: false,
+    server: {
+      preview: { host: "127.0.0.1", wildcardHost: "preview.test" },
+      previewClient: previews,
+    },
+  });
+  const { home, owner, org } = team;
+  const gateway = home.f.server.preview;
+  if (!gateway) throw new Error("No preview gateway");
+  previews.bind(gateway);
+  const dev = createServer((_request, response) => response.end("the member's dev server"));
+  await new Promise<void>((resolve) => dev.listen(0, "127.0.0.1", resolve));
+  const port = Number(Reflect.get(Object(dev.address()), "port"));
+  const thread = home.f.thread.id;
+  const host = (await home.pageSocket()).client;
+  const ask = async (requestId: string, operation: Record<string, unknown>) => {
+    host.send({ type: "preview.request", requestId, threadId: thread, operation } as ClientMessage);
+    return answer(host, "preview.result");
+  };
+  const forwarded = await ask("forward", { op: "forward", port });
+  const origin = forwarded.previews?.[0]?.origin ?? "";
+  const signIn = await ask("link", { op: "link", port });
+  const login = await previewGet(signIn.link?.url ?? "");
+  const cookie = (login.headers["set-cookie"] ?? [])
+    .find((value) => value.startsWith("ace_preview_session="))
+    ?.split(";")[0];
+  if (!cookie) throw new Error("No preview session");
+  expect(await previewGet(origin, cookie)).toMatchObject({ status: 200 });
+
+  owner.client.send({ type: "account.owner.enroll.confirm", requestId: "confirm", org });
+  expect((await answer(owner.client, "account.owner.enroll.confirm.result")).ok).toBe(true);
+  // The same cookie, a moment later: the gateway asks again and is told no.
+  expect((await previewGet(origin, cookie)).status).not.toBe(200);
+  await home.close();
+  await new Promise<void>((resolve) => dev.close(() => resolve()));
+});
+
+/** A GET at a preview's own name, through the gateway, with `cookie` when given. */
+function previewGet(url: string, cookie?: string) {
+  const target = new URL(url);
+  return new Promise<{ status: number; headers: IncomingHttpHeaders }>((resolve, reject) => {
+    const sent = request(
+      {
+        hostname: "127.0.0.1",
+        port: target.port,
+        path: target.pathname + target.search,
+        headers: {
+          host: target.host,
+          "sec-fetch-mode": "navigate",
+          ...(cookie ? { cookie } : {}),
+        },
+        agent: false,
+      },
+      (response) => {
+        response.resume();
+        response.on("end", () =>
+          resolve({ status: response.statusCode ?? 0, headers: response.headers }),
+        );
+      },
+    );
+    sent.on("error", reject);
+    sent.end();
+  });
+}

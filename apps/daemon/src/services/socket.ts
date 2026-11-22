@@ -118,6 +118,12 @@ export interface SocketContext {
     resource: import("../org-access/decide.ts").Resource;
     close(reason: string): void;
   }): () => void;
+  /**
+   * Whether this socket may write into `thread`'s tree: on an organization's host its owner only
+   * (ADR 0209 §5.2), through the access policy's tree resolver; always true on a person's
+   * machine. Omitted: as on a person's machine.
+   */
+  canWriteThread?(thread: import("@ace/protocol").ThreadId): boolean;
   /** On an organization's host, who the socket is now; undefined on a person's machine. */
   holder?(): string | undefined;
   /** The ace account an account device's grant names (ADR 0111); undefined for others. */

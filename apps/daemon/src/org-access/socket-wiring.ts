@@ -61,6 +61,9 @@ export function orgSocketPolicy(deps: {
     /** Whether the socket may read `thread`'s tree, as services check it per read and event. */
     reads: (thread: ThreadId): boolean =>
       gate.personal() || gate.ask("tree.read", tree({ thread })).allowed,
+    /** Whether the socket may write into `thread`'s tree, now. */
+    writes: (thread: ThreadId): boolean =>
+      gate.personal() || gate.ask("tree.write", tree({ thread })).allowed,
     /** Refuses `message` when the policy does, answering its request: true when refused. */
     refuses(message: { type: string }): boolean {
       if (gate.personal()) return false;
@@ -134,6 +137,16 @@ export function orgSocketPolicy(deps: {
     },
     /** Who the socket is now, as a key a bound request must still match; undefined if personal. */
     holder: (): string | undefined => (gate.personal() ? undefined : gate.holder()),
+    /**
+     * For deferred work (a command waiting in its lane): a check that holds only while the
+     * principal deciding `message` now is still the one that did, and still may. Always true on
+     * a person's machine.
+     */
+    recheck(message: { type: string }): () => boolean {
+      if (gate.personal()) return () => true;
+      const holder = gate.holder();
+      return () => gate.personal() || (gate.holder() === holder && gate.message(message).allowed);
+    },
     /** Closes what the socket may no longer hold; a no-op on a person's machine. */
     revalidate(): void {
       if (!gate.personal()) gate.revalidate();
