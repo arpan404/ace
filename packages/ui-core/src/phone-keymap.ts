@@ -172,14 +172,30 @@ export function formatPhoneKeys(keys: string): string {
 
 export type PhoneKeyBindings = Readonly<Record<string, string>>;
 
-/** Defaults with this device's rebindings on top. Unknown, fixed or malformed ones are dropped. */
+/**
+ * Defaults with this device's rebindings on top. Unknown, fixed or malformed ones are dropped.
+ * A default whose keys a rebinding already took where both work (a shortcut that shipped after
+ * the rebinding was saved) is left with no keys, "": the person's choice wins.
+ */
 export function resolvePhoneKeymap(overrides: unknown): PhoneKeyBindings {
   const saved = typeof overrides === "object" && overrides !== null ? overrides : {};
-  const resolved: Record<string, string> = {};
+  const rebound = new Map<string, string>();
   for (const entry of phoneKeymap) {
     const raw: unknown = Reflect.get(saved, entry.id);
     const keys = !entry.fixed && typeof raw === "string" ? normalizePhoneKeys(raw) : undefined;
-    resolved[entry.id] = keys ?? entry.keys;
+    if (keys) rebound.set(entry.id, keys);
+  }
+  const resolved: Record<string, string> = {};
+  for (const entry of phoneKeymap) {
+    const own = rebound.get(entry.id);
+    const keys = normalizePhoneKeys(entry.keys);
+    const taken =
+      own === undefined &&
+      keys !== undefined &&
+      phoneKeymap.some(
+        (other) => rebound.get(other.id) === keys && scopesOverlap(entry.scope, other.scope),
+      );
+    resolved[entry.id] = own ?? (taken ? "" : entry.keys);
   }
   return resolved;
 }

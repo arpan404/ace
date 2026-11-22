@@ -22,6 +22,12 @@ import Testing
             #expect(found == check.problem, "\(check.keys) for \(check.id)")
         }
     }
+    @Test func aDefaultYieldsToASavedRebindingAsTheSharedRulesDo() {
+        for (overrides, id, keys) in PhoneKeymapVectors.resolutions {
+            #expect(PhoneKeymap(overrides: overrides).keys(id) == keys, "\(id) with \(overrides)")
+        }
+        #expect(PhoneKeymap(overrides: ["newThread": "mod+l"]).shortcut("editor.goToLine") == nil)
+    }
     @Test func shortcutsReadAsTheSharedRulesPrintThem() {
         for (keys, text) in PhoneKeymapVectors.formats { #expect(PhoneKeymap.format(keys) == text) }
     }
