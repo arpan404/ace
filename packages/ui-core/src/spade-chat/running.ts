@@ -1,3 +1,4 @@
+import { spadeNeedsYouRunning } from "./needs-you.ts";
 import { z } from "zod";
 import { parseSpadeAvatar, type SpadeAvatar } from "./agents.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
@@ -170,7 +171,10 @@ export function parseSpadeRunningBot(raw: unknown): SpadeRunningBot | undefined 
     avatar: main ? { kind: "spade" } : parseSpadeAvatar(row.avatar, row.id),
     state: row.state,
     reads: row.reads,
-    doing: row.doing || spadeRunningReadsWords[row.reads],
+    doing:
+      row.reads === "needs_you"
+        ? spadeNeedsYouRunning(row.doing)
+        : row.doing || spadeRunningReadsWords[row.reads],
     failure: row.failure ?? undefined,
     pausedAt: row.paused_at_ms ?? undefined,
     archived: row.archived,
@@ -224,7 +228,7 @@ export function parseSpadeRunningAnswer(
 }
 
 const spadeRunningReadsWords: Record<SpadeRunningReads, string> = {
-  needs_you: "Waiting on you",
+  needs_you: "Needs you",
   working: "Working",
   failed: "Failed",
   sleeping: "Sleeping",

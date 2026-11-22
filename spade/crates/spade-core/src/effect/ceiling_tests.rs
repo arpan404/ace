@@ -37,6 +37,7 @@ fn call(
         org: None,
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     }
 }
 
@@ -195,8 +196,9 @@ fn a_tool_spade_cant_name_is_refused_unless_the_sandbox_holds_it() {
         assert_eq!(route(full), refused(cant_tell), "{effect:?}");
     }
     // A server in the sandbox that still reaches the network isn't held by it: a tool of its
-    // that declares nothing reaches outside the bot, which this package declares, so the person
-    // decides each call (ADR 0202 §2). One declaring a word Spade doesn't know stays refused.
+    // that declares nothing reaches outside the bot, which this package declares, so the reviewer
+    // judges each call within it (ADR 0202, amendment 5). One declaring a word Spade doesn't know
+    // stays refused.
     let remote = |effect| Call {
         place: Place::Sandbox,
         remote: true,
@@ -204,10 +206,7 @@ fn a_tool_spade_cant_name_is_refused_unless_the_sandbox_holds_it() {
     };
     assert_eq!(
         route(remote(None)),
-        Route::Ask {
-            line: UNDECLARED_EACH_TIME.to_owned(),
-            ask: None
-        }
+        Route::Review(Some(UNDECLARED_REVIEW.to_owned()))
     );
     assert_eq!(route(remote(Some(Effect::Unknown))), refused(cant_tell));
     // Sealed in the sandbox with no network of its own: the sandbox decides.
@@ -216,13 +215,10 @@ fn a_tool_spade_cant_name_is_refused_unless_the_sandbox_holds_it() {
         ..call("lint__check", None, none)
     };
     assert_eq!(route(sealed), Route::Run);
-    // The same tool for a bot with no package still asks the person once.
+    // The same tool for a bot with no package goes to the reviewer too.
     assert_eq!(
         route(call("crm__sync", None, None)),
-        Route::Ask {
-            line: UNDECLARED.to_owned(),
-            ask: Some(Ask::Undeclared)
-        }
+        Route::Review(Some(UNDECLARED_REVIEW.to_owned()))
     );
 }
 
@@ -230,19 +226,20 @@ fn a_tool_spade_cant_name_is_refused_unless_the_sandbox_holds_it() {
 fn an_earlier_answer_never_carries_to_a_packaged_bots_unnamed_tool() {
     let none = watcher(&[]);
     // In the sandbox but with no checkpoint: held, so not refused, and the person's earlier
-    // "yes" for the tool isn't kept for a packaged bot.
-    let remembered = Call {
-        place: Place::Unprotected,
-        remembered: Some(true),
-        ..call("lint__fix", None, none)
-    };
-    assert_eq!(
-        route(remembered),
-        Route::Ask {
-            line: UNDECLARED_EACH_TIME.to_owned(),
-            ask: None
-        }
-    );
+    // "yes" for the tool (or an Always allow for its app) isn't kept for a packaged bot: the
+    // reviewer judges each call.
+    for (remembered, granted) in [(Some(true), Granted::No), (None, Granted::Tool)] {
+        let carried = Call {
+            place: Place::Unprotected,
+            remembered,
+            granted,
+            ..call("lint__fix", None, none)
+        };
+        assert_eq!(
+            route(carried),
+            Route::Review(Some(UNDECLARED_REVIEW.to_owned()))
+        );
+    }
     let confined_unknown = Call {
         place: Place::Unprotected,
         always: true,

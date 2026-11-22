@@ -66,7 +66,6 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
       <ProfileSection label="Runs with">
         <SettingRow
           title="Model"
-          inline
           description={modelProblem && <span className="text-destructive">{modelProblem}</span>}
         >
           <SpadeModelPicker
@@ -253,7 +252,7 @@ function Foot(props: { bot: RosterBot }) {
     if (done) void navigate({ to: "/spade", replace: true });
   };
   return (
-    <div className="mt-6 -ml-3.5 flex flex-wrap items-center gap-1">
+    <div className="mt-6 -ml-2.5 flex flex-wrap items-center gap-1">
       <Button
         variant="ghost"
         className={pillButton}
@@ -280,7 +279,7 @@ function Foot(props: { bot: RosterBot }) {
         <Button
           variant="ghost"
           tone="danger"
-          className={cn(pillButton, "ml-auto -mr-3.5")}
+          className={cn(pillButton, "ml-auto -mr-2.5")}
           onClick={() =>
             void workersOf().then((made) => {
               // A bot that made workers asks one thing: stop them, or keep them going.

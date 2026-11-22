@@ -155,7 +155,7 @@ describe("activity", () => {
 
   test("each kind reads as one sentence about what the bot did", () => {
     expect(words({ kind: "connector", name: "slack__send_message", outcome: "ok" })).toBe(
-      "Used send message in slack",
+      "Sent message in Slack",
     );
     expect(words({ kind: "tool", name: "ask_user", outcome: "ok" })).toBe("Asked you a question");
     expect(words({ kind: "bot", name: "Travel", outcome: "received" })).toBe("Message from Travel");

@@ -83,10 +83,10 @@ export function ProviderPreferences(props: {
             <Input
               id="cursor-checkpoint-mb"
               value={budget}
-              placeholder="32"
+              placeholder="8192"
               type="number"
               inputMode="numeric"
-              className="w-20 min-w-0"
+              className="w-24 min-w-0"
               onChange={(event) => setMb(event.target.value)}
               disabled={disabled}
               onBlur={commitBudget}

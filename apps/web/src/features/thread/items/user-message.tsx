@@ -2,10 +2,11 @@ import { BubbleText } from "./bubble-text.tsx";
 import { messageActions } from "./message-actions.ts";
 import { userBubble } from "./user-bubble.ts";
 import type { PendingSend } from "@ace/client";
-import { useItem, usePendingSends } from "@ace/client-react";
+import { useItem, usePendingSends, useThreadMeta } from "@ace/client-react";
 import type { ContentPart } from "@ace/protocol";
 import {
   bubbleContent,
+  delegationBrief,
   formatClock,
   looksLikeMarkdown,
   messageOrigin,
@@ -121,12 +122,18 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
   const item = useItem(leasable(props.threadId), props.itemId);
   const message = item?.type === "message" ? item : undefined;
   const named = namedChips(useAskedLine(props.threadId, message?.origin?.commandId));
+  const delegated = useThreadMeta(props.threadId)?.delegatedBy !== undefined;
   if (!message) return null;
   const shown = bubbleOf(message.parts, message.attachments ?? []);
   const { files, annotations, code, quotes } = shown;
   const sent = props.sent;
-  const text = sent ? sent.text : shown.text;
-  const parts = sent ? undefined : shown.parts;
+  // A delegated child's first message reads as the task, without the "Role: / Task:" frame.
+  const brief =
+    !sent && (delegated || messageOrigin(message)?.kind === "spawn")
+      ? delegationBrief(shown.text)
+      : undefined;
+  const text = sent ? sent.text : (brief ?? shown.text);
+  const parts = sent || brief !== undefined ? undefined : shown.parts;
   const readable = sent ? !!sent.text.trim() : shown.readable;
   if (!readable && !files && !quotes && !annotations && !code) return null;
   const via = message.origin?.via;

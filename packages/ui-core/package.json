@@ -15,6 +15,7 @@
     "./market": "./src/market/index.ts",
     "./bot-face": "./src/bot-face/index.ts",
     "./time": "./src/time.ts",
+    "./file-types": "./src/file-types.ts",
     "./step-labels": "./src/tool-labels.ts",
     "./ace-tools": "./src/ace-tool-rows.ts",
     "./work-log-reading": "./src/work-log-reading.ts",

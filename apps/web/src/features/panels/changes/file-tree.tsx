@@ -1,14 +1,7 @@
 import { changeTreeRows, type TreeFile, type TreeRow } from "@ace/ui-core";
-import {
-  CaretRightIcon,
-  ChatCircleIcon,
-  CheckIcon,
-  FileIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  MagnifyingGlassIcon,
-} from "@ace/icons";
+import { CaretRightIcon, ChatCircleIcon, CheckIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { fileIcon, folderIcon } from "@/components/file-icon.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { LongRows } from "@/components/virtual-rows.tsx";
@@ -246,7 +239,7 @@ function TreeRowView(props: {
       {/* With Viewed boxes, the box leads a file's row in place of the file glyph. */}
       {(folder || !props.boxes) && (
         <Icon
-          icon={folder ? (row.open ? FolderOpenIcon : FolderIcon) : FileIcon}
+          icon={folder ? folderIcon(row.key, row.open) : fileIcon(row.key)}
           size={14}
           className="text-subtle-foreground"
         />

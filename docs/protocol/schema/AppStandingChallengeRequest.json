@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppStandingChallengeRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ephemeral": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AppSocketTag.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    }
+  },
+  "required": [
+    "ephemeral",
+    "tags"
+  ],
+  "type": "object"
+}

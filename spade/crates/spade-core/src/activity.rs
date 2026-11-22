@@ -11,6 +11,7 @@ use crate::redact;
 use crate::tools::{CALL_TOOL, TOOL_SEARCH, unwrap_call_tool};
 
 pub mod doing;
+mod plain;
 pub mod words;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -70,6 +71,10 @@ pub struct Entry {
     pub outcome: Option<String>,
     pub reply: Option<String>,
     pub cost_micros: Option<u64>,
+    /// The call it is about, for a call's entries (its use, the ask, the answer, the review), so
+    /// a reader can show them as one row; absent for anything else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
 }
 
 /// One stored event, as the store gives it.
@@ -140,6 +145,7 @@ impl Log {
             outcome: fields.outcome.map(str::to_owned),
             reply: fields.reply,
             cost_micros: fields.cost,
+            call_id: fields.call,
         });
         self.entries.len() - 1
     }
@@ -216,6 +222,7 @@ impl Log {
                     kind,
                     Fields {
                         reply: Some(reply.clone()),
+                        call: Some(call_id.clone()),
                         ..fields
                     },
                 );
@@ -256,6 +263,7 @@ impl Log {
                             Fields {
                                 reply: Some(reply.clone()),
                                 outcome: Some(how),
+                                call: Some(call_id.clone()),
                                 ..fields
                             },
                         );
@@ -301,6 +309,7 @@ impl Log {
             }
             Known::ApprovalRequested {
                 reply,
+                call_id,
                 name,
                 arguments,
                 ..
@@ -311,6 +320,7 @@ impl Log {
                     Fields {
                         reply: Some(reply.clone()),
                         outcome: Some("asked"),
+                        call: Some(call_id.clone()),
                         ..Fields::call(name, arguments)
                     },
                 );
@@ -337,12 +347,14 @@ impl Log {
                     Fields {
                         reply: Some(reply.clone()),
                         outcome: Some(answer),
+                        call: Some(call_id.clone()),
                         ..Fields::call(&name, &arguments)
                     },
                 );
             }
             Known::CallReviewed {
                 reply,
+                call_id,
                 name,
                 verdict,
                 reason,
@@ -362,6 +374,7 @@ impl Log {
                         reply: Some(reply.clone()),
                         outcome: Some(outcome),
                         cost: Some(*cost_micros),
+                        call: Some(call_id.clone()),
                         ..Fields::named(name, &redact::one_line(reason))
                     },
                 );
@@ -521,6 +534,7 @@ impl Log {
                             reply: None,
                             cost: None,
                             detail: None,
+                            call: None,
                         },
                     );
                 }
@@ -555,6 +569,7 @@ impl Log {
                 reply: Some(reply.to_owned()),
                 cost: Some(cost),
                 detail: None,
+                call: None,
             },
         );
     }
@@ -575,6 +590,7 @@ impl Log {
                 reply: Some(reply.to_owned()),
                 cost: (cost > 0).then_some(cost),
                 detail: None,
+                call: None,
             },
         );
     }
@@ -588,6 +604,8 @@ struct Fields {
     cost: Option<u64>,
     /// The detail line: `None` takes it from the summary (by kind), `Some` sets it.
     detail: Option<Option<String>>,
+    /// The call the entry is about.
+    call: Option<String>,
 }
 
 impl Fields {
@@ -599,6 +617,7 @@ impl Fields {
             reply: None,
             cost: None,
             detail: None,
+            call: None,
         }
     }
 

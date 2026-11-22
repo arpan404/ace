@@ -204,6 +204,29 @@ pub(super) async fn handle_calls(
             Status::Answered if super::apps::held_for_reconnect(events, &pending.call.id) => {
                 match super::apps::after_reconnect(events, &pending.call.id) {
                     super::apps::AfterReconnect::RunAgain => {
+                        // On the session the person's reconnect opened, sent again only as the
+                        // definition its approval recorded (ADR 0202, amendment 5). One no record
+                        // ties to a definition (it ran on the rules alone) isn't sent again on
+                        // it: the bot calls it again, and that call is routed afresh.
+                        let key = format!("{id}.{}", pending.call.id);
+                        if let Some(app) = engine.app_call(id, &name, &arguments) {
+                            let approved = review::bound(events, &pending.call.id)
+                                .and_then(|bound| bound.strip_prefix(APP_BOUND).map(str::to_owned));
+                            let said = match approved {
+                                Some(approved) if approved == app.definition && !app.changed => {
+                                    None
+                                }
+                                Some(_) => Some(DEFINITION_CHANGED),
+                                None => Some(CHECK_AFRESH),
+                            };
+                            if let Some(said) = said {
+                                // Not a refusal: the bot may call it again, routed afresh.
+                                let refused = ToolOutput::ok(format!("Not run: {said}"));
+                                finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+                                continue;
+                            }
+                            engine.bind_app(&key, &app);
+                        }
                         if let Some(raised) = review::raised(events, &pending.call.id) {
                             raised_at.insert(pending.call.id.clone(), raised);
                         }
@@ -283,9 +306,12 @@ pub(super) async fn handle_calls(
                     // The binding of the verdict that decides it: this reading's, or a stored
                     // review's.
                     let mut verdict_bound = read_bound.clone();
-                    let scope = engine
-                        .tools
-                        .get_for(id, &name)
+                    // The tool as listed now, read once: one snapshot for routing, the review,
+                    // the identity an answer is kept under and what a call is bound to (ADR 0202,
+                    // amendment 5), so a relist in between can't split them.
+                    let snapshot = engine.tools.get_for(id, &name);
+                    let scope = snapshot
+                        .as_ref()
                         .and_then(|tool| tool.always_scope_in(&key, &arguments));
                     // An Always allow holds only for the launch it was given for, or narrower; a
                     // whole-tool one records none, so it holds for a contained launch only.
@@ -324,11 +350,30 @@ pub(super) async fn handle_calls(
                         _ => untrusted,
                     };
                     let rule = gate::decide(def.risk, always, tainted);
-                    // What it does, as the tool declares it once.
-                    let declared = engine
-                        .tools
-                        .get_for(id, &name)
-                        .and_then(|tool| tool.effect(&arguments));
+                    // A connected app's tool, read for this call with its definition pinned
+                    // (ADR 0202, amendment 5).
+                    let app_call = snapshot
+                        .as_ref()
+                        .and_then(|tool| engine.app_call_with(id, tool, &arguments));
+                    // A verdict stored for this call (before a restart) holds only for the
+                    // definition it was given on.
+                    let app_bound = app_call
+                        .as_ref()
+                        .map(|app| format!("{APP_BOUND}{}", app.definition));
+                    if let Some(now) = &app_bound
+                        && let Some(stored) = review::bound(events, &pending.call.id)
+                        && stored.starts_with(APP_BOUND)
+                        && &stored != now
+                    {
+                        let changed = ToolOutput::ok(autonomy::refused(DEFINITION_CHANGED));
+                        finish_tool(engine, id, reply, &pending.call, &name, changed).await;
+                        continue;
+                    }
+                    // What it does, as the tool declares it once, or as Spade reads an app's.
+                    let declared = match &app_call {
+                        Some(app) => app.reading.effect,
+                        None => snapshot.as_ref().and_then(|tool| tool.effect(&arguments)),
+                    };
                     // A sandboxed command, or a file write in the workspace: checkpointed first;
                     // when the checkpoint can't be taken, reviewed instead.
                     let held = engine
@@ -345,18 +390,30 @@ pub(super) async fn handle_calls(
                     // identity, never its offered name alone; a helper reads its bot's.
                     let tool_key = match declared {
                         Some(_) => None,
-                        None => engine
-                            .tools
-                            .get_for(id, &name)
+                        None => snapshot
+                            .as_ref()
                             .map(|tool| engine.tool_key(id, tool.identity())),
                     };
-                    let remembered = tool_key.as_deref().and_then(|key| {
+                    let kept = |key: &str| {
                         effect::remembered(since_arrival(events), key).or_else(|| {
                             bot_events
                                 .as_deref()
                                 .and_then(|owned| effect::remembered(since_arrival(owned), key))
                         })
-                    });
+                    };
+                    // Only an answer kept for its whole definition says yes; one kept under an
+                    // older identity, which left its description out, can only say no.
+                    let legacy_key = match declared {
+                        Some(_) => None,
+                        None => snapshot
+                            .as_ref()
+                            .and_then(|tool| tool.legacy_identity())
+                            .map(|identity| engine.tool_key(id, identity)),
+                    };
+                    let remembered = effect::kept_answer(
+                        tool_key.as_deref().and_then(kept),
+                        legacy_key.as_deref().and_then(kept),
+                    );
                     let target = spade_core::outward::target(&name, &arguments);
                     // The bot's Permissions, and the apps no bot uses (ADR 0171, amendment 7).
                     let (permits, never_apps) = engine.permits(id);
@@ -399,9 +456,8 @@ pub(super) async fn handle_calls(
                         .and_then(|step| step.place.as_ref().ok().cloned());
                     // A connector's or plugin's tool that can reach anyone: its server says what
                     // it is, and only one sealed offline with no credentials can't.
-                    let remote = engine
-                        .tools
-                        .get_for(id, &name)
+                    let remote = snapshot
+                        .as_ref()
                         .is_some_and(|tool| tool.hints().is_some() && !tool.sealed());
                     // One reading of the classifier for this call, for routing and screening.
                     let classifier = engine.classifier_ready();
@@ -446,20 +502,21 @@ pub(super) async fn handle_calls(
                                 allows: *allows,
                             }),
                         command: ceiling::outside_class(&classed),
-                        // A server's destructive hint asks each call (ADR 0202 §2).
-                        destructive: engine
-                            .tools
-                            .get_for(id, &name)
-                            .and_then(|tool| tool.hints())
-                            .is_some_and(effect::asks_each_call),
+                        // A server's destructive hint asks each call (ADR 0202 §2), and so does
+                        // an app's tool its name reads as a delete.
+                        destructive: match &app_call {
+                            Some(app) => app.reading.destructive,
+                            None => snapshot
+                                .as_ref()
+                                .and_then(|tool| tool.hints())
+                                .is_some_and(effect::asks_each_call),
+                        },
                         org: org
                             .as_ref()
                             .map(|(name, policy)| spade_core::org::Gate { org: name, policy }),
                         permits,
-                        connected: engine
-                            .tools
-                            .get_for(id, &name)
-                            .is_some_and(|tool| tool.connected_app()),
+                        connected: snapshot.as_ref().is_some_and(|tool| tool.connected_app()),
+                        guessed: app_call.as_ref().is_some_and(|app| app.reading.guessed),
                     };
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package
@@ -498,7 +555,8 @@ pub(super) async fn handle_calls(
                         name: &name,
                         arguments: &arguments,
                         classed: &classed,
-                        hints: engine.tools.get_for(id, &name).and_then(|t| t.hints()),
+                        hints: snapshot.as_ref().and_then(|t| t.hints()),
+                        unresolved: remote && declared.is_none(),
                         reviewing: spade_classify::Reviewing {
                             plain_command: classed.runs == Runs::Outside
                                 && classed.class == Class::Inside
@@ -527,9 +585,9 @@ pub(super) async fn handle_calls(
                             }
                             route
                         }
-                        Route::Run
-                            if mode == Mode::FullAccess && (place != Place::Sandbox || remote) =>
-                        {
+                        // A connected app's clean read stays card-free here too (ADR 0202,
+                        // amendment 5): the classifier never screens it.
+                        Route::Run if effect::full_access_screens(&gate) => {
                             engine.screening_now();
                             match engine.raise_only(id, reply, events, &screening(false)) {
                                 Ok(Screened::Ask(line, read)) => {
@@ -576,8 +634,9 @@ pub(super) async fn handle_calls(
                                 Verdict::Escalate,
                                 &reason,
                                 // Bound to the files it runs as they are now: a command the
-                                // person allows outside the sandbox runs only if they still are.
-                                read_bound.stored(),
+                                // person allows outside the sandbox runs only if they still are;
+                                // an app's tool, to its definition now.
+                                read_bound.stored().or_else(|| app_bound.clone()),
                                 limit,
                             ) {
                                 Ok(true) => {}
@@ -636,15 +695,25 @@ pub(super) async fn handle_calls(
                                     continue;
                                 }
                                 Screened::Review => {
-                                    let def = def.clone();
+                                    // The description the reviewer reads is the snapshot's, the
+                                    // one its verdict is bound to.
+                                    let def = snapshot
+                                        .as_ref()
+                                        .filter(|_| app_call.is_some())
+                                        .map_or_else(|| def.clone(), |tool| tool.def());
+                                    let app_name = snapshot
+                                        .as_ref()
+                                        .and_then(|tool| tool.app())
+                                        .map(|(_, n)| n);
                                     let under = super::autonomy::Under {
                                         call: &pending.call,
                                         name: &name,
                                         arguments: &arguments,
                                         def: &def,
                                         shown: &classed.shown,
-                                        bound: read_bound.stored(),
+                                        bound: read_bound.stored().or_else(|| app_bound.clone()),
                                         concern: concern.as_deref(),
+                                        app: app_name.as_deref(),
                                         acts_in: acts_in.as_ref(),
                                         launch: limit,
                                     };
@@ -684,9 +753,15 @@ pub(super) async fn handle_calls(
                         && mode == Mode::AutoReview
                         && (place != Place::Sandbox || remote)
                         && review::reviewed(def.risk, decision)
+                        // What the gate resolved the call as, not the tool's listed risk: a read
+                        // it let run (an app's unannotated one too) gets no second review.
+                        && declared != Some(effect::Effect::Read)
                         && engine.review_on(id)
                     {
-                        let def = def.clone();
+                        let def = snapshot
+                            .as_ref()
+                            .filter(|_| app_call.is_some())
+                            .map_or_else(|| def.clone(), |tool| tool.def());
                         match super::review::call(
                             engine,
                             id,
@@ -698,6 +773,7 @@ pub(super) async fn handle_calls(
                             &arguments,
                             &def,
                             limit,
+                            app_bound.clone(),
                             stop,
                         )
                         .await
@@ -713,6 +789,16 @@ pub(super) async fn handle_calls(
                     }
                     match decision {
                         Decision::Run => {
+                            // A connected app's call is sent only as approved here: this
+                            // definition, on this session (ADR 0202, amendment 5). A changed tool
+                            // a judge approved (never the rules alone, never an answer kept from
+                            // before) is pinned as it is now.
+                            if let Some(app) = &app_call {
+                                if app.changed && !rule_ran {
+                                    engine.pin(&app.app, &name, &app.definition);
+                                }
+                                engine.bind_app(&key, app);
+                            }
                             // What "always" allowed, checked again where it runs (ADR 0142).
                             if let Some(scope) = &scope {
                                 engine.allow_scope(&key, scope);
@@ -770,7 +856,27 @@ pub(super) async fn handle_calls(
                             if driven.is_some() {
                                 ask = Some(effect::Ask::Drive);
                             }
-                            let app = None;
+                            // What the request says it does: the gate's reading, raised by
+                            // what the classifier read. A connected app's ordinary write offers
+                            // an Always allow for the app (ADR 0202, amendment 5) only while that
+                            // is still all it is, and where one could cover it: no package or
+                            // organization.
+                            let asked_effect = effect::asked_effect(declared, raised);
+                            let app = match &app_call {
+                                Some(call)
+                                    if ask.is_none()
+                                        && effect::app_always_offered(
+                                            call.reading.grantable,
+                                            asked_effect,
+                                        )
+                                        && ceiling.is_none()
+                                        && org.is_none() =>
+                                {
+                                    ask = Some(effect::Ask::App);
+                                    Some(call.app.clone())
+                                }
+                                _ => None,
+                            };
                             let asked = Event::Known(Known::ApprovalRequested {
                                 reply: reply.to_owned(),
                                 call_id: pending.call.id.clone(),
@@ -779,9 +885,14 @@ pub(super) async fn handle_calls(
                                 scope,
                                 reviewer_reason,
                                 ask,
-                                tool_key: (ask == Some(effect::Ask::Undeclared))
-                                    .then_some(tool_key)
-                                    .flatten(),
+                                // For a connected app's tool, the definition the person is
+                                // shown: their answer holds for it alone, and a grant from this
+                                // request is pinned to it.
+                                tool_key: if ask == Some(effect::Ask::Undeclared) {
+                                    tool_key
+                                } else {
+                                    app_call.as_ref().map(|call| call.definition.clone())
+                                },
                                 app,
                                 acts_in: acts_in.map(Box::new),
                                 helper: None,
@@ -789,6 +900,7 @@ pub(super) async fn handle_calls(
                                 // the binding of the verdict stored just before, which asked.
                                 launch: Some(limit),
                                 stopped,
+                                effect: asked_effect,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             let recorded = match &helper {
@@ -833,6 +945,23 @@ pub(super) async fn handle_calls(
                     let wider = ToolOutput::ok(autonomy::refused(WIDER_THAN_ALLOWED));
                     finish_tool(engine, id, reply, &pending.call, &name, wider).await;
                     continue;
+                }
+                // A connected app's tool runs only as the definition the person was shown
+                // (ADR 0202, amendment 5): one its server changed since isn't run on that answer,
+                // and the one they allowed is pinned.
+                if let Some(app) = engine.app_call(id, &name, &arguments) {
+                    match asked_definition(events, &pending.call.id) {
+                        Some(shown) if shown != app.definition => {
+                            let changed = ToolOutput::ok(autonomy::refused(DEFINITION_CHANGED));
+                            finish_tool(engine, id, reply, &pending.call, &name, changed).await;
+                            continue;
+                        }
+                        Some(_) => engine.pin(&app.app, &name, &app.definition),
+                        // Asked by an older build, which showed no definition: allowed as it is
+                        // now, never pinned on that answer.
+                        None => {}
+                    }
+                    engine.bind_app(&key, &app);
                 }
                 // The person's answer's warrant: the launch they were asked about, and what the
                 // command ran then, as the verdict that asked them recorded it (every ask stores
@@ -977,6 +1106,31 @@ fn allowed_always_for(
                     && Authorized::stored(*given).covers(launch))
         }),
         _ => false,
+    })
+}
+
+/// What the bot is told when a call held for a reconnect ran on the rules alone, so no record
+/// says which definition it was decided on.
+const CHECK_AFRESH: &str = "The app was reconnected, and this call is checked afresh rather than sent \
+     on the earlier decision. Call it again if it's still needed.";
+
+/// How a verdict on a connected app's call records the definition it was given on.
+const APP_BOUND: &str = "app:";
+
+/// What the person is told when an app changed a tool after they allowed a call of it.
+const DEFINITION_CHANGED: &str = "The app changed this tool's name, description or inputs after the person allowed it, so \
+     it wasn't run on that answer. Call it again if it's still needed; it will be checked afresh.";
+
+/// The definition of a connected app's tool the request `call_id` showed the person.
+fn asked_definition<'a>(events: &'a [Event], call_id: &str) -> Option<&'a str> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c,
+            ask,
+            tool_key: Some(shown),
+            ..
+        }) if c == call_id && *ask != Some(effect::Ask::Undeclared) => Some(shown.as_str()),
+        _ => None,
     })
 }
 

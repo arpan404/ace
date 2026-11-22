@@ -72,7 +72,7 @@ test("a bot's workers show one row each, and one waiting on its plan says so and
 
   expect(row).toEqual({
     kind: "workers",
-    title: "Started 2 agents",
+    title: "2 subagents running",
     workers: [
       {
         id: planner,
@@ -81,7 +81,7 @@ test("a bot's workers show one row each, and one waiting on its plan says so and
         thread: planner,
         conversation: null,
         tone: "needs-you",
-        line: "Waiting for you to approve its plan",
+        line: "Wants you to approve its plan",
         asking: [planner],
       },
       {
@@ -179,7 +179,7 @@ test("a worker never reads as done while its thread still works, even before ace
     patches.bubbles.find((each): each is SpadeWorkersRow => each.kind === "workers"),
   );
 
-  expect(row.title).toBe("Started 2 agents");
+  expect(row.title).toBe("2 subagents running");
   expect(row.workers.map((worker) => worker.tone)).toEqual(["working", "working"]);
 });
 
@@ -238,7 +238,7 @@ test("a bot worker still queued for a slot reads as waiting to start, never as h
   // The roster alone lists the queued bot as idle; its maker's tree says it waits for a slot.
   await until(() => workers()?.workers[0]?.line === "Queued");
 
-  expect(workers()?.title).toBe("Started 1 agent");
+  expect(workers()?.title).toBe("1 subagent running");
   expect(workers()?.workers[0]?.tone).toBe("working");
 });
 
@@ -247,5 +247,5 @@ test("a bot worker reads as done once its maker's tree says it has finished", as
 
   await until(() => workers()?.workers[0]?.line === "Done");
 
-  expect(workers()?.title).toBe("1 agent ran");
+  expect(workers()?.title).toBe("1 subagent ran");
 });

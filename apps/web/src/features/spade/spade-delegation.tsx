@@ -1,29 +1,33 @@
 import type { ThreadReader } from "@ace/client";
 import type { AgentStatus } from "@ace/protocol";
 import { useThread } from "@ace/client-react";
-import { messageText, subagentMeta, subagentTerminal } from "@ace/ui-core";
+import { formatSpan, messageText, subagentRunning } from "@ace/ui-core";
 import {
-  spadeAskingWords,
-  spadeWorkersTitle,
+  spadeSubagentLine,
+  spadeSubagentName,
+  spadeSubagentsSpan,
+  spadeTogetherHeader,
+  spadeTogetherRows,
+  spadeTogetherSpan,
+  spadeTogetherState,
   type SpadeAvatar,
-  type SpadeStartedWorker,
+  type SpadeTogetherPart,
+  type SpadeTogetherRow,
 } from "@ace/ui-core/spade-chat";
-import { Link } from "@tanstack/react-router";
-import { useCallback, useState, type ReactNode } from "react";
-import { buttonVariants } from "@/components/ui/button.tsx";
-import {
-  AgentRowContents,
-  agentRowStyles,
-  SubagentFold,
-  SubagentSection,
-  subagentDetailLine,
-  type AgentRowParts,
-} from "@/features/thread/index.ts";
-import { cn } from "@/lib/cn.ts";
-import { useLive, type Live } from "@/lib/live-connection.ts";
+import { useNavigate } from "@tanstack/react-router";
+import { useCallback, useContext, type ReactNode } from "react";
+import { SubagentElapsed, subagentDetailLine } from "@/features/thread/index.ts";
+import { useLive } from "@/lib/live-connection.ts";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
-import { SpadeFace } from "./spade-face.tsx";
+import { CardFace } from "./spade-card.tsx";
+import { SpadeTalkRow, type SpadeTalkContext } from "./spade-talk-row.tsx";
+import {
+  SpadeSubagentCard,
+  SpadeSubagentRow,
+  type SpadeSubagentOpen,
+  type SpadeSubagentSpan,
+} from "./spade-subagent-card.tsx";
 import {
   firstLine,
   useBotMachine,
@@ -32,22 +36,26 @@ import {
 } from "./use-spade-workers.ts";
 
 /*
- * The bots and ace agents a bot started (ADR 0161), in the turn that started them, drawn with
- * ace's own child rows: one row while a lone worker runs, else one "Started 4 agents" row with
- * each state's count that opens to every row. A row is its mark (a provider's, a bot's face), its
- * name, model and machine, its state in words and its last line; it opens the agent's thread (on
- * its machine) or the bot's chat. One that waits on the person offers Review, which goes to its
- * request where the chat waits on it (`SpadeWaitingWorkers`).
+ * Everything one turn of a bot did with other bots and agents (ADR 0161, ADR 0127, ADR 0200 §7)
+ * as Spade's subagent card (`SpadeSubagentCard`, `spadeTogether`): the bot's face and one
+ * sentence with the turn's time, then a row per thing it did. An agent or bot it started reads
+ * its state in words and what it does now, its time while it runs, and opens its thread (on its
+ * machine) or the bot's chat; one that waits on the person shows Review, which goes to its
+ * request where the chat waits on it (`SpadeWaitingWorkers`), else opens it. A message it sent
+ * another bot, or a contract it called, reads what came back and opens in place to the exchange
+ * (`SpadeTalkRow`).
  */
 
 /** The anchor of a waiting worker's request at the chat's end. */
 export const workerRequestAnchor = (id: string) => `[data-worker-request="${CSS.escape(id)}"]`;
 
-/** Bring a waiting worker's request into view and to the keyboard. */
-export function showWorkerRequest(id: string) {
+/** Bring a waiting worker's request into view and to the keyboard; false while there is none. */
+export function showWorkerRequest(id: string): boolean {
   const card = document.querySelector<HTMLElement>(workerRequestAnchor(id));
-  card?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-  card?.focus({ preventScroll: true });
+  if (!card?.firstElementChild) return false;
+  card.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  card.focus({ preventScroll: true });
+  return true;
 }
 
 export interface WorkerHandlers {
@@ -55,6 +63,8 @@ export interface WorkerHandlers {
   bot: string;
   face(id: string): SpadeAvatar;
   onOpenBot: ((id: string) => void) | undefined;
+  /** What the rows of messages and contract calls read; without it they don't show. */
+  talk?: SpadeTalkContext | undefined;
 }
 
 /**
@@ -73,65 +83,138 @@ export function OnBotMachine(props: { children: (reachable: boolean) => ReactNod
 }
 
 export function SpadeDelegation(props: {
-  workers: readonly SpadeStartedWorker[];
+  /** The turn's started workers, messages and contract calls (`spadeTogether`). */
+  parts: readonly SpadeTogetherPart[];
   at: number | undefined;
+  /** The bot's name, for the card's first line. */
+  botName: string;
   handlers: WorkerHandlers;
 }) {
   return <OnBotMachine>{(reachable) => <Card {...props} reachable={reachable} />}</OnBotMachine>;
 }
 
 function Card(props: {
-  workers: readonly SpadeStartedWorker[];
+  parts: readonly SpadeTogetherPart[];
   at: number | undefined;
+  botName: string;
   handlers: WorkerHandlers;
   reachable: boolean;
 }) {
+  const workers = props.parts.flatMap((part) => (part.kind === "workers" ? part.workers : []));
   const { entries, fresh } = useSpadeWorkers(
     props.handlers.bot,
-    props.workers,
+    workers,
     props.at ?? 0,
     props.reachable,
   );
-  const [open, setOpen] = useState(false);
-  const states = entries.map((entry) => entry.state);
-  const title = spadeWorkersTitle(states);
-  const [only] = entries;
-  const single = entries.length === 1 && only && !subagentTerminal(only.state) ? only : undefined;
+  const face = useContext(CardFace);
+  const talk = props.handlers.talk;
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  // Each row with what the card reads of it: a worker's live entry, a message's or a call's own.
+  const rows = spadeTogetherRows(props.parts).flatMap((row): CardRow[] => {
+    if (row.kind === "worker") {
+      const entry = byId.get(row.worker.id);
+      const span: SpadeSubagentSpan = entry ?? { id: row.key, state: "working" };
+      return entry ? [{ row, entry, span }] : [];
+    }
+    if (!talk) return [];
+    return [
+      {
+        row,
+        entry: undefined,
+        span: { id: row.key, state: spadeTogetherState(row), ...spadeTogetherSpan(row) },
+      },
+    ];
+  });
+  const spans = rows.map((each) => each.span);
+  const span = spadeSubagentsSpan(spans);
+  const workersOnly = rows.every((each) => each.row.kind === "worker");
+  const header =
+    workersOnly || !talk
+      ? undefined
+      : spadeTogetherHeader(
+          props.botName,
+          rows.map(({ row, entry }) => ({
+            name: entry
+              ? spadeSubagentName(entry.title, props.botName)
+              : row.kind === "message"
+                ? talkName(talk, row.bot)
+                : row.kind === "contract"
+                  ? row.call.bot
+                  : "",
+            ace: entry?.kind === "ace",
+            state: entry?.state ?? (row.kind === "worker" ? "working" : spadeTogetherState(row)),
+          })),
+          { current: fresh, workersOnly: false },
+        );
+  const running = spans.some((each) => subagentRunning(each.state));
   return (
-    <div className="w-full max-w-150 min-w-0 px-(--chat-bubble-x)">
-      <SubagentSection states={states} fresh={fresh} folded={!single} title={title}>
-        {single ? (
-          <ul aria-label="Workers" className="flex flex-col">
-            <WorkerRow
-              entry={single}
+    <div className="w-full max-w-150 min-w-0">
+      <SpadeSubagentCard
+        botName={props.botName}
+        face={face}
+        agents={spans}
+        current={fresh}
+        header={header}
+        elapsed={
+          fresh &&
+          span && (
+            <AgentTime
+              startedAt={span.startedAt}
+              endedAt={span.endedAt}
+              running={running}
               fresh={fresh}
-              handlers={props.handlers}
-              reachable={props.reachable}
             />
-          </ul>
-        ) : (
-          <SubagentFold
-            entries={entries}
-            fresh={fresh}
-            open={open}
-            onToggle={() => setOpen(!open)}
-            title={title}
-          >
-            {entries.map((entry) => (
+          )
+        }
+        renderRow={(at) => {
+          const each = rows[at];
+          if (!each) return null;
+          if (each.entry)
+            return (
               <WorkerRow
-                key={entry.id}
-                entry={entry}
+                entry={each.entry}
+                botName={props.botName}
                 fresh={fresh}
                 handlers={props.handlers}
                 reachable={props.reachable}
-                listed
               />
-            ))}
-          </SubagentFold>
-        )}
-      </SubagentSection>
+            );
+          return (
+            talk &&
+            each.row.kind !== "worker" && (
+              <SpadeTalkRow
+                row={each.row}
+                context={talk}
+                elapsed={
+                  each.span.startedAt !== undefined && (
+                    <AgentTime
+                      startedAt={each.span.startedAt}
+                      endedAt={undefined}
+                      running
+                      fresh={fresh}
+                    />
+                  )
+                }
+              />
+            )
+          );
+        }}
+      />
     </div>
   );
+}
+
+/** A row of the card, with what it reads: a worker's live entry, else its own span. */
+interface CardRow {
+  row: SpadeTogetherRow;
+  entry: SpadeWorkerEntry | undefined;
+  span: SpadeSubagentSpan;
+}
+
+/** A bot named by id or by name, as its name. */
+function talkName(talk: SpadeTalkContext, ref: string): string {
+  return talk.names.get(ref) ?? ref;
 }
 
 /** An ace agent's latest words and what its root agent does now, read from its thread. */
@@ -182,82 +265,81 @@ interface Words {
 const sameWords = (a: Words, b: Words) =>
   a.line === b.line && a.root === b.root && a.status === b.status;
 
-/** A row's second line and what it says (`detailKind`), from ace's words for a child's. */
-function detailOf(
-  entry: SpadeWorkerEntry,
-  words: Words | undefined,
-  live: Live,
-): Pick<AgentRowParts, "detail" | "detailKind"> {
-  if (!live.current) return {};
-  if (entry.state === "human")
-    return { detail: spadeAskingWords(entry.asking), detailKind: "human" };
-  if (entry.kind === "bot")
-    return subagentTerminal(entry.state)
-      ? {}
-      : entry.status
-        ? { detail: entry.status, detailKind: "live" }
-        : {};
-  const shown = subagentDetailLine(
-    live,
-    { ...entry, agentId: words?.root, result: words?.line },
-    words?.status ? { status: words.status } : undefined,
-    undefined,
-  );
-  return { detail: shown.detail, detailKind: shown.kind };
-}
-
 function WorkerRow(props: {
   entry: SpadeWorkerEntry;
+  botName: string;
   fresh: boolean;
   handlers: WorkerHandlers;
   reachable: boolean;
-  listed?: boolean | undefined;
 }) {
   const { entry, handlers } = props;
   const live = useLive(props.fresh);
+  const navigate = useNavigate();
   const words = useAgentWords(entry.kind === "ace" && props.reachable ? entry.id : undefined);
-  const parts: AgentRowParts = {
-    mark: { provider: entry.provider, model: entry.model },
-    lead:
-      entry.kind === "bot" ? <SpadeFace avatar={handlers.face(entry.id)} size={16} /> : undefined,
-    name: entry.title,
-    meta: entry.kind === "ace" ? subagentMeta(entry) : "Bot",
-    machine: entry.machine,
-    state: entry.state,
-    live,
-    ...detailOf(entry, words, live),
-  };
-  const box = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);
-  const label = `Open ${entry.title}${entry.machine ? ` on ${entry.machine}` : ""}`;
+  // An ace agent's step as ace says it for a delegated child, else the last thing it said.
+  const detail =
+    entry.kind === "ace"
+      ? (subagentDetailLine(
+          live,
+          { ...entry, agentId: words?.root, result: words?.line },
+          words?.status ? { status: words.status } : undefined,
+          undefined,
+        ).detail ?? words?.line)
+      : undefined;
+  const open: SpadeSubagentOpen | undefined =
+    entry.kind === "ace"
+      ? { kind: "link", to: threadOn(entry.machineHost, entry.id) }
+      : handlers.onOpenBot
+        ? { kind: "button", onOpen: () => handlers.onOpenBot?.(entry.id) }
+        : undefined;
   return (
-    <li data-worker={entry.id} data-subagent-state={entry.state} className="relative">
-      {entry.kind === "ace" ? (
-        <Link {...threadOn(entry.machineHost, entry.id)} aria-label={label} className={box}>
-          <AgentRowContents {...parts} />
-        </Link>
-      ) : (
-        <button
-          type="button"
-          aria-label={label}
-          className={box}
-          onClick={() => handlers.onOpenBot?.(entry.id)}
-        >
-          <AgentRowContents {...parts} />
-        </button>
-      )}
-      {live.current && entry.state === "human" && (
-        <button
-          type="button"
-          aria-label={`Review what ${entry.title} needs`}
-          onClick={() => showWorkerRequest(entry.id)}
-          className={cn(
-            buttonVariants({ variant: "secondary", size: "sm" }),
-            "absolute right-0 bottom-1 h-5 px-2 text-xs",
-          )}
-        >
-          Review
-        </button>
-      )}
-    </li>
+    <SpadeSubagentRow
+      row={{
+        id: entry.id,
+        kind: entry.kind,
+        name: spadeSubagentName(entry.title, props.botName),
+        state: entry.state,
+        // Only what is current says a state; else the connection's word stands in for it.
+        line: live.current
+          ? spadeSubagentLine({ ...entry, detail })
+          : { text: live.word, tone: "stale", live: false },
+        provider: entry.provider,
+        face: entry.kind === "bot" ? handlers.face(entry.id) : undefined,
+        machine: entry.machine,
+        // Its time while it runs; the card's first line holds the turn's time.
+        elapsed: live.current && subagentRunning(entry.state) && (
+          <AgentTime
+            startedAt={entry.startedAt}
+            endedAt={entry.endedAt}
+            running={subagentRunning(entry.state)}
+            fresh={props.fresh}
+          />
+        ),
+        open,
+        onReview:
+          live.current && entry.state === "human"
+            ? () => {
+                if (showWorkerRequest(entry.id)) return;
+                if (entry.kind === "ace") void navigate(threadOn(entry.machineHost, entry.id));
+                else handlers.onOpenBot?.(entry.id);
+              }
+            : undefined,
+      }}
+    />
   );
+}
+
+/**
+ * How long an agent has run, ticking to the second while it runs (as ace's child rows do), or
+ * how long it took once it ended, to the minute ("22m"): a settled time needs no seconds.
+ */
+function AgentTime(props: {
+  startedAt: number;
+  endedAt: number | undefined;
+  running: boolean;
+  fresh: boolean;
+}) {
+  if (props.running || props.endedAt === undefined) return <SubagentElapsed {...props} />;
+  if (props.endedAt - props.startedAt < 1000) return null;
+  return <span aria-label="Elapsed time">{formatSpan(props.startedAt, props.endedAt)}</span>;
 }

@@ -2,101 +2,238 @@ import { ScenarioPlayer, facts, type FakeDaemon, type FakeSpadeApi } from "@ace/
 import type { ProviderKind } from "@ace/protocol";
 
 /*
- * `?fakeWorld=spade`, Research: a bot that started four ace agents with one `delegate` to
- * research competitors. One waits on the person to approve its plan, two work, one is done; its
- * chat shows them as one "Started 4 agents" card, the plan at its end, and the bot list says it
- * needs the person.
+ * `?fakeWorld=spade`: bots that started ace agents with one `delegate`, each drawn as one
+ * subagent card in its chat.
+ *   Research: four agents researching competitors, started 9 minutes ago, and a bot it made to
+ *   write the brief. One agent waits on the person to approve its plan (at the chat's end too),
+ *   two work, one finished after 6 minutes; the bot list says it needs the person.
+ *   Survey: seven agents that all finished, the card folded past five rows.
+ *   Audit: three agents, one of which failed when it lost its provider session.
  */
 
-const children: readonly {
+type How = "plan" | "working" | "done" | "failed";
+
+interface Child {
   id: string;
   name: string;
   provider: ProviderKind;
   model: string;
-  how: "plan" | "working" | "done";
+  how: How;
+  /** What it said last: its step while it works, what it found once done, why it failed. */
   said: string;
-}[] = [
-  {
-    id: "research-pricing",
-    name: "Research-pricing",
-    provider: "codex",
-    model: "gpt-6.1-sol",
-    how: "plan",
-    said: "",
-  },
-  {
-    id: "research-reviews",
-    name: "Research-reviews",
-    provider: "claude",
-    model: "opus-5.5",
-    how: "working",
-    said: "Reading the G2 and Capterra reviews for the top three.",
-  },
-  {
-    id: "research-features",
-    name: "Research-features",
-    provider: "claude",
-    model: "opus-5.5",
-    how: "working",
-    said: "Comparing the feature tables on each pricing page.",
-  },
-  {
-    id: "research-support",
-    name: "Research-support",
-    provider: "codex",
-    model: "gpt-6.1-sol",
-    how: "done",
-    said: "Two of the four answer support within an hour; the notes are in support.md.",
-  },
-];
+  /** When it ended, in minutes ago (done or failed). */
+  endedMin?: number;
+}
 
-export function seedFakeDelegation(
-  daemon: FakeDaemon,
-  here: FakeSpadeApi,
-  minutes: (n: number) => number,
-) {
-  const research = here.addAgent({
+interface Scene {
+  bot: { id: string; name: string; task: string };
+  ask: string;
+  start: string;
+  said: string;
+  /** When the bot started them, in minutes ago. */
+  startedMin: number;
+  children: readonly Child[];
+}
+
+const gpt = { provider: "codex", model: "gpt-6.1-sol" } as const;
+const opus = { provider: "claude", model: "opus-5.5" } as const;
+
+const research: Scene = {
+  bot: {
     id: "research",
     name: "Research",
     task: "Research competitors and keep a short brief on each.",
-    state: "waiting",
-    waiting_for: "worker",
-    status: "A worker needs you",
-    last_activity: minutes(3),
+  },
+  ask: "Research our four closest competitors.",
+  start: "I'll start four research agents, one per question.",
+  said: "The four research agents are paused pending your approval in the sidebar.",
+  startedMin: 9,
+  children: [
+    { id: "research-pricing", name: "Research-pricing", ...gpt, how: "plan", said: "" },
+    {
+      id: "research-reviews",
+      name: "Research-reviews",
+      ...opus,
+      how: "working",
+      said: "Reading the G2 and Capterra reviews for the top three.",
+    },
+    {
+      id: "research-features",
+      name: "Research-features",
+      ...opus,
+      how: "working",
+      said: "Comparing the feature tables on each pricing page.",
+    },
+    {
+      id: "research-support",
+      name: "Research-support",
+      ...gpt,
+      how: "done",
+      said: "Two of the four answer support within an hour; the notes are in support.md.",
+      endedMin: 3,
+    },
+  ],
+};
+
+const countries = ["Germany", "France", "Spain", "Italy", "Japan", "Brazil", "Canada"];
+
+const survey: Scene = {
+  bot: { id: "survey", name: "Survey", task: "Size the market in each country we sell to." },
+  ask: "Size our seven markets.",
+  start: "I'll start one agent per market.",
+  said: "All seven markets are sized; the notes are in each agent's file.",
+  startedMin: 26,
+  children: countries.map((country, at): Child => ({
+    id: `survey-${country.toLowerCase()}`,
+    name: `Survey-${country.toLowerCase()}`,
+    provider: at % 2 ? gpt.provider : opus.provider,
+    model: at % 2 ? gpt.model : opus.model,
+    how: "done",
+    said: `${country} is sized; the notes are in ${country.toLowerCase()}.md.`,
+    endedMin: 4 + at * 2,
+  })),
+};
+
+const audit: Scene = {
+  bot: {
+    id: "audit",
+    name: "Audit",
+    task: "Check our dependencies for licence and security issues.",
+  },
+  ask: "Audit the three services' dependencies.",
+  start: "I'll start one agent per service.",
+  said: "Two services are clean; the billing audit lost its provider session.",
+  startedMin: 18,
+  children: [
+    {
+      id: "audit-web",
+      name: "Audit-web",
+      ...opus,
+      how: "done",
+      said: "No licence or security issues in web's 412 packages.",
+      endedMin: 7,
+    },
+    {
+      id: "audit-billing",
+      name: "Audit-billing",
+      ...gpt,
+      how: "failed",
+      said: "Lost the provider session",
+      endedMin: 11,
+    },
+    {
+      id: "audit-relay",
+      name: "Audit-relay",
+      ...opus,
+      how: "done",
+      said: "relay pins an old ws; the upgrade is in relay.md.",
+      endedMin: 5,
+    },
+  ],
+};
+
+/** Where an agent's thread starts and what it says, by how it stands. */
+function childFacts(child: Child) {
+  const head = [
+    facts.rootAgent(child.provider, "/Users/dev/relay"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", `${child.name}: do your part.`),
+  ];
+  switch (child.how) {
+    case "plan":
+      return [
+        ...head,
+        {
+          type: "interaction.opened" as const,
+          agent: "root",
+          interaction: "plan",
+          blocking: true,
+          request: {
+            kind: "plan_review" as const,
+            title: "Compare the four pricing pages",
+            markdown: [
+              "1. Read each competitor's public pricing page.",
+              "2. Put the tiers side by side: price, seats, limits.",
+              "3. Write pricing.md with what changed this quarter.",
+            ].join("\n"),
+          },
+        },
+      ];
+    case "working":
+      return [...head, facts.message("root", "say", "assistant", child.said)];
+    case "done":
+      return [
+        ...head,
+        facts.message("root", "say", "assistant", child.said),
+        facts.endTurn("root"),
+      ];
+    case "failed":
+      return [
+        ...head,
+        facts.endTurn("root", "failed", {
+          kind: "provider",
+          code: "session_lost",
+          message: child.said,
+        }),
+      ];
+  }
+}
+
+const treeState: Record<How, string> = {
+  plan: "needs_you",
+  working: "working",
+  done: "done",
+  failed: "failed",
+};
+
+function seedScene(
+  daemon: FakeDaemon,
+  here: FakeSpadeApi,
+  minutes: (n: number) => number,
+  scene: Scene,
+  waiting: boolean,
+): { id: string; name: string; conversation: string } {
+  const bot = here.addAgent({
+    ...scene.bot,
+    ...(waiting
+      ? { state: "waiting", waiting_for: "worker", status: "Asks about the hotel" }
+      : { state: "idle" }),
+    last_activity: minutes(waiting ? 3 : scene.startedMin - 1),
   });
-  const c = research.conversation;
-  here.store(c, { type: "user_message", text: "Research our four closest competitors." });
-  here.store(c, { type: "reply_started", reply: "r-research" });
-  here.store(c, {
-    type: "step_finished",
-    reply: "r-research",
-    text: "I'll start four research agents, one per question.",
-    calls: [
-      {
-        id: "d-research",
-        name: "delegate",
-        arguments: { tasks: children.map((child) => child.name) },
-      },
-    ],
-  });
-  const call = { reply: "r-research", call_id: "d-research", name: "delegate" };
-  here.store(c, { type: "tool_started", ...call });
+  const c = bot.conversation;
+  const started = minutes(scene.startedMin);
+  const reply = `r-${scene.bot.id}`;
+  const callId = `d-${scene.bot.id}`;
+  here.store(c, { type: "user_message", text: scene.ask }, started);
+  here.store(c, { type: "reply_started", reply }, started);
+  here.store(
+    c,
+    {
+      type: "step_finished",
+      reply,
+      text: scene.start,
+      calls: [
+        {
+          id: callId,
+          name: "delegate",
+          arguments: { tasks: scene.children.map((child) => child.name) },
+        },
+      ],
+    },
+    started,
+  );
+  const call = { reply, call_id: callId, name: "delegate" };
+  here.store(c, { type: "tool_started", ...call }, started);
   const workspace =
     daemon.projects.list().workspaces.find((each) => each.name === "relay") ??
     daemon.projects.list().workspaces[0];
-  for (const child of children) {
-    here.store(c, {
-      type: "worker_started",
-      worker: child.id,
-      kind: "ace",
-      name: child.name,
-      call: "d-research",
-    });
-    here.work.addAce("research", {
-      id: child.id,
-      name: child.name,
-      state: child.how === "plan" ? "needs_you" : child.how === "done" ? "done" : "working",
-    });
+  for (const child of scene.children) {
+    here.store(
+      c,
+      { type: "worker_started", worker: child.id, kind: "ace", name: child.name, call: callId },
+      started,
+    );
+    here.work.addAce(scene.bot.id, { id: child.id, name: child.name, state: treeState[child.how] });
     if (!workspace) continue;
     new ScenarioPlayer(daemon, {
       thread: {
@@ -109,34 +246,9 @@ export function seedFakeDelegation(
       steps: [
         {
           kind: "facts",
-          agoMs: 3 * 60_000,
-          facts: [
-            facts.rootAgent(child.provider, "/Users/dev/relay"),
-            facts.turn("root"),
-            facts.message("root", "ask", "user", `${child.name}: research our competitors.`),
-            ...(child.how === "plan"
-              ? [
-                  {
-                    type: "interaction.opened" as const,
-                    agent: "root",
-                    interaction: "plan",
-                    blocking: true,
-                    request: {
-                      kind: "plan_review" as const,
-                      title: "Compare the four pricing pages",
-                      markdown: [
-                        "1. Read each competitor's public pricing page.",
-                        "2. Put the tiers side by side: price, seats, limits.",
-                        "3. Write pricing.md with what changed this quarter.",
-                      ].join("\n"),
-                    },
-                  },
-                ]
-              : [
-                  facts.message("root", "say", "assistant", child.said),
-                  ...(child.how === "done" ? [facts.endTurn("root")] : []),
-                ]),
-          ],
+          // An agent that ended last changed then; one still at it, when it started.
+          agoMs: (child.endedMin ?? scene.startedMin) * 60_000,
+          facts: childFacts(child),
         },
         ...(child.how === "plan" ? [{ kind: "await" as const, interaction: "plan" }] : []),
       ],
@@ -145,9 +257,50 @@ export function seedFakeDelegation(
   here.store(c, {
     type: "tool_finished",
     ...call,
-    content: JSON.stringify({ ok: true, data: { threadIds: children.map((child) => child.id) } }),
+    content: JSON.stringify({
+      ok: true,
+      data: { threadIds: scene.children.map((child) => child.id) },
+    }),
   });
-  const said = "The four research agents are paused pending your approval in the sidebar.";
-  here.store(c, { type: "step_finished", reply: "r-research", text: said });
-  here.store(c, { type: "reply_finished", reply: "r-research", text: said });
+  here.store(c, { type: "step_finished", reply, text: scene.said });
+  here.store(c, { type: "reply_finished", reply, text: scene.said });
+  return { id: scene.bot.id, name: scene.bot.name, conversation: c };
+}
+
+export function seedFakeDelegation(
+  daemon: FakeDaemon,
+  here: FakeSpadeApi,
+  minutes: (n: number) => number,
+) {
+  const bot = seedScene(daemon, here, minutes, research, true);
+  // A bot Research made to write the brief: its live step comes from its own status.
+  here.addAgent({
+    id: "research-brief",
+    name: "Research-brief",
+    task: "Write the competitor brief from the research notes.",
+    state: "working",
+    status: "Drafting the competitor brief from the support notes",
+    parent: { id: bot.id, name: bot.name },
+    last_activity: minutes(1),
+  });
+  here.store(
+    bot.conversation,
+    {
+      type: "worker_started",
+      worker: "research-brief",
+      kind: "bot",
+      name: "Research-brief",
+      call: "d-research",
+    },
+    minutes(research.startedMin),
+  );
+}
+
+export function seedFakeSurvey(
+  daemon: FakeDaemon,
+  here: FakeSpadeApi,
+  minutes: (n: number) => number,
+) {
+  seedScene(daemon, here, minutes, survey, false);
+  seedScene(daemon, here, minutes, audit, false);
 }

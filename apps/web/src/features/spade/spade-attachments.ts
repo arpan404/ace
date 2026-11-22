@@ -1,3 +1,4 @@
+import type { SpadeQuote } from "@ace/ui-core/spade-chat";
 import type { DeviceContextItem } from "@ace/protocol";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "@ace/ui-core/spade-chat";
 import { keepSentPicture, keepSentRecording } from "./spade-images.ts";
@@ -43,6 +44,8 @@ export interface SpadeMessage {
   voice?: PreparedVoice | undefined;
   /** Devices the person named with `@` (ADR 0198). */
   devices?: DeviceContextItem[] | undefined;
+  /** The message it replies to (ADR 0212 §4): Spade stores what it quoted. */
+  replyTo?: SpadeQuote | undefined;
 }
 
 export class SpadeAttachmentError extends Error {}

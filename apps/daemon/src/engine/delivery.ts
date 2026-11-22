@@ -57,8 +57,13 @@ export async function executeIntent(
       if (error instanceof SessionFenced) throw new DeliveryDeferred(error.message);
       // A provider returning to the thread resumes the session it left; if that is gone, it
       // opens once more as a fresh session with the full handoff.
+      // A saved session that can never open again continues in a fresh one with the thread's
+      // context (ADR 0211), the same once-more open.
       let failure = error;
-      if (transitions.abandonReturn(actor.id, error))
+      if (
+        transitions.abandonReturn(actor.id, error) ||
+        transitions.startFreshSession(actor.id, error, intent.command.id)
+      )
         try {
           await sessions.open(actor);
           failure = undefined;

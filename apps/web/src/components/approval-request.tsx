@@ -21,8 +21,9 @@ import { cn } from "@/lib/cn.ts";
  */
 const touchAnswer = "pointer-coarse:h-11 pointer-coarse:px-4";
 
+/** Details in a request are quiet mono on the strip itself, no box, scrolling when long. */
 const block =
-  "max-h-40 overflow-auto rounded-md bg-code px-3 py-[9px] shadow-[inset_0_0_0_1px_var(--border)] font-mono text-xs leading-[1.5] whitespace-pre-wrap break-words text-foreground";
+  "max-h-40 overflow-auto font-mono text-xs leading-[1.5] whitespace-pre-wrap break-words text-muted-foreground";
 
 /** The heading's words. */
 export function ApprovalHeading(props: { copy: ApprovalCopy }) {
@@ -75,14 +76,6 @@ export function ApprovalRequest(props: {
       data-approval-deliberate={high || copy.defaultToNo ? "" : undefined}
       className={cn("flex flex-col gap-2.5", props.className)}
     >
-      {compact && copy.command && (
-        <pre aria-label="Command" className={block}>
-          <span aria-hidden className="mr-2 text-subtle-foreground select-none">
-            $
-          </span>
-          {copy.command}
-        </pre>
-      )}
       {copy.code && (
         <pre aria-label="Script" className={block}>
           {copy.code}

@@ -55,7 +55,7 @@ test("a linked bot's profile names its package and version, with Update and Roll
         }),
     },
   );
-  expect(await screen.findByText("From flight-watcher 2.0.0 in the Store.")).toBeTruthy();
+  expect(await screen.findByText("From flight-watcher 2.0.0 in the Marketplace.")).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Update to 2.1.0" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
   await waitFor(() =>
@@ -85,7 +85,7 @@ test("an update accepted while the bot works says it waits for the bot's turn", 
   );
   expect(
     await screen.findByText(
-      "From flight-watcher 1.0.0 in the Store. Updates when Flight watcher is done with its turn.",
+      "From flight-watcher 1.0.0 in the Marketplace. Updates when Flight watcher is done with its turn.",
     ),
   ).toBeTruthy();
 });
@@ -162,6 +162,8 @@ test("a bot from an ace template is offered the newer template its Spade ships, 
       },
       templateOffer: {
         package: offered,
+        // Spade always sends the recipe its replay runs on; the offer is unreadable without it.
+        recipe: {},
         plan: {
           name: "kept",
           task: "replace",

@@ -7,7 +7,7 @@ import { DatabaseSync } from "./sqlite.ts";
 import type { ProcessIdentity } from "./process-identity.ts";
 
 test.each(["pid", "start", "uid", "group", "missing", "unreadable"] as const)(
-  "orphan recovery never kills a %s identity mismatch",
+  "orphan recovery never kills a %s identity mismatch, and reports it unresolved instead of aborting startup",
   (kind) => {
     const home = mkdtempSync(join(tmpdir(), "ace-inventory-identity-"));
     const processes = new Map<number, ProcessIdentity>([
@@ -39,7 +39,8 @@ test.each(["pid", "start", "uid", "group", "missing", "unreadable"] as const)(
       else if (kind === "group") processes.set(20, { ...current, group: 21 });
       else if (kind === "missing") processes.delete(20);
       else unreadable = true;
-      expect(() => inventory.recover()).toThrow();
+      // Not the run's provably: left running and on record, and startup goes on unverified.
+      expect(inventory.recover()).toEqual({ killed: 0, removed: 0, unresolved: 1 });
       expect(killed).toEqual([]);
       expect(inventory.list()).toHaveLength(1);
     } finally {
@@ -67,11 +68,74 @@ test("recovery keeps a live owner and kills only a verified orphan identity", ()
   });
   try {
     inventory.add(20, { name: "synthetic" });
-    expect(inventory.recover()).toEqual({ killed: 0, removed: 0 });
+    expect(inventory.recover()).toEqual({ killed: 0, removed: 0, unresolved: 0 });
     expect(killed).toEqual([]);
     processes.delete(10);
-    expect(inventory.recover()).toEqual({ killed: 1, removed: 0 });
+    expect(inventory.recover()).toEqual({ killed: 1, removed: 0, unresolved: 0 });
     expect(killed).toEqual([20]);
+  } finally {
+    inventory.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a group the kernel refuses to probe while it exits is kept for later instead of failing recovery", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-inventory-eperm-"));
+  const processes = new Map<number, ProcessIdentity>([
+    [10, { pid: 10, start: "owner-start", uid: 1000, group: 10 }],
+    [20, { pid: 20, start: "exiting", uid: 1000, group: 20 }],
+    [30, { pid: 30, start: "orphan", uid: 1000, group: 30 }],
+  ]);
+  const killed: number[] = [];
+  let exiting = true;
+  const inventory = new ProcessInventory(join(home, "processes.sqlite"), {
+    identity: (pid) => processes.get(pid),
+    alive(group) {
+      if (group === 20 && exiting)
+        throw Object.assign(new Error("kill EPERM"), { code: "EPERM", errno: -1 });
+      return group !== 20;
+    },
+    kill: (group) => {
+      killed.push(group);
+    },
+    ownerPid: 10,
+    now: () => 1,
+  });
+  try {
+    inventory.add(20, { name: "synthetic" });
+    inventory.add(30, { name: "synthetic" });
+    processes.delete(10);
+    expect(inventory.recover()).toEqual({ killed: 1, removed: 0, unresolved: 1 });
+    expect(killed).toEqual([30]);
+    expect(inventory.list().map((entry) => entry.pid)).toContain(20);
+    exiting = false;
+    expect(inventory.recover()).toMatchObject({ removed: 1, unresolved: 0 });
+    expect(inventory.list().map((entry) => entry.pid)).not.toContain(20);
+  } finally {
+    inventory.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a probe failure other than a permission refusal still stops recovery", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-inventory-probe-"));
+  const processes = new Map<number, ProcessIdentity>([
+    [10, { pid: 10, start: "owner-start", uid: 1000, group: 10 }],
+    [20, { pid: 20, start: "child", uid: 1000, group: 20 }],
+  ]);
+  const inventory = new ProcessInventory(join(home, "processes.sqlite"), {
+    identity: (pid) => processes.get(pid),
+    alive() {
+      throw Object.assign(new Error("kill EINVAL"), { code: "EINVAL" });
+    },
+    kill: () => {},
+    ownerPid: 10,
+    now: () => 1,
+  });
+  try {
+    inventory.add(20, { name: "synthetic" });
+    processes.delete(10);
+    expect(() => inventory.recover()).toThrow("EINVAL");
   } finally {
     inventory.close();
     rmSync(home, { recursive: true, force: true });

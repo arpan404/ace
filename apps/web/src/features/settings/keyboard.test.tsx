@@ -60,7 +60,6 @@ test("rebindings survive leaving Settings › Keyboard, and Reset all restores e
   await userEvent.click(agents);
   press(agents, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
-  // Spade's section has a General page of its own; this is the device's.
   const general = within(nav)
     .getAllByRole("link", { name: "General" })
     .find((link) => link.getAttribute("href") === "/settings/general");

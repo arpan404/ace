@@ -12,7 +12,8 @@ import { boundedJson } from "@ace/provider-kit/ipc";
 import type { AceMcpConnection } from "@ace/mcp-server";
 import { CursorHost, type HostOptions } from "./host.ts";
 import { cursorCapabilitiesForSandbox } from "./policy.ts";
-import { Limits, type CursorLimits } from "./contracts.ts";
+import { Limits, type CursorEnvelope, type CursorLimits } from "./contracts.ts";
+import { unbatch } from "./frame-batch.ts";
 
 export interface CursorSessionOptions extends HostOptions {
   instanceId: string;
@@ -86,48 +87,58 @@ export async function openCursorSession(
       ...(context.outputFlow ? { outputFlow: context.outputFlow } : {}),
       ...(options.mcp ? { secrets: { ACE_MCP_BEARER: options.mcp.bearer } } : {}),
     },
-    async (data, payload) => {
-      if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
-      if (data.kind === "open") {
-        const support = SandboxSupport.safeParse(data.body);
-        context.onCapabilities?.(
-          cursorCapabilitiesForSandbox(support.success && support.data.sandboxSupported),
-        );
-      }
-      if (data.kind === "open" && data.agentId)
-        context.onSessionIdentity?.({
-          backend: "cursor-sdk",
-          instanceId: options.instanceId,
-          nativeSessionId: data.agentId,
-        });
-      if (
-        (data.kind === "result" || data.kind === "error") &&
-        data.operationId === operation &&
-        data.segment === segment
-      ) {
-        const result = ResultStatus.safeParse(data.body);
-        if (
-          (data.kind === "error" && SettledError.safeParse(data.body).success) ||
-          (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
-        ) {
-          active = false;
-          terminal = true;
-          uncertain = false;
-        } else uncertain = true;
-      }
-      await context.onFrame({
-        seq: ++seq,
-        t: now() - started,
-        dir: data.kind === "send" ? "send" : "recv",
-        channel: "sdk",
-        data: payload.data,
-        payload,
-      });
+    async (outer, outerPayload) => {
+      // A batch is one acknowledgement for several frames; each is still its own record.
+      const frames =
+        outer.kind === "batch"
+          ? unbatch(outer).map((data) => ({
+              data,
+              payload: new ProviderPayload(boundedJson(data)),
+            }))
+          : [{ data: outer, payload: outerPayload }];
+      await Promise.all(frames.map(({ data, payload }) => receive(data, payload)));
     },
     undefined,
     // Stray host stdout is diagnostics: kept as raw data, which the translator does not show.
     (text) => frame("note", "host-output", { text }, operation, segment),
   );
+  async function receive(data: CursorEnvelope, payload: ProviderPayload): Promise<void> {
+    if (data.kind === "open") {
+      const support = SandboxSupport.safeParse(data.body);
+      context.onCapabilities?.(
+        cursorCapabilitiesForSandbox(support.success && support.data.sandboxSupported),
+      );
+    }
+    if (data.kind === "open" && data.agentId)
+      context.onSessionIdentity?.({
+        backend: "cursor-sdk",
+        instanceId: options.instanceId,
+        nativeSessionId: data.agentId,
+      });
+    if (
+      (data.kind === "result" || data.kind === "error") &&
+      data.operationId === operation &&
+      data.segment === segment
+    ) {
+      const result = ResultStatus.safeParse(data.body);
+      if (
+        (data.kind === "error" && SettledError.safeParse(data.body).success) ||
+        (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
+      ) {
+        active = false;
+        terminal = true;
+        uncertain = false;
+      } else uncertain = true;
+    }
+    await context.onFrame({
+      seq: ++seq,
+      t: now() - started,
+      dir: data.kind === "send" ? "send" : "recv",
+      channel: "sdk",
+      data: payload.data,
+      payload,
+    });
+  }
   let deliberate = false;
   let exited = false;
   let operation = "open";
@@ -186,12 +197,13 @@ export async function openCursorSession(
         cwd: context.cwd,
         threadId: context.threadId,
         generation: host.generation,
+        ...(context.storeGeneration ? { checkpointGeneration: context.storeGeneration } : {}),
         ...(context.model ? { model: context.model } : {}),
         modelParams: readCursorModelParams(context.options),
         ...(context.resume
           ? {
               nativeSessionId: context.resume.nativeSessionId,
-              afterFrameOffset: context.resume.afterFrameOffset ?? 0,
+              ...(context.resume.unsettled ? { recover: context.resume.unsettled } : {}),
             }
           : {}),
         ...(context.permissionMode ? { permissionMode: context.permissionMode } : {}),

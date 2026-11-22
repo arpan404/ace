@@ -6,6 +6,7 @@ pub mod app_page;
 pub mod autonomy;
 pub mod brain;
 pub mod card;
+pub mod chat_markup;
 pub mod checkpoint;
 pub mod compaction;
 pub mod context;

@@ -275,8 +275,10 @@ export function spadePickCount(
   question: Extract<SpadeQuestion, { kind: "choices" }>,
   draft: SpadeDraft,
 ): string {
-  const picks = draft.kind === "picks" ? draft.picked.length + (draft.other.trim() ? 1 : 0) : 0;
-  const most = question.max ?? question.options.length + (question.other ? 1 : 0);
+  const own = draft.kind === "picks" && draft.other.trim() !== "";
+  const picks = draft.kind === "picks" ? draft.picked.length + (own ? 1 : 0) : 0;
+  // Own words count as one more pick, whether or not the bot offered them.
+  const most = question.max ?? question.options.length + (question.other || own ? 1 : 0);
   return `${picks} of ${most}`;
 }
 
@@ -298,14 +300,15 @@ export function spadeDraftAnswer(
     }
     case "choice": {
       if (draft.kind !== "picks") return { missing: "Pick one" };
-      const own = question.other ? draft.other.trim() : "";
+      // The card always offers "Something else…": own words are an answer to any choice.
+      const own = draft.other.trim();
       const picked = draft.picked[0];
       if (own) return { answer: own };
       return picked ? { answer: picked } : { missing: "Pick one" };
     }
     case "choices": {
       if (draft.kind !== "picks") return { missing: `Pick at least ${question.min}` };
-      const own = question.other ? draft.other.trim() : "";
+      const own = draft.other.trim();
       // In option order, as Spade stores them; own words last.
       const labels = question.options
         .map((each) => each.label)

@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polygon } from "../geometry.ts";
-import { detail, shape } from "../parts.ts";
+import { detail, shape, type Part } from "../parts.ts";
 
 /** An experiment: a lab flask, part full. */
-export const FlaskIcon = /* @__PURE__ */ glyph("Flask", () => [
+export const flask = (): Part[] => [
   shape(
     polygon([
       [9.5, 3.25, 0.6],
@@ -17,4 +17,6 @@ export const FlaskIcon = /* @__PURE__ */ glyph("Flask", () => [
     ]),
   ),
   detail("M6.6 14.5h10.8"),
-]);
+];
+
+export const FlaskIcon = /* @__PURE__ */ glyph("Flask", flask);

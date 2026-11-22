@@ -40,7 +40,13 @@ export function useWorkLog(
   const waited = useWaited(threadId, from, to);
   if (!loaded && !turn && options.outcome === undefined) return undefined;
   return {
-    label: turnHeadLabel(options.outcome, options.restarted === true, to - from - waited - idle),
+    // A failed turn's own row below says it failed, with why and Retry: one status per turn, so
+    // the head only says how long it worked.
+    label: turnHeadLabel(
+      options.outcome === "failed" ? "completed" : options.outcome,
+      options.restarted === true,
+      to - from - waited - idle,
+    ),
     endedAt: to || undefined,
   };
 }

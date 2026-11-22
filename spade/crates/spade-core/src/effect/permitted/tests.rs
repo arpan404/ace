@@ -51,6 +51,7 @@ fn call(tool: &str, effect: Option<Effect>, permits: Held) -> Call<'_> {
         org: None,
         permits,
         connected: false,
+        guessed: false,
     }
 }
 
@@ -478,6 +479,7 @@ fn sends_payments_and_connected_apps_are_refused_while_their_switch_is_off() {
             Call {
                 remote: true,
                 connected: true,
+                guessed: false,
                 ..call("crm__update", Some(Effect::Network), ALL_ON)
             },
             Switch::Apps,

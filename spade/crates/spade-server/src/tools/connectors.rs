@@ -146,34 +146,94 @@ impl ConnectorCall {
     }
 }
 
+impl ConnectorCall {
+    /// What Spade reads it as doing with `arguments`, from its server's word, its own name and
+    /// description, what the arguments reach, and whether its definition changed since pinned.
+    fn reading(&self, arguments: &Value, changed: bool) -> spade_core::effect::AppReading {
+        use spade_core::effect::{app_tool, named, shape};
+        let tool = &self.tool.tool;
+        app_tool(
+            self.facts(),
+            named(&tool.name, &tool.description),
+            shape(&tool.name, &tool.input_schema, arguments),
+            changed,
+        )
+    }
+}
+
 impl Tool for ConnectorCall {
     fn def(&self) -> ToolDef {
         self.def.clone()
     }
 
-    /// What its catalogue entry declares, raised by its annotations (ADR 0171): with no entry
-    /// for it, a connector's tool, which holds the person's sign-in, declares nothing.
-    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
-        spade_core::effect::mcp(self.facts())
+    /// What its catalogue entry declares, raised by its annotations (ADR 0171); with no entry
+    /// for it, what its own name says, where it says a read or something only the person decides
+    /// (ADR 0202, amendment 5). Otherwise a connector's tool, which holds the person's sign-in,
+    /// declares nothing.
+    fn effect(&self, arguments: &Value) -> Option<spade_core::effect::Effect> {
+        self.reading(arguments, false).effect
     }
 
+    /// Its server's hints, with a delete its name makes marked destructive: the person decides
+    /// each call of it, whatever the server says.
     fn hints(&self) -> Option<spade_core::effect::Mcp> {
-        Some(self.facts())
+        let facts = self.facts();
+        Some(spade_core::effect::Mcp {
+            destructive: facts.destructive
+                || (facts.declared.is_none() && self.reading(&Value::Null, false).destructive),
+            ..facts
+        })
     }
 
     fn connected_app(&self) -> bool {
         true
     }
 
+    fn app(&self) -> Option<(String, String)> {
+        Some((
+            self.tool.connector.clone(),
+            self.tool.connector_name.clone(),
+        ))
+    }
+
+    fn app_reading(
+        &self,
+        arguments: &Value,
+        changed: bool,
+    ) -> Option<spade_core::effect::AppReading> {
+        Some(self.reading(arguments, changed))
+    }
+
+    fn definition(&self) -> Option<String> {
+        Some(spade_connect::definition(&self.tool.tool))
+    }
+
+    fn app_session(&self) -> Option<u64> {
+        Some(self.hub.generation(&self.tool.connector))
+    }
+
     /// The connection, its server's address, the server's own tool name and its schema.
+    /// The connection, its server's address, the server's own tool name and its whole
+    /// definition (name, description, input schema): an answer kept for it holds only while
+    /// the tool says the same about itself.
     fn identity(&self) -> String {
         format!(
+            "connector:{}@{}:{}#def:{}",
+            self.tool.connector,
+            self.tool.server,
+            self.tool.tool.name,
+            spade_connect::definition(&self.tool.tool)
+        )
+    }
+
+    fn legacy_identity(&self) -> Option<String> {
+        Some(format!(
             "connector:{}@{}:{}#{}",
             self.tool.connector,
             self.tool.server,
             self.tool.tool.name,
             super::schema_hash(&self.tool.tool.input_schema)
-        )
+        ))
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
@@ -191,10 +251,21 @@ impl Tool for ConnectorCall {
         let key = key.to_owned();
         let tool = self.tool.tool.clone();
         Box::pin(async move {
-            let answer = hub
-                .call_asking(&connector, &name, arguments.clone(), asker)
-                .await;
             let engine = forms.as_ref().and_then(EngineHandle::get);
+            // Sent only as the gate approved it: that definition, on that session, checked right
+            // before each send (ADR 0202, amendment 5). A call with no approval bound to it is
+            // never sent.
+            let Some(expect) = engine
+                .as_ref()
+                .and_then(|engine| engine.take_app_binding(&key))
+            else {
+                return output(CallError::NotRun(format!(
+                    "{app} has no approved definition of this tool for this call"
+                )));
+            };
+            let answer = hub
+                .call_expecting(&connector, &name, arguments.clone(), asker, &expect)
+                .await;
             let secret = engine
                 .as_ref()
                 .is_some_and(|engine| engine.asked_for_secret(&key));

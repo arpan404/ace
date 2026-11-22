@@ -33,7 +33,7 @@ test("search narrows the marketplace to what matches, and Esc clears it first", 
     within(market).getByRole<HTMLInputElement>("searchbox", { name: "Search bots, apps and more" })
       .value,
   ).toBe("");
-  expect(screen.getByRole("region", { name: "Store" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Marketplace" })).toBeTruthy();
 });
 
 test("Try it dresses the whole app in the Suit, and Undo puts the person's look back", async () => {
@@ -150,6 +150,9 @@ test("an update waits in Updates until its own review is installed", async () =>
   const market = await findMarket();
   const updates = within(await within(market).findByRole("list", { name: "Updates" }));
   expect(updates.getByText("1.0.0 → 1.1.0")).toBeTruthy();
+  // The page is titled Installed, the count a quiet line, and an empty Installed list isn't drawn.
+  expect(within(market).getByText("1 update")).toBeTruthy();
+  expect(within(market).queryByRole("list", { name: "Installed" })).toBeNull();
   // Nothing applied on its own.
   expect(await installed(app.daemon)).toMatchObject({
     result: { installed: [{ name: "triage-mail", version: "1.0.0" }] },

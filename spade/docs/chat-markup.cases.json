@@ -1,0 +1,500 @@
+{
+  "about": "ADR 0212: how a bot's text splits into chat messages. Both parsers run this table: spade_core::chat_markup (Rust) and @ace/ui-core/spade-chat chat-markup.ts. `live` cases parse text still streaming. A segment's `reply`, `title` and `open` are absent when unset (open: false).",
+  "cases": [
+    {
+      "name": "text with no tags is one message, as before",
+      "text": "Found 3 flights under €100.\n\nThe cheapest leaves at 9:10.",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Found 3 flights under €100.\n\nThe cheapest leaves at 9:10."
+        }
+      ]
+    },
+    {
+      "name": "several messages are several bubbles, in order",
+      "text": "<msg>Found 3 flights under €100.</msg>\n<msg>The cheapest leaves Tuesday at 9:10.</msg>\n<msg>Want me to hold it?</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Found 3 flights under €100."
+        },
+        {
+          "kind": "msg",
+          "text": "The cheapest leaves Tuesday at 9:10."
+        },
+        {
+          "kind": "msg",
+          "text": "Want me to hold it?"
+        }
+      ]
+    },
+    {
+      "name": "a reply id is kept",
+      "text": "<msg reply=\"m7\">Yes, Tuesday works.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Yes, Tuesday works.",
+          "reply": "m7"
+        }
+      ]
+    },
+    {
+      "name": "a reply id to a later message of a step is kept",
+      "text": "<msg reply='m12.3'>That one.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "That one.",
+          "reply": "m12.3"
+        }
+      ]
+    },
+    {
+      "name": "a reply that is not an id is dropped",
+      "text": "<msg reply=\"the flights one\">Yes.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Yes."
+        }
+      ]
+    },
+    {
+      "name": "unquoted attributes and unknown attributes are read leniently",
+      "text": "<msg id=\"m40\" reply=m3 tone=\"warm\">Sure.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Sure.",
+          "reply": "m3"
+        }
+      ]
+    },
+    {
+      "name": "a document keeps its title and its text",
+      "text": "<msg>Here's the plan.</msg>\n<doc title=\"Lisbon trip plan\">\n# Day 1\n\n- Alfama\n- Belém\n</doc>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Here's the plan."
+        },
+        {
+          "kind": "doc",
+          "text": "# Day 1\n\n- Alfama\n- Belém",
+          "title": "Lisbon trip plan"
+        }
+      ]
+    },
+    {
+      "name": "a document with no title has none",
+      "text": "<doc>Long words.</doc>",
+      "segments": [
+        {
+          "kind": "doc",
+          "text": "Long words."
+        }
+      ]
+    },
+    {
+      "name": "text outside the tags becomes its own message",
+      "text": "On it.\n<msg>Found two.</msg>\nAnd one more thing.",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "On it."
+        },
+        {
+          "kind": "msg",
+          "text": "Found two."
+        },
+        {
+          "kind": "msg",
+          "text": "And one more thing."
+        }
+      ]
+    },
+    {
+      "name": "empty messages are nothing",
+      "text": "<msg></msg><msg>  \n </msg><msg>Hi.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Hi."
+        }
+      ]
+    },
+    {
+      "name": "an unclosed message closes at the end",
+      "text": "<msg>First.</msg><msg>Second, never closed",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "First."
+        },
+        {
+          "kind": "msg",
+          "text": "Second, never closed"
+        }
+      ]
+    },
+    {
+      "name": "an unclosed document closes at the end",
+      "text": "<doc title=\"Notes\">Line one\nLine two",
+      "segments": [
+        {
+          "kind": "doc",
+          "text": "Line one\nLine two",
+          "title": "Notes"
+        }
+      ]
+    },
+    {
+      "name": "nesting falls back to plain text with the tags removed",
+      "text": "<msg>Outer <msg>inner</msg> rest</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Outer\n\ninner\n\nrest"
+        }
+      ]
+    },
+    {
+      "name": "a message opened inside a document falls back to plain text",
+      "text": "<doc title=\"Plan\">Step one <msg>oops</msg></doc>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Step one\n\noops"
+        }
+      ]
+    },
+    {
+      "name": "a stray closing tag falls back to plain text",
+      "text": "Done.</msg><msg>Next.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Done.\n\nNext."
+        }
+      ]
+    },
+    {
+      "name": "a mismatched closing tag falls back to plain text",
+      "text": "<msg>Hi.</doc>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Hi."
+        }
+      ]
+    },
+    {
+      "name": "other tags are words",
+      "text": "<msg>Use <b>bold</b> or a <message> word.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Use <b>bold</b> or a <message> word."
+        }
+      ]
+    },
+    {
+      "name": "a tag broken across lines is words",
+      "text": "<msg\nreply=\"m1\">Hi.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "<msg\nreply=\"m1\">Hi."
+        }
+      ]
+    },
+    {
+      "name": "tags inside a fenced code block stay literal",
+      "text": "<msg>Wrap each one like this:\n```\n<msg>Hello</msg>\n```\n</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Wrap each one like this:\n```\n<msg>Hello</msg>\n```"
+        }
+      ]
+    },
+    {
+      "name": "a fence with a language and tildes stays literal",
+      "text": "~~~xml\n<doc title=\"x\">\n~~~\n<msg>After.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "~~~xml\n<doc title=\"x\">\n~~~"
+        },
+        {
+          "kind": "msg",
+          "text": "After."
+        }
+      ]
+    },
+    {
+      "name": "a fence opening right after a tag stays literal",
+      "text": "<msg>```\n</msg>\n```</msg><msg>Two.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "```\n</msg>\n```"
+        },
+        {
+          "kind": "msg",
+          "text": "Two."
+        }
+      ]
+    },
+    {
+      "name": "an unclosed fence keeps the rest literal",
+      "text": "<msg>Code:\n```\n</msg><msg>still code",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Code:\n```\n</msg><msg>still code"
+        }
+      ]
+    },
+    {
+      "name": "tags inside inline code stay literal",
+      "text": "<msg>Write `<msg>` around each one.</msg><msg>Then ``</msg>`` closes it.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Write `<msg>` around each one."
+        },
+        {
+          "kind": "msg",
+          "text": "Then ``</msg>`` closes it."
+        }
+      ]
+    },
+    {
+      "name": "a backtick with no partner on its line is a backtick",
+      "text": "<msg>It's 5` long</msg>\n<msg>Next `one</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "It's 5` long"
+        },
+        {
+          "kind": "msg",
+          "text": "Next `one"
+        }
+      ]
+    },
+    {
+      "name": "messages past twelve join the twelfth",
+      "text": "<msg>1</msg><msg>2</msg><msg>3</msg><msg>4</msg><msg>5</msg><msg>6</msg><msg>7</msg><msg>8</msg><msg>9</msg><msg>10</msg><msg>11</msg><msg>12</msg><msg>13</msg><msg>14</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "1"
+        },
+        {
+          "kind": "msg",
+          "text": "2"
+        },
+        {
+          "kind": "msg",
+          "text": "3"
+        },
+        {
+          "kind": "msg",
+          "text": "4"
+        },
+        {
+          "kind": "msg",
+          "text": "5"
+        },
+        {
+          "kind": "msg",
+          "text": "6"
+        },
+        {
+          "kind": "msg",
+          "text": "7"
+        },
+        {
+          "kind": "msg",
+          "text": "8"
+        },
+        {
+          "kind": "msg",
+          "text": "9"
+        },
+        {
+          "kind": "msg",
+          "text": "10"
+        },
+        {
+          "kind": "msg",
+          "text": "11"
+        },
+        {
+          "kind": "msg",
+          "text": "12\n\n13\n\n14"
+        }
+      ]
+    },
+    {
+      "name": "documents past three join the third under their title",
+      "text": "<doc title=\"A\">a</doc><doc title=\"B\">b</doc><doc title=\"C\">c</doc><doc title=\"D\">d</doc><doc>e</doc>",
+      "segments": [
+        {
+          "kind": "doc",
+          "text": "a",
+          "title": "A"
+        },
+        {
+          "kind": "doc",
+          "text": "b",
+          "title": "B"
+        },
+        {
+          "kind": "doc",
+          "text": "c\n\n## D\n\nd\n\ne",
+          "title": "C"
+        }
+      ]
+    },
+    {
+      "name": "a long title is cut to 120 characters",
+      "text": "<doc title=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">x</doc>",
+      "segments": [
+        {
+          "kind": "doc",
+          "text": "x",
+          "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "name": "live: a message still arriving is open",
+      "live": true,
+      "text": "<msg>Found 3 flights.</msg>\n<msg>The cheapest",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Found 3 flights."
+        },
+        {
+          "kind": "msg",
+          "text": "The cheapest",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "live: a closing tag cut short is held back",
+      "live": true,
+      "text": "<msg>Found 3 flights.</ms",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Found 3 flights.",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "live: an opening tag cut short is held back",
+      "live": true,
+      "text": "<msg>Found 3 flights.</msg>\n<msg reply=\"m",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Found 3 flights."
+        }
+      ]
+    },
+    {
+      "name": "live: a lone angle bracket at the end is held back",
+      "live": true,
+      "text": "<msg>Found 3 flights.<",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Found 3 flights.",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "live: a document title still arriving shows nothing yet",
+      "live": true,
+      "text": "<msg>Here's the plan.</msg><doc title=\"Lisb",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Here's the plan."
+        }
+      ]
+    },
+    {
+      "name": "live: plain words streaming are one open message",
+      "live": true,
+      "text": "Looking at the",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Looking at the",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "live: an angle bracket after words is held back",
+      "live": true,
+      "text": "<msg>3 <",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "3",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "live: words after a lone angle bracket show",
+      "live": true,
+      "text": "<msg>3 < 4 and",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "3 < 4 and",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "live: inside an open fence nothing is held back",
+      "live": true,
+      "text": "<msg>```\n</ms",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "```\n</ms",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "a cut tag at the end of finished text is words",
+      "text": "<msg>Done.</msg>\n<ms",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Done."
+        },
+        {
+          "kind": "msg",
+          "text": "<ms"
+        }
+      ]
+    }
+  ]
+}

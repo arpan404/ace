@@ -269,7 +269,7 @@ async fn a_bot_on_a_subscription_answers_through_ace_with_its_task_and_no_spend(
     assert_eq!(sent[0]["provider"], "codex");
     assert_eq!(sent[0]["account"], "work");
     assert_eq!(sent[0]["model"], "gpt-6.1-sol");
-    assert_eq!(sent[0]["message"], "Hi");
+    assert_eq!(sent[0]["message"], "[m2] Hi");
     let instructions = sent[0]["instructions"].as_str().unwrap_or_default();
     assert!(
         instructions.contains("Keep my notes tidy"),
@@ -401,7 +401,7 @@ async fn after_a_restart_the_bot_carries_on_in_the_same_session_with_only_the_ne
     let sent = requests(&daemon);
     assert_eq!(sent.len(), 2);
     assert_eq!(sent[1]["bot"], bot, "the same bot's session");
-    assert_eq!(sent[1]["message"], "Two");
+    assert_eq!(sent[1]["message"], "[m8] Two");
     assert_eq!(sent[1]["instructionsChanged"], false);
     Ok(())
 }

@@ -1,4 +1,5 @@
 import { FakeSpadeTasks } from "./spade-self-edit.ts";
+import { fakeSpadeQuoted } from "./spade-quoted.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
@@ -220,6 +221,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       addAgent: (fields) => this.addAgent(fields),
       openConversation: (id) => void this.events.set(id, this.events.get(id) ?? []),
       store: (conversation, event) => this.store(conversation, event),
+      quoted: (conversation, id) => fakeSpadeQuoted(this.events.get(conversation) ?? [], id),
       emitStatus: (conversation, state, status, waiting) =>
         this.spade.emit(
           `/v1/conversations/${conversation}/live`,
@@ -296,15 +298,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...fields,
       id,
     };
+    // An id is one bot: seeding it again replaces it (and its conversation), never doubles it.
+    const same = this.agents.findIndex((each) => each.id === id);
+    if (same >= 0) this.agents.splice(same, 1);
     this.agents.push(agent);
     this.events.set(agent.conversation, []);
     return agent;
   }
 
-  /** Stores an event in a conversation and sends it to its live streams. */
-  store(conversation: string, event: Json): void {
-    const stored = this.keep(conversation, event);
+  /** Stores an event in a conversation (at `at`, else now) and sends it to its live streams. */
+  store(conversation: string, event: Json, at?: number): void {
+    const stored = this.keep(conversation, event, at);
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** The events a conversation stored, oldest first, as Spade's events route returns them. */
+  eventsOf(conversation: string): Json[] {
+    return (this.events.get(conversation) ?? []).map((stored) => stored.event);
   }
 
   /** Words of an open reply as they stream: sent live, never stored. */
@@ -313,9 +323,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 
   /** Stores an event without sending it live, as a stream that fell behind would miss it. */
-  private keep(conversation: string, event: Json): Json {
+  private keep(conversation: string, event: Json, at: number = this.now()): Json {
     const list = this.events.get(conversation) ?? [];
-    const stored = { seq: list.length + 1, at: this.now(), event };
+    const stored = { seq: list.length + 1, at, event };
     list.push(stored);
     this.events.set(conversation, list);
     return stored;
@@ -375,7 +385,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     callId: string,
     name: string,
     args: unknown,
-    ask: "undeclared" | "outside_sandbox" | "drive",
+    ask: "undeclared" | "outside_sandbox" | "drive" | "app",
     app?: string,
   ): void {
     this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask, app });
@@ -885,7 +895,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const media = mediaOf(body);
     for (const image of (media.images ?? []) as Json[])
       this.images.set(String(image.sha256), String(image.media_type));
-    this.store(conversation, { type: "user_message", text: body.text ?? "", ...media });
+    // As Spade: a reply stores what it quoted; an id it can't find quotes nothing (ADR 0212).
+    const quoted = fakeSpadeQuoted(this.events.get(conversation) ?? [], body.reply_to);
+    this.store(conversation, {
+      type: "user_message",
+      text: body.text ?? "",
+      ...media,
+      ...(quoted ? { reply_to: quoted } : {}),
+    });
     if (agent)
       agent.last_message = {
         from: "person",

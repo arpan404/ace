@@ -22,6 +22,7 @@ import type {
 
 export { rampSteps } from "./types.ts";
 export { rowStatusColours, sharedStatus, type RowStatusColour } from "./status.ts";
+export { fileToneColours, type FileToneColour } from "./file-tones.ts";
 export type {
   Accent,
   Base,

@@ -1,4 +1,4 @@
-import { PlusIcon } from "@ace/icons";
+import { PlusIcon, UserIcon, UsersThreeIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuItem,
@@ -28,11 +28,16 @@ export function SpaceMenuItems() {
           value={shown?.id ?? personalSpace}
           onValueChange={(value: string) => choose(value)}
         >
-          <MenuRadioItem value={personalSpace} closeOnClick>
+          <MenuRadioItem value={personalSpace} closeOnClick icon={<UserIcon aria-hidden />}>
             Personal
           </MenuRadioItem>
           {spaces.map((space) => (
-            <MenuRadioItem key={space.id} value={space.id} closeOnClick>
+            <MenuRadioItem
+              key={space.id}
+              value={space.id}
+              closeOnClick
+              icon={<UsersThreeIcon aria-hidden />}
+            >
               <span className="flex min-w-0 items-baseline gap-1.5">
                 <span className="truncate">{space.name || "Unnamed organization"}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">

@@ -1,6 +1,6 @@
 import { ProjectMark } from "@/components/project-mark.tsx";
 import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@ace/icons";
-import { projectBadge, projectTint } from "@ace/ui-core";
+import { distinctInitials, projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -73,6 +73,11 @@ export function ProjectFilter() {
       }),
     [groups, device, own, counts, project, name, directory.isChat],
   );
+  // Two projects never share a mark here: a later one takes its next distinct pair.
+  const initials = useMemo(() => {
+    const pairs = distinctInitials(rows.map((row) => row.label));
+    return new Map(rows.map((row, at) => [row.value, pairs[at] ?? ""]));
+  }, [rows]);
   const chosenRow = project === null ? undefined : rows.find((row) => row.value === project);
   const projectName = project === null ? null : (chosenRow?.label ?? name(project));
   const mark = chosenRow?.actsOn ?? project;
@@ -96,7 +101,12 @@ export function ProjectFilter() {
               {mark !== null && (
                 <ProjectMark
                   id={mark}
-                  badge={projectBadge({ id: mark, name: projectName ?? mark })}
+                  badge={{
+                    ...projectBadge({ id: mark, name: projectName ?? mark }),
+                    ...(project !== null && initials.get(project)
+                      ? { initials: initials.get(project) ?? "" }
+                      : {}),
+                  }}
                 />
               )}
               {project !== null && <span className="min-w-0 truncate">{projectName}</span>}
@@ -127,6 +137,7 @@ export function ProjectFilter() {
                 value={row.value}
                 label={row.label}
                 count={row.threads}
+                initials={initials.get(row.value)}
                 actsOn={row.actsOn}
               />
             ))}
@@ -144,6 +155,8 @@ function ProjectItem(props: {
   value: string;
   label: string;
   count: number;
+  /** The mark's letters, distinct among the listed projects. */
+  initials?: string | undefined;
   /** This machine's checkout its actions act on; without one it has none. */
   actsOn?: string | undefined;
 }) {
@@ -160,7 +173,13 @@ function ProjectItem(props: {
           {props.value === all ? (
             <Icon icon={FolderSimpleIcon} />
           ) : (
-            <ProjectMark id={markId} badge={projectBadge({ id: markId, name: props.label })} />
+            <ProjectMark
+              id={markId}
+              badge={{
+                ...projectBadge({ id: markId, name: props.label }),
+                ...(props.initials ? { initials: props.initials } : {}),
+              }}
+            />
           )}
         </span>
         {props.label}
@@ -171,7 +190,14 @@ function ProjectItem(props: {
       </span>
     </MenuRadioItem>
   );
-  if (!props.actsOn) return item;
+  // Every row keeps the ⋯ slot, so the counts stay in one column.
+  if (!props.actsOn)
+    return (
+      <div className="flex items-center">
+        {item}
+        <span aria-hidden className="w-8 shrink-0" />
+      </div>
+    );
   const actions = <ManageProjectItems projectId={props.actsOn} name={props.label} />;
   return (
     <div className="group/project flex items-center">

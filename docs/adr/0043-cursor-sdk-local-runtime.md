@@ -279,3 +279,92 @@ does the continuation and when.
 - An ACP agent needs the registered identity a thread is created with. The model
   picker marks ACP models unavailable in existing threads of other providers
   before anything is sent.
+
+## Amendment: the daemon is ace's only Cursor record
+
+Accepted 2026-11-22 by the owner, after a four-message thread wrote a 4.5 MB boundary journal
+(`ace-boundary.ndjson`: deltas 1.5 MB, re-read run events 1.3 MB, run-stream copies 1.2 MB) and
+every streamed update cost six or seven JSON passes, three schema parses, an fsync, an `lstat`
+per SDK store write, an IPC round trip with a serial ack and a SQLite commit, plus a full
+checkpoint directory walk before every send and a full journal read on every open.
+
+### Decision
+
+1. **No ace journal.** The host writes nothing of its own to the checkpoint folder. The frames
+   and facts the daemon commits (`engine_provider_frames`, the event log) are ace's only record
+   of a Cursor turn. `afterFrameOffset`, `boundaryOffset`, `replayed` and the daemon's
+   boundary cursor (`engine_provider_cursors`) go away; frames are ordered by the daemon's own
+   frame sequence.
+2. **One channel per update.** `onDelta` is the only content channel. The `run.stream()` copy
+   of each update is drained, never framed. The host watches the SDK's own run-event writes
+   (the store it hands the SDK) and stamps each content frame with the sequence of the last
+   stored event (`eventSeq`) and the identity of the event its update becomes (`nextEvent`,
+   `event-identity.ts`): SDK 1.0.35 calls onDelta, then stores the mapped event. Recovery skips
+   exactly the events ace's frames cover. Run events are no longer re-emitted on open.
+3. **Crash recovery reads the SDK store.** The journal existed to keep a turn's tail across a
+   daemon crash. The host cannot outlive the daemon by more than `graceMs` (5 s): it is
+   spawned in its own process group and kills it on stdin EOF. Within that window the SDK
+   keeps writing its own record: a run event per update and the run's status and `result` at
+   the end. On open the daemon passes the runs its open turn started but never saw end, each
+   with its last committed `streamSeq`. The host reads only those runs (and the agent's
+   `activeRunId`), never the thread's run history:
+   - a run that **finished** ends the turn as finished; its `result` text is the final answer;
+   - a run still **queued or running** is cancelled as before;
+   - in both cases the stored events past that seam are turned back into the updates they
+     came from and translated as live ones (text, thinking, tool calls with results, a shell's
+     output from its completed result), continuing the turn's own items; a notice says they
+     were **recovered**. SDK 1.0.35 stores no subagent steps and only shortened copies of some
+     tool input or output (`truncated`); when a recovered tail meets either, one plain notice
+     names that gap;
+   - a store that cannot be read is the existing fresh-session handoff (ADR 0211).
+4. **A send is acknowledged only after the SDK admitted it.** The host frames `send` (the
+   attempt) before calling `Agent.send`, but a turn starts, and the queued input is
+   acknowledged and pruned, only on Cursor's first sign of having the input: the `segment`
+   frame that carries the native run id, or an update for it the SDK streams before that.
+   Meanwhile the thread shows working (an expected wake), without a run that would take the
+   input. After a
+   restart a submitted input whose attempt frame never reached the daemon was never given to
+   Cursor, so it is delivered again. One whose attempt was committed but has no admission
+   evidence is looked up in the SDK store at the next open (a run created after the attempt);
+   found, it is that turn's run, recovered as above; not found, it is sent again only once a
+   bounded, non-blocking check shows the previous run's process groups gone (a dying host may
+   still have been creating the run). Unproven, the input stays queued as uncertain for the
+   person, never sent twice. Holding other providers' threads while a previous run's processes
+   may survive is a separate question, tracked in its own issue, not part of this decision. The local SDK does not honour `idempotencyKey`
+   (1.0.35 gives every local run a random request id), so ace cannot rely on it to dedupe.
+   A waiting handoff context is cleared in the transaction that commits that admission, not
+   after `send` returns, so a crash in between never prepends it to a later prompt. A
+   fresh-session handoff leaves the pending input out of the history it quotes.
+5. **Batched streaming.** The host coalesces consecutive `delta` and `shell-output` frames of
+   one turn for up to 32 ms or 64 KiB into one `batch` frame, which the daemon acknowledges
+   once and commits in one SQLite transaction. It flushes at once on a result, error, segment,
+   cancel, close, the start or end of a tool call, the first update of a thought or a message,
+   and any turn boundary, so the first sign of new work is never delayed; only a stream of
+   text or output chunks waits, by at most the window.
+6. **Cheap size checks.** The per-write quota ledger and the per-send directory walk go away.
+   The host sums the sizes of `index.db` and the agent's `store.db`, each with its `-wal`, at
+   open and at each turn end. Over the budget is an unusable store: the next open hands off to
+   a fresh session (ADR 0211) instead of fencing the thread. Only that verdict, a store the SDK
+   cannot open, or a history that cannot be verified start a fresh session; a full disk, a busy
+   store or any other transient error keeps the session and stays retryable.
+7. **Old journals.** A checkpoint folder from an earlier build may hold `ace-boundary.ndjson`,
+   torn or not. It is never read, never fences the thread and is left in place, so a downgrade
+   or a diagnosis can still find it.
+8. **Earlier builds' frames.** A thread an earlier build left has none of the daemon's attempt
+   or boundary records. They are rebuilt from its newest 4,096 frames, both in one transaction,
+   the first time anything asks. When those frames hold no send but older frames lie past them,
+   a send can't be ruled out: any send in doubt is held as attempted, never sent again.
+
+### Risks
+
+- A recovered tail is best effort: the SDK swallows its own write errors and stores with
+  SQLite `synchronous=NORMAL`, so the last updates before a power loss can be missing. It is
+  labelled as recovered, and a run whose status is still non-terminal is cancelled, never
+  shown done.
+- The seam assumes SDK 1.0.35's order: onDelta, then the stored event, with no other event in
+  between. If the SDK's own write of an update fails (it swallows those) and the next update
+  has the same identity, that update is skipped.
+- Batching adds up to the window (32 ms) to a text chunk's arrival.
+- These SDK behaviours (onDelta before the stored event, which updates it stores, the agent's
+  `activeRunId`/`updatedAt` on run creation, `runs.result` at the end, no local idempotency)
+  are re-checked at every SDK version bump.

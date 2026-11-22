@@ -8,6 +8,7 @@ import { ThreadId } from "@ace/protocol";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import {
   HostRuntime,
+  unbatch,
   CursorTranslator,
   CursorLimitsSchema,
   type RuntimeSdkBoundary,
@@ -133,14 +134,16 @@ it("the SDK host admits large normal tool results through blobs and output chunk
   };
   const host = new HostRuntime(
     boundary,
-    async (envelope) => {
-      const payload = new ProviderPayload(JSON.stringify(envelope));
-      largest = Math.max(largest, payload.bytes);
-      for (const fact of translator.translate(
-        { seq: ++seq, t: seq, dir: "recv", channel: "sdk", data: payload.data, payload },
-        seq,
-      ))
-        apply(state, fact, { now: seq, ids: { next: (kind) => `${kind}-${++id}` } });
+    async (stored) => {
+      largest = Math.max(largest, new ProviderPayload(JSON.stringify(stored)).bytes);
+      for (const envelope of unbatch(stored)) {
+        const payload = new ProviderPayload(JSON.stringify(envelope));
+        for (const fact of translator.translate(
+          { seq: ++seq, t: seq, dir: "recv", channel: "sdk", data: payload.data, payload },
+          seq,
+        ))
+          apply(state, fact, { now: seq, ids: { next: (kind) => `${kind}-${++id}` } });
+      }
     },
     () => home,
   );

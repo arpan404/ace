@@ -7,9 +7,11 @@ import {
   ForgeBrowserResult,
   ForgeIssueSearch,
   type ForgeBrowserOperation,
+  gitLogMaxLimit,
   gitStatusLimit,
   ServerMessage,
   InstalledEditor,
+  type GitLogEntry,
   type GitStatusFile,
   type WorkspaceActionRequest,
   type CommandPayload,
@@ -29,6 +31,7 @@ import { FakeInboxWire } from "./inbox-wire.ts";
 import { catalogIssueList, matchingIssues, projectRepository } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
+import { FakeSourceControlWire, type FakeSourceControlSeed } from "./source-control-wire.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
 import { FakePrWork } from "./pr-work-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -40,6 +43,9 @@ export type FakeWorkspaceControls = Pick<
   | "gitStatus"
   | "setGitStatus"
   | "setGitDiff"
+  | "setGitCommitDiff"
+  | "failGitCommitDiff"
+  | "setGitLog"
   | "setEditors"
   | "setTerminals"
   | "opened"
@@ -47,6 +53,7 @@ export type FakeWorkspaceControls = Pick<
   | "setForgeRead"
   | "holdForgeRead"
   | "holdGitDiff"
+  | "holdGitStatus"
   | "failForgeRead"
   | "forgeReadCount"
   | "seedPullRequests"
@@ -59,6 +66,8 @@ export type FakeWorkspaceControls = Pick<
   | "inbox"
   | "checkReruns"
   | "git"
+  | "sourceControl"
+  | "setSourceControl"
   | "conflicts"
   | "prWork"
   | "linkPullRequest"
@@ -72,6 +81,11 @@ export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
   /** The projects' repositories as Git finds them: not one, empty, locked, failing setup. */
   readonly git = new FakeGitStates();
+  /** Per-thread source control state: staged, unstaged, untracked and conflicted files. */
+  readonly sourceControl: FakeSourceControlWire;
+  setSourceControl(threadId: string, seed: FakeSourceControlSeed): void {
+    this.sourceControl.seed(threadId, seed);
+  }
   /** Workflow re-runs the PR panel asked GitHub for (`forge.hosted.checks`), in order. */
   readonly checkReruns: ForgeCheckAction[] = [];
   /** Merge conflicts in PR checkouts (`git.conflicts`). */
@@ -102,6 +116,7 @@ export class FakeWorkspaceWire {
   readonly forge: FakeForgeWire;
   constructor(context: FakeServiceContext) {
     this.context = context;
+    this.sourceControl = new FakeSourceControlWire(context);
     this.projects = new FakeProjects(context, (id) => this.terminals.hasOwnedWork(id));
     this.forge = new FakeForgeWire(context);
     this.issues = new FakeIssueWire(this.forgeReads, () => context.now());
@@ -266,6 +281,22 @@ export class FakeWorkspaceWire {
       },
     };
   }
+  /** Answer the thread's `git.status` only once `release` runs, as a slow large checkout would. */
+  holdGitStatus(threadId: string): { entered: Promise<void>; release(): void } {
+    const key = JSON.stringify({ op: "git.status", threadId });
+    const gate = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
+    this.held.set(key, gate.promise);
+    this.entering.set(key, arrived.resolve);
+    return {
+      entered: arrived.promise,
+      release: () => {
+        if (this.held.get(key) === gate.promise) this.held.delete(key);
+        this.entering.delete(key);
+        gate.resolve();
+      },
+    };
+  }
   private failing = new Map<string, string>();
   /**
    * Refuse `operation` with `code`, as GitHub refusing it would (`forge_rate_limit`), until the
@@ -314,8 +345,31 @@ export class FakeWorkspaceWire {
   setGitDiff(threadId: string, patch: string): void {
     this.gitPatches.set(threadId, patch);
   }
+  private gitCommitPatches = new Map<string, string>();
+  setGitCommitDiff(threadId: string, commit: string, patch: string): void {
+    this.gitCommitPatches.set(`${threadId}:${commit}`, patch);
+  }
+  private gitCommitFailures = new Map<string, string>();
+  /** The daemon refuses this commit's patch with `code` (a shallow clone's boundary, say). */
+  failGitCommitDiff(threadId: string, commit: string, code: string): void {
+    this.gitCommitFailures.set(`${threadId}:${commit}`, code);
+  }
+  private gitLogs = new Map<string, readonly GitLogEntry[]>();
+  private gitLogStops = new Map<string, "limit" | "budget">();
+  /** The file's commits, newest first; `stopped` says the walk ended early (else the limit). */
+  setGitLog(
+    threadId: string,
+    path: string,
+    entries: readonly GitLogEntry[],
+    stopped?: "limit" | "budget",
+  ): void {
+    this.gitLogs.set(`${threadId}:${path}`, entries);
+    if (stopped) this.gitLogStops.set(`${threadId}:${path}`, stopped);
+    else this.gitLogStops.delete(`${threadId}:${path}`);
+  }
   /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
   gitStatus(threadId: string): readonly GitStatusFile[] {
+    if (this.sourceControl.hasState(threadId)) return this.sourceControl.flatFiles(threadId);
     return (
       this.gitFiles.get(threadId) ??
       synthesizedStatus(this.context.thread(threadId)?.thread.details?.diff ?? emptyDiff)
@@ -592,12 +646,43 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "gitConflicts", conflicts: this.conflicts.read(op.threadId) },
       });
-    if (op.op === "git.diff")
+    if (op.op === "git.diff") {
+      const refused =
+        op.commit === undefined
+          ? undefined
+          : this.gitCommitFailures.get(`${op.threadId}:${op.commit}`);
+      if (refused)
+        return ServerMessage.parse({
+          type: "workspace.result",
+          requestId: request.requestId,
+          result: { kind: "error", code: refused },
+        });
+      const patch =
+        op.commit !== undefined
+          ? (this.gitCommitPatches.get(`${op.threadId}:${op.commit}`) ?? "")
+          : (this.gitPatches.get(op.threadId) ?? "");
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: fakeGitDiff(this.gitPatches.get(op.threadId) ?? "", op),
+        result: fakeGitDiff(patch, op),
       });
+    }
+    if (op.op === "git.log") {
+      const all = this.gitLogs.get(`${op.threadId}:${op.path}`) ?? [];
+      const stopped =
+        this.gitLogStops.get(`${op.threadId}:${op.path}`) ??
+        (all.length > gitLogMaxLimit ? "limit" : undefined);
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "gitLog",
+          entries: all.slice(0, gitLogMaxLimit),
+          ...(stopped ? { stopped } : {}),
+          head: this.head(op.threadId) ?? null,
+        },
+      });
+    }
     const result =
       op.op === "editors.list"
         ? {
@@ -624,6 +709,7 @@ export class FakeWorkspaceWire {
                     truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
                     head: this.head(op.threadId),
                     hooks: this.git.hooks(op.threadId),
+                    ...this.sourceControl.statusFields(op.threadId, this.gitStatus(op.threadId)),
                   }
                 : op.op === "thread.details"
                   ? {
@@ -799,6 +885,12 @@ export class FakeWorkspaceWire {
       return result;
     }
     if (payload.type === "git.commit") {
+      const scCommit = this.sourceControl.commit(
+        payload.threadId,
+        payload,
+        this.gitStatus(payload.threadId),
+      );
+      if (scCommit) return scCommit;
       if ((thread?.details?.head ?? null) !== payload.expectedHead)
         return { ok: false, error: "git_head_moved" };
       const commit = "a".repeat(40);
@@ -840,12 +932,15 @@ export class FakeWorkspaceWire {
     if (payload.type === "git.push") {
       const refused = this.git.pushRefusal(payload.threadId, payload.force);
       if (refused) return refused;
+      this.sourceControl.markPushed(payload.threadId);
       this.context.update(payload.threadId, {
         type: "thread.client.updated",
         changes: { details: { ...thread?.details, ahead: 0 } },
       });
       return { ok: true };
     }
+    const scResult = this.sourceControl.command(payload, this.gitStatus(payload.threadId));
+    if (scResult) return scResult;
     // The fixture has no stopped daemons' locks; clearing one finds its owner gone.
     if (payload.type === "git.lock.clear")
       return thread ? { ok: true, locksCleared: 1 } : { ok: false, error: "thread_not_found" };

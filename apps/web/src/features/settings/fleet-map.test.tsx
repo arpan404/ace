@@ -24,7 +24,7 @@ test("the Map tab draws every machine and device of the fleet", async () => {
   const app = withBuildServer();
   await app.open("/settings/remote");
   await userEvent.click(
-    within(await screen.findByRole("navigation", { name: "Fleet views" })).getByRole("link", {
+    within(await screen.findByRole("tablist", { name: "Fleet views" })).getByRole("tab", {
       name: "Map",
     }),
   );

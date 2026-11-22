@@ -108,6 +108,7 @@ pub(super) fn ask_again(
         helper: None,
         launch: Some(held.limit),
         stopped: Some(stopped),
+        effect: None,
     });
     match engine.helper_of(id) {
         Some(helper) => engine.ask_for_helper(&helper, reply, &asked),

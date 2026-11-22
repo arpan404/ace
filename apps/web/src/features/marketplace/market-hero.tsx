@@ -126,7 +126,6 @@ function SlideWords(props: { entry: MarketEntrySummary }) {
   const { entry } = props;
   return (
     <div className="mk-slide-words">
-      <span className="mk-kind">{typeWord(entry.type)}</span>
       <h2 {...part("page-title", undefined, "hero")} className="mk-display">
         {entry.title}
       </h2>

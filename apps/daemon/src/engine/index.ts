@@ -5,11 +5,12 @@ import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
-import { aceCaller, liveAceCall, withinAgent } from "./ace-approvals.ts";
+import { aceCaller, withinAgent } from "./ace-approvals.ts";
 import { activeRun, delegationsInFlight, turnOrigin } from "./turn-origin.ts";
-import { adoptImportedThread } from "./imported-thread.ts";
+import { continueImportedThread } from "./imported-thread.ts";
+import { SilenceThresholds } from "./silence.ts";
 import { GuestThreads } from "./guest-threads.ts";
-import { HostThreads } from "./host-threads.ts";
+import { HostThreads, openHostInteraction, postHostNotice } from "./host-threads.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import type { EngineOptions } from "./engine-options.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
@@ -38,6 +39,8 @@ import { ProviderKind, ThreadId } from "@ace/protocol";
 import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
+import { CursorReconciles, reconcileOptions } from "./cursor-reconcile.ts";
+import { attachChild, updateChild } from "./child-attachment.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
@@ -94,6 +97,7 @@ export class Engine {
   private clock: EngineClock;
   private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
+  private silence: SilenceThresholds;
   private report: (error: unknown) => void;
   private settleFailed: (thread: ThreadId, error: unknown) => void;
   private settledTrees: SettledTrees;
@@ -115,6 +119,34 @@ export class Engine {
   private liveness: ThreadLiveness;
   private delegationFacts: DelegationFacts;
   private readyPromise: Promise<void>;
+  /** Cursor turns a restart cut short, reconciled with Cursor's store once ready. */
+  private reconciles = new CursorReconciles(
+    (error) => this.report(error),
+    () => ({
+      repo: this.repo,
+      recovery: this.recovery,
+      clock: this.clock,
+      actor: (id) => this.actor(id),
+      open: (actor) => this.sessions.openToReconcile(actor),
+      close: (actor) => this.sessions.close(actor, "idle"),
+      wake: (id) => this.wake(id),
+      ...this.reconcileOptions,
+      freshSession: (id, error) => this.transitions.startFreshSession(id, error),
+    }),
+  );
+  private reconcileOptions: ReturnType<typeof reconcileOptions> = {};
+  /** The idle sweep of Cursor threads' settled frames: a bounded batch every 30 s (ADR 0170). */
+  private cancelSweep: (() => void) | undefined;
+  private sweep = () => {
+    if (this.closing) return;
+    try {
+      this.repo.recovery.pruneIdle();
+    } catch (error) {
+      this.report(error);
+    }
+    this.cancelSweep = this.clock.setTimer(this.sweep, 30_000);
+  };
+  private processesGone: () => Promise<boolean> = async () => false;
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -170,10 +202,18 @@ export class Engine {
     this.registry = options.registry ?? new AdapterRegistry();
     this.batchScheduler = options.batchScheduler ?? systemClock;
     this.idleMs = options.idleMs ?? defaultProviderIdleMs;
-    const silenceMs = options.silenceMs ?? 60_000;
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
-    if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
+    this.silence = new SilenceThresholds(
+      options.silenceMs,
+      options.resolveSilenceMs,
+      (id) => this.repo.store.getThread(id)?.workspaceId,
+    );
     this.report = options.onError ?? console.error;
+    this.reconcileOptions = reconcileOptions(options);
+    this.cancelSweep = this.clock.setTimer(this.sweep, 30_000);
+    // Without the check nothing is proven gone: a send in doubt is never sent again by itself.
+    if (options.cursorPreviousProcessesGone)
+      this.processesGone = options.cursorPreviousProcessesGone;
     this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
@@ -184,11 +224,18 @@ export class Engine {
     );
     this.sessions = new Sessions({
       models,
+      processesGone: () => this.processesGone(),
       ...(options.waitForProvider ? { waitForProvider: options.waitForProvider } : {}),
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       ...(options.sessionCatalog ? { catalog: options.sessionCatalog } : {}),
+      ...(options.resolveSilenceMs
+        ? {
+            syncSilence: (id) =>
+              this.silence.syncThread(id, (threadId, ms) => this.setSilenceMs(ms, threadId)),
+          }
+        : {}),
       ...(options.agentHome ? { agentHome: options.agentHome } : {}),
       repo: this.repo,
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
@@ -349,7 +396,7 @@ export class Engine {
       this.repo,
       this.registry,
       () => this.clock.now(),
-      silenceMs,
+      (workspaceId) => this.silence.forWorkspace(workspaceId),
       (id) => this.wake(id),
       this.nextThreadId,
       this.recovery,
@@ -408,17 +455,29 @@ export class Engine {
         unreadable,
         (id) => continuesNatively(this.repo, this.registry, id),
         options.previousProcessesUnverified === true,
+        (id) => this.reconciles.add(id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
-    if (options.recovery?.preferences || options.models || options.providersActivated) {
+    const silence = this.silence;
+    if (
+      options.recovery?.preferences ||
+      options.models ||
+      options.providersActivated ||
+      options.resolveSilenceMs
+    ) {
       this.readyPromise = (async () => {
         await options.providersActivated;
+        await silence.prepareGlobal();
         await recovery.prepare();
-        for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
+        for (const state of repo.recoveryStates(unreadable)) {
+          await silence.syncThread(state.threadId, (id, ms) => this.setSilenceMs(ms, id));
+          await recovery.prepare(state.threadId);
+        }
         models.migrateCachedDefaults(unreadable);
         if (!this.closing) recover();
         this.readyState = true;
+        this.reconciles.start();
         for (const id of this.pendingSettles) this.stopSettled(id);
         this.pendingSettles.clear();
       })();
@@ -426,6 +485,7 @@ export class Engine {
       recover();
       this.readyState = true;
       this.readyPromise = Promise.resolve();
+      this.reconciles.start();
     }
   }
   private stopSettled(id: ThreadId): void {
@@ -471,7 +531,7 @@ export class Engine {
   private flushDepth = 0;
   /** A wake that outlived its thread's slot (it went dormant meanwhile) has nothing to run. */
   private async slotted(id: ThreadId, run: (actor: ThreadActor) => Promise<void>) {
-    if (!this.actors.has(id) && !this.repo.reservedSlot(id)) return;
+    if (this.reconciles.holds(id) || (!this.actors.has(id) && !this.repo.reservedSlot(id))) return;
     await run(this.actor(id));
   }
   private actor(id: ThreadId): ThreadActor {
@@ -663,56 +723,14 @@ export class Engine {
     );
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
-  attachChild(
-    parentId: ThreadId,
-    parentAgentId: AgentId,
-    child: Thread,
-    role: string,
-    background: boolean,
-  ): void {
-    this.repo.permissions.parent(child.id, parentId, this.clock.now());
-    const state = this.repo.requireState(parentId);
-    const parent = state.indexes.agentKeysById[parentAgentId];
-    if (!parent) throw new Error("Unknown parent agent");
-    this.repo.apply(
-      parentId,
-      [
-        {
-          type: "agent.seen",
-          agent: `ace-child:${child.id}`,
-          parent,
-          origin: "ace",
-          fidelity: "summary",
-          native: { provider: child.provider },
-          cwd: this.repo.session(child.id).cwd,
-          role,
-          background,
-        },
-        {
-          type: "agent.external",
-          agent: `ace-child:${child.id}`,
-          threadId: child.id,
-          status: child.status,
-        },
-      ],
-      this.clock.now(),
-    );
+  attachChild(...args: [ThreadId, AgentId, Thread, string, boolean]): void {
+    attachChild(this.repo, this.clock.now(), ...args);
   }
   updateChild(parentId: ThreadId, child: Thread): void {
-    this.repo.apply(
-      parentId,
-      [
-        {
-          type: "agent.external",
-          agent: `ace-child:${child.id}`,
-          threadId: child.id,
-          status: child.status,
-        },
-      ],
-      this.clock.now(),
-    );
+    updateChild(this.repo, this.clock.now(), parentId, child);
     this.wake(parentId);
   }
+
   machineChild(...args: Parameters<DelegationFacts["machineChild"]>): void {
     this.delegationFacts.machineChild(...args);
   }
@@ -874,26 +892,7 @@ export class Engine {
     /** The agent it is about, such as a child on another machine; the root when not in the tree. */
     about?: string,
   ) {
-    const state = this.repo.requireState(threadId);
-    const agent = about !== undefined && state.agents[about] ? about : (state.rootKey ?? "root");
-    // A host approval (one mirrored from another machine) raised while one of ace's own tools
-    // runs reads on that tool's row.
-    const item =
-      request.kind === "approval" ? liveAceCall(state, agent, request.target?.tool) : undefined;
-    this.actor(threadId).apply([
-      {
-        type: "interaction.opened",
-        agent,
-        interaction: key,
-        blocking: true,
-        request,
-        raw,
-        ...(item ? { item } : {}),
-      },
-    ]);
-    const interaction = this.repo.requireState(threadId).interactions[key];
-    if (!interaction) throw new Error("Host interaction was not admitted");
-    return interaction.id;
+    return openHostInteraction(this.repo, this.actor(threadId), threadId, key, request, raw, about);
   }
   /** A host operation failed after its command was accepted: show the error in the thread. */
   hostError(threadId: ThreadId, key: string, text: string): void {
@@ -901,14 +900,7 @@ export class Engine {
   }
   /** What a host operation the person ran did, as a notice in the thread. */
   hostNotice(threadId: ThreadId, key: string, text: string, level: "info" | "error"): void {
-    this.actor(threadId).apply([
-      {
-        type: "item.upsert",
-        agent: this.repo.requireState(threadId).rootKey ?? "root",
-        item: key,
-        draft: { type: "notice", level, text, complete: true },
-      },
-    ]);
+    postHostNotice(this.repo, this.actor(threadId), threadId, key, text, level);
   }
   resolveHostApproval(
     threadId: ThreadId,
@@ -1048,63 +1040,43 @@ export class Engine {
   prepareDeletion(id: ThreadId, commandId: string): void {
     this.deletionPolicy?.(id, commandId);
   }
-  async continueImported(
+  setSilenceMs(silenceMs: number, threadId?: ThreadId): void {
+    if (threadId === undefined) this.silence.setDefault(silenceMs);
+    else
+      this.silence.applyThread(
+        this.repo,
+        this.actors.get(threadId),
+        threadId,
+        silenceMs,
+        () => this.clock.now(),
+        (id) => this.wake(id),
+      );
+  }
+  clearWorkspaceSilenceMs(workspaceId?: import("@ace/protocol").WorkspaceId): void {
+    this.silence.clearWorkspace(workspaceId);
+  }
+  liveThreadIds(): ThreadId[] {
+    return [...this.actors.keys()];
+  }
+  continueImported(
     request: Extract<import("@ace/protocol").ClientMessage, { type: "history.continue" }>,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ServerMessage> {
-    await this.ready();
-    signal.throwIfAborted();
-    const thread = this.repo.store.getThread(request.threadId);
-    if (!thread?.imported) throw new Error("Imported thread unavailable");
-    const entry = this.registry.has(thread.provider)
-      ? this.registry.get(thread.provider)
-      : undefined;
-    if (!entry?.capabilities.resume || request.mode !== "resume")
-      return {
-        type: "history.continue",
-        status: "unsupported",
-        reason: "Import this session to read it. This provider cannot continue it in ace.",
-      };
-    await this.repo.store.writable();
-    adoptImportedThread(this.repo, thread.id, this.clock.now());
-    if (!this.repo.reserve(thread.id)) throw new Error("Too many active threads");
-    const actor = this.actor(thread.id);
-    try {
-      await this.sessions.open(actor);
-      signal.throwIfAborted();
-      await actor.flush();
-      if (!actor.session) throw new Error("Provider stopped while opening the session");
-      if (request.input.length) {
-        const command = CommandSchema.parse({
-          id: this.repo.nextCommandId(),
-          deviceId: "ace-history",
-          threadId: thread.id,
-          payload: {
-            type: "thread.send",
-            threadId: thread.id,
-            input: request.input,
-            delivery: request.delivery,
-          },
-        });
-        const result = this.handler.handle(command, commandContext(this.repo.store));
-        if (!result.ok) throw new Error(result.error ?? "Message could not be sent");
-        await this.flush();
-      }
-      return {
-        type: "history.continue",
-        status: "continued",
-        threadId: thread.id,
-        instanceId: thread.imported.instanceId,
-        nativeSessionId:
-          actor.session?.nativeSessionId ??
-          this.repo.session(thread.id).nativeSessionId ??
-          thread.imported.native.nativeId ??
-          "",
-      };
-    } catch (error) {
-      if (!actor.session) this.repo.release(thread.id);
-      throw error;
-    }
+    return continueImportedThread(
+      {
+        ready: () => this.ready(),
+        repo: this.repo,
+        registry: this.registry,
+        sessions: this.sessions,
+        handler: this.handler,
+        now: () => this.clock.now(),
+        silenceMs: (workspaceId) => this.silence.forWorkspace(workspaceId),
+        actor: (id) => this.actor(id),
+        flush: () => this.flush(),
+      },
+      request,
+      signal,
+    );
   }
   sessionMetadata(id: ThreadId) {
     return this.repo.session(id);
@@ -1155,6 +1127,7 @@ export class Engine {
           : undefined;
     if (provider) await this.waitForProvider?.(provider);
     await this.readyPromise;
+    await this.silence.prepareCommand(command, (id, ms) => this.setSilenceMs(ms, id));
     if (
       !["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(
         command.payload.type,
@@ -1262,6 +1235,7 @@ export class Engine {
     const actor = this.actors.get(id);
     if (
       actor?.session ||
+      this.reconciles.holds(id) ||
       this.sessions.isClosing(id) ||
       this.repo.sessionOpening(id) ||
       this.repo.pending.running(id)
@@ -1289,7 +1263,7 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (this.closing || this.repo.cleaning(id)) return;
+    if (this.closing || this.repo.cleaning(id) || this.reconciles.holds(id)) return;
     const thread = this.repo.store.readThread(id);
     if (thread?.deletedAt !== undefined || thread?.continuation) return;
     if (this.repo.store.isHistoryWriting()) {
@@ -1399,10 +1373,11 @@ export class Engine {
     const intent =
       first && ["thread.switch", "thread.merge"].includes(first.kind)
         ? this.repo.pending.childResult(actor.id)
-        : // A steer joins the running turn on its own lane; with no turn running it goes first.
-          first && this.isSteer(first) && rootRun(this.repo.requireState(actor.id))
-          ? this.repo.pending.queuedMessage(actor.id)
-          : first;
+        : (this.steerLane.yielded(actor) ??
+          // A steer joins the running turn on its own lane; with no turn running it goes first.
+          (first && this.isSteer(first) && rootRun(this.repo.requireState(actor.id))
+            ? this.repo.pending.queuedMessage(actor.id)
+            : first));
     if (
       intent &&
       (!guard || guard === intent.commandId) &&
@@ -1442,6 +1417,7 @@ export class Engine {
     try {
       await this.readyPromise;
       await Promise.resolve();
+      await this.reconciles.settled();
       do {
         await this.settledTrees.settled();
         await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
@@ -1461,6 +1437,8 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.cancelSweep?.();
+      this.reconciles.close();
       this.stopReleaseWatch();
       await this.settledTrees.settled();
       this.flushDepth++;

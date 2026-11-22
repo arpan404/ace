@@ -33,8 +33,11 @@ pub(crate) fn reattaches(name: &str) -> bool {
     BACKGROUND.contains(&name)
 }
 
-/// How long a background `delegate` waits for its children unless the model asked otherwise.
-const DELEGATE_WAIT_SECONDS: u64 = 600;
+/// How long a `delegate`'s own wait lasts: ace's least. Its answer is where Spade learns the
+/// threads it started, so the bot's chat shows them while they run; the background job then waits
+/// on them with `wait` until they settle (`ace_wait::until_settled`). A longer first wait left the
+/// chat without them for up to ten minutes.
+const DELEGATE_WAIT_SECONDS: u64 = 1;
 
 /// How Spade offers one of ace's tools.
 pub fn def(tool: &AceTool) -> ToolDef {
@@ -81,9 +84,8 @@ pub fn prepare_delegate(name: &str, key: &str, mut arguments: Value) -> Value {
         }
     }
     if let Some(object) = arguments.as_object_mut() {
-        object
-            .entry("waitSeconds")
-            .or_insert(Value::from(DELEGATE_WAIT_SECONDS));
+        // Whatever the model asked: the job's own waits follow until the children settle.
+        object.insert("waitSeconds".to_owned(), Value::from(DELEGATE_WAIT_SECONDS));
     }
     arguments
 }
@@ -363,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn delegated_tasks_get_ids_scoped_to_the_call_and_wait_for_their_children() {
+    fn delegated_tasks_get_ids_scoped_to_the_call_and_answer_with_their_threads_at_once() {
         let arguments = json!({ "tasks": [
             { "task": "fix the bug", "role": "Fix-bug" },
             { "task": "write docs", "role": "Docs", "requestId": "task 1" }
@@ -378,7 +380,8 @@ mod tests {
             prepared["tasks"][1]["requestId"],
             "c_1.functions.delegate_0.task_1"
         );
-        assert_eq!(prepared["waitSeconds"], 600);
+        // ace's least wait: its answer names the threads while they run, for the bot's chat.
+        assert_eq!(prepared["waitSeconds"], 1);
         assert_eq!(
             prepare_delegate("delegate", key, arguments.clone()),
             prepared,
@@ -389,8 +392,9 @@ mod tests {
             other["tasks"][1]["requestId"],
             prepared["tasks"][1]["requestId"]
         );
-        let asked = prepare_delegate("delegate", key, json!({ "tasks": [], "waitSeconds": 30 }));
-        assert_eq!(asked["waitSeconds"], 30);
+        // A model's own wait would hold the threads back the same way; the job waits after.
+        let asked = prepare_delegate("delegate", key, json!({ "tasks": [], "waitSeconds": 600 }));
+        assert_eq!(asked["waitSeconds"], 1);
         assert_eq!(
             prepare_delegate("thread_start", key, arguments.clone()),
             arguments

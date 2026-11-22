@@ -39,6 +39,10 @@ async function tray(bytes: Buffer, step: number) {
     (rows) => emits.push(rows),
     read,
     () => now,
+    (delayMs, callback) => {
+      const timer = setTimeout(callback, delayMs);
+      return () => clearTimeout(timer);
+    },
   );
   box.attach({
     localId: "video-0001",

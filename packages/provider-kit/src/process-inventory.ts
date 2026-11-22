@@ -162,10 +162,11 @@ export class ProcessInventory implements ProcessJournal {
     );
   }
   private closed = false;
-  recover(): { removed: number; killed: number } {
-    if (process.platform === "win32") return this.windowsRecover();
+  recover(): { removed: number; killed: number; unresolved: number } {
+    if (process.platform === "win32") return { ...this.windowsRecover(), unresolved: 0 };
     let removed = 0;
     let killed = 0;
+    let unresolved = 0;
     for (const entry of this.list()) {
       const owner = this.runtime.identity(entry.ownerPid);
       if (
@@ -174,25 +175,52 @@ export class ProcessInventory implements ProcessJournal {
         owner.uid === entry.uid
       )
         continue;
-      const current = this.runtime.identity(entry.pid);
-      if (!this.runtime.alive(entry.group)) {
+      let current: ProcessIdentity | undefined;
+      try {
+        current = this.runtime.identity(entry.pid);
+      } catch {
+        // An identity the kernel won't give proves nothing either way: unresolved, below.
+        current = undefined;
+      }
+      const alive = this.groupAlive(entry.group);
+      if (alive === undefined) {
+        // The kernel refused the probe (macOS does this while a group exits). Only ESRCH proves
+        // a group gone, so keep its evidence for a later recovery instead of failing startup.
+        unresolved++;
+        continue;
+      }
+      if (!alive) {
         this.remove(entry.pid);
         removed++;
         continue;
       }
+      // The group lives on, but its leader is gone or its PID is someone else's now: nothing
+      // proves the group is the run's, so it is neither ended nor called stopped. Startup goes on
+      // and reports the previous run unverified; the record stays for a later start.
       if (
         !current ||
         current.pid !== entry.pid ||
         current.start !== entry.start ||
         current.uid !== entry.uid ||
         current.group !== entry.group
-      )
-        throw new Error(`Orphan group ${entry.group} cannot be safely identified`);
+      ) {
+        unresolved++;
+        continue;
+      }
       this.runtime.kill(entry.group);
       // Keep evidence until a later recovery proves the group has disappeared.
       killed++;
     }
-    return { removed, killed };
+    return { removed, killed, unresolved };
+  }
+  /** Liveness of a recorded group, or undefined when the kernel refuses to say (EPERM). */
+  private groupAlive(group: number): boolean | undefined {
+    try {
+      return this.runtime.alive(group);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EPERM") return undefined;
+      throw error;
+    }
   }
   close(): void {
     this.closed = true;

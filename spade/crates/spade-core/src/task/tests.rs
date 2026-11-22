@@ -305,6 +305,7 @@ fn a_routine_firing_keeps_the_tasks_pause() {
         })),
         from_group: None,
         from_thread: None,
+        reply_to: None,
     }));
     events.push(started("r9"));
     events.push(step("r9", vec![]));

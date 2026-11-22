@@ -25,6 +25,7 @@ import {
 } from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
+import { useAppAlways } from "./spade-app-always.tsx";
 import { useCardFocus } from "./use-card-focus.ts";
 import { TaskDiff } from "./spade-self-edit-lines.tsx";
 import { ApproversLine } from "./spade-shared-lines.tsx";
@@ -66,11 +67,15 @@ export function SpadeRequestBubble(props: {
   const { item } = props;
   const who = item.helper ? `A helper of ${props.botName}` : props.botName;
   const title = useToolTitle();
+  const appName = useAppName();
   // A call to a connected app's tool leads with that app's mark.
   const app = useToolApp()(item.name);
   const noteText = useNoteText(item, props.botId);
+  const always = useAppAlways(props.botId);
   const card = spadeRequestCard(item.name, item.arguments, who, {
     title,
+    appName,
+    effect: item.effect,
     noteText,
     botName: props.nameOf,
     task: () => props.task,
@@ -80,8 +85,8 @@ export function SpadeRequestBubble(props: {
   // Escape denies as its keys say; answered, focus goes back to the composer.
   const raised = useRef<HTMLDivElement>(null);
   useCardFocus(raised, 0);
-  const answer = (choice: RequestAnswer) => {
-    if (answering !== undefined) return;
+  const answer = (choice: RequestAnswer, again = false) => {
+    if (answering !== undefined && !again) return;
     setAnswering(choice);
     void props.onAnswer(item.callId, choice).then((sent) => {
       if (!sent) setAnswering(undefined);
@@ -102,15 +107,33 @@ export function SpadeRequestBubble(props: {
   // A step in a page or app (ADR 0171, amendment 3): its always allows that one app or site for
   // the bot, and only where Spade offers it; never an Always allow for the tool.
   const drive = item.ask === "drive";
+  // A connected app's ordinary write (ADR 0202, amendment 5): its always allows this tool, as
+  // the person is shown it, for the bot: a grant they make with their stamp, then it runs.
+  const forApp = item.ask === "app" && item.app && item.definition ? item.app : undefined;
   const alwaysWord = outside
     ? "Always for this bot"
-    : drive && item.app
-      ? `Allow ${item.app} for this bot`
-      : "Always allow";
+    : forApp
+      ? `Always allow for ${appName(forApp) ?? "this app"}`
+      : drive && item.app
+        ? `Allow ${item.app} for this bot`
+        : "Always allow";
   // A check that couldn't vouch for what a command runs is answered for this call only.
   const offersAlways =
-    !spadeAnsweredOnce(item.stopped) &&
-    (drive ? item.app !== undefined : outside || (card.always && item.ask !== "undeclared"));
+    forApp !== undefined ||
+    (!spadeAnsweredOnce(item.stopped) &&
+      (drive
+        ? item.app !== undefined
+        : outside || (card.always && item.ask !== "undeclared" && item.ask !== "app")));
+  const answerAlways = () => {
+    if (!forApp) return answer("always");
+    if (answering !== undefined) return;
+    setAnswering("always");
+    void always
+      .allow(forApp, { [item.name]: item.definition ?? "" }, () => answer("allow", true))
+      .then((made) => {
+        if (!made) setAnswering(undefined);
+      });
+  };
   return (
     <RaisedCard
       ref={raised}
@@ -152,13 +175,14 @@ export function SpadeRequestBubble(props: {
           {reason && <CardWhy>{reason}</CardWhy>}
         </CardBody>
       )}
+      {always.prompt && <CardBody>{always.prompt}</CardBody>}
       {/* A shared bot's request: who may answer it (ADR 0206 §2.3). */}
       <ApproversLine botId={props.botId} />
       <CardFooter
         start={
           <>
             {offersAlways && (
-              <CardWord disabled={answering !== undefined} onClick={() => answer("always")}>
+              <CardWord disabled={answering !== undefined} onClick={answerAlways}>
                 {answering === "always" ? "Allowing…" : alwaysWord}
               </CardWord>
             )}
@@ -182,6 +206,12 @@ export function SpadeRequestBubble(props: {
       />
     </RaisedCard>
   );
+}
+
+/** A connected app's name by its connection's id. */
+export function useAppName() {
+  const connectors = useSpadeConnectors().data?.connectors;
+  return (connection: string) => connectors?.find((each) => each.id === connection)?.name;
 }
 
 /** The connected app a tool name (`c1__create_event`) belongs to, if it is one's. */

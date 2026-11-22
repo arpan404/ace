@@ -17,6 +17,19 @@ export interface EngineOptions {
    * restart recovery must not report that run's provider work as stopped.
    */
   previousProcessesUnverified?: boolean;
+  /**
+   * Cursor only (ADR 0043, amendment of 2026-11-22): a bounded check, run only before a send in
+   * doubt would be sent again as never admitted, that the previous run's process groups are
+   * gone. False, or absent and unproven, keeps the send uncertain, held for the person.
+   */
+  cursorPreviousProcessesGone?: () => Promise<boolean>;
+  /**
+   * Waits between attempts to open a Cursor host whose store is busy during a restart
+   * reconcile (cursor-reconcile.ts); once they run out the turn fails as a restart fails it.
+   */
+  cursorReconcileRetryMs?: readonly number[];
+  /** Schedules the tries of a reconcile's failed-turn write (cursor-reconcile.ts); the clock's by default. */
+  cursorFailureTimer?: (run: () => void, ms: number) => () => void;
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
   /**
    * Settles once provider CLIs have been read. Restart recovery waits for it, so whether an
@@ -63,6 +76,7 @@ export interface EngineOptions {
   batchScheduler?: Pick<EngineClock, "setTimer">;
   idleMs?: number;
   silenceMs?: number;
+  resolveSilenceMs?: import("./silence.ts").SilenceResolver;
   onError?: (error: unknown) => void;
   /** Stopping part of a settled thread's tree failed: for the log only, never the person. */
   onSettleCleanupFailure?: (thread: ThreadId, error: unknown) => void;

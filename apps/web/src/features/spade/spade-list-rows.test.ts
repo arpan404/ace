@@ -70,7 +70,7 @@ test("the list puts Spade first as an ordinary row, then orders needs you, worki
 test("each row's state and line follow the row-state table", () => {
   expect(row({ state: "waiting", waiting_for: "question" })).toEqual({
     state: "needs-you",
-    line: "Asked you a question",
+    line: "Needs you",
   });
   expect(row({ state: "working", status: "Reading 14 new emails" })).toEqual({
     state: "working",
@@ -361,17 +361,34 @@ test.each([
 });
 
 test("waiting for you and needs you win over the working phrase, as Spade says them", () => {
-  expect(row({ state: "waiting", status: "Waiting for you" })).toEqual({
+  expect(row({ state: "waiting", status: "Asks about the hotel" })).toEqual({
     state: "needs-you",
-    line: "Waiting for you",
+    line: "Asks about the hotel",
   });
   expect(row({ state: "waiting", waiting_for: "question", status: "Thinking" })).toEqual({
     state: "needs-you",
-    line: "Asked you a question",
+    line: "Thinking",
   });
   expect(row({ state: "waiting" })).toEqual({ state: "needs-you", line: "Needs you" });
   expect(spadeGroupRow(group({ id: "g", name: "G", state: "waiting" }))).toEqual({
     state: "needs-you",
-    line: "Waiting for you",
+    line: "Needs you",
   });
+});
+
+const botNames = (entries: ReturnType<typeof spadeListEntries>) =>
+  entries.flatMap((entry) => (entry.kind === "bot" ? [entry.bot.name] : []));
+
+test("a bot the roster lists twice is one row, so it opens from one place", () => {
+  const twice = [
+    bot({ id: "trip-planner", name: "Trip planner" }),
+    bot({ id: "trip-planner", name: "Trip planner" }),
+    bot({ id: "other", name: "Other" }),
+  ];
+  expect(
+    botNames(spadeListEntries(twice, [])).filter((name) => name === "Trip planner"),
+  ).toHaveLength(1);
+  expect(
+    botNames(spadeFlatEntries(twice, [])).filter((name) => name === "Trip planner"),
+  ).toHaveLength(1);
 });

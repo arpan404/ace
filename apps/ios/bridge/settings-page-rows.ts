@@ -19,6 +19,7 @@ import {
   limitPolicyChoices,
   remotePushSwitch,
   sortByChoices,
+  unresponsiveAfterChoices,
   type LimitPolicyChoice,
 } from "@ace/ui-core";
 import { webhookWays } from "@ace/ui-core/automations";
@@ -190,12 +191,8 @@ const agents: PageSpec = {
         ),
         menu(
           "threads.unresponsiveAfter",
-          "Mark unresponsive after",
-          choices([
-            { value: "2m", label: "2 minutes" },
-            { value: "5m", label: "5 minutes" },
-            { value: "15m", label: "15 minutes" },
-          ]),
+          titles["threads.unresponsiveAfter"],
+          choices(unresponsiveAfterChoices),
         ),
       ],
     },

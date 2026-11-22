@@ -50,14 +50,12 @@ fn app_call(tool: Mcp) -> Call<'static> {
         org: None,
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     }
 }
 
-fn undeclared_once() -> Route {
-    Route::Ask {
-        line: UNDECLARED.to_owned(),
-        ask: Some(Ask::Undeclared),
-    }
+fn undeclared_reviewed() -> Route {
+    Route::Review(Some(UNDECLARED_REVIEW.to_owned()))
 }
 
 fn asks(line: &str) -> Route {
@@ -121,15 +119,33 @@ fn annotations_lower_an_effect_only_from_a_server_spade_trusts() {
 }
 
 #[test]
-fn an_untrusted_servers_read_only_tool_still_asks_and_a_trusted_ones_reads_without_asking() {
+fn an_untrusted_servers_read_only_hint_reads_nothing_and_a_trusted_ones_reads_without_asking() {
+    // Its hint alone makes nothing a read: the reviewer judges it (ADR 0202, amendment 5).
     let untrusted = app_call(hints(true, false, false, None));
-    assert_eq!(route(untrusted), undeclared_once());
-    // In Full access too: nothing says it doesn't send or pay.
-    let full = Call {
-        mode: Mode::FullAccess,
-        ..untrusted
-    };
-    assert_eq!(route(full), undeclared_once());
+    assert_eq!(route(untrusted), undeclared_reviewed());
+    // In Full access too: an unresolved app tool is reviewed, whether or not the classifier is
+    // on, never run on its say alone.
+    for classifier in [true, false] {
+        let full = Call {
+            mode: Mode::FullAccess,
+            classifier,
+            ..untrusted
+        };
+        assert_eq!(
+            route(full),
+            undeclared_reviewed(),
+            "classifier={classifier}"
+        );
+    }
+    // With untrusted content in view, in either mode, the person decides.
+    for mode in [Mode::AutoReview, Mode::FullAccess] {
+        let tainted = Call {
+            mode,
+            tainted: true,
+            ..untrusted
+        };
+        assert_eq!(route(tainted), asks(UNDECLARED_TAINTED), "{mode:?}");
+    }
 
     let trusted = app_call(hints(true, false, true, None));
     assert_eq!(route(trusted), Route::Run);
@@ -142,7 +158,7 @@ fn an_untrusted_servers_read_only_tool_still_asks_and_a_trusted_ones_reads_witho
 }
 
 #[test]
-fn under_a_package_an_untrusted_servers_tool_needs_network_and_then_asks_each_call() {
+fn under_a_package_an_untrusted_servers_tool_needs_network_and_then_is_reviewed_each_call() {
     let untrusted = |allows: &[Effect]| Call {
         ceiling: package(allows),
         ..app_call(hints(true, false, false, None))
@@ -151,12 +167,12 @@ fn under_a_package_an_untrusted_servers_tool_needs_network_and_then_asks_each_ca
         route(untrusted(&[])),
         Route::Refuse("Watcher doesn't declare reaching outside its own folder.".to_owned())
     );
-    // Declared: still the person's each time, an answer kept for the tool notwithstanding.
+    // Declared: the reviewer's each time, an answer kept for the tool notwithstanding.
     let declared = Call {
         remembered: Some(true),
         ..untrusted(&[Network])
     };
-    assert_eq!(route(declared), asks(UNDECLARED_EACH_TIME));
+    assert_eq!(route(declared), undeclared_reviewed());
     // A trusted server's read needs nothing declared.
     let trusted = Call {
         ceiling: package(&[]),
