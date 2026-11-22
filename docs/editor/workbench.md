@@ -74,12 +74,16 @@ side panel itself into groups (every tool would inherit editor semantics it has 
    minimum, per `allocateRoom`). It asks once per opening, never on tab switches, and a width the
    person dragged afterwards is kept. Below 640px of window the panel takes the canvas as today.
 5. **Layouts by room.** The editor measures its own width:
-   - under 760px (compact): one group visible, explorer stepped aside behind a "Show files" button
-     at the strip's left, and laid over the editor while open, closing once a file is picked;
-   - 760px and up: the explorer docks beside the editor area (left edge, 200–360px, resizable,
-     double-click resets to 236);
-   - extra groups exist in every layout, but under 760px only the focused group shows and its strip
-     names the others in its ⋯ menu ("Group 2: editor-groups.ts").
+   - the explorer docks beside the editor area whenever it shows, at every width, and never lies
+     over the code (left edge, 200–360px, resizable, double-click resets to 236). In a narrow
+     panel it narrows first, down to 160px, so the code keeps 320px;
+   - Hide files (a bare sidebar icon at the left of the explorer's header), Show files (the same
+     icon at the strip's left while it is hidden) and ⌘B inside the editor hide and show it,
+     remembered per thread; hidden, the editor area takes the whole panel (decided 2026-11-21,
+     replacing the compact layout's overlay, which hid the code's left edge);
+   - groups show side by side while each gets 420px; without room the editor asks the panel to
+     widen if it can, and meanwhile one group shows and its strip names the others as words
+     ("Group 1 · Group 2", numbers from three groups on) a click away.
 6. Full view (⇧⌘F outside the editor) gives the editor the whole work area as today; the chat stays
    one panel-strip tab away ("‹ Chat" where full view's way back sits).
 7. The phone-sized web layout keeps today's single-file behaviour: the editor takes the canvas with
