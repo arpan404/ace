@@ -232,7 +232,8 @@ export function spadeDirect(
       .then((result) => {
         if (streams.get(streamId) !== stream) return;
         streams.delete(streamId);
-        if (!result) return ended("unreachable");
+        // Asked again as it ends: enrolled since, Spade's status isn't handed on either.
+        if (!result || off()) return ended("unreachable");
         if (result.kind === "aborted") return;
         if (result.kind === "refused") return ended("refused", result.status);
         ended(result.kind);

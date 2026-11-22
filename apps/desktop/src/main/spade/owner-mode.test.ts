@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -44,4 +44,15 @@ test("a seal written after the last read counts at once, with no cached answer t
   expect(mode.orgHost()).toBe(false);
   seal(dir);
   expect(mode.orgHost()).toBe(true);
+});
+
+test("a seal that is there but can't be read or parsed keeps the home an organization's", () => {
+  // Only a missing seal makes a person's home: anything else fails closed.
+  const garbled = home();
+  writeFileSync(join(garbled, "ace-org-seal.json"), "{not json");
+  writeFileSync(join(garbled, "ace-owner.json"), JSON.stringify({ account: "user_p" }));
+  expect(ownerMode(garbled).orgHost()).toBe(true);
+  const unreadable = home();
+  mkdirSync(join(unreadable, "ace-org-seal.json"));
+  expect(ownerMode(unreadable).orgHost()).toBe(true);
 });

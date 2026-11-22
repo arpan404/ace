@@ -365,3 +365,22 @@ test("an endpoint or health answer that comes back after enrollment is never han
   org = false;
   expect(await direct(dir, () => org).health()).toBeNull();
 });
+
+test("a live stream Spade refuses after enrollment ends unreachable, never with Spade's status", async () => {
+  let org = false;
+  const port = await fakeSpade(tokenA, (_request, response) => {
+    // Enrolled while Spade was deciding; its refusal says something about the conversation.
+    org = true;
+    response.writeHead(403).end();
+  });
+  const { dir, publish } = dataDir();
+  publish(port, tokenA);
+  const end = await new Promise<SpadeLiveEvent>((resolve) =>
+    direct(dir, () => org).openLive(
+      1,
+      { streamId: "s1", path: "/v1/conversations/c1/live?after=0" },
+      (event) => event.kind === "ended" && resolve(event),
+    ),
+  );
+  expect(end).toEqual({ streamId: "s1", kind: "ended", reason: "unreachable" });
+});
