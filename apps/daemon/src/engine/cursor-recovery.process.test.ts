@@ -80,7 +80,7 @@ async function crashAt(
     await exit;
   }
   const store = new Store(path);
-  let diskFull = () => {};
+  let diskFull = nothing;
   if (host.fullAfterBusy) {
     const atomic = store.atomic.bind(store);
     let armed = -1;

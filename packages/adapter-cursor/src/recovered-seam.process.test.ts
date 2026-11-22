@@ -412,12 +412,12 @@ it("a turn an earlier ace build was running shows nothing twice once the new bui
   }
 });
 
+const digest = (key: string) => createHash("sha256").update(key).digest("hex");
+const field = (value: unknown, cut?: number) => JSON.stringify(value ?? null).slice(0, cut);
 /** The stamp an earlier build of this branch gave a tool update: `exact:fingerprint`. */
 function earlierStamp(update: Record<string, unknown>): string {
-  const digest = (key: string) => createHash("sha256").update(key).digest("hex");
   const call = update.toolCall as { args?: unknown; result?: unknown };
   const phase = update.type === "tool-call-completed" ? "ended" : "running";
-  const field = (value: unknown, cut?: number) => JSON.stringify(value ?? null).slice(0, cut);
   const key = (cut?: number) =>
     `tool_call\0${String(update.callId)}\0${phase}\0${field(call.args, cut)}\0${field(call.result, cut)}`;
   return `${digest(key())}:${digest(key(256))}`;
@@ -450,13 +450,10 @@ it("a tool update an earlier build committed but whose stored write it never saw
         .filter((update) => String(update.type).includes("tool-call"))
         .map((update) => [updateIdentity(update) ?? "", earlierStamp(update)]),
     );
-    const old = frames
-      .filter((frame) => frame.kind !== "result")
-      .map((frame) =>
-        frame.pendingEvents
-          ? { ...frame, pendingEvents: frame.pendingEvents.map((id) => earlier.get(id) ?? id) }
-          : frame,
-      );
+    const old = frames.filter((frame) => frame.kind !== "result");
+    for (const frame of old)
+      if (frame.pendingEvents)
+        frame.pendingEvents = frame.pendingEvents.map((id) => earlier.get(id) ?? id);
     // The daemon died right after committing the first partial, before its stored event's offset.
     const cut =
       old.findIndex((frame) => JSON.stringify(frame.body).includes("partial-tool-call")) + 1;
