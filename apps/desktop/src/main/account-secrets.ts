@@ -9,6 +9,13 @@ const available = () =>
   safeStorage.isEncryptionAvailable() &&
   (process.platform !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text");
 
+/** `safeStorage` as the standing key's store uses it, with the same refusal of plaintext. */
+export const safeStorageSealer = {
+  available,
+  seal: (text: string) => safeStorage.encryptString(text),
+  open: (bytes: Buffer) => safeStorage.decryptString(bytes),
+};
+
 /** A single encrypted credential file. Linux's plaintext fallback is refused. */
 export function accountSecrets(directory: string) {
   const path = join(directory, "ace-account.enc");

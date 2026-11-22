@@ -1,4 +1,5 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
+import { orgProbe } from "./org-access/org-probe.ts";
 import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
@@ -588,6 +589,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     resources.own(storage.attach(maintenance), "storage hold");
     storage.start();
     const serviceContext: ServiceContext = {
+      orgHost: orgProbe(config.dataDir),
       signal: lifetime.signal,
       config,
       options,
@@ -686,6 +688,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     });
     await account.load();
     services.marketAgent?.bindAccount(account);
+    serviceContext.orgHost?.bind(account);
     resources.own(() => account.close(), "ace account");
 
     const socketReady = Promise.withResolvers<void>();

@@ -1,11 +1,13 @@
-import type {
-  AccessMode,
-  AutomationSource,
-  AutomationWebhookState,
-  AutomationWebhookVia,
-} from "@ace/protocol";
+import type { AutomationSource, AutomationWebhookState } from "@ace/protocol";
 import { CheckIcon, CopyIcon } from "@ace/icons";
-import { accessLabel } from "@ace/ui-core";
+import {
+  webhookAccessLine,
+  webhookAddressGap,
+  webhookConfirms,
+  webhookSecretNote,
+  webhookViaNames,
+  type WebhookRunsAt,
+} from "@ace/ui-core/automations";
 import { useState, type ReactNode } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { StateWords } from "@/components/hairline-row.tsx";
@@ -24,17 +26,7 @@ import { useAutomationActions } from "@/features/automation-data/index.ts";
  */
 
 const code = "rounded-xs bg-secondary px-1 font-mono text-foreground";
-const viaNames: Record<AutomationWebhookVia, string> = {
-  custom: "Your URL",
-  tailscale: "Tailscale",
-  relay: "ace cloud",
-};
-
-/**
- * Whose access a webhook's runs get (decision 9): an agent's runs in its own thread, at that
- * thread's access; the person's runs at its own access, else read-only.
- */
-type RunsAt = { thread: true } | { thread: false; access: AccessMode | undefined };
+type RunsAt = WebhookRunsAt;
 
 export function WebhookPanel(props: {
   automationId: string;
@@ -87,12 +79,7 @@ export function WebhookPanel(props: {
                 variant="ghost"
                 disabled={busy}
                 onClick={() =>
-                  setConfirming({
-                    title: "Rotate this webhook's secret?",
-                    body: "The current secret stops working at once. Senders need the new one.",
-                    confirm: "Rotate secret",
-                    run: () => send("rotate"),
-                  })
+                  setConfirming({ ...webhookConfirms.rotate, run: () => send("rotate") })
                 }
               >
                 Rotate secret
@@ -103,12 +90,7 @@ export function WebhookPanel(props: {
                 tone="danger"
                 disabled={busy}
                 onClick={() =>
-                  setConfirming({
-                    title: "Revoke this webhook's secret?",
-                    body: "The secret stops working and the address stops answering. A new secret gets a new address.",
-                    confirm: "Revoke",
-                    run: () => send("revoke"),
-                  })
+                  setConfirming({ ...webhookConfirms.revoke, run: () => send("revoke") })
                 }
               >
                 Revoke
@@ -149,18 +131,15 @@ function Address(props: { webhook: AutomationWebhookState | undefined }) {
     return (
       <ul aria-label="Addresses" className="-my-1 flex flex-col gap-1">
         {webhook.urls.map((entry) => (
-          <AddressRow key={entry.via} name={viaNames[entry.via]} url={entry.url} />
+          <AddressRow key={entry.via} name={webhookViaNames[entry.via]} url={entry.url} />
         ))}
       </ul>
     );
-  if (webhook?.problem)
-    return (
-      <p className="text-muted-foreground">
-        <StateWords tone="warn">{webhook.problem}</StateWords>
-      </p>
-    );
+  const gap = webhookAddressGap(webhook);
   return (
-    <p className="text-muted-foreground">{webhook?.active ? "No address" : "No secret yet"}</p>
+    <p className="text-muted-foreground">
+      {gap?.warn ? <StateWords tone="warn">{gap.text}</StateWords> : gap?.text}
+    </p>
   );
 }
 
@@ -188,29 +167,13 @@ function AddressRow(props: { name: string; url: string }) {
 
 /** Read-only by default, quietly; a warning at full access. Other choices need no line. */
 function AccessLine(props: { runsAt: RunsAt }) {
-  if (props.runsAt.thread) return null;
-  if (props.runsAt.access === undefined)
-    return (
-      <p className="text-xs text-muted-foreground">
-        Runs read-only, since a webhook's text comes from outside.
-      </p>
-    );
-  if (props.runsAt.access === "full-access")
-    return (
-      <p className="text-xs text-muted-foreground">
-        <StateWords tone="warn">
-          Anyone with the secret can steer an agent with full access.
-        </StateWords>
-      </p>
-    );
-  return null;
-}
-
-/** What the secret's text reaches, said where it is shown (ADR 0173, Consequences). */
-function reach(runsAt: RunsAt): string {
-  if (runsAt.thread) return "It runs in its agent's thread, at that thread's access.";
-  if (runsAt.access === undefined) return "It runs read-only unless you change its access.";
-  return `It runs with ${accessLabel(runsAt.access)} access.`;
+  const line = webhookAccessLine(props.runsAt);
+  if (!line) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      {line.warn ? <StateWords tone="warn">{line.text}</StateWords> : line.text}
+    </p>
+  );
 }
 
 /** The new secret, once: Copy, what holding it allows, and Done to put it away for good. */
@@ -235,8 +198,7 @@ function SecretReveal(props: { secret: string; runsAt: RunsAt; onDone(): void })
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-          Copy it now: it won't be shown again. Anyone with it can send text into this automation's
-          prompt. {reach(props.runsAt)}
+          {webhookSecretNote(props.runsAt)}
         </p>
         <Button size="sm" variant="ghost" onClick={props.onDone}>
           Done

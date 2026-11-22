@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spadeLooseningRoute } from "@ace/client/spade-person-only";
 
 /*
  * Changes that may loosen what a bot may do (ADR 0171, amendment 7): moving its commands outside
@@ -17,48 +18,8 @@ export interface LooseningWrite {
   optional: true;
 }
 
-const word = { commands: "commands", network: "network", "plugin-network": "plugin_network" };
-type Kind = keyof typeof word;
-const isKind = (kind: string | undefined): kind is Kind => kind !== undefined && kind in word;
-
-function bot(segment: string | undefined): string | undefined {
-  if (segment === undefined) return undefined;
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * The target and the word a loosening change's stamp starts with, from its route alone; undefined
- * for every other request.
- */
-export function looseningRoute(
-  method: string,
-  path: string,
-): { target: string; word: string; inherit: boolean } | undefined {
-  const parts = (path.split("?")[0] ?? "").replace(/^\//, "").split("/");
-  if (parts[0] !== "v1") return undefined;
-  if (method === "PUT" && parts.length === 3 && parts[1] === "security" && isKind(parts[2]))
-    return { target: "machine", word: word[parts[2]], inherit: false };
-  if (parts[1] !== "agents") return undefined;
-  const id = bot(parts[2]);
-  if (id === undefined) return undefined;
-  const rest = parts.slice(3).join("/");
-  if (parts[3] === "security" && parts.length === 5 && isKind(parts[4])) {
-    if (method === "PUT") return { target: id, word: word[parts[4]], inherit: false };
-    if (method === "DELETE" && parts[4] !== "commands")
-      return { target: id, word: word[parts[4]], inherit: true };
-    return undefined;
-  }
-  if (method === "POST" && rest === "grants") return { target: id, word: "grant", inherit: false };
-  if (method === "PUT" && rest === "connectors")
-    return { target: id, word: "connectors", inherit: false };
-  if (method === "PUT" && rest === "package/effects")
-    return { target: id, word: "package_effect", inherit: false };
-  return undefined;
-}
+/** The target and stamp word of a loosening change, from its route alone (shared with the app). */
+export const looseningRoute = spadeLooseningRoute;
 
 /** The stamp's target and value for a loosening change with `body`, over its SHA-256. */
 export function looseningWrite(

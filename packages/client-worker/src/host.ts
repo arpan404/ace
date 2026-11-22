@@ -355,6 +355,7 @@ class Tab {
               nonce: standing.nonce,
               device: standing.device,
               ...(standing.binding === undefined ? {} : { binding: standing.binding }),
+              ...(standing.appSocket ? { appSocket: true as const } : {}),
             },
           }
         : {}),

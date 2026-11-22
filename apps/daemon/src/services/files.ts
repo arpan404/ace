@@ -1,4 +1,5 @@
 import { startSupportFiles } from "./support-files.ts";
+import { conversationBundle } from "./support-files.ts";
 import { fileExportSource } from "../file-export-source.ts";
 import { filesScope } from "../files-scope.ts";
 import { listFolderPage } from "../files-tool/list-folder.ts";
@@ -174,6 +175,7 @@ export function createFilesSession(context: SocketContext): SocketService {
     context.canReadThread(threadId) && context.options.store.hasLiveThread(threadId);
   const resolve = filesScope({
     authorize: (access) => context.authorize(access),
+    conversations: () => context.orgHost?.() !== true,
     threadAccess,
     connected: () => context.connected(),
     options: context.options,
@@ -379,10 +381,22 @@ export function createFilesSession(context: SocketContext): SocketService {
           });
           return true;
         }
+        // A bundle with conversations holds every tree's recent events: an organization's host
+        // makes none and serves none made before it was enrolled (ADR 0209 §3).
+        if (
+          context.orgHost?.() === true &&
+          ((op.op === "artifact.support" && op.includeThreads) ||
+            (op.op === "artifact.download" && conversationBundle(op.artifactId)))
+        ) {
+          context.fail("forbidden", "An organization's host doesn't export conversations.", false, {
+            requestId: message.requestId,
+          });
+          return true;
+        }
         // Conversation exports cover the whole host, so paired/read-only devices cannot ask for them.
         if (
           ((op.op === "artifact.support" && op.includeThreads) ||
-            (op.op === "artifact.download" && op.artifactId.startsWith("local-support-"))) &&
+            (op.op === "artifact.download" && conversationBundle(op.artifactId))) &&
           !(context.local && context.canSubmitSecret?.() && context.authorize("operate"))
         ) {
           context.fail("forbidden", "Conversation export requires local access", false, {

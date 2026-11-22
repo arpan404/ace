@@ -96,6 +96,13 @@ export const requests = {
     }),
     result: None,
   },
+  /**
+   * "Prove me": main proves the app's own sockets with this device's key (ADR 0190, amendment
+   * 1). The page names only the account backend; main fetches the challenge and signs.
+   */
+  "standing.prove": { request: z.object({ origin: AceAccountOrigin }), result: z.boolean() },
+  /** "Enroll": right after a browser sign-in, main makes and enrolls this device's key. */
+  "standing.enroll": { request: z.object({ origin: AceAccountOrigin }), result: z.boolean() },
   /** This computer's daemon's ace account and machine code (ADR 0111). */
   "daemon.account": { request: MachineAccountRequest, result: MachineAccountStatus },
   "keymap.update": {

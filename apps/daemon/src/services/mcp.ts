@@ -1,4 +1,6 @@
 import { createTextRedactor } from "@ace/redaction";
+import { mcpAdmission } from "../org-access/mcp-operations.ts";
+import { serverTrees } from "../org-access/store-trees.ts";
 import { spadeBotAceTools, spadeBrainToolNames, spadeBrainToolkit } from "../spade/brain-tools.ts";
 import { htmlPublication } from "../html-publication.ts";
 import { htmlLayout, htmlPreview, MeasuredLayouts } from "../html-preview.ts";
@@ -314,6 +316,11 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     // Spade's bots act in the browser and on the screen as their own hidden threads.
     (_tool, capability, caller, actingFor) =>
       services.spadeComputers?.actAs(capability, caller, actingFor),
+    // On an org host each call runs as `agent` for its lease's tree (ADR 0209 §6.1).
+    mcpAdmission({
+      org: () => context.orgHost?.org(),
+      trees: serverTrees({ store: context.store }),
+    }),
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
