@@ -78,16 +78,22 @@ const STATEMENTS: &[&str] = &[
     "merge", "replace", "exec", "execute", "call", "upsert", "set", "mutation",
 ];
 
-/// Tool-name words that name a destination: `fetch_url`, `call_webhook`.
-const OUTWARD_NAMES: &[&str] = &[
-    "url", "urls", "uri", "http", "https", "webhook", "endpoint", "curl", "wget",
-];
+/// Tool-name words that name a destination, besides every argument word that does: `fetch_url`.
+const OUTWARD_NAMES: &[&str] = &["http", "https", "curl", "wget"];
+
+/// Destinations inside a longer word, of a name or an argument.
+const OUTWARD_STEMS: &[&str] = &["webhook", "endpoint", "callback", "recipient", "hostname"];
+
+/// How deep a schema or arguments are read; one deeper is unresolved, never taken as plain.
+const DEEPEST: usize = 16;
 
 /// Every property name in `schema` (its `properties`, nested objects, array items and their
-/// `anyOf`/`oneOf`/`allOf` branches) and every key in `arguments`, nested ones included.
-fn keys(value: &Value, out: &mut Vec<String>, depth: usize) {
-    if depth > 16 {
-        return;
+/// `anyOf`/`oneOf`/`allOf` branches) and every key in `arguments`, nested ones included. `false`
+/// when it nests deeper than Spade reads.
+fn keys(value: &Value, out: &mut Vec<String>, depth: usize) -> bool {
+    if depth > DEEPEST {
+        return !matches!(value, Value::Object(map) if !map.is_empty())
+            && !matches!(value, Value::Array(items) if !items.is_empty());
     }
     match value {
         Value::Object(map) => {
@@ -113,46 +119,68 @@ fn keys(value: &Value, out: &mut Vec<String>, depth: usize) {
                 ) {
                     out.push(key.clone());
                 }
-                keys(inner, out, depth + 1);
+                if !keys(inner, out, depth + 1) {
+                    return false;
+                }
             }
+            true
         }
-        Value::Array(items) => items.iter().for_each(|item| keys(item, out, depth + 1)),
-        _ => {}
+        Value::Array(items) => items.iter().all(|item| keys(item, out, depth + 1)),
+        _ => true,
     }
 }
 
-/// Every string value under a key that is a query, anywhere in `arguments`.
-fn queries<'a>(value: &'a Value, out: &mut Vec<&'a str>, depth: usize) {
-    if depth > 16 {
-        return;
+/// Every string under a key that is a query, anywhere in `arguments`, inside lists and objects
+/// given as the query too. `false` when it nests deeper than Spade reads.
+fn queries<'a>(value: &'a Value, out: &mut Vec<&'a str>, depth: usize) -> bool {
+    if depth > DEEPEST {
+        return false;
     }
     match value {
-        Value::Object(map) => {
-            for (key, inner) in map {
-                let named = words(key).iter().any(|word| QUERY.contains(&word.as_str()));
-                match inner {
-                    Value::String(text) if named => out.push(text),
-                    _ => queries(inner, out, depth + 1),
-                }
+        Value::Object(map) => map.iter().all(|(key, inner)| {
+            if words(key).iter().any(|word| QUERY.contains(&word.as_str())) {
+                strings(inner, out, depth + 1)
+            } else {
+                queries(inner, out, depth + 1)
             }
+        }),
+        Value::Array(items) => items.iter().all(|item| queries(item, out, depth + 1)),
+        _ => true,
+    }
+}
+
+/// Every string in `value`, at any depth Spade reads.
+fn strings<'a>(value: &'a Value, out: &mut Vec<&'a str>, depth: usize) -> bool {
+    if depth > DEEPEST {
+        return false;
+    }
+    match value {
+        Value::String(text) => {
+            out.push(text);
+            true
         }
-        Value::Array(items) => items.iter().for_each(|item| queries(item, out, depth + 1)),
-        _ => {}
+        Value::Object(map) => map.values().all(|inner| strings(inner, out, depth + 1)),
+        Value::Array(items) => items.iter().all(|item| strings(item, out, depth + 1)),
+        _ => true,
     }
 }
 
 /// What a call of the tool `name`, with input `schema`, given `arguments`, can reach.
 pub fn shape(name: &str, schema: &Value, arguments: &Value) -> Shape {
     let tool = words(name);
+    let joined = tool.concat();
     if tool
         .iter()
-        .any(|word| OUTWARD_NAMES.contains(&word.as_str()))
+        .any(|word| OUTWARD_NAMES.contains(&word.as_str()) || OUTWARD.contains(&word.as_str()))
+        || OUTWARD_STEMS.iter().any(|stem| joined.contains(stem))
     {
         return Shape::Outward;
     }
     let mut found = Vec::new();
-    keys(schema, &mut found, 0);
-    keys(arguments, &mut found, 0);
+    // Too deep to read whole: what it hides can't be vouched for.
+    if !keys(schema, &mut found, 0) || !keys(arguments, &mut found, 0) {
+        return Shape::Code;
+    }
     let parts: Vec<Vec<String>> = found.iter().map(|key| words(key)).collect();
     let any = |set: &[&str]| {
         parts
@@ -162,9 +190,7 @@ pub fn shape(name: &str, schema: &Value, arguments: &Value) -> Shape {
     if any(OUTWARD)
         || found.iter().any(|key| {
             let key = key.to_lowercase();
-            ["webhook", "endpoint", "callback", "recipient", "hostname"]
-                .iter()
-                .any(|stem| key.contains(stem))
+            OUTWARD_STEMS.iter().any(|stem| key.contains(stem))
         })
     {
         return Shape::Outward;
@@ -175,7 +201,9 @@ pub fn shape(name: &str, schema: &Value, arguments: &Value) -> Shape {
     if any(QUERY) {
         let search = tool.iter().any(|word| SEARCHES.contains(&word.as_str()));
         let mut given = Vec::new();
-        queries(arguments, &mut given, 0);
+        if !queries(arguments, &mut given, 0) {
+            return Shape::Code;
+        }
         let changes = given.iter().any(|text| {
             words(text)
                 .iter()

@@ -110,3 +110,52 @@ fn ordinary_arguments_are_plain() {
         Shape::Plain
     );
 }
+
+#[test]
+fn a_schema_too_deep_to_read_whole_is_unresolved() {
+    let mut deep = json!({ "type": "string" });
+    for _ in 0..40 {
+        deep = json!({ "type": "object", "properties": { "inner": deep } });
+    }
+    assert_ne!(shape("get_page", &deep, &json!({})), Shape::Plain);
+    let mut args = json!("x");
+    for _ in 0..40 {
+        args = json!({ "inner": args });
+    }
+    assert_ne!(shape("get_page", &props(&["id"]), &args), Shape::Plain);
+}
+
+#[test]
+fn a_query_given_as_a_list_or_an_object_is_read_whole() {
+    let search = props(&["query"]);
+    for given in [
+        json!({ "query": ["trip", "x'; UPDATE pages SET owner = 'me"] }),
+        json!({ "query": { "text": "notes", "raw": "DROP TABLE pages" } }),
+        json!({ "query": [{ "q": "DELETE FROM pages" }] }),
+    ] {
+        assert_eq!(shape("search", &search, &given), Shape::Code, "{given}");
+    }
+    assert_eq!(
+        shape("search", &search, &json!({ "query": ["trip", "notes"] })),
+        Shape::Plain
+    );
+}
+
+#[test]
+fn every_destination_word_counts_in_a_tool_name_too() {
+    for name in [
+        "set_host",
+        "add_recipient",
+        "register_callback",
+        "get_endpoint",
+        "send_to",
+        "update_webhook",
+        "notify_email",
+    ] {
+        assert_eq!(
+            shape(name, &props(&["id"]), &json!({})),
+            Shape::Outward,
+            "{name}"
+        );
+    }
+}

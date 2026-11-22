@@ -189,3 +189,38 @@ fn only_a_plain_create_update_edit_append_add_or_set_is_an_ordinary_write() {
         assert_ne!(named(name, ""), Named::Write, "{name}");
     }
 }
+
+#[test]
+fn an_edit_hidden_inside_a_word_keeps_a_name_from_reading() {
+    for name in ["search_andedit", "listAndEdit", "getpageedits2"] {
+        assert_ne!(named(name, ""), Named::Read, "{name}");
+    }
+}
+
+#[test]
+fn an_ordinary_write_has_exactly_one_write_verb_and_no_sensitive_description() {
+    for name in [
+        "create_update_page",
+        "createupdate_page",
+        "add_and_set",
+        "create_pageupdater",
+    ] {
+        assert_ne!(named(name, ""), Named::Write, "{name}");
+    }
+    for description in [
+        "Creates a page and sends it to every subscriber.",
+        "Creates a page and publishes it to the web.",
+        "Creates a page and shares it with the workspace.",
+        "Creates an invoice and charges the card.",
+    ] {
+        assert_ne!(
+            named("create_page", description),
+            Named::Write,
+            "{description}"
+        );
+    }
+    assert_eq!(
+        named("create_page", "Creates a page in a database."),
+        Named::Write
+    );
+}

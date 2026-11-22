@@ -293,6 +293,7 @@ const CHANGES: &[&str] = &[
 const CHANGE_STEMS: &[&str] = &[
     "create",
     "update",
+    "edit",
     "delete",
     "remove",
     "insert",
@@ -396,6 +397,51 @@ const NOT_ORDINARY: &[&str] = &[
     "export",
     "key",
     "owner",
+];
+
+/// Words in a description that say a tool does more than change the app's own content: any one
+/// keeps a name from being an ordinary write.
+const DESCRIBED_SENSITIVE: &[&str] = &[
+    "send",
+    "sends",
+    "sent",
+    "email",
+    "emails",
+    "notify",
+    "notifies",
+    "publish",
+    "publishes",
+    "published",
+    "share",
+    "shares",
+    "shared",
+    "invite",
+    "invites",
+    "pay",
+    "pays",
+    "charge",
+    "charges",
+    "transfer",
+    "transfers",
+    "delete",
+    "deletes",
+    "remove",
+    "removes",
+    "post",
+    "posts",
+    "webhook",
+    "permission",
+    "permissions",
+    "access",
+    "token",
+    "password",
+    "secret",
+    "deploy",
+    "deploys",
+    "message",
+    "messages",
+    "forward",
+    "forwards",
 ];
 
 /// Whole words that only look like a change: an adjective of a read (`list_shared_pages`).
@@ -560,17 +606,26 @@ impl Reading {
                 .any(|word| SENDS.contains(&word.as_str()) && !MESSAGES.contains(&word.as_str()))
     }
 
-    /// An ordinary write verb, no read verb, no other change, nothing an Always allow may not
+    /// Exactly one ordinary write verb, as a whole word, and nothing else that changes anything:
+    /// no read verb, no other change as a word or inside one, nothing an Always allow may not
     /// cover.
     fn writes(&self) -> bool {
-        const PLAIN_STEMS: &[&str] = &["create", "update", "insert", "append"];
-        self.has(WRITES)
+        let verbs = self
+            .words
+            .iter()
+            .filter(|word| WRITES.contains(&word.as_str()))
+            .count();
+        let others: String = self
+            .words
+            .iter()
+            .filter(|word| !WRITES.contains(&word.as_str()) && !BENIGN.contains(&word.as_str()))
+            .map(String::as_str)
+            .collect();
+        verbs == 1
             && !self.has(READS)
             && !self.has(CHANGES)
             && !self.inside(NOT_ORDINARY)
-            && !CHANGE_STEMS
-                .iter()
-                .any(|stem| !PLAIN_STEMS.contains(stem) && self.joined.contains(stem))
+            && !CHANGE_STEMS.iter().any(|stem| others.contains(stem))
     }
 }
 
@@ -601,7 +656,7 @@ pub fn named(name: &str, description: &str) -> Named {
     if read.reads() && !Reading::new(description).has(DESCRIBED_CHANGES) {
         return Named::Read;
     }
-    if read.writes() {
+    if read.writes() && !Reading::new(description).has(DESCRIBED_SENSITIVE) {
         return Named::Write;
     }
     Named::Unclear
