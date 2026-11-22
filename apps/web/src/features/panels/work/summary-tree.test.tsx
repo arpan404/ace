@@ -104,6 +104,35 @@ test("a finished branch folds to one line saying what is inside, and the person'
   );
 });
 
+test("Now counts a waiting approval and leaves its command to the composer's strip", async () => {
+  const { app, work } = await openNested();
+  await agentRow(work, "Check daemon search limits");
+  act(() =>
+    app.daemon.apply(nestedDelegationIds.review, [
+      {
+        type: "interaction.opened",
+        agent: "limits",
+        interaction: "run-it",
+        blocking: true,
+        request: {
+          kind: "approval",
+          title: "Run gh pr merge 1065 --squash?",
+          options: [
+            { id: "allow", kind: "allow_once", label: "Allow once" },
+            { id: "deny", kind: "deny", label: "Deny" },
+          ],
+        },
+      },
+    ]),
+  );
+  const status = await within(work).findByRole("status", {
+    name: "Thread status: Check daemon search limits needs your approval",
+  });
+  expect(status.getAttribute("data-tone")).toBe("needs-you");
+  expect(within(work).getByText("1 request waiting on you")).toBeTruthy();
+  expect(within(work).queryByText(/gh pr merge/)).toBeNull();
+});
+
 test("Now names the agent four threads down that needs the person, and Open goes to it", async () => {
   const { app, work } = await openNested();
   await agentRow(work, "Check daemon search limits");
