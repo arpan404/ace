@@ -16,6 +16,7 @@ export const agentSettingTitles = {
   "threads.followUpBehavior": "Messages sent while the agent works",
   "threads.limitPolicy": "When an account hits its limit",
   "agents.maxRunningChildren": "Agents a thread runs at once",
+  "threads.unresponsiveAfter": "Mark unresponsive after",
   "threads.sortBy": "Sort threads",
   "threads.autoSettleAfter": "Settle done threads",
   "threads.settleOnMerge": "Settle when the PR merges",
@@ -52,6 +53,13 @@ export const autoSettleChoices: readonly SettingChoice<"1d" | "2d" | "1w" | "nev
   { value: "2d", label: "After 2 days" },
   { value: "1w", label: "After a week" },
   { value: "never", label: "Never" },
+];
+
+export type UnresponsiveAfterChoice = "2m" | "5m" | "15m";
+export const unresponsiveAfterChoices: readonly SettingChoice<UnresponsiveAfterChoice>[] = [
+  { value: "2m", label: "2 minutes" },
+  { value: "5m", label: "5 minutes" },
+  { value: "15m", label: "15 minutes" },
 ];
 
 export const sortByChoices: readonly SettingChoice<"activity" | "created" | "manual">[] =

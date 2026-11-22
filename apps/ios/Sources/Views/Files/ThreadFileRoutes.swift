@@ -38,7 +38,7 @@ struct ThreadFileRoutes: ViewModifier {
                 FilesScreen(model: model, scope: .thread(threadId), subtitle: subtitle, mention: mentionAndReturn)
             }
             .navigationDestination(item: $linked) { target in
-                FileScreen(model: model, scope: .thread(threadId), target: target, mention: mentionAndReturn)
+                EditorGroups(model: model, scope: .thread(threadId), target: target, mention: mentionAndReturn)
             }
             .quickLookPreview($preview)
             .overlay(alignment: .top) {

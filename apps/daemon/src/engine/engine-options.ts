@@ -63,6 +63,7 @@ export interface EngineOptions {
   batchScheduler?: Pick<EngineClock, "setTimer">;
   idleMs?: number;
   silenceMs?: number;
+  resolveSilenceMs?: import("./silence.ts").SilenceResolver;
   onError?: (error: unknown) => void;
   /** Stopping part of a settled thread's tree failed: for the log only, never the person. */
   onSettleCleanupFailure?: (thread: ThreadId, error: unknown) => void;

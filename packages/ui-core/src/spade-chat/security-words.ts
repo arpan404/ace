@@ -51,6 +51,10 @@ export function spadeGrantSentence(grant: SpadeGrant): string {
       return `Act in the app ${grant.app}, each step reviewed`;
     case "drive_site":
       return `Act on ${grant.host}, each step reviewed`;
+    case "app":
+      return grant.writes
+        ? `Change things in ${grant.app} without asking`
+        : `Read ${grant.app} without asking`;
     case "other":
       return grant.name ? `Allowed: ${grant.name}` : "Allowed";
   }

@@ -288,7 +288,7 @@ export interface SpadeQuestionCard {
   askedForLater: boolean;
 }
 
-export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive";
+export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive" | "app";
 
 /** Whether the person's answer to a request `stopped` asked holds for that call only. */
 export const spadeAnsweredOnce = (stopped: SpadeStoppedKind | undefined): boolean =>
@@ -306,8 +306,15 @@ export interface SpadeRequest {
   ask?: SpadeAskKind;
   /** Which of Spade's judges put it to the person, when one did. */
   stopped?: SpadeStoppedKind;
-  /** For a driving step, the app or site its "always" allows for the bot. */
+  /**
+   * For a driving step, the app or site its "always" allows for the bot; for a connected app's
+   * write (`ask: "app"`), the connection whose writes the person may allow always.
+   */
   app?: string;
+  /** What the gate read the call as doing (`read`, `network`, `send_as_person`…); absent: undeclared. */
+  effect?: string;
+  /** For a connected app's tool, the definition the person is shown. */
+  definition?: string;
   helper?: { job: string; task: string };
   answer: "allowed" | "denied" | undefined;
   /** Allowed always. */
@@ -327,6 +334,8 @@ export interface SpadeApproval {
   ask?: SpadeAskKind;
   stopped?: SpadeStoppedKind;
   app?: string;
+  effect?: string;
+  definition?: string;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
 }
@@ -662,7 +671,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
           ...(event.ask ? { ask: event.ask } : {}),
           ...(event.stopped ? { stopped: event.stopped } : {}),
-          ...(event.ask === "drive" && event.app ? { app: event.app } : {}),
+          ...((event.ask === "drive" || event.ask === "app") && event.app
+            ? { app: event.app }
+            : {}),
+          ...(event.effect ? { effect: event.effect } : {}),
+          ...(event.tool_key && event.ask !== "undeclared" ? { definition: event.tool_key } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
@@ -675,6 +688,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...request,
           reason: asked.reason,
           ...(asked.stopped ? { stopped: asked.stopped } : {}),
+          ...(asked.effect ? { effect: asked.effect } : {}),
+          ...(asked.definition ? { definition: asked.definition } : {}),
           answer: undefined,
           always: false,
         }))
@@ -689,6 +704,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(asked.ask ? { ask: asked.ask } : {}),
           ...(asked.stopped ? { stopped: asked.stopped } : {}),
           ...(asked.app ? { app: asked.app } : {}),
+          ...(asked.effect ? { effect: asked.effect } : {}),
+          ...(asked.definition ? { definition: asked.definition } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
           answer: undefined,
           always: false,

@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import type { AgentStatus } from "@ace/protocol";
 import { useThread } from "@ace/client-react";
-import { messageText, subagentMeta, subagentTerminal } from "@ace/ui-core";
+import { messageText, subagentMeta, subagentRunning, subagentTerminal } from "@ace/ui-core";
 import {
   spadeAskingWords,
   spadeWorkersTitle,
@@ -14,6 +14,7 @@ import { buttonVariants } from "@/components/ui/button.tsx";
 import {
   AgentRowContents,
   agentRowStyles,
+  SubagentElapsed,
   SubagentFold,
   SubagentSection,
   subagentDetailLine,
@@ -225,6 +226,15 @@ function WorkerRow(props: {
     machine: entry.machine,
     state: entry.state,
     live,
+    // How long it ran, or runs, as ace's own child rows say it: only while what it reads is current.
+    elapsed: live.current && (
+      <SubagentElapsed
+        startedAt={entry.startedAt}
+        endedAt={entry.endedAt}
+        running={subagentRunning(entry.state)}
+        fresh={props.fresh}
+      />
+    ),
     ...detailOf(entry, words, live),
   };
   const box = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);

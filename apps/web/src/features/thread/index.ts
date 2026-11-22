@@ -73,6 +73,7 @@ export { useStopKey } from "./composer/stop-key.ts";
 /** A delegated child's row, a group of them and its answerable request (Spade's worker cards). */
 export { AgentRowContents, agentRowStyles, type AgentRowParts } from "./items/agent-row.tsx";
 export { SubagentFold, SubagentSection } from "./items/subagent-fold.tsx";
+export { SubagentElapsed } from "./items/subagent-row.tsx";
 export { DeferredInteractionCard } from "./interactions/deferred-card.ts";
 export { useOpenRequest } from "./composer/descendant-request.ts";
 export { subagentDetailLine } from "./items/live-words.ts";

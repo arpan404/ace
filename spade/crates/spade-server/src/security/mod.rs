@@ -703,6 +703,30 @@ impl Security {
             spade_core::effect::never_granted(engine.tool_effect(conversation, tool))
         };
         grant::check(&scope, &never).map_err(SecurityError::Invalid)?;
+        // An app's Always allow names each tool as the person saw it (ADR 0202, amendment 5):
+        // each must be that app's, read as an ordinary write, with that definition now.
+        if let Scope::App { app, tools, .. } = &scope {
+            let (engine, conversation) = (engine.as_ref(), conversation.as_deref());
+            for (tool, shown) in tools {
+                let now = engine.zip(conversation).and_then(|(engine, conversation)| {
+                    engine.app_call(conversation, tool, &serde_json::Value::Null)
+                });
+                match now {
+                    Some(call) if &call.app == app && call.reading.grantable => {
+                        if &call.definition != shown {
+                            return Err(SecurityError::Invalid(format!(
+                                "{tool} changed since it was shown, so it can't be allowed always yet"
+                            )));
+                        }
+                    }
+                    _ => {
+                        return Err(SecurityError::Invalid(format!(
+                            "{tool} isn't an ordinary change in that app, so it can't be allowed always"
+                        )));
+                    }
+                }
+            }
+        }
         // A folder is kept as the folder it names, never as a link to it.
         let scope = match scope {
             Scope::Folder { path, write } => Scope::Folder {

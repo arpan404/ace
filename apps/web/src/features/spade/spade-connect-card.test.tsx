@@ -268,6 +268,27 @@ test("a bot's apps suggest the ones that fit its task, each a click from connect
   );
 });
 
+test("a bot's suggested apps leave out the ones not available yet", async () => {
+  await spadeApp("/spade/boards?profile=permissions", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    api.connectors.catalogue.push(linear, {
+      id: "gmail",
+      name: "Gmail",
+      url: "https://gmailmcp.googleapis.com/mcp/v1",
+      sign_in: ["oauth_client"],
+      category: "mail_chat",
+      ready: "later",
+    });
+    api.connectors.fits = ["gmail", "linear"];
+    api.addAgent({ id: "boards", name: "Boards", task: "Triage the issues on our board" });
+  });
+  const suggested = within(await screen.findByRole("region", { name: "Apps that fit" }));
+  expect(await suggested.findByRole("button", { name: "Connect Linear" })).toBeTruthy();
+  expect(suggested.queryByText("Gmail")).toBeNull();
+  expect(suggested.queryByText("Not available yet")).toBeNull();
+});
+
 test("a browser that blocks the sign-in's tab gets it as a link, and the card still follows it", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {

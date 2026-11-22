@@ -180,7 +180,8 @@ async fn a_plugin_server_with_its_network_on_isnt_sealed_and_reaches_the_same_so
     )
     .await?;
     w.spade.say(&w.conversation, "Probe").await?;
-    // Not sealed: a tool that declares nothing asks first.
+    // Not sealed: a tool that declares nothing goes to the reviewer, which this test can't
+    // reach, so the person decides (ADR 0202, amendment 5).
     let events = w
         .spade
         .wait_for(&w.conversation, "approval_requested")
@@ -189,7 +190,7 @@ async fn a_plugin_server_with_its_network_on_isnt_sealed_and_reaches_the_same_so
         .iter()
         .find(|e| e["type"] == "approval_requested")
         .ok_or("not asked")?;
-    assert_eq!(asked["ask"], "undeclared");
+    assert!(asked["ask"].is_null(), "{asked}");
     let (status, _) = w
         .spade
         .post(

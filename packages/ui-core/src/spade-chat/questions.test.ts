@@ -224,6 +224,25 @@ describe("a draft", () => {
     ).toEqual({ missing: "Pick at most 2", at: 0 });
   });
 
+  test("own words answer any choice question, and count as one more pick", () => {
+    const seat: SpadeQuestion = {
+      id: undefined,
+      prompt: "Window or aisle?",
+      kind: "choice",
+      options: ["Window", "Aisle"].map((label) => ({ label, detail: undefined })),
+      other: false,
+    };
+    expect(
+      spadeCardAnswers([seat], [{ kind: "picks", picked: [], other: " Middle, near the front " }]),
+    ).toEqual({ answers: ["Middle, near the front"] });
+    const own = { kind: "picks", picked: ["Dinner"], other: "Brunch" } as const;
+    expect(spadeCardAnswers([meals], [own])).toEqual({ answers: [["Dinner", "Brunch"]] });
+    expect(spadePickCount({ ...meals, max: undefined }, own)).toBe("2 of 4");
+    expect(
+      spadeCardAnswers([meals], [{ kind: "picks", picked: ["Dinner", "Lunch"], other: "Brunch" }]),
+    ).toEqual({ missing: "Pick at most 2", at: 0 });
+  });
+
   test("Send waits for every question, a number in range and a real date shape", () => {
     const [seat, nights] = spadeCardQuestions(seatAndNights, "");
     if (!seat || !nights) throw new Error("no questions");

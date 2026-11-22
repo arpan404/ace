@@ -118,7 +118,7 @@ test("a bot's profile names its panel, head, title, segments and face", async ()
 });
 
 test("a bot's activity rows say how each step went", async () => {
-  await spadeApp("/spade/garden?profile=computer&computer=activity", (spade) => {
+  await spadeApp("/spade/garden?profile=work", (spade) => {
     seed(spade);
     const at = Date.UTC(2026, 10, 12, 9, 30);
     const entry = (seq: number, fields: Record<string, unknown>) => ({

@@ -169,18 +169,77 @@ const tools: Record<string, ToolWords> = {
   },
 };
 
-/** `ace__thread_start` or `ace_thread_start` → "thread start". */
-function plainName(name: string): string {
-  const last = (name.split("__").at(-1) ?? name).replace(/^ace_/, "");
-  return last.replaceAll(/[_-]+/g, " ").trim() || name;
+/** Verbs a tool's name often starts with: how it reads once done, and while doing. */
+const verbs: Record<string, readonly [done: string, doing: string]> = {
+  add: ["Added", "Adding"],
+  create: ["Created", "Creating"],
+  delete: ["Deleted", "Deleting"],
+  duplicate: ["Duplicated", "Duplicating"],
+  edit: ["Edited", "Editing"],
+  fetch: ["Fetched", "Fetching"],
+  find: ["Found", "Finding"],
+  get: ["Got", "Getting"],
+  list: ["Listed", "Listing"],
+  move: ["Moved", "Moving"],
+  post: ["Posted", "Posting"],
+  query: ["Queried", "Querying"],
+  read: ["Read", "Reading"],
+  remove: ["Removed", "Removing"],
+  search: ["Searched", "Searching"],
+  send: ["Sent", "Sending"],
+  update: ["Updated", "Updating"],
+  upload: ["Uploaded", "Uploading"],
+};
+
+/**
+ * A tool's name as words, without its server: `notion__notion-create-pages` → "create pages",
+ * `ace__thread_start` → "thread start". An app's tools often repeat the app's name.
+ */
+function plainWords(name: string): string[] {
+  const at = name.indexOf("__");
+  const app = at < 0 ? "" : name.slice(0, at).toLowerCase();
+  const last = (at < 0 ? name : name.slice(at + 2)).replace(/^ace_/, "");
+  const words = last
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+  return words.length > 1 && app && words[0] === app ? words.slice(1) : words;
 }
 
+/** The app a connector's tool belongs to, as a sentence names it ("Notion"); none for ace's. */
+function appOf(name: string): string | undefined {
+  const at = name.indexOf("__");
+  const app = at < 0 ? "" : name.slice(0, at);
+  return app && app !== "ace" ? app.charAt(0).toUpperCase() + app.slice(1) : undefined;
+}
+
+/**
+ * A tool's words. One this table doesn't know reads by its name: by its verb when it starts with
+ * one ("Created pages in Notion"), else "Used …", with its app named.
+ */
 export function spadeToolWords(name: string): ToolWords {
   // ace's tools arrive under its server's name (`ace__screen_act`).
   const known = tools[name] ?? tools[name.split("__").at(-1) ?? name];
   if (known) return known;
-  const plain = plainName(name);
-  return { base: `use ${plain}`, doing: `Using ${plain}`, done: `Used ${plain}` };
+  const words = plainWords(name);
+  const app = appOf(name);
+  const where = app ? ` in ${app}` : "";
+  if (!words.length) return { base: `use ${name}`, doing: `Using ${name}`, done: `Used ${name}` };
+  const [verb = "", ...rest] = words;
+  const forms = verbs[verb];
+  const tail = rest.length ? ` ${rest.join(" ")}` : "";
+  if (forms)
+    return {
+      base: `${verb}${tail}${where}`,
+      doing: `${forms[1]}${tail}${where}`,
+      done: `${forms[0]}${tail}${where}`,
+    };
+  const plain = words.join(" ");
+  return {
+    base: `use ${plain}${where}`,
+    doing: `Using ${plain}${where}`,
+    done: `Used ${plain}${where}`,
+  };
 }
 
 /** The approval's one sentence: "Spade wants to send an email." `who`: the bot asking. */

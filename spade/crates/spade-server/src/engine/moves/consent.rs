@@ -18,6 +18,7 @@ fn grant_words(grant: &Grant) -> String {
         Scope::Tool { tool, .. } => format!("running {tool} without asking"),
         Scope::DriveApp { app } => format!("driving {app}"),
         Scope::DriveSite { host } => format!("driving {host}"),
+        Scope::App { app, .. } => format!("changes in the app {app} without asking"),
     }
 }
 
