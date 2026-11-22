@@ -134,3 +134,17 @@ test("an enrollment cut off after its seal leaves a sealed home: its old owner n
   expect(await owner.enroll("user_p", "org_other", owner.generation(), () => {})).toBe(false);
   expect(await readFile(join(root, "ace-org-seal.json"), "utf8")).toBe(sealed);
 });
+
+test("an owner record naming another organization than the seal never rewrites the seal", async () => {
+  // A mismatch fails closed: the seal stands, and the record answers for no organization.
+  const { root } = await owned();
+  const sealed = JSON.stringify({ kind: "org-seal", org: "org_first" });
+  await writeFile(join(root, "ace-org-seal.json"), sealed);
+  await writeFile(join(root, "ace-owner.json"), JSON.stringify({ kind: "org", org: "org_other" }));
+  const owner = machineOwner(root);
+  await owner.load();
+  expect(await readFile(join(root, "ace-org-seal.json"), "utf8")).toBe(sealed);
+  expect(owner.sealed()).toBe("org_first");
+  expect(owner.org()).toBeUndefined();
+  expect(await owner.claim("user_p", owner.generation())).toBe(false);
+});

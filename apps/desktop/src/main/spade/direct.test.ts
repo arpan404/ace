@@ -349,3 +349,19 @@ test("without any watch event, a frame or an answer arriving after enrollment is
   expect(events.filter((event) => event.kind === "frame")).toHaveLength(1);
   expect(events.at(-1)).toMatchObject({ kind: "ended", reason: "unreachable" });
 });
+
+test("an endpoint or health answer that comes back after enrollment is never handed on", async () => {
+  // Enrolled while Spade was proving it holds its token.
+  let org = false;
+  const port = await fakeSpade(tokenA, () => {}, {
+    proof: (nonce) => {
+      org = true;
+      return spadeProof(tokenA, nonce);
+    },
+  });
+  const { dir, publish } = dataDir();
+  publish(port, tokenA);
+  expect(await direct(dir, () => org).endpoint()).toBeNull();
+  org = false;
+  expect(await direct(dir, () => org).health()).toBeNull();
+});

@@ -13,10 +13,7 @@ const OrgOwner = z.object({ kind: z.literal("org") });
 /** A released or enrolling org host's seal (ADR 0209 amendment 1): it stays an org's home. */
 const OrgSeal = z.object({ kind: z.literal("org-seal") });
 
-export function ownerMode(home: string | undefined, now: () => number) {
-  /** Kept at most this long when no change was heard, in case a watch event was lost. */
-  const staleMs = 1_000;
-  let read: { org: boolean; at: number } | undefined;
+export function ownerMode(home: string | undefined) {
   const holds = (file: string, schema: z.ZodType): boolean => {
     if (home === undefined) return false;
     try {
@@ -29,14 +26,14 @@ export function ownerMode(home: string | undefined, now: () => number) {
   const readNow = (): boolean =>
     holds("ace-org-seal.json", OrgSeal) || holds("ace-owner.json", OrgOwner);
   return {
-    /** Whether the daemon's home is an organization's host now. */
+    /**
+     * Whether the daemon's home is an organization's host now: read afresh on every ask, since
+     * each send and each reply asks (ADR 0209 §3). Two small files; nothing is cached.
+     */
     orgHost(): boolean {
-      if (!read || now() - read.at > staleMs) read = { org: readNow(), at: now() };
-      return read.org;
+      return readNow();
     },
-    /** The file changed: read it on the next ask. */
-    changed(): void {
-      read = undefined;
-    },
+    /** A file changed: nothing is cached, so the next ask reads it anyway. */
+    changed(): void {},
   };
 }

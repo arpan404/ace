@@ -161,7 +161,8 @@ export class ParcelLink {
           token: profile.token,
         },
         body,
-        options,
+        // Asked once its stream is up, before the frame goes (ADR 0209 §4.2).
+        { ...options, current: () => !this.closed() },
       );
     const saved = route.path === "saved";
     return this.deps.pinned(

@@ -70,6 +70,8 @@ export function spadeDirect(
 
   /** Spade's health, from the Spade at `spade` that holds its token only; marks it trusted. */
   async function check(spade: LocalSpade): Promise<SpadeHealth | undefined> {
+    // No proof request leaves for Spade from an organization's host either.
+    if (off()) return undefined;
     const answer = await proveSpade(spade, options.nonce(), AbortSignal.timeout(healthMs));
     if (answer) trusted.set(spade, Promise.resolve(true));
     return answer;
@@ -163,7 +165,8 @@ export function spadeDirect(
   async function endpoint(): Promise<SpadeEndpointInfo> {
     if (off()) return null;
     const spade = await trustedSpade();
-    if (!spade) return null;
+    // Asked again as it answers: the proof took time, and the home may be enrolled since.
+    if (!spade || off()) return null;
     const { version, api, hostId } = spade;
     return { address: `${spade.host}:${spade.port}`, version, api, hostId };
   }
@@ -177,7 +180,7 @@ export function spadeDirect(
       const again = await endpoints.refresh();
       if (again && !sameSpade(spade, again)) answer = await check(again);
     }
-    if (!answer) return null;
+    if (!answer || off()) return null;
     return {
       ...(answer.version === undefined ? {} : { version: answer.version }),
       ...(answer.api === undefined ? {} : { api: answer.api }),

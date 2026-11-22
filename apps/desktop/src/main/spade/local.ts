@@ -40,7 +40,7 @@ export function localSpade(options: { home: string | undefined; onChange(): void
   });
   // On an organization's host the direct path is off (ADR 0209 §3): its windows reach Spade
   // through their proven member socket. A change of owner ends every direct stream now.
-  const mode = ownerMode(options.home, Date.now);
+  const mode = ownerMode(options.home);
   const direct = spadeDirect(endpoints, { nonce: newSpadeNonce, orgHost: () => mode.orgHost() });
   let owner: ReturnType<typeof watch> | undefined;
   try {

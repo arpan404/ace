@@ -102,8 +102,11 @@ export function machineOwner(dataDir: string) {
       } catch {
         seal = undefined;
       }
-      // A home given to an organization before seals existed is sealed now.
-      if (owner?.kind === "org" && seal !== owner.org) await writeSeal(owner.org);
+      // A home given to an organization before seals existed is sealed now; only a home with no
+      // seal at all. A seal for another organization than the owner record stands, and the
+      // record answers for nobody: the mismatch fails closed.
+      if (owner?.kind === "org" && seal === undefined) await writeSeal(owner.org);
+      else if (owner?.kind === "org" && seal !== owner.org) owner = undefined;
     },
     /** The organization whose data this home holds, enrolled or released; undefined if none. */
     sealed: (): string | undefined => seal,

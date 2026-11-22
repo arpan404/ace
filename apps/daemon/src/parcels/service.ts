@@ -111,6 +111,11 @@ export function startParcels(context: ServiceContext): void {
   if (unfollowLinks) resources.own(unfollowLinks);
   // An organization's host sends nothing by a machine route (ADR 0209 §4.2).
   const orgHost = () => context.orgHost?.org() !== undefined;
+  // Enrollment itself ends every parcel call in flight (ADR 0209 §4.2).
+  const stopHalting = context.orgHost?.onChange?.(() => {
+    if (orgHost()) link.halt();
+  });
+  if (stopHalting) resources.own(stopHalting);
   const link = new ParcelLink({
     orgHost,
     pinned: options.parcels?.pinned ?? pinnedRequest,

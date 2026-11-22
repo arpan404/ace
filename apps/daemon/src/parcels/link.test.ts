@@ -170,3 +170,28 @@ describe("a parcel call in flight when its machine is enrolled", () => {
     await expect(going).rejects.toBeDefined();
   });
 });
+
+describe("a parcel call through a relay", () => {
+  it("is asked about the machine's mode once its stream is up, before the frame goes", async () => {
+    const state = { orgHost: false };
+    let relayCheck: (() => boolean) | undefined;
+    const relayed = new ParcelLink({
+      pinned: () => Promise.reject(new MachineFailure("offline")),
+      relay: {
+        call: (_target, _body, options) => {
+          relayCheck = Reflect.get(options, "current");
+          return Promise.resolve({ ok: true });
+        },
+      },
+      paths: () => [],
+      hosted: () => false,
+      current: () => true,
+      orgHost: () => state.orgHost,
+      now: () => 1000,
+    });
+    await relayed.relays(profile, chunk, timing);
+    expect(relayCheck?.()).toBe(true);
+    state.orgHost = true;
+    expect(relayCheck?.()).toBe(false);
+  });
+});

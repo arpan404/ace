@@ -132,6 +132,16 @@ export class ParcelPuller {
   }
   private async take(profile: RemoteProfile, entry: OutboxParcel, signal: AbortSignal) {
     const { deps } = this;
+    // Asked at each write and at placement: an organization's host keeps nothing more of it.
+    const enrolled = () => {
+      if (deps.link.closed())
+        throw new MachineFailure(
+          "refused",
+          "machine_forbidden",
+          "An organization's host takes no parcels.",
+          true,
+        );
+    };
     const { parcel } = entry;
     const child = deps.remoteChild(entry.from);
     const ours = child && child.machine === profile.name && child.parentThread === entry.to;
@@ -206,12 +216,12 @@ export class ParcelPuller {
         }
         // Enrolled while it was on its way: nothing more of it is kept or handed on.
         if (deps.link.closed()) return;
-        await deps.files.append(row.parcelId, range.offset, bytes);
+        await deps.files.append(row.parcelId, range.offset, bytes, enrolled);
         held += bytes.length;
         deps.rows.updateIn(row.parcelId, { held }, deps.now());
       }
       try {
-        await deps.files.finish(row.parcelId, parcel.name, parcel.size, parcel.sha256);
+        await deps.files.finish(row.parcelId, parcel.name, parcel.size, parcel.sha256, enrolled);
       } catch (error) {
         if (error instanceof ParcelFileError && error.code === "corrupt") {
           // Read again from the start, a few times at most; then it is refused.

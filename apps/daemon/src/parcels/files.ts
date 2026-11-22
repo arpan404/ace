@@ -127,8 +127,10 @@ export class ParcelFiles {
     }
   }
   /** Writes `bytes` at `offset`, dropping anything past it first (a crash's partial write). */
-  async append(parcelId: string, offset: number, bytes: Buffer): Promise<void> {
+  /** `guard` is asked right before the bytes are written; a throw writes nothing. */
+  async append(parcelId: string, offset: number, bytes: Buffer, guard?: () => void): Promise<void> {
     await this.dir("in");
+    guard?.();
     const file = await open(this.part(parcelId), constants.O_WRONLY | constants.O_CREAT, 0o600);
     try {
       await file.truncate(offset);
@@ -141,7 +143,14 @@ export class ParcelFiles {
    * Checks the whole arriving file against `sha256` and places it read-only under its name.
    * A mismatch removes it, so the sender starts over.
    */
-  async finish(parcelId: string, name: string, size: number, sha256: string): Promise<string> {
+  async finish(
+    parcelId: string,
+    name: string,
+    size: number,
+    sha256: string,
+    /** Asked right before the parcel is placed under its name; a throw places nothing. */
+    guard?: () => void,
+  ): Promise<string> {
     const part = this.part(parcelId);
     await this.dir("in");
     // An empty parcel never had a chunk written: its file is made here.
@@ -168,6 +177,7 @@ export class ParcelFiles {
     await mkdir(folder, { recursive: true, mode: 0o700 });
     const placed = join(folder, name);
     await chmod(part, 0o400);
+    guard?.();
     await rename(part, placed);
     return placed;
   }

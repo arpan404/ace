@@ -25,13 +25,23 @@ const seal = (dir: string) =>
 test("a sealed home is an organization's, released or reset, and a person's home isn't", () => {
   const released = home();
   seal(released);
-  expect(ownerMode(released, Date.now).orgHost()).toBe(true);
+  expect(ownerMode(released).orgHost()).toBe(true);
   // A person's owner record beside the seal changes nothing.
   const claimed = home();
   seal(claimed);
   writeFileSync(join(claimed, "ace-owner.json"), JSON.stringify({ account: "user_p" }));
-  expect(ownerMode(claimed, Date.now).orgHost()).toBe(true);
+  expect(ownerMode(claimed).orgHost()).toBe(true);
   const personal = home();
   writeFileSync(join(personal, "ace-owner.json"), JSON.stringify({ account: "user_p" }));
-  expect(ownerMode(personal, Date.now).orgHost()).toBe(false);
+  expect(ownerMode(personal).orgHost()).toBe(false);
+});
+
+test("a seal written after the last read counts at once, with no cached answer to wait out", () => {
+  // ADR 0209 §3: every send and reply asks afresh.
+  const dir = home();
+  writeFileSync(join(dir, "ace-owner.json"), JSON.stringify({ account: "user_p" }));
+  const mode = ownerMode(dir);
+  expect(mode.orgHost()).toBe(false);
+  seal(dir);
+  expect(mode.orgHost()).toBe(true);
 });
