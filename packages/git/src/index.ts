@@ -1,6 +1,5 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
 import { excludeAcePrivate } from "./ace-private.ts";
-import type { CommitOutcome } from "./reviewed-commit.ts";
 import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
@@ -27,14 +26,7 @@ import {
   type ProjectGitPolicy,
 } from "./projects.ts";
 import { forgetIntegrations, integrateRevision } from "./integration.ts";
-import {
-  commitChanges,
-  commitReviewedChanges,
-  pushBranch,
-  probeRemote,
-  listBranches,
-  switchBranch,
-} from "./actions.ts";
+import { commitChanges, pushBranch, probeRemote, listBranches, switchBranch } from "./actions.ts";
 import { pushLeasedRefs, type LeasedPushOptions } from "./leased-push.ts";
 import {
   continueStackReplay,
@@ -283,7 +275,7 @@ export class GitService {
     return outcome.value;
   }
 
-  /** Commit every change, only `paths`, or only what is already staged; optionally amend HEAD. */
+  /** Commit every change, only `paths`, or only what is already staged. */
   commit(options: {
     worktree: string;
     message: string;
@@ -291,16 +283,8 @@ export class GitService {
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
     stagedOnly?: boolean | undefined;
-    amend?: boolean | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
-  }
-  /**
-   * Commit exactly what the person reviewed: the staged index matching `expectedIndex`, or HEAD
-   * plus the `reviewed` files. `branchMoved` says the branch had moved past the reviewed HEAD.
-   */
-  commitReviewed(options: Parameters<typeof commitReviewedChanges>[1]): Promise<CommitOutcome> {
-    return commitReviewedChanges(this.repository, options);
   }
   /** The files `git status` reports, with lines changed against HEAD (first `limit`). */
   changedFiles(

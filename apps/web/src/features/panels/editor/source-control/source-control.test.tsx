@@ -98,7 +98,7 @@ test("stages, unstages, and multi-select stages files between Changes and Staged
   });
 });
 
-test("commits staged changes, generates a commit message, Commit and push, and asks before amending a pushed commit", async () => {
+test("Commit takes only what is staged; with nothing staged it stages the listed files, then commits", async () => {
   const { app, explorer } = await openSourceControl();
   app.daemon.workspace.setDraftGenerator(async () => ({
     subject: "Add source control panel",
@@ -116,41 +116,40 @@ test("commits staged changes, generates a commit message, Commit and push, and a
     ),
   );
 
-  // Commit staged changes via the primary Commit button.
+  // Commit is the staged file only: the unstaged and untracked files stay listed as changes.
   await userEvent.click(within(explorer).getByRole("button", { name: "Commit" }));
   await waitFor(() => {
     expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(1);
-    expect(app.daemon.workspace.sourceControl.commits(thread)[0]?.stagedOnly).toBe(true);
     expect((box as HTMLTextAreaElement).value).toBe("");
   });
+  expect(app.daemon.workspace.sourceControl.commits(thread)[0]).toMatchObject({
+    stagedOnly: true,
+    paths: [],
+  });
+  const changes = await within(explorer).findByRole("region", { name: "Changes" });
+  expect(
+    within(changes)
+      .getAllByRole("option")
+      .map((row) => row.textContent),
+  ).toEqual([expect.stringContaining("app"), expect.stringContaining("new")]);
 
-  // Commit and push via the split button's menu commits remaining changes and pushes.
+  // Nothing staged now: the button stages the listed files, then commits the index.
   await userEvent.type(box, "Finish remaining changes");
   await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Commit and push" }));
+  await userEvent.click(
+    await screen.findByRole("menuitem", { name: "Stage all, commit and push" }),
+  );
   await waitFor(() => {
     expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(2);
     expect(within(explorer).getByText("No changes in this checkout.")).toBeTruthy();
   });
-
-  // The last commit is pushed now: amending it asks first, and Cancel leaves it alone.
-  await userEvent.type(box, "Finish remaining changes (amended)");
-  await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Amend" }));
-  const ask = await screen.findByRole("dialog");
-  expect(ask.textContent).toContain("Amend a pushed commit?");
-  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
-  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(2);
-
-  // Confirmed, the amend works even with a clean working tree.
-  await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Amend" }));
-  await userEvent.click(
-    within(await screen.findByRole("dialog")).getByRole("button", { name: "Amend anyway" }),
-  );
-  await waitFor(() => {
-    expect(app.daemon.workspace.sourceControl.commits(thread).at(-1)?.amend).toBe(true);
+  expect(app.daemon.workspace.sourceControl.commits(thread)[1]).toMatchObject({
+    stagedOnly: true,
+    paths: [],
   });
+  // Amend isn't offered in this view.
+  await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
+  expect(screen.queryByRole("menuitem", { name: /Amend/ })).toBeNull();
 });
 
 test("Open changes opens the file diff in the editor via editor-compare, and Open file returns to editing", async () => {
@@ -181,40 +180,6 @@ test("a failed fetch still shows what it learned, alongside the error", async ()
   await userEvent.click(await within(explorer).findByRole("button", { name: "Fetch" }));
   await within(explorer).findByRole("alert");
   await within(explorer).findByLabelText("3 behind");
-});
-
-test("Commit takes exactly the changes shown, and keeps them when one changed after the review", async () => {
-  const { app, explorer } = await openSourceControl({
-    branch: "main",
-    unstaged: [{ path: "src/app.ts", status: "modified" }],
-  });
-  const box = await within(explorer).findByRole("textbox", { name: "Commit message" });
-  await userEvent.type(box, "Bump version");
-  // Something writes to the file after the view read it.
-  app.daemon.workspace.touchSourceControl(thread, "src/app.ts");
-  await userEvent.click(within(explorer).getByRole("button", { name: "Commit" }));
-  await waitFor(() => {
-    expect(within(explorer).getByRole("alert").textContent).toContain(
-      "changed after you reviewed it",
-    );
-  });
-  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(0);
-  // Read again, the same Commit goes through.
-  await userEvent.click(within(explorer).getByRole("button", { name: "Commit" }));
-  await waitFor(() => expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(1));
-});
-
-test("a commit that landed on a moved branch says so in words", async () => {
-  const { app, explorer } = await openSourceControl({
-    branch: "main",
-    staged: [{ path: "src/staged.ts", status: "added" }],
-    branchMovesOnCommit: true,
-  });
-  const box = await within(explorer).findByRole("textbox", { name: "Commit message" });
-  await userEvent.type(box, "Add staged file");
-  await userEvent.click(within(explorer).getByRole("button", { name: "Commit" }));
-  await screen.findByText("Committed, but the branch had moved: check the history");
-  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(1);
 });
 
 test("one Git action at a time: Commit waits while a stage is still finishing", async () => {

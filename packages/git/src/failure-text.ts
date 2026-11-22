@@ -42,11 +42,8 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   push_lease_stale: "The remote branch moved past the leased revision; fetch and review first",
   path_outside_repo: "Path is outside the repository",
   no_upstream: "This repository has no remote to fetch from",
-  changed_since_review: "A file changed after you reviewed it; look again before committing",
-  amend_published: "A remote already has this commit; amending rewrites it",
   private_path_staged:
     "ace's own Recently deleted files are staged; unstage them before committing",
-  index_moved: "The staged changes moved after you reviewed them; look again before committing",
 };
 
 /** One plain sentence for a failed command's cause. What Git wrote stays in `details.stderr`. */

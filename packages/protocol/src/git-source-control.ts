@@ -18,8 +18,6 @@ export const GitStatusSectionEntry = z.object({
   /** A rename's old path. */
   from: repoPath.optional(),
   status: z.enum(["added", "modified", "deleted", "renamed", "untracked", "conflicted"]),
-  /** The file as this status read it; a commit of it quotes it back (`reviewed`). */
-  fingerprint: z.string().min(1).max(200),
 });
 export type GitStatusSectionEntry = z.infer<typeof GitStatusSectionEntry>;
 

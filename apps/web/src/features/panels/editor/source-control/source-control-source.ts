@@ -124,17 +124,13 @@ export function unstageFiles(
   });
 }
 
+/** Commit the index as it is: the person's own `git commit` of what they staged. */
 export function commitChanges(
   client: ClientApi,
   threadId: string,
   options: {
     message: string;
     expectedHead: string | null;
-    expectedIndex?: string | undefined;
-    reviewed?: readonly { path: string; fingerprint: string }[] | undefined;
-    stagedOnly?: boolean | undefined;
-    amend?: boolean | undefined;
-    amendPublished?: boolean | undefined;
     draftFingerprint?: string | undefined;
   },
 ): Promise<CommandResult> {
@@ -143,18 +139,8 @@ export function commitChanges(
     threadId: tid(threadId),
     message: options.message,
     expectedHead: options.expectedHead,
-    ...(options.expectedIndex ? { expectedIndex: options.expectedIndex } : {}),
-    ...(options.reviewed?.length
-      ? {
-          reviewed: options.reviewed.map((file) => ({
-            path: file.path,
-            fingerprint: file.fingerprint,
-          })),
-        }
-      : {}),
-    ...(options.stagedOnly ? { stagedOnly: true } : {}),
-    ...(options.amend ? { amend: true } : {}),
-    ...(options.amendPublished ? { amendPublished: true } : {}),
+    // The index as it is: what the person staged, nothing more.
+    stagedOnly: true,
     ...(options.draftFingerprint ? { draftFingerprint: options.draftFingerprint } : {}),
   });
 }

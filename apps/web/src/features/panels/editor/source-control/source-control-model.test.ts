@@ -15,16 +15,16 @@ describe("source-control-model", () => {
       kind: "gitStatus",
       files: [],
       truncated: false,
-      conflicted: [{ path: "src/merge.ts", status: "conflicted", fingerprint: "f" }],
+      conflicted: [{ path: "src/merge.ts", status: "conflicted" }],
       staged: [
-        { path: "src/app.ts", status: "modified", fingerprint: "f" },
-        { path: "src/renamed.ts", from: "src/old.ts", status: "renamed", fingerprint: "f" },
+        { path: "src/app.ts", status: "modified" },
+        { path: "src/renamed.ts", from: "src/old.ts", status: "renamed" },
       ],
       unstaged: [
-        { path: "src/app.ts", status: "modified", fingerprint: "f" },
-        { path: "src/removed.ts", status: "deleted", fingerprint: "f" },
+        { path: "src/app.ts", status: "modified" },
+        { path: "src/removed.ts", status: "deleted" },
       ],
-      untracked: [{ path: "src/brand-new.ts", status: "untracked", fingerprint: "f" }],
+      untracked: [{ path: "src/brand-new.ts", status: "untracked" }],
     });
 
     expect(sections.conflicts.map((item) => [item.path, item.letter])).toEqual([
@@ -73,14 +73,13 @@ describe("source-control-model", () => {
     expect([...sel.selected]).toEqual(["a.ts"]);
   });
 
-  test("canCommitChanges blocks commits with empty message or unresolved conflicts", () => {
+  test("canCommitChanges needs a message, no conflicts, and something to commit", () => {
     expect(
       canCommitChanges({
         message: "   ",
         stagedCount: 1,
         changesCount: 0,
         conflictsCount: 0,
-        amend: false,
       }),
     ).toBe(false);
     expect(
@@ -89,7 +88,6 @@ describe("source-control-model", () => {
         stagedCount: 1,
         changesCount: 0,
         conflictsCount: 1,
-        amend: false,
       }),
     ).toBe(false);
     expect(
@@ -98,8 +96,7 @@ describe("source-control-model", () => {
         stagedCount: 0,
         changesCount: 0,
         conflictsCount: 0,
-        amend: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

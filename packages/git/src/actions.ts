@@ -3,9 +3,8 @@ import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
-import { GitError, type PushOptions, type ReviewedFile } from "./types.ts";
+import { GitError, type PushOptions } from "./types.ts";
 import { excludeAcePrivate, isAcePrivate, personPathspecs } from "./ace-private.ts";
-import { reviewedCommit, type CommitOutcome } from "./reviewed-commit.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -37,8 +36,8 @@ export async function commitChanges(
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    /** Commit the index as it is: what the person staged, nothing more. */
     stagedOnly?: boolean | undefined;
-    amend?: boolean | undefined;
     beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
@@ -54,8 +53,6 @@ export async function commitChanges(
     const info = await read(() => repository.info(root));
     if (info.head !== expected)
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
-    if (options.amend && info.head === null)
-      throw new GitError("unborn_head", "Cannot amend before the first commit");
     const status = await read(() => repository.status(root));
     if (options.draftFingerprint) {
       // A staged-only commit's draft was written for the staged files.
@@ -75,7 +72,7 @@ export async function commitChanges(
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
     const literal = { GIT_LITERAL_PATHSPECS: "1" };
     if (options.stagedOnly && !paths) {
-      if (!options.amend && status.staged.length === 0)
+      if (status.staged.length === 0)
         throw new GitError("nothing_to_commit", "There is nothing staged to commit");
     } else {
       const named = paths ? [...new Set(paths.data)] : ["."];
@@ -101,12 +98,7 @@ export async function commitChanges(
     const named = paths ? [...new Set(paths.data)] : [];
     await repository.cli.call(
       root,
-      [
-        "commit",
-        "--file=-",
-        ...(options.amend ? ["--amend"] : []),
-        ...(paths ? ["--only", "--", ...named] : []),
-      ],
+      ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],
       {
         write: true,
         beforeSpawn: options.beforeCommit,
@@ -131,66 +123,6 @@ const ExpectedPushTarget = z.object({
   pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
 });
 const BranchNames = z.array(z.string().min(1).max(1024)).max(1001);
-/**
- * Commit exactly what the person reviewed in Source control: the staged index matching
- * `expectedIndex`, or HEAD plus the `reviewed` files (see `reviewedCommit`).
- */
-export async function commitReviewedChanges(
-  repository: Repository,
-  options: {
-    worktree: string;
-    message: string;
-    expectedHead: string | null;
-    draftFingerprint?: string | undefined;
-    amend?: boolean | undefined;
-    /** Amend even though a remote already has the commit. */
-    amendPublished?: boolean | undefined;
-    beforeCommit?: (() => void) | undefined;
-  } & (
-    | { expectedIndex: string; reviewed?: undefined }
-    | { reviewed: readonly ReviewedFile[]; expectedIndex?: undefined }
-  ),
-): Promise<CommitOutcome> {
-  const message = z.string().trim().min(1).max(maxCommitMessageLength).parse(options.message);
-  const expected = head.nullable().parse(options.expectedHead);
-  // ace's own reads keep the checkout's protections; `commit` is the person's.
-  const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
-  const root = await read(() => repository.root(options.worktree));
-  return repository.serial(root, async () => {
-    const info = await read(() => repository.info(root));
-    if (info.head !== expected)
-      throw new GitError("head_moved", "HEAD changed; refresh before committing");
-    if (options.amend && info.head === null)
-      throw new GitError("unborn_head", "Cannot amend before the first commit");
-    const status = await read(() => repository.status(root));
-    if (status.conflicted.length)
-      throw new GitError("conflicts", "Resolve conflicts before committing");
-    if (options.draftFingerprint) {
-      // The draft was written for the files committed: the reviewed ones, or the staged ones.
-      const drafted = options.reviewed
-        ? options.reviewed.map((file) => file.path)
-        : status.staged.map((entry) => entry.path);
-      if (
-        !drafted.length ||
-        (await read(() => writingContext(repository, root, { kind: "commit", paths: drafted })))
-          .fingerprint !== options.draftFingerprint
-      )
-        throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
-    }
-    return reviewedCommit(repository, {
-      root,
-      message,
-      head: info.head,
-      amend: Boolean(options.amend),
-      amendPublished: Boolean(options.amendPublished),
-      expectedIndex: options.expectedIndex,
-      reviewed: options.reviewed,
-      beforeCommit: options.beforeCommit,
-      read,
-    });
-  });
-}
-
 export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
   const remote = remoteName.parse(options.remote);
   const expected =

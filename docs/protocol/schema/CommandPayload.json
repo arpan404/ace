@@ -889,12 +889,6 @@
     },
     {
       "properties": {
-        "amend": {
-          "type": "boolean"
-        },
-        "amendPublished": {
-          "type": "boolean"
-        },
         "draftFingerprint": {
           "pattern": "^[a-f0-9]{64}$",
           "type": "string"
@@ -910,10 +904,6 @@
             }
           ]
         },
-        "expectedIndex": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
-        },
         "message": {
           "maxLength": 65536,
           "minLength": 1,
@@ -926,31 +916,6 @@
             "minLength": 1,
             "type": "string",
             "x-ace-constraint": "Repository-relative path without NUL bytes."
-          },
-          "maxItems": 1000,
-          "minItems": 1,
-          "type": "array"
-        },
-        "reviewed": {
-          "items": {
-            "properties": {
-              "fingerprint": {
-                "maxLength": 200,
-                "minLength": 1,
-                "type": "string"
-              },
-              "path": {
-                "maxLength": 4096,
-                "minLength": 1,
-                "type": "string",
-                "x-ace-constraint": "Repository-relative path without NUL bytes."
-              }
-            },
-            "required": [
-              "path",
-              "fingerprint"
-            ],
-            "type": "object"
           },
           "maxItems": 1000,
           "minItems": 1,

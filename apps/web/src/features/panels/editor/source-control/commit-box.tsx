@@ -13,7 +13,7 @@ import { canCommitChanges } from "./source-control-model.ts";
 /**
  * Commit composer at the top of Source control: multi-line commit message box (⌘↵ commits),
  * inline bare-icon Write message action (`git.draft.generate`), and a primary Commit split button
- * with a menu for Commit and push and Amend.
+ * with a menu for Commit and push. With nothing staged it reads "Stage all and commit".
  */
 export function CommitBox(props: {
   message: string;
@@ -28,7 +28,7 @@ export function CommitBox(props: {
   drafting: boolean;
   onWriteMessage(): void;
   onCancelDraft(): void;
-  onCommit(mode: "commit" | "commit-and-push" | "amend"): void;
+  onCommit(mode: "commit" | "commit-and-push"): void;
 }) {
   const canCommit =
     !props.disabled &&
@@ -39,27 +39,16 @@ export function CommitBox(props: {
       stagedCount: props.stagedCount,
       changesCount: props.changesCount,
       conflictsCount: props.conflictsCount,
-      amend: false,
-    });
-
-  const canAmend =
-    !props.disabled &&
-    !props.committing &&
-    !props.otherActionPending &&
-    canCommitChanges({
-      message: props.message,
-      stagedCount: props.stagedCount,
-      changesCount: props.changesCount,
-      conflictsCount: props.conflictsCount,
-      amend: true,
     });
 
   const hasAnyChanges = props.stagedCount > 0 || props.changesCount > 0;
   const commitShortcut = applePlatform ? "⌘↵" : "Ctrl+Enter";
-  const commitLabel =
-    props.stagedCount > 0
-      ? `Commit ${props.stagedCount} staged ${props.stagedCount === 1 ? "file" : "files"}`
-      : "Commit";
+  // Nothing staged: the button stages exactly the files listed, then commits them.
+  const stageAll = props.stagedCount === 0;
+  const commitWord = stageAll ? "Stage all and commit" : "Commit";
+  const commitLabel = stageAll
+    ? `Stage all ${props.changesCount} ${props.changesCount === 1 ? "file" : "files"} and commit`
+    : `Commit ${props.stagedCount} staged ${props.stagedCount === 1 ? "file" : "files"}`;
 
   return (
     <div
@@ -131,7 +120,7 @@ export function CommitBox(props: {
                 Committing…
               </>
             ) : (
-              "Commit"
+              commitWord
             )}
           </Button>
         </Tip>
@@ -151,10 +140,7 @@ export function CommitBox(props: {
           />
           <MenuContent align="end">
             <MenuItem disabled={!canCommit} onClick={() => props.onCommit("commit-and-push")}>
-              Commit and push
-            </MenuItem>
-            <MenuItem disabled={!canAmend} onClick={() => props.onCommit("amend")}>
-              Amend
+              {stageAll ? "Stage all, commit and push" : "Commit and push"}
             </MenuItem>
           </MenuContent>
         </Menu>

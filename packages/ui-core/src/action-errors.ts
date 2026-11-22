@@ -110,14 +110,8 @@ const copy: Record<string, string> = {
     "The pull request's branch can't be pushed from here: add a remote for its repository, or its fork was deleted.",
   git_no_upstream: "This repository has no remote to fetch from.",
   git_path_outside_repo: "That path is outside the repository and can't be changed.",
-  git_changed_since_review:
-    "A file changed after you reviewed it, so nothing was committed. Look at it again first.",
-  git_amend_published:
-    "A remote already has the last commit; amending rewrites it, so pushing needs a force push.",
   git_private_path_staged:
     "ace's own Recently deleted files are staged. Unstage them, then commit.",
-  git_index_moved:
-    "The staged changes moved after you reviewed them, so nothing was committed. Look again first.",
   // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the
   // host refuses gets its own code so the fix names what changed.
   forge_cli:

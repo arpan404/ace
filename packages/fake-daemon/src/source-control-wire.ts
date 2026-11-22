@@ -6,23 +6,12 @@ import type {
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
 
-/** A seeded status entry; its fingerprint defaults to a first version. */
-export type FakeSectionSeed = Omit<GitStatusSectionEntry, "fingerprint"> & {
-  fingerprint?: string | undefined;
-};
-
-const firstPrint = "fake:1";
-
-function printed(entry: FakeSectionSeed): GitStatusSectionEntry {
-  return { ...entry, fingerprint: entry.fingerprint ?? firstPrint };
-}
-
 export interface FakeSourceControlSeed {
   branch?: string | undefined;
-  staged?: readonly FakeSectionSeed[] | undefined;
-  unstaged?: readonly FakeSectionSeed[] | undefined;
-  untracked?: readonly FakeSectionSeed[] | undefined;
-  conflicted?: readonly FakeSectionSeed[] | undefined;
+  staged?: readonly GitStatusSectionEntry[] | undefined;
+  unstaged?: readonly GitStatusSectionEntry[] | undefined;
+  untracked?: readonly GitStatusSectionEntry[] | undefined;
+  conflicted?: readonly GitStatusSectionEntry[] | undefined;
   upstream?: string | null | undefined;
   ahead?: number | undefined;
   behind?: number | undefined;
@@ -31,8 +20,6 @@ export interface FakeSourceControlSeed {
   fetchError?: string | undefined;
   /** What a failed fetch still learned from the remotes it reached: this many behind. */
   fetchErrorBehind?: number | undefined;
-  /** Someone committed between the review and the commit: it lands on top, and says so. */
-  branchMovesOnCommit?: boolean | undefined;
 }
 
 interface ThreadSourceControl {
@@ -46,14 +33,7 @@ interface ThreadSourceControl {
   detached: boolean;
   fetchError?: string | undefined;
   fetchErrorBehind?: number | undefined;
-  branchMovesOnCommit: boolean;
-  commits: { message: string; amend: boolean; stagedOnly: boolean; head: string }[];
-  /** Bumped whenever the staged set changes, like the daemon's index fingerprint. */
-  indexVersion: number;
-}
-
-function indexOf(state: ThreadSourceControl | undefined): string {
-  return (state?.indexVersion ?? 0).toString(16).padStart(64, "0");
+  commits: { message: string; stagedOnly: boolean; paths: string[]; head: string }[];
 }
 
 function byPath<T extends { path: string }>(entries: readonly T[]): T[] {
@@ -71,7 +51,6 @@ function statusFromFiles(files: readonly GitStatusFile[]): {
       path: file.path,
       ...(file.from ? { from: file.from } : {}),
       status: file.status,
-      fingerprint: firstPrint,
     };
     if (file.status === "untracked") untracked.push(entry);
     else unstaged.push(entry);
@@ -101,7 +80,7 @@ function flatFilesOf(state: ThreadSourceControl): GitStatusFile[] {
 }
 
 /**
- * Source control for fake threads: `git.status` sections, staging, fetch and reviewed commits,
+ * Source control for fake threads: `git.status` sections, staging, fetch and commits,
  * answered as the daemon would.
  */
 export class FakeSourceControlWire {
@@ -128,9 +107,7 @@ export class FakeSourceControlWire {
         ahead: thread?.details?.ahead ?? 0,
         behind: thread?.details?.behind ?? 0,
         detached: false,
-        branchMovesOnCommit: false,
         commits: [],
-        indexVersion: 0,
       };
       this.states.set(threadId, state);
     }
@@ -146,32 +123,16 @@ export class FakeSourceControlWire {
         changes: { details: { ...existing, branch: seed.branch } },
       });
     }
-    if (seed.staged !== undefined) {
-      state.staged = byPath(seed.staged.map(printed));
-      state.indexVersion += 1;
-    }
-    if (seed.unstaged !== undefined) state.unstaged = byPath(seed.unstaged.map(printed));
-    if (seed.untracked !== undefined) state.untracked = byPath(seed.untracked.map(printed));
-    if (seed.conflicted !== undefined) state.conflicted = byPath(seed.conflicted.map(printed));
+    if (seed.staged !== undefined) state.staged = byPath(seed.staged);
+    if (seed.unstaged !== undefined) state.unstaged = byPath(seed.unstaged);
+    if (seed.untracked !== undefined) state.untracked = byPath(seed.untracked);
+    if (seed.conflicted !== undefined) state.conflicted = byPath(seed.conflicted);
     if (seed.upstream !== undefined) state.upstream = seed.upstream;
     if (seed.ahead !== undefined) state.ahead = seed.ahead;
     if (seed.behind !== undefined) state.behind = seed.behind;
     if (seed.detached !== undefined) state.detached = seed.detached;
     if (seed.fetchError !== undefined) state.fetchError = seed.fetchError;
     if (seed.fetchErrorBehind !== undefined) state.fetchErrorBehind = seed.fetchErrorBehind;
-    if (seed.branchMovesOnCommit !== undefined)
-      state.branchMovesOnCommit = seed.branchMovesOnCommit;
-    this.syncDetails(threadId, state);
-  }
-
-  /** Someone changed `path` on disk after a status was read: its fingerprint moves. */
-  touch(threadId: string, path: string): void {
-    const state = this.states.get(threadId);
-    if (!state) return;
-    const bump = (entry: GitStatusSectionEntry) =>
-      entry.path === path ? { ...entry, fingerprint: `${entry.fingerprint}+` } : entry;
-    state.unstaged = state.unstaged.map(bump);
-    state.untracked = state.untracked.map(bump);
     this.syncDetails(threadId, state);
   }
 
@@ -201,7 +162,6 @@ export class FakeSourceControlWire {
         upstream: branch ? `origin/${branch}` : null,
         ahead: thread?.details?.ahead ?? 0,
         behind: thread?.details?.behind ?? 0,
-        index: indexOf(undefined),
       };
     }
     return {
@@ -214,7 +174,6 @@ export class FakeSourceControlWire {
       upstream: state.upstream,
       ahead: state.ahead,
       behind: state.behind,
-      index: indexOf(state),
     };
   }
 
@@ -232,41 +191,24 @@ export class FakeSourceControlWire {
     payload: Extract<CommandPayload, { type: "git.commit" }>,
     fallbackFiles: readonly GitStatusFile[],
   ): Omit<CommandResult, "commandId"> | undefined {
-    if (!this.states.has(threadId) && !payload.stagedOnly && !payload.amend) return undefined;
+    if (!this.states.has(threadId) && !payload.stagedOnly) return undefined;
     const thread = this.context.thread(threadId)?.thread;
     if ((thread?.details?.head ?? null) !== payload.expectedHead) {
       return { ok: false, error: "git_head_moved" };
     }
     const state = this.ensure(threadId, fallbackFiles);
-    if (payload.expectedIndex !== undefined && payload.expectedIndex !== indexOf(state))
-      return { ok: false, error: "git_index_moved" };
-    // Like the daemon: a commit a remote already has (here: nothing ahead of it) is not
-    // rewritten without the person's say-so.
-    if (payload.amend && !payload.amendPublished && state.ahead === 0)
-      return { ok: false, error: "git_amend_published" };
-    if (payload.reviewed) {
-      const shown = new Map(
-        [...state.unstaged, ...state.untracked].map((entry) => [entry.path, entry.fingerprint]),
-      );
-      if (payload.reviewed.some((file) => shown.get(file.path) !== file.fingerprint))
-        return { ok: false, error: "git_changed_since_review" };
-    }
-    if (state.conflicted.length > 0) return { ok: false, error: "git_conflicts" };
-    state.indexVersion += 1;
-    if (payload.amend && !thread?.details?.head) return { ok: false, error: "git_unborn_head" };
     if (payload.stagedOnly && !payload.paths) {
-      if (!payload.amend && state.staged.length === 0) {
+      if (state.staged.length === 0) {
         return { ok: false, error: "git_nothing_to_commit" };
       }
       state.staged = [];
-    } else if (payload.paths || payload.reviewed) {
-      const named = new Set(payload.reviewed?.map((file) => file.path) ?? payload.paths);
+    } else if (payload.paths) {
+      const named = new Set(payload.paths);
       state.staged = state.staged.filter((entry) => !named.has(entry.path));
       state.unstaged = state.unstaged.filter((entry) => !named.has(entry.path));
       state.untracked = state.untracked.filter((entry) => !named.has(entry.path));
     } else {
       if (
-        !payload.amend &&
         state.staged.length === 0 &&
         state.unstaged.length === 0 &&
         state.untracked.length === 0
@@ -278,19 +220,15 @@ export class FakeSourceControlWire {
       state.untracked = [];
     }
     const hex = (++this.commitSeq).toString(16).padStart(40, "a");
-    if (!payload.amend) state.ahead += 1;
+    state.ahead += 1;
     state.commits.push({
       message: payload.message,
-      amend: Boolean(payload.amend),
       stagedOnly: Boolean(payload.stagedOnly),
+      paths: [...(payload.paths ?? [])],
       head: hex,
     });
     this.syncDetails(threadId, state, { head: hex });
-    return {
-      ok: true,
-      commit: hex,
-      ...(state.branchMovesOnCommit ? { commitBranchMoved: true } : {}),
-    };
+    return { ok: true, commit: hex };
   }
 
   command(
@@ -317,7 +255,6 @@ export class FakeSourceControlWire {
         for (const entry of state.conflicted.filter(move))
           nextStaged.set(entry.path, { ...entry, status: "modified" });
         state.staged = byPath([...nextStaged.values()]);
-        state.indexVersion += 1;
         state.unstaged = state.unstaged.filter((e) => !move(e));
         state.untracked = state.untracked.filter((e) => !move(e));
         state.conflicted = state.conflicted.filter((e) => !move(e));
@@ -337,7 +274,6 @@ export class FakeSourceControlWire {
           }
         }
         state.staged = state.staged.filter((e) => !move(e));
-        state.indexVersion += 1;
         state.unstaged = byPath([...nextUnstaged.values()]);
         state.untracked = byPath([...nextUntracked.values()]);
         this.syncDetails(threadId, state);

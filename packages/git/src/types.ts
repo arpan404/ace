@@ -125,9 +125,6 @@ export type GitErrorCode =
   | "unsupported_repository"
   | "path_outside_repo"
   | "no_upstream"
-  | "changed_since_review"
-  | "index_moved"
-  | "amend_published"
   | "private_path_staged"
   | GitFailureCode;
 
@@ -265,14 +262,6 @@ export interface SourceControlSectionEntry {
   path: string;
   from?: string;
   status: "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
-  /** The file as the status read it (`fileFingerprint`); a commit of it quotes it back. */
-  fingerprint: string;
-}
-
-/** A file the person reviewed, with the fingerprint the status showed them. */
-export interface ReviewedFile {
-  path: string;
-  fingerprint: string;
 }
 
 export interface SourceControlStatus {
@@ -285,8 +274,6 @@ export interface SourceControlStatus {
   branch: string | null;
   detached: boolean;
   head: string | null;
-  /** The index as this status read it (`indexFingerprint`); a commit quotes it back. */
-  index: string;
   upstream: string | null;
   ahead: number;
   behind: number;

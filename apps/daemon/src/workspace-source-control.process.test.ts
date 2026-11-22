@@ -70,27 +70,6 @@ async function setupFixture(
   return { dir, repo, store, thread, runtime, cmd };
 }
 
-/** The status entry the person reviewed for `path`, as a commit quotes it back. */
-async function reviewed(
-  fixture: Awaited<ReturnType<typeof setupFixture>>,
-  path: string,
-): Promise<{ path: string; fingerprint: string }> {
-  const response = await fixture.runtime.read({
-    type: "workspace.request",
-    requestId: `review-${path}`,
-    operation: { op: "git.status", threadId: fixture.thread.id },
-  });
-  const result = response.result;
-  if (result.kind !== "gitStatus") throw new Error("Expected git status");
-  const entry = [
-    ...(result.unstaged ?? []),
-    ...(result.untracked ?? []),
-    ...(result.staged ?? []),
-  ].find((candidate) => candidate.path === path);
-  if (!entry) throw new Error(`${path} is not in the status`);
-  return { path, fingerprint: entry.fingerprint };
-}
-
 afterEach(async () => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -130,40 +109,30 @@ describe("daemon source control handlers", () => {
     }
   });
 
-  it("commits exactly the reviewed files, and refuses one that changed after the review", async () => {
-    const fixture = await setupFixture();
-    const { runtime, store, thread, repo, cmd } = fixture;
+  it("a staged-only commit takes exactly what is staged, leaving other edits in the checkout", async () => {
+    const { runtime, store, thread, repo, cmd } = await setupFixture();
     try {
-      await writeFile(join(repo, "file.txt"), "reviewed\n");
-      const head = runGit(repo, ["rev-parse", "HEAD"]);
-      const files = [await reviewed(fixture, "file.txt")];
-      await writeFile(join(repo, "file.txt"), "changed after the review\n");
+      await writeFile(join(repo, "file.txt"), "staged\n");
+      await writeFile(join(repo, "other.txt"), "not staged\n");
       expect(
-        await runtime.execute(
-          cmd({
-            type: "git.commit",
-            threadId: thread.id,
-            message: "m",
-            expectedHead: head,
-            reviewed: files,
-          }),
-        ),
-      ).toMatchObject({ ok: false, error: "git_changed_since_review" });
-      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
-
-      const again = [await reviewed(fixture, "file.txt")];
+        await runtime.execute(cmd({ type: "git.stage", threadId: thread.id, paths: ["file.txt"] })),
+      ).toMatchObject({ ok: true });
+      await writeFile(join(repo, "file.txt"), "staged, then edited\n");
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
       const done = await runtime.execute(
         cmd({
           type: "git.commit",
           threadId: thread.id,
-          message: "m",
+          message: "only the index",
           expectedHead: head,
-          reviewed: again,
+          stagedOnly: true,
         }),
       );
       expect(done).toMatchObject({ ok: true });
-      expect(done).not.toHaveProperty("commitBranchMoved");
-      expect(runGit(repo, ["show", "HEAD:file.txt"])).toBe("changed after the review");
+      expect(runGit(repo, ["show", "--name-only", "--format=", "HEAD"])).toBe("file.txt");
+      expect(runGit(repo, ["show", "HEAD:file.txt"])).toBe("staged");
+      expect(await readFile(join(repo, "file.txt"), "utf8")).toBe("staged, then edited\n");
+      expect(runGit(repo, ["status", "--porcelain", "--", "other.txt"])).toBe("?? other.txt");
     } finally {
       await runtime.close();
       await store.close();

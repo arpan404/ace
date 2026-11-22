@@ -327,10 +327,6 @@
               ],
               "type": "string"
             },
-            "index": {
-              "pattern": "^[a-f0-9]{64}$",
-              "type": "string"
-            },
             "kind": {
               "const": "gitStatus",
               "type": "string"

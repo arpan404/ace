@@ -250,11 +250,6 @@ export const WorkspaceActionResult = z.object({
       ahead: z.number().int().nonnegative().optional(),
       /** Commits behind upstream. */
       behind: z.number().int().nonnegative().optional(),
-      /** The index as this status read it; `git.commit` quotes it back as `expectedIndex`. */
-      index: z
-        .string()
-        .regex(/^[a-f0-9]{64}$/)
-        .optional(),
     }),
     z.object({
       kind: z.literal("gitDiff"),
@@ -359,24 +354,6 @@ export const WorkspaceCommands = [
       .optional(),
     /** Commit only what is already staged in the index, without staging unstaged changes. */
     stagedOnly: z.boolean().optional(),
-    /** Amend the previous commit (`git commit --amend`). */
-    amend: z.boolean().optional(),
-    /** The reviewed status's `index`: refused (`git_index_moved`) if anything was staged since. */
-    expectedIndex: z
-      .string()
-      .regex(/^[a-f0-9]{64}$/)
-      .optional(),
-    /**
-     * Commit exactly these reviewed files with the fingerprints the status showed, built from
-     * HEAD in a temporary index; refused (`git_changed_since_review`) if any of them moved.
-     */
-    reviewed: z
-      .array(z.object({ path: repoPath, fingerprint: z.string().min(1).max(200) }))
-      .min(1)
-      .max(2 * gitStatusLimit)
-      .optional(),
-    /** Amend even though a remote already has the commit (refused as `git_amend_published`). */
-    amendPublished: z.boolean().optional(),
   }),
   ...GitSourceControlCommands,
   z.object({

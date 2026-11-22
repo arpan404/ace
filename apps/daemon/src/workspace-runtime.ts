@@ -875,7 +875,6 @@ export class WorkspaceRuntime {
         upstream: state.upstream,
         ahead: state.ahead,
         behind: state.behind,
-        index: state.index,
       });
     }
     return wrap({
@@ -1013,33 +1012,18 @@ export class WorkspaceRuntime {
           p.step,
         );
       if (p.type === "git.commit") {
-        const base = {
-          worktree: cwd,
-          message: p.message,
-          expectedHead: p.expectedHead,
-          amend: p.amend,
-          draftFingerprint: p.draftFingerprint,
-        };
-        // Source control commits exactly what the person reviewed; other callers commit as before.
-        const { reviewed, expectedIndex, amendPublished } = p;
-        const outcome = reviewed
-          ? await asPerson(() => this.git.commitReviewed({ ...base, reviewed, amendPublished }))
-          : expectedIndex
-            ? await asPerson(() =>
-                this.git.commitReviewed({ ...base, expectedIndex, amendPublished }),
-              )
-            : {
-                commit: await asPerson(() =>
-                  this.git.commit({ ...base, paths: p.paths, stagedOnly: p.stagedOnly }),
-                ),
-                branchMoved: false,
-              };
+        const commit = await asPerson(() =>
+          this.git.commit({
+            worktree: cwd,
+            message: p.message,
+            expectedHead: p.expectedHead,
+            paths: p.paths,
+            stagedOnly: p.stagedOnly,
+            draftFingerprint: p.draftFingerprint,
+          }),
+        );
         await this.details(threadId).catch(() => {});
-        return {
-          ok: true,
-          commit: outcome.commit,
-          ...(outcome.branchMoved ? { commitBranchMoved: true } : {}),
-        };
+        return { ok: true, commit };
       }
       if (isSourceControlCommand(p)) {
         return runSourceControlCommand(

@@ -15,8 +15,6 @@ export interface SourceControlItem {
   readonly colorClass: string;
   readonly untracked: boolean;
   readonly section: SourceControlSection;
-  /** The file as the status read it; a discard quotes it back so nothing newer is lost. */
-  readonly fingerprint: string;
 }
 
 export interface SourceControlSections {
@@ -72,7 +70,6 @@ function toItem(entry: GitStatusSectionEntry, section: SourceControlSection): So
     colorClass: meta.colorClass,
     untracked: section === "changes" && entry.status === "untracked",
     section,
-    fingerprint: entry.fingerprint,
   };
 }
 
@@ -189,10 +186,8 @@ export function canCommitChanges(options: {
   stagedCount: number;
   changesCount: number;
   conflictsCount: number;
-  amend: boolean;
 }): boolean {
   if (options.message.trim().length === 0) return false;
   if (options.conflictsCount > 0) return false;
-  if (options.amend) return true;
   return options.stagedCount > 0 || options.changesCount > 0;
 }

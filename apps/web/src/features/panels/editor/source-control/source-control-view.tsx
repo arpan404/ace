@@ -15,7 +15,6 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
-import { AmendDialog } from "./amend-dialog.tsx";
 import { BranchBar } from "./branch-bar.tsx";
 import { CommitBox } from "./commit-box.tsx";
 import { FileSection } from "./file-section.tsx";
@@ -41,7 +40,7 @@ import {
 } from "./source-control-source.ts";
 import { useSourceControl } from "./use-source-control.ts";
 
-type CommitMode = "commit" | "commit-and-push" | "amend";
+type CommitMode = "commit" | "commit-and-push";
 
 export interface OpenChangesRequest {
   readonly path: string;
@@ -51,7 +50,7 @@ export interface OpenChangesRequest {
 
 /**
  * The Editor explorer's Source control view: the branch line (name, ahead and behind, Push, Fetch), commit box with
- * Write message and Commit/Amend/Commit and push, and Merge conflicts / Staged changes / Changes
+ * Write message and Commit/Commit and push, and Merge conflicts / Staged changes / Changes
  * sections. Shares the explorer's surface and portals its Refresh action into `ExplorerHeader`.
  */
 export function SourceControlView(props: {
@@ -77,7 +76,6 @@ export function SourceControlView(props: {
     changes: emptySelection,
   });
 
-  const [amendAsk, setAmendAsk] = useState(false);
   const [clearingLock, setClearingLock] = useState(false);
 
   // Cancel any in-flight commit message generation when switching threads or unmounting.
@@ -187,40 +185,21 @@ export function SourceControlView(props: {
     void cancelCommitDraft(client, threadId, active.id);
   };
 
-  const handleCommit = async (mode: CommitMode, amendPublished = false) => {
+  const handleCommit = async (mode: CommitMode) => {
     const trimmed = message.trim();
     if (!trimmed) return;
-    const stagedOnly = sc.sections.staged.length > 0;
+    // Nothing staged: stage exactly the files the view lists, then commit the index. Either way
+    // the commit is the person's own `git commit` of what is staged.
+    const listed = sc.sections.staged.length === 0 ? changePaths : undefined;
     const committed = await sc.runAction("commit", async () => {
-      try {
-        return await commitChanges(client, threadId, {
-          message: trimmed,
-          expectedHead: sc.head,
-          // Bound to what the person reviewed: the staged index as read, or exactly the changes
-          // shown, each with the fingerprint the status gave it.
-          // (An amend with nothing changed quotes the index too: it only rewords.)
-          ...(!stagedOnly && sc.sections.changes.length > 0
-            ? { reviewed: sc.sections.changes }
-            : { expectedIndex: sc.status?.index, stagedOnly: true }),
-          amend: mode === "amend",
-          amendPublished,
-          draftFingerprint,
-        });
-      } catch (error) {
-        // A remote already has the commit: amending rewrites published history, so ask first.
-        if (sourceControlErrorCode(error) === "git_amend_published") return "ask" as const;
-        throw error;
-      }
+      if (listed) await stageFiles(client, threadId, listed);
+      return commitChanges(client, threadId, {
+        message: trimmed,
+        expectedHead: sc.head,
+        draftFingerprint,
+      });
     });
-    if (committed === "ask") {
-      setAmendAsk(true);
-      return;
-    }
     if (!committed) return;
-    // Someone committed between the review and this commit: it landed on top. Nothing was moved
-    // back; the person looks at the history.
-    if (committed.commitBranchMoved)
-      toast.add({ title: "Committed, but the branch had moved: check the history" });
     // The commit landed: its message is spent even if the push below fails.
     setMessage("");
     setDraftFingerprint(undefined);
@@ -233,7 +212,7 @@ export function SourceControlView(props: {
       if (pushed) toast.add({ title: "Committed and pushed" });
       return;
     }
-    toast.add({ title: mode === "amend" ? "Amended last commit" : "Committed changes" });
+    toast.add({ title: "Committed changes" });
   };
 
   const handleClearLock = async () => {
@@ -474,16 +453,6 @@ export function SourceControlView(props: {
             )}
           </div>
         </>
-      )}
-
-      {amendAsk && (
-        <AmendDialog
-          onCancel={() => setAmendAsk(false)}
-          onConfirm={() => {
-            setAmendAsk(false);
-            void handleCommit("amend", true);
-          }}
-        />
       )}
     </div>
   );

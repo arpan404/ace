@@ -967,18 +967,12 @@ Example:
 | expectedHead | yes | union | {"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]} |
 | paths | no | array | {"minItems":1,"maxItems":1000,"items":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."}} |
 | stagedOnly | no | boolean |  |
-| amend | no | boolean |  |
-| expectedIndex | no | string | {"pattern":"^[a-f0-9]{64}$"} |
-| reviewed | no | array | {"minItems":1,"maxItems":1000,"items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."},"fingerprint":{"type":"string","minLength":1,"maxLength":200}},"required":["path","fingerprint"]}} |
-| amendPublished | no | boolean |  |
 
 Example:
 
 ```json
 {
-  "amend": true,
   "expectedHead": null,
-  "expectedIndex": "e5be9925cebec4096f87cc78edd6de36c6c001b6b725ec5fd208df67ae27aba0",
   "message": "example",
   "paths": [
     "example"
@@ -2455,7 +2449,6 @@ Example:
 | terminalId | no | string | {"minLength":1,"maxLength":128} |
 | locksCleared | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | commit | no | string | {"pattern":"^[a-f0-9]{40,64}$"} |
-| commitBranchMoved | no | boolean |  |
 | remoteHead | no | string | {"pattern":"^[a-f0-9]{40,64}$"} |
 | prExisting | no | boolean |  |
 

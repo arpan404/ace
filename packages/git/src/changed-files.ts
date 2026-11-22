@@ -3,8 +3,6 @@ import { numstatRecord } from "./parse-numstat.ts";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
-import { fileFingerprint } from "./file-fingerprint.ts";
-import { indexFingerprint } from "./index-fingerprint.ts";
 import type { Repository } from "./repository.ts";
 import type {
   ChangedFile,
@@ -184,34 +182,26 @@ export async function changedFiles(
   );
 }
 
-async function sectionsFromState(root: string, state: State, limit: number) {
+function sectionsFromState(state: State, limit: number) {
   const { status, branch } = state;
-  const printed = async <T extends { path: string }>(entries: readonly T[]) =>
-    Promise.all(
-      byPath(entries)
-        .slice(0, limit + 1)
-        .map(async (entry) =>
-          Object.assign(entry, { fingerprint: await fileFingerprint(root, entry.path) }),
-        ),
-    );
-  const staged = await printed(
+  const staged = byPath(
     status.staged.map((entry) => ({
       path: entry.path,
       ...(entry.oldPath ? { from: entry.oldPath } : {}),
       status: stagedKind(entry),
     })),
   );
-  const unstaged = await printed(
+  const unstaged = byPath(
     status.unstaged.map((entry) => ({
       path: entry.path,
       ...(entry.oldPath ? { from: entry.oldPath } : {}),
       status: unstagedKind(entry),
     })),
   );
-  const untracked = await printed(
+  const untracked = byPath(
     status.untracked.map((path) => ({ path, status: "untracked" as const })),
   );
-  const conflicted = await printed(
+  const conflicted = byPath(
     status.conflicted.map((entry) =>
       entry.oldPath
         ? { path: entry.path, from: entry.oldPath, status: "conflicted" as const }
@@ -245,10 +235,10 @@ export async function sourceControlState(
   repository: Repository,
   worktree: string,
   limit: number,
-): Promise<Omit<SourceControlStatus, "files" | "index">> {
+): Promise<Omit<SourceControlStatus, "files">> {
   const root = await repository.root(worktree);
   return repository.serial(root, async () =>
-    sectionsFromState(root, await repository.state(root), limit),
+    sectionsFromState(await repository.state(root), limit),
   );
 }
 
@@ -265,11 +255,10 @@ export async function sourceControlStatus(
   return repository.serial(root, async () => {
     const state = await repository.state(root);
     const { files, truncated } = await readChangedFiles(repository, root, state, limit);
-    const sections = await sectionsFromState(root, state, limit);
+    const sections = sectionsFromState(state, limit);
     return {
       files,
       ...sections,
-      index: await indexFingerprint(repository, root, state.branch.head),
       truncated: truncated || sections.truncated,
     };
   });
