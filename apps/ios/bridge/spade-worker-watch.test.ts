@@ -67,10 +67,12 @@ test("two workers refused for lack of room are each read again as room frees up"
   expect(owner.threadRoom().getSnapshot()).toBe(0);
 
   let changes = 0;
-  // The bridge redraws the chat when told, reading every worker again.
+  // What each redraw saw: the bridge reads every worker again when told. The redraw itself is the
+  // only reader, so a worker settling here was read by the notification, not by the test.
+  const seen: Record<string, string | undefined>[] = [];
   const redraw = () => {
     changes++;
-    for (const id of [first, second]) read(id);
+    seen.push(Object.fromEntries([first, second].map((id) => [id, read(id)?.state])));
   };
   const watch: SpadeWorkerWatch = new SpadeWorkerWatch(owner, redraw);
   stops.push(() => watch.stop());
@@ -85,15 +87,47 @@ test("two workers refused for lack of room are each read again as room frees up"
   expect(read(first)).toBeUndefined();
   expect(read(second)).toBeUndefined();
 
-  // One slot frees: one worker takes it, the other stays refused, and nothing loops.
+  // One slot frees: the redraw reads the freed slot into exactly one worker, and nothing loops.
   holds[0]?.release();
-  await until(() => changes > 0);
-  await until(() => [first, second].some((id) => read(id)?.state === "done"));
+  await until(() => seen.some((read) => Object.values(read).includes("done")));
   const settled = changes;
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(changes).toBe(settled);
+  expect(Object.values(seen.at(-1) ?? {}).filter((state) => state === "done")).toHaveLength(1);
 
   // The next slot frees: the other worker is read too.
   holds[1]?.release();
-  await until(() => [first, second].every((id) => read(id)?.state === "done"));
+  await until(() => Object.values(seen.at(-1) ?? {}).every((state) => state === "done"));
+});
+
+test("a retry queued before stop does not redraw after the watch restarts in the same turn", async () => {
+  const owner = await setUp();
+  const list = owner.threads();
+  stops.push(() => list.release());
+  await until(() => list.store.loaded && !list.store.unconfirmed && !list.store.syncing);
+  const holds = [busyA, busyB, busyC].map((id) => owner.thread(id, { optional: true }));
+
+  let changes = 0;
+  const watch = new SpadeWorkerWatch(owner, () => changes++);
+  stops.push(() => watch.stop());
+  const read = () =>
+    watch
+      .facts(
+        () => undefined,
+        () => undefined,
+      )
+      .listed(first);
+  expect(read()).toBeUndefined();
+
+  // Room frees (queueing the retry), then the chat closes and the next one opens in the same turn.
+  holds[0]?.release();
+  watch.stop();
+  // The next conversation starts: the list is held again, and no worker is read from its thread,
+  // so nothing but the old retry could redraw it.
+  watch.facts(
+    () => undefined,
+    () => undefined,
+  ).waiting(first);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(changes).toBe(0);
 });
