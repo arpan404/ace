@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { looseningRoute, looseningWrite } from "./loosen-stamp.ts";
+import { spadePersonOnlyRoute } from "@ace/client/spade-person-only";
+import { looseningWrite } from "./loosen-stamp.ts";
 
 /*
  * The person's say on a Spade change only they may make (ADR 0163, amendment 2; ADR 0171,
@@ -28,50 +29,18 @@ export interface PersonOnlyWrite {
   optional?: true;
 }
 
-const botAutonomy = /^\/v1\/agents\/([^/?#]+)\/security\/autonomy$/;
-const botPermissions = /^\/v1\/agents\/([^/?#]+)\/security\/permissions$/;
-const machinePermissions = "/v1/security/permissions";
-const neverApps = "/v1/security/never-apps";
 /** A switch of the Permissions, as Spade names them. */
 const switchKey = /^[a-z_]{1,32}$/;
 /** What separates the never-use list's entries in the stamp: a character no entry holds. */
 const listSeparator = "\u001f";
-const moveAccept = /^\/v1\/moves\/([^/?#]+)\/accept$/;
 /** A move's or a bot's id, as Spade takes them: one plain name. */
 const plainId = /^[a-z0-9][a-z0-9_-]{0,79}$/;
-const machineAutonomy = "/v1/security/autonomy";
-/** Passing Spade's host choice on to this machine (ADR 0187). */
-const mainHost = "/v1/main/host";
 
-/** The route a guarded change goes to, whatever its body; undefined for every other request. */
-export function personOnlyRoute(method: string, path: string): string | undefined {
-  const loosening = looseningRoute(method, path);
-  if (loosening) return `loosen:${loosening.target}`;
-  if (method !== "PUT") return undefined;
-  const bare = path.split("?")[0] ?? "";
-  if (bare === machineAutonomy) return "machine";
-  if (bare === mainHost) return "main-host";
-  if (bare === machinePermissions) return "permissions:machine";
-  if (bare === neverApps) return "never-apps";
-  const permissions = botPermissions.exec(bare)?.[1];
-  if (permissions !== undefined) {
-    try {
-      return `permissions:${decodeURIComponent(permissions)}`;
-    } catch {
-      return undefined;
-    }
-  }
-  // Accepting a bot moving here: always the person's, whatever the body says.
-  const move = moveAccept.exec(bare)?.[1];
-  if (move !== undefined) return `move:${move}`;
-  const bot = botAutonomy.exec(bare)?.[1];
-  if (bot === undefined) return undefined;
-  try {
-    return decodeURIComponent(bot);
-  } catch {
-    return undefined;
-  }
-}
+/**
+ * The route a guarded change goes to, whatever its body; undefined for every other request. The
+ * app reads the same list, so it never sends one of these to Spade except through the daemon.
+ */
+export const personOnlyRoute = spadePersonOnlyRoute;
 
 /**
  * Whether a `spade.http` request raises how a bot decides, and to what. Going back to the

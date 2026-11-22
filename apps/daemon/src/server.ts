@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { appStandingDesk } from "./account-access/app-standing.ts";
 import { shutdownDeadline, trackStage } from "./shutdown.ts";
 import { relayPairing, relayRoute } from "./relay-route.ts";
 import { isHostedRelay } from "./relay-account.ts";
@@ -27,6 +28,8 @@ import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import {
+  APP_SOCKET_HEADER,
+  AppSocketTag,
   HostId,
   DeviceId,
   DeviceRevokedClose,
@@ -178,6 +181,14 @@ export async function startServer(options: ServerOptions): Promise<{
         log: (error) => options.log?.(error),
       })
     : undefined;
+  // The desktop app's own sockets, proven by its main process (ADR 0190, amendment 1).
+  const appStanding = appStandingDesk({
+    // The clock grants are checked against: statements are dated by the same wall clock.
+    now: () => options.machineAccount?.grantClock() ?? auth.now(),
+    monotonic: () => performance.now(),
+    nonce: () => randomBytes(32).toString("base64url"),
+    machine: () => options.machineAccount,
+  });
   const access = {
     auth,
     pairing,
@@ -196,6 +207,7 @@ export async function startServer(options: ServerOptions): Promise<{
       ...(options.machineAccount ? { account: options.machineAccount.status() } : {}),
     }),
     account: () => options.machineAccount,
+    appStanding,
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     // A failed settings read falls back to this computer's own link rather than failing pairing.
     // Both pairing paths call this before they read the address, so a Tailscale certificate
@@ -479,7 +491,9 @@ export async function startServer(options: ServerOptions): Promise<{
     /** The owner generation this socket's standing was proven under; any change since ends it. */
     let provenUnder = -1;
     /** How it was proven: the owner's own grant, or a paired device's key. */
-    let provenBy: "account" | "device" | undefined;
+    let provenBy: "account" | "device" | "app" | undefined;
+    /** The device key whose statement proved this socket, when one did. */
+    let provenByKey: string | undefined;
     // Whether this socket is the person's for person-only actions (ADR 0190): only once it proved
     // it, under the machine's current owner, while that lasts. A device paired from a person's
     // link proves it with its own key; its bearer token alone, the host token or an account
@@ -487,13 +501,39 @@ export async function startServer(options: ServerOptions): Promise<{
     const personProven = () =>
       personUntil > auth.now() && options.machineAccount?.standingHolds(provenUnder) === true;
     /** Stamps a proof that began under `generation`, unless the owner changed since. */
-    const proved = (until: number, generation: number, by: "account" | "device") => {
+    const proved = (until: number, generation: number, by: "account" | "device" | "app") => {
       if (options.machineAccount?.standingHolds(generation) !== true) return false;
       personUntil = until;
       provenUnder = generation;
       provenBy = by;
+      provenByKey = undefined;
       return true;
     };
+    // The desktop app's own socket, tagged by its main process on the upgrade (ADR 0190,
+    // amendment 1): main proves for it with a person's statement over HTTP. Loopback only, and
+    // only once the hello authenticated with the host's own credential.
+    const appTag = AppSocketTag.safeParse(
+      !relayed && isLocal ? request?.headers[APP_SOCKET_HEADER] : undefined,
+    );
+    const detachApp = appTag.success
+      ? appStanding.attach(appTag.data, {
+          connection: standingNonce,
+          grantApp: (key, generation) => {
+            if (!hostCredential() || !stillAdmitted()) return false;
+            if (!proved(Number.MAX_SAFE_INTEGER, generation, "app")) return false;
+            provenByKey = key;
+            return true;
+          },
+          grantProven: () =>
+            hostCredential() && personProven() && provenBy === "account" ? provenUnder : undefined,
+          dropApp: (key) => {
+            if (provenBy !== "app" || provenByKey !== key) return;
+            personUntil = 0;
+            provenBy = undefined;
+            provenByKey = undefined;
+          },
+        })
+      : undefined;
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope) && org.speaks();
     // A member's standing on an organization's host (ADR 0206 §2.2), proven on this socket as
@@ -601,6 +641,7 @@ export async function startServer(options: ServerOptions): Promise<{
       if (cleaned) return;
       cleaned = true;
       stopEnrollment?.();
+      detachApp?.();
       for (const service of sessions) service.close?.();
       serviceSessions.delete(socket);
       for (const stop of subscriptions.values()) stop();
@@ -873,6 +914,7 @@ export async function startServer(options: ServerOptions): Promise<{
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
           // Only a daemon that knows its relay host id can be proved to: proofs name it.
           ...(standingHost ? { standingNonce, standingHost } : {}),
+          ...(detachApp && hostCredential() ? { standingAppSocket: true as const } : {}),
           ...(next ? { ticket: next } : {}),
           // Announced only where the pinned key authenticates it: over the relay.
           ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),

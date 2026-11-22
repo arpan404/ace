@@ -9,7 +9,13 @@ import { machineOwner } from "./owner.ts";
 import { memberGrantVerdict, provenMemberStanding, type Member } from "./member-grant.ts";
 import { orgEnrollment } from "./org-enrollment.ts";
 import { orgCredentialRefused, orgCredentialRequest } from "./org-credential.ts";
-import { encodeBase64url, type GrantKeySet } from "@ace/account-grant";
+import {
+  encodeBase64url,
+  MARKET_GRANT_ISSUER,
+  verifyMarketGrant,
+  type GrantKeySet,
+} from "@ace/account-grant";
+import { x25519Shared } from "@ace/account-grant/app-channel";
 import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
 import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machine-codes.ts";
@@ -989,6 +995,61 @@ export function machineAccount(options: {
       });
       if (!proven || !(await owner.claim(proven.account, seen))) return undefined;
       return { until: proven.until, generation: seen };
+    },
+    /**
+     * The X25519 secret between this machine's relay key and `ephemeral`: how the daemon proves
+     * to the desktop app that it holds the key the app pinned (ADR 0190, amendment 1).
+     */
+    async relayShared(ephemeral: Uint8Array): Promise<Uint8Array | undefined> {
+      if (ephemeral.length !== 32) return undefined;
+      try {
+        return x25519Shared((await options.relayKeys()).privateKey, ephemeral);
+      } catch {
+        return undefined;
+      }
+    },
+    /**
+     * A grant ace's account backend minted from the person's own session, with the time that
+     * session signed in (`authAt`) and the one action it names: what enrolls a device key
+     * (ADR 0190, amendment 1). Read with the keys this build pins, from the backend this machine
+     * is signed in to or ace's own; undefined for anything else.
+     */
+    signInGrant(
+      token: string,
+    ): { account: string; authAt: number; action: string | undefined } | undefined {
+      const origin = active()?.origin;
+      const issuers = new Set([MARKET_GRANT_ISSUER]);
+      // A backend names itself by its public address's host (`api.ts`), with or without a port.
+      if (origin)
+        for (const name of [new URL(origin).host, new URL(origin).hostname]) issuers.add(name);
+      for (const issuer of issuers) {
+        try {
+          const claims = verifyMarketGrant(token, personKeys, options.now(), issuer);
+          // A `machine` market grant is one anything but the person's own session got.
+          if (claims.kind !== "device") return undefined;
+          return { account: claims.account, authAt: claims.authAt, action: claims.action };
+        } catch {
+          // Another issuer, or no grant at all.
+        }
+      }
+      return undefined;
+    },
+    /** The owner's enrolled device keys (ADR 0190, amendment 1); none on an org's host. */
+    appKeys(): readonly string[] {
+      return owner.appKeys();
+    },
+    /** Signing out of the app: its device key is the owner's no longer. */
+    removeAppKey(key: string): Promise<void> {
+      return owner.removeAppKey(key);
+    },
+    /**
+     * Keeps the owner's desktop app key, from a socket that proved the owner's own grant under
+     * `generation` (ADR 0190, amendment 1). False once the owner changed.
+     */
+    addAppKey(key: string, generation: number): Promise<boolean> {
+      const account = owner.current();
+      if (account === undefined) return Promise.resolve(false);
+      return owner.addAppKey(account, key, generation);
     },
     /**
      * A member's standing on this organization's host (ADR 0206 §2.2), proven on one socket as a

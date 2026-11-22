@@ -42,6 +42,10 @@ import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { windowsAppUserModelId } from "./notifications/native.ts";
 import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
 import { appearance, createHandlers } from "./handlers.ts";
+import { safeStorageSealer } from "./account-secrets.ts";
+import { appSocketTags } from "./app-socket-tags.ts";
+import { appOrigin } from "./csp.ts";
+import { bundleOf, DEBUG_SWITCHES, keptKeyGate, signedByAce } from "./app-standing-gate.ts";
 import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { talkPress, talkShortcutOf, withTalkDefault } from "./spade-talk.ts";
@@ -114,6 +118,13 @@ if (process.platform === "win32")
 const crashDumpDir = startLocalCrashReporter(userData);
 // Before anything starts Chromium's network service: never the older ace app's keychain item.
 claimKeychainName(app, process.platform);
+// A released app never runs with a debugging switch: another process could then drive its
+// windows or read its memory, and with them the person's standing (ADR 0190, amendment 1).
+// Electron's fuses already refuse Node's inspector and NODE_OPTIONS.
+if (app.isPackaged && DEBUG_SWITCHES.some((name) => app.commandLine.hasSwitch(name))) {
+  console.error("ace: refusing to start a released app with a debugging switch");
+  app.exit(1);
+}
 // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
 disableDnsPrefetching(app);
 // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
@@ -671,6 +682,50 @@ function main(target: DaemonTarget, crashDumps: string): void {
         log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() }),
     });
     const connection = handoff.connection;
+    // The person's standing on the app's own sockets (ADR 0190, amendment 1): a device key kept
+    // only by ace's release build in its default profile, and tags only main puts on the app's
+    // own socket upgrades to the daemon on this computer.
+    const standingAllowed = keptKeyGate(
+      {
+        platform: process.platform,
+        packaged: app.isPackaged,
+        userData,
+        defaultUserData: desktopUserData({ explicit: undefined, appData: app.getPath("appData") }),
+        profileOverridden:
+          process.env.ACE_DESKTOP_USER_DATA !== undefined ||
+          app.commandLine.hasSwitch("user-data-dir"),
+        debugging: DEBUG_SWITCHES.some((name) => app.commandLine.hasSwitch(name)),
+        sealing: safeStorageSealer.available(),
+      },
+      () => signedByAce(bundleOf(process.execPath)),
+    );
+    let standingOn = false;
+    void standingAllowed().then((allowed) => (standingOn = allowed));
+    let taggedDaemon: string | undefined;
+    const refreshTaggedDaemon = () =>
+      void runtime.connection().then(
+        (current) => {
+          taggedDaemon =
+            current.mode === "daemon" && current.localRelayHostId !== undefined
+              ? current.url
+              : undefined;
+        },
+        () => (taggedDaemon = undefined),
+      );
+    refreshTaggedDaemon();
+    runtime.onStatus(refreshTaggedDaemon);
+    const socketTags = appSocketTags({
+      hook: session.defaultSession.webRequest,
+      daemonUrl: () => taggedDaemon,
+      // The app's own scheme, or the dev server's origin in development (which keeps no key).
+      appOrigin: () =>
+        rendererUrl.startsWith(`${appOrigin}/`)
+          ? appOrigin
+          : rendererUrl
+            ? new URL(rendererUrl).origin
+            : undefined,
+      enabled: () => standingOn,
+    });
     // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
     // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
     // and the agents in it, is left alone.
@@ -753,6 +808,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     });
     app.once("will-quit", spade.close);
     const handlers = createHandlers({
+      standing: { allowed: standingAllowed, tags: socketTags.recent },
       spade: spade.direct,
       deviceTabs: localhost.tabs,
       machineTunnels: localhost.tunnels,
