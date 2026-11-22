@@ -1,5 +1,5 @@
 import { toolSurface } from "@ace/projection";
-import type { AgentStatus, Item, ToolSurface } from "@ace/protocol";
+import type { Item, ToolSurface } from "@ace/protocol";
 import { aceCallOf, aceToolLog, screenStep, type AceLog } from "./ace-tool-rows.ts";
 import { backgroundFact, sameFact, stepFact, type StepFact } from "./step-groups.ts";
 import { toolRefusal } from "./tool-refusals.ts";
@@ -90,37 +90,6 @@ export function readWorkLog(
     shown.set(item.id, drawn);
   }
   return { facts: out, surfaces: shown, retried: retried ?? noIds, thinking };
-}
-
-/** What `thinksBetweenSteps` reads of the thread. */
-export interface BetweenStepsReader {
-  readonly thread: { readonly rootAgentId?: string | undefined } | undefined;
-  readonly order: readonly string[];
-  agent(id: string): { readonly status: AgentStatus } | undefined;
-}
-
-/**
- * The model is working out its next step: the turn's root works with nothing in flight, no
- * step, no reply and no thought, and this log (`ids`) holds the thread's newest item. Not every
- * provider streams the thinking before a call: Antigravity sends nothing between one call's end
- * and the next one's start, often for half a minute. So the log reads "Thinking" from the
- * agent's state, the row a thought with no words yet shows (`thinking`), never a step.
- */
-export function thinksBetweenSteps(
-  reader: BetweenStepsReader,
-  ids: readonly string[],
-  reading: WorkLogReading,
-): boolean {
-  const newest = reader.order.at(-1);
-  if (reading.thinking !== undefined || newest === undefined || ids.at(-1) !== newest) return false;
-  const rootId = reader.thread?.rootAgentId;
-  const root = rootId === undefined ? undefined : reader.agent(rootId);
-  const status = root?.status;
-  return (
-    status?.state === "working" &&
-    (status.activity === "starting_turn" || status.activity === "thinking") &&
-    !reading.facts.some((fact) => fact.running)
-  );
 }
 
 export const sameWorkLogReading = (a: WorkLogReading, b: WorkLogReading) =>
