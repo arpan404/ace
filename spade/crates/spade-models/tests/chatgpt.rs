@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use spade_models::{
-    Bearers, Catalog, Endpoint, Format, Keys, Model, ModelError, Models, Prompt, SignIn,
+    Bearers, Catalog, Effort, Endpoint, Format, Keys, Model, ModelError, Models, Prompt, SignIn,
 };
 use spade_testkit::{FakeProvider, Script, Seen};
 
@@ -296,5 +296,86 @@ async fn a_backend_error_that_echoes_the_token_never_carries_it_into_spades_erro
             "{shown}"
         );
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_roles_effort_reaches_the_chatgpt_backend_without_an_output_limit() -> Result {
+    let fake = FakeProvider::start("ok").await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    for effort in [Effort::High, Effort::Max, Effort::Off] {
+        client
+            .models
+            .chat(
+                "chatgpt/gpt-5.5",
+                &Prompt::ask("hi").max_tokens(500).effort(effort),
+            )
+            .await?;
+    }
+    client
+        .models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+        .await?;
+    let seen = fake.seen();
+    let sent: Vec<&serde_json::Value> = seen
+        .iter()
+        .map(|s| &s.body["reasoning"]["effort"])
+        .collect();
+    assert_eq!(
+        sent,
+        vec![
+            &serde_json::json!("high"),
+            &serde_json::json!("xhigh"),
+            &serde_json::json!("none"),
+            &serde_json::Value::Null,
+        ],
+        "the provider's own default sends nothing"
+    );
+    for request in &seen {
+        assert!(request.body.get("max_output_tokens").is_none());
+        assert_eq!(
+            header(request, "authorization").as_deref(),
+            Some("Bearer access-1")
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_backend_that_refuses_the_effort_is_asked_again_without_it_on_the_same_account() -> Result
+{
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(400), Script::reply("ok")]).await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let reply = client
+        .models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi").effort(Effort::High))
+        .await?;
+    assert_eq!(reply.text, "ok");
+    let seen = fake.seen();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0].body["reasoning"]["effort"], "high");
+    assert!(
+        seen[1].body["reasoning"].get("effort").is_none(),
+        "{}",
+        seen[1].body
+    );
+    for request in &seen {
+        assert_eq!(
+            header(request, "authorization").as_deref(),
+            Some("Bearer access-1")
+        );
+        assert_eq!(
+            header(request, "chatgpt-account-id").as_deref(),
+            Some("acct-1")
+        );
+    }
+    assert!(
+        client
+            .rejected
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty()
+    );
     Ok(())
 }
