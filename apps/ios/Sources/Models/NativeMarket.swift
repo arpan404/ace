@@ -43,7 +43,34 @@ struct MarketListing: Decodable, Identifiable, Hashable {
     let picture: String?
     /// Why it has no Get ("Needs a newer ace"), when it can't be installed here.
     let block: String?
+    /// What Share link sends (`ace://market?at=skill/triage-mail`).
+    let link: String?
+    /// Its button and long press, from what the machine has installed (browse rows only).
+    let action: MarketListingAction?
     var key: MarketEntryKey { MarketEntryKey(source: source, type: type, name: name) }
+}
+
+/// A browse row's button (`bridge/market-actions.ts`): what it says and the installed copies it
+/// acts on, a bot package's one per bot.
+struct MarketListingAction: Decodable, Hashable {
+    /// One installed copy, named for the menu that chooses it and for Remove's question.
+    struct Copy: Decodable, Hashable, Identifiable {
+        let install: MarketInstall
+        /// The bot's name for a bot package's copy, else the entry's title.
+        let label: String
+        /// "Remove Inbox's skills and plugins? The bot stays yours."
+        let question: String
+        let update: Bool
+        var id: String { install.id }
+    }
+    /// `get`, `update`, `installed`, `blocked`, or `unknown` while what's installed can't be read.
+    let kind: String
+    /// "Get", "Update", "Installed"; nil when there is no button.
+    let word: String?
+    /// Why it can't be installed here ("Needs a newer ace").
+    let reason: String?
+    let copies: [Copy]
+    var updates: [Copy] { copies.filter(\.update) }
 }
 
 /// An install as a row (`market-rows.ts` `installedRow`).
@@ -78,15 +105,18 @@ struct MarketHome: Decodable, Equatable {
 }
 
 struct MarketDiscover: Decodable, Equatable {
-    /// A trending row: the listing and its place this week.
+    /// A trending row: the listing, its place this week and how it moved ("Up 3").
     struct Ranked: Decodable, Identifiable, Hashable {
-        private enum Keys: String, CodingKey { case rank }
+        private enum Keys: String, CodingKey { case rank, movement }
         let row: MarketListing
         let rank: Int
+        let movement: String?
         var id: String { row.id }
         init(from decoder: any Decoder) throws {
             row = try MarketListing(from: decoder)
-            rank = try decoder.container(keyedBy: Keys.self).decode(Int.self, forKey: .rank)
+            let keys = try decoder.container(keyedBy: Keys.self)
+            rank = try keys.decode(Int.self, forKey: .rank)
+            movement = try keys.decodeIfPresent(String.self, forKey: .movement)
         }
     }
     struct Collection: Decodable, Identifiable, Hashable { let id: String; let title: String; let line: String; let rows: [MarketListing] }
@@ -106,6 +136,8 @@ struct MarketDiscover: Decodable, Equatable {
     let fresh: [MarketListing]
     let collections: [Collection]
     let publishers: [Publisher]
+    /// Every shelf is empty: the home shows the device's own listings instead.
+    let empty: Bool
 }
 
 struct MarketSearchPage: Decodable, Equatable {
@@ -124,12 +156,16 @@ struct MarketSources: Decodable, Equatable {
         let title: String
         let address: String
         let enabled: Bool
+        /// A git catalog the person added; ace's marketplace is only turned off.
+        let removable: Bool
         let entriesText: String
         let listings: String
         let problem: String?
     }
     let offline: Bool
     let sources: [Source]
+    /// "Listings from 3:04 PM" while a source that's on can't be read; nil when all are fresh.
+    let stale: String?
 }
 
 struct MarketPublisherPage: Decodable, Equatable {

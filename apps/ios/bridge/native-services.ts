@@ -218,7 +218,7 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
-    this.market = new NativeMarket(owner, now);
+    this.market = new NativeMarket(owner, now, undefined, (id) => this.spade?.bot(id)?.name);
     this.automations = automations;
     this.projects = projects;
     this.inbox = inbox;

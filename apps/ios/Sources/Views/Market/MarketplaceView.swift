@@ -35,7 +35,8 @@ struct MarketplaceView: View {
             }
         }
         .navigationTitle("Marketplace")
-        .navigationBarTitleDisplayMode(.inline)
+        // A large title, as the store pages are; with a machine menu in the title it stays inline.
+        .navigationBarTitleDisplayMode(inbox.sessions.count > 1 ? .inline : .large)
         .toolbar {
             if inbox.sessions.count > 1 {
                 ToolbarItem(placement: .principal) { machineMenu }
