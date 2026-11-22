@@ -5,11 +5,12 @@ import Foundation
 /// which Send turns into one `<code_annotations>` block after the words.
 extension ClientModel {
     /// A new note on `span` of `path` in `thread`, whose text is `lines`; nil once the thread is full.
+    /// `now` is the file's text as the note is added, when it may have changed since `lines`.
     @discardableResult
-    func addCodeNote(_ thread: String, path: String, span: TextSpan, lines: [String], comment: String) -> String? {
+    func addCodeNote(_ thread: String, path: String, span: TextSpan, lines: [String], now: [String]? = nil, comment: String) -> String? {
         guard canOperate, !codeNotes.full(thread) else { return nil }
         let id = UUID().uuidString
-        codeNotes.add(thread, path: path, span: span, lines: lines, comment: comment, id: id)
+        codeNotes.add(thread, path: path, span: span, lines: lines, now: now, comment: comment, id: id, checkout: checkoutKeys[thread])
         sendCodeNotes(thread)
         return id
     }
@@ -37,11 +38,24 @@ extension ClientModel {
         codeNotes.reloaded(thread, path: path, before: lines, after: after)
         if codeNotes != before { sendCodeNotes(thread) }
     }
-    /// A file moved or was renamed: its notes follow.
-    func codeRenamed(from path: String, to destination: String) {
+    /// A file moved or was renamed in `scope`'s checkout: the notes made in that checkout follow.
+    func codeRenamed(_ scope: FilesScope, from path: String, to destination: String) async {
+        guard case .thread(let renaming) = scope else { return }
+        let checkout = await checkoutKey(renaming)
         let before = codeNotes
-        codeNotes.renamed(from: path, to: destination)
+        codeNotes.renamed(in: checkout, thread: renaming, from: path, to: destination)
         if codeNotes != before, let open = thread?.id { sendCodeNotes(open) }
+    }
+    /// A thread's checkout as notes name it, this machine and the checkout's root; read once, nil
+    /// while the root can't be read.
+    @discardableResult
+    func checkoutKey(_ thread: String) async -> String? {
+        if let known = checkoutKeys[thread] { return known }
+        guard let found = try? await files(.thread(thread), ["op": "root"], as: CheckoutRoot.self, timeout: .seconds(3)),
+              let root = found.root else { return nil }
+        let key = "\(hostId ?? "")\u{0}\(root)"
+        checkoutKeys[thread] = key
+        return key
     }
     /// The open thread's session hears `thread`'s notes; another thread's wait until it opens.
     func sendCodeNotes(_ thread: String) {
@@ -49,3 +63,5 @@ extension ClientModel {
         threadAction(["type": "code.set", "notes": codeNotes.wire(thread)])
     }
 }
+
+private struct CheckoutRoot: Decodable { let root: String? }

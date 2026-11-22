@@ -59,11 +59,51 @@ import Testing
 
     @Test func aNoteFollowsItsFileToANewPath() {
         var notes = two()
-        notes.renamed(from: "src/total.ts", to: "src/sum.ts")
+        notes.renamed(in: nil, thread: "t", from: "src/total.ts", to: "src/sum.ts")
         #expect(notes["t"].map(\.path) == ["src/sum.ts", "src/view.tsx"])
         // A folder moved takes the notes on every file in it.
-        notes.renamed(from: "src/", to: "lib")
+        notes.renamed(in: nil, thread: "t", from: "src/", to: "lib")
         #expect(notes["t"].map(\.path) == ["lib/sum.ts", "lib/view.tsx"])
+    }
+
+    @Test func aRenameInOneCheckoutLeavesAnotherCheckoutsNotesOnTheSamePath() {
+        var notes = CodeNotes()
+        let cart = ["let total = 0"]
+        notes.add("a", path: "src/cart.ts", span: span((0, 4), (0, 9)), lines: cart, comment: "A", id: "a1", checkout: "mac\u{0}/w/one")
+        notes.add("b", path: "src/cart.ts", span: span((0, 4), (0, 9)), lines: cart, comment: "B", id: "b1", checkout: "mac\u{0}/w/two")
+        notes.renamed(in: "mac\u{0}/w/one", thread: "a", from: "src/cart.ts", to: "src/basket.ts")
+        #expect(notes["a"].map(\.path) == ["src/basket.ts"])
+        #expect(notes["b"].map(\.path) == ["src/cart.ts"])
+        // A thread sharing the checkout sees the same files, so its notes follow too.
+        notes.add("c", path: "src/basket.ts", span: span((0, 4), (0, 9)), lines: cart, comment: "C", id: "c1", checkout: "mac\u{0}/w/one")
+        notes.renamed(in: "mac\u{0}/w/one", thread: "a", from: "src/basket.ts", to: "src/bag.ts")
+        #expect(notes["c"].map(\.path) == ["src/bag.ts"])
+        #expect(notes["b"].map(\.path) == ["src/cart.ts"])
+    }
+
+    @Test func aNoteWrittenWhileTheFileReloadedLandsOnItsCodeOrComesOutdated() {
+        var notes = CodeNotes()
+        // The sheet opened on line 2; an agent then added a line above it.
+        let moved = AnnotationAnchor.lines("import x;\n" + file.joined(separator: "\n"))
+        notes.add("t", path: "src/total.ts", span: span((1, 2), (1, 14)), lines: file, now: moved, comment: "Sum", id: "a")
+        #expect(notes["t"].first?.span == span((2, 2), (2, 14)))
+        #expect(notes["t"].first?.outdated == false)
+        // Or rewrote it so its code is gone: the note joins, outdated, with the code it was on.
+        let gone = AnnotationAnchor.lines("export const total = () => 0;")
+        notes.add("t", path: "src/total.ts", span: span((1, 2), (1, 14)), lines: file, now: gone, comment: "Sum", id: "b")
+        #expect(notes["t"].last?.outdated == true)
+        #expect(notes["t"].last?.excerpt == "let sum = 0;")
+    }
+
+    @Test func typingWhereAnOutdatedNoteWasKeepsTheCodeItWasOn() {
+        var notes = two()
+        let gone = AnnotationAnchor.lines("export const total = () => 0;")
+        notes.reloaded("t", path: "src/total.ts", before: file, after: gone)
+        let point = notes["t"].first?.span.start ?? TextPlace(line: 0, column: 0)
+        let typed = TextReplacement.replacing(from: point, to: point, with: "abc")
+        notes.edited("t", path: "src/total.ts", through: [typed], lines: AnnotationAnchor.lines("abcexport const total = () => 0;"))
+        #expect(notes["t"].first?.outdated == true)
+        #expect(notes["t"].first?.excerpt == "let sum = 0;\n  return sum")
     }
 
     @Test func removingANoteClosesRanksAndASentMessageDropsOnlyWhatItTook() {
@@ -97,6 +137,21 @@ import Testing
         guard case .screen(let id, _, .codeSent(let ids)) = patch else { Issue.record("Expected the notes that went"); return }
         #expect(id == "t")
         #expect(ids == ["a", "b"])
+    }
+
+    @Test func notesASendTookLeaveTheirThreadEvenAfterThePersonLeftIt() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        let epoch = model.thread?.epoch ?? 0
+        model.codeNotes.add("a", path: "a.ts", span: TextSpan(start: TextPlace(line: 0, column: 0), end: TextPlace(line: 0, column: 1)),
+                            lines: ["x"], comment: "", id: "n1")
+        model.codeNotes.add("a", path: "a.ts", span: TextSpan(start: TextPlace(line: 0, column: 0), end: TextPlace(line: 0, column: 1)),
+                            lines: ["x"], comment: "", id: "n2")
+        // The person opens another thread while the message is being saved.
+        model.open("b")
+        let ack: [[String: Any]] = [["type": "thread.codeSent", "threadId": "a", "epoch": epoch, "ids": ["n1"]]]
+        model.receive(try JSONSerialization.data(withJSONObject: ack))
+        #expect(model.codeNotes["a"].map(\.id) == ["n2"])
     }
 
     @Test func theChipNamesOneNoteByItsPlaceAndSeveralByCount() {

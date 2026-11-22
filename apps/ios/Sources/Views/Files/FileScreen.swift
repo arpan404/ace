@@ -103,6 +103,8 @@ struct FileScreen: View {
             .overlay(alignment: .bottom) { mentionLines }
             .overlay(alignment: .bottomTrailing) { notesChip }
             .sheet(item: $noting) { draft in noteSheet(draft) }
+            // Notes made here name this checkout, so a rename in another one leaves them.
+            .task(id: noteThread) { if let thread = noteThread { await model.checkoutKey(thread) } }
             .animation(.default, value: selectedLines)
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))

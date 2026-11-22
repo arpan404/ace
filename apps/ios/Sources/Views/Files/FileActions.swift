@@ -101,15 +101,17 @@ struct FileStrip: Equatable {
                 // Recent and open files follow a rename or move, and forget a deleted file.
                 switch prompt {
                 case .rename(let path), .move(let path):
-                    if let destination = change.destination {
-                        model.action(["type": "files.moved", "scope": scope.wire, "from": path, "to": destination])
-                        // Notes on its code follow it too.
-                        model.codeRenamed(from: path, to: destination)
-                    }
+                    if let destination = change.destination { model.action(["type": "files.moved", "scope": scope.wire, "from": path, "to": destination]) }
                 case .delete(let path): model.action(["type": "files.forgot", "scope": scope.wire, "path": path])
                 default: break
                 }
                 changed(prompt, change)
+                // Notes made in this checkout follow a rename or move too.
+                switch prompt {
+                case .rename(let path), .move(let path):
+                    if let destination = change.destination { await model.codeRenamed(scope, from: path, to: destination) }
+                default: break
+                }
             } catch {
                 strip = FileStrip(message: "\(prompt.failure(typed: value)) \(error.localizedDescription)")
             }

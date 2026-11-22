@@ -90,6 +90,18 @@ import Testing
                 == Anchored(span: span((1, 0), (1, 0)), outdated: true))
     }
 
+    @Test func codeIsComparedUnitForUnitAsTheWebDoes() {
+        // "é" written as one unit and as "e" with a combining accent read the same to Swift, but
+        // not to the web: code that changed only so is outdated on both.
+        let decomposed = ["caf" + "e\u{301}"]
+        let mark = span((0, 3), (0, 5))
+        #expect(AnnotationAnchor.verify(mark, excerpt: "e\u{301}", cut: false, lines: decomposed) == kept(mark))
+        #expect(AnnotationAnchor.verify(mark, excerpt: "\u{E9}", cut: false, lines: decomposed).outdated)
+        // A line that only changed its accent's form is a changed line, so a rewrite looks again.
+        let before = ["caf\u{E9}", "x"]
+        #expect(AnnotationAnchor.reanchor(span((0, 0), (0, 4)), excerpt: "caf\u{E9}", cut: false, before: before, after: decomposed + ["x"]).outdated)
+    }
+
     @Test func aLongRangeKeepsItsFirstLinesAndSaysItWasCut() {
         let long = String(repeating: "0123456789\n", count: 500)
         let excerpt = AnnotationAnchor.excerpt(long)

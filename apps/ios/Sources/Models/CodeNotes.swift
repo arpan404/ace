@@ -11,6 +11,9 @@ struct CodeNote: Equatable, Sendable, Identifiable {
     var comment: String
     /// The code it pointed at changed or was deleted since it was made.
     var outdated = false
+    /// The checkout it was made in (machine and checkout root), so a rename in that checkout
+    /// moves it and one in another checkout never does; nil when the root wasn't known yet.
+    var checkout: String? = nil
     /// 1-based, inclusive: "12" or "12–18", a range ending at a line's start stopping before it.
     var lines: ClosedRange<Int> {
         let last = span.end.column == 0 && span.end.line > span.start.line ? span.end.line : span.end.line + 1
@@ -35,11 +38,20 @@ struct CodeNotes: Equatable, Sendable {
     /// A note's number: its place in the thread's list.
     func number(_ thread: String, id: String) -> Int? { self[thread].firstIndex { $0.id == id }.map { $0 + 1 } }
 
-    /// A new note on `span` of `path`, whose text is `lines`; nothing once the thread is full.
-    mutating func add(_ thread: String, path: String, span: TextSpan, lines: [String], comment: String, id: String) {
+    /// A new note on `span` of `path`, made over `lines`; nothing once the thread is full. When
+    /// the file's text is `now` by the time it is added (it reloaded while the note was written),
+    /// the range is found again in it, or the note joins outdated with the code it was on.
+    mutating func add(_ thread: String, path: String, span: TextSpan, lines: [String], now: [String]? = nil,
+                      comment: String, id: String, checkout: String? = nil) {
         guard !full(thread) else { return }
         let excerpt = AnnotationAnchor.excerpt(AnnotationAnchor.text(of: span, in: lines))
-        threads[thread, default: []].append(CodeNote(id: id, path: path, span: span, excerpt: excerpt.text, cut: excerpt.cut, comment: comment))
+        var note = CodeNote(id: id, path: path, span: span, excerpt: excerpt.text, cut: excerpt.cut, comment: comment, checkout: checkout)
+        if let now, !AnnotationAnchor.same(lines, now) {
+            let anchored = AnnotationAnchor.reanchor(span, excerpt: excerpt.text, cut: excerpt.cut, before: lines, after: now)
+            note.span = anchored.span
+            note.outdated = anchored.outdated
+        }
+        threads[thread, default: []].append(note)
     }
 
     mutating func comment(_ thread: String, id: String, _ comment: String) {
@@ -73,7 +85,8 @@ struct CodeNotes: Equatable, Sendable {
             let touched = AnnotationAnchor.touches(note.span, replacements)
             note.span = moved.span
             if moved.outdated { note.outdated = true }
-            if touched, !moved.outdated {
+            // An outdated note keeps the code it was on: typing where it was isn't that code.
+            if touched, !moved.outdated, !note.outdated {
                 let excerpt = AnnotationAnchor.excerpt(AnnotationAnchor.text(of: moved.span, line: line))
                 note.excerpt = excerpt.text
                 note.cut = excerpt.cut
@@ -94,12 +107,16 @@ struct CodeNotes: Equatable, Sendable {
         }
     }
 
-    /// A file or folder (ending in "/") moved or was renamed: its notes follow it, in every thread.
-    mutating func renamed(from path: String, to destination: String) {
+    /// A file or folder (ending in "/") moved or was renamed in `checkout` from `thread`: the
+    /// notes made in that checkout follow it, in every thread sharing it, and so do the renaming
+    /// thread's own notes made before its root was known. Another checkout's notes never move.
+    mutating func renamed(in checkout: String?, thread renaming: String, from path: String, to destination: String) {
         let folder = path.hasSuffix("/")
         let into = folder && !destination.hasSuffix("/") ? destination + "/" : destination
         for thread in threads.keys {
             update(thread) { note in
+                let here = note.checkout.map { $0 == checkout } ?? (thread == renaming)
+                guard here else { return }
                 if note.path == path { note.path = destination }
                 else if folder, note.path.hasPrefix(path) { note.path = into + note.path.dropFirst(path.count) }
             }

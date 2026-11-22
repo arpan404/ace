@@ -18,6 +18,8 @@ struct NoteDraft: Identifiable {
     let excerpt: String
     /// The file's lines when the note was made, for its excerpt; empty for an existing note.
     var lines: [String] = []
+    /// The file it was made on: a sheet left open while another file took the view keeps it.
+    var path = ""
 }
 
 /// Annotate (editing) or Comment (reading): what the person wants done with the selected code,

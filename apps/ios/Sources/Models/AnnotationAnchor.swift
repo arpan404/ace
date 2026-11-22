@@ -55,6 +55,12 @@ enum AnnotationAnchor {
     /// A text's lines, split on line feeds only, as the editor counts them.
     static func lines(_ text: String) -> [String] { text.components(separatedBy: "\n") }
 
+    /// Code is the same when its UTF-16 units are, as the web compares it: Swift's own `==`
+    /// would also match "é" to "e" with a combining accent.
+    static func same(_ a: String, _ b: String) -> Bool { a.utf16.elementsEqual(b.utf16) }
+    static func same(_ a: [String], _ b: [String]) -> Bool { a.count == b.count && zip(a, b).allSatisfy { same($0, $1) } }
+    private static func starts(_ text: String, with prefix: String) -> Bool { text.utf16.starts(with: prefix.utf16) }
+
     // MARK: Through an edit
 
     /// `at` after the edits before it, when no edit touched it: shifted by the last one's growth.
@@ -178,9 +184,9 @@ enum AnnotationAnchor {
     static func reanchor(_ span: TextSpan, excerpt: String, cut: Bool, before: [String], after: [String]) -> Anchored {
         let shortest = min(before.count, after.count)
         var prefix = 0
-        while prefix < shortest, before[prefix] == after[prefix] { prefix += 1 }
+        while prefix < shortest, same(before[prefix], after[prefix]) { prefix += 1 }
         var suffix = 0
-        while suffix < shortest - prefix, before[before.count - 1 - suffix] == after[after.count - 1 - suffix] { suffix += 1 }
+        while suffix < shortest - prefix, same(before[before.count - 1 - suffix], after[after.count - 1 - suffix]) { suffix += 1 }
         if lastLine(span) < prefix { return Anchored(span: span, outdated: false) }
         if span.start.line >= before.count - suffix {
             let grown = after.count - before.count
@@ -189,7 +195,7 @@ enum AnnotationAnchor {
         }
         if !cut, let found = findOnce(after.joined(separator: "\n"), excerpt),
            findOnce(before.joined(separator: "\n"), excerpt) != nil,
-           beside(before, span) == beside(after, found) {
+           same(beside(before, span), beside(after, found)) {
             return Anchored(span: found, outdated: false)
         }
         return outdated(span, after)
@@ -201,7 +207,7 @@ enum AnnotationAnchor {
         let inRange = span.end.line < lines.count || (span.end.line == lines.count && span.end.column == 0)
         if inRange {
             let here = text(of: span, in: lines)
-            if cut ? here.hasPrefix(excerpt) : here == excerpt { return Anchored(span: span, outdated: false) }
+            if cut ? starts(here, with: excerpt) : same(here, excerpt) { return Anchored(span: span, outdated: false) }
         }
         if !cut, let found = findOnce(lines.joined(separator: "\n"), excerpt) { return Anchored(span: found, outdated: false) }
         return outdated(span, lines)

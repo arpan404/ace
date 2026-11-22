@@ -47,7 +47,7 @@ extension FileScreen {
         let lines = AnnotationAnchor.lines(handle.text)
         let excerpt = AnnotationAnchor.excerpt(AnnotationAnchor.text(of: span, in: lines)).text
         guard !excerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        noting = NoteDraft(id: UUID().uuidString, span: span, existing: nil, comment: "", excerpt: excerpt, lines: lines)
+        noting = NoteDraft(id: UUID().uuidString, span: span, existing: nil, comment: "", excerpt: excerpt, lines: lines, path: path)
     }
 
     func editNote(_ note: CodeNote) {
@@ -63,7 +63,10 @@ extension FileScreen {
             if let id = draft.existing {
                 model.commentCodeNote(thread, id: id, comment)
             } else {
-                model.addCodeNote(thread, path: path, span: draft.span, lines: draft.lines, comment: comment)
+                // The file may have reloaded while the sheet was open (an agent's change): the
+                // range is found again in the text shown now, or the note joins outdated.
+                let now = draft.path == path ? AnnotationAnchor.lines(handle.text) : nil
+                model.addCodeNote(thread, path: draft.path, span: draft.span, lines: draft.lines, now: now, comment: comment)
             }
         }
     }
