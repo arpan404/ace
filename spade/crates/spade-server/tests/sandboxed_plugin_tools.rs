@@ -131,7 +131,7 @@ fn asked(events: &[Value]) -> Vec<&Value> {
         .collect()
 }
 
-/// A contained server with a token and its network on: the undeclared send asks first; declined,
+/// A contained server with a token and its network on: the undeclared send is reviewed first; declined,
 /// the declared post goes to the reviewer; nothing is sent.
 async fn a_contained_server_with_a_token_keeps_the_app_tool_rules(full_access: bool) -> Result {
     let root = tempfile::tempdir()?;
@@ -155,7 +155,13 @@ async fn a_contained_server_with_a_token_keeps_the_app_tool_rules(full_access: b
         .await?;
     let first = asked(&events);
     assert_eq!(first[0]["call_id"], "c1");
-    assert_eq!(first[0]["ask"], "undeclared", "first call asks: {events:?}");
+    // It declares nothing: the reviewer judges it (ADR 0202, amendment 2), and this test's
+    // reviewer can't be reached, so the person decides. Never a plain run.
+    let judged = events
+        .iter()
+        .find(|e| e["type"] == "call_reviewed" && e["call_id"] == "c1")
+        .ok_or_else(|| format!("c1 wasn't reviewed: {events:?}"))?;
+    assert_eq!(judged["model"], support::UNREACHABLE_REVIEWER);
     // Declined: the bot goes on to the declared tool, which the reviewer must see.
     let (status, _) = w
         .spade

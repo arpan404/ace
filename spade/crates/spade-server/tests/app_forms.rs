@@ -100,7 +100,8 @@ async fn allow(spade: &Spade, conversation: &str, call: &str, always: bool) -> R
 }
 
 #[tokio::test]
-async fn a_trusted_apps_read_runs_without_asking_and_an_untrusted_apps_still_asks() -> Result {
+async fn a_trusted_apps_read_runs_without_asking_and_an_untrusted_apps_hint_reads_nothing() -> Result
+{
     for trusted in [true, false] {
         let app = FakeConnector::start(vec![tool("echo", Some(true), None)]).await;
         let spade = with_app(&app, trusted, turn(vec![call("c1", "echo")])).await?;
@@ -115,9 +116,15 @@ async fn a_trusted_apps_read_runs_without_asking_and_an_untrusted_apps_still_ask
             let events = spade.wait_for(&main, "reply_finished").await?;
             assert_eq!(result(&events, "c1"), "nothing");
         } else {
-            // Its readOnlyHint is the server's own word: the person decides.
+            // Its readOnlyHint is the server's own word and `echo` names no read: the reviewer
+            // judges it, and here nothing answers for the reviewer, so the person decides.
             let asked = asked.ok_or("an untrusted read ran without asking")?;
-            assert_eq!(asked["ask"], "undeclared", "{asked}");
+            assert!(
+                asked["reviewer_reason"]
+                    .as_str()
+                    .is_some_and(|line| line.contains("reviewer")),
+                "{asked}"
+            );
             assert_eq!(app.tool_runs(), 0, "it ran before the person answered");
         }
     }
@@ -193,6 +200,11 @@ async fn a_form_asking_for_a_secret_is_never_shown_and_fails_the_call() -> Resul
     let spade = with_app(&app, true, turn(vec![call("c1", "ask_password")])).await?;
     let main = main_conversation(&spade).await?;
     spade.say(&main, "Go on").await?;
+    // A tool named for a secret is the person's to allow, whatever its server says
+    // (ADR 0202, amendment 2).
+    let events = spade.wait_for(&main, "approval_requested").await?;
+    assert!(of(&events, "approval_requested", "c1").is_some());
+    allow(&spade, &main, "c1", false).await?;
     let events = spade.wait_for(&main, "reply_finished").await?;
     assert!(
         events.iter().all(|e| e["type"] != "question_asked"),
