@@ -57,3 +57,8 @@ export function withCodeNotes(
 ): ContentPart[] {
   return handOff ? [...input, handOff.part] : input;
 }
+
+/** The block as words, for a message that takes one string (a new thread's first). */
+export function codeText(handOff: CodeNotesHandOff): string {
+  return handOff.part.type === "text" ? handOff.part.text : "";
+}

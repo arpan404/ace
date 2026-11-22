@@ -149,6 +149,39 @@ test("a fork from an answer is written in the composer and starts with its first
   await until(() => draft() === null, "the composer back on this thread");
 });
 
+test("a fork's first message carries the editor's code notes, and they leave this thread", async () => {
+  const thread = await opened(twoTurns());
+  const answerId = String(item("Here is the plan.")?.id);
+  thread.handle({ type: "fork.open", at: { kind: "answer", itemId: answerId }, requestId: "f" });
+  await until(() => controls()?.continues, "the composer starting the fork");
+  thread.handle({
+    type: "code.set",
+    notes: [
+      {
+        id: "n1",
+        number: 1,
+        path: "src/plan.ts",
+        start: { line: 0, column: 0 },
+        end: { line: 0, column: 4 },
+        excerpt: "plan",
+        comment: "Do it here",
+      },
+    ],
+  });
+  thread.handle({
+    type: "send",
+    text: "Try it.",
+    opposite: false,
+    continues: true,
+    requestId: "go",
+  });
+  await until(() => latest("thread.continued"), "the fork opening");
+  const input = String(commands("thread.fork")[0]?.input);
+  expect(input.startsWith("Try it.")).toBe(true);
+  expect(input).toContain("[1] src/plan.ts:1");
+  expect(latest("thread.codeSent")?.ids).toEqual(["n1"]);
+});
+
 test("editing a message forks from before it, starting from its words", async () => {
   const thread = await opened(twoTurns());
   const askId = String(item("Use the other approach")?.id);

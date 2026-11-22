@@ -50,7 +50,7 @@ import {
 } from "./thread-attachments.ts";
 import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
 import { QuoteShelf, quoteText, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
-import { ThreadCodeNotes, withCodeNotes } from "./thread-code-notes.ts";
+import { codeText, ThreadCodeNotes, withCodeNotes } from "./thread-code-notes.ts";
 import { followBlocks, placedMoments } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
@@ -784,8 +784,10 @@ export class ThreadSession {
       return;
     }
     const files = this.#tray.context();
-    // What the message replies to goes with it: the new thread carries this one's context.
+    // What the message replies to goes with it, and the code notes after the words: the new
+    // thread carries this one's context.
     const quoted = this.#quotes.handOff();
+    const coded = this.#code.handOff();
     const built =
       "refused" in files
         ? files
@@ -794,7 +796,7 @@ export class ThreadSession {
             threadId: this.#threadId,
             choice,
             options: this.#sheet.continuedOptions,
-            text: quoted ? `${quoteText(quoted)}${text}` : text,
+            text: `${quoted ? quoteText(quoted) : ""}${text}${coded ? codeText(coded) : ""}`,
             files: this.#tray.files(),
             modalities: this.#sheet.modalities(choice),
             context: files.context,
@@ -820,6 +822,7 @@ export class ThreadSession {
         tray.unlock();
         if (!result.ok) return;
         if (quoted) this.#quotes.sent(quoted);
+        if (coded) this.#code.sent(coded);
         const threadId = result.forkThreadId;
         if (threadId)
           this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));
@@ -835,10 +838,11 @@ export class ThreadSession {
     if ("refused" in files) return this.#admission(id, false, files.refused);
     const content = messageContent(text, references, this.#catalog(this.#threadId));
     const choice = this.#transitions.draft?.choice;
+    const coded = this.#code.handOff();
     this.#transitions.send(
       {
         model: this.#forkModel(),
-        input: text,
+        input: coded ? `${text}${codeText(coded)}` : text,
         files: this.#tray.files(),
         modalities: choice ? this.#sheet.modalities(choice) : undefined,
         context: joinContext(files.context, content.references),
@@ -850,8 +854,11 @@ export class ThreadSession {
           refusal: (error) => `The fork didn't start: ${error ?? "your computer refused it"}.`,
         }),
       (requestId, ok, message) => this.#admission(requestId, ok, message),
-      // Only the files this fork carried leave the tray; any added since stay for the next message.
-      () => this.#tray.sent(files.ids),
+      // Only the files and notes this fork carried leave; any added since stay for the next message.
+      () => {
+        this.#tray.sent(files.ids);
+        if (coded) this.#code.sent(coded);
+      },
     );
   }
   /** A settled head's answers, which its opened log leaves out. */
