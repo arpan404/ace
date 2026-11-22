@@ -106,8 +106,17 @@ export class ThreadVisit {
     this.#firstScreen?.settle();
   }
 
-  /** Show `threadId` under the next generation, as native's `open` does. */
-  open(client: ClientCore, threadId: string, warm: boolean, kept?: AttachmentTray): void {
+  /**
+   * Show `threadId` under native's generation `epoch`, or the next one when native names none
+   * (a reload from the machine reopening it).
+   */
+  open(
+    client: ClientCore,
+    threadId: string,
+    warm: boolean,
+    kept?: AttachmentTray,
+    epoch?: number,
+  ): void {
     this.#firstScreen?.settle();
     this.#firstScreen = undefined;
     this.#hooks.leaving();
@@ -122,7 +131,8 @@ export class ThreadVisit {
     this.#lease = lease;
     this.#session?.dispose();
     const ledger = this.#ledgers.open(threadId, warm);
-    this.#pump.bind(ledger, ++this.#epoch);
+    this.#epoch = epoch ?? this.#epoch + 1;
+    this.#pump.bind(ledger, this.#epoch);
     // Rows read the session's whole requests when the pump sends them, after it exists.
     this.#stop = followThread(
       lease.store,
@@ -155,9 +165,9 @@ export class ThreadVisit {
     this.#linger?.clear();
   }
 
-  /** Native went back: no thread is open under the next generation. */
-  back(): void {
-    this.#epoch++;
+  /** Native went back: no thread is open under its generation `epoch`, or the next one. */
+  back(epoch?: number): void {
+    this.#epoch = epoch ?? this.#epoch + 1;
     this.#pump.bind(undefined, this.#epoch);
     this.#leave();
   }
