@@ -12,7 +12,7 @@ enum GoToLine {
     /// a column past a line's end lands just after its last character. Nil when it names none.
     /// `lineLength` gets a 1-based line and answers its length without the line break.
     static func parse(_ typed: String, lineCount: Int, lineLength: (Int) -> Int) -> Target? {
-        let parts = typed.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: { $0 == ":" || $0 == "," })
+        let parts = typed.trimmingCharacters(in: .whitespacesAndNewlines).split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: { $0 == ":" || $0 == "," })
             .map { $0.trimmingCharacters(in: .whitespaces) }
         guard let first = parts.first, let wanted = number(first) else { return nil }
         let line = min(max(1, wanted), max(1, lineCount))
@@ -101,7 +101,6 @@ struct GoToLineRoute: ViewModifier {
     let enabled: Bool
     let handle: SourceHandle
     @State private var picked: GoToLine.Target?
-    @AppStorage(PhoneKeymap.storageKey) private var keys = ""
 
     func body(content: Content) -> some View {
         content
@@ -111,7 +110,7 @@ struct GoToLineRoute: ViewModifier {
             .background {
                 if enabled {
                     Button("Go to line") { isPresented = true }
-                        .keyboardShortcut(PhoneKeymap(stored: keys).shortcut("goToLine"))
+                        .phoneShortcut("editor.goToLine")
                         .opacity(0)
                         .frame(width: 0, height: 0)
                         .accessibilityHidden(true)

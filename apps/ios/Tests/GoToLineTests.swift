@@ -10,6 +10,9 @@ import Testing
     @Test func aLineNumberLandsAtTheStartOfThatLine() {
         #expect(parse("120") == GoToLine.Target(line: 120, column: 1))
         #expect(parse("  7 ") == GoToLine.Target(line: 7, column: 1))
+        // Pasted with its line break, as the web's field takes it.
+        #expect(parse("120\n") == GoToLine.Target(line: 120, column: 1))
+        #expect(parse("\t120:4\r\n") == GoToLine.Target(line: 120, column: 4))
     }
 
     @Test func lineAndColumnLandOnThatColumn() {
