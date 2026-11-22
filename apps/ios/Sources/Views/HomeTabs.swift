@@ -1,16 +1,15 @@
 import SwiftUI
 
-/// The home screen's tabs. `compose` is New thread at the home bar's end, never a page.
+/// The home screen's tabs. `compose` is New thread's glyph in the lists' top bars, never a page.
 enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 
 /// The home tabs in their order (Projects · Chats · Spade · Code review · Search, then compose) and
 /// what each is called, in the web rail's words: the thread list is Projects there. Code review is
 /// the web rail's place for pull requests and issues: a tab in a regular window, opened from the
 /// Projects list's top bar on every device, so neither the phone's tab bar nor the iPad sidebar's
-/// foot holds it and the lists keep their room. Spade, ace's
-/// assistant, has its tab only while a paired machine shows it (Settings › Beta's Spade, ADR
-/// 0139), as the web rail shows its place: in its slot after Chats, and its glyph in the iPad
-/// sidebar, with nothing else to lay out again.
+/// foot holds it and the lists keep their room. Spade, ace's assistant, has its tab only while a
+/// paired machine shows it (Settings › Beta's Spade, ADR 0139), as the web rail shows its place:
+/// in its slot after Chats, and its glyph in the iPad sidebar, with nothing else to lay out again.
 enum HomeTabs {
     /// The places the iPad sidebar's foot switches between, in order, as a phone's tab bar holds
     /// them: Code review opens from the Projects list's top bar instead.
@@ -27,11 +26,12 @@ enum HomeTabs {
         }
     }
 
-    /// The home bar's glyph, on the phone and the iPad sidebar's foot alike: ace's own icon at
-    /// the bar's size, filled while its tab is chosen. Spade's is its face (`SpadeMark`), drawn
-    /// rather than an image.
+    /// A place's glyph on the phone's system tab bar and the iPad sidebar's foot: ace's own icon
+    /// at the bar's size, filled while its tab is chosen. Spade's is its face, still and the same
+    /// chosen or not (`tab-spade`); the sidebar's foot draws it moving instead (`SpadeMark`).
     static func tabImage(_ tab: InboxTab, chosen: Bool) -> String {
-        "tab-\(icon(tab).rawValue)\(chosen ? "-fill" : "")"
+        if tab == .spade { return "tab-spade" }
+        return "tab-\(icon(tab).rawValue)\(chosen ? "-fill" : "")"
     }
 
     /// The web rail's glyph for each place.
@@ -62,4 +62,14 @@ enum HomeTabs {
 extension EnvironmentValues {
     /// A paired machine shows Spade, so its tab and sidebar glyph are there (`HomeTabs`).
     @Entry var showsSpade = false
+}
+
+extension TabContent {
+    /// A home place's tab on the system's bar: `tab.<id>` for UI tests, and a badge counting what
+    /// needs the person there while it isn't showing (0 shows none), read as "Needs you".
+    func placeTab(_ place: InboxTab, waiting: Int) -> some TabContent<TabValue> {
+        badge(waiting)
+            .accessibilityValue(waiting > 0 ? Text("Needs you") : Text(""))
+            .accessibilityIdentifier("tab.\(HomeTabs.identifier(place))")
+    }
 }
