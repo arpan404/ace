@@ -1,15 +1,11 @@
 import { onSocketMove, type ClientCore } from "@ace/client";
-import { spadeExchange } from "@ace/client/spade-http";
 import { SpadeDaemonLive } from "@ace/client/spade-live";
-import type { SpadeMethod, SpadeStatus } from "@ace/protocol";
+import type { SpadeStatus } from "@ace/protocol";
 import {
   parseSpadeAgents,
   parseSpadeGroups,
   SpadeConversationFollow,
   SpadeGroupFollow,
-  spadeProblemNeeds,
-  spadeRefusal,
-  SpadeRequestError,
   type SpadeAgent,
   type SpadeFollowLink,
   type SpadeGroup,
@@ -29,6 +25,7 @@ import {
 import { SpadePeople, SpadeSharing } from "./spade-sharing.ts";
 import { SpadeWorkerTree } from "./spade-worker-tree.ts";
 import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
+import { segment, spadeText } from "./spade-text.ts";
 
 /*
  * Spade on the iPhone (ADR 0121): always through the daemon's `spade.*` family, since the phone
@@ -74,37 +71,6 @@ const listEvery = {
 };
 
 const Setting = z.object({ entries: z.array(z.object({ value: z.unknown() })).optional() });
-
-/** A path segment from an id Spade gave us. */
-export const segment = (id: string) => encodeURIComponent(id);
-
-/** One request to Spade through the daemon: its text on 2xx, else a `SpadeRequestError`. */
-export async function spadeText(
-  owner: ClientCore,
-  id: () => string,
-  method: SpadeMethod,
-  path: string,
-  body?: unknown,
-  signal?: AbortSignal,
-  /** How long an upload may take; the transport's default otherwise. */
-  timeoutMs?: number,
-): Promise<string> {
-  const answer = await spadeExchange(
-    owner,
-    { method, path, ...(body === undefined ? {} : { body: JSON.stringify(body) }) },
-    { id, signal, ...(timeoutMs ? { timeoutMs } : {}) },
-  );
-  if (answer.kind === "error") throw new SpadeRequestError(answer.message, undefined, answer.code);
-  const text = answer.encoding === "text" ? answer.body : "";
-  if (answer.status < 200 || answer.status > 299)
-    throw new SpadeRequestError(
-      spadeRefusal(answer.status, text),
-      answer.status,
-      undefined,
-      spadeProblemNeeds(text),
-    );
-  return text;
-}
 
 /** The conversation open on the phone: a bot's, or a group's. */
 type Open = { id: string; stop: () => void } & (
