@@ -2,12 +2,18 @@ import {
   ExecutionOptions,
   type AccessMode,
   type AgentId,
+  type InteractionId,
+  type InteractionRequest,
   type ProviderKind,
+  type RawPayload,
   type ThreadId,
   type WorkspaceId,
 } from "@ace/protocol";
+import { liveAceCall } from "./ace-approvals.ts";
+import type { ThreadActor } from "./actor.ts";
 import { createEngineThread } from "./create-thread.ts";
 import type { EngineRepository } from "./repository.ts";
+import { defaultSilenceMs } from "./silence.ts";
 import { ThreadPosts } from "./thread-posts.ts";
 
 export interface HostThreadInput {
@@ -54,7 +60,7 @@ export class HostThreads {
           selection: { provider: input.provider, options: ExecutionOptions.parse({}) },
           cwd: input.cwd,
           at: this.now(),
-          silenceMs: 60_000,
+          silenceMs: defaultSilenceMs,
           client: {
             host: input.host,
             ...(input.hostKey ? { hostKey: input.hostKey } : {}),
@@ -102,4 +108,53 @@ export class HostThreads {
       this.now(),
     );
   }
+}
+
+export function openHostInteraction(
+  repo: EngineRepository,
+  actor: ThreadActor,
+  threadId: ThreadId,
+  key: string,
+  request: InteractionRequest,
+  raw: RawPayload[],
+  about?: string,
+): InteractionId {
+  const state = repo.requireState(threadId);
+  const agent = about !== undefined && state.agents[about] ? about : (state.rootKey ?? "root");
+  // A host approval (one mirrored from another machine) raised while one of ace's own tools
+  // runs reads on that tool's row.
+  const item =
+    request.kind === "approval" ? liveAceCall(state, agent, request.target?.tool) : undefined;
+  actor.apply([
+    {
+      type: "interaction.opened",
+      agent,
+      interaction: key,
+      blocking: true,
+      request,
+      raw,
+      ...(item ? { item } : {}),
+    },
+  ]);
+  const interaction = repo.requireState(threadId).interactions[key];
+  if (!interaction) throw new Error("Host interaction was not admitted");
+  return interaction.id;
+}
+
+export function postHostNotice(
+  repo: EngineRepository,
+  actor: ThreadActor,
+  threadId: ThreadId,
+  key: string,
+  text: string,
+  level: "info" | "error",
+): void {
+  actor.apply([
+    {
+      type: "item.upsert",
+      agent: repo.requireState(threadId).rootKey ?? "root",
+      item: key,
+      draft: { type: "notice", level, text, complete: true },
+    },
+  ]);
 }

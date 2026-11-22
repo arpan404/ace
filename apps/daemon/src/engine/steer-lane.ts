@@ -32,6 +32,17 @@ export class SteerLane {
   isSteer(intent: IntentHeader): boolean {
     return this.route(intent) === "native";
   }
+  /** The waiting steer that cancelled the previous turn, ready to go next once that turn ends. */
+  yielded(actor: ThreadActor): IntentHeader | undefined {
+    const yielded = actor.steerYield;
+    if (yielded?.state !== "pending" || yielded.intentId === undefined) return undefined;
+    const { repo } = this.ports;
+    if (rootRun(repo.requireState(actor.id)) !== undefined) return undefined;
+    const steer = repo.pending.personSteer(actor.id);
+    return steer?.id === yielded.intentId && !repo.pending.hasSelection(steer.id)
+      ? steer
+      : undefined;
+  }
   async run(actor: ThreadActor): Promise<void> {
     const { repo } = this.ports;
     // The person's steer goes first: a daemon result waiting on a command never holds it.

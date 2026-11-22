@@ -483,12 +483,17 @@ export class AccountService {
         instanceId: chosen.id,
         session: {
           instanceId: chosen.id,
+          ...(session.steerViaCancel ? { steerViaCancel: session.steerViaCancel } : {}),
           ...(session.backend ? { backend: session.backend } : {}),
           get effectiveCapabilities() {
             return session.effectiveCapabilities;
           },
           get acpSupport() {
             return session.acpSupport;
+          },
+          ...(session.refusedOptions ? { refusedOptions: session.refusedOptions } : {}),
+          get permissionMode() {
+            return session.permissionMode;
           },
           ...(session.setModel
             ? {
