@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -295,6 +295,33 @@ describe("source control git operations", () => {
       expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("wip tracked\n");
       expect(await readFile(join(repo, "temp.txt"), "utf8")).toBe("wip untracked\n");
       expect(await git.stashList(repo)).toEqual([]);
+    } finally {
+      await git.close();
+    }
+  });
+  it("leaves ace's Recently deleted entries out of status, Stage all and stashes", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await mkdir(join(repo, ".ace-upload-trash-1"), { recursive: true });
+      await writeFile(join(repo, ".ace-upload-trash-1", "gone.txt"), "deleted\n");
+      await writeFile(join(repo, "a.txt"), "edited\n");
+      await writeFile(join(repo, "new.txt"), "new\n");
+
+      const status = await git.sourceControlStatus(repo);
+      expect(status.untracked.map((entry) => entry.path)).toEqual(["new.txt"]);
+
+      await git.stage({ worktree: repo });
+      expect(runGit(repo, ["diff", "--cached", "--name-only"]).split("\n")).toEqual([
+        "a.txt",
+        "new.txt",
+      ]);
+
+      await git.stashPush({ worktree: repo, includeUntracked: true });
+      expect(await readFile(join(repo, ".ace-upload-trash-1", "gone.txt"), "utf8")).toBe(
+        "deleted\n",
+      );
+      expect(runGit(repo, ["status", "--porcelain"])).toBe("?? .ace-upload-trash-1/");
     } finally {
       await git.close();
     }

@@ -23,6 +23,8 @@ export function CommitBox(props: {
   conflictsCount: number;
   disabled: boolean;
   committing: boolean;
+  /** Another Git action (staging, a pull) still runs: committing waits for it. */
+  otherActionPending: boolean;
   drafting: boolean;
   onWriteMessage(): void;
   onCancelDraft(): void;
@@ -31,6 +33,7 @@ export function CommitBox(props: {
   const canCommit =
     !props.disabled &&
     !props.committing &&
+    !props.otherActionPending &&
     canCommitChanges({
       message: props.message,
       stagedCount: props.stagedCount,
@@ -42,6 +45,7 @@ export function CommitBox(props: {
   const canAmend =
     !props.disabled &&
     !props.committing &&
+    !props.otherActionPending &&
     canCommitChanges({
       message: props.message,
       stagedCount: props.stagedCount,

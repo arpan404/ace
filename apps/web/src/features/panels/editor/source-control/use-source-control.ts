@@ -171,10 +171,15 @@ export function useSourceControl(threadId: string) {
   );
 
   const [pendingAction, setPendingAction] = useState<string | undefined>(undefined);
+  const pending = useRef<string | undefined>(undefined);
   const [actionError, setActionError] = useState<SourceControlActionError | undefined>(undefined);
 
   const runAction = useCallback(
     async <T>(name: string, task: () => Promise<T>): Promise<T | undefined> => {
+      // One Git action at a time: a second would race the first on the checkout's lock, and
+      // its finish would clear the first's pending state while that still runs.
+      if (pending.current !== undefined) return undefined;
+      pending.current = name;
       setPendingAction(name);
       setActionError(undefined);
       try {
@@ -188,6 +193,7 @@ export function useSourceControl(threadId: string) {
         });
         return undefined;
       } finally {
+        pending.current = undefined;
         setPendingAction(undefined);
       }
     },

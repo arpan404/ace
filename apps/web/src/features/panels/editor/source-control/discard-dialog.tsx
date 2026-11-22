@@ -43,10 +43,10 @@ export function DiscardDialog(props: {
   const title =
     hasAgentEdits && agentStepConfirmed
       ? "Discard edits from the running turn?"
-      : request.all
-        ? `Discard all ${count} changed ${count === 1 ? "file" : "files"}?`
-        : single
-          ? `Discard changes to ${splitPath(single.path).name}?`
+      : single
+        ? `Discard changes to ${splitPath(single.path).name}?`
+        : request.all
+          ? `Discard all ${count} changed files?`
           : `Discard changes to ${count} files?`;
 
   const description = (() => {
@@ -61,7 +61,7 @@ export function DiscardDialog(props: {
     if (single) {
       return single.untracked
         ? `${single.path} is untracked and will be moved to Recently deleted.`
-        : `Your uncommitted edits to ${single.path} will be reverted to its last saved Git state. This can't be undone.`;
+        : `Your unstaged edits to ${single.path} will be reverted. This can't be undone.`;
     }
     if (untrackedCount > 0 && trackedCount > 0) {
       return `${trackedCount} tracked ${trackedCount === 1 ? "file" : "files"} will be reverted and ${untrackedCount} untracked ${untrackedCount === 1 ? "file" : "files"} will be moved to Recently deleted.`;
@@ -69,7 +69,7 @@ export function DiscardDialog(props: {
     if (untrackedCount > 0) {
       return `${untrackedCount} untracked ${untrackedCount === 1 ? "file" : "files"} will be moved to Recently deleted.`;
     }
-    return `Uncommitted edits to ${count} files will be reverted. This can't be undone.`;
+    return `Unstaged edits to ${count} files will be reverted. This can't be undone.`;
   })();
 
   const handlePrimary = () => {

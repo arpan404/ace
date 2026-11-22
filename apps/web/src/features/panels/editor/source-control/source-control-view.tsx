@@ -341,6 +341,7 @@ export function SourceControlView(props: {
             conflictsCount={sc.sections.conflicts.length}
             disabled={!sc.online}
             committing={sc.pendingAction === "commit"}
+            otherActionPending={sc.pendingAction !== undefined && sc.pendingAction !== "commit"}
             drafting={drafting}
             onWriteMessage={() => void handleWriteMessage()}
             onCancelDraft={handleCancelDraft}

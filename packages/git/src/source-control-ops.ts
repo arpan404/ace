@@ -95,13 +95,31 @@ export async function stagePaths(
   const root = await repository.root(options.worktree);
   const paths = options.paths ? validateRepoPaths(root, options.paths) : undefined;
   await repository.serial(root, async () => {
-    const args = paths ? ["add", "--all", "--", ...paths] : ["add", "--all", "--", "."];
-    await repository.cli.call(root, args, {
-      write: true,
-      timeoutMs: longWriteTimeoutMs,
-      captureBytes: 65_536,
-      env: literalEnv,
-    });
+    // Stage all names the changed files rather than `.`, so ace's own `.ace-upload-*` entries
+    // (uploads, Recently deleted) never enter the index.
+    let staging = paths;
+    if (!staging) {
+      const status = await repository.status(root);
+      staging = [
+        ...new Set([
+          ...status.unstaged.map((entry) => entry.path),
+          ...status.untracked,
+          ...status.conflicted.map((entry) => entry.path),
+        ]),
+      ];
+    }
+    if (staging.length === 0) return;
+    await repository.cli.call(
+      root,
+      ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
+      {
+        write: true,
+        timeoutMs: longWriteTimeoutMs,
+        captureBytes: 65_536,
+        env: literalEnv,
+        input: `${staging.join("\0")}\0`,
+      },
+    );
   });
 }
 
@@ -467,6 +485,10 @@ export async function stashPush(
       "push",
       ...(options.includeUntracked ? ["--include-untracked"] : []),
       ...(options.message?.trim() ? ["-m", options.message.trim().slice(0, 1024)] : []),
+      // ace's `.ace-upload-*` entries (Recently deleted) stay where the files service left them.
+      ...(options.includeUntracked
+        ? ["--", ".", ":(exclude,glob)**/.ace-upload-*", ":(exclude,glob)**/.ace-upload-*/**"]
+        : []),
     ];
     await repository.cli.call(root, args, {
       write: true,

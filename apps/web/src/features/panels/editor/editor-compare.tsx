@@ -117,8 +117,8 @@ export function GitDiffCompare(props: {
     return gitPatchFiles(patch)[0];
   }, [query.data?.patch]);
   const [view, setView] = useState<FileView>(freshView);
-  const leftTitle = stage === "staged" ? "HEAD" : "Index";
-  const rightTitle = stage === "staged" ? "Staged" : "Working tree";
+  const leftTitle = stage === "staged" ? "Last commit" : "Staged";
+  const rightTitle = stage === "staged" ? "Staged" : "Your changes";
 
   return (
     <div
