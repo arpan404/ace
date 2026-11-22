@@ -15,6 +15,9 @@ struct SpadeTab<Bar: View>: View {
     @State private var path: [SpadeRoute] = []
     @State private var watch = SpadeWatch()
     @State private var making = false
+    /// A Settings page asked for from New bot's sheet, opened once that sheet has closed.
+    @State private var settingsAfterMaking: SettingsRoute?
+    @Environment(\.openSettingsPage) private var openSettingsPage
     @State private var settings = false
 
     private var session: MachineSession? {
@@ -58,11 +61,17 @@ struct SpadeTab<Bar: View>: View {
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
             watch.release(hold)
         }
-        .sheet(isPresented: $making) {
+        .sheet(isPresented: $making, onDismiss: {
+            guard let route = settingsAfterMaking else { return }
+            settingsAfterMaking = nil
+            openSettingsPage(route)
+        }) {
             if let client = session?.client {
                 SpadeNewBotSheet(client: client, machineName: client.hostId.map { inbox.name($0) } ?? "your machine") { conversation in
                     path = [SpadeRoute(conversation: conversation, group: nil)]
                 }
+                // Settings can't show over this sheet: it closes, then the page opens.
+                .environment(\.openSettingsPage) { route in settingsAfterMaking = route; making = false }
             }
         }
         .sheet(isPresented: $settings) {

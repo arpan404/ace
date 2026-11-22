@@ -74,6 +74,9 @@ struct InboxView: View {
 
     var body: some View {
         sheets
+            // Any page inside opens a Settings page as Search's places do (Pair again, from the
+            // marketplace in Settings, Search or Spade's New bot).
+            .environment(\.openSettingsPage) { present(PlaceSheet.page($0, id: nextSerial())) }
             // An outside app's sign-in opens over whatever the person is doing (ADR 0122).
             .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))

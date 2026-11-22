@@ -108,7 +108,8 @@ struct MarketReviewSheet: View {
                 ProblemRow(refusal.message, id: "market.review.problem")
                     .padding(.horizontal, -AceDesign.Space.margin)
             } else if state.needsPerson, let refusal = state.refusal {
-                MarketConfirmPerson(refusal: refusal, hostId: model.hostId, busy: state.installing || !online) {
+                MarketConfirmPerson(refusal: refusal, hostId: model.hostId, busy: state.installing || !online,
+                                    close: { dismiss() }) {
                     if let review = state.review { install(review, confirmed: true) }
                 }
             } else if state.needsComputer, let line = state.review?.standingSentence {
