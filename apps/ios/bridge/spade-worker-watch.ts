@@ -31,6 +31,7 @@ export class SpadeWorkerWatch {
   private shown: ReadonlySet<string> = new Set();
   /** Workers the list doesn't hold, each read from its own thread. */
   private readonly direct = new Map<string, { lease: Lease; stop: () => void }>();
+  private stopped = false;
   private readonly owner: Owner;
   private readonly changed: () => void;
 
@@ -88,6 +89,7 @@ export class SpadeWorkerWatch {
   }
 
   stop(): void {
+    this.stopped = true;
     this.stopObserving?.();
     this.stopObserving = undefined;
     this.lease?.release();
@@ -98,14 +100,30 @@ export class SpadeWorkerWatch {
     this.shown = new Set();
   }
 
+  /**
+   * Read the refused workers again once room frees up. The SDK is still walking its listeners when
+   * this one runs, and a retry that takes the room (or registers again at once) would be called by
+   * that same walk, so the retry waits for a microtask and checks there is room first.
+   */
   private waitForRoom() {
     if (this.stopRoom) return;
     const room = this.owner.threadRoom();
-    this.stopRoom = room.subscribe(() => {
-      this.stopRoom?.();
+    let live = true;
+    const off = room.subscribe(() => {
+      if (!live) return;
+      live = false;
+      off();
       this.stopRoom = undefined;
-      this.changed();
+      queueMicrotask(() => {
+        if (this.stopped) return;
+        if (room.getSnapshot() <= 0) return this.waitForRoom();
+        this.changed();
+      });
     });
+    this.stopRoom = () => {
+      live = false;
+      off();
+    };
   }
 
   /** A worker the list doesn't hold, from its own thread; undefined until that says. */
@@ -155,6 +173,7 @@ export class SpadeWorkerWatch {
   private store() {
     if (this.lease) return this.lease.store;
     try {
+      this.stopped = false;
       this.lease = this.owner.threads();
     } catch {
       // Offline: the workers read as still at work until the list is back.
