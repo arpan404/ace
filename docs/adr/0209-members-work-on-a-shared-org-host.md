@@ -1,9 +1,8 @@
 # 0209: Members of an organization work in projects and threads on one shared org host
 
-Status: proposed. Date: 2026-11-21. Asked for by the owner (2026-11-21: build ADR 0206 §2.4's
-phase 3, coding threads on org hosts). Revised the same day after a security review of #2511.
-Nothing here is built until the owner approves it; the decisions that need the owner are listed
-at the end, each with a recommendation.
+Status: accepted. Date: 2026-11-21. Decided by: the owner (2026-11-21: "yes", taking every
+recommendation listed under "Decided"). Asked for by the owner the same day (build ADR 0206 §2.4's
+phase 3, coding threads on org hosts), and revised after a security review of #2511.
 
 Amends:
 
@@ -713,7 +712,10 @@ Behaviour through public surfaces, at the right tier.
 - Org hosts with members cost more processes (one provider process per member per account) and,
   in phase 2, more disk (a clone per member, objects shared).
 
-## For the owner
+## Decided
+
+The owner took each recommendation below on 2026-11-21. Phase 1 is built first; phase 2 follows
+its phase gate.
 
 1. **Phase 1: a dedicated, clean host for a trusted team.** Recommended: yes. Only owners and
    members on the host's trusted list code; the list says they can take over the host; every tree
