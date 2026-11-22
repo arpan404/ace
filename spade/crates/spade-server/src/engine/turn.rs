@@ -429,7 +429,9 @@ async fn model_step(
     let lead = route.first().cloned().unwrap_or(started_on);
     let images = engine.images_for(&lead);
     let system = engine.system_for(id);
-    let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
+    let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images)
+        .session(id)
+        .effort(engine.step_effort(id));
     let live = engine.live(id);
     engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
@@ -655,7 +657,9 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
         return;
     };
     let fast = engine.role_model(id, spade_core::routing::Role::Title);
-    let prompt = title::prompt(&first).session(id);
+    let prompt = title::prompt(&first)
+        .session(id)
+        .effort(engine.role_effort(id, spade_core::routing::Role::Title));
     let admitted = engine
         .admit(id, &fast)
         .for_role(spade_core::routing::Role::Title);

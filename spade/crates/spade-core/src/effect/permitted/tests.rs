@@ -52,6 +52,8 @@ fn call(tool: &str, effect: Option<Effect>, permits: Held) -> Call<'_> {
         permits,
         connected: false,
         guessed: false,
+        overwrites: false,
+        app_plain: false,
     }
 }
 

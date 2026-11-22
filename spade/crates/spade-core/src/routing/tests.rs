@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::*;
 
@@ -65,7 +65,7 @@ fn with_fast() -> Defaults {
 #[test]
 fn sub_work_defaults_to_the_fast_model_and_main_is_always_the_bots_own() {
     let none = Overrides::default();
-    for role in [Role::Helper, Role::Compact, Role::Title, Role::Review] {
+    for role in [Role::Helper, Role::Compact, Role::Title] {
         assert_eq!(
             choose("a/strong", &none, &none, &with_fast(), role),
             ("a/fast".to_owned(), Source::Default),
@@ -100,26 +100,39 @@ fn with_no_fast_model_or_a_fast_bot_sub_work_stays_on_the_bots_model() {
 }
 
 #[test]
-fn the_verifier_defaults_to_the_strongest_model_in_use_that_is_not_the_bots() {
+fn the_verifier_and_the_reviewer_default_to_the_strongest_model_in_use_never_a_weaker_one() {
     let none = Overrides::default();
-    assert_eq!(
-        choose("a/strong", &none, &none, &with_fast(), Role::Verify),
-        ("b/stronger".to_owned(), Source::Default)
-    );
-    // Only weaker models in use: the bot's own checks rather than a weaker one.
-    let weaker = Defaults {
-        fast: Some("a/fast".to_owned()),
-        in_use: vec!["a/mid".to_owned()],
-    };
-    assert_eq!(
-        choose("a/strong", &none, &none, &weaker, Role::Verify),
-        ("a/strong".to_owned(), Source::Own)
-    );
-    // An unpriced bot can't be compared: its own model checks.
+    for role in [Role::Verify, Role::Review] {
+        assert_eq!(
+            choose("a/strong", &none, &none, &with_fast(), role),
+            ("b/stronger".to_owned(), Source::Default),
+            "{role:?}"
+        );
+        // Only weaker models in use: the bot's own checks rather than a weaker one.
+        let weaker = Defaults {
+            fast: Some("a/fast".to_owned()),
+            in_use: vec!["a/mid".to_owned()],
+        };
+        assert_eq!(
+            choose("a/strong", &none, &none, &weaker, role),
+            ("a/strong".to_owned(), Source::Own),
+            "{role:?}"
+        );
+    }
+    // An unpriced bot can't be compared: its own model verifies, and the fast model reviews,
+    // as it did before; a subscription bot's reviewer is the fast endpoint model, never the
+    // subscription, which a review can't run on.
     assert_eq!(
         choose("local/llama", &none, &none, &with_fast(), Role::Verify),
         ("local/llama".to_owned(), Source::Own)
     );
+    for own in ["local/llama", "cli:codex/gpt-6.2-sol"] {
+        assert_eq!(
+            choose(own, &none, &none, &with_fast(), Role::Review),
+            ("a/fast".to_owned(), Source::Default),
+            "{own}"
+        );
+    }
 }
 
 #[test]
@@ -268,6 +281,7 @@ fn overrides_round_trip_as_role_names() {
         roles: [(Role::Verify, Route::one("b/stronger"))].into(),
         allowed: None,
         escalate: Some(true),
+        efforts: BTreeMap::new(),
     };
     let text = serde_json::to_string(&stored).unwrap_or_default();
     assert_eq!(
@@ -415,4 +429,88 @@ fn a_model_that_cant_call_tools_serves_only_titles_and_summaries() {
     assert_eq!(routing.route(Role::Main), vec!["a/strong", "a/mid"]);
     assert_eq!(routing.route(Role::Title), vec!["local/tiny", "a/mid"]);
     assert!(routing.pick("local/tiny").is_err());
+}
+
+fn efforts(pairs: &[(Role, Effort)]) -> Overrides {
+    Overrides {
+        efforts: pairs.iter().copied().collect(),
+        ..Overrides::default()
+    }
+}
+
+fn effort_of(bot: &Overrides, global: &Overrides, role: Role) -> (Effort, Source) {
+    let models = table();
+    let defaults = Defaults::default();
+    Routing {
+        own: "a/strong",
+        bot,
+        global,
+        defaults: &defaults,
+        models: &models,
+    }
+    .effort(role)
+}
+
+#[test]
+fn turns_reviews_and_checks_think_at_medium_and_side_work_at_low_by_default() {
+    let none = Overrides::default();
+    for (role, effort) in [
+        (Role::Main, Effort::Medium),
+        (Role::Review, Effort::Medium),
+        (Role::Verify, Effort::Medium),
+        (Role::Helper, Effort::Low),
+        (Role::Compact, Effort::Low),
+        (Role::Title, Effort::Low),
+    ] {
+        assert_eq!(effort_of(&none, &none, role), (effort, Source::Default));
+    }
+}
+
+#[test]
+fn the_reviewer_thinks_at_medium_unless_the_bot_or_the_person_overrides_it() {
+    let none = Overrides::default();
+    let global = efforts(&[(Role::Review, Effort::High)]);
+    let bot = efforts(&[(Role::Review, Effort::Provider)]);
+    assert_eq!(
+        effort_of(&none, &none, Role::Review),
+        (Effort::Medium, Source::Default)
+    );
+    assert_eq!(
+        effort_of(&none, &global, Role::Review),
+        (Effort::High, Source::Global)
+    );
+    assert_eq!(
+        effort_of(&bot, &global, Role::Review),
+        (Effort::Provider, Source::Bot)
+    );
+    // Another role keeps its own default.
+    assert_eq!(
+        effort_of(&bot, &global, Role::Title),
+        (Effort::Low, Source::Default)
+    );
+}
+
+#[test]
+fn efforts_stored_by_name_read_back_and_older_overrides_read_with_none()
+-> Result<(), serde_json::Error> {
+    let stored = efforts(&[(Role::Main, Effort::Off), (Role::Verify, Effort::Max)]);
+    let json = serde_json::to_string(&stored)?;
+    assert_eq!(json, r#"{"efforts":{"main":"off","verify":"max"}}"#);
+    assert_eq!(serde_json::from_str::<Overrides>(&json)?, stored);
+    let older: Overrides = serde_json::from_str(r#"{"roles":{"title":"a/fast"}}"#)?;
+    assert!(older.efforts.is_empty());
+    Ok(())
+}
+
+#[test]
+fn an_effort_word_this_build_doesnt_know_is_skipped_and_the_rest_of_the_overrides_still_read()
+-> Result<(), serde_json::Error> {
+    let stored = r#"{"roles":{"verify":["b/stronger"]},"allowed":["a/fast"],"escalate":true,
+        "efforts":{"review":"extreme","title":"low","advisor":"high"}}"#;
+    let read: Overrides = serde_json::from_str(stored)?;
+    assert_eq!(read.roles[&Role::Verify], Route::one("b/stronger"));
+    assert_eq!(read.allowed, Some(vec!["a/fast".to_owned()]));
+    assert_eq!(read.escalate, Some(true));
+    assert_eq!(read.efforts, [(Role::Title, Effort::Low)].into());
+    Ok(())
 }

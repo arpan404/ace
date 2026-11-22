@@ -295,6 +295,8 @@ pub fn route(call: CodeCall<'_>) -> crate::effect::Route {
         permits: call.permits,
         connected: false,
         guessed: false,
+        overwrites: false,
+        app_plain: false,
     };
     match effect::route(gate) {
         Route::Review(concern) => Route::Ask {
@@ -357,6 +359,8 @@ pub fn http_route(call: HttpCall<'_>) -> crate::effect::Route {
         permits: crate::permission::Held::default(),
         connected: false,
         guessed: false,
+        overwrites: false,
+        app_plain: false,
     };
     match effect::route(gate) {
         Route::Review(concern) => Route::Ask {

@@ -329,7 +329,9 @@ impl Engine {
         plain: &str,
     ) -> Option<String> {
         let model = self.role_model(conversation, Role::Title);
-        let prompt = polish::prompt(plain).session(conversation);
+        let prompt = polish::prompt(plain)
+            .session(conversation)
+            .effort(self.role_effort(conversation, Role::Title));
         let admitted = self.admit(conversation, &model).for_role(Role::Title);
         let asked = tokio::time::timeout(
             POLISH_TIMEOUT,

@@ -4,11 +4,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
-use futures_util::stream::BoxStream;
 use futures_util::{Stream, StreamExt};
 use genai::chat::{
-    ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent, Tool,
-    ToolCall as SdkCall, ToolResponse,
+    ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent,
+    ReasoningEffort, Tool, ToolCall as SdkCall, ToolResponse,
 };
 use genai::resolver::{AuthData, Endpoint as ServiceEndpoint};
 use genai::{Client, Headers, ModelIden, ServiceTarget};
@@ -17,6 +16,7 @@ use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Endpoint, Model, Price, Role};
 use crate::chatgpt::{self, SignIn};
+use crate::effort::{self, Refusals, Sent};
 use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
@@ -35,6 +35,7 @@ pub struct Models {
     user_agent: String,
     http: reqwest::Client,
     listing: ListBounds,
+    refusals: Refusals,
     /// Access tokens for accounts that sign in (ADR 0214), set by the server.
     bearers: Arc<RwLock<Option<Bearers>>>,
 }
@@ -73,6 +74,9 @@ impl std::fmt::Debug for Bearers {
     }
 }
 
+/// A streamed reply, its first item already read.
+type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
+
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
 pub const KEYLESS: &str = "no-key";
 
@@ -85,6 +89,52 @@ struct Call {
     streamed_only: bool,
     /// For a signed-in account: it, and the token this call carries.
     signed: Option<(Endpoint, String)>,
+}
+
+/// A model resolved once for every try of one call (ADR 0213): a try that drops the effort goes
+/// to the same endpoint, with the same key and model, even if the person edits the endpoint
+/// meanwhile.
+struct Resolved {
+    reference: String,
+    target: ServiceTarget,
+    /// The headers, without a limit or an effort.
+    options: ChatOptions,
+    /// The answer's limit, as the prompt set it.
+    answer: Option<u32>,
+    /// The SDK's effort; `None` sends none at all.
+    effort: Option<ReasoningEffort>,
+    room: u32,
+    key: String,
+    /// The endpoint answers only streamed requests (a ChatGPT account).
+    streamed_only: bool,
+    /// For a signed-in account: it, and the token this call carries.
+    signed: Option<(Endpoint, String)>,
+}
+
+impl Resolved {
+    fn call(&self, send: Sent) -> Call {
+        let mut options = self.options.clone();
+        let effort = self.effort.clone().filter(|_| send != Sent::Nothing);
+        let room = if effort.is_some() && send == Sent::Full {
+            self.room
+        } else {
+            0
+        };
+        // The ChatGPT backend refuses an output limit.
+        if let Some(answer) = self.answer.filter(|_| !self.streamed_only) {
+            options = options.with_max_tokens(answer.saturating_add(room));
+        }
+        if let Some(effort) = effort {
+            options = options.with_reasoning_effort(effort);
+        }
+        Call {
+            reference: self.reference.clone(),
+            target: self.target.clone(),
+            options,
+            streamed_only: self.streamed_only,
+            signed: self.signed.clone(),
+        }
+    }
 }
 
 impl Models {
@@ -112,6 +162,7 @@ impl Models {
             user_agent,
             http,
             listing: ListBounds::default(),
+            refusals: Refusals::default(),
             bearers: Arc::default(),
         })
     }
@@ -317,11 +368,78 @@ impl Models {
             })
     }
 
+    /// Runs `once` on the call for `reference`, with the prompt's effort. An endpoint that
+    /// refuses the request (`400`, `422`) is asked again without the thinking's room, then
+    /// without the effort; what answers is what that model, endpoint and effort are sent from
+    /// then on (ADR 0213), so a turn never fails over a setting. When no try answers, the first
+    /// refusal is the error.
+    async fn thinking<T, F, Fut>(
+        &self,
+        reference: &str,
+        prompt: &Prompt,
+        once: F,
+    ) -> Result<T, ModelError>
+    where
+        F: Fn(Call) -> Fut,
+        Fut: Future<Output = Result<T, ModelError>>,
+    {
+        let resolved = self.resolve_call(reference, prompt).await?;
+        let signed = resolved.signed.clone();
+        match self.tries(resolved, &once).await {
+            // A signed-in account's token refused before anything streamed: a new token once
+            // (refreshed once, however many calls report it), and the call once more on the
+            // same account.
+            Err(error) if error.status() == Some(401) => {
+                let Some((endpoint, token)) = signed else {
+                    return Err(error);
+                };
+                self.bearer_after_rejection(&endpoint, &token).await?;
+                let again = self.resolve_call(reference, prompt).await?;
+                self.tries(again, &once).await
+            }
+            other => other,
+        }
+    }
+
+    /// [`Models::thinking`]'s tries on one resolved call.
+    async fn tries<T, F, Fut>(&self, resolved: Resolved, once: &F) -> Result<T, ModelError>
+    where
+        F: Fn(Call) -> Fut,
+        Fut: Future<Output = Result<T, ModelError>>,
+    {
+        let mut send = if resolved.effort.is_some() {
+            self.refusals.start(&resolved.key)
+        } else {
+            Sent::Nothing
+        };
+        let refusal = match once(resolved.call(send)).await {
+            Err(error) if effort::refused(&error) => error,
+            other => return other,
+        };
+        while let Some(next) = send.after_refusal(resolved.room > 0 && resolved.answer.is_some()) {
+            send = next;
+            match once(resolved.call(send)).await {
+                Ok(answered) => {
+                    self.refusals.remember(&resolved.key, send);
+                    return Ok(answered);
+                }
+                Err(error) if effort::refused(&error) => {}
+                // Anything else (a rate limit, an outage) says nothing about the setting.
+                Err(_) => break,
+            }
+        }
+        Err(refusal)
+    }
+
     pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
-        let call = self.call(reference, prompt).await?;
+        self.thinking(reference, prompt, |call| self.chat_once(call, prompt))
+            .await
+    }
+
+    async fn chat_once(&self, call: Call, prompt: &Prompt) -> Result<Reply, ModelError> {
         if call.streamed_only {
-            let stream = self.signed_stream(call, prompt, None).await?;
-            return fold(reference.to_owned(), stream).await;
+            let reference = call.reference.clone();
+            return fold(reference, self.stream_once(call, prompt, None).await?).await;
         }
         let response = self
             .client
@@ -364,14 +482,26 @@ impl Models {
     where
         T: JsonSchema + DeserializeOwned,
     {
-        let call = self.call(reference, prompt).await?;
+        self.thinking(reference, prompt, |call| self.generate_once(call, prompt))
+            .await
+    }
+
+    async fn generate_once<T>(
+        &self,
+        call: Call,
+        prompt: &Prompt,
+    ) -> Result<Generated<T>, ModelError>
+    where
+        T: JsonSchema + DeserializeOwned,
+    {
         if call.streamed_only {
+            let reference = call.reference.clone();
             let stream = self
-                .signed_stream(call, prompt, Some(typed::spec::<T>()?.into()))
+                .stream_once(call, prompt, Some(typed::spec::<T>()?.into()))
                 .await?;
-            let reply = fold(reference.to_owned(), stream).await?;
+            let reply = fold(reference.clone(), stream).await?;
             return Ok(Generated {
-                value: typed::parse(reference, &reply.text)
+                value: typed::parse(&reference, &reply.text)
                     .map_err(|e| error::charged(e, reply.usage))?,
                 usage: reply.usage,
             });
@@ -393,58 +523,30 @@ impl Models {
         })
     }
 
-    /// Streams the reply. The last item is [`Delta::Done`] unless the stream fails first.
+    /// Streams the reply. The last item is [`Delta::Done`] unless the stream fails first. The
+    /// first item is read before this returns, so an endpoint that refuses the request before
+    /// answering fails here.
     pub async fn stream(
         &self,
         reference: &str,
         prompt: &Prompt,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
-        let call = self.call(reference, prompt).await?;
-        if call.streamed_only {
-            return self.signed_stream(call, prompt, None).await;
-        }
-        Ok(self.open_stream(call, prompt, None).await?.boxed())
+        self.thinking(reference, prompt, |call| {
+            self.stream_once(call, prompt, None)
+        })
+        .await
     }
 
-    /// A signed-in account's stream. A refusal with `401` before anything streamed gets the
-    /// account a new token once (refreshed once, however many calls report it), and the call is
-    /// sent again once on the same account.
-    async fn signed_stream(
+    async fn stream_once(
         &self,
         call: Call,
         prompt: &Prompt,
         format: Option<genai::chat::ChatResponseFormat>,
-    ) -> Result<BoxStream<'static, Result<Delta, ModelError>>, ModelError> {
-        let reference = call.reference.clone();
-        let signed = call.signed.clone();
-        match self.peeked(call, prompt, format.clone()).await {
-            Err(error) if error.status() == Some(401) => {
-                let Some((endpoint, token)) = signed else {
-                    return Err(error);
-                };
-                self.bearer_after_rejection(&endpoint, &token).await?;
-                let again = self.call(&reference, prompt).await?;
-                self.peeked(again, prompt, format).await
-            }
-            other => other,
-        }
-    }
-
-    /// A stream whose first item is already read: a refusal before anything streamed comes back
-    /// as the error itself.
-    async fn peeked(
-        &self,
-        call: Call,
-        prompt: &Prompt,
-        format: Option<genai::chat::ChatResponseFormat>,
-    ) -> Result<BoxStream<'static, Result<Delta, ModelError>>, ModelError> {
-        let mut stream = self.open_stream(call, prompt, format).await?.boxed();
+    ) -> Result<Deltas, ModelError> {
+        let mut stream = Box::pin(self.open_stream(call, prompt, format).await?);
         match stream.next().await {
-            None => Ok(futures_util::stream::empty().boxed()),
-            Some(Err(error)) if !error.may_have_billed() => Err(error),
-            Some(first) => Ok(futures_util::stream::once(std::future::ready(first))
-                .chain(stream)
-                .boxed()),
+            Some(Err(error)) => Err(error),
+            first => Ok(Box::pin(futures_util::stream::iter(first).chain(stream))),
         }
     }
 
@@ -518,7 +620,8 @@ impl Models {
             .flat_map(futures_util::stream::iter))
     }
 
-    async fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
+    /// `reference` resolved for a call of `prompt`.
+    async fn resolve_call(&self, reference: &str, prompt: &Prompt) -> Result<Resolved, ModelError> {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
@@ -529,10 +632,6 @@ impl Models {
             )),
             None => None,
         };
-        let streamed_only = signed.is_some();
-        let token = signed
-            .as_ref()
-            .map(|(token, _)| (endpoint.clone(), token.clone()));
         let auth = if let Some((token, _)) = &signed {
             AuthData::from_single(token.clone())
         } else if endpoint.needs_key {
@@ -549,20 +648,28 @@ impl Models {
             AuthData::from_single(KEYLESS)
         };
         let mut options = ChatOptions::default();
-        // The ChatGPT backend refuses an output limit.
-        if let Some(value) = prompt.max_tokens.filter(|_| !streamed_only) {
-            options = options.with_max_tokens(value);
-        }
+        // A model id that names its own effort (`o3-high`) keeps it: the SDK reads the suffix
+        // only when no effort is set, so a role's would change the model sent.
+        let named = ReasoningEffort::from_model_name(&model.id).0.is_some();
+        let effort = if named {
+            None
+        } else {
+            prompt.effort.sdk(endpoint.format)
+        };
         let mut headers = endpoint.headers.clone();
         headers.push(("user-agent".to_owned(), self.user_agent.clone()));
         if let (Some(name), Some(session)) = (&endpoint.session_header, &prompt.session) {
             headers.push((name.clone(), session.clone()));
         }
+        let streamed_only = signed.is_some();
+        let token = signed
+            .as_ref()
+            .map(|(token, _)| (endpoint.clone(), token.clone()));
         if let Some((_, extra)) = signed {
             headers.extend(extra);
         }
         options = options.with_extra_headers(Headers::from(headers));
-        Ok(Call {
+        Ok(Resolved {
             reference: reference.to_owned(),
             target: ServiceTarget {
                 endpoint: ServiceEndpoint::from_owned(endpoint.base_url.clone()),
@@ -570,6 +677,15 @@ impl Models {
                 model: ModelIden::new(endpoint.format.adapter(), model.id.as_str()),
             },
             options,
+            answer: prompt.max_tokens,
+            room: prompt.effort.room(),
+            key: effort::refusal_key(
+                endpoint.format,
+                &endpoint.base_url,
+                &model.id,
+                prompt.effort,
+            ),
+            effort,
             streamed_only,
             signed: token,
         })

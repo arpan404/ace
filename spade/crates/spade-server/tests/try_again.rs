@@ -37,7 +37,13 @@ fn asked(spade: &Spade) -> Vec<Vec<String>> {
 #[tokio::test]
 async fn try_again_answers_the_failed_turn_in_place_without_posting_the_message_twice() -> Result {
     let spade = Spade::start(
-        vec![Script::failing(400), Script::reply("Here you go."), title()],
+        // Refused with its effort and again without it (ADR 0213).
+        vec![
+            Script::failing(400),
+            Script::failing(400),
+            Script::reply("Here you go."),
+            title(),
+        ],
         Vec::new(),
     )
     .await?;
@@ -74,14 +80,15 @@ async fn try_again_answers_the_failed_turn_in_place_without_posting_the_message_
         "reply_started",
         "the new reply opens with the retry, in one write"
     );
+    // The failed turn's two refused requests, then the retry's.
     let calls = asked(&spade);
-    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(calls.len(), 3, "{calls:?}");
     assert_eq!(
-        calls[1].len(),
+        calls[2].len(),
         1,
         "the model reads the message once: {calls:?}"
     );
-    assert!(calls[1][0].contains("Hello"));
+    assert!(calls[2][0].contains("Hello"));
 
     // Only the last reply, and only while it failed.
     let (status, body) = spade
