@@ -84,7 +84,7 @@ export interface SourceControlCommandContext {
    * start until the change finishes. Without an engine only this thread's busy check applies.
    */
   holdCheckout?:
-    | (<T>(id: ThreadId, commandId: string, root: string, effect: () => Promise<T>) => Promise<T>)
+    | (<T>(commandId: string, top: string, effect: () => Promise<T>) => Promise<T>)
     | undefined;
   refreshDetails: () => Promise<void>;
 }
@@ -99,7 +99,10 @@ export async function runSourceControlCommand(
   try {
     if (!rewritesFiles.has(payload.type)) await apply(context, payload);
     else if (holdCheckout)
-      await holdCheckout(threadId, context.commandId, cwd, () => apply(context, payload));
+      // The whole Git worktree, whichever folder of it the thread runs in.
+      await holdCheckout(context.commandId, await context.git.worktreeTop(cwd), () =>
+        apply(context, payload),
+      );
     else if (isThreadAgentBusy(store, threadId, runsProviderWork))
       return { ok: false, error: "agent_working" };
     else await apply(context, payload);

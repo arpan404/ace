@@ -51,7 +51,7 @@ const failureCode = (error: unknown) =>
  * thread whose worktree is gone can still move with its message waiting. Anything running,
  * awaiting a reply or of uncertain delivery does.
  */
-export function livePending(repo: EngineRepository, id: ThreadId): boolean {
+function livePending(repo: EngineRepository, id: ThreadId): boolean {
   const pending = [...repo.pending.headers(id)];
   // A thread with nothing pending may never have run, and so has no queue to read.
   if (!pending.length) return false;

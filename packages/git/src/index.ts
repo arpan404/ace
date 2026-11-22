@@ -484,6 +484,11 @@ export class GitService {
     );
   }
 
+  /** The top level of the Git worktree holding `path`: the unit a source control change rewrites. */
+  worktreeTop(path: string): Promise<string> {
+    return this.repository.root(path);
+  }
+
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);
     return this.repository.serial(root, () => this.repository.info(root));

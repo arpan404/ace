@@ -116,9 +116,9 @@ export async function startWorkspaceActions({
       await services.engine?.reconcileThread(id);
     },
     runsProviderWork: (id) => services.engine?.runsProviderWork(id) ?? false,
-    holdCheckout: (id, commandId, root, effect) => {
+    holdCheckout: (commandId, top, effect) => {
       if (!services.engine) return Promise.reject(new Error("engine_unavailable"));
-      return services.engine.holdCheckout(id, commandId, root, effect);
+      return services.engine.holdCheckout(commandId, top, effect);
     },
     changeWorkspace: (id, commandId, effect, reservation, commit) => {
       if (!services.engine) throw new Error("engine_unavailable");
