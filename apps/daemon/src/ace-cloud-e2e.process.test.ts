@@ -361,9 +361,27 @@ it("a running daemon forgotten from its account registers again and is listed, a
 /** The daemon's next message of `type` on a relayed channel. */
 async function answer<T extends ServerMessage["type"]>(channel: RelayedClientChannel, type: T) {
   for (;;) {
-    const message = await channel.receive();
-    if (message.type === type) return message as Extract<ServerMessage, { type: T }>;
+    const received = await channel.receive();
+    if (received.type === type) return received as Extract<ServerMessage, { type: T }>;
   }
+}
+
+/** Proves the person's standing on `channel` with `grant` and `proof`: true when it took. */
+async function proves(channel: RelayedClientChannel, grant: string, proof: string) {
+  await channel.send({ type: "account.standing", requestId: "standing", grant, proof });
+  return (await answer(channel, "account.standing.result")).result.ok;
+}
+
+/** Tries to turn "Ask me before agents publish" off: true when the daemon let this socket. */
+async function changesGuardedSetting(channel: RelayedClientChannel) {
+  await channel.send({
+    type: "settings.set",
+    requestId: "ask",
+    key: "market.askBeforeAgentPublish",
+    value: false,
+    layer: { kind: "global" },
+  });
+  return (await answer(channel, "settings.result")).ok;
 }
 
 it("a phone on the account proves the person's standing on its own relayed socket, and that proof proves nothing on another", async () => {
@@ -419,20 +437,6 @@ it("a phone on the account proves the person's standing on its own relayed socke
       nonce: welcome.standingNonce,
       binding: encodeBase64url(channel.channelBinding),
     };
-  };
-  const proves = async (channel: RelayedClientChannel, grant: string, proof: string) => {
-    await channel.send({ type: "account.standing", requestId: "standing", grant, proof });
-    return (await answer(channel, "account.standing.result")).result.ok;
-  };
-  const changesGuardedSetting = async (channel: RelayedClientChannel) => {
-    await channel.send({
-      type: "settings.set",
-      requestId: "ask",
-      key: "market.askBeforeAgentPublish",
-      value: false,
-      layer: { kind: "global" },
-    });
-    return (await answer(channel, "settings.result")).ok;
   };
   const proofFor = (socket: Awaited<ReturnType<typeof relayed>>, binding: string | undefined) =>
     sign(standingProofText({ host: hostId, nonce: socket.nonce, binding, grant: socket.grant }));
