@@ -34,13 +34,11 @@ export type LocatedHunk = ChangeHunk & { moved: boolean };
 /** The hunk at 0-based line `at` of the text now. */
 const placed = (hunk: TurnHunk, at: number): ChangeHunk => {
   const start = at + 1;
+  // The whole hunk moves, its exact committed text (`removedText`) included: only its place changes.
   return {
+    ...hunk,
     start,
     marks: hunk.added.length ? hunk.added.map((_, index) => start + index) : [Math.max(1, start)],
-    added: hunk.added,
-    removed: hunk.removed,
-    above: hunk.above,
-    below: hunk.below,
   };
 };
 

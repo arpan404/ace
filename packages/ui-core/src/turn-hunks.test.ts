@@ -3,6 +3,7 @@ import { revertChange } from "./change-hunks.ts";
 import { linesOf } from "./live-hunks.ts";
 import { locateHunk, mapHunk, turnHunks } from "./turn-hunks.ts";
 import { diffFile } from "./turns.ts";
+import { exactPatchHunks } from "./exact-patch.ts";
 
 /** The turn's diff of one file, as Changes builds it from a full-text edit. */
 const rowsOf = (oldText: string, newText: string) =>
@@ -117,4 +118,31 @@ test("found without the turn's text, a hunk that moved or appears twice says so"
   const moved = linesOf(`x\n${after}`);
   const at = first && locateHunk(first, (line) => moved[line] ?? "", moved.length);
   expect(at).toMatchObject({ start: 3, moved: true });
+});
+
+test("placing a turn's hunk keeps its exact committed text, endings included", () => {
+  // The turn replaced "old" (no newline at the end) with "new\n".
+  const [hunk] = exactPatchHunks(
+    [
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1,2 +1,2 @@",
+      " keep",
+      "-old",
+      "\\ No newline at end of file",
+      "+new",
+      "",
+    ].join("\n"),
+  );
+  if (!hunk) throw new Error("no hunk");
+  const now = ["keep", "new", ""];
+  const lineAt = (line: number) => now[line] ?? "";
+  for (const placed of [mapHunk(hunk, []), locateHunk(hunk, lineAt, now.length)]) {
+    expect(placed?.removedText).toBe("old");
+    expect(placed && revertChange(placed, lineAt, now.length)).toEqual({
+      start: 1,
+      end: 2,
+      text: "old",
+    });
+  }
 });

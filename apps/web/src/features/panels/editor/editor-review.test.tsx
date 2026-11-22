@@ -56,10 +56,13 @@ test("a turn's change opens inline, named as the agent's, and Revert puts it bac
 
   // Saved, only that hunk went back: turn 2's later change is still there.
   fireEvent.keyDown(within(view()).getByRole("textbox"), { key: "s", ctrlKey: true });
+  // The whole file: turn 1's three added lines gone, every other byte as it was (turn 2's later
+  // change included).
   await waitFor(async () =>
-    expect(await bytes(app, replayTs.path)).not.toContain("const COLD_START_WINDOW = 200;"),
+    expect(await bytes(app, replayTs.path)).toBe(
+      replayTs.afterTurn2.replace("\n\nconst COLD_START_WINDOW = 200;\n\n", "\n"),
+    ),
   );
-  expect(await bytes(app, replayTs.path)).toContain("headSeq: this.thread.headSeq, coldStart");
 });
 
 test("Keep leaves the text as it is and goes on; F7 and ⇧F7 step; Done ends the review", async () => {
