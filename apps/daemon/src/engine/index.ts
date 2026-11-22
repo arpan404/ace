@@ -144,7 +144,10 @@ export class Engine {
       options.aceToolAction,
       () => this.clock.now(),
     );
-    this.holds = new CheckoutHolds(this.repo);
+    this.holds = new CheckoutHolds(this.repo, this.clock, () => {
+      this.wakeQueued();
+      for (const owner of this.actors.keys()) this.wake(owner);
+    });
     this.hosts = new HostThreads(this.repo, () => this.clock.now());
     this.guests = new GuestThreads(
       this.repo,
@@ -411,6 +414,8 @@ export class Engine {
           cause: error,
         }),
       );
+    // Worktrees a stopped daemon held stay held before anything queued is recovered.
+    this.holds.restore();
     const recover = () =>
       recoverEngine(
         this.repo,
@@ -987,11 +992,6 @@ export class Engine {
       top,
       live: [...this.actors.keys()],
       opening: (owner) => this.repo.sessionOpening(owner),
-      setTimer: (callback, delay) => this.clock.setTimer(callback, delay),
-      released: () => {
-        this.wakeQueued();
-        for (const owner of this.actors.keys()) this.wake(owner);
-      },
       effect,
     });
   }

@@ -1,8 +1,10 @@
-import { mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { ThreadId } from "@ace/protocol";
-import { checkoutHoldDeadlineMs } from "./checkout-hold.ts";
+import { Command, ThreadId } from "@ace/protocol";
+import { checkoutHoldDeadlineMs, checkoutHoldPollMs } from "./checkout-hold.ts";
+import { Engine } from "./index.ts";
 import { harness, scriptFrames, start, end, task } from "./test-support.ts";
 
 // A source control change (discard, switch, pull, stash) rewrites files in one Git worktree. It
@@ -204,6 +206,73 @@ test("a hold past its deadline cancels the Git work, waits for it to stop, then 
     await h.engine.flush();
     expect(sent(h)).toEqual(["first", "later"]);
   } finally {
+    await h.close();
+  }
+});
+
+test("after a crash mid-hold, the worktree stays held until Git's lock is gone, then queued work runs", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ],
+    frames,
+  );
+  let restarted: Engine | undefined;
+  try {
+    const id = await h.create("first");
+    // The daemon died while a pull it held still had Git writing the index.
+    await mkdir(join(h.home, ".git"), { recursive: true });
+    const lock = join(h.home, ".git", "index.lock");
+    await writeFile(lock, "");
+    h.store.workspaceReservations.recordCheckoutHold(h.home, "crashed-pull", h.clock.time);
+    await h.engine.close();
+
+    const engine = new Engine(h.store, { registry: h.registry, clock: h.clock, idleMs: 30_000 });
+    restarted = engine;
+    const send = (text: string) => {
+      const command = Command.parse({
+        id: randomUUID(),
+        deviceId: "device",
+        payload: { type: "thread.send", threadId: id, input: [{ type: "text", text }] },
+      });
+      return h.store.recordCommand(command.id, command.deviceId, () =>
+        engine.handler.handle(command, h.store),
+      );
+    };
+    expect(send("after restart")).toMatchObject({ ok: true });
+    await engine.flush();
+    expect(sent(h)).toEqual(["first"]);
+
+    // Git finished: the next look finds no lock, the hold lifts and the message goes, once.
+    await rm(lock);
+    h.clock.advance(h.clock.time + checkoutHoldPollMs);
+    await engine.flush();
+    expect(sent(h)).toEqual(["first", "after restart"]);
+    expect(h.store.workspaceReservations.checkoutHolds()).toEqual([]);
+  } finally {
+    await restarted?.close();
+    await h.close();
+  }
+});
+
+test("a lock a crashed hold left behind never holds the worktree past the deadline", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  let restarted: Engine | undefined;
+  try {
+    await h.create("first");
+    await mkdir(join(h.home, ".git"), { recursive: true });
+    await writeFile(join(h.home, ".git", "index.lock"), "");
+    h.store.workspaceReservations.recordCheckoutHold(h.home, "crashed-pull", h.clock.time);
+    await h.engine.close();
+    restarted = new Engine(h.store, { registry: h.registry, clock: h.clock, idleMs: 30_000 });
+    expect(h.store.workspaceReservations.checkoutHolds()).toHaveLength(1);
+    h.clock.advance(h.clock.time + checkoutHoldDeadlineMs + checkoutHoldPollMs);
+    expect(h.store.workspaceReservations.checkoutHolds()).toEqual([]);
+  } finally {
+    await restarted?.close();
     await h.close();
   }
 });

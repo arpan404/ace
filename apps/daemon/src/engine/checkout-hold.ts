@@ -1,6 +1,7 @@
-import { realpathSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import type { ThreadId } from "@ace/protocol";
+import type { EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
 
 /**
@@ -9,6 +10,22 @@ import type { EngineRepository } from "./repository.ts";
  * once the work has actually stopped.
  */
 export const checkoutHoldDeadlineMs = 10 * 60_000;
+
+/** How often a hold restored after a restart looks for Git's index lock again. */
+export const checkoutHoldPollMs = 2_000;
+
+/** Where Git keeps the worktree's index lock: `.git/index.lock`, or in a linked worktree's gitdir. */
+function indexLock(top: string): string {
+  const dotGit = join(top, ".git");
+  try {
+    if (statSync(dotGit).isDirectory()) return join(dotGit, "index.lock");
+    const pointer = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+    if (pointer) return join(resolve(top, pointer), "index.lock");
+  } catch {
+    // No `.git` at all: nothing can hold its index.
+  }
+  return join(dotGit, "index.lock");
+}
 
 /** A path as the filesystem resolves it, or as written when it is gone. */
 function canonical(path: string): string {
@@ -33,8 +50,13 @@ function overlaps(a: string, b: string): boolean {
 export class CheckoutHolds {
   readonly #held = new Map<string, string>();
   readonly #repo: EngineRepository;
-  constructor(repo: EngineRepository) {
+  readonly #clock: EngineClock;
+  /** A hold lifted: what waited in its worktree may run now. */
+  readonly #released: () => void;
+  constructor(repo: EngineRepository, clock: EngineClock, released: () => void) {
     this.#repo = repo;
+    this.#clock = clock;
+    this.#released = released;
   }
   /** Whether `id` must wait: its checkout overlaps a held worktree (or its checkout is unknown). */
   covers(id: ThreadId): boolean {
@@ -66,8 +88,6 @@ export class CheckoutHolds {
     top: string;
     live: Iterable<ThreadId>;
     opening: (id: ThreadId) => boolean;
-    released: (top: string) => void;
-    setTimer: (callback: () => void, delay: number) => () => void;
     effect: (signal: AbortSignal) => Promise<T>;
   }): Promise<T> {
     const top = canonical(input.top);
@@ -85,15 +105,41 @@ export class CheckoutHolds {
         throw new Error("agent_working");
     }
     this.#held.set(top, input.commandId);
+    reservations.recordCheckoutHold(top, input.commandId, this.#clock.now());
     const deadline = new AbortController();
-    const cancelTimer = input.setTimer(() => deadline.abort(), checkoutHoldDeadlineMs);
+    const cancelTimer = this.#clock.setTimer(() => deadline.abort(), checkoutHoldDeadlineMs);
     try {
       // Released only once the effect settles: cancelled Git is waited for, never abandoned.
       return await input.effect(deadline.signal);
     } finally {
       cancelTimer();
       this.#held.delete(top);
-      input.released(top);
+      reservations.dropCheckoutHold(top);
+      this.#released();
+    }
+  }
+  /**
+   * Holds a daemon left when it stopped mid-change. Each worktree stays held (before any queued
+   * work is recovered) while Git's index lock is there, since a Git it started may still be
+   * writing; it lifts once the lock is gone. Past the deadline it lifts regardless: the lock is
+   * then Git's stale lock, recovered by the Git lock handling, and never holds threads forever.
+   */
+  restore(): void {
+    const reservations = this.#repo.store.workspaceReservations;
+    for (const record of reservations.checkoutHolds()) {
+      this.#held.set(record.top, record.commandId);
+      const look = () => {
+        if (this.#held.get(record.top) !== record.commandId) return;
+        const expired = this.#clock.now() - record.at >= checkoutHoldDeadlineMs;
+        if (existsSync(indexLock(record.top)) && !expired) {
+          this.#clock.setTimer(look, checkoutHoldPollMs);
+          return;
+        }
+        this.#held.delete(record.top);
+        reservations.dropCheckoutHold(record.top);
+        this.#released();
+      };
+      this.#clock.setTimer(look, checkoutHoldPollMs);
     }
   }
   #coversPath(id: ThreadId, top: string): boolean {
