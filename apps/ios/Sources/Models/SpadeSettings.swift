@@ -246,3 +246,78 @@ struct SpadeSettingsReads: Equatable {
         notice = nil
     }
 }
+
+/// First run at the foot of the main Spade's chat, and the transcription model voice messages need
+/// (`bridge/spade-onboarding.ts`). Every word is the bridge's; no answer carries a key.
+enum SpadeOnboarding {
+    struct ModelChoice: Decodable, Equatable, Sendable, Hashable, Identifiable {
+        let id: String
+        let name: String
+    }
+    /// One endpoint, service or server Spade can answer through.
+    struct Option: Decodable, Equatable, Sendable, Hashable, Identifiable {
+        /// `endpoint:<id>`, `preset:<id>` or `custom`.
+        let value: String
+        let label: String
+        /// A key must be pasted before it can answer.
+        let key: Bool
+        /// Its models, once it can answer; empty answers with its first.
+        let models: [ModelChoice]
+        /// A server of the person's own, by its address.
+        let address: Bool
+        var id: String { value }
+    }
+    struct Setup: Decodable, Equatable, Sendable {
+        let title: String
+        let options: [Option]
+        let picked: String
+        let keychain: Bool
+        /// Without a keychain, where the key goes instead.
+        let keyless: String?
+    }
+    struct Question: Decodable, Equatable, Sendable, Identifiable {
+        let field: String
+        let ask: String
+        let placeholder: String
+        let picks: [String]
+        var id: String { field }
+    }
+    struct AboutYou: Decodable, Equatable, Sendable {
+        let intro: String
+        let questions: [Question]
+    }
+    /// What the chat's foot shows: one of these, or nothing.
+    struct Foot: Decodable, Equatable, Sendable {
+        var setup: Setup? = nil
+        var aboutYou: AboutYou? = nil
+    }
+    struct VoiceChoice: Decodable, Equatable, Sendable, Hashable {
+        let model: String
+        let label: String
+    }
+    struct Voice: Decodable, Equatable, Sendable {
+        /// No transcription model is chosen yet.
+        let needed: Bool
+        let choices: [VoiceChoice]
+        /// When none of the endpoints can, what to do instead.
+        let none: String?
+    }
+    struct Answer: Decodable, Equatable, Sendable {
+        let ok: Bool
+        var title: String? = nil
+        var message: String? = nil
+        /// A refused setup that had already made its endpoint: pick it, so a retry never adds another.
+        var picked: String? = nil
+        var foot: Foot? = nil
+        var voice: Voice? = nil
+
+        static func failed(_ title: String, _ message: String?) -> Answer {
+            Answer(ok: false, title: title, message: message)
+        }
+        var problem: String? {
+            guard !ok else { return nil }
+            let said = [title, message].compactMap(\.self).filter { !$0.isEmpty }
+            return said.isEmpty ? "Try again." : said.joined(separator: ". ")
+        }
+    }
+}

@@ -132,14 +132,7 @@ struct SpadeSecurityPage: View {
                 }
             }
         } label: {
-            InsetRow(icon: nil, title: "How they decide", subtitle: nil) {
-                HStack(spacing: AceDesign.Space.tight) {
-                    InsetValue(text: chosen)
-                    AceIcon(.caretUpDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
-                        .foregroundStyle(AceDesign.Ink.subtle)
-                        .accessibilityHidden(true)
-                }
-            }
+            InsetRow(icon: nil, title: "How they decide", subtitle: nil) { SpadeMenuValue(text: chosen) }
             .accessibilityElement(children: .combine)
         }
         .buttonStyle(.plain)

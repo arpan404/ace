@@ -55,6 +55,34 @@ extension ClientModel {
         await spadeSettings(["type": "spade.settings.autonomy", "autonomy": autonomy], failing: "Couldn't change how bots decide")
     }
 
+    private func spadeOnboarding(_ payload: [String: Any], failing title: String) async -> SpadeOnboarding.Answer {
+        do { return try await service(payload, as: SpadeOnboarding.Answer.self, timeout: .seconds(60)) }
+        catch is CancellationError { return .failed("", nil) }
+        catch { return .failed(title, error.localizedDescription) }
+    }
+    /// What the foot of `conversation` shows: Spade's model setup or first run, on its own chat only.
+    func spadeOnboardingRead(_ conversation: String) async -> SpadeOnboarding.Answer {
+        await spadeOnboarding(["type": "spade.onboarding.read", "conversationId": conversation], failing: "Couldn't read Spade's setup")
+    }
+    /// Spade's model in one step; a pasted `key` is handed over once and never kept here.
+    func spadeOnboardingModel(_ conversation: String, choice: String, key: String?, address: String?, model: String?) async -> SpadeOnboarding.Answer {
+        var payload: [String: Any] = ["type": "spade.onboarding.model", "conversationId": conversation, "choice": choice]
+        if let key, !key.isEmpty { payload["key"] = key }
+        if let address, !address.isEmpty { payload["address"] = address }
+        if let model, !model.isEmpty { payload["model"] = model }
+        return await spadeOnboarding(payload, failing: "Couldn't set up the model")
+    }
+    /// The interview's answers, by question, as notes every bot reads; or `skip` it for good.
+    func spadeOnboardingAboutYou(_ conversation: String, answers: [String: String]?, skip: Bool = false) async -> SpadeOnboarding.Answer {
+        var payload: [String: Any] = ["type": "spade.onboarding.aboutYou", "conversationId": conversation]
+        if skip { payload["skip"] = true } else { payload["answers"] = answers ?? [:] }
+        return await spadeOnboarding(payload, failing: skip ? "Couldn't skip it" : "Couldn't save your answers")
+    }
+    /// The person's models that turn speech into words, for voice messages.
+    func spadeVoiceSetupRead() async -> SpadeOnboarding.Answer {
+        await spadeOnboarding(["type": "spade.onboarding.voice"], failing: "Couldn't read the models")
+    }
+
     private func spadeNewBot(_ payload: [String: Any], failing title: String) async -> SpadeNewBotAnswer {
         do { return try await service(payload, as: SpadeNewBotAnswer.self, timeout: .seconds(70)) }
         catch is CancellationError { return .failed("", nil) }
