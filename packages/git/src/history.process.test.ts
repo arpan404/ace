@@ -39,6 +39,20 @@ test("fileLog lists a file's newest commits following renames, in one walk", asy
   expect(limited.stopped).toBe("limit");
 });
 
+test("a subject or file name holding the record-separator byte is read as it is", async () => {
+  const odd = "we\u001eird.ts";
+  const repo = await repository({ [odd]: "1\n" });
+  await put(repo, odd, "2\n");
+  await git(repo, "add", "--all");
+  await git(repo, "commit", "-m", "odd\u001esubject");
+  const read = await service.fileLog({ worktree: repo, path: odd });
+  expect(read.entries.map((entry) => [entry.subject, entry.path])).toEqual([
+    ["odd\u001esubject", odd],
+    ["Initial", odd],
+  ]);
+  expect(read.stopped).toBeUndefined();
+});
+
 test("a walk stopped by its work budget says so, apart from one stopped at the limit", async () => {
   const repo = await repository({ "a.ts": "1\n" });
   const read = await service.fileLog({ worktree: repo, path: "a.ts", budgetMs: 0 });

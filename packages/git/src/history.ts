@@ -2,7 +2,7 @@ import { gitLogMaxBytes, gitLogMaxLimit, type GitLogEntry } from "@ace/protocol"
 import { devNull } from "node:os";
 import { patchOutput, textOutput } from "./cli.ts";
 import { hashSchema, pathSchema } from "./decode.ts";
-import { parseFileLog } from "./parse-history.ts";
+import { logFormat, parseFileLog } from "./parse-history.ts";
 import type { Repository } from "./repository.ts";
 import { GitError, type DiffResult } from "./types.ts";
 
@@ -117,7 +117,7 @@ export async function fileLog(
       "--name-status",
       "-z",
       `--max-count=${limit + 1}`,
-      "--format=tformat:%x1e%H%x00%an%x00%ae%x00%at%x00%s",
+      `--format=${logFormat}`,
       head,
       "--",
       `:(literal)${path}`,
