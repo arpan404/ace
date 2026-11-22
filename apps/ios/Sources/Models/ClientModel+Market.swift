@@ -161,7 +161,7 @@ private func marketKept(_ op: Any?) -> Bool {
     return ["discover", "home", "search", "read", "publisher", "sources", "installed"].contains(op)
 }
 
-private func marketAnswer<T: Decodable>(_ value: ServiceValue, as type: T.Type) throws -> T {
+func marketAnswer<T: Decodable>(_ value: ServiceValue, as type: T.Type) throws -> T {
     let outcome = try value.decode(MarketOutcome.self)
     guard outcome.ok else {
         throw MarketRefusal(code: outcome.code ?? "failed", message: outcome.message ?? "The machine refused that.",

@@ -129,6 +129,8 @@ export function pickRow(picked: MarketPublishable, me: MarketMe | undefined) {
     title: listed?.title ?? picked.title,
     line: listed?.line ?? picked.line,
     fromText: fromWords[picked.from],
+    /** A Spade bot's id, so a bot's own profile can open Publish on it. */
+    bot: picked.source.kind === "spade-bot" ? picked.source.id : null,
     ...standing(me, picked.type, picked.name),
   };
 }

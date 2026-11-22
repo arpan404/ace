@@ -151,6 +151,8 @@ test("a bot's review lists what it shares, the apps it asks for and what it leav
   const { ask } = await market();
   const items = (await ask({ step: "pick", type: "spade-bot" })).items as Item[];
   const bot = items[0];
+  // A bot's profile finds its own row by the bot's id.
+  expect(bot).toMatchObject({ name: "inbox-sorter", bot: "a_inbox" });
   const check = await ask({
     step: "check",
     type: "spade-bot",
