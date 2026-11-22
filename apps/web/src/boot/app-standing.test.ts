@@ -2,62 +2,49 @@ import { expect, test } from "vitest";
 import type { StandingChallenge } from "@ace/client";
 import type { AppStandingKey } from "./app-standing-key.ts";
 import { keepStanding, type StandingProver } from "./standing-keeper.ts";
-import { appProver, keepAppKey } from "./window-prover.ts";
+import { appProver, enrollAppKey } from "./window-prover.ts";
 
 /*
- * The desktop app's kept key (ADR 0190, amendment 1): the first socket proves the owner's grant
- * and keeps the key; every later socket proves with the key alone.
+ * A desktop window and its main process (ADR 0190, amendment 1): the window only asks. The first
+ * socket proves the owner's grant and asks main to enroll; every socket main tagged after that
+ * is proven by main, with no grant.
  */
 
 const origin = "https://acehq.dev";
-const encode = (bytes: ArrayBuffer) =>
-  btoa(String.fromCharCode(...new Uint8Array(bytes)))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
-const signedIn = () => "user_1";
 
-/** main's key store, one key per account, signing with a real P-256 key. */
-function mainProcess(): AppStandingKey & { made: number } {
-  const keys = new Map<string, { pair: CryptoKeyPair; raw: string }>();
-  const store = {
-    made: 0,
-    async key(_origin: string, account: string) {
-      const held = keys.get(account);
-      if (held) return held.raw;
-      const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
-        "sign",
-        "verify",
-      ]);
-      const raw = encode(await crypto.subtle.exportKey("raw", pair.publicKey));
-      keys.set(account, { pair, raw });
-      store.made++;
-      return raw;
+/** Main, as the window sees it: proves once a key is enrolled, enrolls once asked. */
+function mainProcess() {
+  let enrolled = false;
+  const asked: string[] = [];
+  const app: AppStandingKey = {
+    prove: async () => {
+      asked.push("prove");
+      return enrolled;
     },
-    async sign(_origin: string, account: string, text: string) {
-      const held = keys.get(account);
-      if (!held) return null;
-      const proof = await crypto.subtle.sign(
-        { name: "ECDSA", hash: "SHA-256" },
-        held.pair.privateKey,
-        new TextEncoder().encode(text),
-      );
-      return { key: held.raw, proof: encode(proof) };
+    enroll: async () => {
+      asked.push("enroll");
+      enrolled = true;
+      return true;
     },
   };
-  return store;
+  return { app, asked };
 }
 
-/** A daemon that takes any grant proof, keeps keys it is given, and takes a kept key's proof. */
-function daemon() {
+/** A daemon socket whose challenge the test sets; it takes any grant proof. */
+function socket() {
   let challenge: StandingChallenge | undefined;
   const listeners = new Set<() => void>();
-  const kept = new Set<string>();
-  const proven: string[] = [];
+  const sent: string[] = [];
   return {
-    proven,
-    socket(nonce: string) {
-      challenge = { host: "H".repeat(52), nonce, binding: undefined, device: "window" };
+    sent,
+    open(nonce: string, appSocket = true) {
+      challenge = {
+        host: "H".repeat(52),
+        nonce,
+        binding: undefined,
+        device: "window",
+        ...(appSocket ? { appSocket: true } : {}),
+      };
       for (const listener of listeners) listener();
     },
     api: {
@@ -69,20 +56,9 @@ function daemon() {
           return () => void listeners.delete(listener);
         },
       }),
-      request: async (message: { type: string; key?: string }) => {
-        if (message.type === "account.owner.key") {
-          if (message.key) kept.add(message.key);
-          return { type: "account.owner.key.result", requestId: "k", ok: true };
-        }
-        const ok =
-          message.type === "account.standing" ||
-          (message.type === "account.standing.app" && kept.has(message.key ?? ""));
-        if (ok) proven.push(`${message.type} ${challenge?.nonce}`);
-        return {
-          type: "account.standing.result",
-          requestId: "s",
-          result: ok ? { ok: true, until: 1 } : { ok: false, code: "unauthorized", message: "" },
-        };
+      request: async (message: { type: string }) => {
+        sent.push(`${message.type} ${challenge?.nonce}`);
+        return { type: "account.standing.result", requestId: "s", result: { ok: true, until: 1 } };
       },
     },
   };
@@ -90,47 +66,42 @@ function daemon() {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 const timers = { set: () => () => {} };
+const grant: StandingProver = async (challenge) => ({
+  type: "account.standing",
+  grant: `g-${challenge.nonce}`,
+  proof: "p",
+});
 
-test("a desktop window proves the owner's grant once, then every new socket proves with the app's kept key", async () => {
+test("a desktop window proves the owner's grant once, asks main to enroll, then main proves every tagged socket", async () => {
   const main = mainProcess();
-  const d = daemon();
-  let grants = 0;
-  const grant: StandingProver = async (challenge) => {
-    grants++;
-    return { type: "account.standing", grant: `g-${challenge.nonce}`, proof: "p" };
-  };
+  const s = socket();
   const keeper = keepStanding(
-    d.api as never,
-    appProver(main, origin, signedIn),
+    s.api as never,
+    appProver(main.app, origin),
     timers,
     grant,
-    keepAppKey(d.api as never, main, origin, signedIn),
+    enrollAppKey(main.app, origin),
   );
-  d.socket("n1");
+  s.open("n1");
   await settle();
-  d.socket("n2");
+  s.open("n2");
   await settle();
-  d.socket("n3");
+  s.open("n3");
   await settle();
-  expect(d.proven).toEqual([
-    "account.standing n1",
-    "account.standing.app n2",
-    "account.standing.app n3",
-  ]);
-  expect(grants).toBe(1);
-  expect(main.made).toBe(1);
+  // Only the first socket sent a grant; main proved the rest without the window sending any.
+  expect(s.sent).toEqual(["account.standing n1"]);
+  expect(main.asked).toEqual(["prove", "enroll", "prove", "prove"]);
   keeper.stop();
 });
 
-test("the app's key signs for the window's own account only, and never on a relayed socket", async () => {
+test("a socket main didn't tag never counts main's proof as its own", async () => {
   const main = mainProcess();
-  await main.key(origin, "user_1");
-  const relayed = { host: "H".repeat(52), nonce: "n", binding: "noise", device: "w" };
-  const loopback = { ...relayed, binding: undefined };
-  expect(await appProver(main, origin, () => "user_1")(relayed)).toBeUndefined();
-  expect(await appProver(main, origin, () => "user_2")(loopback)).toBeUndefined();
-  expect(await appProver(main, origin, () => undefined)(loopback)).toBeUndefined();
-  expect(await appProver(main, origin, () => "user_1")(loopback)).toMatchObject({
-    type: "account.standing.app",
-  });
+  await main.app.enroll(origin);
+  const s = socket();
+  const keeper = keepStanding(s.api as never, appProver(main.app, origin), timers, grant);
+  s.open("n1", false);
+  await settle();
+  expect(s.sent).toEqual(["account.standing n1"]);
+  expect(main.asked).toEqual(["enroll"]);
+  keeper.stop();
 });

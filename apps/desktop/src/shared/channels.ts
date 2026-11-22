@@ -97,27 +97,12 @@ export const requests = {
     result: None,
   },
   /**
-   * The public half of this app's standing key for `account` at `origin`, made if needed (ADR
-   * 0190, amendment 1).
+   * "Prove me": main proves the app's own sockets with this device's key (ADR 0190, amendment
+   * 1). The page names only the account backend; main fetches the challenge and signs.
    */
-  "standing.key": {
-    request: z.object({ origin: AceAccountOrigin, account: z.string().min(1).max(256) }),
-    result: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
-  },
-  /** That key's signature over one socket's app-standing challenge, or null without a key. */
-  "standing.sign": {
-    request: z.object({
-      origin: AceAccountOrigin,
-      account: z.string().min(1).max(256),
-      text: z.string().min(1).max(1024),
-    }),
-    result: z
-      .object({
-        key: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
-        proof: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
-      })
-      .nullable(),
-  },
+  "standing.prove": { request: z.object({ origin: AceAccountOrigin }), result: z.boolean() },
+  /** "Enroll": right after a browser sign-in, main makes and enrolls this device's key. */
+  "standing.enroll": { request: z.object({ origin: AceAccountOrigin }), result: z.boolean() },
   /** This computer's daemon's ace account and machine code (ADR 0111). */
   "daemon.account": { request: MachineAccountRequest, result: MachineAccountStatus },
   "keymap.update": {

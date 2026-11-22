@@ -3,13 +3,13 @@ import { MachineAccountStatus, MachineCode, type MachineCodeRefusal } from "@ace
 import type { AceAccount, AceAccountGrant } from "@ace/protocol/ace-account";
 import { AccessError } from "../remote-auth.ts";
 import { accountBackend } from "./backend.ts";
-import { deviceGrantVerdict, provenStanding, signedByDeviceKey } from "./device-grant.ts";
+import { deviceGrantVerdict, provenStanding } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
 import { machineOwner } from "./owner.ts";
 import { memberGrantVerdict, provenMemberStanding, type Member } from "./member-grant.ts";
 import { orgEnrollment } from "./org-enrollment.ts";
 import { orgCredentialRefused, orgCredentialRequest } from "./org-credential.ts";
-import { appStandingText, encodeBase64url, type GrantKeySet } from "@ace/account-grant";
+import { encodeBase64url, type GrantKeySet } from "@ace/account-grant";
 import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
 import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machine-codes.ts";
@@ -988,30 +988,13 @@ export function machineAccount(options: {
       if (!proven || !(await owner.claim(proven.account, seen))) return undefined;
       return { until: proven.until, generation: seen };
     },
-    /**
-     * The person's standing the owner's own desktop app proves on one loopback socket (ADR 0190,
-     * amendment 1): a key the owner registered (`addAppKey`) and its signature over this
-     * socket's challenge. No backend round trip; it lasts as long as the socket, under this
-     * owner. Undefined for any other key, or once the owner changes.
-     */
-    async proveAppStanding(input: {
-      key: string;
-      proof: string;
-      nonce: string;
-      binding: string | undefined;
-      deviceId: string;
-    }): Promise<{ generation: number } | undefined> {
-      const seen = owner.generation();
-      if (!owner.holds(seen) || owner.org() !== undefined) return undefined;
-      if (owner.current() === undefined || !owner.appKeys().includes(input.key)) return undefined;
-      const text = appStandingText({
-        host: await ownHostId(),
-        nonce: input.nonce,
-        binding: input.binding,
-        deviceId: input.deviceId,
-      });
-      if (!(await signedByDeviceKey(input.key, input.proof, text))) return undefined;
-      return owner.holds(seen) ? { generation: seen } : undefined;
+    /** The owner's enrolled device keys (ADR 0190, amendment 1); none on an org's host. */
+    appKeys(): readonly string[] {
+      return owner.appKeys();
+    },
+    /** Signing out of the app: its device key is the owner's no longer. */
+    removeAppKey(key: string): Promise<void> {
+      return owner.removeAppKey(key);
     },
     /**
      * Keeps the owner's desktop app key, from a socket that proved the owner's own grant under

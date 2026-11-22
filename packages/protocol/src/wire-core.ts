@@ -522,30 +522,6 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     proof: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
   }),
   /**
-   * The owner's own desktop app on this machine proves the person's standing on a loopback socket
-   * (ADR 0190, amendment 1): `key` is a key the owner registered from a socket that proved their
-   * grant (`account.owner.key`), and `proof` its ECDSA P-256 signature of `appStandingText` over
-   * the welcome's `standingHost` and `standingNonce`, the channel binding and this socket's device
-   * id. The app keeps the private half in the OS keychain. Answered with `account.standing.result`.
-   */
-  z.object({
-    type: z.literal("account.standing.app"),
-    requestId: z.string().min(1).max(128),
-    /** The key's public half, an uncompressed P-256 point, base64url. */
-    key: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
-    proof: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
-  }),
-  /**
-   * The owner's desktop app registers its key for `account.standing.app` (ADR 0190, amendment
-   * 1): only from a loopback socket that proved the owner's own grant on it. The key lasts until
-   * the owner changes. Answered with `account.owner.key.result`.
-   */
-  z.object({
-    type: z.literal("account.owner.key"),
-    requestId: z.string().min(1).max(128),
-    key: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
-  }),
-  /**
    * The machine's owner hands it on (ADR 0190 §3a): only from a socket that proved the owner's
    * own grant (`account.standing`), never a paired device's key. Every
    * standing proven under it, and every person's pairing, ends; the next person's proof sets
@@ -671,6 +647,11 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       .string()
       .regex(/^[A-Z2-7]{52}$/)
       .optional(),
+    /**
+     * This socket came tagged by the desktop app's main process (ADR 0190, amendment 1), so main
+     * can prove it with the device key. Absent otherwise.
+     */
+    standingAppSocket: z.literal(true).optional(),
     /**
      * On a relay `machine` stream (ADR 0192): this machine takes `machine.transfer` frames, so a
      * paired machine may move projects and threads here through the relay. Absent from older
@@ -804,12 +785,6 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     commands: z.array(z.object({ commandId: CommandId, state: CommandStatusState })),
   }),
   z.object({ type: z.literal("pong") }),
-  /** The answer to `account.owner.key`: whether the machine keeps the app's key. */
-  z.object({
-    type: z.literal("account.owner.key.result"),
-    requestId: z.string(),
-    ok: z.boolean(),
-  }),
   /** The answer to `account.owner.release`: whether this socket's owner let the machine go. */
   z.object({
     type: z.literal("account.owner.release.result"),

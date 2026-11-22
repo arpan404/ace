@@ -181,33 +181,6 @@ export function pairedStandingText(input: {
   return `ace-paired-standing/v1\n${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.deviceId}`;
 }
 
-/** How every app-key proof starts; the desktop app signs nothing else with that key. */
-export const APP_STANDING_PREFIX = "ace-app-standing/v1\n";
-
-/**
- * What the owner's desktop app signs with the key it keeps in the OS keychain to prove the
- * person's standing on one loopback socket (ADR 0190, amendment 1): the daemon's relay host, the
- * socket's nonce and channel binding, and the window's device id.
- */
-export function appStandingText(input: {
-  host: string;
-  nonce: string;
-  binding: string | undefined;
-  deviceId: string;
-}): string {
-  return `${APP_STANDING_PREFIX}${input.host}\n${input.nonce}\n${input.binding ?? "none"}\n${input.deviceId}`;
-}
-
-/**
- * Whether `text` is an app-key proof's text and nothing else: the prefix and four plain fields.
- * The app's main process signs only such text, so its key can't be asked to sign anything else.
- */
-export function isAppStandingText(text: string): boolean {
-  if (!text.startsWith(APP_STANDING_PREFIX) || text.length > 1024) return false;
-  const fields = text.slice(APP_STANDING_PREFIX.length).split("\n");
-  return fields.length === 4 && fields.every((field) => /^[A-Za-z0-9_.:+/=-]{1,256}$/.test(field));
-}
-
 /** A WorkOS organization id: ace's org id (ADR 0206 §1.1). */
 export const OrgId = z.string().regex(/^org_[A-Za-z0-9]{1,64}$/);
 

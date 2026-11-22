@@ -159,3 +159,42 @@ export const MachineCodeResult = z.object({
   ]),
 });
 export type MachineCodeResult = z.infer<typeof MachineCodeResult>;
+
+/*
+ * The desktop app's main process and its daemon, for the person's standing on the app's own
+ * sockets (ADR 0190, amendment 1). Host token only. Main tags each WebSocket upgrade from the
+ * app's own session with a secret it never gives a page (`x-ace-app-socket`), fetches a
+ * single-use challenge, and sends a person's statement its device key signed for those tags.
+ */
+
+/** The header main adds to the app's own socket upgrades: a tag only main and the daemon see. */
+export const APP_SOCKET_HEADER = "x-ace-app-socket";
+export const AppSocketTag = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/);
+const Proof = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
+
+/** `POST /v1/standing/app/challenge`: a single-use nonce and the host a statement names. */
+export const AppStandingChallenge = z.object({
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+  host: z.string().min(1).max(256),
+  /** The machine's owner, whose account the statement names; null before it has one. */
+  owner: z.string().max(256).nullable(),
+});
+export type AppStandingChallenge = z.infer<typeof AppStandingChallenge>;
+
+/**
+ * `POST /v1/standing/app/prove` (purpose `standing`) and `POST /v1/standing/app/key` (purpose
+ * `enroll`): the statement's exact text, its signature and the device key's public half.
+ */
+export const AppStandingStatement = z.object({
+  statement: z.string().min(1).max(4096),
+  proof: Proof,
+  key: PublicKey,
+});
+export type AppStandingStatement = z.infer<typeof AppStandingStatement>;
+
+/** The answer to either: how many of the named sockets now hold the person's standing. */
+export const AppStandingResult = z.object({ proven: z.number().int().nonnegative() });
+
+/** `DELETE /v1/standing/app/key`: signing out revokes the device key and its standing. */
+export const AppStandingRevoke = z.object({ key: PublicKey });

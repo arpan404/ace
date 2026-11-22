@@ -1,7 +1,13 @@
+import { randomBytes } from "node:crypto";
 import { expect, it } from "vitest";
-import { appStandingText, pairedStandingText, standingProofText } from "@ace/account-grant";
+import { pairedStandingText, standingProofText } from "@ace/account-grant";
+import {
+  deviceKeyId,
+  statementText,
+  type PersonStatement,
+} from "@ace/account-grant/person-statement";
 import { signInThroughWorker } from "@ace/cloud/testing";
-import { PairingResponse } from "@ace/protocol";
+import { AppStandingChallenge, PairingResponse } from "@ace/protocol";
 import { redeemPairing } from "./client-access.ts";
 import {
   useAccountBackend,
@@ -245,81 +251,148 @@ it("a paired device's bearer token, without its own key's proof on that very soc
   await daemonHome.close();
 });
 
-/** Proves on `client` with the app key `key`, signed by `signer`: true when it took. */
-async function provesWithApp(
-  client: Awaited<ReturnType<typeof pageProves>>["client"],
-  challenge: { host: string; nonce: string },
+type DaemonHome = Awaited<ReturnType<typeof signedInDaemon>>;
+type Key = Awaited<ReturnType<typeof deviceKey>>;
+const appTag = () => randomBytes(32).toString("base64url");
+
+/**
+ * What the desktop app's main process does (ADR 0190, amendment 1): fetch a challenge, sign a
+ * person's statement for `purpose` over its own tagged sockets with `signer`, and send it naming
+ * `key`. Answers the HTTP status and how many sockets it proved.
+ */
+async function mainSends(
+  home: DaemonHome,
+  purpose: PersonStatement["purpose"],
+  tags: string[],
   key: string,
-  signer: Awaited<ReturnType<typeof deviceKey>>,
-): Promise<boolean> {
-  const proof = await signer.sign(
-    appStandingText({ ...challenge, binding: undefined, deviceId: "device" }),
+  signer: Key = { raw: key, sign: async () => "" },
+  change: (statement: PersonStatement) => PersonStatement = (statement) => statement,
+) {
+  const challenge = AppStandingChallenge.parse(
+    (await home.hostHttp("POST", "/v1/standing/app/challenge")).body,
   );
-  client.send({ type: "account.standing.app", requestId: "app", key, proof });
-  return (await answer(client, "account.standing.result")).result.ok;
+  const now = Date.now();
+  const text = statementText(
+    change({
+      account: challenge.owner ?? "no_owner",
+      device: await deviceKeyId(signer.raw),
+      purpose,
+      action: "socket",
+      target: tags.join(","),
+      audience: challenge.host,
+      nonce: challenge.nonce,
+      iat: now,
+      exp: now + 30_000,
+    }),
+  );
+  const proof = await signer.sign(text);
+  const path = purpose === "enroll" ? "/v1/standing/app/key" : "/v1/standing/app/prove";
+  const answer = await home.hostHttp("POST", path, { statement: text, proof, key });
+  return { ...answer, text, proof };
 }
 
-async function keeps(
-  client: Awaited<ReturnType<typeof pageProves>>["client"],
-  key: string,
-): Promise<boolean> {
-  client.send({ type: "account.owner.key", requestId: "key", key });
-  return (await answer(client, "account.owner.key.result")).ok;
-}
+const proven = (answer: { status: number; body: unknown }) =>
+  answer.status === 200 && (answer.body as { proven?: number }).proven;
 
-it("after one proof of the owner's grant, the desktop app's key gives every new window the person's standing", async () => {
-  const daemonHome = await signedInDaemon();
+it("after one proof of the owner's grant, the app's device key gives the app's own sockets the person's standing", async () => {
+  const home = await signedInDaemon();
   const app = await deviceKey();
-  const first = await pageProves(daemonHome, daemonHome.session.token);
-  expect(first.ok).toBe(true);
-  expect(await keeps(first.client, app.raw)).toBe(true);
-  // A new window, after a restart of the window or the app: its key's signature alone, with no
-  // grant and no session, makes the socket the person's.
+  const first = appTag();
+  const page = await pageProves(home, home.session.token, first);
+  expect(page.ok).toBe(true);
+  expect((await mainSends(home, "enroll", [first], app.raw, app)).status).toBe(200);
+  // New sockets of the app, after a reload or a restart: main's statement alone, no grant.
   for (let window = 0; window < 2; window++) {
-    const page = await daemonHome.pageSocket();
-    expect(await changesGuardedSetting(page.client)).toBe(false);
-    expect(await provesWithApp(page.client, page, app.raw, app)).toBe(true);
-    expect(await changesGuardedSetting(page.client)).toBe(true);
+    const tag = appTag();
+    const socket = await home.pageSocket(tag);
+    expect(await changesGuardedSetting(socket.client)).toBe(false);
+    expect(proven(await mainSends(home, "standing", [tag], app.raw, app))).toBe(1);
+    expect(await changesGuardedSetting(socket.client)).toBe(true);
   }
-  await daemonHome.close();
+  await home.close();
 });
 
-it("a process holding only the daemon's token can neither keep a key nor prove with one, even the owner's", async () => {
-  const daemonHome = await signedInDaemon();
+it("a holder of the daemon's token can't enroll a key, prove with one, or reuse a statement", async () => {
+  const home = await signedInDaemon();
   const app = await deviceKey();
-  const owner = await pageProves(daemonHome, daemonHome.session.token);
-  expect(await keeps(owner.client, app.raw)).toBe(true);
-  // Its own socket on the host token, unproven: its own key isn't kept, so proves nothing.
-  const agent = await daemonHome.pageSocket();
+  const mine = appTag();
+  await pageProves(home, home.session.token, mine);
+  expect((await mainSends(home, "enroll", [mine], app.raw, app)).status).toBe(200);
+  // Its own socket, with a tag it chose, and a key of its own: nothing to enroll it with.
+  const theirs = appTag();
+  const agent = await home.pageSocket(theirs);
   const own = await deviceKey();
-  expect(await keeps(agent.client, own.raw)).toBe(false);
-  expect(await provesWithApp(agent.client, agent, own.raw, own)).toBe(false);
-  // The owner's public key is readable in ACE_HOME; without its private half it proves nothing.
-  expect(await provesWithApp(agent.client, agent, app.raw, own)).toBe(false);
-  // A proof the app made for another socket proves nothing on this one.
-  const elsewhere = await daemonHome.pageSocket();
-  const replayed = await app.sign(
-    appStandingText({ ...elsewhere, binding: undefined, deviceId: "device" }),
-  );
-  agent.client.send({
-    type: "account.standing.app",
-    requestId: "r",
+  expect((await mainSends(home, "enroll", [theirs], own.raw, own)).status).toBe(403);
+  expect(proven(await mainSends(home, "standing", [theirs], own.raw, own))).toBe(0);
+  // The owner's public key is readable in ACE_HOME; signing with another key proves nothing.
+  expect(proven(await mainSends(home, "standing", [theirs], app.raw, own))).toBe(0);
+  // A statement main made can't be sent again, nor stretched, nor sent to another daemon.
+  const made = await mainSends(home, "standing", [mine], app.raw, app);
+  expect(proven(made)).toBe(1);
+  const again = await home.hostHttp("POST", "/v1/standing/app/prove", {
+    statement: made.text,
+    proof: made.proof,
     key: app.raw,
-    proof: replayed,
   });
-  expect((await answer(agent.client, "account.standing.result")).result.ok).toBe(false);
+  expect(proven(again)).toBe(0);
+  for (const change of [
+    (s: PersonStatement) => ({ ...s, exp: s.iat + 60_000 * 10 }),
+    (s: PersonStatement) => ({ ...s, audience: "another-host" }),
+    (s: PersonStatement) => ({ ...s, account: "user_someone_else" }),
+  ])
+    expect(
+      await mainSends(home, "standing", [mine], app.raw, app, change).catch(() => "refused"),
+    ).toSatisfy((answer) => answer === "refused" || proven(answer as never) === 0);
   expect(await changesGuardedSetting(agent.client)).toBe(false);
-  await daemonHome.close();
+  // Even a tag main used, came by somehow: a second socket with it is never the one proven.
+  const copy = await home.pageSocket(mine);
+  expect(proven(await mainSends(home, "standing", [mine], app.raw, app))).toBe(1);
+  expect(await changesGuardedSetting(copy.client)).toBe(false);
+  await home.close();
+});
+
+it("a socket the app's key proved can't enroll another key: that takes the owner's grant", async () => {
+  const home = await signedInDaemon();
+  const app = await deviceKey();
+  const first = appTag();
+  await pageProves(home, home.session.token, first);
+  expect((await mainSends(home, "enroll", [first], app.raw, app)).status).toBe(200);
+  const tag = appTag();
+  await home.pageSocket(tag);
+  expect(proven(await mainSends(home, "standing", [tag], app.raw, app))).toBe(1);
+  const another = await deviceKey();
+  expect((await mainSends(home, "enroll", [tag], another.raw, another)).status).toBe(403);
+  await home.close();
+});
+
+it("signing out revokes the key: open sockets lose the standing it gave, and it proves nothing more", async () => {
+  const home = await signedInDaemon();
+  const app = await deviceKey();
+  const first = appTag();
+  await pageProves(home, home.session.token, first);
+  expect((await mainSends(home, "enroll", [first], app.raw, app)).status).toBe(200);
+  const tag = appTag();
+  const socket = await home.pageSocket(tag);
+  expect(proven(await mainSends(home, "standing", [tag], app.raw, app))).toBe(1);
+  expect(await changesGuardedSetting(socket.client)).toBe(true);
+  expect((await home.hostHttp("DELETE", "/v1/standing/app/key", { key: app.raw })).status).toBe(
+    200,
+  );
+  expect(await changesGuardedSetting(socket.client)).toBe(false);
+  expect(proven(await mainSends(home, "standing", [tag], app.raw, app))).toBe(0);
+  await home.close();
 });
 
 it("letting the machine go ends what the app's key proves", async () => {
-  const daemonHome = await signedInDaemon();
+  const home = await signedInDaemon();
   const app = await deviceKey();
-  const owner = await pageProves(daemonHome, daemonHome.session.token);
-  expect(await keeps(owner.client, app.raw)).toBe(true);
+  const first = appTag();
+  const owner = await pageProves(home, home.session.token, first);
+  expect((await mainSends(home, "enroll", [first], app.raw, app)).status).toBe(200);
   owner.client.send({ type: "account.owner.release", requestId: "go" });
   expect((await answer(owner.client, "account.owner.release.result")).ok).toBe(true);
-  const page = await daemonHome.pageSocket();
-  expect(await provesWithApp(page.client, page, app.raw, app)).toBe(false);
-  await daemonHome.close();
+  const tag = appTag();
+  await home.pageSocket(tag);
+  expect(proven(await mainSends(home, "standing", [tag], app.raw, app))).toBe(0);
+  await home.close();
 });

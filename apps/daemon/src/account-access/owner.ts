@@ -161,6 +161,15 @@ export function machineOwner(dataDir: string) {
         return true;
       });
     },
+    /** Forgets `key` (signing out of the app that holds it); nothing else changes. */
+    removeAppKey(key: string): Promise<void> {
+      return exclusive(async () => {
+        if (owner?.kind !== "person" || !owner.appKeys.includes(key)) return;
+        const next: Owner = { ...owner, appKeys: owner.appKeys.filter((each) => each !== key) };
+        await write(next);
+        owner = next;
+      });
+    },
     /**
      * No owner: the next person's proof sets one. Every standing proven so far ends as this
      * starts; `drop` runs then, before anything can be proven again, to end what is kept beyond

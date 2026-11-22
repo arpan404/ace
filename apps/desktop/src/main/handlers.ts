@@ -2,6 +2,7 @@ import { writableFolder } from "./browser/download-folder.ts";
 import { aceClientName, namedFetch } from "@ace/client/ace-client";
 import { ACE_CLIENT_DEVELOPMENT } from "@ace/protocol/ace-client";
 import { accountSecrets, safeStorageSealer } from "./account-secrets.ts";
+import { appStanding, type DaemonHttp } from "./app-standing.ts";
 import { standingKeys } from "./standing-key.ts";
 import { followDaemonAccount } from "./account-follow.ts";
 import { accountSync } from "./account-sync.ts";
@@ -74,6 +75,24 @@ function accountReader(info: AppInfo) {
       .account.id;
 }
 
+/** The daemon on this computer over HTTP, with the app's host credential. */
+function daemonHttp(connection: Extract<DaemonConnection, { mode: "daemon" }>): DaemonHttp {
+  return async (method, path, body) => {
+    const url = new URL(path, connection.url);
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    const response = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${connection.token}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return { status: response.status, body: (await response.json().catch(() => null)) as unknown };
+  };
+}
+
 /** Every `window.ace` request, already parsed by `registerHandlers`. */
 export function createHandlers(options: {
   info: AppInfo;
@@ -122,11 +141,26 @@ export function createHandlers(options: {
   /** Pages the person opens on a remote machine's thread (ADR 0194). */
   deviceTabs: DeviceTabs;
   machineTunnels: MachineTunnels;
+  /** The person's standing on the app's own sockets (ADR 0190, amendment 1). */
+  standing?: { allowed(): Promise<boolean>; tags(): readonly string[] };
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
-  const standing = standingKeys(app.getPath("userData"), safeStorageSealer);
   const accountOf = accountReader(options.info);
+  const standing = appStanding({
+    keys: standingKeys(app.getPath("userData"), safeStorageSealer),
+    allowed: () => options.standing?.allowed() ?? Promise.resolve(false),
+    tags: () => options.standing?.tags() ?? [],
+    daemon: async () => {
+      const connection = await options.connection().catch(() => undefined);
+      if (connection?.mode !== "daemon" || connection.localRelayHostId === undefined)
+        return undefined;
+      return { http: daemonHttp(connection), host: connection.localRelayHostId };
+    },
+    session: (origin) => account.read(origin),
+    accountOf,
+    now: Date.now,
+  });
   // A daemon that starts or restarts signed out follows the app's account (never switching one
   // that is signed in); the app's sign-in and sign-out follow `account-write.ts`. One queue for
   // both, so an older change never lands after a newer one.
@@ -155,15 +189,19 @@ export function createHandlers(options: {
     "account.read": (origin) => account.read(origin),
     "account.write": async ({ origin, token }) => {
       await account.write(origin, token);
-      // Signed out: the person's standing key goes with the session (ADR 0190, amendment 1).
-      if (token === null) await standing.forget(origin);
+      // The device key follows the session (ADR 0190, amendment 1): signing out revokes it at
+      // the daemon, and another sign-in revokes one made under the session before.
+      await (token === null ? standing.signedOut(origin) : standing.signedIn(origin, token)).catch(
+        () => undefined,
+      );
       // The machine follows the app's account only where that moves no one's own sign-in
       // (`account-write.ts`); a failure here leaves the app signed in.
       void daemonAccount.followApp(origin).catch(() => {});
       return undefined;
     },
-    "standing.key": ({ origin, account: id }) => standing.key(origin, id),
-    "standing.sign": ({ origin, account: id, text }) => standing.sign(origin, id, text),
+    // A window asks only "prove me" or "enroll"; main makes and sends the statement itself.
+    "standing.prove": ({ origin }) => standing.prove(origin).catch(() => false),
+    "standing.enroll": ({ origin }) => standing.enroll(origin).catch(() => false),
     "daemon.account": async (request) =>
       machineAccount(await options.connection(), request, (origin) => account.read(origin)),
     "keymap.update": (bindings) => {

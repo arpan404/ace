@@ -1,16 +1,18 @@
-import { createPrivateKey, generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { createHash, createPrivateKey, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isAppStandingText } from "@ace/client/standing";
+import { deviceKeyId, readStatement } from "@ace/account-grant/person-statement";
 import { z } from "zod";
 import { savedOriginKey } from "./account-origins.ts";
 
 /*
- * The person's standing key for this app (ADR 0190, amendment 1): one P-256 key per account
- * backend, made here the first time a window proves the owner's grant, and kept encrypted with
- * `safeStorage`, whose key the OS keychain holds (bound to this signed app on macOS). Windows ask
- * main to sign a socket's challenge with it; the private half never leaves this process, and
- * main signs nothing but an app-standing challenge. Signing out forgets it.
+ * This device's key for the person's statements (ADR 0190, amendment 1): one P-256 key pair per
+ * account backend, made when the person enrolls it after a browser sign-in, kept sealed with
+ * `safeStorage` (the OS keychain; on macOS bound to ace's signed app). Its public half is what a
+ * verifier registers: the local daemon today, the person's ace account later. The private half
+ * never leaves this process, and it signs only a person's statement for its own account and
+ * device. It is bound to the session it was enrolled under: another sign-in, or signing out,
+ * ends it.
  */
 
 /** What `safeStorage` does for this store; Electron's in the app, a stand-in in tests. */
@@ -20,13 +22,17 @@ export interface Sealer {
   open(bytes: Buffer): string;
 }
 
-const Saved = z.record(
-  z.string(),
-  z.object({ account: z.string().min(1).max(256), key: z.string().min(1).max(512) }),
-);
+const Held = z.object({
+  account: z.string().min(1).max(256),
+  /** The SHA-256 of the session the key was enrolled under: another session's never uses it. */
+  session: z.string().regex(/^[0-9a-f]{64}$/),
+  key: z.string().min(1).max(512),
+});
+const Saved = z.record(z.string(), Held);
 type Saved = z.infer<typeof Saved>;
 
-const encode = (bytes: Buffer) => bytes.toString("base64url");
+/** The digest a key is bound to: a session token's SHA-256, never the token itself. */
+export const sessionDigest = (token: string) => createHash("sha256").update(token).digest("hex");
 
 /** The uncompressed P-256 point of a PKCS#8 private key's public half, base64url. */
 function publicPoint(pkcs8: string): string {
@@ -37,7 +43,16 @@ function publicPoint(pkcs8: string): string {
   }).export({ format: "jwk" });
   const x = Buffer.from(jwk.x ?? "", "base64url");
   const y = Buffer.from(jwk.y ?? "", "base64url");
-  return encode(Buffer.concat([Buffer.from([4]), x, y]));
+  return Buffer.concat([Buffer.from([4]), x, y]).toString("base64url");
+}
+
+export interface DeviceKey {
+  account: string;
+  session: string;
+  /** The public half, an uncompressed P-256 point, base64url. */
+  publicKey: string;
+  /** Its id in statements (`deviceKeyId`). */
+  id: string;
 }
 
 export function standingKeys(directory: string, sealer: Sealer) {
@@ -54,10 +69,10 @@ export function standingKeys(directory: string, sealer: Sealer) {
       bytes = await readFile(path);
     } catch (error) {
       if (z.object({ code: z.literal("ENOENT") }).safeParse(error).success) return {};
-      throw new Error("Couldn't read this app's standing key", { cause: error });
+      throw new Error("Couldn't read this device's key", { cause: error });
     }
     if (!sealer.available()) throw new Error("Secure storage is unavailable");
-    // A file this app can't open (another install's, or damaged) holds nothing; a new key replaces it.
+    // A file this app can't open (another install's, or damaged) holds nothing it can use.
     try {
       return Saved.parse(JSON.parse(sealer.open(bytes)));
     } catch {
@@ -76,50 +91,58 @@ export function standingKeys(directory: string, sealer: Sealer) {
     await writeFile(temporary, sealer.seal(JSON.stringify(saved)), { mode: 0o600 });
     await rename(temporary, path);
   }
+  const described = async (held: z.infer<typeof Held>): Promise<DeviceKey> => {
+    const publicKey = publicPoint(held.key);
+    return {
+      account: held.account,
+      session: held.session,
+      publicKey,
+      id: await deviceKeyId(publicKey),
+    };
+  };
   return {
-    /**
-     * The public half of `account`'s key at `origin`, made now when there is none or it is
-     * another account's (a different account signed in: the old key goes).
-     */
-    key(origin: string, account: string): Promise<string> {
+    /** The key kept for `origin`, if any. */
+    held(origin: string): Promise<DeviceKey | undefined> {
+      return serial(async () => {
+        const held = (await read())[savedOriginKey(origin)];
+        return held ? described(held) : undefined;
+      });
+    },
+    /** A new key for `account`'s session `session` at `origin`, replacing any kept there. */
+    make(origin: string, account: string, session: string): Promise<DeviceKey> {
       return serial(async () => {
         const saved = await read();
-        const slot = savedOriginKey(origin);
-        const held = saved[slot];
-        if (held?.account === account) return publicPoint(held.key);
         const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-        const key = encode(privateKey.export({ format: "der", type: "pkcs8" }));
-        saved[slot] = { account, key };
+        const key = privateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
+        saved[savedOriginKey(origin)] = { account, session, key };
         await write(saved);
-        return publicPoint(key);
+        return described({ account, session, key });
       });
     },
     /**
-     * `account`'s key at `origin` signing `text`, an app-standing challenge and nothing else: its
-     * public half and the signature (P1363, base64url), or null without a key for that account.
+     * The key at `origin` signing `text`: a person's statement for this key's own account and
+     * device, and nothing else (P1363, base64url). Null without a key.
      */
-    sign(
-      origin: string,
-      account: string,
-      text: string,
-    ): Promise<{ key: string; proof: string } | null> {
-      if (!isAppStandingText(text)) return Promise.reject(new Error("Not a standing challenge"));
+    sign(origin: string, text: string): Promise<string | null> {
       return serial(async () => {
         const held = (await read())[savedOriginKey(origin)];
-        if (held?.account !== account) return null;
+        if (!held) return null;
+        const statement = readStatement(text);
+        const own = await described(held);
+        if (!statement || statement.account !== own.account || statement.device !== own.id)
+          throw new Error("Not this device's statement");
         const privateKey = createPrivateKey({
           key: Buffer.from(held.key, "base64url"),
           format: "der",
           type: "pkcs8",
         });
-        const proof = sign("sha256", Buffer.from(text, "utf8"), {
+        return sign("sha256", Buffer.from(text, "utf8"), {
           key: privateKey,
           dsaEncoding: "ieee-p1363",
-        });
-        return { key: publicPoint(held.key), proof: encode(proof) };
+        }).toString("base64url");
       });
     },
-    /** Signing out of `origin`: its key is gone, so no window proves with it again. */
+    /** The key at `origin` is gone: nothing signs with it again. */
     forget(origin: string): Promise<void> {
       return serial(async () => {
         let saved: Saved;

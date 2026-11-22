@@ -5,12 +5,11 @@ import type { ClientApi, StandingChallenge } from "@ace/client";
  * grant for that daemon and the window key's signature over the challenge, or, for a device
  * paired from a person's link, its kept key's signature.
  */
-export type StandingProver = (
-  challenge: StandingChallenge,
-) => Promise<
+export type StandingProver = (challenge: StandingChallenge) => Promise<
   | { type: "account.standing"; grant: string; proof: string }
   | { type: "device.standing"; proof: string }
-  | { type: "account.standing.app"; key: string; proof: string }
+  /** The desktop app's main process proved this window's sockets itself (ADR 0190, amd. 1). */
+  | { type: "proven" }
   | undefined
 >;
 
@@ -45,6 +44,7 @@ export function keepStanding(
     const send = async (prover: StandingProver) => {
       const proven = await prover(challenge).catch(() => undefined);
       if (!current() || !proven) return false;
+      if (proven.type === "proven") return true;
       const reply = await client.request(proven).catch(() => undefined);
       return reply?.result.ok === true && reply.result.member === undefined && current();
     };

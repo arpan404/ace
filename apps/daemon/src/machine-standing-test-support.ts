@@ -9,7 +9,7 @@ import {
   encodeBase64url,
 } from "@ace/account-grant";
 import { aceAccountClient, AceAccountError } from "@ace/client/ace-account";
-import { DeviceId, FleetResult, type ServerMessage } from "@ace/protocol";
+import { APP_SOCKET_HEADER, DeviceId, FleetResult, type ServerMessage } from "@ace/protocol";
 import { SettingsService, fileIO } from "@ace/settings";
 import { hostId } from "@ace/secure-channel";
 import {
@@ -197,11 +197,32 @@ export async function daemon(serverOptions: Parameters<typeof setup>[0] = {}) {
     return { client, grant, nonce: welcome.standingNonce };
   }
   /** The app's own page: a host-token socket on loopback, its nonce and host from its welcome. */
-  async function pageSocket() {
-    const client = await f.connect();
+  /**
+   * The app's own page: a host-token socket on loopback, its nonce and host from its welcome.
+   * `appTag`: the tag the desktop app's main process adds to its own upgrades (ADR 0190,
+   * amendment 1).
+   */
+  async function pageSocket(appTag?: string) {
+    const client = await f.connect(
+      undefined,
+      appTag ? { headers: { [APP_SOCKET_HEADER]: appTag } } : {},
+    );
     const welcome = await answer(client, "welcome");
     if (!welcome.standingNonce || !welcome.standingHost) throw new Error("No standing challenge");
     return { client, nonce: welcome.standingNonce, host: welcome.standingHost };
+  }
+  /** The app's main process calling its daemon over HTTP with the host token. */
+  async function hostHttp(method: string, path: string, body?: unknown) {
+    const url = new URL(path, f.server.httpUrl);
+    const response = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${"a".repeat(64)}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: response.status, body: (await response.json()) as unknown };
   }
   return {
     f,
@@ -211,6 +232,7 @@ export async function daemon(serverOptions: Parameters<typeof setup>[0] = {}) {
     keys,
     accountSocket,
     pageSocket,
+    hostHttp,
     close: async () => {
       await machine.close();
       settings?.close();
@@ -299,9 +321,10 @@ export async function linkFrom(client: Client): Promise<string> {
 export async function pageProves(
   daemonHome: Awaited<ReturnType<typeof signedInDaemon>>,
   session: string,
+  appTag?: string,
 ): Promise<{ client: Client; ok: boolean }> {
   const key = await deviceKey();
-  const page = await daemonHome.pageSocket();
+  const page = await daemonHome.pageSocket(appTag);
   const minted = await accounts().grant(
     session,
     { kind: "device", subject: "device", host: page.host, key: key.raw },
