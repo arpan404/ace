@@ -454,8 +454,10 @@ export class Sessions {
         rootKey,
         ...(identity ? { acpIdentity: identity } : {}),
       });
-      if (backend === "cursor-sdk")
-        await this.dependencies.repo.recovery.restore(actor.id, actor.translator);
+      const unsettled =
+        backend === "cursor-sdk"
+          ? await this.dependencies.repo.recovery.restore(actor.id, actor.translator)
+          : undefined;
       // The previous provider process is gone: work that lived inside it has stopped.
       actor.apply([
         ...settleSessionBoundTasks(
@@ -596,11 +598,7 @@ export class Sessions {
               resume: {
                 nativeSessionId: metadata.nativeSessionId,
                 ...(backend ? { backend } : {}),
-                ...(backend === "cursor-sdk"
-                  ? {
-                      afterFrameOffset: this.dependencies.repo.recovery.offset(actor.id),
-                    }
-                  : {}),
+                ...(unsettled ? { unsettled } : {}),
                 ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
               },
             }),

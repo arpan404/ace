@@ -1,11 +1,10 @@
-import { readdir, lstat, mkdir } from "node:fs/promises";
+import { lstat, mkdir } from "node:fs/promises";
 import { join, dirname, parse } from "node:path";
 import { createHash } from "node:crypto";
 
 /** Per-thread store bounds the SDK's full-conversation materialization before pagination.
  * The byte budget is adjustable per thread via `Limits.maxCheckpointBytes`
- * (`DaemonOptions.engine.cursor.limits`, default 8 GiB, max 64 GiB).
- * Entry (2048) and depth (10) counts are fixed abuse guards, not per-thread settings. */
+ * (`DaemonOptions.engine.cursor.limits`, default 8 GiB, max 64 GiB). */
 export function checkpointDirectory(home: string, threadId: string, generation = 0): string {
   const key = createHash("sha256").update(threadId).digest("hex");
   // A later generation is a fresh session after the earlier store became unusable (ADR 0211);
@@ -27,46 +26,54 @@ export async function validatePrivateDirectory(root: string): Promise<void> {
     parent = dirname(parent);
   }
 }
-export async function checkCheckpointBudget(
-  root: string,
-  maxBytes: number,
-): Promise<{ bytes: number; files: number; sizes: Map<string, number>; paths: Set<string> }> {
+/** Creates the thread's private checkpoint folder, refusing a symlink anywhere on its path. */
+export async function prepareCheckpointDirectory(root: string): Promise<void> {
   await validatePrivateDirectory(root);
   await mkdir(root, { recursive: true, mode: 0o700 });
   const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
     throw new Error("Unsafe SDK checkpoint directory");
-  const sizes = new Map<string, number>();
-  const paths = new Set<string>();
+}
+/** The files that hold a store's weight: the SDK index, its legacy JSONL, an agent's store.db. */
+function storeFiles(root: string, agentId: string | undefined): string[] {
+  const files = [
+    "index.db",
+    "agents.ndjson",
+    "runs.ndjson",
+    "checkpoints.ndjson",
+    "run_events.ndjson",
+  ].map((name) => join(root, name));
+  if (agentId) {
+    const agent = `agent-${createHash("sha256").update(agentId).digest("hex")}`;
+    files.push(join(root, "agents", agent, "store.db"));
+  }
+  return files.flatMap((file) => (file.endsWith(".db") ? [file, `${file}-wal`] : [file]));
+}
+/**
+ * The checkpoint's size from a fixed handful of files, never a directory walk (ADR 0043,
+ * amendment of 2026-11-22). A file that is missing weighs nothing; one that is not a plain file
+ * is refused.
+ */
+export async function checkpointBytes(root: string, agentId?: string): Promise<number> {
   let bytes = 0;
-  let files = 0;
-  const pending = [{ path: root, depth: 0 }];
-  let entries = 0;
-  while (pending.length) {
-    const directory = pending.pop();
-    if (!directory) break;
-    // readdir (not opendir) so no directory handle is retained per level.
-    for (const entry of await readdir(directory.path, { withFileTypes: true })) {
-      if (++entries > 2048 || directory.depth > 10)
-        throw new Error("SDK checkpoint inventory exceeds budget; use explicit context handoff");
-      const path = join(directory.path, entry.name);
-      paths.add(path);
-      if (entry.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
-      const stat = await lstat(path);
-      if (stat.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
-      if (stat.isDirectory()) {
-        pending.push({ path, depth: directory.depth + 1 });
-        continue;
-      }
-      if (!stat.isFile()) throw new Error("Unsafe SDK checkpoint entry");
-      files++;
-      sizes.set(path, stat.size);
+  for (const file of storeFiles(root, agentId)) {
+    try {
+      const stat = await lstat(file);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
       bytes += stat.size;
-      if (bytes > maxBytes)
-        throw new Error(
-          "SDK checkpoint exceeds recovery budget; preserve source and use explicit context handoff",
-        );
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
   }
-  return { bytes, files, sizes, paths };
+  return bytes;
+}
+/** Words store-fence.ts reads as an unusable store: the next open hands off (ADR 0211). */
+export const overBudget = "SDK checkpoint exceeds its budget; use context handoff";
+/** Throws `overBudget` when the store has outgrown `maxBytes`. */
+export async function assertCheckpointBudget(
+  root: string,
+  maxBytes: number,
+  agentId?: string,
+): Promise<void> {
+  if ((await checkpointBytes(root, agentId)) > maxBytes) throw new Error(overBudget);
 }

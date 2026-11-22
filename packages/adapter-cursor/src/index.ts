@@ -19,9 +19,7 @@ export { readCursorSnapshot, snapshotInHost, type SnapshotSdkBoundary } from "./
 export { cursorAuthInHost, type SdkAuthBoundary } from "./auth-host.ts";
 export { CursorHostSlots } from "./slots.ts";
 
-export { CursorJournal } from "./journal.ts";
 export { recoverCursorCheckpoint } from "./recovery.ts";
-export { boundedCheckpointStore } from "./checkpoint-store.ts";
 
 export { openSdkCheckpointStore } from "./sdk-store.ts";
 
@@ -29,9 +27,9 @@ export { validateCursorAuthHome } from "./auth-home.ts";
 
 export { streamSdkBody } from "./body-stream.ts";
 export { ShellStreams } from "./shell-streams.ts";
-export { CheckpointQuota } from "./checkpoint-quota.ts";
 
 export { HostRuntime } from "./host-runtime.ts";
+export { unbatch } from "./frame-batch.ts";
 export type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
 
 export { type SandboxAdmission, probeCursorSandbox } from "./sandbox-support.ts";

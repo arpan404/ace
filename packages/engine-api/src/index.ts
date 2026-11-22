@@ -171,7 +171,15 @@ export interface SessionContext {
     nativeSessionId: string;
     backend?: ProviderBackend;
     instanceId?: string;
-    afterFrameOffset?: number;
+    /**
+     * Daemon-owned, from its own committed frames (ADR 0043, amendment of 2026-11-22): the runs
+     * the open turn started and never saw end, each with the last streamed-message count ace
+     * committed, and a send the host attempted with no admission evidence yet.
+     */
+    unsettled?: {
+      runs: { runId: string; through: number }[];
+      attempt?: { operationId: string; commandId?: string; segment: number; at: number };
+    };
   };
   /** Persist selection before host admission and native identity before publishing its open frame. */
   onSessionIdentity?(identity: {

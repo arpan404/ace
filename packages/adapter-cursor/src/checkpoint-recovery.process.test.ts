@@ -3,14 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JsonlLocalAgentStore } from "@cursor/sdk";
 import { expect, it } from "vitest";
-import {
-  CursorJournal,
-  recoverCursorCheckpoint,
-  boundedCheckpointStore,
-  CursorLimitsSchema,
-  openSdkCheckpointStore,
-  type CursorEnvelope,
-} from "./index.ts";
+import type { LocalAgentStore } from "@cursor/sdk";
+import { recoverCursorCheckpoint, CursorLimitsSchema, openSdkCheckpointStore } from "./index.ts";
+import type { Recovered } from "./recovery.ts";
 
 it("retains native SQLite checkpoints and run identity when the thread store closes and reopens", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-sqlite-checkpoint-")));
@@ -58,151 +53,233 @@ it("retains native SQLite checkpoints and run identity when the thread store clo
   }
 });
 
-const envelope = (kind: string, body: unknown): CursorEnvelope => ({
-  schemaVersion: 1,
-  generation: "old-host",
-  operationId: "ace-operation",
-  segment: 0,
-  kind,
-  body,
-});
-
-it("replays only boundary commits missing from ace and keeps SDK observe offsets separate", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-journal-")));
+it("retains native SQLite checkpoints and run identity when the thread store closes and reopens", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-sqlite-checkpoint-")));
+  let owned: Awaited<ReturnType<typeof openSdkCheckpointStore>> | undefined;
   try {
-    const journal = new CursorJournal(root, 65536, 4096);
-    await journal.recover(0, async () => {});
-    const a = await journal.append(envelope("delta", { type: "text-delta", text: "same" }));
-    const b = await journal.append(envelope("delta", { type: "text-delta", text: "same" }));
-    expect(a.boundaryOffset).toBe(1);
-    expect(b.boundaryOffset).toBe(2);
-    await journal.close();
-    const recovered: CursorEnvelope[] = [];
-    const next = new CursorJournal(root, 65536, 4096);
-    await next.recover(1, async (frame) => {
-      recovered.push(frame);
-    });
-    expect(recovered).toEqual([{ ...b, replayed: true }]);
-    expect(recovered[0]?.observeOffset).toBeUndefined();
-    expect((await next.append(envelope("result", { status: "finished" }))).boundaryOffset).toBe(3);
-    await next.close();
-    await expect(new CursorJournal(root, 65536, 4096).recover(4, async () => {})).rejects.toThrow(
-      "conflicts",
-    );
-    await writeFile(join(root, "ace-boundary.ndjson"), '{"torn":', { flag: "a" });
-    await expect(new CursorJournal(root, 65536, 4096).recover(3, async () => {})).rejects.toThrow();
-    expect(await readFile(join(root, "ace-boundary.ndjson"), "utf8")).toContain('{"torn":');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-it("reconciles crashed native runs before continuation without resending or altering completed outcomes", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-native-recovery-")));
-  try {
-    const store = new JsonlLocalAgentStore(root);
-    await store.agents.create({
+    owned = await openSdkCheckpointStore({ JsonlLocalAgentStore }, root, root);
+    expect(owned.kind).toBe("sqlite");
+    await owned.store.agents.create({
       agent: {
         agentId: "agent-original",
         cwd: root,
         status: "running",
-        activeRunId: "crashed",
         createdAt: 1,
         updatedAt: 1,
       },
     });
-    for (const [runId, status] of [
-      ["finished", "finished"],
-      ["crashed", "running"],
-    ] as const)
-      await store.runs.create({
-        run: {
-          runId,
-          agentId: "agent-original",
-          status,
-          turnNumber: runId === "finished" ? 1 : 2,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      });
-    await store.runEvents.append({
-      runId: "crashed",
-      eventType: "synthetic-durable",
-      payload: { type: "status" },
+    await owned.store.runs.create({
+      run: {
+        agentId: "agent-original",
+        runId: "run-original",
+        turnNumber: 1,
+        status: "running",
+        createdAt: 1,
+        updatedAt: 1,
+      },
     });
-    const notices: { kind: string; body: unknown; runId?: string; offset?: string }[] = [];
-    const id = await recoverCursorCheckpoint(
-      {
-        Agent: {
-          async cancelRun(runId) {
-            const run = await store.runs.get({ agentId: "agent-original", runId });
-            if (!run) throw new Error("Missing run");
-            await store.runs.update({ run: { ...run, status: "cancelled" } });
+    const blobId = "ab".repeat(32);
+    await owned.store.checkpoints.create({
+      agentId: "agent-original",
+      blobId,
+      data: new Uint8Array([1, 2, 3]),
+    });
+    await owned.close();
+    owned = undefined;
+    owned = await openSdkCheckpointStore({ JsonlLocalAgentStore }, root, root);
+    expect(
+      (await owned.store.runs.get({ agentId: "agent-original", runId: "run-original" }))?.status,
+    ).toBe("running");
+    expect(await owned.store.checkpoints.get({ agentId: "agent-original", blobId })).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+  } finally {
+    await owned?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const agentId = "agent-original";
+/** A JSONL SDK store with one agent and the given runs, each with its stored messages. */
+async function storeWith(
+  root: string,
+  runs: { runId: string; status: "running" | "finished"; texts?: string[]; result?: string }[],
+  active?: string,
+) {
+  const store = new JsonlLocalAgentStore(root);
+  await store.agents.create({
+    agent: {
+      agentId,
+      cwd: root,
+      status: active ? "running" : "idle",
+      ...(active ? { activeRunId: active } : {}),
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  });
+  for (const [index, run] of runs.entries()) {
+    await store.runs.create({
+      run: {
+        runId: run.runId,
+        agentId,
+        status: run.status,
+        turnNumber: index + 1,
+        createdAt: 100 + index,
+        updatedAt: 100 + index,
+        ...(run.result ? { result: run.result } : {}),
+      },
+    });
+    for (const text of run.texts ?? [])
+      await store.runEvents.append({
+        runId: run.runId,
+        eventType: "run_stream_event",
+        payload: {
+          schemaVersion: 1,
+          type: "sdk_message",
+          message: {
+            type: "assistant",
+            message: { role: "assistant", content: [{ type: "text", text }] },
           },
         },
+      });
+  }
+  return store;
+}
+/** Recovery over `store`, as a reopened host runs it, with what the daemon's record lacks. */
+async function recover(
+  root: string,
+  store: LocalAgentStore,
+  recoverOptions: {
+    runs: { runId: string; through: number }[];
+    attempt?: { operationId: string; segment: number; at: number };
+  },
+) {
+  const found: Recovered[] = [];
+  const cancelled: string[] = [];
+  await recoverCursorCheckpoint(
+    {
+      Agent: {
+        async cancelRun(runId) {
+          cancelled.push(runId);
+          const run = await store.runs.get({ agentId, runId });
+          if (run) await store.runs.update({ run: { ...run, status: "cancelled" } });
+        },
       },
-      store,
-      {
-        cwd: root,
-        threadId: "ace-thread",
-        generation: "replacement",
-        nativeSessionId: "agent-original",
-        afterFrameOffset: 0,
-        policy: "full-access",
-        autoReviewAvailable: false,
-        limits: CursorLimitsSchema.parse({ historyPageSize: 1 }),
-      },
-      async (kind, body, runId, offset) => {
-        notices.push({ kind, body, ...(runId ? { runId } : {}), ...(offset ? { offset } : {}) });
-      },
-    );
-    expect(id).toBe("agent-original");
-    expect((await store.runs.get({ agentId: id ?? "", runId: "crashed" }))?.status).toBe(
-      "cancelled",
-    );
-    expect((await store.runs.get({ agentId: id ?? "", runId: "finished" }))?.status).toBe(
-      "finished",
-    );
-    expect(notices).toContainEqual(
-      expect.objectContaining({
-        runId: "crashed",
-        offset: "1",
-        body: expect.objectContaining({ outcome: "interrupted_by_daemon_restart" }),
-      }),
-    );
+    },
+    store,
+    {
+      cwd: root,
+      threadId: "ace-thread",
+      generation: "replacement",
+      nativeSessionId: agentId,
+      recover: recoverOptions,
+      policy: "full-access",
+      autoReviewAvailable: false,
+      limits: CursorLimitsSchema.parse({ historyPageSize: 2 }),
+    },
+    (item) => found.push(item),
+  );
+  return { found, cancelled };
+}
+const texts = (found: Recovered[]) =>
+  found.flatMap((item) =>
+    item.kind === "recovered" ? [JSON.stringify(item.body).match(/"text":"([^"]*)"/)?.[1]] : [],
+  );
+
+it("a run that finished just before the daemon crashed comes back finished, with its result and the tail ace missed", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-finished-recovery-")));
+  try {
+    const store = await storeWith(root, [
+      { runId: "run", status: "finished", texts: ["seen ", "missed"], result: "the answer" },
+    ]);
+    const { found, cancelled } = await recover(root, store, {
+      runs: [{ runId: "run", through: 1 }],
+    });
+    expect(cancelled).toEqual([]);
+    expect(texts(found)).toEqual(["missed"]);
+    expect(found.at(-1)).toMatchObject({
+      kind: "recovery",
+      runId: "run",
+      body: { nativeStatus: "finished", interrupted: false, result: "the answer" },
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-it("fences oversized native checkpoint writes while retaining the previous checkpoint", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-checkpoint-write-")));
+it("a cut-off run is stopped before its missing tail is read back", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-interrupted-recovery-")));
   try {
-    let visible = "";
-    const base = new JsonlLocalAgentStore(root);
-    const store = boundedCheckpointStore(base, root, 4096, async () => {
-      visible = "checkpoint failed";
+    const store = await storeWith(
+      root,
+      [{ runId: "crashed", status: "running", texts: ["a", "b", "c"] }],
+      "crashed",
+    );
+    const { found, cancelled } = await recover(root, store, {
+      runs: [{ runId: "crashed", through: 2 }],
     });
-    await store.checkpoints.create({
-      agentId: "agent",
-      blobId: "original",
-      data: new Uint8Array([1, 2]),
+    expect(cancelled).toEqual(["crashed"]);
+    expect((await store.runs.get({ agentId, runId: "crashed" }))?.status).toBe("cancelled");
+    expect(texts(found)).toEqual(["c"]);
+    expect(found.at(-1)).toMatchObject({
+      kind: "recovery",
+      body: {
+        nativeStatus: "running",
+        interrupted: true,
+        outcome: "interrupted_by_daemon_restart",
+      },
     });
-    await expect(
-      store.checkpoints.create({
-        agentId: "agent",
-        blobId: "too-large",
-        data: new Uint8Array(8192),
-      }),
-    ).rejects.toThrow("exceeds budget");
-    expect(visible).toBe("checkpoint failed");
-    expect(
-      new Uint8Array((await base.checkpoints.get({ agentId: "agent", blobId: "original" })) ?? []),
-    ).toEqual(new Uint8Array([1, 2]));
-    expect(await base.checkpoints.get({ agentId: "agent", blobId: "too-large" })).toBeNull();
-    await expect(
-      store.checkpoints.update({ agentId: "agent", blobId: "original", data: new Uint8Array([3]) }),
-    ).rejects.toThrow("fenced");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("opening a long Cursor thread does not re-read every past run", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-long-recovery-")));
+  try {
+    const past = Array.from({ length: 40 }, (_, index) => ({
+      runId: `past-${index}`,
+      status: "finished" as const,
+      texts: ["old"],
+    }));
+    const base = await storeWith(root, past);
+    const read: string[] = [];
+    const store: LocalAgentStore = {
+      ...base,
+      runEvents: {
+        ...base.runEvents,
+        list: (input) => {
+          read.push(input.runId);
+          return base.runEvents.list(input);
+        },
+        append: (input) => base.runEvents.append(input),
+        delete: (input) => base.runEvents.delete(input),
+      },
+    };
+    const { found } = await recover(root, store, { runs: [] });
+    expect(found).toEqual([]);
+    expect(read).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("a send attempted just before a crash is matched to the run Cursor created for it, or reported unsent", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-attempt-recovery-")));
+  try {
+    const store = await storeWith(root, [
+      { runId: "earlier", status: "finished" },
+      { runId: "created", status: "finished", texts: ["done"], result: "done" },
+    ]);
+    const attempt = { operationId: "op", segment: 0 };
+    const sent = await recover(root, store, { runs: [], attempt: { ...attempt, at: 101 } });
+    expect(sent.found[0]).toMatchObject({
+      kind: "admission",
+      body: { ...attempt, admitted: true, nativeRunId: "created" },
+    });
+    expect(texts(sent.found)).toEqual(["done"]);
+    const unsent = await recover(root, store, { runs: [], attempt: { ...attempt, at: 500 } });
+    expect(unsent.found).toEqual([{ kind: "admission", body: { ...attempt, admitted: false } }]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -224,84 +301,6 @@ it("refuses conflicting or incomplete native checkpoint formats without overwrit
     );
     expect(await readFile(join(root, "index.db"), "utf8")).toBe("preserved-sqlite");
   } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-it("recovery skips committed native observations without treating later Send callbacks as observe positions", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-observe-cursor-")));
-  const journal = new CursorJournal(root, 65536, 4096);
-  const recovered = new CursorJournal(root, 65536, 4096);
-  try {
-    const store = new JsonlLocalAgentStore(root);
-    await store.agents.create({
-      agent: { agentId: "agent", cwd: root, status: "idle", createdAt: 1, updatedAt: 1 },
-    });
-    await store.runs.create({
-      run: {
-        agentId: "agent",
-        runId: "run",
-        turnNumber: 1,
-        status: "finished",
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    });
-    const first = await store.runEvents.append({
-      runId: "run",
-      eventType: "first",
-      payload: { text: "already observed" },
-    });
-    const second = await store.runEvents.append({
-      runId: "run",
-      eventType: "second",
-      payload: { text: "unobserved" },
-    });
-    await journal.recover(0, async () => {});
-    await journal.append({
-      ...envelope("observe", { eventSeq: first.seq }),
-      runId: "run",
-      observeOffset: first.offset,
-    });
-    for (const text of ["send callback one", "send callback two"])
-      await journal.append({ ...envelope("delta", { type: "text-delta", text }), runId: "run" });
-    await journal.close();
-    await recovered.recover(3, async () => {});
-    const observed: unknown[] = [];
-    await recoverCursorCheckpoint(
-      {
-        Agent: {
-          async cancelRun() {
-            throw new Error("Completed run must not be cancelled");
-          },
-        },
-      },
-      store,
-      {
-        cwd: root,
-        threadId: "ace-thread",
-        generation: "new-host",
-        nativeSessionId: "agent",
-        afterFrameOffset: 3,
-        policy: "full-access",
-        autoReviewAvailable: false,
-        limits: CursorLimitsSchema.parse({ historyPageSize: 1 }),
-      },
-      async (kind, body, runId, offset) => {
-        if (kind === "observe") observed.push({ body, runId, offset });
-      },
-      (runId) => recovered.afterObserve(runId),
-    );
-    expect(observed).toEqual([
-      {
-        body: { eventType: "second", eventSeq: second.seq, payload: { text: "unobserved" } },
-        runId: "run",
-        offset: second.offset,
-      },
-    ]);
-  } finally {
-    await journal.close();
-    await recovered.close();
     await rm(root, { recursive: true, force: true });
   }
 });

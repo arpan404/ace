@@ -39,6 +39,9 @@ export function replay(limits: { maxPendingBytes?: number } = {}) {
         ...apply(state, fact, { now: seq, ids: { next: (entityKind) => `${entityKind}-${++id}` } }),
       );
     diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
+    // The host frames a send's admission once Cursor takes it; the turn starts there.
+    if (kind === "send" && (options.dir ?? "recv") !== "send")
+      frame("segment", { nativeRunId: `run-${seq}` }, options);
     return input;
   };
   const repeat = (input: Frame) => {

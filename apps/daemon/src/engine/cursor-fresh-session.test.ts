@@ -21,8 +21,9 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
 
+/** What the host says when the store outgrew its budget at a turn's end. */
 const fenceMessage =
-  "ace could not write Cursor's checkpoint: SDK checkpoint growth exceeds budget; previous checkpoint retained. Execution is fenced; preserve this thread and use explicit bounded context handoff.";
+  "Cursor's saved session is too large to keep: SDK checkpoint exceeds its budget; use context handoff. ace continues this thread in a fresh session with its context.";
 
 async function harness() {
   const root = await mkdtemp(join(tmpdir(), "cursor-fresh-session-"));
@@ -37,6 +38,8 @@ async function harness() {
     failFresh: 0,
     failResume: 0,
     fenceNext: false,
+    /** The next send is admitted by Cursor and never returns: the daemon dies meanwhile. */
+    hangAfterAdmission: false,
     hold: false,
     answer: (n: number) => `answer ${n}`,
   };
@@ -76,7 +79,7 @@ async function harness() {
           instanceId: "fixture",
           nativeSessionId: agent,
         });
-        let offset = context.resume?.afterFrameOffset ?? 0;
+        let offset = 0;
         let operationId = "open";
         const emit = async (kind: string, body: unknown) => {
           const seq = ++offset;
@@ -89,7 +92,6 @@ async function harness() {
               agentId: agent,
               kind,
               body,
-              boundaryOffset: seq,
             }),
           );
           await context.onFrame({
@@ -110,7 +112,12 @@ async function harness() {
             const text = input.map((part) => (part.type === "text" ? part.text : "")).join("\n");
             sends.push({ agent, text });
             operationId = intent ?? `send-${sends.length}`;
-            await emit("send", { input });
+            await emit("send", { input, attemptedAt: 1 });
+            await emit("segment", { nativeRunId: `run-${sends.length}` });
+            if (state.hangAfterAdmission) {
+              state.hangAfterAdmission = false;
+              await new Promise(() => {});
+            }
             await emit("delta", { type: "text-delta", text: state.answer(sends.length) });
             // Still working when the daemon stops: no result frame.
             if (state.hold) return;

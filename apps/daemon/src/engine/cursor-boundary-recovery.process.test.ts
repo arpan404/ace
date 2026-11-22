@@ -40,7 +40,7 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
             nativeSessionId: "pinned-agent",
           });
           let operationId = "open";
-          const emit = async (kind: string, body: unknown, durable = true) => {
+          const emit = async (kind: string, body: unknown) => {
             const seq = ++offset;
             const payload = new ProviderPayload(
               JSON.stringify({
@@ -51,7 +51,6 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
                 agentId: "pinned-agent",
                 kind,
                 body,
-                ...(durable ? { boundaryOffset: seq } : {}),
               }),
             );
             await context.onFrame({
@@ -71,6 +70,7 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
             async send(input, _delivery, intent) {
               operationId = intent ?? "send";
               await emit("send", { input });
+              await emit("segment", { nativeRunId: `run-${opened}` });
               if (opened === 1) {
                 if (failure === "identity_overflow") {
                   await emit("delta", {
@@ -91,8 +91,7 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
                       },
                     },
                   });
-                  await emit("error", { code: failure, message: "Checkpoint retained" }, false);
-                  offset--; // Emergency fences are not entries in the durable SDK journal.
+                  await emit("error", { code: failure, message: "Checkpoint retained" });
                 }
               } else {
                 await emit("delta", { type: "text-delta", text: "continued" });

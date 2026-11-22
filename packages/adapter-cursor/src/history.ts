@@ -2,7 +2,11 @@ import { homedir } from "node:os";
 import { z } from "zod";
 import { createRedactor } from "@ace/redaction";
 import { boundedJson } from "@ace/provider-kit/ipc";
-import { checkpointDirectory, checkCheckpointBudget } from "./checkpoints.ts";
+import {
+  checkpointDirectory,
+  prepareCheckpointDirectory,
+  assertCheckpointBudget,
+} from "./checkpoints.ts";
 import { Limits } from "./contracts.ts";
 import type { SdkModule } from "./host-runtime.ts";
 import { openSdkCheckpointStore, checkpointRevision } from "./sdk-store.ts";
@@ -47,7 +51,8 @@ export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, h
   const request = SnapshotRequest.parse(input);
   if (request.agentId.startsWith("bc-")) throw new Error("Cloud snapshots are forbidden");
   const root = checkpointDirectory(home, request.threadId, request.checkpointGeneration);
-  await checkCheckpointBudget(root, request.limits.maxCheckpointBytes);
+  await prepareCheckpointDirectory(root);
+  await assertCheckpointBudget(root, request.limits.maxCheckpointBytes, request.agentId);
   const owned = await openSdkCheckpointStore(
     sdk,
     root,

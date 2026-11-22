@@ -38,10 +38,8 @@ export const Envelope = z
     kind: z.string().min(1).max(128),
     body: z.unknown(),
     raw: RawPayload.optional(),
-    boundaryOffset: z.number().int().positive().max(10000000).optional(),
-    observeOffset: identity.optional(),
-    replayed: z.boolean().optional(),
-    recordedAt: z.number().finite().nonnegative().optional(),
+    /** How many of the run's streamed messages the host had seen: the SDK run-event seam. */
+    streamSeq: z.number().int().nonnegative().max(100_000_000).optional(),
   })
   .passthrough();
 export type CursorEnvelope = z.infer<typeof Envelope>;
@@ -52,7 +50,25 @@ export const Open = z.strictObject({
   model: identity.optional(),
   modelParams: CursorModelParams.optional(),
   nativeSessionId: identity.optional(),
-  afterFrameOffset: z.number().int().nonnegative().max(10000000).default(0),
+  /** What the daemon's record of the open turn lacks, read back from the SDK store at open. */
+  recover: z
+    .strictObject({
+      /** Runs the open turn started and the daemon never saw end, with their last `streamSeq`. */
+      runs: z
+        .array(z.strictObject({ runId: identity, through: z.number().int().nonnegative() }))
+        .max(64)
+        .default([]),
+      /** A send the host attempted with no admission evidence yet; `at` is its wall clock. */
+      attempt: z
+        .strictObject({
+          operationId: identity,
+          commandId: identity.optional(),
+          segment: z.number().int().nonnegative(),
+          at: z.number().finite().nonnegative(),
+        })
+        .optional(),
+    })
+    .default({ runs: [] }),
   /** The thread's checkpoint generation (ADR 0211); absent is the thread's first store. */
   checkpointGeneration: z.number().int().nonnegative().max(1024).optional(),
   policy: z.enum(["restricted", "full-access"]).optional(),

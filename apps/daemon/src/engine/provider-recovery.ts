@@ -15,7 +15,74 @@ const CapturedFrame = z.object({
   channel: z.literal("sdk"),
   data: z.unknown(),
 });
-const Offset = z.object({ boundaryOffset: z.number().int().positive().max(10000000).optional() });
+/** The fields of a Cursor frame that say how far the daemon's record of a run reaches. */
+const Progress = z.object({
+  kind: z.string(),
+  operationId: z.string().min(1).max(512),
+  commandId: z.string().min(1).max(512).optional(),
+  segment: z.number().int().nonnegative(),
+  runId: z.string().min(1).max(512).optional(),
+  streamSeq: z.number().int().nonnegative().optional(),
+  body: z.unknown(),
+});
+const Attempted = z.object({ attemptedAt: z.number().finite().nonnegative() });
+const Admitted = z.object({ nativeRunId: z.string().min(1).max(512) });
+const Settled = z.object({ settled: z.literal(true) });
+/** What a reopened Cursor host reads back from its store: see `SessionContext.resume`. */
+export type Unsettled = NonNullable<
+  NonNullable<import("@ace/engine-api").SessionContext["resume"]>["unsettled"]
+>;
+/** Folds committed frames, in order, into what the open turn's record lacks. Pure. */
+export class UnsettledRuns {
+  private runs = new Map<string, number>();
+  private attempt: Unsettled["attempt"];
+  private current: string | undefined;
+  add(data: unknown): void {
+    const frame = Progress.safeParse(data);
+    if (!frame.success) return;
+    const { kind, runId, streamSeq, body } = frame.data;
+    if (kind === "send") {
+      const attempted = Attempted.safeParse(body);
+      this.attempt = attempted.success
+        ? {
+            operationId: frame.data.operationId,
+            ...(frame.data.commandId ? { commandId: frame.data.commandId } : {}),
+            segment: frame.data.segment,
+            at: attempted.data.attemptedAt,
+          }
+        : undefined;
+      return;
+    }
+    if (kind === "segment") {
+      this.attempt = undefined;
+      const admitted = Admitted.safeParse(body);
+      const id = admitted.success ? admitted.data.nativeRunId : runId;
+      if (id) {
+        this.current = id;
+        this.runs.set(id, Math.max(this.runs.get(id) ?? 0, streamSeq ?? 0));
+      }
+      return;
+    }
+    // A send Cursor refused or failed is the session's own error, already in the record.
+    if (kind === "error" && this.attempt?.operationId === frame.data.operationId)
+      this.attempt = undefined;
+    const id = runId ?? this.current;
+    if (!id) return;
+    const ends =
+      kind === "result" ||
+      kind === "recovery" ||
+      ((kind === "error" || kind === "cancel") && Settled.safeParse(body).success);
+    if (ends) {
+      this.runs.delete(id);
+      if (id === this.current) this.current = undefined;
+    } else if (runId && this.runs.has(runId) && streamSeq !== undefined)
+      this.runs.set(runId, Math.max(this.runs.get(runId) ?? 0, streamSeq));
+  }
+  result(): Unsettled {
+    const runs = [...this.runs].slice(-64).map(([runId, through]) => ({ runId, through }));
+    return { runs, ...(this.attempt ? { attempt: this.attempt } : {}) };
+  }
+}
 const HostFence = z.object({
   kind: z.literal("error"),
   body: z.object({
@@ -31,35 +98,39 @@ const unusable = (message: string) =>
 export class ProviderRecovery {
   private store: Store;
   private readFrames: StatementSync;
-  private readCursor: StatementSync;
-  private writeCursor: StatementSync;
+  private readAttempt: StatementSync;
   constructor(store: Store) {
     this.store = store;
-    [this.readFrames, this.readCursor, this.writeCursor] = store.atomic(
+    [this.readFrames, this.readAttempt] = store.atomic(
       (db) =>
         [
           db.prepare(
             "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? ORDER BY rowid LIMIT 8",
           ),
-          db.prepare("SELECT offset FROM engine_provider_cursors WHERE thread_id=?"),
           db.prepare(
-            "INSERT INTO engine_provider_cursors VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET offset=excluded.offset",
+            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND json_extract(frame,'$.data.kind')='send' AND json_extract(frame,'$.data.commandId')=? LIMIT 1",
           ),
-        ] satisfies [StatementSync, StatementSync, StatementSync],
+        ] satisfies [StatementSync, StatementSync],
     );
   }
-  /** Hydrate pure translation only; canonical facts already committed are never reapplied. */
-  async restore(threadId: ThreadId, translator: Translator): Promise<void> {
+  /**
+   * Hydrate pure translation only; canonical facts already committed are never reapplied. The
+   * daemon's committed frames are ace's only Cursor record (ADR 0043, amendment of 2026-11-22):
+   * what they lack of the open turn is returned for the reopened host to read from its store.
+   */
+  async restore(threadId: ThreadId, translator: Translator): Promise<Unsettled> {
+    const unsettled = new UnsettledRuns();
     let rowid = 0;
     do {
       const rows = this.store.atomic(() => this.readFrames.all(threadId, rowid));
-      if (!rows.length) return;
+      if (!rows.length) return unsettled.result();
       for (const row of rows) {
         const encoded = z.string().max(1048576).parse(row.frame);
         const parsed = CapturedFrame.parse(JSON.parse(encoded));
         const payload = new ProviderPayload(JSON.stringify(parsed.data));
         const frame: Frame = { ...parsed, data: payload.data, payload };
         const facts = translator.translate(frame, parsed.t);
+        unsettled.add(frame.data);
         // A previous host's emergency fence is historical, not a translator overflow.
         // Opening the replacement host still verifies its journal, quota, ownership
         // and native run state before any new send can reach the pinned checkpoint.
@@ -80,8 +151,17 @@ export class ProviderRecovery {
       }
       await yieldImmediate();
     } while (rowid > 0);
+    return unsettled.result();
   }
-  /** Forgets a session's frames and boundary cursor: the thread's next session starts fresh. */
+  /**
+   * True when the host stored its attempt to send `commandId` (ADR 0043, amendment of
+   * 2026-11-22). The host calls Cursor only once that attempt is committed, so without it the
+   * input never reached Cursor and is delivered again.
+   */
+  attempted(threadId: ThreadId, commandId: string): boolean {
+    return this.store.atomic(() => this.readAttempt.get(threadId, commandId) !== undefined);
+  }
+  /** Forgets a session's frames (and an earlier build's boundary cursor): it starts fresh. */
   reset(threadId: ThreadId): void {
     this.store.atomic(() => {
       this.store.statement("DELETE FROM engine_provider_frames WHERE thread_id=?").run(threadId);
@@ -97,28 +177,5 @@ export class ProviderRecovery {
         WHERE thread_id=? AND json_extract(frame,'$.data.kind')='open'),0)`)
         .run(threadId, threadId),
     );
-  }
-  offset(threadId: ThreadId): number {
-    return this.store.atomic(() =>
-      z
-        .number()
-        .int()
-        .nonnegative()
-        .max(10000000)
-        .parse(Number(this.readCursor.get(threadId)?.offset ?? 0)),
-    );
-  }
-  /** The boundary an SDK frame commits, if it carries one. Reads nothing. */
-  boundary(frame: Frame): number | undefined {
-    if (frame.channel !== "sdk") return undefined;
-    return Offset.parse(frame.data).boundaryOffset;
-  }
-  commit(threadId: ThreadId, frame: Frame): void {
-    if (frame.channel !== "sdk") return;
-    const offset = Offset.parse(frame.data).boundaryOffset;
-    if (offset === undefined) return;
-    if (offset !== this.offset(threadId) + 1)
-      throw new Error("SDK boundary journal has a missing commit; sends are fenced");
-    this.store.atomic(() => this.writeCursor.run(threadId, offset));
   }
 }

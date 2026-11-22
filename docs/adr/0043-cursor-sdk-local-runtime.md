@@ -314,8 +314,10 @@ checkpoint directory walk before every send and a full journal read on every ope
    - a store that cannot be read is the existing fresh-session handoff (ADR 0211).
 4. **A send is acknowledged only after the SDK admitted it.** The host frames `send` (the
    attempt) before calling `Agent.send`, but a turn starts, and the queued input is
-   acknowledged and pruned, only on the `segment` frame that carries the native run id.
-   Updates the SDK delivers during `Agent.send` are held until that frame is out. After a
+   acknowledged and pruned, only on Cursor's first sign of having the input: the `segment`
+   frame that carries the native run id, or an update for it the SDK streams before that.
+   Meanwhile the thread shows working (an expected wake), without a run that would take the
+   input. After a
    restart a submitted input whose attempt frame never reached the daemon was never given to
    Cursor, so it is delivered again. One whose attempt was committed but has no admission
    evidence is looked up in the SDK store at the next open (a run created after the attempt);
