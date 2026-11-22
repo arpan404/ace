@@ -257,7 +257,7 @@ async function start(json: string): Promise<void> {
   const paired = config.paired;
   pairedStanding = undefined;
   standingRoute = paired || !config.account ? "paired" : "account";
-  const standing = (state: PairedStanding) => {
+  const standing = (state: PairedStanding | undefined) => {
     pairedStanding = state;
     pump.put("standing", () => ({ type: "standing", state }));
   };

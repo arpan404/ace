@@ -1,5 +1,17 @@
 import SwiftUI
 
+/// How to recover a machine that didn't take this phone's proof of the person's standing, by the
+/// route the proof went over. Pairing again removes the machine and its unsent work, so it is
+/// offered only where it can help: a paired machine's direct socket, proven with its paired key.
+/// Over the account relay the proof is the account's, so the way out is signing in again.
+enum StandingRecovery: Equatable {
+    case none, pairAgain, signIn
+    static func of(standing: PairedStanding?, needsPairing: Bool, isAccountMachine: Bool, onRelay: Bool) -> StandingRecovery {
+        guard !needsPairing, !isAccountMachine, standing == .missing else { return .none }
+        return onRelay ? .signIn : .pairAgain
+    }
+}
+
 /// A paired machine that didn't take this phone's proof of the person's standing (ADR 0190 §7):
 /// paired before the phone named a key, or from an ordinary link. It says what that stops and
 /// offers Pair again, on the machine's page.

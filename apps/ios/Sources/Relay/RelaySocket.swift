@@ -76,6 +76,8 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     /// The request id of the proof sent and not yet answered; its answer is native's, never the script's.
     private var awaitingVerdict: String?
     private var reprove: DispatchWorkItem?
+    /// Clears the verdict at the expiry the daemon reported, unless a newer proof replaced it.
+    private var lapse: DispatchWorkItem?
     /// How often a proven socket proves again: well inside the five minutes a person's grant lives.
     static let reproveInterval: TimeInterval = 4 * 60
     /// After a proof that couldn't reach the backend, the next try.
@@ -341,7 +343,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                         if !welcomed, !admission(text) { return false }
                         // The answer to this socket's own proof is native's: the script hears the verdict only.
                         if let requestId = awaitingVerdict, let verdict = StandingVerdict.read(text, requestId: requestId) {
-                            settle(verdict)
+                            settle(verdict, until: StandingVerdict.until(text, requestId: requestId))
                             return true
                         }
                         event("message", .text(streams?.text(text) ?? text))
@@ -412,10 +414,24 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     }
     /// The daemon's verdict on this socket's proof, or the phone's own `missing`: the script hears
     /// it, and a proven socket proves again before its grant runs out.
-    private func settle(_ verdict: PairedStanding) {
+    /// The standing also ends where the daemon says it does (`until`): if no fresh proof was taken
+    /// by then (renewal rate-limited, the backend unreachable), the verdict is cleared, so the
+    /// phone never reports a standing the daemon has already dropped.
+    private func settle(_ verdict: PairedStanding, until: Date? = nil) {
         awaitingVerdict = nil
+        lapse?.cancel()
         event("standing", .text(verdict.rawValue))
-        if verdict == .proven { scheduleProof(after: Self.reproveInterval) }
+        guard verdict == .proven else { return }
+        let remaining = until.map { StandingVerdict.wait(until: $0, now: Date()) } ?? Self.reproveInterval
+        scheduleProof(after: StandingVerdict.renewal(remaining: remaining, interval: Self.reproveInterval))
+        guard until != nil else { return }
+        let work = DispatchWorkItem { [weak self] in self?.queue.addOperation { self?.standingEnded() } }
+        lapse = work
+        DispatchQueue.global().asyncAfter(deadline: .now() + remaining, execute: work)
+    }
+    private func standingEnded() {
+        guard !ended else { return }
+        event("standing", .text("cleared"))
     }
     private func scheduleProof(after delay: TimeInterval) {
         reprove?.cancel()
@@ -456,7 +472,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         record(code, cause: reason.isEmpty ? cause : "\(cause): \(reason)")
         ended = true
         deadline?.cancel()
-        reprove?.cancel()
+        reprove?.cancel(); lapse?.cancel()
         dropWaiting()
         phase = .connecting
         event("close", .text(Self.closeEvent(code, reason: reason, named: named)))

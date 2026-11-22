@@ -68,4 +68,24 @@ import Testing
         #expect(StandingVerdict.read(member, requestId: "standing-1") == .missing)
         #expect(StandingVerdict.read(another, requestId: "standing-1") == nil)
     }
+
+    @Test func aProvenVerdictLapsesWhenTheDaemonSaysItsStandingEnds() throws {
+        let ok = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":true,"until":1700000300000}}"#
+        let refused = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":false,"code":"unauthorized","message":"No"}}"#
+        let until = try #require(StandingVerdict.until(ok, requestId: "standing-1"))
+        #expect(until == Date(timeIntervalSince1970: 1_700_000_300))
+        #expect(StandingVerdict.until(refused, requestId: "standing-1") == nil)
+        #expect(StandingVerdict.until(ok, requestId: "script-2") == nil)
+        // The wait is what is left of the daemon's time, never negative.
+        #expect(StandingVerdict.wait(until: until, now: Date(timeIntervalSince1970: 1_700_000_100)) == 200)
+        #expect(StandingVerdict.wait(until: until, now: Date(timeIntervalSince1970: 1_700_000_400)) == 0)
+    }
+
+    @Test func aProofIsRenewedBeforeItsStandingEndsAndNeverLater() {
+        // Within the usual interval: renewed on schedule.
+        #expect(StandingVerdict.renewal(remaining: 300, interval: 240) == 240)
+        // A grant that ends sooner is renewed before it does, with a lead.
+        #expect(StandingVerdict.renewal(remaining: 100, interval: 240) == 100 - StandingVerdict.lead)
+        #expect(StandingVerdict.renewal(remaining: 5, interval: 240) == 0)
+    }
 }

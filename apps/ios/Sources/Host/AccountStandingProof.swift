@@ -97,4 +97,21 @@ enum StandingVerdict {
         let result = object["result"] as? [String: Any]
         return result?["ok"] as? Bool == true && result?["member"] == nil ? .proven : .missing
     }
+
+    /// When a proven verdict's standing ends, as the daemon reports it (`until`, epoch
+    /// milliseconds); nil for a refusal or for any other message.
+    static func until(_ text: String, requestId: String) -> Date? {
+        guard read(text, requestId: requestId) == .proven,
+              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              let result = object["result"] as? [String: Any], let millis = result["until"] as? Double else { return nil }
+        return Date(timeIntervalSince1970: millis / 1000)
+    }
+    /// Seconds from `now` until `until`; zero once it has passed.
+    static func wait(until: Date, now: Date) -> TimeInterval { max(0, until.timeIntervalSince(now)) }
+    /// Seconds before an expiry that a proof is renewed, so a renewal can still arrive in time.
+    static let lead: TimeInterval = 30
+    /// When to prove again: `interval` from now, or `lead` before the standing ends if that is sooner.
+    static func renewal(remaining: TimeInterval, interval: TimeInterval) -> TimeInterval {
+        min(interval, max(0, remaining - lead))
+    }
 }

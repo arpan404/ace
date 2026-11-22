@@ -406,7 +406,7 @@ enum BridgePatch: Decodable, Sendable {
     case chatSections(InboxLayout)
     case problem(ProblemNotice?)
     /// Whether a paired machine's socket proved the person's standing (`bridge/paired-standing.ts`).
-    case standing(PairedStanding)
+    case standing(PairedStanding?)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
     /// The chats this machine's runtime keeps on the phone (`bridge/chat-cache.ts`).
@@ -549,7 +549,7 @@ enum BridgePatch: Decodable, Sendable {
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "chats.sections": self = .chatSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
-        case "standing": self = .standing(try box.decode(PairedStanding.self, forKey: .state))
+        case "standing": self = .standing(try box.decodeIfPresent(PairedStanding.self, forKey: .state))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
         case "cache.usage": self = .cacheUsage(try CacheUsage(from: decoder))

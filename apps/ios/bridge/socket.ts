@@ -19,7 +19,7 @@ export type PairedStanding = "proven" | "missing";
  * (`account.standing`), so the script never chooses what is signed. It reports only the
  * daemon's verdict, here.
  */
-type Standing = (standing: PairedStanding) => void;
+type Standing = (standing: PairedStanding | undefined) => void;
 const sockets = new Map<
   string,
   {
@@ -141,8 +141,11 @@ export function socketEvent(id: string, type: string, value: string | Uint8Array
   } else if (type === "trust") socket.trust?.report(value);
   else if (type === "standing") {
     if (value === "proven" || value === "missing") socket.standing?.(value);
+    else if (value === "cleared") socket.standing?.(undefined);
   } else if (type === "close") {
     sockets.delete(id);
+    // A verdict belongs to the socket it was proven on; the next one starts unproven.
+    socket.standing?.(undefined);
     // "<code>" or "<code> <reason>": the reason tells the owner's revocation from any other 4003.
     const space = value.indexOf(" ");
     if (space < 0) socket.events.close(Number(value));

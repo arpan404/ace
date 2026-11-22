@@ -146,7 +146,9 @@ struct ConnectionDot: View {
     let trying: Bool
     /// A paired machine that refused this phone's proof of the person's standing, or one this
     /// phone holds no key for: it pairs again to install bots and plugins (ADR 0190 §7).
-    let withoutStanding: Bool
+    /// What to offer when the machine didn't take this phone's proof of the person's standing.
+    let standingRecovery: StandingRecovery
+    var withoutStanding: Bool { standingRecovery == .pairAgain }
     let icon: AceIcon.Name
     /// New work is paused there ("Pause new work").
     let paused: Bool
@@ -166,10 +168,11 @@ struct ConnectionDot: View {
             : off ? StatusDisplay(label: "Off on this iPhone", token: "neutral")
             : client?.machineStatus?.status ?? StatusDisplay(label: "Connecting…", token: "neutral")
         trying = !needsPairing && !off && ["connecting", "reconnecting"].contains(client?.connection ?? "")
-        withoutStanding = !needsPairing && entry?.isAccountMachine != true && client?.standing == .missing
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
         let onRelay = entry?.accountHostId != nil && machines?.plans[hostId]?.current == .relay
+        standingRecovery = StandingRecovery.of(standing: client?.standing, needsPairing: needsPairing,
+                                               isAccountMachine: entry?.isAccountMachine == true, onRelay: onRelay)
         address = entry?.isAccountMachine == true || onRelay ? "Through your ace account"
             : entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
         icon = Self.icon(entry?.icon?.kind)
@@ -190,7 +193,11 @@ struct ConnectionDot: View {
             parts.append(connection.label)
             if let lastSeen, let age = ActivityTime.elapsed(since: lastSeen, now: Date()) { parts.append(age) }
         }
-        if withoutStanding { parts.append("Pair again to install here") }
+        switch standingRecovery {
+        case .pairAgain: parts.append("Pair again to install here")
+        case .signIn: parts.append("Sign in to ace again to install here")
+        case .none: break
+        }
         if paused { parts.append("New work paused") }
         if readOnly == true { parts.append("View only") }
         return parts.joined(separator: " · ")
