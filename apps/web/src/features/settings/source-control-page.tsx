@@ -27,12 +27,7 @@ import {
 import { Select } from "@/components/ui/select.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import {
-  SettingFooter,
-  SettingNote,
-  SettingRow,
-  SettingSection,
-} from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
 import { SourceControlProjects } from "./source-control-projects.tsx";
 import { ToolchainSection } from "./toolchain-section.tsx";
@@ -143,23 +138,44 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
       setSaving(false);
     }
   };
-  const save = async () => {
-    if (!preferences) return;
-    const next = saveHost(preferences, original, { forge, host, account }, remote);
+  const editing = preferences?.hosts.find((entry) => entry.host === original);
+  /** Whether a draft differs from what is saved (a host being added always does). */
+  const changed = (draft: { forge: ForgeKind; host: string; account: string; remote: string }) =>
+    !!preferences &&
+    (!editing ||
+      draft.host !== editing.host ||
+      draft.forge !== hostForge(editing) ||
+      draft.account !== (editing.account ?? "") ||
+      draft.remote !== preferences.remote);
+  /** Applies a draft at once, as the rest of Settings does; errors stay under the fields. */
+  const commit = async (draft: {
+    forge: ForgeKind;
+    host: string;
+    account: string;
+    remote: string;
+  }) => {
+    if (!preferences || !changed(draft)) return;
+    const next = saveHost(
+      preferences,
+      original,
+      { forge: draft.forge, host: draft.host, account: draft.account },
+      draft.remote,
+    );
     if (!next) {
-      setError(`${host} is already a saved host. Manage it from Git hosts.`);
+      setError(`${draft.host} is already a saved host. Manage it from Git hosts.`);
       return;
     }
     await write(next);
   };
-  const editing = preferences?.hosts.find((entry) => entry.host === original);
-  const changed =
-    !!preferences &&
-    (!editing ||
-      host !== editing.host ||
-      forge !== hostForge(editing) ||
-      account !== (editing.account ?? "") ||
-      remote !== preferences.remote);
+  const fieldCommit = (draft: { forge: ForgeKind; host: string; account: string; remote: string }) =>
+    void commit(draft);
+  const resetDraft = () => {
+    if (preferences) {
+      edit(preferences.host);
+      setRemote(preferences.remote);
+    }
+    setError(undefined);
+  };
   const shownEntry = preferences?.hosts.find((entry) => entry.host === preferences.host);
   const savedForge = shownEntry ? hostForge(shownEntry) : "github";
   const loading = readiness.isFetching && !readiness.isError;
@@ -177,7 +193,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           forge: savedForge,
           loading,
           canRescan: forgeCanCheck(savedForge),
-          error: readError ?? error,
+          error: readError,
         }}
         disabled={disabled || !status}
         onAdd={(provider) => {
@@ -218,9 +234,11 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
               }))}
               disabled={disabled}
               onValueChange={(value) => {
+                const nextHost = value === "origin" ? originApiHost : defaultForgeHost(value);
                 setForge(value);
-                setHost(value === "origin" ? originApiHost : defaultForgeHost(value));
+                setHost(nextHost);
                 setAccount("");
+                fieldCommit({ forge: value, host: nextHost, account: "", remote });
               }}
             />
           </SettingRow>
@@ -240,6 +258,11 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
               id="sc-host"
               value={host}
               onChange={(event) => setHost(event.target.value.toLowerCase())}
+              onBlur={() => fieldCommit({ forge, host: host.toLowerCase(), account, remote })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") resetDraft();
+              }}
               disabled={disabled || forge === "origin"}
             />
           </SettingRow>
@@ -253,6 +276,11 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
               value={account}
               placeholder="Any account"
               onChange={(event) => setAccount(event.target.value)}
+              onBlur={() => fieldCommit({ forge, host, account, remote })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") resetDraft();
+              }}
               disabled={disabled}
             />
           </SettingRow>
@@ -265,27 +293,19 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
               id="sc-remote"
               value={remote}
               onChange={(event) => setRemote(event.target.value)}
+              onBlur={() => fieldCommit({ forge, host, account, remote })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") resetDraft();
+              }}
               disabled={disabled}
             />
           </SettingRow>
-          <SettingFooter>
-            {original !== preferences?.host && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={disabled}
-                onClick={() => {
-                  if (preferences) edit(preferences.host);
-                  setError(undefined);
-                }}
-              >
-                Cancel
-              </Button>
-            )}
-            <Button size="sm" disabled={disabled || !changed} onClick={() => void save()}>
-              {original === undefined ? "Save host" : "Save preferences"}
-            </Button>
-          </SettingFooter>
+          {error && (
+            <SettingNote role="alert" className="text-destructive">
+              {error}
+            </SettingNote>
+          )}
         </SettingSection>
       </div>
       {/* Project dialogs edit this window's own daemon's projects. */}
