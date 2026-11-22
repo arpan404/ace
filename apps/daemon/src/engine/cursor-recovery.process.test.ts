@@ -26,7 +26,7 @@ const threadId = ThreadId.parse("crashed-thread");
 
 const nothing = () => {};
 /** The notices a crashed thread shows, as `title: text`. */
-const said = (crash: { items: { type: string; title?: string; text?: string }[] }) =>
+const said = (crash: { items: Awaited<ReturnType<typeof crashAt>>["items"] }) =>
   crash.items.flatMap((item) =>
     item.type === "notice" ? [`${item.title ?? ""}: ${item.text ?? ""}`] : [],
   );
@@ -57,8 +57,8 @@ async function crashAt(
     noAdmission?: boolean;
     /** The re-sent message never reaches Cursor: the host attempts it and nothing follows. */
     resendStalls?: boolean;
-    /** Once the busy opens run out, a later transaction finds the disk full, once. */
-    fullAfterBusy?: boolean;
+    /** Once the busy opens run out, the disk is full for `forMs`, then clears. */
+    fullAfterBusy?: { forMs: number };
     /** The new host can't open at all, so Cursor's store can't be read. */
     openFails?: boolean;
     /** Whether the person presses Resume; without it only ace acts. */
@@ -90,15 +90,32 @@ async function crashAt(
   }
   const store = new Store(path);
   let diskFull = nothing;
+  // What the test reads is never refused: only the engine's own writes meet the full disk.
+  let reading = false;
+  const read = <T>(look: () => T): T => {
+    reading = true;
+    try {
+      return look();
+    } finally {
+      reading = false;
+    }
+  };
   if (host.fullAfterBusy) {
     const atomic = store.atomic.bind(store);
-    let armed = -1;
-    // The second: the reconcile's own write of the failed turn, past the session's own.
-    diskFull = () => (armed = 2);
+    // From the reconcile's own write of the failed turn on (the session's open failure writes
+    // first), every transaction finds the disk full until it clears.
+    let skip = -1;
+    let clearsAt = 0;
+    const fullFor = host.fullAfterBusy.forMs;
+    diskFull = () => (skip = 1);
     store.atomic = ((run: Parameters<typeof atomic>[0]) => {
-      if (armed > 0 && --armed === 0) {
-        throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
+      if (skip > 0) skip--;
+      else if (skip === 0) {
+        skip = -1;
+        clearsAt = Date.now() + fullFor;
       }
+      if (!reading && Date.now() < clearsAt)
+        throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
       return atomic(run);
     }) as typeof store.atomic;
   }
@@ -233,11 +250,13 @@ async function crashAt(
     if (!accepted.ok) throw new Error(`Resume refused: ${accepted.error}`);
   };
   await engine.flush();
-  const held = engine.queue(threadId);
-  const runs = store
-    .readEvents({ afterSeq: 0, limit: 1000 })
-    .flatMap((event) => (event.payload.type === "run.ended" ? [event.payload.state] : []));
-  const status = store.getThread(threadId)?.status.state;
+  const held = read(() => engine.queue(threadId));
+  const runs = read(() =>
+    store
+      .readEvents({ afterSeq: 0, limit: 1000 })
+      .flatMap((event) => (event.payload.type === "run.ended" ? [event.payload.state] : [])),
+  );
+  const status = read(() => store.getThread(threadId)?.status.state);
   for (const type of resume ? (["queue.resume", "thread.resume"] as const) : []) {
     engine.handler.handle(
       Command.parse({
@@ -249,25 +268,35 @@ async function crashAt(
     );
     await engine.flush();
   }
-  const userTexts = store
-    .readItems(threadId, store.headSeq() + 1, 200)
-    .items.flatMap((item) =>
-      item.type === "message" && item.role === "user"
-        ? [item.parts.map((part) => (part.type === "text" ? part.text : "")).join("")]
-        : [],
-    );
+  const userTexts = read(() =>
+    store
+      .readItems(threadId, store.headSeq() + 1, 200)
+      .items.flatMap((item) =>
+        item.type === "message" && item.role === "user"
+          ? [item.parts.map((part) => (part.type === "text" ? part.text : "")).join("")]
+          : [],
+      ),
+  );
   return {
     held,
     /** How each ended run ended, and the thread's state, before any Resume. */
     runs,
     status,
     /** The thread's state at the end, after anything above ran. */
-    statusAfter: () => store.getThread(threadId)?.status.state,
+    statusAfter: () => read(() => store.getThread(threadId)?.status.state),
+    /** How each ended run ended, read now. */
+    runsAfter: () =>
+      read(() =>
+        store
+          .readEvents({ afterSeq: 0, limit: 1000 })
+          .flatMap((event) => (event.payload.type === "run.ended" ? [event.payload.state] : [])),
+      ),
+    queueAfter: () => read(() => engine.queue(threadId)),
     whileBusy,
     opened,
     sent,
     userTexts,
-    items: store.readItems(threadId, store.headSeq() + 1, 200).items,
+    items: read(() => store.readItems(threadId, store.headSeq() + 1, 200).items),
     async [Symbol.asyncDispose]() {
       await engine.close();
       store.close();
@@ -509,11 +538,8 @@ it("a send stays held as uncertain only when Cursor's store can't be read", asyn
   await using crash = await crashAt("attempted", { openFails: true, resume: false });
   expect(crash.sent).toEqual([]);
   expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
-  const said = crash.items.flatMap((item) =>
-    item.type === "notice" ? [`${item.title ?? ""} ${item.text ?? ""}`] : [],
-  );
-  expect(said.join(" | ")).not.toMatch(/not sent/i);
-  expect(said.join(" | ")).toMatch(/couldn't confirm whether Cursor received/);
+  expect(said(crash).join(" | ")).not.toMatch(/not sent/i);
+  expect(said(crash).join(" | ")).toMatch(/couldn't confirm whether Cursor received/);
 });
 
 it("a send Cursor had already made a run for is acknowledged on reopen, never held for a resend", async () => {
@@ -562,17 +588,18 @@ it("a Resume pressed while the reconcile waits on a busy store leaves one reconc
   expect(crash.statusAfter()).toBe("done");
 });
 
-it("a reconcile whose failure can't be written at first still fails the turn and holds the queue", async () => {
+it("a reconcile whose failure can't be written while the disk is full writes it once space is back", async () => {
   await using crash = await crashAt("admitted", {
     resume: false,
     busyOpens: 100,
     retryMs: [10, 10],
-    fullAfterBusy: true,
+    // Well past the busy-store backoff (20 ms in all here).
+    fullAfterBusy: { forMs: 300 },
   });
-  expect(crash.runs).toEqual(["failed"]);
-  expect(crash.held).toMatchObject({ paused: true, reason: "restart" });
-  expect(crash.sent).toEqual([]);
+  await expect.poll(() => crash.runsAfter(), { timeout: 4_000 }).toEqual(["failed"]);
   expect(crash.statusAfter()).not.toBe("working");
+  expect(crash.queueAfter()).toMatchObject({ paused: true, reason: "restart" });
+  expect(crash.sent).toEqual([]);
 });
 
 it("a store still busy when the retries run out fails the turn and keeps what waits in the queue", async () => {
@@ -597,9 +624,6 @@ it("a send Cursor never had stays held for the person while the last run's proce
   expect(crash.held.pendingCount).toBeGreaterThan(0);
   expect(crash.statusAfter()).toBe("waiting");
   // Nothing claims it wasn't sent: a resend by hand could be a second copy.
-  const said = crash.items.flatMap((item) =>
-    item.type === "notice" ? [`${item.title ?? ""} ${item.text ?? ""}`] : [],
-  );
-  expect(said.join(" | ")).not.toMatch(/not sent/i);
-  expect(said.join(" | ")).toMatch(/couldn't confirm whether Cursor received/);
+  expect(said(crash).join(" | ")).not.toMatch(/not sent/i);
+  expect(said(crash).join(" | ")).toMatch(/couldn't confirm whether Cursor received/);
 });

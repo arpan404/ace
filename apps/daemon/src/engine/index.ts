@@ -1461,6 +1461,7 @@ export class Engine {
     this.closePromise ??= (async () => {
       this.closing = true;
       this.cancelSweep?.();
+      this.reconciles.close();
       this.stopReleaseWatch();
       await this.settledTrees.settled();
       this.flushDepth++;

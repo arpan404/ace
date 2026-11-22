@@ -106,8 +106,8 @@ function release(deps: ReconcileDependencies, id: ThreadId): void {
 
 /**
  * Reconciles `id`, and ends in a defined state whatever throws: a turn still running is failed
- * with its queue kept and held for the person, never left working. Writing that failure is tried
- * again a bounded number of times (a full disk can clear); only then is the error the caller's.
+ * with its queue kept and held for the person, never left working. When even that can't be
+ * written (a full disk), the error says so: `CursorReconciles` keeps trying to write it.
  */
 export async function reconcileCursorRestart(
   deps: ReconcileDependencies,
@@ -116,27 +116,46 @@ export async function reconcileCursorRestart(
   try {
     await reconcileOnce(deps, id);
   } catch (error) {
-    const { repo, clock } = deps;
-    for (const wait of [0, ...(deps.retryMs ?? busyRetryMs)]) {
-      if (wait) await new Promise<void>((resolve) => clock.setTimer(resolve, wait));
-      try {
-        const state = repo.requireState(id);
-        if (state.agents[state.rootKey ?? ""]?.activeRun)
-          repo.store.atomic(() =>
-            repo.apply(id, restartFailure(repo, id, clock.now()), clock.now()),
-          );
-        repo.store.atomic(() => {
-          const command = repo.recovery.attemptedCommand(id);
-          const intent = command ? repo.pending.uncertainSend(id, command) : undefined;
-          if (intent) unconfirmed(repo, id, intent.id, clock.now());
-        });
-        break;
-      } catch {
-        // Tried again after the next wait.
-      }
+    try {
+      endFailed(deps, id);
+    } catch (unwritten) {
+      throw new FailureUnwritten(error, unwritten);
     }
     throw error;
   }
+}
+
+/** A reconcile threw, and writing its failed turn threw too. */
+export class FailureUnwritten extends Error {
+  /** What the reconcile threw first. */
+  readonly reconcileError: unknown;
+  constructor(error: unknown, unwritten: unknown) {
+    // Caused by the write's failure, so a full disk is heard as one (ADR 0176).
+    super("A Cursor reconcile failed and its failed turn could not be written yet", {
+      cause: unwritten,
+    });
+    this.reconcileError = error;
+  }
+}
+
+/** The turn a reconcile couldn't finish, failed with its queue held, and its send in doubt said. */
+function endFailed(deps: ReconcileDependencies, id: ThreadId): void {
+  const { repo, clock } = deps;
+  const state = repo.requireState(id);
+  if (state.agents[state.rootKey ?? ""]?.activeRun)
+    repo.store.atomic(() => repo.apply(id, restartFailure(repo, id, clock.now()), clock.now()));
+  repo.store.atomic(() => {
+    const command = repo.recovery.attemptedCommand(id);
+    const intent = command ? repo.pending.uncertainSend(id, command) : undefined;
+    if (intent) unconfirmed(repo, id, intent.id, clock.now());
+  });
+}
+
+/** The waits between tries to write a failed turn: the busy-store waits, then doubling to 60 s. */
+function* failureWaits(first: readonly number[]): Generator<number> {
+  let last = 100;
+  for (const wait of first) yield (last = wait);
+  for (;;) yield (last = Math.min(60_000, last * 2));
 }
 
 async function reconcileOnce(deps: ReconcileDependencies, id: ThreadId): Promise<void> {
@@ -201,6 +220,8 @@ export class CursorReconciles {
   private running = new Set<Promise<void>>();
   /** Threads marked or reconciling: no other work of theirs starts until it ends. */
   private held = new Set<ThreadId>();
+  private pending = new Set<() => void>();
+  private closed = false;
   private report: (error: unknown) => void;
   private dependencies: () => ReconcileDependencies;
   constructor(report: (error: unknown) => void, dependencies: () => ReconcileDependencies) {
@@ -223,17 +244,58 @@ export class CursorReconciles {
     const ids = [...this.marked];
     this.marked.clear();
     for (const id of ids) {
+      let unwritten = false;
       // Never inside the caller's own frame: startup may still be building the engine.
       const running = Promise.resolve()
         .then(() => reconcileCursorRestart(this.dependencies(), id))
-        .catch((error: unknown) => this.report(error))
+        .catch((error: unknown) => {
+          this.report(error);
+          unwritten = error instanceof FailureUnwritten;
+        })
         .finally(() => {
           this.running.delete(running);
-          this.held.delete(id);
-          this.dependencies().wake(id);
+          // The failed turn isn't written yet: the thread stays held while that is retried.
+          if (unwritten) this.retry(id, failureWaits(this.dependencies().retryMs ?? busyRetryMs));
+          else this.release(id);
         });
       this.running.add(running);
     }
+  }
+  /**
+   * Tries again to write `id`'s failed turn, on a capped backoff, for as long as the daemon runs:
+   * a full disk heals (ADR 0176), and the thread is never left working until a restart. Its
+   * lanes stay shut and its queue held meanwhile; a flush doesn't wait on it.
+   */
+  private retry(id: ThreadId, waits: Generator<number>): void {
+    const deps = this.dependencies();
+    const wait = waits.next().value ?? 60_000;
+    const cancel = deps.clock.setTimer(() => {
+      this.pending.delete(cancel);
+      if (this.closed) return;
+      try {
+        endFailed(this.dependencies(), id);
+      } catch {
+        this.retry(id, waits);
+        return;
+      }
+      this.release(id);
+    }, wait);
+    this.pending.add(cancel);
+  }
+  private release(id: ThreadId): void {
+    this.held.delete(id);
+    try {
+      this.dependencies().wake(id);
+    } catch (error) {
+      // Its next command or the next frame wakes it again.
+      this.report(error);
+    }
+  }
+  /** Stops the retries: the engine is closing. */
+  close(): void {
+    this.closed = true;
+    for (const cancel of this.pending) cancel();
+    this.pending.clear();
   }
   /** Resolves once every reconcile started so far has finished. */
   async settled(): Promise<void> {

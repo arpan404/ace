@@ -473,7 +473,12 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       return engineOptions.onSessionOpenFailure?.(thread, details, route);
     },
     onError:
-      engineOptions.onError ?? ((error) => log.log("error", "Engine failure", logError(error))),
+      engineOptions.onError ??
+      ((error) => {
+        // A full disk anywhere in the engine enters the daemon's storage hold (ADR 0176).
+        context.diskFull?.observe(error);
+        log.log("error", "Engine failure", logError(error));
+      }),
     onSettleCleanupFailure:
       engineOptions.onSettleCleanupFailure ??
       ((thread, error) =>
