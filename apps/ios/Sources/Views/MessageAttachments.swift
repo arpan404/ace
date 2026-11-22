@@ -195,8 +195,8 @@ struct AttachmentBytes: Decodable, Sendable {
 }
 
 /// Where a message's attachments are read from: a thread, because the message carries them, or
-/// Spade's store by hash (`spade.image`, whose thumbnail is the daemon's 512-pixel preview). Both
-/// answer in `AttachmentBytes`.
+/// Spade's store by hash (`spade.image`, whose thumbnail is the daemon's 512-pixel preview, and
+/// `spade.document` for a document). All answer in `AttachmentBytes`.
 enum MessageAttachmentSource: Equatable, Sendable {
     case thread(String)
     case spade
@@ -209,17 +209,23 @@ enum MessageAttachmentSource: Equatable, Sendable {
         }
     }
 
-    /// The request for one file: its `thumbnail` preview or the `original` itself.
-    func request(_ itemId: String?, _ ref: String, variant: String) -> [String: Any] {
+    /// The request for one file: its `thumbnail` preview or the `original` itself. `name` is the
+    /// file's, which a Spade document (ref `document:` and its hash) is read under.
+    func request(_ itemId: String?, _ ref: String, variant: String, name: String? = nil) -> [String: Any] {
         switch self {
         case let .thread(threadId):
             var payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "ref": ref, "variant": variant]
             if let itemId { payload["itemId"] = itemId }
             return payload
         case .spade:
+            if ref.hasPrefix(Self.spadeDocument) {
+                let named = name.flatMap { $0.isEmpty ? nil : $0 } ?? "Document"
+                return ["type": "spade.document", "sha256": String(ref.dropFirst(Self.spadeDocument.count)), "name": named]
+            }
             return ["type": "spade.image", "sha256": ref, "variant": variant]
         }
     }
+    private static let spadeDocument = "document:"
 }
 
 /// Where a message's attachments open: an image in the full-screen viewer, any other file
@@ -303,7 +309,8 @@ struct MessageAttachmentRoutes: ViewModifier {
         Task {
             defer { opening = nil }
             do {
-                let reply = try await model.service(source.request(itemId, ref, variant: "original"), as: AttachmentBytes.self)
+                let reply = try await model.service(source.request(itemId, ref, variant: "original", name: line.name),
+                                                    as: AttachmentBytes.self)
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
                 preview = try Self.keep(data, named: reply.name)
             } catch {

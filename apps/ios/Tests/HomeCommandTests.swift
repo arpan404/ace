@@ -38,7 +38,15 @@ import Testing
         #expect(PlaceSheet.of(command: "tool:usage", machine: nil, serial: 1) == nil)
     }
 
-    @Test func historyAndArchivedPlacesOpenTheirPagesInSettingsSheet() {
+    @Test func aMachinesPageOpenedFromAnywhereSitsOnMachinesInsideSettings() {
+        // Pair again from the marketplace, wherever it was opened: Back goes Machines, then Settings.
+        let machine = PlaceSheet.page(.machine("studio"), id: 1)
+        #expect(machine.root == .settings)
+        #expect(machine.start == [.machines, .machine("studio")])
+        #expect(PlaceSheet.page(.appearance, id: 2).start == [.appearance])
+    }
+
+        @Test func historyAndArchivedPlacesOpenTheirPagesInSettingsSheet() {
         #expect(PlaceSheet.of(SearchPlace.history, machine: "studio", id: 1)?.root == .history)
         #expect(PlaceSheet.of(SearchPlace.archived, machine: "studio", id: 1)?.root == .archive)
     }

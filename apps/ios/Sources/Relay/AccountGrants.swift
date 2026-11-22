@@ -89,6 +89,8 @@ struct RelayRoute: Sendable {
     let relayURL: URL
     let hostId: String
     let grants: AccountGrants
+    /// The account session this route signs in as (`KeptScope.account`); nil while signed out.
+    var principal: String? = nil
 
     var isValid: Bool { clientURL != nil && NoiseFingerprint.isHostId(hostId) }
     var clientURL: URL? { clientURL(purpose: nil) }

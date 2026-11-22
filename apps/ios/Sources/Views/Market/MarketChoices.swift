@@ -46,6 +46,11 @@ struct MarketReviewState: Equatable {
     var choices = MarketChoices.none
     private(set) var refusal: MarketRefusal?
     private(set) var installing = false
+    /// The install under way is the person's Confirm it's you.
+    private var confirming = false
+    /// Confirm it's you was refused too: nothing more is sent from this review. Reading a review
+    /// again starts over.
+    private(set) var exhausted = false
     /// A page is being read: the only time the sheet shows loading rows under the review.
     private(set) var loadingMore = false
     /// The switches from a review that was dropped, kept for the one read in its place.
@@ -61,6 +66,7 @@ struct MarketReviewState: Equatable {
         choices = dropped?.carried(onto: fresh.choices) ?? fresh.choices
         dropped = nil
         refusal = nil
+        exhausted = false
         loadingMore = false
     }
 
@@ -112,8 +118,9 @@ struct MarketReviewState: Equatable {
         offsetY + containerHeight - insetBottom >= contentHeight - slack
     }
 
-    mutating func started() {
+    mutating func started(confirmed: Bool = false) {
         installing = true
+        confirming = confirmed
         refusal = nil
     }
 
@@ -121,6 +128,9 @@ struct MarketReviewState: Equatable {
     /// anything else keeps it, read as it was.
     mutating func refused(_ refusal: MarketRefusal) {
         installing = false
+        // The one retry was refused for standing again (the bridge offers no way after it).
+        if confirming, refusal.way == nil || refusal.asksForPerson { exhausted = true }
+        confirming = false
         loadingMore = false
         self.refusal = refusal
         guard refusal.way == .reread, review != nil else { return }
@@ -145,11 +155,16 @@ struct MarketReviewState: Equatable {
         return review.bot?.needs.first { $0.required && choices.needs[$0.key] != true }?.offSentence
     }
 
-    /// An install refused for the person's standing or a fresh sign-in, which this phone can't
-    /// prove yet, whatever its type: it says to install from the computer instead (until #2499).
-    var needsComputer: Bool { review != nil && refusal?.way == .confirm }
+    /// An install refused for the person's standing, whatever its type: Confirm it's you or Pair
+    /// again takes Install's place (`MarketConfirmPerson`).
+    var needsPerson: Bool { review != nil && refusal?.asksForPerson == true }
+    /// The market wants a person's grant, which only ace on the computer can get (ADR 0190 §6).
+    var needsComputer: Bool { review != nil && refusal?.code == "person_grant" }
 
-    var canInstall: Bool { review != nil && complete && seenEnd && stuck == nil && !installing && !needsComputer }
+    private var ready: Bool { review != nil && complete && seenEnd && stuck == nil && !installing }
+    var canInstall: Bool { ready && !needsPerson && !needsComputer && !exhausted }
+    /// Confirm it's you sends Install once more, confirmed.
+    var canConfirm: Bool { ready && refusal?.way == .confirm && !exhausted }
 
     /// Each switch's binding, read and written by key.
     func need(_ key: String) -> Bool { choices.needs[key] == true }

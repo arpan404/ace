@@ -138,6 +138,7 @@ for (const operation of [
   "storage.dismissed.load",
   "storage.dismissed.save",
   "inbox.checkpoint",
+  "spade.checkpoint",
   "snapshot.get",
   "snapshot.set",
   "snapshot.thread.get",

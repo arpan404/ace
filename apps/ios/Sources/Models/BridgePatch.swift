@@ -405,6 +405,8 @@ enum BridgePatch: Decodable, Sendable {
     /// The Chats tab's sections, in the inbox layout's shape (`chats.sections`).
     case chatSections(InboxLayout)
     case problem(ProblemNotice?)
+    /// Whether a paired machine's socket proved the person's standing (`bridge/paired-standing.ts`).
+    case standing(PairedStanding)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
     /// The chats this machine's runtime keeps on the phone (`bridge/chat-cache.ts`).
@@ -547,6 +549,7 @@ enum BridgePatch: Decodable, Sendable {
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "chats.sections": self = .chatSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
+        case "standing": self = .standing(try box.decode(PairedStanding.self, forKey: .state))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
         case "cache.usage": self = .cacheUsage(try CacheUsage(from: decoder))
@@ -593,6 +596,11 @@ enum BridgePatch: Decodable, Sendable {
         }
     }
 }
+
+/// Whether this phone holds the person's standing on a paired machine (ADR 0190 §7): `missing`
+/// when it has no key for the machine (paired before it named one) or the machine refused it
+/// (paired from an ordinary link). Installing bots and plugins there needs it.
+enum PairedStanding: String, Decodable, Sendable { case proven, missing }
 
 /// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
 /// own id, the paths it serves and its own name (absent from older daemons and bridges).

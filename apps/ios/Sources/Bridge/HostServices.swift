@@ -20,14 +20,29 @@ struct HostServices: Sendable {
     var saved = SavedFiles()
     /// The phone's loopback listeners for device tabs (ADR 0194), shared by every runtime.
     var loopback: LoopbackHub = .shared
+    /// The keys paired machines' sockets prove the person's standing with (ADR 0190 §7).
+    var standingKeys = StandingKeys()
+    /// The one paired machine and device this runtime's sockets prove standing for; nil: none.
+    var standingSigner: StandingSigner?
 
     /// A machine's connection may read its own device token and nothing else.
     static func connection(_ target: ConnectionTarget) -> HostServices {
         var services = HostServices()
-        if let key = target.secretKey { services.secretAccess = .read(key) }
+        if let key = target.secretKey {
+            services.secretAccess = .read(key)
+            // A paired machine's own key, for its own device's proofs only.
+            services.standingSigner = StandingSigner(hostId: target.hostId, deviceId: target.deviceId)
+        }
         // Saved downloads are this machine's: another machine's same ids are other files.
         services.saved.scope = target.hostId
         return services
+    }
+
+    /// A new daemon socket's proof of the person's standing (ADR 0190 §7), for a paired machine's
+    /// runtime only. `binding`: the socket's channel binding, nil on a pinned direct socket.
+    func standingProof(binding: String?) -> PairedStandingProof? {
+        standingSigner.map { PairedStandingProof(signer: $0, keys: standingKeys, binding: binding,
+                                                 requestId: "standing-\(UUID().uuidString)") }
     }
 
     /// Secret, directory, attachment, download and result operations. Returns nil for operations owned elsewhere.

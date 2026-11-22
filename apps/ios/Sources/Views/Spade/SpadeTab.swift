@@ -1,49 +1,57 @@
 import SwiftUI
 
-/// The Spade tab (docs/design/spade.md §2): the bots of a machine that shows Spade, Spade itself
-/// first, then whoever needs the person, then working, failed, finished and the rest, each with
-/// its face, its name and one line. A bot opens its conversation. With several machines showing
-/// Spade, the title's menu picks whose bots these are. Every word is the bridge's.
+/// The Spade tab (docs/design/spade.md §2): one list of the bots on every machine of the space
+/// shown that shows Spade (`MachineInbox.spadeRoster`), Spade itself once, from the machine the
+/// fleet chose to host it, then whoever needs the person, then working, failed, finished and the
+/// rest, each with its face, its name, one line and, with several machines, the machine it runs
+/// on. A bot opens its conversation on its own machine. Every word about a bot is its bridge's.
 struct SpadeTab: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var machine: String?
     @State private var path: [SpadeRoute] = []
     @State private var watch = SpadeWatch()
-    @State private var making = false
-    @State private var settings = false
+    /// The machine New bot makes its bot on, once chosen; asking shows the choice first.
+    @State private var making: SpadeMachineChoice?
+    @State private var asking = false
+    /// A Settings page asked for from New bot's sheet (Pair again names the sheet's own
+    /// machine), opened once that sheet has closed.
+    @State private var settingsAfterMaking: SettingsRoute?
+    @Environment(\.openSettingsPage) private var openSettingsPage
+    @State private var settings: SpadeMachineChoice?
 
-    private var session: MachineSession? {
-        let shown = inbox.spadeSessions
-        return shown.first { $0.hostId == machine } ?? shown.first
+    private var machines: [MachineSession] { inbox.spadeSessions }
+    private var hosts: [MachineSession] { inbox.spadeHosts }
+    /// Where Settings opens: the machine Spade shows from, else the first that answers.
+    private var settingsMachine: String? {
+        inbox.spadeRoster.first { $0.bot.main }?.machine ?? hosts.first?.hostId ?? machines.first?.hostId
     }
 
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if let session { SpadeList(client: session.client) } else { Color.clear }
+                if machines.isEmpty { Color.clear } else { SpadeList(inbox: inbox) }
             }
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar {
-                if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarLeading) { machineMenu } }
-                if session?.client.spade.shown == true {
+                if !machines.isEmpty {
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { settings = true } label: { AceIcon(.gear) }
+                        Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: { AceIcon(.gear) }
                             .accessibilityLabel("Spade settings")
                             .accessibilityIdentifier("spade.openSettings")
-                        Button { making = true } label: { AceIcon(.notePencil) }
+                        Button(action: newBot) { AceIcon(.notePencil) }
                             .accessibilityLabel("New bot")
                             .accessibilityIdentifier("spade.newBot")
-                            .disabled(session?.client.spade.line?.ready != true)
+                            .disabled(hosts.isEmpty)
                     }
                 }
             }
             .navigationDestination(for: SpadeRoute.self) { route in
-                if let client = session?.client {
+                if let client = inbox.client(route.machine) {
                     SpadeConversationView(client: client, conversation: route.conversation, group: route.group) {
-                        path.append($0)
+                        // A worker's chat opened from this one is on the same machine.
+                        path.append(SpadeRoute(conversation: $0.conversation, group: $0.group, machine: route.machine))
                     }
                     // A conversation has no tab bar, as Projects' pages: its composer takes the foot.
                     .toolbarVisibility(.hidden, for: .tabBar)
@@ -51,26 +59,39 @@ struct SpadeTab: View {
             }
         }
         .task(id: watchKey) {
-            // Only the machine on screen reads its bots, only while the tab shows, and none once
-            // the tab goes: the task ends with the view, and its hold stops the machine it named.
-            let hold = watch.hold(session?.client, on: chosen, among: inbox.sessions.map(\.client))
+            // Every machine in the list reads its bots, only while the tab shows, and none once
+            // the tab goes: the task ends with the view, and its hold stops the machines it named.
+            let hold = watch.hold(machines.map(\.client), on: chosen, among: inbox.sessions.map(\.client))
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
             watch.release(hold)
         }
-        .sheet(isPresented: $making) {
-            if let client = session?.client {
-                SpadeNewBotSheet(client: client, machineName: client.hostId.map { inbox.name($0) } ?? "your machine") { conversation in
-                    path = [SpadeRoute(conversation: conversation, group: nil)]
-                }
+        .confirmationDialog("New bot on", isPresented: $asking, titleVisibility: .visible) {
+            ForEach(hosts) { host in
+                Button(inbox.name(host.hostId)) { making = SpadeMachineChoice(id: host.hostId) }
+                    .accessibilityIdentifier("spade.newBot.machine.\(host.hostId)")
             }
         }
-        .sheet(isPresented: $settings) {
-            if let client = session?.client {
+        .sheet(item: $making, onDismiss: {
+            guard let route = settingsAfterMaking else { return }
+            settingsAfterMaking = nil
+            openSettingsPage(route)
+        }) { choice in
+            // The chosen machine's client: its refusals, and Pair again, are that machine's.
+            if let client = inbox.client(choice.id) {
+                SpadeNewBotSheet(client: client, machineName: inbox.name(choice.id)) { conversation in
+                    path = [SpadeRoute(conversation: conversation, group: nil, machine: choice.id)]
+                }
+                // Settings can't show over this sheet: it closes, then the page opens.
+                .environment(\.openSettingsPage) { route in settingsAfterMaking = route; making = nil }
+            }
+        }
+        .sheet(item: $settings) { choice in
+            if let client = inbox.client(choice.id) {
                 NavigationStack {
                     SpadeSettingsView(client: client)
                         .toolbar {
                             ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") { settings = false }.accessibilityIdentifier("spade.settings.done")
+                                Button("Done") { settings = nil }.accessibilityIdentifier("spade.settings.done")
                             }
                         }
                 }
@@ -81,79 +102,105 @@ struct SpadeTab: View {
         // A phone's tab bar shows over the bots and steps away for a conversation.
         .modifier(HomeTabBar(hidden: sizeClass == .regular || !path.isEmpty, animated: sizeClass != .regular,
                              relayout: "spade \(path.count)"))
-        .onChange(of: session?.hostId) { path = [] }
+        // Another space, or a machine that stops showing Spade: its conversations close.
+        .onChange(of: machineKeys) { _, keys in path.removeAll { !keys.contains($0.machine) } }
     }
 
-    private var watchKey: String { "\(session?.hostId ?? "")|\(chosen)" }
+    private var machineKeys: [String] { machines.map(\.hostId) }
+    private var watchKey: String { "\(machineKeys.joined(separator: ","))|\(chosen)" }
 
-    private var machineMenu: some View {
-        Menu {
-            Picker("Machine", selection: Binding(get: { session?.hostId }, set: { machine = $0 })) {
-                ForEach(inbox.spadeSessions) { shown in Text(inbox.name(shown.hostId)).tag(Optional(shown.hostId)) }
-            }
-        } label: {
-            Image(ace: .desktop)
-        }
-        .accessibilityLabel("Machine")
-        .accessibilityIdentifier("spade.machine")
+    /// New bot runs where Spade answers: on the only such machine, else on the one the person picks.
+    private func newBot() {
+        if hosts.count > 1 { asking = true } else { making = hosts.first.map { SpadeMachineChoice(id: $0.hostId) } }
     }
 }
 
-/// Where the Spade tab's stack goes: a bot's conversation, or a group's (ADR 0132).
+/// A machine a sheet opens for, by its inbox host id.
+private struct SpadeMachineChoice: Identifiable {
+    let id: String
+}
+
+/// Where the Spade tab's stack goes: a bot's conversation, or a group's (ADR 0132), on the
+/// machine it runs on (its inbox host id). A route made inside a conversation names no machine;
+/// the tab gives it the conversation's own.
 struct SpadeRoute: Hashable {
     let conversation: String
     let group: String?
+    var machine = ""
 }
 
-/// One machine's bots, or what Spade says while it can't list them.
+/// The bots of every machine that shows Spade, or what each Spade says while it can't list them.
 private struct SpadeList: View {
-    let client: ClientModel
-    @State private var turning = false
-    @State private var problem: String?
+    let inbox: MachineInbox
 
-    private var spade: SpadeModel { client.spade }
+    private var entries: [SpadeRoster.Entry] { inbox.spadeRoster }
+    private var machines: [MachineSession] { inbox.spadeSessions }
 
     var body: some View {
         List { rows }
             .listStyle(.plain)
-            .scrollsToTop(on: .spade, first: spade.bots?.first.map { AnyHashable($0.id) })
-            .refreshable { client.spadeRefresh() }
+            .scrollsToTop(on: .spade, first: entries.first.map { AnyHashable($0.id) })
+            .refreshable { for machine in machines { machine.client.spadeRefresh() } }
             .accessibilityIdentifier("spade.list")
     }
 
-    /// Why Spade isn't running, then its bots, the failure or skeleton rows while they load.
+    /// Why a Spade isn't running, then the bots, a failure or skeleton rows while they load.
     @ViewBuilder private var rows: some View {
-        if let line = spade.line, !line.ready {
-            Section { placeLine(line) }
+        ForEach(machines) { machine in
+            if let line = machine.client.spade.line, !line.ready {
+                Section { SpadePlaceLine(client: machine.client, line: line, machine: machineName(machine.hostId)) }
+            }
         }
-        if let bots = spade.bots {
+        ForEach(machines.filter { $0.client.spade.listFailed && $0.client.spade.bots != nil }) { machine in
             // The groups read but the bots didn't: the groups show, and the bots can be read again.
-            if spade.listFailed {
-                ProblemRow("Couldn't read Spade's bots", id: "spade.listProblem") { client.spadeRefresh() }
+            ProblemRow(problem(machine.hostId), id: "spade.listProblem") { machine.client.spadeRefresh() }
+        }
+        if !entries.isEmpty {
+            ForEach(entries) { entry in
+                NavigationLink(value: SpadeRoute(conversation: entry.bot.conversation, group: entry.bot.group, machine: entry.machine)) {
+                    SpadeBotRow(bot: entry.bot, machine: machineName(entry.machine))
+                }
+                .accessibilityIdentifier(entry.bot.group.map { "spade.group.\($0)" } ?? "spade.bot.\(entry.bot.id)")
             }
-            ForEach(bots) { bot in
-                NavigationLink(value: SpadeRoute(conversation: bot.conversation, group: bot.group)) { SpadeBotRow(bot: bot) }
-                    .accessibilityIdentifier(bot.group.map { "spade.group.\($0)" } ?? "spade.bot.\(bot.id)")
-            }
-        } else if spade.listFailed {
-            EmptyState(icon: nil, title: "Couldn't read Spade's bots", failed: true) {
-                Button("Try again") { client.spadeRefresh() }
+        } else if let failed = machines.first(where: { $0.client.spade.listFailed && $0.client.spade.bots == nil }),
+                  !machines.contains(where: { $0.client.spade.bots == nil && !$0.client.spade.listFailed && $0.client.spade.line?.ready == true }) {
+            EmptyState(icon: nil, title: problem(failed.hostId), failed: true) {
+                Button("Try again") { for machine in machines { machine.client.spadeRefresh() } }
             }
             .listRowSeparator(.hidden)
-        } else if spade.line?.ready == true {
-            SkeletonRows(count: 4, retry: { client.spadeRefresh() })
+        } else if machines.contains(where: { $0.client.spade.bots == nil && $0.client.spade.line?.ready == true }) {
+            SkeletonRows(count: 4, retry: { for machine in machines { machine.client.spadeRefresh() } })
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
         }
     }
 
-    /// Spade isn't running here: why, in its words, and Turn on where the setting is off.
-    private func placeLine(_ line: SpadeModel.Line) -> some View {
+    /// A machine's name, only while there is more than one to tell apart.
+    private func machineName(_ hostId: String) -> String? { machines.count > 1 ? inbox.name(hostId) : nil }
+
+    private func problem(_ hostId: String) -> String {
+        machineName(hostId).map { "Couldn't read Spade's bots on \($0)" } ?? "Couldn't read Spade's bots"
+    }
+}
+
+/// A machine's Spade isn't running: why, in its words, the machine with several, and Turn on
+/// where the setting is off.
+private struct SpadePlaceLine: View {
+    let client: ClientModel
+    let line: SpadeModel.Line
+    let machine: String?
+    @State private var turning = false
+    @State private var problem: String?
+
+    var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             Text(line.sentence)
                 .aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(AceDesign.Ink.muted)
                 .accessibilityIdentifier("spade.line")
+            if let machine {
+                Text(machine).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+            }
             if let problem {
                 Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
             }
@@ -177,6 +224,8 @@ private struct SpadeList: View {
 /// A bot's row: its face with its state's dot, its name, and one line in its state's ink.
 struct SpadeBotRow: View {
     let bot: SpadeModel.Bot
+    /// The machine it runs on, while the list holds more than one.
+    var machine: String? = nil
     var body: some View {
         HStack(spacing: AceDesign.Space.row) {
             SpadeBotFace(bot: bot)
@@ -201,6 +250,13 @@ struct SpadeBotRow: View {
                     .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(lineInk)
                     .lineLimit(1)
+                if let machine {
+                    Text(machine)
+                        .aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("spade.bot.machine")
+                }
             }
         }
         .frame(minHeight: AceDesign.Size.rowThread)

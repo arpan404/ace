@@ -31,6 +31,8 @@ export interface FakeSpadeAgent {
     text: string;
     at: number;
     from_agent: { id: string; name: string } | null;
+    /** The event it is, as Spade's roster says, for the seen cursor. */
+    seq?: number;
   } | null;
   /** A move to another machine while one runs, or one that failed (ADR 0187). */
   move?: Json | null;

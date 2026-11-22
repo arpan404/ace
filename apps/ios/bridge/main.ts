@@ -18,7 +18,7 @@ import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
-import { nativeTransport, socketEvent } from "./socket.ts";
+import { nativeTransport, socketEvent, type PairedStanding } from "./socket.ts";
 import {
   accountCredential,
   accountGate,
@@ -76,6 +76,7 @@ import { DeviceTabControl, DeviceTabs } from "./device-tabs.ts";
 import { nativeLoopbackHost } from "./device-host.ts";
 import { openPhoneTunnel } from "./machine-tunnel-open.ts";
 import { benchLoopback, startLoopbackBench } from "./tunnel-bench.ts";
+import { EarlyActions } from "./early-actions.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -94,11 +95,26 @@ const Config = z.object({
   account: z.strictObject({ link: PairingLinkProof.optional().catch(undefined) }).optional(),
   /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
   inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
+  /** Whose kept Spade state this connection may see and keep (`KeptScope.swift`). */
+  keptScope: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional()
+    .catch(undefined),
 });
 const Action = z.discriminatedUnion("type", [
-  /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
-  z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
-  z.object({ type: z.literal("back") }),
+  /**
+   * `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`).
+   * `epoch`: native's navigation generation for it, which the visit takes, so an open or back
+   * lost on the way never leaves every later patch under a generation native isn't drawing.
+   */
+  z.object({
+    type: z.literal("open"),
+    threadId: z.string().min(1),
+    warm: z.boolean().optional(),
+    epoch: z.number().int().min(0).optional(),
+  }),
+  z.object({ type: z.literal("back"), epoch: z.number().int().min(0).optional() }),
   /** The open thread's first screen is on show, under native's navigation generation `epoch`. */
   z.object({
     type: z.literal("thread.shown"),
@@ -154,6 +170,8 @@ let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
+/** What this paired machine last said of the phone's proof of standing on its socket. */
+let pairedStanding: PairedStanding | undefined;
 let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
@@ -217,6 +235,8 @@ function deviceAgent(threadId: string, agentId: string) {
   const agent = threadId === visit.threadId ? visit.store?.agent(agentId) : undefined;
   return agent && { name: agentName(agent), provider: agent.native?.provider ?? "" };
 }
+/** Actions native sent before `start` made the client (`early-actions.ts`). */
+const beforeStart = new EarlyActions();
 function error(): void {
   pump.put("error", () => ({
     type: "error",
@@ -233,6 +253,11 @@ async function start(json: string): Promise<void> {
     build: "ios-turn-steps-v1",
   });
   const paired = config.paired;
+  pairedStanding = undefined;
+  const standing = (state: PairedStanding) => {
+    pairedStanding = state;
+    pump.put("standing", () => ({ type: "standing", state }));
+  };
   const account = config.account ? accountGate(() => call("credential")) : undefined;
   gate = account;
   const credential = paired
@@ -270,7 +295,10 @@ async function start(json: string): Promise<void> {
     // A thread paints from one screenful. The rest of its window is asked for once native has
     // drawn that screenful (`thread.shown`), so the window never replaces it before it shows.
     openTail: { ...screenTail, shown: (threadId) => visit.firstScreen(threadId) },
-    transport: () => nativeTransport(trust, early),
+    // A paired machine's socket proves the person's standing natively (ADR 0190 §7); the
+    // script hears only whether the machine took it. An account machine's standing is the
+    // account route's (§3), not this one.
+    transport: () => nativeTransport(trust, early, paired ? standing : undefined),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
     // Always a newly fetched grant: the next refresh is timed from its whole lifetime.
@@ -365,6 +393,11 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
     id: () => host.uuid(),
     later: (delay, callback) => scheduler.set(delay, callback),
+    // Opened conversations' events, so the next open shows at once and reads only the tail.
+    ...(snapshots ? { keep: snapshots } : {}),
+    ...(config.keptScope ? { scope: config.keptScope } : {}),
+    // The Spade tab as the next launch draws it first, before this runtime starts.
+    checkpoint: (kept) => void call("spade.checkpoint", null, kept).catch(() => {}),
   });
   spade.start();
 
@@ -511,6 +544,7 @@ async function start(json: string): Promise<void> {
     new HostCare(client, admission),
     () => host.now(),
     automations,
+    () => pairedStanding,
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   if (suggest) services.catalog = new CatalogPage(suggest.catalogs);
@@ -561,11 +595,22 @@ async function start(json: string): Promise<void> {
   browser.useMedia(media.route, media.deliver);
   screen.useMedia(media.route, media.deliver);
   devices.useMedia(media.route, media.deliver);
+  // What native sent while the client didn't exist, in order, now that it does.
+  for (const held of beforeStart.take()) handle(held);
   await client.start();
 }
 function action(json: string): void {
   try {
     const raw: unknown = JSON.parse(json);
+    // Before the client exists (the runtime still booting) actions wait for it, never alert.
+    if (!client && beforeStart.hold(raw)) return;
+    handle(raw);
+  } catch {
+    error();
+  }
+}
+function handle(raw: unknown): void {
+  try {
     const deviceControl = NativeDeviceControl.safeParse(raw);
     if (deviceControl.success) {
       devices?.handle(deviceControl.data);
@@ -677,10 +722,10 @@ function action(json: string): void {
     }
     switch (value.type) {
       case "open":
-        visit.open(client, value.threadId, value.warm ?? false);
+        visit.open(client, value.threadId, value.warm ?? false, undefined, value.epoch);
         break;
       case "back":
-        visit.back();
+        visit.back(value.epoch);
         break;
       case "thread.shown":
         visit.shown(value.threadId, value.epoch);

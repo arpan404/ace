@@ -2,23 +2,28 @@ import Foundation
 import Testing
 @testable import Ace
 
-/// The Spade tab's watch: only the machine on screen reads its bots, and none once the tab goes.
+/// The Spade tab's watch: every machine in its list reads its bots while the tab shows, the
+/// rest stop, and none read once the tab goes.
 @Suite @MainActor struct SpadeWatchTests {
-    @Test func theShownMachineReadsItsBotsAndTheOthersStop() async throws {
+    @Test func everyListedMachineReadsItsBotsAndOneThatLeavesTheListStops() async throws {
         let (home, homeSession) = try await connected("home")
         let (work, workSession) = try await connected("work")
+        let (spare, spareSession) = try await connected("spare")
         let watch = SpadeWatch()
-        _ = watch.hold(home, on: true, among: [home, work])
-        _ = watch.hold(work, on: true, among: [home, work])
+        _ = watch.hold([home, work], on: true, among: [home, work, spare])
+        _ = watch.hold([work], on: true, among: [home, work, spare])
         #expect(homeSession.watches == [true, false])
         #expect(workSession.watches == [true])
+        #expect(spareSession.watches == [])
     }
-    @Test func theWatchedMachineStopsReadingWhenTheTabGoes() async throws {
+    @Test func theWatchedMachinesStopReadingWhenTheTabGoes() async throws {
         let (home, session) = try await connected("home")
+        let (work, workSession) = try await connected("work")
         let watch = SpadeWatch()
-        let hold = watch.hold(home, on: true, among: [home])
+        let hold = watch.hold([home, work], on: true, among: [home, work])
         watch.release(hold)
         #expect(session.watches == [true, false])
+        #expect(workSession.watches == [true, false])
         // Spade back on with Threads showing: a new runtime isn't told to read the bots again.
         home.spadeResume()
         #expect(session.watches == [true, false])
@@ -26,15 +31,15 @@ import Testing
     @Test func aMachineThatStopsShowingSpadeStopsReading() async throws {
         let (home, session) = try await connected("home")
         let watch = SpadeWatch()
-        _ = watch.hold(home, on: true, among: [home])
-        _ = watch.hold(nil, on: true, among: [])
+        _ = watch.hold([home], on: true, among: [home])
+        _ = watch.hold([], on: true, among: [])
         #expect(session.watches == [true, false])
     }
     @Test func anEarlierHoldEndingLateLeavesTheNewerWatchReading() async throws {
         let (home, session) = try await connected("home")
         let watch = SpadeWatch()
-        let hidden = watch.hold(home, on: false, among: [home])
-        _ = watch.hold(home, on: true, among: [home])
+        let hidden = watch.hold([home], on: false, among: [home])
+        _ = watch.hold([home], on: true, among: [home])
         watch.release(hidden)
         #expect(session.watches == [true])
     }
