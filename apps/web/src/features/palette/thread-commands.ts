@@ -32,19 +32,27 @@ import { useLayout } from "@/lib/layout.tsx";
 import { keymap } from "@/lib/keymap.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useDebouncedValue, searchSettleMs } from "@/lib/debounced.ts";
-import { useIsChat, useIsChatThread, useProjectDirectory, useProjectName } from "@/lib/projects.ts";
+import {
+  useIsChat,
+  useIsChatThread,
+  useProjectDirectory,
+  useProjectName,
+  type ProjectDirectory,
+} from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useTransferOpener } from "@/lib/transfer-opener.ts";
 import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { machineListId, machineRow, useMachineEntries } from "@/lib/machine-threads.ts";
-import { useMachines, type Machine } from "@/lib/machines.ts";
+import { useMachinesInSpace, usePrimaryInSpace, type Machine } from "@/lib/machines.ts";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 import { useMachineThreadHits } from "./machine-thread-hits.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
 const noEntries: ThreadListEntry[] = [];
 const noMachines: readonly Machine[] = [];
+const noProjects: ProjectDirectory["projects"] = [];
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   reader.ids.flatMap((id) => {
     const entry = reader.thread(id);
@@ -80,22 +88,29 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
   });
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
-  const entries = useSidebarAll(entriesOf, arrayEqual) ?? noEntries;
+  // Only the window's space's threads and projects (ADR 0206 §2.4): this machine's while it is
+  // in the space, and the space's other machines'.
+  const ownShown = usePrimaryInSpace();
+  const space = spaceKey(useSpaceScope());
+  const ownEntries = useSidebarAll(entriesOf, arrayEqual) ?? noEntries;
+  const entries = ownShown ? ownEntries : noEntries;
   const projectName = useProjectName();
   const isChat = useIsChat();
   const isChatThread = useIsChatThread();
-  const directory = useProjectDirectory();
+  const ownDirectory = useProjectDirectory();
+  const directoryProjects = ownShown ? ownDirectory.projects : noProjects;
   const settledQuery = useDebouncedValue(query.trim(), searchSettleMs);
   const own = useHostIdentity()?.hostId;
   const others = useMachineEntries(own);
-  const machines = useMachines();
+  const machines = useMachinesInSpace();
   const online = useMemo(() => {
     const reachable = machines.filter((machine) => !machine.primary && machine.client);
     return reachable.length ? reachable : noMachines;
   }, [machines]);
   const elsewhere = useMachineThreadHits(online, settledQuery);
   const found = useDaemonQuery({
-    queryKey: ["palette-threads", settledQuery],
+    queryKey: ["palette-threads", space, settledQuery],
+    enabled: ownShown,
     read: async (client, signal) => {
       const reply = await client.request(
         { type: "search.query", scope: "threads", text: settledQuery, limit: 100 },
@@ -104,6 +119,8 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       return reply.type === "search.results" ? reply.hits : [];
     },
   });
+
+  const ownFound = ownShown ? found.data : undefined;
 
   return useMemo(() => {
     const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
@@ -179,7 +196,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       ];
     });
     const seen = new Set(threads.map((thread) => thread.id));
-    for (const hit of found.data ?? []) {
+    for (const hit of ownFound ?? []) {
       const id = `thread-${hit.threadId}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -205,7 +222,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       seen.add(command.id);
       threads.push(command);
     }
-    const projects = directory.projects.map((project): PaletteCommand => ({
+    const projects = directoryProjects.map((project): PaletteCommand => ({
       id: `project-${project.id}`,
       label: projectName(project.id),
       kind: "project",
@@ -213,7 +230,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       tint: projectTint(project.id),
       run: run(() => openProject(project.id)),
     }));
-    const newIn = directory.projects.map((project): PaletteCommand => ({
+    const newIn = directoryProjects.map((project): PaletteCommand => ({
       id: `new-in-${project.id}`,
       label: `New thread in ${projectName(project.id)}`,
       icon: NotePencilIcon,
@@ -373,8 +390,8 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     others,
     online,
     elsewhere,
-    found.data,
-    directory.projects,
+    ownFound,
+    directoryProjects,
     state,
     now,
     current,

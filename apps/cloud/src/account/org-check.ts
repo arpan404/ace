@@ -4,7 +4,7 @@ import type { Principal } from "./principal.ts";
 import type { SessionStore } from "./sessions.ts";
 import type { AccountProvider } from "./workos.ts";
 import { OrgRefusedError } from "./workos.ts";
-import type { WorkosOrgs } from "./workos-orgs.ts";
+import type { WorkosMembership, WorkosOrgs } from "./workos-orgs.ts";
 import type { WorkosTokenVerifier } from "./workos-jwt.ts";
 import { TokenError } from "./workos-jwt.ts";
 
@@ -130,37 +130,59 @@ export function orgChecker(deps: {
     return { ok: true, role: token.role, sid: token.sid, seq };
   }
 
+  /** The mirror row WorkOS's description of a membership makes. */
+  const mirrored = (found: WorkosMembership) => ({
+    org: found.organization_id,
+    account: found.user_id,
+    membership: found.id,
+    role: found.role?.slug ?? "member",
+    status: found.status,
+    directoryManaged: found.directory_managed === true,
+    email: found.user?.email ?? undefined,
+    name: [found.user?.first_name, found.user?.last_name].filter(Boolean).join(" ") || undefined,
+    version: found.updated_at ?? new Date(now()).toISOString(),
+  });
+
   /** A membership WorkOS confirmed that the mirror hasn't seen yet (a join): mirror it now. */
   async function mirror(account: string, org: string) {
     try {
       const found = await deps.workos.findMembership(account, org);
       if (!found || found.user_id !== account || found.organization_id !== org) return;
-      await orgs.run([
-        orgs.upsertingMember(
-          {
-            org,
-            account,
-            membership: found.id,
-            role: found.role?.slug ?? "member",
-            status: found.status,
-            directoryManaged: found.directory_managed === true,
-            email: found.user?.email ?? undefined,
-            name:
-              [found.user?.first_name, found.user?.last_name].filter(Boolean).join(" ") ||
-              undefined,
-            version: found.updated_at ?? new Date(now()).toISOString(),
-          },
-          now(),
-        ),
-      ]);
+      await orgs.run([orgs.upsertingMember(mirrored(found), now())]);
     } catch {
       // The events cron mirrors it within a minute anyway.
     }
   }
 
+  /**
+   * Whether the account is an active member of `org` on WorkOS's own word, now (`ace login
+   * --org`, ADR 0206 §1.4): WorkOS must name this very membership as active, and the mirror row,
+   * once that answer is applied, must still be it, active. A lookup that fails, or a removal the
+   * mirror already holds, says no.
+   */
+  async function activeNow(account: string, org: string): Promise<boolean> {
+    let found;
+    try {
+      found = await deps.workos.findMembership(account, org);
+    } catch {
+      return false;
+    }
+    if (
+      !found ||
+      found.user_id !== account ||
+      found.organization_id !== org ||
+      found.status !== "active"
+    )
+      return false;
+    await orgs.run([orgs.upsertingMember(mirrored(found), now())]);
+    const row = await orgs.memberState(org, account);
+    return row?.status === "active" && row.membership === found.id;
+  }
+
   return {
     /** Mirrors the account's membership of `org` from WorkOS now, as a join just made it. */
     mirror,
+    activeNow,
     async check(principal: Principal, org: string): Promise<OrgCheck> {
       if (principal.kind !== "session") return { ok: false, error: "not_member" };
       const account = principal.account.id;

@@ -53,6 +53,7 @@ import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
 import { seedAppUpdate, seedMachineUpdate, seedStorage } from "./storage-scenario.ts";
 import { seedSkills } from "./skills-scenario.ts";
+import { seedMarket } from "./market-scenario.ts";
 import { ReadMarkScenario } from "./read-mark-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
@@ -317,6 +318,7 @@ const busyTimer =
 seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
 seedSkills(daemon, Date.now());
+seedMarket(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 seedChats(daemon);
 seedOutside(daemon, Date.now());

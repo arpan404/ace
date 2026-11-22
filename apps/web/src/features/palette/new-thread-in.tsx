@@ -17,7 +17,7 @@ import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { newThreadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
-import { useMachines, type Machine } from "@/lib/machines.ts";
+import { useMachinesInSpace, type Machine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { CommandShortcut } from "@/components/ui/command.tsx";
@@ -25,6 +25,7 @@ import { usePhone } from "@/lib/breakpoints.ts";
 import { useKeys } from "@/lib/keybindings.ts";
 import { describeKeys } from "@/lib/keymap.ts";
 import { NewThreadGroups, addProjectChoice } from "./new-thread-groups.tsx";
+import { useSpaceStartBlock } from "@/features/ace-account/index.ts";
 
 type Chosen = Pick<Machine, "id" | "name" | "primary">;
 
@@ -57,7 +58,9 @@ export function NewThreadIn(props: {
   /** Add project, on the machine whose projects are listed. */
   onAddProject(machine: Chosen): void;
 }) {
-  const machines = useMachines();
+  // Only the window's space's machines (ADR 0206 §2.4).
+  const machines = useMachinesInSpace();
+  const blocked = useSpaceStartBlock();
   const navigate = useNavigate();
   const { storage } = useLayout();
   const [chosen, setChosen] = useState<Chosen | undefined>(() => {
@@ -89,6 +92,9 @@ export function NewThreadIn(props: {
     [machines],
   );
 
+  // A space with no machine to start on starts nothing, and says why (ADR 0206 §2.4).
+  if (blocked)
+    return <Projects choices={noChoices} empty={blocked} chip={undefined} onBack={props.onBack} />;
   if (!machine) return null;
   if ((several || everywhere) && picking)
     return (
@@ -241,6 +247,8 @@ function MachineProjects(props: {
     />
   );
 }
+
+const noChoices: readonly CommandChoice[] = [];
 
 function Projects(props: {
   choices: readonly CommandChoice[];

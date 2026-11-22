@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useOrganizerState } from "@/features/organize/index.ts";
-import { useMachines } from "@/lib/machines.ts";
+import { useMachinesInSpace } from "@/lib/machines.ts";
 
 /** The devices a filter lets through: never empty, undefined for every device. */
 export type DeviceScope = readonly string[] | undefined;
@@ -23,9 +23,12 @@ export function toggled(scope: DeviceScope, device: string, known: readonly stri
   return next.length === 0 || known.every((id) => next.includes(id)) ? undefined : next;
 }
 
-/** The known devices a filter still names, while there is a choice of devices. */
+/**
+ * The known devices a filter still names, while there is a choice of devices in the window's
+ * space; another space's devices are never a choice (ADR 0206 §2.4).
+ */
 function useKnownDevices(devices: readonly string[] | undefined): DeviceScope {
-  const machines = useMachines();
+  const machines = useMachinesInSpace();
   return useMemo(() => {
     if (!devices || machines.length < 2) return undefined;
     const known = machines.filter((machine) => devices.includes(machine.id));

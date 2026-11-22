@@ -59,8 +59,9 @@ test("whitespace marks name each space and tab in the range", () => {
   ]);
 });
 
-test("a caret next to a bracket highlights the pair, and the word's other occurrences light up", async () => {
+test("in the focused editor, a caret next to a bracket highlights the pair, and the word's other occurrences light up", async () => {
   const ref = await openEditor("f(count)\ncount + 1");
+  act(() => ref.current?.focus());
   act(() => ref.current?.setSelections([caret(0, 4)]));
   await waitFor(() =>
     expect(document.querySelectorAll('[data-decoration="occurrence"]')).toHaveLength(2),

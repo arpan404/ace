@@ -45,13 +45,42 @@ export function cookie(request: Request, name: string): string | undefined {
 
 /** A JSON request body of at most `limit` bytes, or undefined. */
 export async function jsonBody(request: Request, limit: number): Promise<unknown> {
-  const declared = Number(request.headers.get("Content-Length") ?? "0");
-  if (declared > limit) return undefined;
-  const text = await request.text();
-  if (text.length > limit) return undefined;
+  const bytes = await boundedBody(request, limit);
+  if (!bytes) return undefined;
   try {
-    return JSON.parse(text);
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Reads at most `max` bytes of a request's body, or undefined once it has more: a body past the
+ * limit is never buffered whole, nor waited on to its end.
+ */
+export async function boundedBody(request: Request, max: number): Promise<Uint8Array | undefined> {
+  const declared = request.headers.get("Content-Length");
+  if (declared !== null && !(/^[0-9]{1,12}$/.test(declared) && Number(declared) <= max))
+    return undefined;
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > max) {
+      await reader.cancel().catch(() => {});
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
 }

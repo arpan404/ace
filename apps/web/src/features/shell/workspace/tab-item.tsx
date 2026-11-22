@@ -105,6 +105,9 @@ export function TabItem(props: {
             className={cn(
               "group/tab relative flex h-7 min-w-0 shrink-0 items-center [-webkit-app-region:no-drag]",
               props.width === undefined && !tab.pinned && "max-w-[220px] min-w-[88px] shrink",
+              // A sized tab keeps its width (a badge never re-lays the strip) until the strip is
+              // short of room: then it shrinks, its title ending in "…", before the strip scrolls.
+              props.width !== undefined && !tab.pinned && "min-w-[88px] shrink",
               props.entering && "fx-pop",
             )}
           />

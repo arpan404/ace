@@ -8,6 +8,8 @@ import { notificationTitle } from "@/lib/notification-title.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 import { isSnoozedToTime } from "@ace/ui-core";
 import type { ThreadListEntry } from "@ace/protocol";
+import { useOwnNoticeSpace } from "@/features/ace-account/index.ts";
+import { inSpaceWords } from "./notice-words.ts";
 
 /** The person snoozed the thread to a time: its agent's words wait with it. */
 const snoozedToTime = (thread: ThreadListEntry | undefined) =>
@@ -20,9 +22,10 @@ export function AgentNotifier() {
   const [prefs] = useNotificationPrefs();
   const toast = useToast();
   const navigate = useNavigate();
-  const latest = useRef({ prefs, toast, navigate });
+  const space = useOwnNoticeSpace();
+  const latest = useRef({ prefs, toast, navigate, space });
   useEffect(() => {
-    latest.current = { prefs, toast, navigate };
+    latest.current = { prefs, toast, navigate, space };
   });
   useEffect(() => {
     let stopped = false;
@@ -59,13 +62,17 @@ export function AgentNotifier() {
         return;
       seen.add(notice.id);
       if (seen.size > 1000) seen.delete(seen.values().next().value ?? "");
-      const open = () =>
+      // A notice from another space opens there (ADR 0206 §1.5).
+      const open = () => {
+        current.space.enter();
         void current.navigate({ to: "/t/$threadId", params: { threadId: notice.threadId } });
+      };
+      const body = inSpaceWords(current.space.label, notice.message);
       if (!documentVisibility.visible()) {
         if (current.prefs.browser)
           notifyInBrowser({
             title: notificationTitle(notice),
-            body: notice.message ?? "",
+            body: body ?? "",
             tag: notice.id,
             open,
           });
@@ -75,7 +82,7 @@ export function AgentNotifier() {
         id: notice.id,
         eventId: notice.id,
         title: notificationTitle(notice),
-        description: notice.message,
+        description: body,
         timeout: 10_000,
         actionProps: { children: "Open", onClick: open },
       });

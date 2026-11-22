@@ -81,6 +81,9 @@ const elsewhere = [
               </li>
             ))
           }
+          <li hidden>
+            <button class="ph-no-capture" type="button" data-analytics-choice aria-live="polite"></button>
+          </li>
         </ul>
       </nav>
     </div>
@@ -203,12 +206,23 @@ const elsewhere = [
     font-size: 13px;
   }
 
-  .bottom a {
+  .bottom a,
+  .bottom button {
+    min-block-size: 24px;
     font-size: 13px;
     color: var(--muted);
   }
 
-  .bottom a:hover {
+  .bottom button {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .bottom a:hover,
+  .bottom button:hover {
     color: var(--foreground);
   }
 

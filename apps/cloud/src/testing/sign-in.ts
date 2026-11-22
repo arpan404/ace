@@ -41,11 +41,13 @@ export async function signInThroughWorker(
    * (`machine`). `legacy`: a sign-in as older apps and daemons start one, with no body.
    */
   holder: "person" | "machine" | "legacy" = "person",
+  /** A sign-in into this organization, as `ace login --org` starts one. */
+  options: { org?: string } = {},
 ): Promise<AceAccountGrant> {
   const started = await fetch(`${http}/v1/account/login`, {
     method: "POST",
     headers: { Origin: allowedOrigin, "Content-Type": "application/json" },
-    ...(holder === "legacy" ? {} : { body: JSON.stringify({ holder }) }),
+    ...(holder === "legacy" ? {} : { body: JSON.stringify({ holder, ...options }) }),
   });
   if (started.status !== 201) throw new Error(`Sign-in start failed: ${started.status}`);
   const flow = AceLogin.parse(await started.json());

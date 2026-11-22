@@ -96,12 +96,12 @@ export function removeGroup(layout: EditorLayout, groupId: string): EditorLayout
   const parent = nodeAt(layout.root, parentAt);
   const index = at.at(-1) ?? 0;
   if (parent?.kind !== "split") return layout;
-  const sizes = normalSizes(parent.sizes, parent.children.length);
-  const removed = sizes[index] ?? 0;
-  // The neighbour before takes the room; the first child's goes to the one after it.
+  // Its neighbours share its room by their sizes, so the groups that stay keep their proportions
+  // (a drag that empties a group never leaves the others lopsided).
+  const kept = normalSizes(parent.sizes, parent.children.length).filter((_, i) => i !== index);
+  const nextSizes = normalSizes(kept, kept.length);
+  // Focus goes to the neighbour before; the first child's to the one after it.
   const heir = index > 0 ? index - 1 : 1;
-  const nextSizes = sizes.map((size, i) => (i === heir ? size + removed : size));
-  nextSizes.splice(index, 1);
   const children = parent.children.filter((_, i) => i !== index);
   const replaced = replaceAt(layout.root, parentAt, () => ({
     ...parent,

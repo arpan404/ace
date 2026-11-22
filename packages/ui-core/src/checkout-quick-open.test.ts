@@ -6,6 +6,7 @@ import {
   parseQuickOpen,
   putScoped,
   quickOpenRows,
+  rankPathMatches,
   rememberScoped,
   scopedList,
 } from "./checkout-quick-open.ts";
@@ -16,11 +17,60 @@ test("a typed path:line finds the file and keeps the line", () => {
   expect(parseQuickOpen(":12")).toEqual({ query: ":12", line: undefined });
 });
 
-test("with a query quick open offers the daemon's file matches in its order, never folders", () => {
+test("with a query quick open offers the daemon's file matches, never folders", () => {
   expect(quickOpenRows("app", ["src/app.ts", "src/", "app.md"], ["x.ts"], ["y.ts"])).toEqual([
     { path: "src/app.ts", group: "Files" },
     { path: "app.md", group: "Files" },
   ]);
+});
+
+test.each([
+  {
+    name: "the exact name beats names that only match letter by letter",
+    query: "workspace-tabs.ts",
+    paths: [
+      "shell/workspace/bottom-tabs.ts",
+      "shell/workspace/pull-request-tabs.ts",
+      "ui-core/workspace-tabs.ts",
+    ],
+    ranked: [
+      "ui-core/workspace-tabs.ts",
+      "shell/workspace/bottom-tabs.ts",
+      "shell/workspace/pull-request-tabs.ts",
+    ],
+  },
+  {
+    name: "a name that starts with the query beats one that holds it",
+    query: "box",
+    paths: ["relay/outbox.ts", "relay/deep/box.ts", "b/o/x.ts"],
+    ranked: ["relay/deep/box.ts", "relay/outbox.ts", "b/o/x.ts"],
+  },
+  {
+    name: "typed with a folder, the path's end counts as the name",
+    query: "relay/box.ts",
+    paths: ["relay/inbox.ts", "web/relay/box.ts"],
+    ranked: ["web/relay/box.ts", "relay/inbox.ts"],
+  },
+  {
+    name: "a name whose stem is the query counts as the name",
+    query: "tabs",
+    paths: ["b/tabs-list.ts", "a/tabs.ts"],
+    ranked: ["a/tabs.ts", "b/tabs-list.ts"],
+  },
+  {
+    name: "matches of the same kind keep the daemon's order",
+    query: "tab",
+    paths: ["c/tabs-bar.ts", "b/tabs-list.ts", "a/x-tab.ts"],
+    ranked: ["c/tabs-bar.ts", "b/tabs-list.ts", "a/x-tab.ts"],
+  },
+  {
+    name: "letter case and spaces in the query don't matter",
+    query: "Read Me",
+    paths: ["docs/readme-old.md", "README"],
+    ranked: ["README", "docs/readme-old.md"],
+  },
+])("ranking matches: $name", ({ query, paths, ranked }) => {
+  expect(rankPathMatches(query, paths)).toEqual(ranked);
 });
 
 test("with nothing typed quick open offers recent files, then changed files not already shown", () => {

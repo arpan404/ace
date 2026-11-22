@@ -66,11 +66,12 @@ export function WorkspacePanel(props: {
   // Beside the column or in the canvas it takes the sidebar's room on a crowded window; under
   // the column it needs none.
   const takesRoom = workspace.open && !bottom;
+  const full = layout.mode === "full";
   useEffect(() => {
     if (!takesRoom) return;
-    setRightPanel(() => actions.setOpen(false));
+    setRightPanel(() => actions.setOpen(false), full);
     return () => setRightPanel(undefined);
-  }, [takesRoom, setRightPanel, actions]);
+  }, [takesRoom, full, setRightPanel, actions]);
   const section = useRef<HTMLElement>(null);
   const restoreFocus = () => toggleOutside(section.current) ?? props.restoreFocus?.() ?? false;
   // Hiding the panel with focus in it hands focus to the composer; on a phone to the header's

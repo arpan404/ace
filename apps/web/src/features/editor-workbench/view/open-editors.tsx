@@ -9,6 +9,7 @@ import {
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
+import { FolderLabel } from "@/features/panels/files/middle-name.tsx";
 import { fileName, folderOf } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
@@ -98,7 +99,7 @@ function OpenEditorRow(props: {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
-        "mx-1.5 flex h-6 items-center gap-1.5 rounded-sm pr-1 pl-6 text-ui",
+        "mx-1.5 flex h-7 items-center gap-1.5 rounded-sm pr-1 pl-6 text-ui",
         props.current ? "bg-active text-foreground" : "text-muted-foreground hover:bg-hover",
       )}
     >
@@ -114,9 +115,9 @@ function OpenEditorRow(props: {
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-ring-inset"
       >
         <span className={cn("shrink-0", tab.preview && "italic")}>{name}</span>
-        <span className="min-w-0 truncate text-xs text-subtle-foreground">
-          {folderOf(tab.path)}
-        </span>
+        {folderOf(tab.path) && (
+          <FolderLabel folder={folderOf(tab.path)} className="text-xs text-subtle-foreground" />
+        )}
       </button>
       <TabSlot
         shows={slotShows(unsaved, tab.pinned, hovered, hovered, mark !== undefined)}

@@ -5,8 +5,10 @@ import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { countedWords, matchCount, previewParts } from "@ace/ui-core";
+import { FolderLabel, MiddleName } from "./middle-name.tsx";
 
 const count = (value: number) => value.toLocaleString();
+const noPositions: readonly number[] = [];
 
 /** A preview line trimmed so its first match shows, every match marked. */
 function Preview(props: { line: FileSearchLine }) {
@@ -26,22 +28,6 @@ function Preview(props: { line: FileSearchLine }) {
   );
 }
 
-/**
- * A folder path cut in its middle when there is no room: its start and its last folder stay,
- * since the last folder is what tells two same-named files apart.
- */
-function MiddlePath(props: { folder: string }) {
-  const slash = props.folder.lastIndexOf("/");
-  const head = slash > 0 ? props.folder.slice(0, slash) : "";
-  const tail = slash > 0 ? props.folder.slice(slash) : props.folder;
-  return (
-    <span className="ml-1.5 flex min-w-0 flex-1 text-xs text-subtle-foreground">
-      {head && <span className="min-w-0 truncate">{head}</span>}
-      <span className={cn("whitespace-pre", head ? "shrink-0" : "min-w-0 truncate")}>{tail}</span>
-    </span>
-  );
-}
-
 /** A file's row: its whole name, then its folder dimmed, then its count at the right. */
 export function FileRow(props: { file: FileSearchFile; open: boolean; onToggle(): void }) {
   const { file, open } = props;
@@ -57,24 +43,31 @@ export function FileRow(props: { file: FileSearchFile; open: boolean; onToggle()
       aria-label={`${file.path}, ${countedWords(matches, "result", "results")}`}
       title={file.path}
       onClick={props.onToggle}
-      className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui outline-none select-none hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)]"
+      className="group/search flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset"
     >
       <span className="grid size-4 shrink-0 place-items-center">
         <CaretRightIcon
           aria-hidden
-          size={10}
+          size={12}
           className={cn(
-            "text-subtle-foreground transition-transform duration-(--motion-fast)",
+            "text-faint-foreground transition-[transform,color] duration-(--motion-fast) group-hover/search:text-subtle-foreground",
             open && "rotate-90",
           )}
         />
       </span>
-      <Icon icon={fileIcon(file.path)} size={14} className="shrink-0 text-subtle-foreground" />
-      {/* The name gives way only when it alone is wider than the row. */}
-      <span data-part="search-file-name" className="min-w-0 shrink-0 truncate text-foreground">
-        {name}
+      <Icon icon={fileIcon(file.path)} size={16} className="shrink-0 text-subtle-foreground" />
+      {/* The name gives way only when it alone is wider than the row; the folder goes first. */}
+      <MiddleName
+        part="search-file-name"
+        text={name}
+        offset={0}
+        positions={noPositions}
+        className="text-foreground"
+      />
+      {/* Its nearest folders kept: they tell two same-named files apart. */}
+      <span className="flex min-w-0 flex-1 overflow-hidden">
+        {folder && <FolderLabel folder={folder} className="text-xs text-subtle-foreground" />}
       </span>
-      {folder ? <MiddlePath folder={folder} /> : <span className="flex-1" />}
       <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">{count(matches)}</span>
     </button>
   );
@@ -106,8 +99,8 @@ export function LineRow(props: {
         props.onOpen(true);
       }}
       className={cn(
-        "flex h-7 w-full min-w-0 items-center gap-2 rounded-sm pr-2 pl-7 text-left font-mono text-xs text-muted-foreground outline-none select-none hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)]",
-        props.current && "bg-sidebar-accent",
+        "flex h-7 w-full min-w-0 items-center gap-2 rounded-sm pr-2 pl-7 text-left font-mono text-xs text-muted-foreground outline-none select-none transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
+        props.current && "bg-active",
       )}
     >
       <span

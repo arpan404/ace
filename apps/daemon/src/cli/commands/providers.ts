@@ -162,12 +162,19 @@ const ownCommands: readonly CommandSpec[] = [
     words: ["account", "login"],
     summary: "Sign this machine in to your ace account",
     description:
-      "Prints an address to open in a browser, then waits until the sign-in finishes there.",
+      "Prints an address to open in a browser, then waits until the sign-in finishes there. With --org, the sign-in goes through that organization's sign-in policy (its SSO, say) and must be by one of its members; the organization is then this machine's space, which ace org commands act in when they name none (ADR 0206). A sign-in by someone who isn't a member is ended and the machine stays as it was.",
     group: "providers",
     mutates: true,
-    flags: [{ name: "origin", value: "URL", summary: "Another ace account server" }],
+    flags: [
+      { name: "origin", value: "URL", summary: "Another ace account server" },
+      { name: "org", value: "ORG", summary: "Sign in to this organization (org_…) and select it" },
+    ],
     aliases: [{ words: ["login"] }],
-    examples: [{ command: "ace login", summary: "Sign in" }],
+    exits: [{ code: 4, when: "--org names an organization the account isn't a member of" }],
+    examples: [
+      { command: "ace login", summary: "Sign in" },
+      { command: "ace login --org org_01ACME", summary: "Sign in to an organization's space" },
+    ],
     output: "account.status",
   },
   {

@@ -49,6 +49,10 @@ export function searchTitles(
   threads: readonly import("@ace/protocol").Thread[],
 ): SearchResults {
   const words = query.text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  // Titles are thread hits: a search for other kinds finds none of them.
+  const { kind, kinds: asked } = query.filters;
+  if ((kind !== undefined && kind !== "thread") || (asked && !asked.includes("thread")))
+    return { hits: [], cursor: null, generation: 1 };
   const hits = threads
     .filter((thread) => words.every((word) => thread.title.toLowerCase().includes(word)))
     .filter(

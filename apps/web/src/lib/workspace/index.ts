@@ -75,6 +75,6 @@ export {
   textEditTabKind,
   type TextEditSession,
 } from "./text-edit-tab.ts";
-export { tabDragType } from "./drag.ts";
+export { tabDragType, treeEntriesDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

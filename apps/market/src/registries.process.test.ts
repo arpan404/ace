@@ -483,3 +483,41 @@ describe("the registry's key chain", () => {
     expect(after.keys).toHaveLength(1);
   });
 });
+
+describe("an organization's grant that no longer speaks for its member", () => {
+  const entry = `/v1/orgs/${acme}/entries/spade-skill/acme-triage/1.0.0`;
+
+  it("reads nothing once the member has left, though the grant hasn't expired", async () => {
+    const leaver = as("user_leaver", "member");
+    expect((await read(entry, leaver)).status).toBe(200);
+    market.standing.end("user_leaver");
+    expect((await read(entry, leaver)).status).toBe(404);
+  });
+
+  it("can't publish with the role it carried once the publisher was demoted", async () => {
+    const grant = grantFor("user_demoted", { org: acme, orgRole: "admin" });
+    const upload = (name: string) =>
+      publish(market, { type: "spade-skill", name, files: sampleSkill(name), grant });
+    expect((await upload("demoted-first")).status).toBe(201);
+    market.standing.setRole("user_demoted", "member");
+    expect((await upload("demoted-second")).status).toBe(403);
+  });
+
+  it("is refused when the account backend can't say, for reads and writes alike", async () => {
+    const reader = as("user_reader", "member");
+    const grant = grantFor("user_writer", { org: acme, orgRole: "admin" });
+    market.standing.down(true);
+    try {
+      expect((await read(entry, reader)).status).toBe(404);
+      const answer = await publish(market, {
+        type: "spade-skill",
+        name: "while-down",
+        files: sampleSkill("while-down"),
+        grant,
+      });
+      expect(answer.status).toBe(503);
+    } finally {
+      market.standing.down(false);
+    }
+  });
+});

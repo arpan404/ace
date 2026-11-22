@@ -31,7 +31,7 @@ enum MarketTypeFilter: String, CaseIterable, Identifiable {
     }
 }
 
-/// The type filter as the system's menu, with the selection haptic (spec item 29).
+/// The type filter as the system's menu in the bar, with the selection haptic (spec item 29).
 struct MarketTypeMenu: View {
     @Binding var filter: MarketTypeFilter
 
@@ -41,8 +41,10 @@ struct MarketTypeMenu: View {
                 ForEach(MarketTypeFilter.allCases) { Text($0.title).tag($0) }
             }
         } label: {
-            Label(filter.title, ace: .funnelSimple)
+            // As every bar draws its buttons: the plain glyph in the body ink, never the accent.
+            Image(bar: .funnelSimple).foregroundStyle(AceTheme.Colours.foreground)
         }
+        .barGlyph()
         .sensoryFeedback(.selection, trigger: filter)
         .accessibilityLabel("Type: \(filter.title)")
         .accessibilityIdentifier("market.type")
