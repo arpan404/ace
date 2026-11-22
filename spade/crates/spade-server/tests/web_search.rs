@@ -547,3 +547,65 @@ async fn usage_shows_this_months_searches_or_that_the_person_is_signed_out() -> 
     assert_eq!(usage["used"], Value::Null);
     Ok(())
 }
+
+/// Every log line written in this test binary, from a global subscriber set once at debug.
+fn captured_logs() -> Arc<Mutex<Vec<u8>>> {
+    static LOGS: std::sync::OnceLock<Arc<Mutex<Vec<u8>>>> = std::sync::OnceLock::new();
+    LOGS.get_or_init(|| {
+        let logs: Arc<Mutex<Vec<u8>>> = Arc::default();
+        let sink = logs.clone();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("spade_server=debug")
+            .with_ansi(false)
+            .with_writer(move || Sink(sink.clone()))
+            .try_init();
+        logs
+    })
+    .clone()
+}
+
+struct Sink(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Sink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Ok(mut logs) = self.0.lock() {
+            logs.extend_from_slice(buf);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn an_endpoint_search_failure_logs_its_status_and_never_the_query() -> Result {
+    let logs = captured_logs();
+    let query = "zq-4417 unique endpoint query";
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("w1", "web_search", json!({ "query": query })),
+            Script::failing(400),
+            Script::reply("No search."),
+            title(),
+        ],
+        Vec::new(),
+        signed_out(&Hands::new())?.0,
+    )
+    .await?;
+    let chat = bot_on(&spade, "seeker", "seek-1").await?;
+    spade.say(&chat, "Search something").await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    assert_eq!(search_result(&events)["is_error"], true);
+    let text = logs
+        .lock()
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .unwrap_or_default();
+    let line = text
+        .lines()
+        .find(|line| line.contains("endpoint_search_failed"))
+        .ok_or("no endpoint search failure was logged")?;
+    assert!(line.contains("status=400"), "{line}");
+    assert!(!text.contains("zq-4417"), "the query reached the logs");
+    Ok(())
+}

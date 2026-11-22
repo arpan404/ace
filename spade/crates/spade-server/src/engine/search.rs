@@ -13,8 +13,11 @@ pub(crate) enum Native {
     /// The bot's model has no search of its own.
     Unavailable,
     Found(WebFound),
-    /// It failed. Why is not kept: an endpoint's words can carry the query (ADR 0210 §6).
-    Failed,
+    /// It failed, with the HTTP status when the endpoint answered with one. Why is not kept: an
+    /// endpoint's words can carry the query (ADR 0210 §6).
+    Failed {
+        status: Option<u16>,
+    },
 }
 
 impl Engine {
@@ -37,7 +40,9 @@ impl Engine {
             }
             Err(error) => {
                 admitted.settle_if(error.usage());
-                Native::Failed
+                Native::Failed {
+                    status: error.status(),
+                }
             }
         }
     }

@@ -136,10 +136,16 @@ impl Models {
             ));
         }
         if !status.is_success() {
-            return Err(fail(
-                format!("the endpoint's search answered HTTP {}", status.as_u16()),
-                key.as_deref(),
-            ));
+            // Refused with an HTTP error: the status is kept, for the log line, and never the
+            // endpoint's words.
+            let code = status.as_u16();
+            return Err(ModelError::Unanswered {
+                model: reference.to_owned(),
+                message: format!("the endpoint's search answered HTTP {code}"),
+                transient: code == 408 || code == 429 || code >= 500,
+                retry_after: None,
+                status: Some(code),
+            });
         }
         let answer: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         let mut found = match endpoint.format {

@@ -84,8 +84,16 @@ impl Tool for WebSearch {
                     ToolOutput::ok("No results.")
                 }
                 Native::Found(found) => ToolOutput::ok(native_text(&found)),
-                Native::Failed => {
-                    tracing::debug!(outcome = "endpoint_search_failed", "web_search");
+                Native::Failed { status } => {
+                    // The outcome and the HTTP status only (ADR 0210 §6).
+                    match status {
+                        Some(status) => tracing::debug!(
+                            outcome = "endpoint_search_failed",
+                            status,
+                            "web_search"
+                        ),
+                        None => tracing::debug!(outcome = "endpoint_search_failed", "web_search"),
+                    }
                     ToolOutput::error(unanswered.to_string())
                 }
                 Native::Unavailable => ToolOutput::error(unanswered.to_string()),
