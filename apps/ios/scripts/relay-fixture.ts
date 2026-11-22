@@ -147,7 +147,7 @@ const host = await connectHostToRelay({
             type: "account.standing.result",
             requestId: message.requestId,
             result: provesStanding(message, hostId, nonce, channel.channelBinding)
-              ? { ok: true, until: Date.now() + 2000 }
+              ? { ok: true, until: Date.now() + 2000, expiresIn: 2000 }
               : { ok: false, code: "unauthorized", message: "No" },
           }),
         );

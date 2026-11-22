@@ -171,8 +171,8 @@ struct ConnectionDot: View {
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
         let onRelay = entry?.accountHostId != nil && machines?.plans[hostId]?.current == .relay
-        standingRecovery = StandingRecovery.of(standing: client?.standing, needsPairing: needsPairing,
-                                               isAccountMachine: entry?.isAccountMachine == true, onRelay: onRelay)
+        standingRecovery = StandingRecovery.of(standing: client?.standing, route: client?.standingRoute, needsPairing: needsPairing,
+                                               isAccountMachine: entry?.isAccountMachine == true)
         address = entry?.isAccountMachine == true || onRelay ? "Through your ace account"
             : entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
         icon = Self.icon(entry?.icon?.kind)

@@ -60,11 +60,11 @@ import Testing
         try await events.wait { $0.types.contains("open") }
         socket.send(hello)
         // The stand-in only says `ok` to a signature over this socket's own challenge and binding.
-        try await events.wait { $0.verdicts == ["proven"] }
+        try await events.wait { $0.verdicts == ["proven relay"] }
         #expect(events.texts.allSatisfy { !$0.contains("account.standing") })
         // It stands for two seconds; without a renewal in time the verdict is cleared.
-        try await events.wait { $0.verdicts.last == "cleared" }
-        #expect(events.verdicts.first == "proven")
+        try await events.wait { $0.verdicts.last == "cleared relay" }
+        #expect(events.verdicts.first == "proven relay")
     }
 
     @Test(.enabled(if: fixture != nil))
@@ -75,6 +75,6 @@ import Testing
         try await events.wait { $0.types.contains("open") }
         socket.send(hello)
         try await events.wait { !$0.verdicts.isEmpty }
-        #expect(events.verdicts == ["missing"])
+        #expect(events.verdicts == ["missing relay"])
     }
 }

@@ -69,16 +69,17 @@ import Testing
         #expect(StandingVerdict.read(another, requestId: "standing-1") == nil)
     }
 
-    @Test func aProvenVerdictLapsesWhenTheDaemonSaysItsStandingEnds() throws {
-        let ok = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":true,"until":1700000300000}}"#
+    @Test func aProvenVerdictLapsesWhenTheDaemonSaysItsStandingEnds() {
+        let now = Date(timeIntervalSince1970: 1_700_000_100)
+        let byUntil = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":true,"until":1700000300000}}"#
+        // The daemon's own remaining time wins over this phone's clock.
+        let byLeft = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":true,"until":1,"expiresIn":120000}}"#
         let refused = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":false,"code":"unauthorized","message":"No"}}"#
-        let until = try #require(StandingVerdict.until(ok, requestId: "standing-1"))
-        #expect(until == Date(timeIntervalSince1970: 1_700_000_300))
-        #expect(StandingVerdict.until(refused, requestId: "standing-1") == nil)
-        #expect(StandingVerdict.until(ok, requestId: "script-2") == nil)
-        // The wait is what is left of the daemon's time, never negative.
-        #expect(StandingVerdict.wait(until: until, now: Date(timeIntervalSince1970: 1_700_000_100)) == 200)
-        #expect(StandingVerdict.wait(until: until, now: Date(timeIntervalSince1970: 1_700_000_400)) == 0)
+        #expect(StandingVerdict.remaining(byUntil, requestId: "standing-1", now: now) == 200)
+        #expect(StandingVerdict.remaining(byLeft, requestId: "standing-1", now: now) == 120)
+        #expect(StandingVerdict.remaining(byUntil, requestId: "standing-1", now: Date(timeIntervalSince1970: 1_700_000_400)) == 0)
+        #expect(StandingVerdict.remaining(refused, requestId: "standing-1", now: now) == nil)
+        #expect(StandingVerdict.remaining(byUntil, requestId: "script-2", now: now) == nil)
     }
 
     @Test func aProofIsRenewedBeforeItsStandingEndsAndNeverLater() {
@@ -86,7 +87,9 @@ import Testing
         #expect(StandingVerdict.renewal(remaining: 300, interval: 240) == 240)
         // A grant that ends sooner is renewed before it does, with a lead.
         #expect(StandingVerdict.renewal(remaining: 100, interval: 240) == 100 - StandingVerdict.lead)
-        // Too short to leave a lead: halfway, never at once.
-        #expect(StandingVerdict.renewal(remaining: 5, interval: 240) == 2.5)
+        // Too short to leave a lead: halfway, and never at once, even for an expired standing.
+        #expect(StandingVerdict.renewal(remaining: 40, interval: 240) == 20)
+        #expect(StandingVerdict.renewal(remaining: 5, interval: 240) == StandingVerdict.floor)
+        #expect(StandingVerdict.renewal(remaining: 0, interval: 240) == StandingVerdict.floor)
     }
 }

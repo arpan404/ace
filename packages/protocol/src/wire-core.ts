@@ -815,6 +815,8 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       z.object({
         ok: z.literal(true),
         until: z.number().int().positive(),
+        /** Milliseconds of standing left, by the daemon's own clock: a phone whose clock differs needn't compare `until`. */
+        expiresIn: z.number().int().nonnegative().optional(),
         /** A member's standing on an org host (ADR 0206 §2.2), not the person's. */
         member: z.object({ org: AceOrgId, role: AceOrgRole }).optional(),
       }),

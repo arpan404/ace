@@ -18,12 +18,7 @@ import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
-import {
-  nativeTransport,
-  socketEvent,
-  type PairedStanding,
-  type StandingRoute,
-} from "./socket.ts";
+import { nativeTransport, socketEvent, type PairedStanding, type StandingRoute } from "./socket.ts";
 import { StandingBook } from "./standing-book.ts";
 import {
   accountCredential,
