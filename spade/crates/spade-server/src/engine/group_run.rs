@@ -566,7 +566,8 @@ impl Engine {
         match waited {
             Ok(Ok(outcome)) => match outcome.clone() {
                 Some(Outcome::Answered(text)) => ToolOutput::ok(format!(
-                    "{name} answered (it is posted in the club):\n{text}"
+                    "{name} answered (it is posted in the club):\n{}",
+                    spade_core::chat_markup::plain(&text)
                 )),
                 Some(other) => ToolOutput::error(other.text().to_owned()),
                 None => ToolOutput::error(format!("{name} did not answer.")),

@@ -189,8 +189,8 @@ async fn a_reply_in_a_club_is_stored_on_its_message_and_the_member_reads_whose_w
         .await?;
     let posted = events
         .iter()
-        .filter(|e| e["type"] == "group_message" && e["from"].is_null())
-        .last()
+        .rev()
+        .find(|e| e["type"] == "group_message" && e["from"].is_null())
         .cloned()
         .unwrap_or_default();
     assert_eq!(

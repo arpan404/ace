@@ -67,10 +67,12 @@ impl Engine {
                 "that voice name isn't valid".to_owned(),
             ));
         }
-        if request.text.trim().is_empty() {
+        // The words as they read, without the chat's markup (ADR 0212).
+        let text = spade_core::chat_markup::plain(&request.text);
+        if text.trim().is_empty() {
             return Err(SpeakError::Invalid("there are no words to read".to_owned()));
         }
-        if request.text.chars().count() > spade_models::MOST_SPEECH_CHARS {
+        if text.chars().count() > spade_models::MOST_SPEECH_CHARS {
             return Err(SpeakError::Invalid(format!(
                 "at most {} characters are read at once",
                 spade_models::MOST_SPEECH_CHARS
@@ -81,7 +83,7 @@ impl Engine {
             .speak(
                 &model,
                 SpeechRequest {
-                    text: &request.text,
+                    text: &text,
                     voice,
                     instructions: request.instructions.as_deref(),
                 },

@@ -267,6 +267,19 @@ fn only_a_quiet_answer_to_a_heartbeat_alone_is_silent() {
 }
 
 #[test]
+fn a_quiet_answer_wrapped_as_a_message_is_as_silent_and_one_with_words_still_shows() {
+    let events = [
+        message("b1", true),
+        Event::reply_started("r1", "fake/m"),
+        finished("r1", "<msg>[quiet]</msg>"),
+        message("b2", true),
+        Event::reply_started("r2", "fake/m"),
+        finished("r2", "<msg>[quiet]</msg><msg>The deploy failed.</msg>"),
+    ];
+    assert_eq!(silent_replies(&events), HashSet::from(["r1".to_owned()]));
+}
+
+#[test]
 fn a_quiet_answer_to_the_persons_queued_message_and_a_heartbeat_still_shows() {
     // The person's message waited (Spade was closed for an update); a beat came after it, and
     // one reply answered both.

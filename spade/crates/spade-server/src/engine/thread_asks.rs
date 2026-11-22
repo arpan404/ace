@@ -284,6 +284,7 @@ impl Engine {
         let named = json!({ "id": agent.id, "name": agent.name });
         match self.reply_after(agent, seq) {
             Some(Outcome::Answered(text)) => {
+                let text = spade_core::chat_markup::plain(&text);
                 json!({ "status": "answered", "replies": [{ "bot": me, "text": text }] })
             }
             Some(Outcome::Stopped(text)) => {

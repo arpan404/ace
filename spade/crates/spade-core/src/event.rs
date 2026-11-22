@@ -1350,7 +1350,7 @@ mod tests {
         else {
             panic!("a reply is a message");
         };
-        let to = reply_to.expect("its quote");
+        let to = reply_to.unwrap_or_else(|| panic!("its quote"));
         assert_eq!(
             (to.id.as_str(), to.text.as_str(), to.mine),
             ("m12", "Tuesday?", false)

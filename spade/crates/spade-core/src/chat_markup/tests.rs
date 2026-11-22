@@ -21,8 +21,11 @@ fn expected(segment: &Value) -> Segment {
 
 #[test]
 fn every_case_of_the_shared_table_splits_as_it_says() {
-    let table: Value = serde_json::from_str(CASES).expect("the case table is JSON");
-    let cases = table["cases"].as_array().expect("the table lists cases");
+    let table: Value =
+        serde_json::from_str(CASES).unwrap_or_else(|e| panic!("the case table is JSON: {e}"));
+    let cases = table["cases"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the table lists cases"));
     assert!(cases.len() > 30);
     let mut wrong = Vec::new();
     for case in cases {
@@ -149,12 +152,12 @@ fn a_quote_finds_the_persons_message_or_the_bots_nth_message_by_id() {
         relayed("From the club"),
         Event::reply_ended(crate::event::ReplyEnd::Stopped, "r1", "Half a"),
     ];
-    let mine = quoted(&events, "m1").expect("the person's message");
+    let mine = quoted(&events, "m1").unwrap_or_else(|| panic!("the person's message"));
     assert_eq!(
         (mine.text.as_str(), mine.mine, mine.name),
         ("Find me flights to Lisbon", true, None)
     );
-    let second = quoted(&events, "m2.2").expect("the step's second message");
+    let second = quoted(&events, "m2.2").unwrap_or_else(|| panic!("the step's second message"));
     assert_eq!(
         (second.text.as_str(), second.mine),
         ("Cheapest is 9:10.", false)
@@ -173,9 +176,9 @@ fn a_club_quote_names_the_bot_that_wrote_it_or_the_person() {
         club("Plan the trip", None),
         club("<msg>On it.</msg><msg>Tuesday?</msg>", Some("Quill")),
     ];
-    let person = quoted(&events, "m1").expect("the person's club message");
+    let person = quoted(&events, "m1").unwrap_or_else(|| panic!("the person's club message"));
     assert!(person.mine);
-    let quill = quoted(&events, "m2.2").expect("Quill's second message");
+    let quill = quoted(&events, "m2.2").unwrap_or_else(|| panic!("Quill's second message"));
     assert_eq!(
         (quill.text.as_str(), quill.mine, quill.name.as_deref()),
         ("Tuesday?", false, Some("Quill"))
@@ -185,13 +188,13 @@ fn a_club_quote_names_the_bot_that_wrote_it_or_the_person() {
 #[test]
 fn a_long_quote_is_cut_to_280_characters_ending_in_an_ellipsis() {
     let events = vec![Event::user_message("é".repeat(400))];
-    let quote = quoted(&events, "m1").expect("the message");
+    let quote = quoted(&events, "m1").unwrap_or_else(|| panic!("the message"));
     assert_eq!(quote.text.chars().count(), QUOTE_CHARS);
     assert!(quote.text.ends_with('…'));
     let short = vec![Event::user_message("é".repeat(280))];
     assert!(
         !quoted(&short, "m1")
-            .expect("the message")
+            .unwrap_or_else(|| panic!("the message"))
             .text
             .ends_with('…')
     );
