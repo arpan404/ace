@@ -50,10 +50,10 @@ struct NewThreadComposer: View {
                     }
                 }
             if !files.isEmpty {
-                ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceDesign.Space.margin) { id in
+                ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceDesign.Space.margin, remove: { id in
                     client?.composeDetach(id)
                     drafts.remove(id)
-                }
+                }, retry: { client?.composeRetry($0) })
                 .padding(.bottom, AceDesign.Space.related)
             }
             if let note = notice ?? dictation.problem {
