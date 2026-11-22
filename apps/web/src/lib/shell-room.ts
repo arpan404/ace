@@ -69,10 +69,12 @@ function sidebarPlace(input: RoomInput, mode: PanelMode): SidebarPlace {
   const { sidebar } = input;
   if (!sidebar.inline) return "sheet";
   if (!sidebar.open) return "hidden";
+  // Full view gives the panel the whole canvas: the sidebar steps aside while it lasts.
+  if (mode === "full") return "yielded";
   // A side panel takes the sidebar's room first on a crowded window, or whenever the sidebar
   // would leave the column and the panel less than their minimums. This never depends on the
   // panel's own width, so dragging the panel never flips the sidebar.
-  const tools = mode === "beside" || mode === "full";
+  const tools = mode === "beside";
   const tight =
     input.window <= roomLimits.crowded ||
     input.window - sidebar.width < roomLimits.mainMin + roomLimits.panelMin;

@@ -95,6 +95,8 @@ export interface EditorCompareProps {
 /** Everything a group needs from outside the layout. */
 export interface EditorHost {
   buffers: EditorBuffers;
+  /** The thread whose explorer's files may be dropped on a group; unset, file drops are refused. */
+  threadId?: string | undefined;
   /** Draw a group's editor; unset, the editor draws `CodeEditor` on the shared buffer. */
   renderEditor?: ((props: BufferEditorProps) => ReactNode) | undefined;
   /**

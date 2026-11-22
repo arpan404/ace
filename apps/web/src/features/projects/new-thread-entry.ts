@@ -7,11 +7,13 @@ import { useOrganizer } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { newThreadOn } from "@/lib/machine-routes.ts";
-import { useMachines, useScopedMachine } from "@/lib/machines.ts";
+import { useMachinesInSpace, usePrimaryInSpace, useScopedMachine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 
 /** The project of the list's most recently updated thread. */
+const noProjects: ReturnType<typeof useProjectDirectory>["projects"] = [];
+
 function latestProject(reader: SidebarReader): string | undefined {
   let best: { project: string; at: number } | undefined;
   for (const id of reader.ids) {
@@ -38,8 +40,11 @@ export function useNewThreadEntry(): { start(): void; here(): void; only: string
   const organizer = useOrganizer();
   const sidebar = useSidebarStore();
   const open = useParams({ strict: false }).threadId;
-  const { projects } = directory;
-  const machines = useMachines();
+  // Only the window's space (ADR 0206 §2.4): this machine's projects while it is in the space,
+  // and the space's other machines.
+  const ownShown = usePrimaryInSpace();
+  const projects = ownShown ? directory.projects : noProjects;
+  const machines = useMachinesInSpace();
   const pool = useMachinePool();
   const own = machines.find((machine) => machine.primary)?.id;
   const scoped = useScopedMachine()?.id;
@@ -58,11 +63,13 @@ export function useNewThreadEntry(): { start(): void; here(): void; only: string
   );
   const only = projects.length === 1 && !elsewhere ? projects[0]?.id : undefined;
   const start = useCallback(() => {
-    if (only) draft(only);
+    // Outside its space this machine starts nothing: the space's own projects are asked for.
+    if (!ownShown) openPalette({ page: "new-thread-in" });
+    else if (only) draft(only);
     else if (projects.length > 1 || elsewhere) openPalette({ page: "new-thread-in" });
     else if (directory.loaded) draft(chatChoice);
     else void navigate({ to: "/new" });
-  }, [only, projects, elsewhere, directory.loaded, draft, openPalette, navigate]);
+  }, [ownShown, only, projects, elsewhere, directory.loaded, draft, openPalette, navigate]);
   const here = useCallback(() => {
     if (onMachine) {
       const key = open ? machineThreadKey({ hostId: onMachine, threadId: open }) : undefined;

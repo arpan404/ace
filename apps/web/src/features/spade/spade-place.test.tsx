@@ -268,8 +268,10 @@ test("a request is the bot's bubble saying who an email goes to and what, as pla
   const request = await chat.findByRole("group", {
     name: "Inbox wants to send an email to marta@example.com",
   });
-  expect(request.textContent).toContain("Subject: Thursday");
-  expect(request.textContent).toContain("<b>Thursday</b> works");
+  // A message as a message: its subject as a field, its words in their own well.
+  expect(within(request).getByText("Subject")).toBeTruthy();
+  expect(within(request).getByText("Thursday")).toBeTruthy();
+  expect(within(request).getByLabelText("Message").textContent).toBe("<b>Thursday</b> works");
   expect(request.querySelector("b")).toBeNull();
   // Never the call's raw JSON.
   expect(request.textContent).not.toContain("{");

@@ -192,6 +192,11 @@ export class FakeSpadeSecurity {
     if (method === "PUT" && sub === "commands") {
       if (body.commands !== "sandboxed" && body.commands !== "outside")
         return problem(400, `unknown variant \`${String(body.commands)}\``);
+      // Loosening is the person's alone, as every route that loosens is (ADR 0171, amendment 7).
+      if (body.commands === "outside" && this.botDefaults.commands !== "outside") {
+        const refused = this.permissions.refusal();
+        if (refused) return refused;
+      }
       this.botDefaults.commands = body.commands;
       return this.machineView();
     }
@@ -310,6 +315,10 @@ export class FakeSpadeSecurity {
       const commands = body.commands;
       if (commands !== null && commands !== "sandboxed" && commands !== "outside")
         return problem(400, `unknown variant \`${String(commands)}\``);
+      if (commands === "outside" && this.bot(id).commands !== "outside") {
+        const refused = this.permissions.refusal();
+        if (refused) return refused;
+      }
       this.bot(id).commands = commands;
       return reply(this.view(id));
     }

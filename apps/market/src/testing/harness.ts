@@ -12,6 +12,7 @@ import { testPublisher } from "@ace/marketplace/testing";
 import type { MarketEntryType } from "@ace/protocol/marketplace";
 import { databases, type DatabaseBindings } from "../store/databases.ts";
 import {
+  fakeOrgStanding,
   grantKey,
   launchMarketWorker,
   marketGrant,
@@ -28,7 +29,8 @@ import {
 export { grantKey, marketGrant, marketKey, signerToken } from "./worker.ts";
 
 export async function startMarket() {
-  const { harness, url } = await launchMarketWorker();
+  const standing = await fakeOrgStanding();
+  const { harness, url } = await launchMarketWorker({ standing });
   const worker = harness.getWorker();
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
     worker.fetch(marketAddress(path), init);
@@ -44,7 +46,12 @@ export async function startMarket() {
     objects: env.OBJECTS,
     /** Runs the Worker's scheduled work, as its cron does. */
     scheduled: () => worker.scheduled({ cron: "*/15 * * * *", scheduledTime: new Date() }),
-    close: () => harness.close(),
+    /** The account backend's word on org grants, as tests set it. */
+    standing,
+    close: async () => {
+      await harness.close();
+      await standing.close();
+    },
   };
 }
 export type Market = Awaited<ReturnType<typeof startMarket>>;

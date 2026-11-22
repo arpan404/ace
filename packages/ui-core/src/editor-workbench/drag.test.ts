@@ -237,3 +237,19 @@ describe("moving the active editor between groups", () => {
     expect(moveActiveEditor(layout, toward, ids())).toBe(layout);
   });
 });
+
+describe("sizes through a drag", () => {
+  it("dragging a group's only tab to the far edge of its even neighbour leaves two even groups", () => {
+    const layout = layoutOf(row([group("g1", ["a.ts"]), group("g2", ["b.ts"])]));
+    const next = moveTab(
+      layout,
+      { group: "g1", path: "a.ts" },
+      { kind: "side", group: "g2", side: "right" },
+      ids(),
+    );
+    expect(strips(next)).toEqual({ g2: ["b.ts"], n1: ["a.ts"] });
+    const sizes = next.root.kind === "split" ? next.root.sizes : [];
+    expect(sizes[0]).toBeCloseTo(0.5);
+    expect(sizes[1]).toBeCloseTo(0.5);
+  });
+});

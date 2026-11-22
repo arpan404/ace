@@ -140,6 +140,46 @@ export const pageBridge = `(() => {
  */
 export const pageBridgeHash = "'sha256-Lm50VCNjORn1sSt2ou5mfSBbuEOseqCFaK35pIzX1Z4='";
 
+/** What the app posts into a page frame's outer document to hand it the page itself. */
+export const pageMessageType = "ace.html.page";
+/** The message that hands a loaded outer document its page. */
+export function pageMessage(page: string): { type: typeof pageMessageType; html: string } {
+  return { type: pageMessageType, html: page };
+}
+
+/**
+ * Opens every outer document's bridge: attaches the page frame and defines `toFrame`, which
+ * holds what the app sends the page until the page has loaded (posted earlier, it would reach the
+ * frame's empty first document and be lost). The page is either already the frame's `srcdoc`
+ * (a standalone document) or, when the outer document came as a URL, arrives once from the app as
+ * an `ace.html.page` message: a page inside the URL would make it longer than the 2 MiB
+ * Chromium loads, and the frame would stay blank. Only the app (`parent`; itself as a
+ * `<webview>`'s top document) may place it, once.
+ */
+export const framePlacement = `const template = document.getElementById('ace-page');
+  const frame = template.content.querySelector('iframe');
+  template.remove();
+  let loaded = false;
+  const held = [];
+  frame.addEventListener('load', () => {
+    loaded = true;
+    for (const message of held.splice(0)) frame.contentWindow.postMessage(message, '*');
+  }, { once: true });
+  const toFrame = (message) => {
+    if (loaded) frame.contentWindow.postMessage(message, '*');
+    else held.push(message);
+  };
+  if (frame.hasAttribute('srcdoc')) document.body.append(frame);
+  else {
+    const raw = globalThis.trustedTypes ? trustedTypes.createPolicy('ace-raw', { createHTML: (value) => value }) : undefined;
+    addEventListener('message', (event) => {
+      const data = event.data;
+      if (event.source !== parent || frame.isConnected || !data || data.type !== '${pageMessageType}' || typeof data.html !== 'string') return;
+      frame.srcdoc = raw ? raw.createHTML(data.html) : data.html;
+      document.body.append(frame);
+    });
+  }`;
+
 /**
  * Runs in the trusted outer document. Attaches the page frame, relays only its height out, and
  * relays only theme messages in. Inside an iframe it talks to the app by `postMessage`; as the
@@ -147,10 +187,7 @@ export const pageBridgeHash = "'sha256-Lm50VCNjORn1sSt2ou5mfSBbuEOseqCFaK35pIzX1
  * title, which the authored page cannot set.
  */
 export const frameBridge = `(() => {
-  const template = document.getElementById('ace-page');
-  const frame = template.content.querySelector('iframe');
-  document.body.append(frame);
-  template.remove();
+  ${framePlacement}
   const embedded = parent !== window;
   addEventListener('message', (event) => {
     const data = event.data;
@@ -164,7 +201,7 @@ export const frameBridge = `(() => {
     }
     if (event.source === parent && data.type === 'ace.html.theme') {
       if (data.scheme === 'light' || data.scheme === 'dark') document.documentElement.style.colorScheme = data.scheme;
-      frame.contentWindow.postMessage({ type: 'ace.html.theme', tokens: data.tokens, scheme: data.scheme }, '*');
+      toFrame({ type: 'ace.html.theme', tokens: data.tokens, scheme: data.scheme });
     }
   });
 })();`;
@@ -276,10 +313,7 @@ export const panelPageBridge = `(() => {
  * numbered so every message is a change of title.
  */
 export const panelFrameBridge = `(() => {
-  const template = document.getElementById('ace-page');
-  const frame = template.content.querySelector('iframe');
-  document.body.append(frame);
-  template.remove();
+  ${framePlacement}
   const embedded = parent !== window;
   const fits = ${fitsScript};
   const out = new Set(['ace.panel.action', 'ace.panel.fault', 'ace.panel.pong']);
@@ -303,9 +337,9 @@ export const panelFrameBridge = `(() => {
     if (event.source === parent && into.has(data.type)) {
       if (data.type === 'ace.panel.init' || data.type === 'ace.panel.theme') {
         if (data.scheme === 'light' || data.scheme === 'dark') document.documentElement.style.colorScheme = data.scheme;
-        frame.contentWindow.postMessage({ type: 'ace.html.theme', tokens: data.tokens, scheme: data.scheme }, '*');
+        toFrame({ type: 'ace.html.theme', tokens: data.tokens, scheme: data.scheme });
       }
-      frame.contentWindow.postMessage(data, '*');
+      toFrame(data);
     }
   });
 })();`;

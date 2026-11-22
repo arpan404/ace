@@ -2,6 +2,7 @@ import { useFakeMediaSockets } from "@/lib/video/media.ts";
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
 import { fakeMarket } from "./fake-market.ts";
+import { seedFakeSpadeEmpty } from "./fake-spade-empty.ts";
 import { seedFakeSpade } from "./fake-spade.ts";
 import { seedFakeMentions } from "./fake-mentions.ts";
 import {
@@ -50,6 +51,8 @@ import { seedFleetUpdates } from "./fake-updates.ts";
 import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
+import { seedFakeOrgSpade } from "./fake-org-spade.ts";
+import { fakeOrgHostId } from "./fake-orgs.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
 import {
   fakeMachineAccount,
@@ -255,10 +258,15 @@ export function bootFake(): {
   // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
   Object.assign(globalThis, { ["ace" in globalThis ? "aceFake" : "ace"]: { daemon, client } });
   // A build server with its own folders, so Add project offers a machine picker.
+  // `?fakeWorld=org`: the build server is Acme Robotics' host, under its relay id.
+  const orgWorld = world === "org";
+  const serverId = orgWorld ? fakeOrgHostId : "build-server";
   const server = new FakeDaemon({
     clock: () => Date.now(),
-    hostId: "build-server",
+    hostId: serverId,
     displayName: "Build server",
+    // Its full-text search finds its own threads, not the catalog This Mac answers with.
+    searchCorpus: "titles",
     projectScheduler: (callback) => void setTimeout(callback, 700),
   });
   server.projects.seedFolders("/home/ci", [
@@ -287,6 +295,24 @@ export function bootFake(): {
         hasSentMessage: true,
         details: { workspace: added.workspace },
       });
+    // `?fakeWorld=org`: the api is Acme Robotics' project (ADR 0206 §2.4), with more threads,
+    // so its space's sidebar, search and palette have its own work to show.
+    if (orgWorld && added?.workspace)
+      for (const [id, title, agoMs] of [
+        ["thread-acme-flaky-ci", "Fix the flaky integration tests", 40 * 60_000],
+        ["thread-acme-retries", "Retry webhook deliveries with backoff", 3 * 3_600_000],
+      ] as const)
+        server.createThread(
+          {
+            id,
+            workspaceId: added.workspace.id,
+            title,
+            provider: "codex",
+            hasSentMessage: true,
+            details: { workspace: added.workspace },
+          },
+          agoMs,
+        );
     // Chats there too, so the Chats panel shows another machine's chats and its device filter.
     for (const chat of buildServerChats())
       new ScenarioPlayer(server, chat.scenario, { agoMs: chat.agoMs }).runUntilBlocked();
@@ -294,6 +320,10 @@ export function bootFake(): {
   seedBuildServerUsage(server, Date.now());
   // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
   if (world === "spade") seedFakeSpade(daemon, server);
+  // `?fakeWorld=spade-empty`: Spade with no bots yet, for the first visit.
+  if (world === "spade-empty") seedFakeSpadeEmpty(daemon);
+  // `?fakeWorld=org`: the Spade world, with the build server's Spade one of Acme Robotics'.
+  if (orgWorld) seedFakeSpade(daemon, server, (remote) => seedFakeOrgSpade(remote, Date.now()));
   // `?fakeWorld=mentions`: the Spade world, and a thread that asked its bots (ADR 0198).
   if (world === "mentions") seedFakeMentions(daemon, seedFakeSpade(daemon, server), server);
   if (world === "cross-device") seedMachineChildren(daemon, server);
@@ -338,7 +368,7 @@ export function bootFake(): {
       }),
     away,
     // The build server is reached over the tailnet, as the Fleet map draws it.
-    { "build-server": "ws://100.64.0.7:4242" },
+    { [serverId]: "ws://100.64.0.7:4242" },
   ).then((fake) => fake.pool);
   return {
     client,

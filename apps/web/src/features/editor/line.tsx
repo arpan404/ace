@@ -73,6 +73,7 @@ export const EditorLine = memo(function EditorLine(props: {
   top: number;
   /** The row's height; the font and its size come from the editor's frame. */
   lineHeight: number;
+  /** The caret's line in the editor that has the keyboard: washed, its number bright. */
   current: boolean;
   matches: readonly MatchSegment[] | undefined;
   query: string;
@@ -94,6 +95,7 @@ export const EditorLine = memo(function EditorLine(props: {
       data-line={props.number === undefined ? undefined : props.line}
       data-row={props.row}
       data-long-line={props.long || undefined}
+      data-current-line={props.current || undefined}
       className={cn("absolute left-0 flex w-max min-w-full", props.current && "bg-foreground/5")}
       style={{ top: props.top, height: props.lineHeight, lineHeight: `${props.lineHeight}px` }}
     >

@@ -291,6 +291,7 @@ export class FakeDaemon implements Host {
       clock: options.clock,
       access: this.access,
       threads: () => [...this.threads.values()].map((host) => host.view.thread),
+      searchOwnTitles: options.searchCorpus === "titles",
       broadcast: (message) => this.broadcast(message),
       thread: (threadId) => {
         const host = this.threads.get(threadId);

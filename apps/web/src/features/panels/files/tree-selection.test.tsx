@@ -1,4 +1,4 @@
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { threadId } from "./tree-test-queries.ts";
@@ -85,17 +85,17 @@ test("a plain click picks one row again", async () => {
 });
 
 test("the menu of a selected row copies every selected path and deletes them together", async () => {
-  const { tree, outputs } = await serverFiles();
+  const { tree } = await serverFiles();
   await clickWith("Control", await row(tree, `${src}replay.ts`));
   const written = clipboardWrites();
   await menuPick(await row(tree, `${src}replay.ts`), "Copy relative paths");
   await waitFor(() => expect(written.at(-1)).toBe(`${src}cursor.ts\n${src}replay.ts`));
   await menuPick(await row(tree, `${src}replay.ts`), /^Delete/);
-  const dialog = await screen.findByRole("dialog", { name: "Delete" });
-  expect(dialog.textContent).toContain("Move 2 items to Recently deleted?");
-  expect(outputs.operations).toEqual([
-    expect.objectContaining({ kind: "delete", paths: [`${src}cursor.ts`, `${src}replay.ts`] }),
-  ]);
+  // No question first: both go to Recently deleted at once, and one toast offers Undo.
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(tree.querySelector(`[data-path="${src}replay.ts"]`)).toBeNull());
+  expect(tree.querySelector(`[data-path="${src}cursor.ts"]`)).toBeNull();
+  expect(await screen.findByText("Deleted 2 items")).toBeTruthy();
 });
 
 test("Mention in chat on a selection mentions each selected file", async () => {
@@ -110,9 +110,6 @@ test("deleting a selection moves every row away, and one Undo brings them back",
   await clickWith("Control", await row(tree, "README.md"));
   await clickWith("Control", await row(tree, "package.json"));
   await menuPick(await row(tree, "package.json"), /^Delete/);
-  const dialog = await screen.findByRole("dialog", { name: "Delete" });
-  expect(dialog.textContent).toContain("Move 2 items to Recently deleted?");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(tree.querySelector('[data-path="README.md"]')).toBeNull());
   expect(tree.querySelector('[data-path="package.json"]')).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
@@ -125,8 +122,6 @@ test("Undo of a bulk delete restores every path that is free and names the ones 
   await clickWith("Control", await row(tree, "README.md"));
   await clickWith("Control", await row(tree, "package.json"));
   await menuPick(await row(tree, "package.json"), /^Delete/);
-  const dialog = await screen.findByRole("dialog", { name: "Delete" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(tree.querySelector('[data-path="README.md"]')).toBeNull());
   // An agent writes a new package.json before Undo.
   await client.request({

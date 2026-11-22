@@ -14,6 +14,11 @@ export interface Context {
   waitUntil(promise: Promise<unknown>): void;
   /** The account backend's grant keys. */
   grantKeys: KeySource;
+  /**
+   * The account backend's word, now, on an org grant (ADR 0206 §6): whether it still speaks for
+   * its member with the role it carries. Undefined when the backend can't be asked.
+   */
+  orgStanding(grant: string): Promise<{ current: boolean } | undefined>;
   /** A fresh id with its prefix (`pub`, `drf`, `trf`, `apl`, `rpt`): 24 random hex digits. */
   newId(prefix: IdPrefix): string;
   /** A fresh proof token (ADR 0174 §13): 32 random bytes as base64url. */

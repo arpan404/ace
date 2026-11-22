@@ -1,10 +1,10 @@
-import { CaretDownIcon, DotsThreeIcon } from "@ace/icons";
+import { CaretDownIcon, DotsThreeIcon, SquareSplitHorizontalIcon } from "@ace/icons";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { EditorTabView } from "./editor-tab.tsx";
 import type { EditorBuffers } from "./editor-buffers.ts";
-import { carriesTab, copiesOnDrop, readTabDrag } from "./drag.ts";
+import { carriesGroupDrag, copiesOnDrop, readGroupDrag } from "./drag.ts";
 import type { GroupActions } from "./group-actions.ts";
 import { tabLabels, type GroupNode } from "@ace/ui-core/editor-workbench";
 import { fileName, folderOf } from "./paths.ts";
@@ -12,7 +12,8 @@ import { TabMenu } from "./tab-menu.tsx";
 
 /**
  * One group's strip: its tabs (one tab stop; arrows move, Delete closes), a drop slot while a
- * tab is dragged over it, a ⌄ listing every tab while they overflow, and the group's ⋯.
+ * tab is dragged over it, a ⌄ listing every tab while they overflow, Split right (⌥: down) and
+ * the group's ⋯.
  */
 export function TabStrip(props: {
   group: GroupNode;
@@ -21,30 +22,39 @@ export function TabStrip(props: {
   actions: GroupActions;
   /** Room before the tabs (compact layout's "Show files"). */
   lead?: ReactNode;
-  /** Extra items for the ⋯ menu (compact layout lists the other groups). */
-  groupMenu?: ReactNode;
   /** The host's items at the end of each tab's menu. */
   tabMenuItems?: ((path: string) => ReactNode) | undefined;
+  /** Whose explorer's files may be dropped here. */
+  threadId?: string | undefined;
 }) {
   const { group, actions } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const [drop, setDrop] = useState<number | undefined>(undefined);
-  const overflowing = useOverflow(scroller, group.tabs.length);
+  const edges = useOverflow(scroller, group.tabs.length);
+  const overflowing = edges.overflowing;
   const labels = tabLabels(group.tabs.map((tab) => tab.path));
   const activeIndex = Math.max(
     0,
     group.tabs.findIndex((tab) => tab.path === group.active),
   );
 
-  // The active tab always scrolls into view (spec 28).
+  // The active tab always scrolls into view (spec 28): when it changes, once the ⌄ takes its
+  // room, and whenever the strip is resized (a split, full view, the panel's edge).
   const active = group.active;
   useLayoutEffect(() => {
-    if (active === undefined) return;
-    const shown = scroller.current?.querySelector<HTMLElement>(
-      `[data-path="${CSS.escape(active)}"]`,
-    );
-    shown?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [active]);
+    const element = scroller.current;
+    // With every tab in view there is nothing to scroll to.
+    if (active === undefined || !overflowing || !element) return;
+    const reveal = () => {
+      const shown = element.querySelector<HTMLElement>(`[data-path="${CSS.escape(active)}"]`);
+      if (shown) element.scrollLeft = revealedScroll(element, shown);
+    };
+    reveal();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active, overflowing]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>, index: number) => {
     const tabs = group.tabs;
@@ -70,16 +80,18 @@ export function TabStrip(props: {
   return (
     <div
       data-part="editor-strip"
-      className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border pr-1 pl-1.5"
+      className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5"
     >
       {props.lead}
       <div
         ref={scroller}
         role="tablist"
         aria-label="Open files"
+        // An edge hiding tabs fades instead of cutting a name off.
+        style={overflowing ? { maskImage: fadeMask(edges.left, edges.right) } : undefined}
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
         onDragOver={(event) => {
-          if (!carriesTab(event.dataTransfer)) return;
+          if (!carriesGroupDrag(event.dataTransfer)) return;
           event.preventDefault();
           if (event.target === event.currentTarget) setDrop(group.tabs.length);
         }}
@@ -88,7 +100,7 @@ export function TabStrip(props: {
           if (!(into instanceof Node && event.currentTarget.contains(into))) setDrop(undefined);
         }}
         onDrop={(event) => {
-          const drag = readTabDrag(event.dataTransfer);
+          const drag = readGroupDrag(event.dataTransfer, props.threadId);
           const index = drop ?? group.tabs.length;
           setDrop(undefined);
           if (!drag) return;
@@ -120,7 +132,7 @@ export function TabStrip(props: {
                 onClose={() => actions.close([tab.path])}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 onDragOver={(event, after) => {
-                  if (!carriesTab(event.dataTransfer)) return;
+                  if (!carriesGroupDrag(event.dataTransfer)) return;
                   event.preventDefault();
                   setDrop(after ? index + 1 : index);
                 }}
@@ -129,32 +141,45 @@ export function TabStrip(props: {
           </div>
         ))}
       </div>
-      {overflowing && <OverflowMenu group={group} actions={actions} />}
-      <Menu>
-        <MenuTrigger render={<IconButton label="Group actions" size="sm" icon={DotsThreeIcon} />} />
-        <MenuContent align="end">
-          {props.groupMenu}
-          <MenuItem
-            disabled={!group.active}
-            onClick={() => group.active && actions.splitTab(group.active, "right")}
-          >
-            Split right
-          </MenuItem>
-          <MenuItem
-            disabled={!group.active}
-            onClick={() => group.active && actions.splitTab(group.active, "down")}
-          >
-            Split down
-          </MenuItem>
-          <MenuSeparator />
-          <MenuItem
-            disabled={group.tabs.length === 0}
-            onClick={() => actions.close(group.tabs.map((tab) => tab.path))}
-          >
-            Close all
-          </MenuItem>
-        </MenuContent>
-      </Menu>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {overflowing && <OverflowMenu group={group} actions={actions} />}
+        <IconButton
+          label="Split right"
+          shortcut="editor.splitRight"
+          size="sm"
+          icon={SquareSplitHorizontalIcon}
+          // An empty group has nothing to show twice.
+          disabled={group.active === undefined}
+          // ⌥-click splits down, as ⇧⌥⌘\ does.
+          onClick={(event) => actions.split(event.altKey ? "down" : "right")}
+        />
+        <Menu>
+          <MenuTrigger
+            render={<IconButton label="Group actions" size="sm" icon={DotsThreeIcon} />}
+          />
+          <MenuContent align="end">
+            <MenuItem
+              disabled={!group.active}
+              onClick={() => group.active && actions.splitTab(group.active, "right")}
+            >
+              Split right
+            </MenuItem>
+            <MenuItem
+              disabled={!group.active}
+              onClick={() => group.active && actions.splitTab(group.active, "down")}
+            >
+              Split down
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem
+              disabled={group.tabs.length === 0}
+              onClick={() => actions.close(group.tabs.map((tab) => tab.path))}
+            >
+              Close all
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      </div>
     </div>
   );
 }
@@ -186,19 +211,69 @@ function OverflowMenu(props: { group: GroupNode; actions: GroupActions }) {
   );
 }
 
-function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: number): boolean {
-  const [overflowing, setOverflowing] = useState(false);
+/** Room kept beside a revealed tab, so it clears the edge's fade. */
+const revealMargin = 24;
+
+/** The strip's scroll that shows `tab` whole, moving as little as it can. */
+function revealedScroll(strip: HTMLElement, tab: HTMLElement): number {
+  const box = strip.getBoundingClientRect();
+  const at = tab.getBoundingClientRect();
+  const left = at.left - box.left + strip.scrollLeft;
+  const right = left + at.width;
+  if (left - revealMargin < strip.scrollLeft) return Math.max(0, left - revealMargin);
+  if (right + revealMargin > strip.scrollLeft + strip.clientWidth)
+    return right + revealMargin - strip.clientWidth;
+  return strip.scrollLeft;
+}
+
+/** The strip's mask: each edge that hides tabs fades over 24px. */
+function fadeMask(left: boolean, right: boolean): string {
+  const start = left ? "transparent, black 24px" : "black, black";
+  const end = right ? "black calc(100% - 24px), transparent" : "black, black";
+  return `linear-gradient(to right, ${start}, ${end})`;
+}
+
+interface Edges {
+  /** The tabs are wider than the strip: the ⌄ list shows (spec 28). */
+  overflowing: boolean;
+  /** Tabs are hidden past the left edge. */
+  left: boolean;
+  /** Tabs are hidden past the right edge. */
+  right: boolean;
+}
+
+const fits: Edges = { overflowing: false, left: false, right: false };
+
+function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: number): Edges {
+  const [edges, setEdges] = useState(fits);
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
     // One tab never needs the list, even when it is wider than the strip.
-    const measure = () =>
-      setOverflowing(count > 1 && element.scrollWidth > element.clientWidth + 1);
+    const measure = () => {
+      const overflowing = count > 1 && element.scrollWidth > element.clientWidth + 1;
+      const next = overflowing
+        ? {
+            overflowing,
+            left: element.scrollLeft > 1,
+            right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+          }
+        : fits;
+      setEdges((was) =>
+        was.overflowing === next.overflowing && was.left === next.left && was.right === next.right
+          ? was
+          : next,
+      );
+    };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    element.addEventListener("scroll", measure, { passive: true });
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener("scroll", measure);
+    };
   }, [scroller, count]);
-  return overflowing;
+  return edges;
 }

@@ -9,6 +9,7 @@ import { useMarkAccent } from "./spade-accent.ts";
 import { DottedFace, faceDotOf } from "./spade-list-parts.tsx";
 import { ProfileArchived } from "./spade-profile-archived.tsx";
 import { spadeBotRow } from "./spade-list-rows.ts";
+import { useSharedIn } from "./spade-shared-lines.tsx";
 import { sentAvatar, useEditBot } from "./spade-profile-actions.ts";
 import { useWornPairs, type RosterBot } from "./use-spade-roster.ts";
 
@@ -25,7 +26,9 @@ export function ProfileHead(props: { bot: RosterBot }) {
   const { bot } = props;
   const main = bot.kind === "main";
   // One quiet line under the name: a development bot, and Full access while it is in it.
+  const sharedIn = useSharedIn(bot);
   const quiet = [
+    sharedIn,
     spadeIsDevelopment(bot.package) && "Development",
     bot.fullAccess && "Full access",
   ].filter((word): word is string => typeof word === "string");

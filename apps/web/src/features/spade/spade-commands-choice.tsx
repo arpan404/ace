@@ -32,7 +32,9 @@ export function CommandsChoice(props: {
 }) {
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string>();
+  const [tried, setTried] = useState<Choice>();
   const choose = async (choice: Choice) => {
+    setTried(choice);
     setSaving(true);
     setRefusal(undefined);
     try {
@@ -50,7 +52,13 @@ export function CommandsChoice(props: {
     <SettingRow
       title={props.title}
       description={
-        refusal ? <Refusal>{refusal}</Refusal> : props.effective === "outside" && outsideSentence
+        refusal ? (
+          <Refusal onConfirmed={tried === undefined ? undefined : () => void choose(tried)}>
+            {refusal}
+          </Refusal>
+        ) : (
+          props.effective === "outside" && outsideSentence
+        )
       }
       density="compact"
       inline

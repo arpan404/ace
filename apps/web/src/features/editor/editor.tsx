@@ -2,7 +2,15 @@
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
 import type { Range, Selection } from "@ace/editor";
 import { fileLanguage, pathParts } from "@ace/ui-core";
-import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -44,8 +52,15 @@ import { useEditorLayer } from "./use-layer.ts";
 import { useWrap, type WrapEdits } from "./use-wrap.ts";
 import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
+import { rememberColours, rememberedColours } from "./view-handoff.ts";
+import { useViewHandoff } from "./use-view-handoff.ts";
 
 const paddingRight = 24;
+/** The find widget's height with one row and with replace showing, plus a little air. */
+const findCoverFind = 44;
+const findCoverReplacing = 76;
+/** A text column narrower than this wraps by itself when the wrap setting is off. */
+const narrowColumns = 80;
 /** The gutter's right edge, where a line's fold control sits. */
 const foldControl = 16;
 /** The gutter's last pixels, where a changed line's bar takes a press. */
@@ -54,6 +69,7 @@ const markZone = 6;
 const noRulers: readonly number[] = [];
 const noLines: readonly number[] = [];
 const noHits: readonly Range[] = [];
+const noRanges: readonly Range[] = [];
 
 /** How long the first paint waits for colours before it shows plain text. */
 const firstPaintHold = 250;
@@ -70,7 +86,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   // changing, so a memoized read of its rows would keep a height the file has outgrown.
   "use no memo";
   const readOnly = props.readOnly ?? false;
-  const wrap = props.wrap ?? false;
+  const wrapSetting = props.wrap ?? false;
+  /** Alt+Z turned off the wrap a narrow editor took by itself. */
+  const [narrowUnwrapped, setNarrowUnwrapped] = useState(false);
   /** The wrap index hears each edit as the document applies it, before React renders it. */
   const appliedRef = useRef<WrapEdits | undefined>(undefined);
   /** Folds move with every edit, and open when it changes their hidden text. */
@@ -130,13 +148,18 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [goingTo, setGoingTo] = useState(false);
+  /** The hidden text box has the keyboard: only then are the carets live and the line washed. */
+  const [focused, setFocused] = useState(false);
   const [paint, setPaint] = useState(0);
   // A file with a grammar is first drawn with its colours: the plain text it would show while
   // markit's worker loads is held (kept in layout, not shown) until the first colours arrive,
   // or briefly after, so a slow or large file is never kept blank. Later changes keep the
   // colours they had.
   const [shown, setShown] = useState(false);
-  const held = !shown && language !== undefined;
+  // Another view of this text (a split, or this view before a layout change mounted it again)
+  // already drew its colours: they are drawn at once, never held or shown plain.
+  const seeded = paint === 0 ? rememberedColours(state.doc) : undefined;
+  const held = !shown && language !== undefined && seeded === undefined;
   useEffect(() => {
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- the highlighter's first colours arrive outside React.
     if (paint > 0) setShown(true);
@@ -158,6 +181,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     leastRowCells,
     Math.floor((viewport.width - gutter - paddingRight) / cell),
   );
+  // Beside the chat the editor is narrow: long lines wrap there even with the setting off.
+  const narrow = !wrapSetting && columns < narrowColumns;
+  const wrap = wrapSetting || (narrow && !narrowUnwrapped);
+  const toggleWrap = narrow ? () => setNarrowUnwrapped((value) => !value) : props.onToggleWrap;
   const visible = useRef({ first: 0, last: 200 });
   const anchor = useMemo(() => new ScrollAnchor(scroller, setScroll), [scroller, setScroll]);
   useLayoutEffect(() => anchor.setLineHeight(lineHeight), [anchor, lineHeight]);
@@ -169,6 +196,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     visible,
     anchor,
   });
+  useViewHandoff({ doc, field, scroller, layout, lineHeight, onScroll: setScroll });
 
   const indentSize = doc?.indent().size ?? 2;
   const folding = useFolding({
@@ -233,7 +261,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     if (!highlighter || !doc) return;
     const stop = highlighter.subscribe(() => setPaint((value) => value + 1));
     // After subscribing, so the first pass cannot finish before anyone listens.
-    highlighter.setText(doc.text());
+    // Following the document, so a highlighter the engine lost is rebuilt from its text.
+    highlighter.follow(() => doc.text());
     return stop;
   }, [state.highlighter, doc]);
 
@@ -255,6 +284,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
 
   const { announcement, announce } = useAnnouncement();
 
+  /** How much of the code's top the floating find widget covers; a find hit lands below it. */
+  const findCover = useRef(0);
+  const coveredTop = useCallback(() => findCover.current, []);
   const { caretBox, reveal } = useReveal({
     doc: state.doc,
     layout,
@@ -264,6 +296,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     lineHeight,
     wrap,
     viewport,
+    coveredTop,
     onScroll: setScroll,
   });
 
@@ -309,6 +342,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   });
   useLayoutEffect(() => {
     scopeRef.current = finder.mapScope;
+    findCover.current = finder.open ? (finder.replacing ? findCoverReplacing : findCoverFind) : 0;
   });
 
   const navigationKeys = useEditorKeys({
@@ -335,7 +369,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       return true;
     },
     ...(props.onSave ? { onSave: props.onSave } : {}),
-    ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
+    ...(toggleWrap ? { onToggleWrap: toggleWrap } : {}),
     onEscape: () => {
       if (!finder.open) return false;
       finder.close();
@@ -373,8 +407,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const [tokens, setTokens] = useState<Token[][]>([]);
   const tokenKey = `${paint}:${first}:${last}`;
   useEffect(() => {
+    const drawn = state.highlighter?.tokens(first, last) ?? [];
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- colours live in the highlighter's own store, not in React.
-    setTokens(state.highlighter?.tokens(first, last) ?? []);
+    setTokens(drawn);
+    if (doc) rememberColours(doc, first, drawn);
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
   }, [tokenKey, state.highlighter]);
 
@@ -481,28 +517,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       data-selected-lines={selected}
       className={cn("flex h-full min-h-0 flex-col", props.className)}
     >
-      {finder.open ? <EditorFindBar finder={finder} mac={isMacPlatform()} /> : null}
-      {goingTo && doc ? (
-        <GoToLineBar
-          lineCount={lineCount}
-          lineLength={(line) => doc.line(line).length}
-          onGo={(position) => {
-            setGoingTo(false);
-            setAffinity(noAffinity);
-            state.select([{ anchor: position, head: position }]);
-            reveal(position, false);
-            announce(position);
-            field.current?.focus({ preventScroll: true });
-          }}
-          onClose={() => {
-            setGoingTo(false);
-            field.current?.focus({ preventScroll: true });
-          }}
-        />
-      ) : null}
       <div
         data-editor-frame
-        className="group/editor relative min-h-0 flex-1 font-mono text-ui focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
+        // Where the text starts, for chrome above the editor that lines up with it (breadcrumbs).
+        data-text-start={gutter}
+        className="group/editor relative min-h-0 flex-1 font-mono text-ui"
         style={{
           ...(fontSize === undefined ? {} : { fontSize }),
           ...(fontFamily === undefined ? {} : { fontFamily }),
@@ -511,7 +530,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
         <div
           ref={scroller}
           data-editor-scroller
-          className="h-full min-h-0 overflow-auto focus-ring-inset"
+          className="h-full min-h-0 overflow-auto focus-ring-inset [&::-webkit-scrollbar-corner]:bg-transparent"
           onScroll={(event) => {
             const element = event.currentTarget;
             setScroll({ top: element.scrollTop, left: element.scrollLeft });
@@ -529,7 +548,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           <div
             ref={host}
             data-highlight-pending={held || undefined}
-            className={cn("relative min-h-full min-w-full", held && "opacity-0")}
+            className={cn("relative min-h-full min-w-full select-none", held && "opacity-0")}
             style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
           >
             <div aria-hidden>
@@ -546,8 +565,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 indentGuides={props.indentGuides ?? true}
                 guides={decorations.guides}
                 indentSize={indentSize}
-                brackets={decorations.brackets}
-                occurrences={decorations.occurrences}
+                brackets={focused ? decorations.brackets : undefined}
+                occurrences={focused ? decorations.occurrences : noRanges}
                 whitespace={whitespace}
                 rulers={props.rulers ?? noRulers}
               />
@@ -556,7 +575,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
                 const startRow = layout?.startOf(line) ?? line;
                 const long = text.length > longLine;
-                const lineTokens = tokens[offset];
+                const lineTokens = tokens[offset]?.length ? tokens[offset] : seeded?.get(line);
                 const lineMatches = activeQuery ? byLine.get(line) : undefined;
                 // A line can be a megabyte long: only the rows inside the window are built, and a
                 // row outside it is never sliced, coloured or given a find match.
@@ -586,7 +605,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                       gutter={gutter}
                       top={index * lineHeight}
                       lineHeight={lineHeight}
-                      current={line === caretLine}
+                      current={focused && line === caretLine}
                       fold={
                         at !== 0
                           ? undefined
@@ -631,6 +650,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 cell={cell}
                 lineHeight={lineHeight}
                 blink={props.cursorBlinking}
+                focused={focused}
                 affinity={affinity}
                 primary={state.primary}
                 composing={
@@ -715,8 +735,14 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             autoCapitalize="off"
             autoCorrect="off"
             readOnly={readOnly}
-            onBlur={props.onBlur}
-            onFocus={mirror}
+            onBlur={() => {
+              setFocused(false);
+              props.onBlur?.();
+            }}
+            onFocus={() => {
+              setFocused(true);
+              mirror();
+            }}
             autoFocus={props.focusOnMount}
             onKeyDown={onKeyDown}
             onInput={input.onInput}
@@ -731,6 +757,25 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             style={{ left: textareaLeft, top: textareaTop }}
           />
         ) : null}
+        {goingTo && doc ? (
+          <GoToLineBar
+            lineCount={lineCount}
+            lineLength={(line) => doc.line(line).length}
+            onGo={(position) => {
+              setGoingTo(false);
+              setAffinity(noAffinity);
+              state.select([{ anchor: position, head: position }]);
+              reveal(position, false);
+              announce(position);
+              field.current?.focus({ preventScroll: true });
+            }}
+            onClose={() => {
+              setGoingTo(false);
+              field.current?.focus({ preventScroll: true });
+            }}
+          />
+        ) : null}
+        {finder.open ? <EditorFindBar finder={finder} mac={isMacPlatform()} /> : null}
         {announcement ? (
           <span key={announcement.seq} aria-live="polite" className="sr-only">
             {announcement.text}

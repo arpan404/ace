@@ -95,3 +95,19 @@ test("Settings › Spade sets the default switches and the apps bots never use",
   await waitFor(() => expect(spade.security.permissions.neverApps).toContain("Mail"));
   expect(await list.findByText("Mail")).toBeTruthy();
 });
+
+test("an older control refused for want of the person's standing offers Confirm it's you, not the bare refusal", async () => {
+  await spadeApp("/settings/spade/security", (api) => {
+    seed(api);
+    api.security.permissions.standing = false;
+  });
+  const commands = within(
+    (await screen.findByRole("heading", { name: "Commands" })).closest("section") ?? document.body,
+  );
+  await userEvent.click(await commands.findByRole("combobox", { name: "Where commands run" }));
+  await userEvent.click(await screen.findByRole("option", { name: /^Outside/ }));
+  await waitFor(() =>
+    expect(commands.getByText(/confirm it's you/i, { selector: "[role=status]" })).toBeTruthy(),
+  );
+  expect(commands.queryByText("Confirm your identity to continue.")).toBeNull();
+});

@@ -357,13 +357,13 @@ export function spadeSignInFailureWords(app: string, failure: SpadeSignInFailure
   }
 }
 
-/** Whether a connected app works, in a word for Settings › Apps: Working or Needs reconnect. */
+/** Whether a connected app works, in a word for Settings › Apps: Working or Signed out. */
 export function spadeConnectorHealth(connector: SpadeConnector): string {
   switch (connector.state) {
     case "connected":
       return "Working";
     case "needs_reconnect":
-      return "Needs reconnect";
+      return "Signed out";
     case "signing_in":
       return "Waiting for you to finish signing in";
     case "connecting":

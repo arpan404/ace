@@ -80,7 +80,7 @@ function FilterField(props: { label: string; value: string; onChange(value: stri
       spellCheck={false}
       autoComplete="off"
       onChange={(event) => props.onChange(event.target.value)}
-      className="h-8 w-full min-w-0 rounded-md bg-foreground/5 px-2.5 text-ui text-foreground shadow-[inset_0_0_0_1px_var(--border)] outline-none placeholder:text-subtle-foreground focus:shadow-[inset_0_0_0_1px_var(--ring)]"
+      className="h-8 w-full min-w-0 rounded-md bg-secondary px-2.5 text-ui text-foreground outline-none placeholder:text-subtle-foreground focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]"
     />
   );
 }
@@ -135,8 +135,8 @@ export function ContentSearch({
   const status = statusLine(state);
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-col gap-1.5 px-2 pb-1.5">
-        <label className="relative flex h-8 min-w-0 items-center rounded-md bg-foreground/5 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--motion-fast) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
+      <div className="flex shrink-0 flex-col gap-1.5 px-2 pt-2 pb-1.5">
+        <label className="relative flex h-8 min-w-0 items-center rounded-md bg-secondary has-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]">
           <input
             ref={ref}
             type="search"
@@ -233,7 +233,7 @@ export function ContentSearch({
       <div
         ref={list}
         role="presentation"
-        className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pb-2"
         onKeyDown={onListKeys}
         onScroll={(event) => store.keepScroll(event.currentTarget.scrollTop)}
       >

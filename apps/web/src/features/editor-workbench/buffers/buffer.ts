@@ -76,7 +76,7 @@ export class Buffer implements TextBuffer {
   #status: BufferStatus = { kind: "loading" };
   /** The disk text and version the buffer started from. */
   #base: Theirs | undefined;
-  /** The document's version at the last clean point; NaN when it has none. */
+  /** The document's content id at the last clean point; NaN when it has none. Undo back to it is clean again. */
   #cleanAt = Number.NaN;
   #dirty = false;
   #clash: Clash | undefined;
@@ -158,8 +158,10 @@ export class Buffer implements TextBuffer {
   edited(): void {
     const doc = this.#doc;
     if (!doc || this.#landing) return;
-    if (!this.#dirty && doc.version() !== this.#cleanAt) {
-      this.#dirty = true;
+    // Unsaved means the text differs from the saved text: undo back to it is clean again.
+    const dirty = doc.contentId() !== this.#cleanAt;
+    if (dirty !== this.#dirty) {
+      this.#dirty = dirty;
       this.#emit({ type: "state" });
     }
     this.#cancelDraft?.();
@@ -472,8 +474,10 @@ export class Buffer implements TextBuffer {
     const expected = clash?.kind === "deleted" ? null : clash ? clash.theirs.version : base.version;
     // A Replace answers the version the person was shown; a newer one needs its own answer.
     if (mode === "replace" && expected !== over) return { kind: "clash" };
+    // The saved text is its own undo step: undo after more typing comes back to it.
+    doc.commit();
     const text = doc.text();
-    const at = doc.version();
+    const savedId = doc.contentId();
     const running = (async (): Promise<SaveOutcome> => {
       try {
         const result = await this.#ctx.files.write(this.key, text, expected);
@@ -488,8 +492,10 @@ export class Buffer implements TextBuffer {
         this.#clash = undefined;
         this.#manualSave = false;
         this.#conflictMine = "";
-        if (doc.version() === at) this.#markClean();
-        else this.#unclean();
+        // Typed during the write: unsaved, until undo brings the text back to what was written.
+        this.#cleanAt = savedId;
+        if (this.#doc === doc && doc.contentId() === savedId) this.#markClean();
+        else this.#unsavedSince();
         this.#cancelDraft?.();
         this.#cancelDraft = undefined;
         void this.#persist();
@@ -569,7 +575,7 @@ export class Buffer implements TextBuffer {
     this.#base = base;
     this.#dirty = dirty;
     this.#manualSave = false;
-    this.#cleanAt = dirty ? Number.NaN : doc.version();
+    this.#cleanAt = dirty ? Number.NaN : doc.contentId();
     this.#clash = clash;
     this.bytes = utf8Length(text);
     this.#status = { kind: "ready" };
@@ -593,7 +599,7 @@ export class Buffer implements TextBuffer {
 
   #markClean(): void {
     const doc = this.#doc;
-    if (doc) this.#cleanAt = doc.version();
+    if (doc) this.#cleanAt = doc.contentId();
     this.#dirty = false;
     this.#emit({ type: "state" });
   }
@@ -605,6 +611,11 @@ export class Buffer implements TextBuffer {
    */
   #unclean(): void {
     this.#cleanAt = Number.NaN;
+    this.#unsavedSince();
+  }
+
+  /** The text moved past the clean point: unsaved. */
+  #unsavedSince(): void {
     if (this.#dirty) return;
     this.#dirty = true;
     this.#emit({ type: "state" });

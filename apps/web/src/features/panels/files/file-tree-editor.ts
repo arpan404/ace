@@ -1,41 +1,23 @@
 import { useClient } from "@ace/client-react";
-import { useMemo } from "react";
 import {
   editorKind,
   editorLayoutOf,
   findTab,
-  useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "@/lib/workspace/index.ts";
-import {
-  openEditorsMru,
-  renamedPath,
-  renameInLayout,
-  type EditorRename,
-} from "../editor/editor-layout.ts";
+import { renamedPath, renameInLayout, type EditorRename } from "../editor/editor-layout.ts";
 import { editorRegistry } from "../editor/editor-registry.ts";
-import { openInEditorPanel } from "./open-file.ts";
+import { useEditorOpen, type EditorOpen } from "./editor-open.ts";
 
 /*
  * The explorer, content search and quick open's seam to the editor (docs/editor/workbench.md):
  * what they ask of the editor area and what they tell it, in one small surface, answered by the
- * Editor's model (`openInEditorPanel`, its MRU order, a rename applied to every group).
+ * Editor's model (`openInEditorPanel`, its MRU order, a rename applied to every group). Opening
+ * and the MRU order alone are `editor-open.ts`, which quick open uses without the buffers.
  */
 
-/** How a file opens: a glance (preview) or kept; at a line and 0-based column. */
-export interface EditorOpenOptions {
-  preview: boolean;
-  line?: number | undefined;
-  column?: number | undefined;
-  /** With `column`, select this many code units there (a search match), revealed centred. */
-  length?: number | undefined;
-  /** Move the keyboard into the editor once it shows (a pick in quick open), not back where
-   * focus was before. */
-  focus?: boolean | undefined;
-  /** ⌘↵ or ⌘-click: in the group to the right, splitting right when there is none. */
-  side?: boolean | undefined;
-}
+export type { EditorOpenOptions } from "./editor-open.ts";
 
 export { renamedPath, type EditorRename } from "../editor/editor-layout.ts";
 
@@ -65,10 +47,7 @@ export function onRevealInExplorer(threadId: string, listener: Listener): () => 
   };
 }
 
-export interface Editor {
-  open(path: string, options: EditorOpenOptions): void;
-  /** Open editors, most recently used first. */
-  openEditors: readonly string[];
+export interface Editor extends EditorOpen {
   /** The explorer renamed an entry: open editors of it (or inside it) follow, edits included. */
   renamed(rename: EditorRename): void;
 }
@@ -77,27 +56,9 @@ export interface Editor {
 export function useEditor(threadId: string): Editor {
   const store = useWorkspaceStore();
   const client = useClient();
-  const workspace = useScopeWorkspace(threadId);
   const actions = useWorkspaceActions(threadId);
-  const layout = useMemo(() => editorLayoutOf(workspace), [workspace]);
-  const openEditors = useMemo(() => openEditorsMru(layout), [layout]);
-  const target = {
-    scope: threadId,
-    read: () => store.get(threadId),
-    actions,
-    preferred: () => store.preferred,
-  };
   return {
-    open: (path, options) =>
-      openInEditorPanel(target, path, {
-        keep: !options.preview,
-        side: options.side,
-        line: options.line,
-        column: options.column,
-        length: options.length,
-        focus: options.focus,
-      }),
-    openEditors,
+    ...useEditorOpen(threadId),
     renamed: (rename) => {
       // Unsaved buffers and their drafts move first, so the tabs find them at the new paths.
       editorRegistry(client).rename(threadId, (path) => renamedPath(path, rename));

@@ -97,10 +97,15 @@ interface LayoutValue {
    * remembered open), so a crowded window can give it the sidebar's room. Set by the panel
    * itself; docked under the column it needs no such room. */
   rightPanelShown: boolean;
+  /** The showing side panel is in full view: the sidebar steps aside while it is. */
+  rightPanelFull: boolean;
   /** Put the showing side panel away (asking for the sidebar back on a crowded window). */
   hideRightPanel(): void;
-  /** The panel registers how to hide itself while it shows; undefined when it hides. */
-  setRightPanel(hide: (() => void) | undefined): void;
+  /**
+   * The panel registers how to hide itself while it shows, and whether it is in full view;
+   * undefined when it hides.
+   */
+  setRightPanel(hide: (() => void) | undefined, full?: boolean): void;
   /** The injected key-value storage, for features that persist their own local UI state. */
   storage: KeyValueStorage | undefined;
   /** Storage for this window alone that outlives a reload (the browser's session storage). */
@@ -160,10 +165,11 @@ export function LayoutProvider(props: {
     [setPaletteOpen],
   );
   const closeSearch = useCallback(() => setSearch(undefined), []);
-  const [rightPanel, setRightPanelState] = useState<{ hide(): void }>();
+  const [rightPanel, setRightPanelState] = useState<{ hide(): void; full: boolean }>();
   // Stable, so the panel registering itself doesn't re-run on every layout change.
   const setRightPanel = useCallback(
-    (hide: (() => void) | undefined) => setRightPanelState(hide ? { hide } : undefined),
+    (hide: (() => void) | undefined, full = false) =>
+      setRightPanelState(hide ? { hide, full } : undefined),
     [],
   );
   const [workspaceStore] = useState(() => {
@@ -208,6 +214,7 @@ export function LayoutProvider(props: {
       openSearch,
       closeSearch,
       rightPanelShown: rightPanel !== undefined,
+      rightPanelFull: rightPanel?.full ?? false,
       hideRightPanel: () => rightPanel?.hide(),
       setRightPanel,
       storage,
