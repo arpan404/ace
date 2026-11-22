@@ -61,6 +61,8 @@ interface Listed {
   model: string | undefined;
   /** What its oldest open request asks for: `plan_review`, `question`, `approval`. */
   asking: string | undefined;
+  /** When its thread last changed: when it ended, once it has. */
+  updatedAt: number | undefined;
 }
 
 const sameListed = (a: readonly Listed[], b: readonly Listed[]) =>
@@ -70,7 +72,8 @@ const sameListed = (a: readonly Listed[], b: readonly Listed[]) =>
       one.state === b[at]?.state &&
       one.provider === b[at]?.provider &&
       one.model === b[at]?.model &&
-      one.asking === b[at]?.asking,
+      one.asking === b[at]?.asking &&
+      one.updatedAt === b[at]?.updatedAt,
   );
 
 /** Each ace agent as the thread list on the bot's machine has it. */
@@ -101,6 +104,7 @@ function useListed(ids: readonly string[]): readonly Listed[] {
             provider: thread?.execution?.provider ?? thread?.provider,
             model: thread?.execution?.model ?? thread?.live?.model,
             asking: thread?.live?.asking?.[0]?.kind,
+            updatedAt: thread?.updatedAt,
           };
         }),
     [joined],
@@ -154,6 +158,10 @@ export function useSpadeWorkers(
       title: worker.name,
       state: stateOf(worker, own, node),
       startedAt,
+      // How long it ran, once it ended: an ace agent's thread last changed then.
+      ...(own?.updatedAt !== undefined && subagentTerminal(stateOf(worker, own, node))
+        ? { endedAt: own.updatedAt }
+        : {}),
       status: worker.kind === "bot" ? node?.status : undefined,
       asking: own?.asking,
     };

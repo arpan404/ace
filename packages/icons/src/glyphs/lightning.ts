@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polygon } from "../geometry.ts";
-import { shape } from "../parts.ts";
+import { shape, type Part } from "../parts.ts";
 
 /** Fast, or a quick action: a lightning bolt. */
-export const LightningIcon = /* @__PURE__ */ glyph("Lightning", () => [
+export const lightning = (): Part[] => [
   shape(
     polygon([
       [14, 2.5, 0.8],
@@ -14,4 +14,6 @@ export const LightningIcon = /* @__PURE__ */ glyph("Lightning", () => [
       [12.75, 10.5, 0.6],
     ]),
   ),
-]);
+];
+
+export const LightningIcon = /* @__PURE__ */ glyph("Lightning", lightning);

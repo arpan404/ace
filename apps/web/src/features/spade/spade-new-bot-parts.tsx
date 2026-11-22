@@ -28,7 +28,7 @@ import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
 /** The quiet line's controls: words that brighten under the pointer, no box until hovered. */
 const quiet =
-  "-mx-0.5 flex h-6 max-w-full min-w-0 items-center rounded-md px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground data-popup-open:bg-hover data-popup-open:text-foreground";
+  "-mx-0.5 flex h-6 max-w-full min-w-fit items-center whitespace-nowrap rounded-md px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground data-popup-open:bg-hover data-popup-open:text-foreground";
 
 /**
  * How a new bot runs, as rows at the top of its page: its model, and its machine when there is
@@ -47,7 +47,7 @@ export function RunsWithRows(props: {
   const machineName = props.host.machine.primary ? "This machine" : props.host.machine.name;
   return (
     <>
-      <SettingRow title="Model" density="compact" inline>
+      <SettingRow title="Model" density="compact">
         <SpadeModelPicker
           label="Model"
           subscriptions
@@ -57,11 +57,11 @@ export function RunsWithRows(props: {
           onChange={(next) => props.onModel(next === props.newBotModel ? "" : next)}
         />
       </SettingRow>
-      <SettingRow title="Machine" density="compact" inline>
+      <SettingRow title="Machine" density="compact">
         {props.hosts.length > 1 ? (
           <Menu>
             <MenuTrigger aria-label={`Machine: ${machineName}`} className={quiet}>
-              <span className="truncate">{machineName}</span>
+              <span>{machineName}</span>
             </MenuTrigger>
             <MenuContent align="end">
               <MenuRadioGroup
@@ -162,7 +162,7 @@ export function StartFrom(props: {
             >
               <StoreIcon size={20} />
             </span>
-            Store
+            Marketplace
           </button>
         </li>
       )}

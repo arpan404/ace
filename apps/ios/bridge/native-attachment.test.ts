@@ -37,7 +37,12 @@ const file: Attachment = {
   kind: "text",
 };
 
-function sentFromWeb(threadId: string, parts: ContentPart[], attachments: Attachment[] = []) {
+function sentFromWeb(
+  threadId: string,
+  parts: ContentPart[],
+  attachments: Attachment[] = [],
+  previewRefusal?: "unsupported" | "busy",
+) {
   const fake = fixture();
   fake.createThread({ id: threadId, workspaceId: "ace", title: "Photos", provider: "codex" });
   fake.createThread({ id: "elsewhere", workspaceId: "ace", title: "Other", provider: "codex" });
@@ -52,6 +57,7 @@ function sentFromWeb(threadId: string, parts: ContentPart[], attachments: Attach
   ]);
   fake.seedServices({
     attachmentImages: [{ threadId, name: "screen.png" }],
+    ...(previewRefusal ? { previewRefusal } : {}),
     attachmentTexts: [
       { threadId, sha256: notesSha, text: notes, name: "routes.txt" },
       { threadId, sha256: secretSha, text: secret, name: "secret.txt" },
@@ -255,4 +261,50 @@ test("a HEIC whose bytes aren't a picture is never sent to be drawn", async () =
     variant: "original",
   });
   expect(opened.kind).toBe("file");
+});
+
+test("a sent photo still shows when the machine can't make its preview: the phone draws the original", async () => {
+  // A daemon without its image decoder (no ace-media) still says the photo has a preview.
+  const fake = sentFromWeb("no-decoder", [{ type: "text", text: "Here" }], [image], "unsupported");
+  const { owner, itemId } = await personsRow(fake, "no-decoder");
+  const thumbnail = await read(owner, {
+    threadId: "no-decoder",
+    itemId,
+    ref: fixtureImage.sha256,
+    variant: "thumbnail",
+  });
+  expect(thumbnail).toMatchObject({ kind: "image", mimeType: "image/png" });
+  expect(Buffer.from(thumbnail.data, "base64").equals(png)).toBe(true);
+});
+
+test("a preview the machine is too busy for is never swapped for the whole original", async () => {
+  const fake = sentFromWeb("busy", [{ type: "text", text: "Here" }], [image], "busy");
+  const { owner, itemId } = await personsRow(fake, "busy");
+  await expect(
+    read(owner, { threadId: "busy", itemId, ref: fixtureImage.sha256, variant: "thumbnail" }),
+  ).rejects.toThrow();
+});
+
+test("a HEIC preview the machine is too busy for is never swapped for the whole original", async () => {
+  const bytes = "\0\0\0\x18ftypheic\0\0\0\0mif1heic the rest";
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const heic: Attachment = {
+    sha256: sha,
+    bytes: Buffer.byteLength(bytes),
+    mimeType: "image/heic",
+    name: "Photo.heic",
+    kind: "binary",
+    thumbnailAvailable: true,
+  };
+  const fake = sentFromWeb("busy-heic", [{ type: "text", text: "Look" }], [heic], "busy");
+  fake.seedServices({
+    previewRefusal: "busy",
+    attachmentTexts: [
+      { threadId: "busy-heic", sha256: sha, text: bytes, name: heic.name, mimeType: "image/heic" },
+    ],
+  });
+  const { owner, itemId } = await personsRow(fake, "busy-heic");
+  await expect(
+    read(owner, { threadId: "busy-heic", itemId, ref: sha, variant: "thumbnail" }),
+  ).rejects.toThrow();
 });

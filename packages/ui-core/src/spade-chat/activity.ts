@@ -53,6 +53,8 @@ export interface SpadeActivityEntry {
   /** One line of what it touched ("gh pr list --state open"); undefined when there is none. */
   detail: string | undefined;
   costMicros: number | undefined;
+  /** The call it is about (its use, the ask, the answer, the review); from a newer Spade. */
+  callId: string | undefined;
   raw: Record<string, unknown>;
 }
 
@@ -68,6 +70,7 @@ const entryShape = z.object({
   sentence: z.string().nullish().catch(undefined),
   detail: z.string().nullish().catch(undefined),
   cost_micros: z.number().nonnegative().nullish().catch(undefined),
+  call_id: z.string().min(1).nullish().catch(undefined),
 });
 
 /**
@@ -99,6 +102,7 @@ export function parseSpadeActivity(
         sentence: value.sentence || undefined,
         detail: value.detail || undefined,
         costMicros: value.cost_micros ?? undefined,
+        callId: value.call_id ?? undefined,
         raw: fields,
       },
     ];
@@ -180,14 +184,9 @@ function sentenceOf(entry: SpadeActivityEntry): {
         sentence: outcome === "running" ? words.doing : words.done,
         outcome: toolOutcomes[outcome],
       };
-    case "connector": {
-      const { app, tool } = connectorParts(name);
-      const plain = spadeToolWords(tool);
-      return {
-        sentence: app ? `${plain.done} in ${app}` : plain.done,
-        outcome: toolOutcomes[outcome],
-      };
-    }
+    case "connector":
+      // The tool's words name its app ("Created pages in Notion").
+      return { sentence: words.done, outcome: toolOutcomes[outcome] };
     case "bot":
       return { sentence: outcome === "received" ? `Message from ${name}` : `Messaged ${name}` };
     case "approval":

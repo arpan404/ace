@@ -172,7 +172,7 @@ test("a skill's review shows its scan findings with their levels, its SKILL.md a
     action: "Get",
     byLine: "Skill · 1.0.0",
     reviewMark: "Reviewed by ace",
-    signedText: "Signed by the marketplace",
+    signedText: "Signed by the Marketplace",
     findings: [
       { level: "warn", levelWord: "Warning", sentence: "Downloads and runs code." },
       { level: "note", levelWord: "Note", sentence: "Has a large picture." },
@@ -410,12 +410,12 @@ test("the entry page asks as Installed does: a bot package's remove keeps what i
   expect(page.entry).toMatchObject({
     removeQuestion: "Remove Inbox from Installed?",
     removeLine:
-      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the marketplace.",
+      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the Marketplace.",
     turnOnWord: "Turn back on",
     turnOnAsk: {
       question: "Turn Inbox back on?",
       detail:
-        "Its publisher withdrew it: Broken. It runs again at your own risk, until ace turns it off the next time it reads the market.",
+        "Its publisher withdrew it: Broken. It runs again at your own risk, until ace turns it off the next time it reads the Marketplace.",
       confirm: "Turn back on anyway",
     },
     installedNote: null,

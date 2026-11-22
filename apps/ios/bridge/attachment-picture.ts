@@ -26,6 +26,15 @@ export function originalStandsIn(file: { mimeType: string; name: string; bytes: 
   return heic && file.bytes <= heicOriginalLimit;
 }
 
+/**
+ * Whether a picture whose preview the daemon refused (it advertises previews its decoder can't
+ * make, as one without ace-media does) is drawn from its original: any picture small enough to
+ * read whole for a tile. The phone downsamples it as it decodes.
+ */
+export function originalDrawsIn(file: { mimeType: string; name: string; bytes: number }): boolean {
+  return drawnAsPicture(file) && file.bytes <= heicOriginalLimit;
+}
+
 /** The most of a picture the phone draws inline; a larger one is a file the person opens. */
 export const pictureInlineLimit = 8 * 1024 * 1024;
 

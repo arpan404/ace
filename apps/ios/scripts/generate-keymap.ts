@@ -58,6 +58,18 @@ const checks: { keys: string; id: string; overrides: Record<string, string> }[] 
   { keys: "k", id: "send", overrides: {} },
   { keys: "mod+n", id: "newThread", overrides: {} },
 ];
+// Rebindings saved before a default shipped on the same keys: what each shortcut resolves to.
+const resolutions: { overrides: Record<string, string>; id: string }[] = [
+  { overrides: { newThread: "mod+l" }, id: "editor.goToLine" },
+  { overrides: { newThread: "mod+l" }, id: "newThread" },
+  { overrides: { newThread: "mod+enter" }, id: "send" },
+  { overrides: { searchThreads: "mod+t" }, id: "newThread" },
+  { overrides: { close: "mod+l" }, id: "editor.goToLine" },
+];
+const dictionary = (overrides: Record<string, string>) =>
+  `[${Object.entries(overrides)
+    .map(([id, value]) => `${swift(id)}: ${swift(value)}`)
+    .join(", ")}${Object.keys(overrides).length ? "" : ":"}]`;
 const problem = (check: (typeof checks)[number]) => {
   const result = phoneKeyProblem(check.keys, check.id, resolvePhoneKeymap(check.overrides));
   return result?.kind === "taken" ? `taken:${result.by}` : (result?.kind ?? "");
@@ -76,9 +88,13 @@ const vectors = [
   "    static let checks: [(keys: String, id: String, overrides: [String: String], problem: String)] = [",
   ...checks.map(
     (check) =>
-      `        (${swift(check.keys)}, ${swift(check.id)}, [${Object.entries(check.overrides)
-        .map(([id, value]) => `${swift(id)}: ${swift(value)}`)
-        .join(", ")}${Object.keys(check.overrides).length ? "" : ":"}], ${swift(problem(check))}),`,
+      `        (${swift(check.keys)}, ${swift(check.id)}, ${dictionary(check.overrides)}, ${swift(problem(check))}),`,
+  ),
+  "    ]",
+  "    static let resolutions: [(overrides: [String: String], id: String, keys: String)] = [",
+  ...resolutions.map(
+    (entry) =>
+      `        (${dictionary(entry.overrides)}, ${swift(entry.id)}, ${swift(resolvePhoneKeymap(entry.overrides)[entry.id] ?? "")}),`,
   ),
   "    ]",
   "    static let formats: [(keys: String, text: String)] = [",

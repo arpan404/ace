@@ -209,7 +209,7 @@ function ComposerBody({
     !props.unavailable &&
     suggestions.state === "closed" &&
     (props.capsule
-      ? !attachments.items.length && !annotations.count && !quotes.count
+      ? !attachments.items.length && !annotations.count && !quotes.count && !props.heading
       : handheld && width < pillWidth && empty);
   useAutosize(input, text, width, pill ? 1 : inputMinLines);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
@@ -454,6 +454,7 @@ function ComposerBody({
               threadId={props.thread.draft ? undefined : props.thread.id}
             />
             <ReplyQuotes quotes={quotes} />
+            {props.heading}
             <div
               data-slot="composer-input"
               data-part="composer-input"

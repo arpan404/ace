@@ -1,4 +1,5 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import { excludeAcePrivate } from "./ace-private.ts";
 import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
@@ -34,7 +35,14 @@ import {
   type LayerReplay,
   type StackReplayOptions,
 } from "./stack-sync.ts";
-import { changedFiles, changeSummary, checkoutSummary } from "./changed-files.ts";
+import {
+  changedFiles,
+  changeSummary,
+  checkoutSummary,
+  sourceControlState,
+  sourceControlStatus,
+} from "./changed-files.ts";
+import { fetchRemote, stagePaths, unstagePaths } from "./source-control-ops.ts";
 import {
   abortMerge,
   commitMerge,
@@ -49,6 +57,14 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { snapshot, createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
+import {
+  diffCommit,
+  fileLog,
+  type CommitDiffOptions,
+  type FileLogOptions,
+  type FileLogResult,
+} from "./history.ts";
+import { ReadGate } from "./read-gate.ts";
 import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
@@ -64,11 +80,19 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
+import type {
+  ChangedFile,
+  Checkpoint,
+  DiffResult,
+  DiffSide,
+  GitOptions,
+  PushOptions,
+} from "./types.ts";
 
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
 export { validateCloneUrl } from "./projects.ts";
+export { validateRepoPaths } from "./source-control-ops.ts";
 import { remoteDefaultBranch, type RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export type { RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export { publicationRemote } from "./publication-remote.ts";
@@ -87,6 +111,7 @@ export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { LayerReplay, StackReplayResult } from "./stack-sync.ts";
 export type { MergeStart } from "./merge-conflicts.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
+export type { CommitDiffOptions, FileLogOptions, FileLogResult } from "./history.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
 export { GitTransfer } from "./transfer-service.ts";
@@ -103,6 +128,8 @@ export type { CheckoutState } from "./transfer-checkout.ts";
 export class GitService {
   private readonly repository: Repository;
   private readonly maxPatchBytes: number;
+  /** History reads (a file's log, a commit's patch) that may run at once (`ReadGate`). */
+  private readonly historyReads = new ReadGate(2);
   /** Moving work to another machine (ADR 0101). */
   readonly transfer: GitTransfer;
 
@@ -266,13 +293,15 @@ export class GitService {
     return outcome.value;
   }
 
-  /** Commit every change, or only `paths`; other changes stay as they were. */
+  /** Commit every change, only `paths`, or only what is already staged. */
   commit(options: {
     worktree: string;
     message: string;
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    stagedOnly?: boolean | undefined;
+    stageListed?: readonly string[] | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
   }
@@ -283,6 +312,22 @@ export class GitService {
   ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
     return changedFiles(this.repository, worktree, limit);
   }
+  /** Staged/unstaged/untracked/conflicted sections + branch/ahead/behind from one status call. */
+  sourceControlState(worktree: string, limit = 500) {
+    return sourceControlState(this.repository, worktree, limit);
+  }
+  /** Full source control status (staged/unstaged/untracked/conflicted + branch ahead/behind). */
+  sourceControlStatus(worktree: string, limit = 500) {
+    return sourceControlStatus(this.repository, worktree, limit);
+  }
+  /** Stage specific paths, or all changes when `paths` is omitted. */
+  stage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
+    return stagePaths(this.repository, options);
+  }
+  /** Unstage specific paths, or all staged changes when `paths` is omitted. */
+  unstage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
+    return unstagePaths(this.repository, options);
+  }
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
   }
@@ -292,6 +337,14 @@ export class GitService {
   }
   push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);
+  }
+  /** Fetch a remote's branches into remote-tracking refs only; never a local branch. */
+  fetch(options: {
+    worktree: string;
+    remote?: string | undefined;
+    timeoutMs?: number | undefined;
+  }): Promise<void> {
+    return fetchRemote(this.repository, options);
   }
   /** Move several branches in one atomic push, each leased to a caller-reviewed revision. */
   pushLeased(options: LeasedPushOptions) {
@@ -390,6 +443,15 @@ export class GitService {
         return `${branch.head ?? "unborn"}:${tree}`;
       }),
     );
+  }
+
+  /**
+   * Name ace's private `.ace-upload-*` entries (uploads, Recently deleted) in the local exclude
+   * of the repository holding `path`, before any of them can appear there.
+   */
+  async excludeAcePrivate(path: string): Promise<void> {
+    const root = await this.repository.root(path);
+    await this.repository.serial(root, () => excludeAcePrivate(this.repository, root));
   }
 
   async repositoryInfo(repo: string) {
@@ -509,6 +571,36 @@ export class GitService {
         options.maxPatchBytes ?? this.maxPatchBytes,
         options.paths,
       ),
+    );
+  }
+
+  /** One commit's patch for `paths` against its first parent (or the empty tree). */
+  async diffCommit(
+    options: Omit<CommitDiffOptions, "maxPatchBytes"> & { maxPatchBytes?: number },
+  ): Promise<DiffResult> {
+    // The checkout's root is found inside the gate too: a cold checkout's discovery is Git work.
+    return this.historyReads.run(
+      () =>
+        this.repository.cli.bounded(async () => {
+          const root = await this.repository.root(options.worktree, options.signal);
+          return diffCommit(this.repository, root, {
+            ...options,
+            maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
+          });
+        }),
+      options.signal,
+    );
+  }
+
+  /** A file's newest commits following renames, in one bounded walk. */
+  async fileLog(options: FileLogOptions): Promise<FileLogResult> {
+    return this.historyReads.run(
+      () =>
+        this.repository.cli.bounded(async () => {
+          const root = await this.repository.root(options.worktree, options.signal);
+          return fileLog(this.repository, root, options);
+        }),
+      options.signal,
     );
   }
 

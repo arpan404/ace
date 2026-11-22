@@ -26,7 +26,6 @@ import { CheckIcon } from "@ace/icons";
 import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { AnsweredQuestionCard } from "./answered-question.tsx";
 import { answerStore, useLocalAnswer, type LocalAnswer } from "./answers.ts";
@@ -248,13 +247,6 @@ function OpenRequest(props: {
           : request.kind === "browser_help"
             ? browserHelpTitle(request)
             : request.message;
-  const kind = {
-    approval: "Approval",
-    question: "Question",
-    plan_review: "Plan review",
-    elicitation: request.kind === "elicitation" ? request.server : "Request",
-    browser_help: "Browser",
-  }[request.kind];
   const decisions = copy?.decisions;
   const chosen =
     local?.resolution.kind === "approval" && request.kind === "approval"
@@ -287,35 +279,12 @@ function OpenRequest(props: {
       // ring around it (its buttons keep theirs).
       className={cn(props.className, "outline-none")}
     >
-      {request.kind !== "approval" && request.kind !== "question" && (
-        <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
-          <Dot tone="needs-you" />
-          {props.asker} · {kind}
-          <span className="ml-auto flex items-center gap-3">{props.aside}</span>
-        </p>
-      )}
       {request.kind !== "question" ? (
         <div className="mt-2 mb-2.5 flex items-start gap-2">
-          <h3
-            className={cn(
-              "min-w-0 flex-1 font-medium",
-              copy?.command
-                ? "flex items-center gap-1.5 text-xs text-muted-foreground"
-                : "text-md leading-[1.35] tracking-[-0.005em]",
-            )}
-          >
-            {copy?.command ? (
-              // The command itself shows below, in a code block.
-              "Run command"
-            ) : copy ? (
-              <ApprovalHeading copy={copy} />
-            ) : (
-              title
-            )}
+          <h3 className="min-w-0 flex-1 text-md leading-[1.35] font-medium tracking-[-0.005em]">
+            {copy ? <ApprovalHeading copy={copy} /> : title}
           </h3>
-          {request.kind === "approval" && props.aside && (
-            <div className="shrink-0">{props.aside}</div>
-          )}
+          {props.aside && <div className="shrink-0">{props.aside}</div>}
         </div>
       ) : null}
       <WholeRequestNote whole={props.whole} />
@@ -349,10 +318,8 @@ function OpenRequest(props: {
           )}
         </>
       )}
-      {request.kind === "question" && (
-        // Who asks is said aloud only; the strip shows the question.
-        <span className="sr-only">{props.asker} is asking</span>
-      )}
+      {/* Who asks is said aloud only; the strip shows the request. */}
+      <span className="sr-only">{props.asker} is asking</span>
       {request.kind === "question" && (
         <QuestionForm
           interactionId={interaction.id}

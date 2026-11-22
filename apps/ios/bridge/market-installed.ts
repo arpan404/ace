@@ -26,7 +26,7 @@ export function installedAnswer(result: Result<"installed">) {
     /** The updates section's title. */
     updatesTitle: updates ? count(updates, "update") : "No updates",
     upToDate: rows.length && !updates ? "Everything is up to date. ace checks once a day." : null,
-    empty: rows.length ? null : "What you get from the marketplace shows here.",
+    empty: rows.length ? null : "What you get from the Marketplace shows here.",
   };
 }
 
@@ -78,7 +78,7 @@ function turnOnAsk(item: MarketInstalled) {
     : "Its publisher withdrew it without saying why.";
   return {
     question: item.linked ? `Resume ${item.title}?` : `Turn ${item.title} back on?`,
-    detail: `${why} It runs again at your own risk, until ace turns it off the next time it reads the market.`,
+    detail: `${why} It runs again at your own risk, until ace turns it off the next time it reads the Marketplace.`,
     confirm: item.linked ? "Resume anyway" : "Turn back on anyway",
   };
 }
@@ -99,7 +99,7 @@ function removeDetail(item: MarketInstalled): string {
   switch (item.type) {
     // Only the marketplace's record goes (the daemon's `removeInstall`): the bot keeps what it has.
     case "spade-bot":
-      return `${item.title} and the skills and plugins it brought stay yours. It stops getting updates from the marketplace.`;
+      return `${item.title} and the skills and plugins it brought stay yours. It stops getting updates from the Marketplace.`;
     case "suit":
       return "The Suit comes off this machine.";
     case "spade-skill":

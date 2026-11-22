@@ -175,7 +175,7 @@ test("an app whose sign-in ends later shows it without a reload", async () => {
 const disabled = (element: HTMLElement) =>
   element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
 
-test("an app still signing in can't be given to a bot yet", async () => {
+test("Add an app lists, by name, only the connected apps a bot can be given now", async () => {
   await spadeApp("/spade/garden?profile=permissions", (api) => {
     withApps(api);
     api.connectors.connectors.push({
@@ -190,8 +190,10 @@ test("an app still signing in can't be given to a bot yet", async () => {
   await feed("Garden");
   const apps = await appsOf("Garden");
   await userEvent.click(await apps.findByRole("button", { name: "Add an app" }));
-  expect(disabled(await screen.findByRole("menuitem", { name: "Use Sentry" }))).toBe(true);
-  expect(disabled(screen.getByRole("menuitem", { name: "Use Linear" }))).toBe(false);
+  // Still signing in: nothing to give a bot until it finishes, so it isn't offered.
+  expect(disabled(await screen.findByRole("menuitem", { name: "Linear" }))).toBe(false);
+  expect(screen.getByRole("menuitem", { name: "Notion" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /Sentry/ })).toBeNull();
 });
 
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
@@ -230,7 +232,7 @@ test("a bot's profile gives it an app from the connected ones, saved at once and
   await apps.findByRole("button", { name: "Add an app" });
   expect(apps.queryByRole("button", { name: /^Remove/ })).toBeNull();
   await userEvent.click(apps.getByRole("button", { name: "Add an app" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Use Linear" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Linear" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/garden/connectors")).toEqual([
       { all: false, connectors: ["linear"] },
@@ -580,7 +582,7 @@ test("each app shows its own mark, and a server added by address its first lette
   await waitFor(() => expect(tile("nas.local")?.textContent).toBe("N"));
 });
 
-test("with the Store on, Connect an app opens its Apps, the one catalogue", async () => {
+test("with the Marketplace on, Connect an app opens its Apps, the one catalogue", async () => {
   const history = createMemoryHistory({ initialEntries: ["/settings/spade/apps"] });
   await spadeApp("/settings/spade/apps", seed, {
     history,

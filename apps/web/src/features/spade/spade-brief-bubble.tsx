@@ -55,8 +55,8 @@ export function SpadeBriefBubble(props: { digest: SpadeDigest; when: string | un
         )}
         {brief.waiting.length > 0 && (
           <>
-            <p className="font-semibold text-foreground">Waiting on you</p>
-            <ul aria-label="Waiting on you" className="flex flex-col gap-2">
+            <p className="font-semibold text-foreground">Needs you</p>
+            <ul aria-label="Needs you" className="flex flex-col gap-2">
               {brief.waiting.map((waiting) => (
                 <WaitingLine key={`${waiting.conversation}:${waiting.callId}`} waiting={waiting} />
               ))}

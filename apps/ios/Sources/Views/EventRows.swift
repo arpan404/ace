@@ -19,12 +19,12 @@ struct EventRowView: View {
             if let handoff = item.row.handoff { HandoffRow(handoff: handoff) }
         // A compaction still under way is the live "Compacting context" line's to say.
         case "system" where event.icon == "compaction" && !item.row.complete: EmptyView()
-        case "event", "system": SystemRow(event: event)
-        case "error": ErrorLine(event: event)
-        case "refusal": RefusalLine(event: event)
-        case "notSent": NotSentLine(reason: event.note, fenced: event.fenced == true)
+        case "event", "system": SystemRow(event: event, id: item.row.id)
+        case "error": ErrorLine(event: event, id: item.row.id)
+        case "refusal": RefusalLine(event: event, id: item.row.id)
+        case "notSent": NotSentLine(reason: event.note, fenced: event.fenced == true, id: item.row.id)
         case "notice": NoticeLine(event: event)
-        case "quiet": QuietText(text: event.text)
+        case "quiet": QuietText(text: event.text, id: item.row.id)
         case "task": TaskCardRow(event: event, links: links)
         case "merged": MergedLine(event: event, links: links)
         default: ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage)
@@ -41,15 +41,18 @@ struct EventRowLayout<Lead: View>: View {
     var meta = ""
     /// An agent, error or question reads strong; a step or event is muted.
     var strong = false
+    /// Where its cut words open in place (`ExpandableText`); nil keeps each on one line, for a
+    /// row that is itself a button.
+    var expandId: String? = nil
     var body: some View {
         HStack(alignment: .center, spacing: AceDesign.Space.related) {
             lead().frame(minWidth: AceDesign.Size.lead).foregroundStyle(AceTheme.Colours.subtleForeground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(title).lineLimit(1).truncationMode(.tail)
+                words(title, part: "title")
                     .fontWeight(strong ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                     .foregroundStyle(strong ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                 if !subtitle.isEmpty {
-                    Text(subtitle).lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    words(subtitle, part: "subtitle").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
             }
@@ -62,6 +65,9 @@ struct EventRowLayout<Lead: View>: View {
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .frame(minHeight: AceDesign.Space.section)
         .contentShape(Rectangle())
+    }
+    @ViewBuilder private func words(_ text: String, part: String) -> some View {
+        if let expandId { ExpandableText(text, id: "\(expandId):\(part)", lines: 1) } else { Text(text).lineLimit(1).truncationMode(.tail) }
     }
 }
 
@@ -90,12 +96,19 @@ private let leadBaseline: CGFloat = 5
 /// the time. What ace sent on the person's behalf opens from the row itself, folded until asked.
 struct SystemRow: View {
     let event: EventRow
-    @State private var open = false
+    private let fold: RowFold
+    private let id: String
+    init(event: EventRow, id: String) {
+        self.event = event
+        self.id = id
+        fold = RowFold("\(id):details")
+    }
+    private var open: Bool { fold.isOpen }
+    private var opens: Bool { !event.note.isEmpty || !event.detail.isEmpty }
     var body: some View {
-        let opens = !event.note.isEmpty || !event.detail.isEmpty
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             if opens {
-                Button { open.toggle() } label: { row }
+                Button { withAnimation { fold.toggle() } } label: { row }
                     .buttonStyle(.plain)
                     .aceConcentricBackground(open ? AceTheme.Colours.fill : .clear, minimum: AceShape.rowRadius)
                     .accessibilityValue(open ? "Expanded" : "Collapsed")
@@ -123,7 +136,9 @@ struct SystemRow: View {
         .accessibilityIdentifier("event.\(event.kind)")
     }
     private var row: some View {
-        EventRowLayout(lead: { lead }, title: event.text, meta: EventClock.words(at: event.at, until: event.until))
+        // A row that opens its details shows its words there; one that doesn't opens them in place.
+        EventRowLayout(lead: { lead }, title: event.text, meta: EventClock.words(at: event.at, until: event.until),
+                       expandId: opens ? nil : id)
     }
     @ViewBuilder private var lead: some View {
         if !event.provider.isEmpty {
@@ -165,7 +180,12 @@ struct LiveCompactingRow: View {
 /// behind Details. A limit lifts on its own, so it takes a quiet hourglass, not an alarm.
 struct ErrorLine: View {
     let event: EventRow
-    @State private var open = false
+    private let fold: RowFold
+    init(event: EventRow, id: String) {
+        self.event = event
+        fold = RowFold("\(id):details")
+    }
+    private var open: Bool { fold.isOpen }
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
@@ -178,7 +198,7 @@ struct ErrorLine: View {
                  + Text(event.note.isEmpty ? "" : " · \(event.note)").foregroundStyle(AceTheme.Colours.mutedForeground))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !event.detail.isEmpty {
-                    Button("Details") { open.toggle() }
+                    Button("Details") { withAnimation { fold.toggle() } }
                         .buttonStyle(.plain).fontWeight(AceDesign.Typeface.regular)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .accessibilityValue(open ? "Expanded" : "Collapsed")
@@ -201,9 +221,11 @@ struct ErrorLine: View {
 /// A refused or failed agent tool as one failed tool row: what failed, the reason once, ×N.
 struct RefusalLine: View {
     let event: EventRow
+    let id: String
     var body: some View {
         EventRowLayout(lead: { AceIcon(.robot, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Status.failed) },
-                       title: event.text, subtitle: event.note, meta: event.count > 1 ? "×\(event.count)" : "", strong: true)
+                       title: event.text, subtitle: event.note, meta: event.count > 1 ? "×\(event.count)" : "", strong: true,
+                       expandId: id)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("event.refusal")
     }
@@ -215,11 +237,18 @@ struct NotSentLine: View {
     let reason: String
     /// A stale Git lock stopped it: Clear stale lock follows, as a word.
     var fenced = false
+    /// Where a long reason opens in place; nil keeps it to two lines.
+    var id: String? = nil
     var body: some View {
-        HStack(spacing: AceDesign.Space.tight) {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
             RowStatusIcon(kind: "approve", tone: "idle", size: AceDesign.Size.glyphMeta)
             Text("Not sent")
-            if !reason.isEmpty { Text("· \(reason)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2) }
+            if !reason.isEmpty {
+                Group {
+                    if let id { ExpandableText("· \(reason)", id: "\(id):reason") } else { Text("· \(reason)").lineLimit(2) }
+                }
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+            }
             if fenced { ClearStaleLockWord() }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -248,23 +277,13 @@ struct NoticeLine: View {
 /// A message the provider injected that ace has no words for: one line, the rest on demand.
 struct QuietText: View {
     let text: String
-    @State private var open = false
+    let id: String
     var body: some View {
-        let first = text.split(separator: "\n").first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.map(String.init) ?? ""
-        let more = text.trimmingCharacters(in: .whitespacesAndNewlines) != first.trimmingCharacters(in: .whitespaces)
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             AceIcon(.info, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + leadBaseline }
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(open ? text : first).lineLimit(open ? nil : 1)
-                if more {
-                    Button(open ? "Show less" : "Show all") { open.toggle() }
-                        .buttonStyle(.plain)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            ExpandableText(text.trimmingCharacters(in: .whitespacesAndNewlines), id: id, lines: 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)

@@ -27,7 +27,7 @@ const byDownloads = (entries: readonly MarketEntrySummary[]) =>
   entries.toSorted((a, b) => b.downloads - a.downloads);
 
 /** One of the two featured pictures: the entry's own look, then its words and its button. */
-function Feature(props: { entry: MarketEntrySummary; eyebrow: string }) {
+function Feature(props: { entry: MarketEntrySummary }) {
   const nav = useMarketNav();
   const { entry } = props;
   return (
@@ -42,7 +42,6 @@ function Feature(props: { entry: MarketEntrySummary; eyebrow: string }) {
       </button>
       <div className="flex items-start justify-between gap-4">
         <div className="grid min-w-0 gap-1">
-          <span className="st-eyebrow">{props.eyebrow}</span>
           <span className="st-name" style={{ fontSize: "var(--text-lg)" }}>
             {entry.title}
           </span>
@@ -53,9 +52,6 @@ function Feature(props: { entry: MarketEntrySummary; eyebrow: string }) {
     </div>
   );
 }
-
-const eyebrowOf = (entry: MarketEntrySummary) =>
-  entry.type === "suit" ? "A new look" : entry.type === "spade-bot" ? "A bot for you" : "A tool";
 
 function TypeShelf(props: {
   title: string;
@@ -118,7 +114,7 @@ export function DiscoverPage(props: { query: string }) {
       {featured.length > 0 && (
         <section {...part("market-hero")} className="st-featured" aria-label="Featured">
           {featured.map((entry) => (
-            <Feature key={entryKeyOf(entry)} entry={entry} eyebrow={eyebrowOf(entry)} />
+            <Feature key={entryKeyOf(entry)} entry={entry} />
           ))}
         </section>
       )}

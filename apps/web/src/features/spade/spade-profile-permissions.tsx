@@ -48,7 +48,7 @@ function Switches(props: { bot: RosterBot }) {
   if (!permissions) return null;
   return (
     <>
-      <p className="mb-3 text-ui text-muted-foreground">
+      <p className="mx-1 mb-3 text-ui text-muted-foreground">
         {props.bot.name} uses the default in{" "}
         <Link to="/settings/spade/security" className="underline-offset-2 hover:underline">
           Settings › Spade

@@ -121,3 +121,15 @@ test("the thread reads risk from the actual linked shell step and blocks A", asy
     }),
   );
 });
+
+test("a command approval is one sentence with the command inline, not a boxed code well", async () => {
+  const app = harness();
+  app.play(request("gh pr merge 1065 --squash")).runUntilBlocked();
+  await app.open("/t/thread-risk");
+  const strip = await screen.findByRole("region", { name: "Waiting for you" });
+  expect(await within(strip).findByText("gh pr merge 1065 --squash")).toBeTruthy();
+  expect(within(strip).queryByLabelText("Command")).toBeNull();
+  expect(within(strip).queryByText("Run command")).toBeNull();
+  expect(within(strip).getByRole("button", { name: /^Allow once/ })).toBeTruthy();
+  expect(within(strip).getByRole("button", { name: /^Deny/ })).toBeTruthy();
+});

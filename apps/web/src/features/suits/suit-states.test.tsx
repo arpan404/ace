@@ -92,7 +92,7 @@ test("the current place in the rail is its one active item", async () => {
 
 test("Fleet's open view is its selected tab", async () => {
   const { go } = await open("/settings/remote");
-  const views = await screen.findByRole("navigation", { name: "Fleet views" });
+  const views = await screen.findByRole("tablist", { name: "Fleet views" });
   await waitFor(() => expect(inState("tab", "selected", views)).toEqual(["Overview"]));
   go("/settings/remote/map");
   await waitFor(() => expect(inState("tab", "selected", views)).toEqual(["Map"]));

@@ -151,7 +151,12 @@ export type SpadeGrantRequest =
   | { kind: "folder"; path: string; write: boolean }
   | { kind: "tool"; tool: string; arguments: Record<string, string> }
   | { kind: "git_push"; repo: string; branch: string }
-  | { kind: "pr_comment"; repo: string; own_only: boolean };
+  | { kind: "pr_comment"; repo: string; own_only: boolean }
+  /**
+   * A connected app's Always allow, by its connection's id: the ordinary writes it names, each
+   * pinned to the definition the person was shown (ADR 0202, amendment 5).
+   */
+  | { kind: "app"; app: string; writes: true; tools: Record<string, string> };
 
 export async function addGrant(target: SpadeTarget, agent: string, scope: SpadeGrantRequest) {
   const body = await spadeHttp(target, "POST", agentPath(agent, "grants"), { body: scope });

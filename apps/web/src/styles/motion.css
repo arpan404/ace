@@ -366,7 +366,8 @@
     transform: scaleY(1);
   }
   50% {
-    transform: scaleY(0.12);
+    /* An eye's outline closes less (`--blink-to`, spade-mark.tsx), so a closed eye stays a lid. */
+    transform: scaleY(var(--blink-to, 0.12));
   }
 }
 @keyframes fx-alive {

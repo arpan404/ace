@@ -106,6 +106,12 @@ struct FileStrip: Equatable {
                 default: break
                 }
                 changed(prompt, change)
+                // Notes made in this checkout follow a rename or move too.
+                switch prompt {
+                case .rename(let path), .move(let path):
+                    if let destination = change.destination { await model.codeRenamed(scope, from: path, to: destination) }
+                default: break
+                }
             } catch {
                 strip = FileStrip(message: "\(prompt.failure(typed: value)) \(error.localizedDescription)")
             }

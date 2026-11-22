@@ -316,6 +316,12 @@ export const keymap = {
     scope: "editor",
     fixed: true,
   },
+  "editor.sourceControl": {
+    keys: "ctrl+shift+g",
+    label: "Source control",
+    scope: "editor",
+    fixed: true,
+  },
   "editor.nextHit": {
     keys: "f4",
     also: ["shift+f4"],
@@ -362,6 +368,12 @@ export const keymap = {
   "editor.wordWrap": {
     keys: "alt+z",
     label: "Turn word wrap on or off",
+    scope: "editor",
+    fixed: true,
+  },
+  "editor.goToSymbol": {
+    keys: "shift+mod+o",
+    label: "Go to symbol",
     scope: "editor",
     fixed: true,
   },

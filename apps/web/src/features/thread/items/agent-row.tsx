@@ -1,4 +1,4 @@
-import type { SubagentDetailKind, SubagentState } from "@ace/ui-core";
+import { shortForgeLinks, type SubagentDetailKind, type SubagentState } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { Live } from "@/lib/live-connection.ts";
@@ -26,8 +26,11 @@ import { AgentIcon, type AgentMark } from "./agent-lead.tsx";
 export const agentRowStyles = {
   /** The pressable box: the flex row, its hover wash and focus ring, bleeding 8px past the column. */
   box: "@container -mx-2 flex w-[calc(100%+--spacing(4))] min-w-0 items-start gap-2 rounded-lg px-2 py-[7px] text-left text-ui transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
-  /** The box inside a group's list, under its hairline: no bleed. */
-  listed: "w-full mx-0",
+  /**
+   * The box inside a group's list, under its hairline: its hover wash bleeds 8px to the right
+   * only, so its trailing words end on the column's edge like every other row's.
+   */
+  listed: "mx-0 -mr-2 w-[calc(100%+--spacing(2))]",
   /** The lead: a 20px box with a 16px mark, centred on the first line like other tool rows. */
   mark: "flex h-5 min-w-5 shrink-0 items-center justify-center",
   /** The shrinking middle column: the first line and the second line share its left edge. */
@@ -135,7 +138,7 @@ export function AgentRowContents(props: AgentRowParts) {
             !props.detail && "hidden",
           )}
         >
-          {props.detail}
+          {typeof props.detail === "string" ? shortForgeLinks(props.detail) : props.detail}
         </span>
       </span>
       <span data-tone={status.tone} className={agentRowStyles.state}>

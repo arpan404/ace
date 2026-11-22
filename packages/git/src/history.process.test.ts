@@ -1,0 +1,359 @@
+import { mkdtemp, readFile, rename } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+import { spawnSync } from "node:child_process";
+import { GitCli } from "./cli.ts";
+import { ReadGate } from "./read-gate.ts";
+import { GitService, spawnGitProcess } from "./index.ts";
+import { git, put, repository, scratch } from "./test-repo.ts";
+
+const service = new GitService();
+
+test("fileLog lists a file's newest commits following renames, in one walk", async () => {
+  const repo = await repository({ "old.ts": "export const a = 1;\n" });
+  const firstSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+  await put(repo, "old.ts", "export const a = 2;\n");
+  await git(repo, "add", "old.ts");
+  await git(repo, "commit", "-m", "Update old file");
+  const secondSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+  await rename(join(repo, "old.ts"), join(repo, "renamed.ts"));
+  await git(repo, "add", "-A");
+  await git(repo, "commit", "-m", "Rename old.ts to renamed.ts");
+  const thirdSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+
+  const all = await service.fileLog({ worktree: repo, path: "renamed.ts" });
+  expect(all.head).toBe(thirdSha);
+  expect(all.stopped).toBeUndefined();
+  expect(all.entries.map((entry) => entry.sha)).toEqual([thirdSha, secondSha, firstSha]);
+  expect(all.entries[0]).toMatchObject({
+    subject: "Rename old.ts to renamed.ts",
+    path: "renamed.ts",
+    previousPath: "old.ts",
+  });
+  expect(all.entries[1]?.path).toBe("old.ts");
+
+  // More commits than the limit: the newest ones, and the list says it stopped at the limit.
+  const limited = await service.fileLog({ worktree: repo, path: "renamed.ts", limit: 2 });
+  expect(limited.entries.map((entry) => entry.sha)).toEqual([thirdSha, secondSha]);
+  expect(limited.stopped).toBe("limit");
+});
+
+test("a subject or file name holding the record-separator byte is read as it is", async () => {
+  const odd = "we\u001eird.ts";
+  const repo = await repository({ [odd]: "1\n" });
+  await put(repo, odd, "2\n");
+  await git(repo, "add", "--all");
+  await git(repo, "commit", "-m", "odd\u001esubject");
+  const read = await service.fileLog({ worktree: repo, path: odd });
+  expect(read.entries.map((entry) => [entry.subject, entry.path])).toEqual([
+    ["odd\u001esubject", odd],
+    ["Initial", odd],
+  ]);
+  expect(read.stopped).toBeUndefined();
+});
+
+test("a walk stopped by its work budget says so, apart from one stopped at the limit", async () => {
+  const repo = await repository({ "a.ts": "1\n" });
+  const read = await service.fileLog({ worktree: repo, path: "a.ts", budgetMs: 0 });
+  expect(read.stopped).toBe("budget");
+});
+
+test("fileLog returns an empty history on an unborn repository or untracked file", async () => {
+  const emptyRepo = await scratch();
+  await git(emptyRepo, "init");
+  await put(emptyRepo, "draft.ts", "export const x = 1;\n");
+
+  const unborn = await service.fileLog({ worktree: emptyRepo, path: "draft.ts" });
+  expect(unborn).toEqual({ entries: [], head: null });
+
+  const trackedRepo = await repository({ "tracked.ts": "one\n" });
+  await put(trackedRepo, "untracked.ts", "two\n");
+  const untracked = await service.fileLog({ worktree: trackedRepo, path: "untracked.ts" });
+  expect(untracked.entries).toEqual([]);
+  expect(untracked.stopped).toBeUndefined();
+  expect(untracked.head).toMatch(/^[0-9a-f]{40,64}$/);
+});
+
+/** The PID a git alias wrote, once it has. */
+async function writtenPid(file: string): Promise<number> {
+  for (let tries = 0; tries < 200; tries++) {
+    const text = await readFile(file, "utf8").catch(() => "");
+    if (/^\d+\s*$/.test(text)) return Number(text);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("the alias never wrote its PID");
+}
+
+/** Whether `pid` is gone within a few seconds of the call returning. */
+async function exits(pid: number): Promise<boolean> {
+  for (let tries = 0; tries < 300; tries++) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
+/** An alias whose process writes its PID to a fresh file, then runs `body` (`&` backgrounds it). */
+async function aliasWritingPid(body: string, background: boolean) {
+  const file = join(await mkdtemp(join(tmpdir(), "ace-pid-")), "pid");
+  const inner = `sh -c 'echo $$ > ${file}; exec ${body}'`;
+  // Backgrounded, the alias's own shell (Git's child) exits at once while the helper keeps
+  // Git's stdout open: the case where only the process group still names it.
+  const alias = background ? `!f() { ${inner} & }; f` : `!f() { ${inner}; }; f`;
+  return { file, args: ["-c", `alias.held=${alias}`, "held"] };
+}
+
+test.skipIf(process.platform === "win32")(
+  "a read stopped at its byte cap leaves no descendant running, even after Git itself exited",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    for (const background of [false, true]) {
+      const { file, args } = await aliasWritingPid("yes", background);
+      const started = Date.now();
+      const out = await new GitCli({}).call(repo, args, {
+        captureBytes: 4096,
+        stopAtCapture: true,
+      });
+      expect(out.truncated).toBe(true);
+      expect(out.stdout.length).toBe(4096);
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(await exits(await writtenPid(file))).toBe(true);
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a silent read stopped by its work budget leaves no descendant running",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    for (const background of [false, true]) {
+      const { file, args } = await aliasWritingPid("sleep 60", background);
+      const out = await new GitCli({}).call(repo, args, {
+        captureBytes: 4096,
+        stopAtCapture: true,
+        stopAfterMs: 300,
+      });
+      expect(out.truncated).toBe(true);
+      expect(await exits(await writtenPid(file))).toBe(true);
+    }
+  },
+);
+
+/** Whether `pid` is a running process (a zombie has exited; it only waits to be reaped). */
+function running(pid: number): boolean {
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+  const stat = state.stdout.trim();
+  return stat !== "" && !stat.startsWith("Z");
+}
+
+test.skipIf(process.platform === "win32")(
+  "a cancelled read keeps its place in the gate until its descendant has exited",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    const gate = new ReadGate(1);
+    // A group that takes a moment to go: the kill reaches it 300 ms after it is sent.
+    const cli = new GitCli({
+      processRuntime: {
+        signalGroup: (pid, signal) =>
+          void setTimeout(() => {
+            try {
+              process.kill(-pid, signal);
+            } catch {
+              // Already gone.
+            }
+          }, 300),
+      },
+    });
+    for (const background of [false, true]) {
+      const { file, args } = await aliasWritingPid("sleep 60", background);
+      const controller = new AbortController();
+      const first = gate.run(
+        () =>
+          cli.call(repo, args, {
+            captureBytes: 4096,
+            stopAtCapture: true,
+            stopAfterMs: 60_000,
+            signal: controller.signal,
+          }),
+        undefined,
+      );
+      const pid = await writtenPid(file);
+      // The next read waits for the slot; when it gets it, the cancelled read's helper is gone.
+      const next = gate.run(async () => running(pid));
+      controller.abort();
+      await expect(first).rejects.toMatchObject({ code: "git_cancelled" });
+      expect(await next).toBe(false);
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a cancelled preflight inside a gated read keeps the slot until its descendant has exited",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    const gate = new ReadGate(1);
+    const cli = new GitCli({
+      processRuntime: {
+        signalGroup: (pid, signal) =>
+          void setTimeout(() => {
+            try {
+              process.kill(-pid, signal);
+            } catch {
+              // Already gone.
+            }
+          }, 300),
+      },
+    });
+    const { file, args } = await aliasWritingPid("sleep 60", false);
+    const controller = new AbortController();
+    // A plain call (no byte cap or budget of its own), as a read's preflight makes.
+    const first = gate.run(() =>
+      cli.bounded(() => cli.call(repo, args, { signal: controller.signal })),
+    );
+    const pid = await writtenPid(file);
+    const next = gate.run(async () => running(pid));
+    controller.abort();
+    await expect(first).rejects.toMatchObject({ code: "git_cancelled" });
+    expect(await next).toBe(false);
+  },
+);
+
+test("history reads on cold checkouts run no more than two Git processes at once", async () => {
+  let live = 0;
+  let peak = 0;
+  const counted = new GitService({
+    processRuntime: {
+      spawn: (command, args, options) => {
+        const child = spawnGitProcess(command, args, options);
+        live++;
+        peak = Math.max(peak, live);
+        child.once("exit", () => live--);
+        return child;
+      },
+    },
+  });
+  const repos = await Promise.all(
+    Array.from({ length: 6 }, (_, index) => repository({ [`f${index}.ts`]: "1\n" })),
+  );
+  // Warm Git itself (its version check), not the checkouts.
+  await counted.resolveCommit({ worktree: repos[0] ?? "", ref: "HEAD" }).catch(() => {});
+  peak = 0;
+  const reads = await Promise.all(
+    repos
+      .slice(1)
+      .map((repo, index) => counted.fileLog({ worktree: repo, path: `f${index + 1}.ts` })),
+  );
+  expect(reads.every((read) => read.entries.length === 1)).toBe(true);
+  expect(peak).toBeLessThanOrEqual(2);
+});
+
+test.skipIf(process.platform === "win32")(
+  "a read whose Git exits normally keeps the slot until a helper it left behind is gone",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    const gate = new ReadGate(1);
+    const cli = new GitCli({});
+    // Git exits at once; the helper it started lives on, its output sent elsewhere.
+    const { file, args } = await aliasWritingPid("sleep 60 >/dev/null 2>&1", true);
+    const first = gate.run(() => cli.bounded(() => cli.call(repo, args, {})));
+    const pid = await writtenPid(file);
+    const next = gate.run(async () => running(pid));
+    await first;
+    expect(await next).toBe(false);
+  },
+);
+
+test("output of exactly the byte cap stops Git there", async () => {
+  const repo = await repository({ "a.ts": "1\n" });
+  // Exactly two bytes, then silence: only stopping at the cap itself ends the call.
+  const started = Date.now();
+  const out = await new GitCli({}).call(repo, ["-c", "alias.two=!printf yy; sleep 60", "two"], {
+    captureBytes: 2,
+    stopAtCapture: true,
+  });
+  expect(out).toMatchObject({ truncated: true });
+  expect(out.stdout.toString()).toBe("yy");
+  expect(Date.now() - started).toBeLessThan(10_000);
+});
+
+test("diffCommit diffs a root commit, a regular commit, and a rename commit", async () => {
+  const repo = await repository({ "a.ts": "export const value = 1;\n" });
+  const rootSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+
+  await put(repo, "a.ts", "export const value = 2;\n");
+  await git(repo, "add", "a.ts");
+  await git(repo, "commit", "-m", "Change value to 2");
+  const editSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+
+  await rename(join(repo, "a.ts"), join(repo, "b.ts"));
+  await git(repo, "add", "-A");
+  await git(repo, "commit", "-m", "Rename a.ts to b.ts");
+  const renameSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+
+  const rootDiff = await service.diffCommit({
+    worktree: repo,
+    commit: rootSha,
+    paths: ["a.ts"],
+  });
+  expect(rootDiff.truncated).toBe(false);
+  expect(rootDiff.patch).toContain("+export const value = 1;");
+
+  const editDiff = await service.diffCommit({
+    worktree: repo,
+    commit: editSha,
+    paths: ["a.ts"],
+  });
+  expect(editDiff.patch).toContain("-export const value = 1;");
+  expect(editDiff.patch).toContain("+export const value = 2;");
+
+  const renameDiff = await service.diffCommit({
+    worktree: repo,
+    commit: renameSha,
+    paths: ["b.ts", "a.ts"],
+  });
+  expect(renameDiff.patch).toContain("rename from a.ts");
+  expect(renameDiff.patch).toContain("rename to b.ts");
+});
+
+test("a commit whose parent this shallow clone doesn't have is refused, not diffed against nothing", async () => {
+  const repo = await repository({ "a.ts": "one\n" });
+  await put(repo, "a.ts", "one\ntwo\n");
+  await git(repo, "commit", "-qam", "Second");
+  const tip = (await git(repo, "rev-parse", "HEAD")).toString().trim();
+  // What a depth-one clone records: the tip is the shallow boundary, its parent hidden.
+  const shallow = (await git(repo, "rev-parse", "--git-path", "shallow")).toString().trim();
+  await put(repo, shallow, `${tip}\n`);
+  await expect(
+    service.diffCommit({ worktree: repo, commit: tip, paths: ["a.ts"] }),
+  ).rejects.toMatchObject({ code: "shallow_parent" });
+});
+
+test("fileLog and diffCommit reject unsafe paths and invalid refs", async () => {
+  const repo = await repository({ "safe.ts": "one\ntwo\n" });
+  const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+
+  for (const badPath of ["../escape.ts", "/etc/passwd", ".git/config", "a\\b.ts", "a\0b.ts"]) {
+    await expect(service.fileLog({ worktree: repo, path: badPath })).rejects.toMatchObject({
+      code: "invalid_argument",
+    });
+    await expect(
+      service.diffCommit({ worktree: repo, commit: head, paths: [badPath] }),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+  }
+
+  await expect(
+    service.diffCommit({ worktree: repo, commit: "--exec=bad", paths: ["safe.ts"] }),
+  ).rejects.toMatchObject({ code: "invalid_ref" });
+
+  // Non-repository folder fails with typed not_a_repo error
+  const plain = await scratch();
+  await put(plain, "notes.txt", "hello\n");
+  await expect(service.fileLog({ worktree: plain, path: "notes.txt" })).rejects.toMatchObject({
+    code: "not_a_repo",
+  });
+});

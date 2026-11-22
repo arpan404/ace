@@ -20,10 +20,10 @@ type Entry<R> =
 const headingHeight = 37;
 
 /**
- * The rows inside a list page's box (Pull requests, Issues, Inbox), a hairline between each:
- * flat, or under heading bands when grouped. One virtual list, so thousands of rows mount a
- * screenful; Load more closes the box while GitHub has more pages. ↑/↓, Home/End and letters
- * reach every row, mounted or not.
+ * The rows of a list page (Pull requests, Issues, Inbox), a hairline between each: flat, or under
+ * quiet group labels when grouped. One virtual list, so thousands of rows mount a screenful; Load
+ * more closes the list while GitHub has more pages. ↑/↓, Home/End and letters reach every row,
+ * mounted or not.
  */
 export function ForgeList<R>(props: {
   /** The list's name for assistive tech ("Pull requests"). */
@@ -138,7 +138,7 @@ export function ForgeList<R>(props: {
           entry.kind === "group" ? (
             <h3
               {...part("list-group")}
-              className="border-b border-border bg-muted px-4 py-2 text-xs font-semibold text-foreground"
+              className="px-4 pt-4 pb-1.5 text-xs font-medium text-muted-foreground"
             >
               {entry.group.label}
             </h3>

@@ -87,7 +87,7 @@ struct SkillsLibraryView: View {
                 NavigationLink {
                     MarketBrowseView(model: model, page: .search(type: "spade-skill"), machineName: machineName)
                 } label: {
-                    InsetRow("Browse the marketplace", icon: .storefront)
+                    InsetRow("Browse the Store", icon: .store)
                 }
                 .accessibilityIdentifier("skills.market")
                 NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", icon: nil) }

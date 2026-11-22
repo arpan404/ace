@@ -74,26 +74,21 @@ function Steps(props: {
 function Step(props: { step: SpadeStep; onUndo: ((step: SpadeStep) => void) | undefined }) {
   const { step, onUndo } = props;
   const facts = [...step.meta, ...step.blocked];
+  // One line in one font: the step, then what it touched and how it went in quiet words, cut
+  // with an ellipsis; the whole of it shows on hover.
+  const rest = [step.detail, facts.join(" · ")].filter(Boolean).join(" · ");
   return (
-    <li className="min-w-0 text-ui">
-      <span className="text-muted-foreground">
-        {step.line}
-        {step.detail && (
-          <>
-            {" "}
-            <code className="font-mono text-xs leading-5 break-all text-muted-foreground">
-              {step.detail}
-            </code>
-          </>
-        )}
-        {facts.length > 0 && (
-          <span className="text-subtle-foreground">{` · ${facts.join(" · ")}`}</span>
-        )}
-      </span>
+    <li className="flex min-w-0 items-baseline gap-1.5 text-ui">
+      <span className="shrink-0 whitespace-nowrap text-muted-foreground">{step.line}</span>
+      {rest && (
+        <span title={rest} className="min-w-0 truncate text-subtle-foreground">
+          {rest}
+        </span>
+      )}
       {onUndo && step.undoFrom !== undefined && (
         <Button
           variant="ghost"
-          className={cn(undoWords, "ml-1 text-xs")}
+          className={cn(undoWords, "shrink-0 self-center text-xs")}
           onClick={() => onUndo(step)}
         >
           Undo these changes

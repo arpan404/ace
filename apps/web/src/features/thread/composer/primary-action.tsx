@@ -1,4 +1,4 @@
-import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, QueueIcon } from "@ace/icons";
+import { ArrowBendUpRightIcon, ArrowUpIcon, QueueIcon } from "@ace/icons";
 import { memo } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -131,7 +131,8 @@ export const StopAction = memo(function StopAction(props: { stopping: boolean; o
           "bg-foreground text-background hover:bg-foreground/85 hover:text-background focus-visible:bg-foreground/85 focus-visible:text-background",
         )}
       >
-        <StopIcon aria-hidden size={12} weight="fill" />
+        {/* The glyph's square fills half its box, so at 12px it drew a 6px dot: a true 14px square. */}
+        <span aria-hidden className="size-3.5 rounded-[4px] bg-current" />
       </button>
     </Tip>
   );

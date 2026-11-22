@@ -72,18 +72,24 @@ test("each roster row's face is its bot's state: working, needs you, blocked or 
   expect(faceOf(await botRow("Scout"))?.getAttribute("data-face")).toBe("round lagoon");
 });
 
-test("while a bot works, the working line carries its face working; asking, the line goes and no face sits by the request", async () => {
+test("while a bot works, the working line carries its face working; asking, its face heads the request once and none sits beside it", async () => {
   const { spade } = await spadeApp("/spade/scout", crew);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
   const line = await chat.findByRole("status");
   expect(line.textContent).toContain("Reading the quarterly report");
   expect(faceOf(line)?.getAttribute("data-state")).toBe("working");
+  const scoutFace = faceOf(line)?.getAttribute("data-face");
   const scout = spade.agents.find((agent) => agent.id === "scout");
   if (!scout) throw new Error("no Scout");
   spade.ask(scout, "k-sheet", "write_sheet", undefined, "r-scout");
   const request = await chat.findByRole("group", { name: /^Scout wants to/ });
-  // A one-to-one chat keeps no face beside its bubbles: the pill and the list carry its pose.
-  expect(request.closest<HTMLElement>("[role=article]")?.querySelector("svg.bot-face")).toBeNull();
+  // The request card is headed by the bot's own face (the card design, #2473), and that is the
+  // only face in the bot's run: a one-to-one chat puts no second face beside the card.
+  const inCard = request.querySelectorAll("svg.bot-face");
+  expect(inCard).toHaveLength(1);
+  expect(inCard[0]?.getAttribute("data-face")).toBe(scoutFace);
+  const run = request.closest<HTMLElement>("[role=article]");
+  expect(run?.querySelectorAll("svg.bot-face")).toHaveLength(1);
   // The wait is said once, in the request: the working line goes.
   await waitFor(() => expect(chat.queryByRole("status")).toBeNull());
 });

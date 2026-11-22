@@ -1,6 +1,7 @@
 import { pluralCount } from "../counts.ts";
 import { subagentTerminal, type SubagentState } from "../subagents.ts";
 import type { SpadeWorkerNode } from "./workers.ts";
+import { spadeNeedsYouWords } from "./needs-you.ts";
 
 /*
  * The workers a bot starts (ADR 0161), as its chat shows them: one card in the turn that started
@@ -23,6 +24,8 @@ export interface SpadeWorkersEntry {
   /** The call that started them; empty from a Spade that doesn't say. */
   call: string;
   workers: readonly SpadeStartedWorker[];
+  /** The reply (turn) that started them, when one was open: its card holds them. */
+  reply?: string;
   at?: number;
 }
 
@@ -86,12 +89,13 @@ export function spadeTreeWorkers(
 }
 
 /**
- * The card's heading: "Started 4 agents" while any works or waits, "4 agents ran" once all have
- * ended (never while one still runs, AGENTS.md priority 1).
+ * The card's heading, as ace names a thread's children: "3 subagents running" while any works
+ * or waits on the person, "3 subagents ran" once every one has ended (never while one still
+ * runs, AGENTS.md priority 1).
  */
 export function spadeWorkersTitle(states: readonly SubagentState[]): string {
-  const count = pluralCount(states.length, "agent");
-  return states.length > 0 && states.every(subagentTerminal) ? `${count} ran` : `Started ${count}`;
+  const count = pluralCount(states.length, "subagent");
+  return states.length > 0 && states.every(subagentTerminal) ? `${count} ran` : `${count} running`;
 }
 
 /** The workers across the chat's cards that wait on the person now, oldest first, once each. */
@@ -117,13 +121,13 @@ export function spadeWaitingWorkers<T extends SpadeStartedWorker>(
 export function spadeAskingWords(kind: string | undefined): string {
   switch (kind) {
     case "plan_review":
-      return "Waiting for you to approve its plan";
+      return "Wants you to approve its plan";
     case "question":
     case "elicitation":
-      return "Waiting for your answer";
+      return "Asks you a question";
     case "approval":
-      return "Waiting for your approval";
+      return "Asks for your approval";
     default:
-      return "Waiting for you";
+      return spadeNeedsYouWords(undefined);
   }
 }

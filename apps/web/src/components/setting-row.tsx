@@ -12,6 +12,7 @@ import {
 import { useRender } from "@base-ui/react/use-render";
 import { PlusIcon } from "@ace/icons";
 import { DisclosureCaret } from "@/components/ui/disclosure.tsx";
+import { SelectSizesToOptions } from "@/components/ui/select-width.tsx";
 import { InCard } from "@/components/ui/surface-context.ts";
 import { cn } from "@/lib/cn.ts";
 import { part, type SuitPartState } from "@/lib/suit-part.ts";
@@ -100,14 +101,15 @@ export function SettingRow(props: {
               // A trailing ghost button's label lines up with the column's edge, not its padding
               // (its negative margin would otherwise count against the max-width its siblings keep).
               "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full [&>[data-variant=ghost]:last-child]:-mr-2.5 [&>[data-variant=ghost]:last-child]:max-w-none",
-              // Every select and picker in a row takes one width, so controls start on one edge.
-              "[&_[data-slot=select]]:w-(--setting-select-width) [&_[data-slot=select]]:max-w-full",
-              "[&_[data-slot=input]:not([type=number])]:w-(--setting-select-width) [&_[data-slot=input]]:max-w-full",
+              // Every select and picker in a row starts from one width, then grows to fit what
+              // it shows (a select its longest option, a field its placeholder) up to the column.
+              "[&_[data-slot=select]]:w-auto [&_[data-slot=select]]:min-w-(--setting-select-width) [&_[data-slot=select]]:max-w-full",
+              "[&_[data-slot=input]:not([type=number])]:w-auto [&_[data-slot=input]:not([type=number])]:min-w-(--setting-select-width) [&_[data-slot=input]:not([type=number])]:max-w-full",
               !props.inline &&
                 "@max-[440px]:ml-0 @max-[440px]:max-w-full @max-[440px]:justify-start",
             )}
           >
-            {props.children}
+            <SelectSizesToOptions.Provider value>{props.children}</SelectSizesToOptions.Provider>
           </div>
         )}
       </div>

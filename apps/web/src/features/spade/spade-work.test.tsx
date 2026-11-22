@@ -74,7 +74,7 @@ async function openWork(name: string) {
   return screen.findByRole("tabpanel");
 }
 
-test("a bot with a goal shows Work with the check's verdict; a bot that only chats has no Work", async () => {
+test("a bot with a goal shows Work with the check's verdict; a bot that only chats has Work for its log", async () => {
   await spadeApp("/spade", seed);
   const work = within(await openWork("Watcher"));
   expect(await work.findByText("Linux run 18240117 timed out.")).toBeTruthy();
@@ -86,13 +86,10 @@ test("a bot with a goal shows Work with the check's verdict; a bot that only cha
 
   await userEvent.click(await botRow("Chatter"));
   await openProfile("Chatter");
-  await waitFor(() =>
-    expect(
-      within(tabs())
-        .queryAllByRole("tab")
-        .map((tab) => tab.textContent),
-    ).toEqual(["Details", "Library", "Computer", "Permissions"]),
-  );
+  // Work is always there, with the whole activity log; a bot without a goal has no plan in it.
+  const chatter = within(await openWork("Chatter"));
+  expect(await chatter.findByRole("heading", { name: "Activity" })).toBeTruthy();
+  expect(chatter.queryByRole("button", { name: "End goal" })).toBeNull();
 });
 
 test("the list row says what the check found, never the bot's own done", async () => {
@@ -146,7 +143,9 @@ test("the person edits a criterion in place and ends the goal; Work goes with it
 
   await userEvent.click(work.getByRole("button", { name: "End goal" }));
   await waitFor(() => expect(spade.sent("DELETE", "/v1/agents/watcher/task/goal")).toHaveLength(1));
-  await waitFor(() => expect(within(tabs()).queryByRole("tab", { name: "Work" })).toBeNull());
+  // The goal goes; Work stays, for the log.
+  await waitFor(() => expect(work.queryByText("CI passes on Linux and macOS")).toBeNull());
+  expect(work.queryByRole("button", { name: "End goal" })).toBeNull();
 });
 
 test("Stop on a worker stops it at once, with no confirm", async () => {

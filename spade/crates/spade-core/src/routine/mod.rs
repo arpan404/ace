@@ -220,6 +220,8 @@ pub fn run_open<'a>(events: impl IntoIterator<Item = &'a Event>, run: &str) -> b
 
 /// Whether a reply's text says nothing needs the person.
 pub fn is_quiet(text: &str) -> bool {
+    // Wrapped as a message (ADR 0212), `<msg>[quiet]</msg>` is as quiet.
+    let text = crate::chat_markup::plain(text);
     let text = text.trim().trim_end_matches('.').trim();
     text.eq_ignore_ascii_case(QUIET)
 }

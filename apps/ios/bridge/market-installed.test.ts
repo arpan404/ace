@@ -115,7 +115,7 @@ test("turning a withdrawn entry back on asks first, with its publisher's reason 
   ).toEqual({
     question: "Turn Digest back on?",
     detail:
-      "Its publisher withdrew it: It leaked mail headers. It runs again at your own risk, until ace turns it off the next time it reads the market.",
+      "Its publisher withdrew it: It leaked mail headers. It runs again at your own risk, until ace turns it off the next time it reads the Marketplace.",
     confirm: "Turn back on anyway",
   });
   expect(
@@ -131,7 +131,7 @@ test("turning a withdrawn entry back on asks first, with its publisher's reason 
   ).toEqual({
     question: "Resume Inbox?",
     detail:
-      "Its publisher withdrew it without saying why. It runs again at your own risk, until ace turns it off the next time it reads the market.",
+      "Its publisher withdrew it without saying why. It runs again at your own risk, until ace turns it off the next time it reads the Marketplace.",
     confirm: "Resume anyway",
   });
   expect(only(install("notes", { state: "off" }))?.turnOnAsk).toBeNull();
@@ -142,7 +142,7 @@ test("Remove asks first, naming what goes", () => {
   expect(only(install("inbox", { type: "spade-bot", title: "Inbox", target: "b" }))).toMatchObject({
     removeQuestion: "Remove Inbox from Installed?",
     removeDetail:
-      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the marketplace.",
+      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the Marketplace.",
   });
   expect(only(install("harbour", { type: "suit", title: "Harbour dusk" }))).toMatchObject({
     removeQuestion: "Remove Harbour dusk?",
@@ -172,7 +172,7 @@ test("with nothing waiting the list says it's up to date, and empty says what sh
   });
   expect(answer()).toMatchObject({
     upToDate: null,
-    empty: "What you get from the marketplace shows here.",
+    empty: "What you get from the Marketplace shows here.",
   });
 });
 

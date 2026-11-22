@@ -152,14 +152,17 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
       <div className="flex h-full min-h-0 flex-col">
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto pb-8">
           <div {...part("page-body")} className={readingColumn}>
-            {/* The app header already names it; one pinned line says when it runs next, with the switch. */}
+            {/* Its name as the page's title, with one flat line under it: when it runs next, and the switch. */}
             <header {...part("page-header")} className="sticky top-0 z-10 bg-background pt-4 pb-2">
-              <h2 {...part("page-title")} className="sr-only">
+              <h2
+                {...part("page-title")}
+                className="truncate text-lg/6 font-semibold text-foreground"
+              >
                 {automation.title}
               </h2>
               <div
                 {...part("card", undefined, "schedule")}
-                className="flex min-h-10 items-center gap-3 rounded-lg border border-border px-3 py-1.5 text-ui text-muted-foreground"
+                className="mt-1 flex min-h-8 items-center gap-3 text-ui text-muted-foreground"
               >
                 <p className="min-w-0 flex-1 truncate">
                   {describeWhen(automation.trigger, localTimeZone())} ·{" "}

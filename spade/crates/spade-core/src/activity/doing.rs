@@ -115,15 +115,6 @@ fn capitalised(text: &str) -> String {
     }
 }
 
-/// "slack" or "google_calendar" → "Slack", "Google Calendar".
-fn app_name(app: &str) -> String {
-    app.split(['_', '-'])
-        .filter(|w| !w.is_empty())
-        .map(capitalised)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// A phrase with `what` after it, cut as a whole: "Searching the web for flights to Oslo".
 fn with(lead: &str, what: Option<&str>) -> String {
     match what.and_then(|w| short(&format!("{lead} {w}"))) {
@@ -179,10 +170,11 @@ pub fn tool(name: &str, arguments: &Value) -> Option<String> {
         let inner_args = arguments.get("arguments").unwrap_or(&Value::Null);
         return tool(inner, inner_args);
     }
-    let (app, base) = name.split_once("__").unwrap_or(("", name));
-    if !app.is_empty() && app != "ace" {
-        return Some(app_tool(&app_name(app), base));
+    // An app's tool: in the same verbs the activity log uses (`plain`), cut short.
+    if let Some(phrase) = super::plain::app_doing(name) {
+        return short(&phrase);
     }
+    let base = name.split_once("__").map_or(name, |(_, base)| base);
     let base = base.strip_prefix("ace_").unwrap_or(base);
     Some(match base {
         "shell" => return field(arguments, &["command"]).and_then(command),
@@ -223,23 +215,6 @@ fn file(arguments: &Value, verb: &str, fallback: &str) -> String {
     match field(arguments, &["path"]).map(file_name) {
         Some(name) => with(verb, Some(name)),
         None => fallback.to_owned(),
-    }
-}
-
-/// An app's tool: "Searching Notion", "Reading your Notion pages", "Working in Notion".
-fn app_tool(app: &str, tool: &str) -> String {
-    let words: Vec<&str> = tool.split(['_', '-']).filter(|w| !w.is_empty()).collect();
-    let (verb, rest) = words.split_first().map_or(("", &[][..]), |(v, r)| (*v, r));
-    let noun = rest.join(" ");
-    match verb.to_lowercase().as_str() {
-        "search" | "find" | "query" | "lookup" => with("Searching", Some(app)),
-        "get" | "read" | "fetch" | "list" | "retrieve" | "view" | "load" if !noun.is_empty() => {
-            with(&format!("Reading your {app}"), Some(&noun))
-        }
-        "get" | "read" | "fetch" | "list" | "retrieve" | "view" | "load" => {
-            with("Reading from", Some(app))
-        }
-        _ => with("Working in", Some(app)),
     }
 }
 
@@ -470,7 +445,11 @@ mod tests {
                 json!({}),
                 Some("Reading your Notion pages"),
             ),
-            ("notion__create_page", json!({}), Some("Working in Notion")),
+            (
+                "notion__create_page",
+                json!({}),
+                Some("Creating page in Notion"),
+            ),
             (
                 "google_calendar__list_events",
                 json!({}),
@@ -479,7 +458,7 @@ mod tests {
             (
                 "call_tool",
                 json!({ "name": "slack__send_message", "arguments": {} }),
-                Some("Working in Slack"),
+                Some("Sending message in Slack"),
             ),
             (
                 "todo",

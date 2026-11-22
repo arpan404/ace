@@ -129,7 +129,6 @@ export function ProfileMachine(props: { bot: RosterBot }) {
     <>
       <SettingRow
         title="Machine"
-        inline
         description={actions.problem && <span className="text-destructive">{actions.problem}</span>}
       >
         <span className="flex min-w-0 items-center gap-1">

@@ -119,6 +119,7 @@ fn other_bots_lines_make_the_context_untrusted_but_the_persons_and_own_do_not() 
             text: text.to_owned(),
             from,
             thread: None,
+            reply_to: None,
         })
     };
     let own = vec![message(None, "hi"), message(Some(bot("me")), "hello")];
@@ -178,6 +179,7 @@ fn posted(run: &str, from: Option<&str>, text: &str) -> Event {
         text: text.to_owned(),
         from: from.map(bot),
         thread: None,
+        reply_to: None,
     })
 }
 

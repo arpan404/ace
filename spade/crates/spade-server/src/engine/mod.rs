@@ -6,6 +6,7 @@ mod adopt;
 mod agents;
 mod app_forms;
 mod app_pages;
+mod app_pins;
 mod apps;
 mod archive;
 mod autonomy;
@@ -294,6 +295,9 @@ pub struct Engine {
     /// What the gate authorized for each call about to run, by call key (ADR 0171; ADR 0167
     /// Windows hardening): outside the sandbox, contained only, or reviewed. Taken once at launch.
     /// With each, the warrant its start outside the sandbox must pass.
+    /// What each connected app's call about to run was approved as (its tool's definition and
+    /// its session's generation), by call key: checked right before it is sent. Taken once.
+    app_bindings: Mutex<HashMap<String, spade_connect::Expect>>,
     launches: Mutex<
         HashMap<
             String,
@@ -469,6 +473,7 @@ impl Engine {
             suggest_lock: Mutex::default(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
+            app_bindings: Mutex::default(),
             launches: Mutex::default(),
             drive_places: Mutex::default(),
             continuations: Mutex::default(),

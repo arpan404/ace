@@ -558,7 +558,9 @@ unreviewed call outside.
   the bot's `commands` to `outside`; Deny declines it.
 - **Granted**: a `git_push` or `pr_comment` grant covers its typed tool, matched by
   `host/owner/name` (a grant written `owner/name` means GitHub); a `tool` grant covers only a tool
-  that declares `read`, `write_local`, `network` or `publish`, never one that declares nothing.
+  that declares `read`, `write_local`, `network` or `publish`, never one that declares nothing;
+  an `app` grant (`{kind: "app", app, writes}`, ADR 0202 amendment 5) covers one connected app's
+  writes, undeclared ones included, for one bot, made only with the person's stamp.
 - **Unprotected**: sandboxed, but the checkpoint couldn't be taken: reviewed, after the
   person-only rules.
 
@@ -651,8 +653,9 @@ the sandbox`); each network rule marked as its own or the Mac's, with a way back
 consented folders, toolchains, grants, network activity and checkpoints as before.
 
 **Requests**: `ask: outside_sandbox` shows "Run this outside the sandbox?" with the command and
-Allow once, Always for this bot, Deny; `ask: undeclared` shows Allow and Deny, since the answer
-is kept for the bot and tool.
+Allow once, Always for this bot, Deny; `ask: undeclared` (from a Spade before ADR 0202 amendment 5) shows Allow and Deny, since the answer is kept for the bot and tool; `ask: app` (a connected
+app's write, `app` its connection) adds Always allow for the app, which makes the app grant and
+then allows. Requests one app made together show as one card with Allow all and Deny all.
 
 ## Org hosts
 

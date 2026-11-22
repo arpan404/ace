@@ -250,34 +250,17 @@ async fn a_tool_that_arrives_later_is_found_and_run_without_changing_the_offered
             })
             .unwrap_or_default()
     };
-    assert_eq!(
-        names(0),
-        vec![
-            "ask_user",
-            "bot_message",
-            "bots_list",
-            "episode_search",
-            "group_ask",
-            "helper",
-            "history_read",
-            "history_search",
-            "knowledge_search",
-            "knowledge_write",
-            "memory_forget",
-            "memory_save",
-            "memory_search",
-            "memory_update",
-            "profile_update",
-            "routine_delete",
-            "routine_save",
-            "routines_list",
-            "sleep_until",
-            "task_update",
-            "wait_for",
-            "tool_search",
-            "call_tool"
-        ],
-        "search is offered before any tool arrives"
+    // Search is offered before any tool arrives, and the late tool is never offered itself: it
+    // is found and run through search. (Not the whole list: other tools come and go with Spade.)
+    let offered = names(0);
+    assert!(
+        offered.iter().any(|name| name == "tool_search")
+            && offered.iter().any(|name| name == "call_tool"),
+        "search is offered before any tool arrives: {offered:?}"
+    );
+    assert!(
+        !offered.iter().any(|name| name == "thread_start"),
+        "{offered:?}"
     );
     assert_eq!(names(0), names(3), "the offered tools never change");
     let found = seen[3].body["messages"].to_string();

@@ -202,7 +202,7 @@ impl Tool for AskUser {
                 "options": { "type": "array", "items": option,
                              "description": "choice and choices: 2 to 10 options." },
                 "other": { "type": "boolean",
-                           "description": "choice and choices: they may write their own answer." },
+                           "description": "choice and choices: the card always lets them answer in their own words; set this to also take a message they type in the chat as their answer." },
                 "min": { "type": "number",
                          "description": "choices: fewest picks (default 1). number: the least." },
                 "max": { "type": "number",

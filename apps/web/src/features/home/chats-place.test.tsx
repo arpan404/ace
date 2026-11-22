@@ -152,7 +152,7 @@ test("the Projects panel and History leave chats out", async () => {
   // The panel has no History row: History is its own page (and the palette's).
   await visit("/history");
   const main = screen.getByRole("main");
-  await within(main).findByRole("heading", { level: 2, name: "History" });
+  await screen.findByRole("heading", { level: 1, name: "History" });
   expect(within(main).queryByRole("link", { name: /^How TLS/ })).toBeNull();
 });
 
@@ -173,6 +173,7 @@ test("New chat starts a chat at once, without asking for a project", async () =>
 
 test("Search chats narrows by title, and Escape brings every chat back", async () => {
   await open(everyDay(), "/chats", "Chats");
+  await userEvent.click(screen.getByRole("button", { name: "Search chats" }));
   const search = screen.getByRole("searchbox", { name: "Search chats" });
   await userEvent.type(search, "lisb");
   await waitFor(() => expect(reading(chatsNav())).toEqual(["[Active]", "Three days in Lisbon"]));
@@ -202,6 +203,7 @@ test("Search chats finds an older chat the list hasn't loaded", async () => {
   try {
     await open(app, "/chats", "Chats");
     expect(within(chatsNav()).queryByRole("link", { name: /^Dialing in espresso/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Search chats" }));
     await userEvent.type(screen.getByRole("searchbox", { name: "Search chats" }), "espresso");
     await waitFor(() => expect(reading(chatsNav())).toEqual(["[Earlier]", "Dialing in espresso"]));
     await userEvent.click(within(chatsNav()).getByRole("link", { name: /^Dialing in espresso/ }));

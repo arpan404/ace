@@ -198,7 +198,7 @@ pub fn ended(events: &[Event]) -> Option<Ended> {
             uncertain: false,
         },
         Known::ReplyFinished { text, .. } => Ended {
-            content: text.clone(),
+            content: crate::chat_markup::plain(text),
             is_error: false,
             uncertain: false,
         },
@@ -227,7 +227,10 @@ fn with_partial(said: &str, text: &str) -> String {
     if text.trim().is_empty() {
         said.to_owned()
     } else {
-        format!("{said} What it had written so far:\n{}", text.trim())
+        format!(
+            "{said} What it had written so far:\n{}",
+            crate::chat_markup::plain(text)
+        )
     }
 }
 

@@ -2,6 +2,7 @@ import {
   chartSeries,
   projectTints,
   rampSteps,
+  fileToneColours,
   rowStatusColours,
   sharedStatus,
   type Palette,
@@ -58,6 +59,12 @@ function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
 const rowStatus = (scheme: Scheme): Record<`--row-status-${string}`, string> =>
   Object.fromEntries(
     Object.entries(rowStatusColours[scheme]).map(([key, value]) => [`--row-status-${key}`, value]),
+  );
+
+/** File-type marks' tones (`fileToneColours`), the same in every theme of a scheme. */
+const fileTones = (scheme: Scheme): Record<`--file-${string}`, string> =>
+  Object.fromEntries(
+    Object.entries(fileToneColours[scheme]).map(([key, value]) => [`--file-${key}`, value]),
   );
 
 export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTranslucency) {
@@ -162,6 +169,7 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--status-waiting": status.waiting,
     "--status-unresponsive": status.unresponsive,
     ...rowStatus(scheme),
+    ...fileTones(scheme),
 
     // Diffs and code.
     "--diff-add": p.diffAdd,

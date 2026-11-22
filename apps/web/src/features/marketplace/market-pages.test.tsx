@@ -76,5 +76,5 @@ test("Remove takes a link off the publisher's profile", async () => {
 
   await within(market).findByRole("button", { name: "Edit profile" });
   await waitFor(() => expect(within(market).queryByRole("link", { name: "Site" })).toBeNull());
-  expect(screen.getByRole("region", { name: "Store" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Marketplace" })).toBeTruthy();
 });

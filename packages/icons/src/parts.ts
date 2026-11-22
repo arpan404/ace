@@ -27,6 +27,8 @@ export interface Part {
   hole?: Circle;
   /** A band cut out of this part alone: `path` stroked `width` wide (the gap beside an "off" slash). */
   gap?: { path: string; width: number };
+  /** Painted in the icon's `accent` colour instead of its ink (a folder's mark, say). */
+  accent?: boolean;
 }
 
 export const circle = (cx: number, cy: number, r: number): Circle => ({ cx, cy, r });
@@ -73,3 +75,7 @@ export function plussed(parts: readonly Part[]): Part[] {
 }
 /** A round dot, sized to sit with a 1.75 stroke. */
 export const dot = (cx: number, cy: number, r = 1.4): Part => spot(circle(cx, cy, r));
+
+/** `parts` painted in the icon's accent colour. */
+export const accented = (parts: readonly Part[]): Part[] =>
+  parts.map((part) => ({ ...part, accent: true }));

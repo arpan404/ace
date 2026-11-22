@@ -99,6 +99,7 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         from_routine,
         from_group: None,
         from_thread,
+        reply_to,
     }) = event
     else {
         return event;
@@ -117,6 +118,7 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         from_routine,
         from_group: None,
         from_thread,
+        reply_to,
     })
 }
 

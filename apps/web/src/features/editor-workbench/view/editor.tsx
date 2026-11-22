@@ -36,6 +36,8 @@ export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLay
    * widens if it can; meanwhile the panes sit narrower, or stacked, but always on screen.
    */
   onNeedRoom?: ((width: number) => void) | undefined;
+  /** Shared caret/status store so sibling explorer views (Outline) follow the caret without re-rendering panes. */
+  statusStore?: StatusStore | undefined;
 }
 
 /**
@@ -61,8 +63,9 @@ export function Editor(props: EditorProps) {
   const shape = paneShape(layout.root);
   const [resized, setResized] = useState<string | undefined>(undefined);
   const folded = resized === shape ? noneFolded : collapsedPanes(shown.root, focused.id, box);
-  // Status lives outside the editor's state: a caret move redraws the status line alone.
-  const [status] = useState(createStatusStore);
+  // Status lives outside the editor's state: a caret move redraws the status line and breadcrumbs alone.
+  const [fallbackStatus] = useState(createStatusStore);
+  const status = props.statusStore ?? fallbackStatus;
   const host: EditorHost = { ...props, reportStatus: status.report };
   const pendingFocus = useRef(false);
 
@@ -98,6 +101,7 @@ export function Editor(props: EditorProps) {
         actions={bindGroupActions(group.id, context)}
         stripLead={leadOf(group)}
         folded={folded.has(group.id)}
+        statusStore={status}
       />
     );
   };
