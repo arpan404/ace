@@ -5,10 +5,12 @@ import {
   type MergePort,
   type TextBuffer,
 } from "@/features/editor-workbench/index.ts";
+import { ProviderKind } from "@ace/protocol";
+import { z } from "zod";
 import { providerOf } from "./agent-changes.ts";
 import type { AgentBlock, AgentWho } from "./agent-lines.ts";
 import { authorOf } from "./editor-registry.ts";
-import { LiveGutter } from "./live-gutter.ts";
+import { LiveGutter, type AttributionMemory, type SavedAttribution } from "./live-gutter.ts";
 
 /*
  * The I/O shell around each open file's `LiveGutter`: one per buffer, made when the editor first
@@ -45,6 +47,7 @@ export function liveGutterFor(buffer: TextBuffer): LiveGutter {
     who: (reason) =>
       whoOf(reason === "reload" ? authorOf(buffer.key, Date.now()) : buffer.snapshot().clash?.by),
     delay: gutterDelay,
+    memory: deviceAttribution(),
   });
   gutters.set(buffer, gutter);
   return gutter;
@@ -57,4 +60,82 @@ export function agentBlocksOf(
 ): readonly AgentBlock[] {
   const buffer = buffers.buffer(path);
   return buffer ? (gutters.get(buffer)?.state().agent ?? []) : [];
+}
+
+const storageKey = "ace.editor.agent-lines";
+/** Files whose agents' lines the device keeps; the oldest written go first. */
+const keptFiles = 200;
+
+const Saved = z.record(
+  z.string(),
+  z.object({
+    hash: z.string(),
+    written: z.number(),
+    blocks: z.array(
+      z.object({
+        start: z.number(),
+        end: z.number(),
+        at: z.number(),
+        who: z.object({
+          name: z.string(),
+          provider: z.string().optional(),
+          turn: z.number().optional(),
+        }),
+      }),
+    ),
+  }),
+);
+
+/**
+ * Agents' lines on this device (localStorage), each file's for the exact text they were measured
+ * on, so a reload (from the disk or a kept draft) shows them again while that text is unchanged.
+ */
+function deviceAttribution(): AttributionMemory | undefined {
+  if (typeof localStorage === "undefined") return undefined;
+  const load = () => {
+    try {
+      const parsed = Saved.safeParse(JSON.parse(localStorage.getItem(storageKey) ?? "{}"));
+      return parsed.success ? parsed.data : {};
+    } catch {
+      return {};
+    }
+  };
+  return {
+    read: (key) => {
+      const entry = load()[key];
+      if (!entry) return undefined;
+      const blocks = entry.blocks.map((block) => ({
+        ...block,
+        who: { ...block.who, provider: ProviderKind.safeParse(block.who.provider).data },
+      }));
+      return { hash: entry.hash, blocks } satisfies SavedAttribution;
+    },
+    write: (key, saved) => {
+      const all = load();
+      if (saved)
+        all[key] = {
+          hash: saved.hash,
+          written: Date.now(),
+          blocks: saved.blocks.map((block) => ({
+            start: block.start,
+            end: block.end,
+            at: block.at,
+            who: {
+              name: block.who.name,
+              ...(block.who.provider ? { provider: block.who.provider } : {}),
+              ...(block.who.turn === undefined ? {} : { turn: block.who.turn }),
+            },
+          })),
+        };
+      else delete all[key];
+      const kept = Object.entries(all)
+        .toSorted(([, a], [, b]) => b.written - a.written)
+        .slice(0, keptFiles);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(kept)));
+      } catch {
+        // Storage full: the lines stay marked for this session only.
+      }
+    },
+  };
 }

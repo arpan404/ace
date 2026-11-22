@@ -11,6 +11,8 @@ import type { BufferEvent, TextBuffer } from "@/features/editor-workbench/index.
 import {
   landBlocks,
   mapBlocks,
+  projectBlocks,
+  sameBlocks,
   withoutLines,
   type AgentBlock,
   type AgentWho,
@@ -49,6 +51,31 @@ export interface LiveGutterDeps {
   who(reason: "reload" | "merge"): AgentWho | undefined;
   /** How long typing pauses before the marks are worked out again. */
   delay: number;
+  /** Where attribution outlives the page (the device's storage); none keeps it in memory only. */
+  memory?: AttributionMemory | undefined;
+}
+
+/** Agents' lines kept for a file, for the exact text they were measured on. */
+export interface SavedAttribution {
+  /** `textHash` of the text the blocks are in. */
+  hash: string;
+  blocks: readonly AgentBlock[];
+}
+
+export interface AttributionMemory {
+  read(key: string): SavedAttribution | undefined;
+  /** Undefined forgets the file's entry. */
+  write(key: string, saved: SavedAttribution | undefined): void;
+}
+
+/** A short fingerprint of a text (FNV-1a over its UTF-16 units, and its length). */
+export function textHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${text.length}:${(hash >>> 0).toString(36)}`;
 }
 
 const empty: GutterState = { hunks: [], marks: undefined, agent: [] };
@@ -61,9 +88,18 @@ export class LiveGutter {
   /** The committed text; undefined compares against what is on disk. */
   #head: string | undefined;
   #state: GutterState = empty;
-  /** The text the agent blocks are in. */
+  /**
+   * The text as the agent last left it, and its lines in that text. What is shown is these lines
+   * as they read now: a line the person edited is not the agent's until an undo puts it back.
+   */
   #agentText: string | undefined;
   #agent: AgentBlock[] = [];
+  /** The agent's lines as the text is now. */
+  #shown: AgentBlock[] = [];
+  /** The device's copy was looked at for this document (once per document). */
+  #recalled: object | undefined;
+  /** What is kept on the device for this file: its text's hash and the lines, if anything. */
+  #kept: { hash: string; blocks: readonly AgentBlock[] } | undefined;
   #cancel: (() => void) | undefined;
   /** Every change to the marks runs in order. */
   #chain: Promise<void> = Promise.resolve();
@@ -129,12 +165,18 @@ export class LiveGutter {
     return true;
   }
 
-  /** The person kept (or reverted) 0-based lines `start..end`: they stop being the agent's. */
+  /**
+   * The person kept (or reverted) 0-based lines `start..end` of the text as it is now: they stop
+   * being the agent's, measured from here on.
+   */
   keep(start: number, end: number): void {
-    const kept = withoutLines(this.#agent, start, end);
-    if (kept.length === this.#agent.length) return;
+    const kept = withoutLines(this.#shown, start, end);
+    if (kept.length === this.#shown.length) return;
     this.#agent = kept;
+    this.#shown = kept;
+    this.#agentText = kept.length ? this.#buffer.document()?.text() : undefined;
     this.#publish({ ...this.#state, agent: kept });
+    this.#remember(this.#agentText);
   }
 
   /** Settles once the scheduled and queued work has run (tests, and a review's first look). */
@@ -159,8 +201,9 @@ export class LiveGutter {
       this.edited();
     } else if (event.type === "document") {
       if (!this.#buffer.document()) {
-        // Freed: the text the blocks were in is gone with it.
+        // Freed: the device's copy brings the lines back when the text is read again.
         this.#agent = [];
+        this.#shown = [];
         this.#agentText = undefined;
         this.#publish(empty);
       }
@@ -183,13 +226,50 @@ export class LiveGutter {
     at: number,
   ): Promise<void> {
     if (this.#disposed || after === undefined) return;
+    // The agent's earlier lines as they read just before this change, then through it.
     let blocks = this.#agent;
     if (blocks.length && this.#agentText !== undefined && this.#agentText !== before)
-      blocks = mapBlocks(blocks, await this.#deps.diff.lineChanges(this.#agentText, before));
+      blocks = projectBlocks(blocks, await this.#deps.diff.lineChanges(this.#agentText, before));
     blocks = who ? landBlocks(blocks, changes, who, at) : mapBlocks(blocks, changes);
     this.#agent = blocks;
+    this.#shown = blocks;
     this.#agentText = blocks.length ? after : undefined;
     this.#publish({ ...this.#state, agent: blocks });
+    this.#remember(this.#agentText);
+  }
+
+  /** The key the device keeps this file's attribution under. */
+  #key(): string {
+    return `${this.#buffer.key.root}\u0000${this.#buffer.key.path}`;
+  }
+
+  /** Keeps the shown lines for `text` on the device, or forgets them when there are none. */
+  #remember(text: string | undefined): void {
+    const memory = this.#deps.memory;
+    if (!memory) return;
+    if (this.#shown.length && text !== undefined) {
+      const hash = textHash(text);
+      if (this.#kept?.hash === hash && this.#kept.blocks === this.#shown) return;
+      this.#kept = { hash, blocks: this.#shown };
+      memory.write(this.#key(), this.#kept);
+    } else if (this.#kept) {
+      memory.write(this.#key(), undefined);
+      this.#kept = undefined;
+    }
+  }
+
+  /** A document read afresh (a reload): the device's lines, if they were kept for this text. */
+  #recall(doc: object, text: string): void {
+    if (this.#recalled === doc) return;
+    this.#recalled = doc;
+    if (this.#agent.length) return;
+    const saved = this.#deps.memory?.read(this.#key());
+    if (!saved) return;
+    this.#kept = saved;
+    if (saved.hash !== textHash(text)) return;
+    this.#agent = [...saved.blocks];
+    this.#shown = this.#agent;
+    this.#agentText = text;
   }
 
   async #recompute(): Promise<void> {
@@ -198,6 +278,7 @@ export class LiveGutter {
     if (!doc) return this.#publish(empty);
     const version = doc.version();
     const text = doc.text();
+    this.#recall(doc, text);
     const head = this.#head ?? this.#buffer.baseText();
     const from = this.#agentText;
     const [changes, moved] = await Promise.all([
@@ -207,19 +288,19 @@ export class LiveGutter {
         : undefined,
     ]);
     if (this.#disposed) return;
-    if (moved) {
-      this.#agent = mapBlocks(this.#agent, moved);
-      this.#agentText = this.#agent.length ? text : undefined;
-    }
+    // Measured against the text the agent left, never rebased: an undo brings a line back.
+    const shown = moved ? projectBlocks(this.#agent, moved) : this.#agent;
+    if (!sameBlocks(shown, this.#shown)) this.#shown = shown;
+    this.#remember(text);
     // The text moved while the diff ran: the next pause works the hunks out again.
     if (this.#buffer.document() !== doc || doc.version() !== version)
-      return this.#publish({ ...this.#state, agent: this.#agent });
+      return this.#publish({ ...this.#state, agent: this.#shown });
     const hunks = hunksFromChanges(changes, (line) => doc.line(line), doc.lenLines());
     const marks = hunkMarks(hunks);
     this.#publish({
       hunks,
       marks: marks.size ? marks : undefined,
-      agent: this.#agent,
+      agent: this.#shown,
       basis: head === undefined ? undefined : { doc, version, head },
     });
   }

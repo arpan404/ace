@@ -64,6 +64,49 @@ export function mapBlocks(
 }
 
 /**
+ * The agent's lines of `blocks` (in an older text's lines) as they are in a newer text, given the
+ * changes between the two: each line still the same is still the agent's, at its new place; an
+ * edited line is not, and a block splits around it and around lines added inside it. Measured
+ * against the text the agent left, so an undo that puts a line back makes it the agent's again.
+ * Linear in the blocks' lines and the changes.
+ */
+export function projectBlocks(
+  blocks: readonly AgentBlock[],
+  changes: readonly WholeLineChange[],
+): AgentBlock[] {
+  if (changes.length === 0) return [...blocks];
+  const out: AgentBlock[] = [];
+  for (const block of blocks) {
+    if (block.start === block.end) {
+      const kept = mapBlocks([block], changes)[0];
+      if (kept) out.push(kept);
+      continue;
+    }
+    let run: AgentBlock | undefined;
+    // One pass: the changes wholly above the line so far, and how far they moved it.
+    let next = 0;
+    let delta = 0;
+    for (let line = block.start; line < block.end; line++) {
+      for (let change = changes[next]; change; change = changes[++next]) {
+        const above = change.end <= line && (change.end > change.start || change.start <= line);
+        if (!above) break;
+        delta += linesOf(change.text).length - (change.end - change.start);
+      }
+      const over = changes[next];
+      const edited = over !== undefined && over.end > over.start && line >= over.start;
+      const now = edited ? undefined : line + delta;
+      if (now !== undefined && run && run.end === now) run.end = now + 1;
+      else {
+        if (run) out.push(run);
+        run = now === undefined ? undefined : { ...block, start: now, end: now + 1 };
+      }
+    }
+    if (run) out.push(run);
+  }
+  return out;
+}
+
+/**
  * The agent's own `changes` landed: earlier blocks move (or go, where it wrote over them) and each
  * change becomes a block of the lines it wrote.
  */
@@ -108,5 +151,16 @@ export function withoutLines(
     block.start === block.end
       ? block.start < start || block.start > end
       : block.end <= start || block.start >= Math.max(end, start + 1),
+  );
+}
+
+/** The same lines, by the same author: a view needn't draw again. */
+export function sameBlocks(a: readonly AgentBlock[], b: readonly AgentBlock[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((block, index) => {
+      const other = b[index];
+      return other?.start === block.start && other.end === block.end && other.who === block.who;
+    })
   );
 }

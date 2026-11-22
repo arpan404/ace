@@ -24,7 +24,20 @@ const file = { root: "m1/t1", path: "places.ts" };
 const claude: AgentWho = { name: "Claude Code", provider: "claude", turn: 2 };
 const committed = "one\ntwo\nthree\nfour\n";
 
-async function opened(disk = "one\ntwo\nthree\nfour\n") {
+/** Attribution kept across reloads, as the app keeps it on the device. */
+function memory() {
+  const saved = new Map<string, unknown>();
+  return {
+    read: (key: string) => saved.get(key) as never,
+    write: (key: string, value: unknown) => {
+      if (value === undefined) saved.delete(key);
+      else saved.set(key, value);
+    },
+    saved,
+  };
+}
+
+async function opened(disk = "one\ntwo\nthree\nfour\n", kept = memory()) {
   const checkout = fakeDisk({ "places.ts": disk });
   const time = manualTime();
   const registry = createBufferRegistry({
@@ -46,6 +59,7 @@ async function opened(disk = "one\ntwo\nthree\nfour\n") {
     now: time.now,
     who: () => claude,
     delay: 150,
+    memory: kept,
   });
   gutter.setHead(committed);
   const pause = async () => {
@@ -54,7 +68,24 @@ async function opened(disk = "one\ntwo\nthree\nfour\n") {
     await settle();
   };
   await pause();
-  return { checkout, registry, buffer, gutter, time, pause };
+  /** The app reloads: a fresh gutter on the same buffer, reading what the device kept. */
+  const reopened = async () => {
+    gutter.dispose();
+    const again = new LiveGutter(buffer, {
+      diff: { lineChanges: async (before, after) => lineChanges(before, after) },
+      schedule: time.schedule,
+      now: time.now,
+      who: () => claude,
+      delay: 150,
+      memory: kept,
+    });
+    again.setHead(committed);
+    await time.advance(200);
+    await again.settled();
+    await settle();
+    return again;
+  };
+  return { checkout, registry, buffer, gutter, time, pause, reopened, kept };
 }
 
 function type(buffer: TextBuffer, line: number, text: string) {
@@ -217,4 +248,46 @@ test.each([
   expect(gutter.revert(hunk)).toBe(true);
 
   expect(buffer.document()?.text()).toBe(head);
+});
+
+test("editing one of an agent's lines clears only that line, and undo brings it back however late", async () => {
+  const { checkout, registry, buffer, gutter, pause } = await opened();
+  checkout.write("places.ts", "one\nagent a\nagent b\nagent c\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+  expect(agentOf(gutter)).toEqual([[1, 4, 2]]);
+
+  type(buffer, 2, "agent b, edited");
+  gutter.edited();
+  await pause();
+  expect(agentOf(gutter)).toEqual([
+    [1, 2, 2],
+    [3, 4, 2],
+  ]);
+
+  // Well after the pause, undo puts the agent's line back: it is the agent's again.
+  buffer.document()?.undo();
+  buffer.edited();
+  gutter.edited();
+  await pause();
+  expect(agentOf(gutter)).toEqual([[1, 4, 2]]);
+});
+
+test("the agent's lines come back after a reload while the text is the same, and not otherwise", async () => {
+  const { checkout, registry, buffer, gutter, pause, reopened } = await opened();
+  checkout.write("places.ts", "one\nagent a\nthree\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+  expect(agentOf(gutter)).toEqual([[1, 2, 2]]);
+
+  const again = await reopened();
+  expect(agentOf(again)).toEqual([[1, 2, 2]]);
+  expect(again.state().agent[0]?.who).toEqual(claude);
+
+  // Text that changed while nobody watched carries no stale marks.
+  type(buffer, 1, "rewritten elsewhere");
+  const third = await reopened();
+  expect(agentOf(third)).toEqual([]);
 });

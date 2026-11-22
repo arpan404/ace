@@ -1,9 +1,10 @@
-import { expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
   blockAt,
   blockWords,
   landBlocks,
   mapBlocks,
+  projectBlocks,
   withoutLines,
   type AgentBlock,
 } from "./agent-lines.ts";
@@ -92,4 +93,36 @@ test("keeping lines drops only the blocks over them", () => {
 test("the hover names the agent and the turn, or only the agent", () => {
   expect(blockWords(claude)).toBe("Claude Code changed this in turn 2");
   expect(blockWords({ name: "Fix relay loop" })).toBe("Fix relay loop changed this");
+});
+
+describe("the agent's lines as the text is now", () => {
+  const blocks = [block(2, 5)];
+
+  it("are all still the agent's while nothing touched them", () => {
+    expect(projectBlocks(blocks, []).map(span)).toEqual([[2, 5]]);
+  });
+
+  it("lose only the line the person edited", () => {
+    expect(projectBlocks(blocks, [{ start: 3, end: 4, text: "edited\n" }]).map(span)).toEqual([
+      [2, 3],
+      [4, 5],
+    ]);
+  });
+
+  it("move with lines added above and split around lines added inside", () => {
+    expect(
+      projectBlocks(blocks, [
+        { start: 0, end: 0, text: "x\n" },
+        { start: 4, end: 4, text: "y\nz\n" },
+      ]).map(span),
+    ).toEqual([
+      [3, 5],
+      [7, 8],
+    ]);
+  });
+
+  it("keep their author on every piece", () => {
+    const [first, second] = projectBlocks(blocks, [{ start: 3, end: 4, text: "edited\n" }]);
+    expect([first?.who, second?.who]).toEqual([claude, claude]);
+  });
 });
