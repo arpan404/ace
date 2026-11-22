@@ -35,7 +35,6 @@ struct MarketPublishPicture: Identifiable, Equatable {
 /// sentence here.
 struct MarketPublishDescribe: View {
     let model: ClientModel
-    let hostId: String?
     @Bindable var flow: MarketPublishFlow
     let close: () -> Void
     @State private var photos: [PhotosPickerItem] = []
@@ -77,7 +76,7 @@ struct MarketPublishDescribe: View {
             if let problem {
                 Section {
                     if problem.asksForPerson {
-                        MarketConfirmPerson(refusal: problem, hostId: hostId, busy: flow.working, close: close) {
+                        MarketConfirmPerson(refusal: problem, hostId: model.hostId, busy: flow.working, close: close) {
                             Task { await submit(confirmed: true) }
                         }
                     } else {

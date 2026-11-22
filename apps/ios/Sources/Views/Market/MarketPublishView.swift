@@ -6,8 +6,6 @@ import SwiftUI
 /// bot's profile on that bot (`bot`), which starts at its review.
 struct MarketPublishView: View {
     let model: ClientModel
-    /// The machine the publish goes through, whose row offers Pair again.
-    let hostId: String?
     /// A Spade bot's id, to publish that bot.
     var bot: String? = nil
     /// Something was published: Your listings reads itself again.
@@ -29,7 +27,7 @@ struct MarketPublishView: View {
                 case .pick(let type): MarketPublishPick(model: model, type: type, flow: flow)
                 case .review: MarketPublishReview(model: model, flow: flow)
                 case .checks: MarketPublishChecks(flow: flow)
-                case .describe: MarketPublishDescribe(model: model, hostId: hostId, flow: flow, close: { dismiss() })
+                case .describe: MarketPublishDescribe(model: model, flow: flow, close: { dismiss() })
                 case .done: MarketPublishDone(flow: flow) { dismiss() }
                 }
             }
