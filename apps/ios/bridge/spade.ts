@@ -17,11 +17,14 @@ import {
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
+import { SpadeHosting } from "./spade-hosting.ts";
 import {
   spadeConversationHead,
   spadeConversationRows,
   spadeListRows,
   spadePlaceLine,
+  type SpadeListReach,
+  type SpadeReach,
 } from "./spade-rows.ts";
 import { SpadePeople, SpadeSharing } from "./spade-sharing.ts";
 import { SpadeWorkerTree } from "./spade-worker-tree.ts";
@@ -116,6 +119,18 @@ export class NativeSpade {
   /** Writes to a bot this runtime made (`saved`): a list read begun before one is out of date. */
   private writes = 0;
   private listFailed = false;
+  /**
+   * The bots were read on this connection. Until then (after a reconnect) the last list may be
+   * out of date: its rows read as unconfirmed, never working or done.
+   */
+  private confirmed = false;
+  /** The groups were read on this connection, as `confirmed` is for the bots. */
+  private groupsConfirmed = false;
+  /** Moves on every dropped connection, so a read begun on an older one confirms nothing. */
+  private epoch = 0;
+  /** Why the bots couldn't be read on this connection, while they still haven't been. */
+  private unconfirmedWhy: string | undefined;
+  private groupsUnconfirmedWhy: string | undefined;
   private watching = false;
   /** This runtime went away: nothing reads again. */
   private stopped = false;
@@ -138,6 +153,8 @@ export class NativeSpade {
   private readonly tree: SpadeWorkerTree;
   /** Which bots an organization shares, on an org host (ADR 0206 §2.3). */
   private readonly sharing: SpadeSharing;
+  /** Where this machine's Spade says Spade lives, for the list across machines. */
+  private readonly hosting: SpadeHosting;
   private readonly owner: ClientCore;
   private readonly sink: PatchSink;
   private readonly deps: SpadeDeps;
@@ -156,6 +173,11 @@ export class NativeSpade {
       { read: (path) => spadeText(owner, deps.id, "GET", path), later: deps.later },
       () => this.publishOpen(),
     );
+    this.hosting = new SpadeHosting({
+      read: (path) => spadeText(owner, deps.id, "GET", path),
+      now: deps.now,
+      changed: () => this.put(),
+    });
     this.sharing = new SpadeSharing({
       read: (path) => spadeText(owner, deps.id, "GET", path),
       now: deps.now,
@@ -187,9 +209,16 @@ export class NativeSpade {
     }
     this.stops.push(
       connection.subscribe(() => {
-        // A dropped connection ends the list's timer; it reads again once ready.
-        if (connection.getSnapshot() === "ready") this.refresh();
-        else this.stopList();
+        // A dropped connection ends the list's timer, and its bots list as away; it reads again
+        // once ready.
+        if (connection.getSnapshot() === "ready") return this.refresh();
+        this.stopList();
+        this.confirmed = false;
+        this.groupsConfirmed = false;
+        this.unconfirmedWhy = undefined;
+        this.groupsUnconfirmedWhy = undefined;
+        this.epoch++;
+        this.put();
       }),
       onSocketMove(this.owner, () => this.refresh()),
     );
@@ -244,6 +273,7 @@ export class NativeSpade {
     this.ask();
     void this.readName();
     void this.readEnabled();
+    if (this.listable) this.hosting.readNow();
     this.readList();
   }
 
@@ -318,21 +348,31 @@ export class NativeSpade {
     this.stopList();
     if (!this.listable || this.listReading) return;
     this.listReading = true;
+    this.hosting.readDue();
     // A write since this read began (`saved`) is newer than what it brings back about the bots.
     const writes = this.writes;
+    const epoch = this.epoch;
+    const failed = (why: string) => {
+      if (epoch === this.epoch && !this.confirmed) this.unconfirmedWhy = why;
+    };
     const read = (path: string) => spadeText(this.owner, this.deps.id, "GET", path);
     // Bots and groups are two reads, and each shows as it lands: one failing never hides the
     // other. A Spade before groups answers no list, and the list holds bots only.
     const agents = read("/v1/agents").then(
       (body) => {
         const listed = parseSpadeAgents(body);
-        if (listed && writes === this.writes) this.agents = listed;
+        if (listed && writes === this.writes) {
+          this.agents = listed;
+          if (epoch === this.epoch) this.confirmed = true;
+        }
         if (listed) this.sharing.follow(listed);
+        else failed("Spade's answer didn't make sense.");
         this.listFailed = !listed;
         this.put();
       },
       // The last list stays while a read fails; it reads again on its own.
-      () => {
+      (error: unknown) => {
+        failed(reason(error));
         this.listFailed = true;
         this.put();
       },
@@ -342,9 +382,13 @@ export class NativeSpade {
         const listed = parseSpadeGroups(body);
         if (!listed) return;
         this.groups = listed;
+        if (epoch === this.epoch) this.groupsConfirmed = true;
         this.put();
       },
-      () => {},
+      (error: unknown) => {
+        if (epoch === this.epoch && !this.groupsConfirmed)
+          this.groupsUnconfirmedWhy = reason(error);
+      },
     );
     void Promise.all([agents, groups]).finally(() => {
       this.listReading = false;
@@ -368,6 +412,22 @@ export class NativeSpade {
     this.listTimer = this.deps.later(working ? pace.working : pace.idle, () => this.readList());
   }
 
+  /** Whether the machine and its Spade answer now, and its lists were read since, for its rows. */
+  private get reach(): SpadeListReach {
+    const of = (confirmed: boolean, why: string | undefined): SpadeReach => {
+      if (this.owner.connectionState().getSnapshot() !== "ready") return "away";
+      if (!this.ready) return "unavailable";
+      if (confirmed) return "answering";
+      return {
+        unconfirmed: why === undefined ? "Checking for changes" : `Couldn't confirm: ${why}`,
+      };
+    };
+    return {
+      bots: of(this.confirmed, this.unconfirmedWhy),
+      groups: of(this.groupsConfirmed, this.groupsUnconfirmedWhy),
+    };
+  }
+
   private put() {
     const status = this.status;
     this.sink.put("spade:state", () => ({
@@ -375,6 +435,9 @@ export class NativeSpade {
       // Undefined until the daemon first answers: the tab bar keeps what it last knew.
       shown: status === undefined ? null : status.hidden !== true,
       line: spadePlaceLine(status, this.enabled),
+      // The machine's ace host id, as host records name it; null until it has said.
+      host: this.hosting.here ?? this.hostId ?? null,
+      main: this.hosting.wire,
       list: {
         // Bots and groups each show once read; null only while neither has been.
         rows:
@@ -383,7 +446,7 @@ export class NativeSpade {
                 this.agents ?? [],
                 this.groups ?? [],
                 this.machine ?? "its machine",
-                this.ready,
+                this.reach,
                 this.hostId,
                 (agent) => this.sharing.sharedIn(agent),
               )
@@ -592,6 +655,10 @@ export class NativeSpade {
     );
   }
 }
+
+/** Why a read failed, in Spade's words where it gave some. */
+const reason = (error: unknown) =>
+  error instanceof Error ? error.message : "Spade didn't answer.";
 
 function sameOrder(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;

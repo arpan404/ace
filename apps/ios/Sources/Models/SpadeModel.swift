@@ -56,6 +56,25 @@ import Observation
         let pinned: Bool
         /// "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3).
         var shared: String? = nil
+        /// Its latest activity (ms): the list across machines orders by it within a rank.
+        var at: Double? = nil
+        /// When it was made (ms): before any host choice, the oldest main shows as Spade.
+        var createdAt: Double? = nil
+        /// Its state's place in the list, lowest first (`spadeRowRank`).
+        var rank: Int? = nil
+    }
+    /// Where the person's machines chose Spade lives (ADR 0187), as one machine holds it.
+    struct HostRecord: Decodable, Equatable, Sendable {
+        /// The machine's ace host id.
+        let host: String
+        let version: Int
+        let at: Double
+        let by: String
+    }
+    /// A machine's answer about where Spade lives (`GET /v1/main`).
+    struct Main: Decodable, Equatable, Sendable {
+        /// Nil while the machine holds no choice.
+        let record: HostRecord?
     }
     struct State: Decodable, Equatable, Sendable {
         struct List: Decodable, Equatable, Sendable {
@@ -68,6 +87,10 @@ import Observation
         let shown: Bool?
         let line: Line
         let list: List
+        /// The machine's ace host id, as host records name it; nil until it has said.
+        var host: String? = nil
+        /// Nil until the machine's Spade first answers where it lives.
+        var main: Main? = nil
     }
     /// The conversation's Working line.
     struct Working: Decodable, Equatable, Sendable {
@@ -200,6 +223,10 @@ import Observation
     private(set) var line: Line?
     private(set) var bots: [Bot]?
     private(set) var listFailed = false
+    /// The machine's ace host id, once said.
+    private(set) var host: String?
+    /// Where this machine says Spade lives, kept from its last answer.
+    private(set) var main: Main?
     /// The open conversation, once the bridge has put it.
     private(set) var conversation: Conversation?
     /// The open conversation's bubbles, in order.
@@ -229,6 +256,8 @@ import Observation
             if line != next.line { line = next.line }
             if let fresh = next.list.rows, bots != fresh { bots = fresh }
             if listFailed != next.list.failed { listFailed = next.list.failed }
+            if let fresh = next.host, host != fresh { host = fresh }
+            if let fresh = next.main, main != fresh { main = fresh }
         case .conversation(let next):
             belong(to: next?.id)
             if conversation != next { conversation = next }
@@ -255,7 +284,7 @@ import Observation
     /// A new runtime: its Spade is read again. Cards (their drafts and locks) are kept here: only
     /// another machine resets them (`SpadeCards.reset`).
     func reset() {
-        shown = nil; line = nil; bots = nil; listFailed = false
+        shown = nil; line = nil; bots = nil; listFailed = false; host = nil; main = nil
         belong(to: nil)
     }
 }
