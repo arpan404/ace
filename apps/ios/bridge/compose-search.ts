@@ -2,6 +2,7 @@ import type { ClientCore } from "@ace/client";
 import { ProjectCommand, WorkspaceId } from "@ace/protocol";
 import { cloneProgress, expectContext, projectProblem } from "@ace/ui-core";
 import { submitCommand } from "./commands.ts";
+import { scheduler } from "./host.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 
 /*
@@ -27,7 +28,16 @@ export class ComposeSearch {
   #preview: Preview;
   #scope: { workspaceId: string; draftId: Promise<string> } | undefined;
   #query = 0;
-  constructor(owner: ComposeSearchOwner, sink: PatchSink, preview: Preview) {
+  /** Waits between asks while the folder's index builds; the host's timer on the phone. */
+  #wait: (ms: number) => Promise<void>;
+  constructor(
+    owner: ComposeSearchOwner,
+    sink: PatchSink,
+    preview: Preview,
+    wait: (ms: number) => Promise<void> = (ms) =>
+      new Promise((resolve) => void scheduler.set(ms, resolve)),
+  ) {
+    this.#wait = wait;
     this.#owner = owner;
     this.#sink = sink;
     this.#preview = preview;
@@ -60,7 +70,7 @@ export class ComposeSearch {
       // ace-files answers `ready: false` while it builds the folder's index; keep the loading
       // state and ask again, up to a few seconds, until the query changes.
       for (let attempt = 0; found.ready === false && attempt < 20; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await this.#wait(250);
         if (generation !== this.#query) return;
         found = await this.complete(workspaceId, query, mentionLimit);
       }

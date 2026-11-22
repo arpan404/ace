@@ -1,4 +1,4 @@
-import type { ClientCore } from "@ace/client";
+import type { ClientCore, Scheduler } from "@ace/client";
 import type {
   Attachment,
   ContextOperation,
@@ -8,7 +8,7 @@ import type {
 } from "@ace/protocol";
 import { ContextError, attachmentLimits, attachmentSizeProblem, expectContext } from "@ace/ui-core";
 import { z } from "zod";
-import { call } from "./host.ts";
+import { call, scheduler } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { pictureLine } from "./attachment-picture.ts";
 import { ProgressThrottle } from "./progress-throttle.ts";
@@ -88,13 +88,14 @@ export class AttachmentTray {
     emit: TrayEmit,
     read: ChunkReader,
     now: () => number = () => performance.now(),
+    set: Scheduler["set"] = (delayMs, callback) => scheduler.set(delayMs, callback),
   ) {
     this.#client = client;
     this.#target = target;
     this.#signal = signal;
     this.#emit = emit;
     this.#read = read;
-    this.#throttle = new ProgressThrottle(now, () => this.#publish());
+    this.#throttle = new ProgressThrottle(now, set, () => this.#publish());
     this.#publish();
   }
 
