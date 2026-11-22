@@ -271,6 +271,37 @@
         },
         {
           "properties": {
+            "ahead": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "behind": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "conflicted": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitStatusSectionEntry.json"
+              },
+              "maxItems": 500,
+              "type": "array"
+            },
+            "detached": {
+              "type": "boolean"
+            },
             "files": {
               "items": {
                 "$ref": "https://ace.local/protocol/v1/GitStatusFile.json"
@@ -300,8 +331,40 @@
               "const": "gitStatus",
               "type": "string"
             },
+            "staged": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitStatusSectionEntry.json"
+              },
+              "maxItems": 500,
+              "type": "array"
+            },
             "truncated": {
               "type": "boolean"
+            },
+            "unstaged": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitStatusSectionEntry.json"
+              },
+              "maxItems": 500,
+              "type": "array"
+            },
+            "untracked": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitStatusSectionEntry.json"
+              },
+              "maxItems": 500,
+              "type": "array"
+            },
+            "upstream": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [

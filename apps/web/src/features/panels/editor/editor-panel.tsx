@@ -93,6 +93,7 @@ import {
 import { explorerWidth, roomAsk } from "./editor-room.ts";
 import { CheckoutGone, useCheckoutGone } from "./checkout-gone.tsx";
 import { EditorExplorer, type ExplorerOpen } from "./editor-explorer.tsx";
+import type { OpenChangesRequest } from "./source-control/source-control-view.tsx";
 import { EditorOutline } from "./editor-outline.tsx";
 import { EditorTimeline } from "./editor-timeline.tsx";
 import { GoToSymbolDialog } from "./go-to-symbol.tsx";
@@ -278,6 +279,7 @@ export function EditorPanel(props: TabViewProps) {
   const setExplorer = (patch: Partial<ExplorerState>) =>
     change({ ...latest.current, explorer: { ...latest.current.explorer, ...patch } });
   const [focusSearch, setFocusSearch] = useState(0);
+  const [gitCompare, setGitCompare] = useState<OpenChangesRequest | undefined>(undefined);
   // Reveal in Files (the tab menu) brings the explorer out to show the file.
   useEffect(() =>
     onRevealInExplorer(threadId, () => {
@@ -289,6 +291,7 @@ export function EditorPanel(props: TabViewProps) {
     }),
   );
   const fromExplorer = (path: string, how: ExplorerOpen) => {
+    setGitCompare(undefined);
     open(path, {
       keep: how.how !== "preview",
       side: how.how === "side",
@@ -297,6 +300,10 @@ export function EditorPanel(props: TabViewProps) {
       length: how.length,
       focus: how.how === "keep",
     });
+  };
+  const openChanges = (request: OpenChangesRequest) => {
+    setGitCompare(request);
+    open(request.path, { keep: false, focus: true });
   };
 
   // The status line's left side (spec 41, 45, 66).
@@ -390,6 +397,8 @@ export function EditorPanel(props: TabViewProps) {
       case "searchFiles":
         setExplorer({ side: "search", open: true });
         return setFocusSearch((value) => value + 1);
+      case "sourceControl":
+        return setExplorer({ side: "source-control", open: true });
       case "nextHit":
       case "previousHit": {
         const hit = contentSearchStore(client, threadId).step(command === "nextHit" ? 1 : -1);
@@ -526,6 +535,7 @@ export function EditorPanel(props: TabViewProps) {
         setCommitDiff(undefined);
         fromExplorer(path, how);
       }}
+      onOpenChanges={openChanges}
       openEditors={openEditors}
       sections={explorerSections}
       focusSearch={focusSearch}
@@ -575,6 +585,23 @@ export function EditorPanel(props: TabViewProps) {
                 statusNotice={notice}
                 onConfirmClose={(refs) => void confirmClose(host, refs)}
                 renderCompare={renderCompare}
+                renderGitCompare={
+                  gitCompare
+                    ? (path) =>
+                        gitCompare.path === path ? (
+                          <Suspense fallback={null}>
+                            <GitDiffCompare
+                              key={`${gitCompare.path}:${gitCompare.stage}`}
+                              threadId={threadId}
+                              path={gitCompare.path}
+                              stage={gitCompare.stage}
+                              oldPath={gitCompare.oldPath}
+                              onOpenFile={() => setGitCompare(undefined)}
+                            />
+                          </Suspense>
+                        ) : undefined
+                    : undefined
+                }
                 onQuickOpen={() => quickOpen.set(() => threadId)}
                 onRevealSymbol={(group, path, symbol) => {
                   setCommitDiff(undefined);
@@ -671,6 +698,9 @@ function emptyOf(layout: EditorLayout): EditorLayout {
 // loads when one is first shown, never with the editor's first paint.
 const EditorCompare = lazy(() =>
   import("./editor-compare.tsx").then((module) => ({ default: module.EditorCompare })),
+);
+const GitDiffCompare = lazy(() =>
+  import("./editor-compare.tsx").then((module) => ({ default: module.GitDiffCompare })),
 );
 const EditorCommitCompare = lazy(() =>
   import("./editor-commit-compare.tsx").then((module) => ({ default: module.EditorCommitCompare })),

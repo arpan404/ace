@@ -1,4 +1,5 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import { excludeAcePrivate } from "./ace-private.ts";
 import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
@@ -34,7 +35,14 @@ import {
   type LayerReplay,
   type StackReplayOptions,
 } from "./stack-sync.ts";
-import { changedFiles, changeSummary, checkoutSummary } from "./changed-files.ts";
+import {
+  changedFiles,
+  changeSummary,
+  checkoutSummary,
+  sourceControlState,
+  sourceControlStatus,
+} from "./changed-files.ts";
+import { fetchRemote, stagePaths, unstagePaths } from "./source-control-ops.ts";
 import {
   abortMerge,
   commitMerge,
@@ -84,6 +92,7 @@ import type {
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
 export { validateCloneUrl } from "./projects.ts";
+export { validateRepoPaths } from "./source-control-ops.ts";
 import { remoteDefaultBranch, type RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export type { RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export { publicationRemote } from "./publication-remote.ts";
@@ -284,13 +293,15 @@ export class GitService {
     return outcome.value;
   }
 
-  /** Commit every change, or only `paths`; other changes stay as they were. */
+  /** Commit every change, only `paths`, or only what is already staged. */
   commit(options: {
     worktree: string;
     message: string;
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    stagedOnly?: boolean | undefined;
+    stageListed?: readonly string[] | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
   }
@@ -301,6 +312,22 @@ export class GitService {
   ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
     return changedFiles(this.repository, worktree, limit);
   }
+  /** Staged/unstaged/untracked/conflicted sections + branch/ahead/behind from one status call. */
+  sourceControlState(worktree: string, limit = 500) {
+    return sourceControlState(this.repository, worktree, limit);
+  }
+  /** Full source control status (staged/unstaged/untracked/conflicted + branch ahead/behind). */
+  sourceControlStatus(worktree: string, limit = 500) {
+    return sourceControlStatus(this.repository, worktree, limit);
+  }
+  /** Stage specific paths, or all changes when `paths` is omitted. */
+  stage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
+    return stagePaths(this.repository, options);
+  }
+  /** Unstage specific paths, or all staged changes when `paths` is omitted. */
+  unstage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
+    return unstagePaths(this.repository, options);
+  }
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
   }
@@ -310,6 +337,14 @@ export class GitService {
   }
   push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);
+  }
+  /** Fetch a remote's branches into remote-tracking refs only; never a local branch. */
+  fetch(options: {
+    worktree: string;
+    remote?: string | undefined;
+    timeoutMs?: number | undefined;
+  }): Promise<void> {
+    return fetchRemote(this.repository, options);
   }
   /** Move several branches in one atomic push, each leased to a caller-reviewed revision. */
   pushLeased(options: LeasedPushOptions) {
@@ -408,6 +443,15 @@ export class GitService {
         return `${branch.head ?? "unborn"}:${tree}`;
       }),
     );
+  }
+
+  /**
+   * Name ace's private `.ace-upload-*` entries (uploads, Recently deleted) in the local exclude
+   * of the repository holding `path`, before any of them can appear there.
+   */
+  async excludeAcePrivate(path: string): Promise<void> {
+    const root = await this.repository.root(path);
+    await this.repository.serial(root, () => excludeAcePrivate(this.repository, root));
   }
 
   async repositoryInfo(repo: string) {

@@ -54,7 +54,7 @@ const Split = z.looseObject({
 const Explorer = z.looseObject({
   open: z.catch(z.boolean(), defaultExplorer.open),
   width: z.catch(z.number().check(z.gte(200), z.lte(360)), defaultExplorer.width),
-  side: z.catch(z.enum(["files", "search"]), defaultExplorer.side),
+  side: z.catch(z.enum(["files", "search", "source-control"]), defaultExplorer.side),
   expanded: z.catch(z.array(z.string()), []),
   scroll: z.catch(z.number().check(z.gte(0), z.lte(10_000_000)), 0),
   query: z.catch(z.string().check(z.maxLength(4096)), ""),

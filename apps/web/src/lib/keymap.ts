@@ -316,6 +316,12 @@ export const keymap = {
     scope: "editor",
     fixed: true,
   },
+  "editor.sourceControl": {
+    keys: "ctrl+shift+g",
+    label: "Source control",
+    scope: "editor",
+    fixed: true,
+  },
   "editor.nextHit": {
     keys: "f4",
     also: ["shift+f4"],

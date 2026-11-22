@@ -1099,6 +1099,13 @@
             "path": {
               "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
             },
+            "stage": {
+              "enum": [
+                "staged",
+                "unstaged"
+              ],
+              "type": "string"
+            },
             "threadId": {
               "$ref": "https://ace.local/protocol/v1/ThreadId.json"
             }

@@ -114,6 +114,11 @@ export interface EditorHost {
    * Compare.
    */
   renderCompare?: ((props: EditorCompareProps) => ReactNode) | undefined;
+  /**
+   * Source control's staged or unstaged git diff for a file, shown in place of the editor until
+   * dismissed or another file opens for editing.
+   */
+  renderGitCompare?: ((path: string) => ReactNode) | undefined;
   onQuickOpen?: (() => void) | undefined;
   /** Jump to a symbol picked from a pane's breadcrumbs. */
   onRevealSymbol?: ((group: string, path: string, symbol: OutlineSymbol) => void) | undefined;

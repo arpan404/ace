@@ -57,7 +57,7 @@ export type SplitNode = GroupNode | SplitBranch;
 export interface ExplorerState {
   open: boolean;
   width: number;
-  side: "files" | "search";
+  side: "files" | "search" | "source-control";
   expanded: readonly string[];
   scroll: number;
   query: string;
