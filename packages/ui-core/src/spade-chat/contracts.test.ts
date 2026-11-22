@@ -5,6 +5,7 @@ import {
   parseSpadeLiveFrame,
   parseSpadePackage,
   spadeBubbles,
+  spadeContractCard,
   spadeContractEffects,
   spadeReplySteps,
   spadeView,
@@ -60,14 +61,23 @@ function calls(c: ReturnType<typeof conversation>, machine?: string) {
 
 const lines = (c: ReturnType<typeof conversation>) =>
   spadeBubbles(c.view()).flatMap((bubble) =>
-    bubble.kind === "contract" ? [[bubble.text, bubble.result]] : [],
+    bubble.kind === "contract"
+      ? [
+          [
+            spadeContractCard(bubble.call, {}).header,
+            spadeContractCard(bubble.call, {}).rows[0]?.text,
+          ],
+        ]
+      : [],
   );
 
 describe("a contract call in the caller's conversation", () => {
-  test("is one line that says whom it asked, then what came back", () => {
+  test("is a card that says whom it asked, then what came back", () => {
     const c = conversation();
     calls(c);
-    expect(lines(c)).toEqual([["Asking Flight watcher: cheapest_fare", ""]]);
+    expect(lines(c)).toEqual([
+      ["Asking Flight watcher for the cheapest fare", "Flight watcher is working on it"],
+    ]);
     // Its reply is over, but the call is open: never done while it is.
     expect(c.view().busy).toBe(true);
     c.stored({
@@ -77,7 +87,9 @@ describe("a contract call in the caller's conversation", () => {
       content:
         '<contract_result call="cc.c1.j1" bot="Flight watcher" contract="cheapest_fare" status="returned">\n{\n  "fare": 182,\n  "currency": "USD"\n}\n</contract_result>',
     });
-    expect(lines(c)).toEqual([["Asked Flight watcher: cheapest_fare", "fare 182 · currency USD"]]);
+    expect(lines(c)).toEqual([
+      ["Asked Flight watcher for the cheapest fare", "fare 182 · currency USD"],
+    ]);
     expect(c.view().busy).toBe(false);
     // Not a step of its reply too: its own line says it.
     const reply = c.view().entries.find((entry) => entry.kind === "reply");
@@ -96,7 +108,10 @@ describe("a contract call in the caller's conversation", () => {
         '<contract_result call="cc.c1.j1" status="failed">\noutput.fare: is a number\n</contract_result>',
     });
     expect(lines(failed)).toEqual([
-      ["Flight watcher on Studio couldn't answer cheapest_fare", "output.fare: is a number"],
+      [
+        "Asked Flight watcher on Studio for the cheapest fare",
+        "Flight watcher couldn't answer · output.fare: is a number",
+      ],
     ]);
     const stopped = conversation();
     calls(stopped);
@@ -108,7 +123,7 @@ describe("a contract call in the caller's conversation", () => {
       is_error: true,
       content: "Stopped by the person before it finished.",
     });
-    expect(lines(stopped)[0]?.[0]).toBe("Stopped asking Flight watcher: cheapest_fare");
+    expect(lines(stopped)[0]?.[1]).toBe("Stopped before Flight watcher answered");
   });
 });
 

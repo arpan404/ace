@@ -8,11 +8,20 @@ import type {
   SpadeStoppedKind,
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
+import { spadeContractAsk } from "./contract-words.ts";
 import {
-  spadeContractAsk,
-  spadeContractResult,
-  type SpadeContractOutcome,
-} from "./contract-words.ts";
+  spadeBotMessageTool,
+  spadeContractAsked,
+  spadeContractCalled,
+  spadeContractFinished,
+  spadeContractReturned,
+  spadeContractReturnTool,
+  spadeTalkFinished,
+  spadeTalkStarted,
+  type SpadeContractAsked,
+  type SpadeContractEntry,
+  type SpadeTalkEntry,
+} from "./bot-talk.ts";
 import {
   spadeCardQuestions,
   spadeConnectOf,
@@ -181,8 +190,8 @@ export type SpadeEntry =
       /** A voice message's recording; `text` is its transcript. */
       voice?: SpadeVoiceRef;
       pending?: true;
-      /** Sent by another bot, not the person. */
-      fromAgent?: { id: string; name: string };
+      /** Sent by another bot, not the person; with the contract call it delivers, if one. */
+      fromAgent?: { id: string; name: string; contract?: SpadeContractAsked };
       /** Fired by one of the bot's routines or its heartbeat, not the person. */
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
       /** Sent here from a group the bot is in (ADR 0132). */
@@ -235,21 +244,10 @@ export type SpadeEntry =
       result: string;
       at?: number;
     }
-  /**
-   * A call this bot made to another bot's contract (ADR 0200 §7): one line where it was made,
-   * settled in place when its result arrives. `result` is the output's fields, or why not.
-   */
-  | {
-      kind: "contract";
-      key: string;
-      job: string;
-      bot: string;
-      machine?: string | undefined;
-      contract: string;
-      outcome: SpadeContractOutcome | undefined;
-      result: string;
-      at?: number;
-    }
+  /** A call this bot made to another bot's contract (ADR 0200 §7), settled in place. */
+  | SpadeContractEntry
+  /** The messages one turn sent another bot, with their replies, as one card (`bot-talk.ts`). */
+  | SpadeTalkEntry
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /** A card asked outside the open reply: where it arrived. */
@@ -585,7 +583,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.documents.length ? { documents: event.documents } : {}),
         ...(event.voice ? { voice: event.voice } : {}),
         ...(event.from_agent
-          ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
+          ? {
+              fromAgent: {
+                id: event.from_agent.id,
+                name: event.from_agent.name,
+                ...(event.from_agent.contract
+                  ? { contract: spadeContractAsked(event.from_agent.contract) }
+                  : {}),
+              },
+            }
           : {}),
         ...(event.from_routine ? { fromRoutine: event.from_routine } : {}),
         ...(event.from_group
@@ -638,6 +644,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (index !== undefined)
         for (const call of event.calls)
           state.calls.set(call.id, { reply: event.reply, index, arguments: call.arguments });
+      // A contract answered: the message that asked keeps what this bot returned.
+      for (const call of event.calls)
+        if (call.name === spadeContractReturnTool)
+          spadeContractReturned(state.entries, call.arguments);
       return updateReply(state, event.reply, (entry) => ({
         ...entry,
         live: "",
@@ -867,7 +877,19 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (state.question?.callId === event.call_id) state.question = undefined;
       state.forLater.delete(event.call_id);
       return updateQuestion(state, event.call_id, (card) => ({ ...card, standing: "dismissed" }));
-    case "job_started":
+    case "job_started": {
+      // A message to another bot: its turn's card with that bot, where the first was sent.
+      const talk =
+        event.name === spadeBotMessageTool
+          ? spadeTalkStarted(state.entries, {
+              key,
+              job: event.job,
+              reply: event.reply,
+              arguments: state.calls.get(event.job)?.arguments,
+              at: stamp(stored).at,
+            })
+          : undefined;
+      if (talk) steer(state, talk);
       if (event.name === spadeHelperTool)
         // Its line, where it started: the reply's later words read below it.
         steer(state, {
@@ -885,18 +907,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         reply: event.reply,
       });
       return true;
+    }
     case "contract_called":
-      steer(state, {
-        kind: "contract",
-        key,
-        job: event.job,
-        bot: event.name || "Another bot",
-        ...(event.machine_name ? { machine: event.machine_name } : {}),
-        contract: event.contract,
-        outcome: undefined,
-        result: "",
-        ...stamp(stored),
-      });
+      steer(state, spadeContractCalled(key, event, stamp(stored).at));
       return true;
     case "job_finished": {
       state.jobs.delete(event.job);
@@ -912,20 +925,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         state.entries[at] = { ...line, outcome, result: event.content ?? "" };
         return true;
       }
-      // A contract call's line settles with what came back; its result opens a reply, as any.
-      const call = state.entries.findIndex(
-        (entry) => entry.kind === "contract" && entry.job === event.job,
-      );
-      const asked = state.entries[call];
-      if (asked?.kind === "contract") {
-        const read = spadeContractResult(event.content ?? "");
-        state.entries[call] = {
-          ...asked,
-          outcome: stopped ? "stopped" : read.outcome,
-          result: read.result,
-        };
-        return true;
-      }
+      // A contract call's or a message's card settles with what came back; that result opens
+      // a reply, as any.
+      const end = { job: event.job, content: event.content ?? "", stopped, at: stamp(stored).at };
+      if (spadeContractFinished(state.entries, end)) return true;
+      if (spadeTalkFinished(state.entries, { ...end, error: event.is_error === true })) return true;
       // Its result goes to Spade like a message: what Spade says about it reads below it.
       steer(state, { kind: "job", key, name: event.name, outcome, files: event.files });
       return true;

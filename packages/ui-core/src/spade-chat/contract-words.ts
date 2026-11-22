@@ -1,7 +1,7 @@
 /*
- * A contract call in words (ADR 0200 §7): the caller's one line ("Asked Flight watcher:
- * cheapest_fare") with what came back, and the callee's view of the request, which is the
- * calling bot's, never the person's. Pure, and free of the fold so the fold can use it.
+ * A contract call in words (ADR 0200 §7): what came back, read from its result, and the
+ * callee's view of the request, which is the calling bot's, never the person's. The cards both
+ * sides show are in `bot-talk.ts`. Pure, and free of the fold so the fold can use it.
  */
 
 /** The tool a bot calls another bot's contract with. */
@@ -31,26 +31,6 @@ export function fieldsLine(fields: Record<string, unknown>, limit = 160): string
     .map(([key, value]) => `${key.replaceAll("_", " ")} ${said(value)}`.trim())
     .join(" · ");
   return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}…` : line;
-}
-
-/** The caller's line: who it asked and which contract, and how that went. */
-export function spadeContractLine(call: {
-  bot: string;
-  machine?: string | undefined;
-  contract: string;
-  outcome: SpadeContractOutcome | undefined;
-}): string {
-  const bot = call.machine ? `${call.bot} on ${call.machine}` : call.bot;
-  switch (call.outcome) {
-    case undefined:
-      return `Asking ${bot}: ${call.contract}`;
-    case "returned":
-      return `Asked ${bot}: ${call.contract}`;
-    case "failed":
-      return `${bot} couldn't answer ${call.contract}`;
-    case "stopped":
-      return `Stopped asking ${bot}: ${call.contract}`;
-  }
 }
 
 /** What a `<contract_result>` says, read back: its status and body. */

@@ -14,6 +14,7 @@ export * from "./first-run.ts";
 export type { SpadeStepWeight } from "./step-facts.ts";
 export * from "./words.ts";
 export * from "./contract-words.ts";
+export * from "./bot-talk.ts";
 export * from "./helper-words.ts";
 export * from "./delegations.ts";
 export * from "./subagent-card.ts";
