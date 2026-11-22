@@ -11,6 +11,24 @@ import { object, string } from "./contracts.ts";
  */
 
 const digest = (key: string) => createHash("sha256").update(key).digest("hex");
+/**
+ * A tool call's state as one update carries it, `exact:loose`: exact by its phase and what it
+ * holds, so a start and every partial differ, and loose by its call and phase alone, for a copy
+ * the SDK shortened.
+ */
+const toolIdentity = (callId: string, phase: string, args: unknown, result: unknown) =>
+  `${digest(`tool_call\0${callId}\0${phase}\0${JSON.stringify(args ?? null)}\0${JSON.stringify(result ?? null)}`)}:${digest(`tool_call\0${callId}\0${phase}`)}`;
+/** A stored copy the SDK shortened: only its call and phase are known. */
+const shortened = (callId: string, phase: string) =>
+  `~:${digest(`tool_call\0${callId}\0${phase}`)}`;
+/**
+ * Whether stored event `stored` is the one update `framed` became: the same exact identity, or,
+ * for a copy the SDK shortened, the same call and phase.
+ */
+export function sameUpdate(stored: string, framed: string): boolean {
+  if (!stored.startsWith("~:")) return stored === framed;
+  return framed.endsWith(stored.slice(1));
+}
 
 /** The identity of the event the SDK stores for this onDelta update; none when it stores none. */
 export function updateIdentity(update: unknown): string | undefined {
@@ -22,11 +40,14 @@ export function updateIdentity(update: unknown): string | undefined {
       return digest(`thinking\0${string(body.text) ?? ""}`);
     case "thinking-completed":
       return digest("thinking\0");
+    // Each update of a call is its own: a start, every partial and the end differ by content.
     case "tool-call-started":
     case "partial-tool-call":
-      return digest(`tool_call\0${string(body.callId) ?? ""}\0running`);
-    case "tool-call-completed":
-      return digest(`tool_call\0${string(body.callId) ?? ""}\0ended`);
+    case "tool-call-completed": {
+      const call = object(body.toolCall);
+      const phase = body.type === "tool-call-completed" ? "ended" : "running";
+      return toolIdentity(string(body.callId) ?? "", phase, call.args, call.result);
+    }
     case "user-message-appended":
       return digest(`user\0${string(object(body.userMessage).text) ?? ""}`);
     case "summary":
@@ -52,10 +73,12 @@ export function storedIdentity(message: unknown): string | undefined {
     }
     case "thinking":
       return digest(`thinking\0${string(body.text) ?? ""}`);
-    case "tool_call":
-      return digest(
-        `tool_call\0${string(body.call_id) ?? ""}\0${body.status === "running" ? "running" : "ended"}`,
-      );
+    case "tool_call": {
+      const phase = body.status === "running" ? "running" : "ended";
+      if (object(body.truncated).args === true || object(body.truncated).result === true)
+        return shortened(string(body.call_id) ?? "", phase);
+      return toolIdentity(string(body.call_id) ?? "", phase, body.args, body.result);
+    }
     case "user": {
       const content = object(body.message).content;
       const first = Array.isArray(content) ? object(content[0]) : {};

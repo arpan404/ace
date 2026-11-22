@@ -44,7 +44,7 @@ export const Envelope = z
     eventOffset: z.string().min(1).max(512).optional(),
     /** Updates framed so far whose events the SDK has not stored yet (run-seams.ts). */
     pendingEvents: z
-      .array(z.string().regex(/^[a-f0-9]{64}$/))
+      .array(z.string().regex(/^(?:[a-f0-9]{64}|[a-f0-9]{64}:[a-f0-9]{64})$/))
       .max(64)
       .optional(),
   })
@@ -71,7 +71,7 @@ export const Open = z.strictObject({
             afterOffset: z.string().min(1).max(512).optional(),
             /** Updates ace committed whose events come after it, oldest first. */
             pending: z
-              .array(z.string().regex(/^[a-f0-9]{64}$/))
+              .array(z.string().regex(/^(?:[a-f0-9]{64}|[a-f0-9]{64}:[a-f0-9]{64})$/))
               .max(64)
               .optional(),
             /** Known only from an earlier build's frames: its content can't be lined up. */
@@ -104,7 +104,10 @@ export const Open = z.strictObject({
   // Legacy sandbox hint for injected hosts; production uses SDK executor admission.
   autoReviewAvailable: z.boolean().default(false),
   mcp: z
-    .strictObject({ url: z.string().max(4096), bearer: z.string().regex(/^[a-f0-9]{64}$/) })
+    .strictObject({
+      url: z.string().max(4096),
+      bearer: z.string().regex(/^[a-f0-9]{64}$/),
+    })
     .optional(),
   /** This session's ace guidance for the rule; without it the rule carries the static guidance. */
   instructions: z.string().min(1).max(16384).optional(),

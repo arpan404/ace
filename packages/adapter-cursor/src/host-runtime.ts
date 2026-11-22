@@ -153,7 +153,7 @@ export class HostRuntime {
     scope = this.sendOptions,
     nativeRun?: Pick<SdkRunBoundary, "id">,
     /** A recovered event's own place in the store, which it covers once ace has it. */
-    recovered?: { seq: number; offset: string },
+    recovered?: { seq: number; offset: string; pending: string[] },
   ): Promise<void> {
     const options = this.options;
     if (!options) return;
@@ -205,6 +205,7 @@ export class HostRuntime {
               ...(nativeRun ? { runId: nativeRun.id } : {}),
               eventSeq: recovered.seq,
               eventOffset: recovered.offset,
+              ...(recovered.pending.length ? { pendingEvents: recovered.pending } : {}),
             }),
         kind,
         body: safe,
@@ -398,7 +399,9 @@ export class HostRuntime {
           found.body,
           undefined,
           found.runId ? { id: found.runId } : undefined,
-          found.kind === "recovered" ? { seq: found.seq, offset: found.offset } : undefined,
+          found.kind === "recovered"
+            ? { seq: found.seq, offset: found.offset, pending: found.pending }
+            : undefined,
         );
       await this.batch?.flush();
       return { agentId: this.agent.agentId };

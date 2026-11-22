@@ -31,6 +31,8 @@ const updates = [
   {
     type: "tool-call-completed",
     callId: "sh",
+    // The SDK stores a shortened copy of this result.
+    truncateStored: true,
     toolCall: {
       type: "shell",
       args: { command: "ls" },
@@ -40,6 +42,10 @@ const updates = [
       },
     },
   },
+  // A second call whose arguments stream in as two different partials: the last is all of it
+  // the turn ever shows, so losing it shows.
+  { type: "partial-tool-call", callId: "rd", toolCall: { type: "read", args: { path: "a" } } },
+  { type: "partial-tool-call", callId: "rd", toolCall: { type: "read", args: { path: "a.ts" } } },
   { type: "text-delta", text: "All " },
   // Two identical updates in a row: each must show exactly once.
   { type: "text-delta", text: "good " },
@@ -67,6 +73,7 @@ function stored(update: Record<string, unknown>, runId: string): unknown {
         thinking_duration_ms: update.thinkingDurationMs,
       };
     case "tool-call-started":
+    case "partial-tool-call":
     case "tool-call-completed": {
       const call = update.toolCall as Record<string, unknown>;
       return {
@@ -74,9 +81,10 @@ function stored(update: Record<string, unknown>, runId: string): unknown {
         ...base,
         call_id: update.callId,
         name: call.type,
-        status: update.type === "tool-call-started" ? "running" : "completed",
+        status: update.type === "tool-call-completed" ? "completed" : "running",
         args: call.args,
         ...("result" in call ? { result: call.result } : {}),
+        ...(update.truncateStored ? { truncated: { result: true } } : {}),
       };
     }
     default:
@@ -220,9 +228,7 @@ function transcript(frames: CursorEnvelope[]) {
       return [`${item.role}: ${item.parts.map((p) => (p.type === "text" ? p.text : "")).join("")}`];
     if (item.type === "reasoning") return [`thinking: ${item.text}`];
     if (item.type === "tool_call")
-      return [
-        `tool ${item.call.kind} ${item.call.status} ${JSON.stringify("output" in item.call.detail ? item.call.detail.output : null)}`,
-      ];
+      return [`tool ${item.call.kind} ${item.call.status} ${JSON.stringify(item.call.detail)}`];
     return [];
   });
   return { shown: shownItems, notices };
@@ -270,12 +276,16 @@ function reopen(boundary: RuntimeSdkBoundary, home: string, record: CursorEnvelo
 const lostAppend = updates.findIndex(
   (update) => update.type === "text-delta" && update.text === "good ",
 );
+/** The first of a call's partials, whose stored event the SDK loses; a different one follows. */
+const lostPartial = updates.findIndex((update) => update.type === "partial-tool-call");
 
 it.each([
   ["callback-first", undefined],
   ["write-first", undefined],
   ["callback-first", lostAppend],
   ["write-first", lostAppend],
+  ["callback-first", lostPartial],
+  ["write-first", lostPartial],
 ] as const)(
   "a recovered tail is exact at every crash point, %s (lost write at %s), and through a second crash mid-recovery",
   async (order, drop) => {
@@ -309,12 +319,13 @@ it.each([
       expect(first).toBeGreaterThan(0);
       // The update whose write the SDK lost exists only in ace's frames: a crash before ace
       // committed it leaves it nowhere, so only those cuts miss it, and only it.
+      // A lost partial is overtaken by the call's next state, so no cut misses anything.
       const lostFrame =
-        drop === undefined
+        drop !== lostAppend
           ? -1
           : live.findIndex((frame) => JSON.stringify(frame.body).includes("good "));
       const expected = (cut: number) =>
-        drop !== undefined && cut <= lostFrame
+        drop === lostAppend && cut <= lostFrame
           ? whole.map((line) => line.replace("All good good here.", "All good here."))
           : whole;
       for (let cut = first; cut <= live.length; cut++) {

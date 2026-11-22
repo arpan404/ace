@@ -18,7 +18,7 @@ const Progress = z.object({
   eventSeq: z.number().int().nonnegative().optional(),
   eventOffset: z.string().min(1).max(512).optional(),
   pendingEvents: z
-    .array(z.string().regex(/^[a-f0-9]{64}$/))
+    .array(z.string().regex(/^(?:[a-f0-9]{64}|[a-f0-9]{64}:[a-f0-9]{64})$/))
     .max(64)
     .optional(),
   body: z.unknown(),

@@ -2,7 +2,7 @@ import type { LocalAgentStore } from "@cursor/sdk";
 import type { SdkModule } from "./host-runtime.ts";
 import type { OpenOptions } from "./contracts.ts";
 import { z } from "zod";
-import { storedIdentity } from "./event-identity.ts";
+import { sameUpdate, storedIdentity } from "./event-identity.ts";
 
 const AgentIdentity = z.object({ agentId: z.string().min(1).max(512), cwd: z.string().max(4096) });
 const AgentRuns = z.object({
@@ -30,7 +30,14 @@ const StreamEvent = z.object({ type: z.literal("sdk_message"), message: z.unknow
 /** One thing recovery found, in the order the host publishes it after its open frame. */
 export type Recovered =
   | { kind: "admission"; body: Record<string, unknown>; runId?: string }
-  | { kind: "recovered"; body: unknown; runId: string; seq: number; offset: string }
+  | {
+      kind: "recovered";
+      body: unknown;
+      runId: string;
+      seq: number;
+      offset: string;
+      pending: string[];
+    }
   | { kind: "recovery"; body: Record<string, unknown>; runId: string };
 
 type Recover = OpenOptions["recover"];
@@ -101,7 +108,7 @@ async function tail(
     afterOffset: from,
   }: { through: number; pending?: string[] | undefined; afterOffset?: string | undefined },
   limits: Limits,
-  push: (message: unknown, seq: number, offset: string) => void,
+  push: (message: unknown, seq: number, offset: string, pending: string[]) => void,
 ): Promise<void> {
   // From the covered event's own offset when ace has it: only the tail is read, never the run.
   let afterOffset: string | undefined = from;
@@ -128,13 +135,16 @@ async function tail(
       // Paired forward by identity: pending updates passed over had their write lost by the SDK,
       // and ace has them, so they are never replayed, and they shift nothing after them.
       if (identity !== undefined) {
-        const match = pending.indexOf(identity, waiting);
+        const ahead = pending.slice(waiting).findIndex((update) => sameUpdate(identity, update));
+        const match = ahead < 0 ? -1 : waiting + ahead;
         if (match >= 0) {
           waiting = match + 1;
           continue;
         }
       }
-      push(message, event.seq, event.offset);
+      // Updates ace has whose events are still ahead stay pending past this one: a crash after
+      // it is stored must not take them as replayed, nor replay them.
+      push(message, event.seq, event.offset, pending.slice(waiting));
     }
     if (!page.nextOffset || page.items.length === 0) return;
     if (page.nextOffset !== afterOffset) throw new Error("SDK run event cursor did not advance");
@@ -238,8 +248,8 @@ export async function recoverCursorCheckpoint(
     // An earlier build's frames say nothing of the SDK's events: replaying any would show
     // again what ace already has, so the run's outcome comes back without its content.
     if (!seen.legacy)
-      await tail(store, run.runId, seen, options.limits, (message, seq, offset) =>
-        push({ kind: "recovered", body: message, runId: run.runId, seq, offset }),
+      await tail(store, run.runId, seen, options.limits, (message, seq, offset, pending) =>
+        push({ kind: "recovered", body: message, runId: run.runId, seq, offset, pending }),
       );
     push({
       kind: "recovery",

@@ -1,5 +1,5 @@
 import type { CursorEnvelope } from "./contracts.ts";
-import { storedIdentity, updateIdentity } from "./event-identity.ts";
+import { sameUpdate, storedIdentity, updateIdentity } from "./event-identity.ts";
 
 /*
  * Where each frame the host sends stands against the SDK's own stored run events (ADR 0043,
@@ -43,7 +43,7 @@ export class EventCoverage {
     if (identity !== undefined) {
       // Paired by identity, in order: updates framed before the one this event is for, whose
       // events never came, had their write lost by the SDK. Ace has them; they stay covered.
-      const framed = this.pending.indexOf(identity);
+      const framed = this.pending.findIndex((update) => sameUpdate(identity, update));
       if (framed >= 0) this.pending.splice(0, framed + 1);
       else if (this.stored.length < 1024) this.stored.push({ seq, identity });
     }
@@ -53,7 +53,7 @@ export class EventCoverage {
   framed(update: unknown): void {
     const identity = updateIdentity(update);
     if (identity === undefined) return;
-    const stored = this.stored.findIndex((event) => event.identity === identity);
+    const stored = this.stored.findIndex((event) => sameUpdate(event.identity, identity));
     if (stored >= 0) {
       this.stored.splice(stored, 1);
       // An update framed before this one whose event was not stored first never will be: the SDK
