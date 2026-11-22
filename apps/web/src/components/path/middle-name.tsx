@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState } from "react";
 import { cn } from "@/lib/cn.ts";
+import { endCut } from "./end-name.ts";
 import { folderLabel } from "./folder-label.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 
@@ -41,6 +42,24 @@ export function MiddleName(props: {
       {end && (
         <span data-part="name-end" className="shrink-0 whitespace-pre">
           <Highlighted text={end} offset={props.offset + head.length} positions={props.positions} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A tree row's name, cut at its end when the row is too narrow: "adapter-ac…" for a folder,
+ * "workspace-ta….ts" for a file, whose extension always shows (`endCut`). Pure CSS.
+ */
+export function EndName(props: { text: string; kind: "file" | "folder"; className?: string }) {
+  const { head, end } = endCut(props.text, props.kind);
+  return (
+    <span className={cn("flex min-w-0", props.className)}>
+      <span className="min-w-0 truncate whitespace-pre">{head}</span>
+      {end && (
+        <span data-part="name-end" className="shrink-0 whitespace-pre">
+          {end}
         </span>
       )}
     </span>
