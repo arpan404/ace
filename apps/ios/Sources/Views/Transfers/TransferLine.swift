@@ -19,6 +19,18 @@ enum OpenElsewhere: Equatable {
     case waiting
     /// This phone isn't paired with that machine.
     case unpaired
+    /// That machine's list is loaded and doesn't hold the thread (it was archived or removed), so
+    /// waiting would never open it.
+    case missing
+
+    /// What Open does for a thread of a machine: `paired` is whether this phone is paired
+    /// with it, `listed` is whether its list holds the thread, `loaded` whether the list has
+    /// arrived at all.
+    static func of(paired: Bool, listed: Bool, loaded: Bool) -> OpenElsewhere {
+        guard paired else { return .unpaired }
+        if listed { return .opened }
+        return loaded ? .missing : .waiting
+    }
 }
 
 extension EnvironmentValues {

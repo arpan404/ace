@@ -338,14 +338,18 @@ struct InboxView: View {
     }
 
     /// Open from a transfer's line or a moved row goes to that machine's thread. One its list
-    /// doesn't hold yet waits, and opens when the list catches up.
+    /// hasn't delivered yet waits, and opens when the list catches up; one a loaded list lacks is
+    /// reported missing.
     private var otherMachines: OtherMachines {
         OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key, opened in
-            guard let client = inbox.client(key.machineId) else { return .unpaired }
-            guard client.inbox[key.id] != nil else { awaitedOpen = AwaitedOpen(key: key, opened: opened); return .waiting }
-            openThread(key)
-            opened()
-            return .opened
+            let client = inbox.client(key.machineId)
+            let result = OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxLoaded == true)
+            switch result {
+            case .opened: openThread(key); opened()
+            case .waiting: awaitedOpen = AwaitedOpen(key: key, opened: opened)
+            case .unpaired, .missing: break
+            }
+            return result
         })
     }
     /// Another machine's thread Open asked for before that machine listed it, and what runs once
