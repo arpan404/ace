@@ -368,11 +368,11 @@ export class NativeMarket {
     try {
       if (operation.op === "search")
         ({ result, next } = await searchPages(operation, reviewedOnly, async (page) => {
-          const { result } = await this.#owner.request(
+          const sent = await this.#owner.request(
             { type: "marketplace.request", operation: page },
             { ...wait, signal },
           );
-          return result;
+          return sent.result;
         }));
       else
         ({ result } = await this.#owner.request(
