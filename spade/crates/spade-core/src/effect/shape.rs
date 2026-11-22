@@ -91,9 +91,9 @@ const DEEPEST: usize = 16;
 /// `anyOf`/`oneOf`/`allOf` branches) and every key in `arguments`, nested ones included. `false`
 /// when it nests deeper than Spade reads.
 fn keys(value: &Value, out: &mut Vec<String>, depth: usize) -> bool {
+    // Anything past the depth Spade reads, a plain leaf too, is more than it can vouch for.
     if depth > DEEPEST {
-        return !matches!(value, Value::Object(map) if !map.is_empty())
-            && !matches!(value, Value::Array(items) if !items.is_empty());
+        return false;
     }
     match value {
         Value::Object(map) => {
@@ -149,7 +149,7 @@ fn queries<'a>(value: &'a Value, out: &mut Vec<&'a str>, depth: usize) -> bool {
     }
 }
 
-/// Every string in `value`, at any depth Spade reads.
+/// Every string in `value`, object keys included, at any depth Spade reads.
 fn strings<'a>(value: &'a Value, out: &mut Vec<&'a str>, depth: usize) -> bool {
     if depth > DEEPEST {
         return false;
@@ -159,7 +159,11 @@ fn strings<'a>(value: &'a Value, out: &mut Vec<&'a str>, depth: usize) -> bool {
             out.push(text);
             true
         }
-        Value::Object(map) => map.values().all(|inner| strings(inner, out, depth + 1)),
+        // An object given as a query is read whole: its keys are text the app may run too.
+        Value::Object(map) => map.iter().all(|(key, inner)| {
+            out.push(key);
+            strings(inner, out, depth + 1)
+        }),
         Value::Array(items) => items.iter().all(|item| strings(item, out, depth + 1)),
         _ => true,
     }

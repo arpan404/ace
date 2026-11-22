@@ -159,3 +159,22 @@ fn every_destination_word_counts_in_a_tool_name_too() {
         );
     }
 }
+
+#[test]
+fn a_query_objects_keys_are_read_too() {
+    let search = props(&["query"]);
+    let given = json!({ "query": { "DELETE FROM pages WHERE 1": true } });
+    assert_eq!(shape("search", &search, &given), Shape::Code);
+}
+
+#[test]
+fn a_schema_leaf_deeper_than_spade_reads_is_unresolved() {
+    // A plain string leaf one level past the depth Spade reads (16): the schema (0), its
+    // properties (1), `id` (2), and fourteen lists from `enum` (3) down to 16, the leaf at 17.
+    let mut deep = json!("string");
+    for _ in 0..14 {
+        deep = json!([deep]);
+    }
+    let schema = json!({ "type": "object", "properties": { "id": { "enum": deep } } });
+    assert_ne!(shape("get_page", &schema, &json!({})), Shape::Plain);
+}

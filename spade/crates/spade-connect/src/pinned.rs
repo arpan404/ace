@@ -10,14 +10,27 @@
 //! A digest is what the server claims about the tool, never proof of what it does.
 
 use sha2::{Digest, Sha256};
-use spade_mcp::McpTool;
+use spade_mcp::{McpClient, McpTool, ToolsError};
 
 use crate::{CallError, Connectors};
 
-/// A digest of `tool`'s definition as its server lists it: its own name, description and input
-/// schema.
+/// A digest of `tool`'s definition as its server lists it: everything the gate reads in it, its
+/// own name, description, input schema, annotations (risk, whether it sent any, open world),
+/// `_meta` (a declared effect among it), page and who may call it.
 pub fn definition(tool: &McpTool) -> String {
-    let text = serde_json::json!([tool.name, tool.description, tool.input_schema]).to_string();
+    let text = serde_json::json!([
+        tool.name,
+        tool.description,
+        tool.input_schema,
+        format!("{:?}", tool.risk),
+        tool.annotated,
+        tool.open_world,
+        tool.meta,
+        tool.page,
+        tool.for_model,
+        tool.for_app,
+    ])
+    .to_string();
     Sha256::digest(text.as_bytes())
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -39,36 +52,108 @@ impl Connectors {
         live.get(connector).map_or(0, |session| session.generation)
     }
 
-    /// Whether `connector`'s session still lists `tool` with the definition `expect` names.
-    pub(crate) fn still_listed(&self, connector: &str, tool: &str, expect: &Expect) -> bool {
-        let live = self.live.read().unwrap_or_else(|p| p.into_inner());
-        live.get(connector).is_some_and(|session| {
-            session
-                .tools
-                .iter()
-                .any(|listed| listed.name == tool && definition(listed) == expect.definition)
-        })
-    }
-
-    /// Why a call approved as `expect` isn't sent on `connector`'s session as it is now, if it
-    /// isn't.
-    pub(crate) fn unlike(
+    /// Whether a call approved as `expect` may be sent on `client`, of session `generation`:
+    /// the session must be the one it was approved on, or one this very call's renewal opened
+    /// (`ours`), and that client's own listing must offer the tool to the model with the
+    /// definition it was approved for.
+    pub(crate) async fn check(
         &self,
-        connector: &str,
         name: &str,
         tool: &str,
         expect: &Expect,
+        client: &McpClient,
         generation: u64,
-    ) -> Option<CallError> {
-        if generation != expect.generation {
-            return Some(CallError::NotRun(format!(
+        ours: Option<u64>,
+    ) -> Checked {
+        if generation != expect.generation && ours != Some(generation) {
+            return Checked::No(CallError::NotRun(format!(
                 "{name}'s session changed since this call was approved, so it wasn't sent"
             )));
         }
-        (!self.still_listed(connector, tool, expect)).then(|| {
-            CallError::NotRun(format!(
+        let listed = match client.tools().await {
+            Ok(listed) => listed,
+            Err(ToolsError::Refused) => return Checked::Refused,
+            Err(error) => {
+                return Checked::No(CallError::NotRun(format!(
+                    "{name}'s tools couldn't be read to check this call, so it wasn't sent: {error}"
+                )));
+            }
+        };
+        let same = listed.iter().any(|offered| {
+            offered.name == tool && offered.for_model && definition(offered) == expect.definition
+        });
+        if same {
+            Checked::Same
+        } else {
+            Checked::No(CallError::NotRun(format!(
                 "{name} changed this tool since the call was approved, so it wasn't sent"
-            ))
-        })
+            )))
+        }
+    }
+}
+
+/// What checking a call against what it was approved as found.
+pub(crate) enum Checked {
+    /// The same session (or this call's own renewal of it), listing the same tool: send it.
+    Same,
+    /// The listing itself was refused: the sign-in expired. Nothing was sent; renew, check
+    /// again, and send once.
+    Refused,
+    /// Not sent, and why.
+    No(CallError),
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Map, json};
+    use spade_mcp::{McpTool, Risk};
+
+    use super::definition;
+
+    fn tool() -> McpTool {
+        McpTool {
+            name: "create_page".into(),
+            description: "Creates a page.".into(),
+            input_schema: json!({ "type": "object" }),
+            risk: Risk::Write,
+            annotated: false,
+            open_world: None,
+            meta: Map::new(),
+            page: None,
+            for_model: true,
+            for_app: true,
+        }
+    }
+
+    #[test]
+    fn a_tool_that_says_anything_else_about_itself_has_another_definition() {
+        let base = definition(&tool());
+        let changed = [
+            McpTool {
+                risk: Risk::Read,
+                annotated: true,
+                ..tool()
+            },
+            McpTool {
+                open_world: Some(true),
+                ..tool()
+            },
+            McpTool {
+                for_model: false,
+                ..tool()
+            },
+            McpTool {
+                page: Some("ui://page".into()),
+                ..tool()
+            },
+            McpTool {
+                meta: Map::from_iter([("ace/effect".to_owned(), json!("read"))]),
+                ..tool()
+            },
+        ];
+        for each in changed {
+            assert_ne!(definition(&each), base, "{each:?}");
+        }
+        assert_eq!(definition(&tool()), base);
     }
 }

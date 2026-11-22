@@ -11,6 +11,7 @@ use spade_mcp::{Asker, McpClient, McpConfig, McpTool, McpToolResult, Secret, Too
 use tokio::sync::Notify;
 
 use crate::oauth::{self, OauthError};
+use crate::pinned::Checked;
 use crate::records::{Auth, Record};
 use crate::{Connectors, lock, secrets};
 
@@ -206,17 +207,14 @@ impl Connectors {
         }
         // The session the call was approved on, before this call renews anything itself.
         if let Some(expect) = expect
-            && let Some(refused) = self.unlike(
-                &record.id,
-                &record.name,
-                tool,
-                expect,
-                self.generation(&record.id),
-            )
+            && self.generation(&record.id) != expect.generation
         {
-            return Err(refused);
+            return Err(CallError::NotRun(format!(
+                "{}'s session changed since this call was approved, so it wasn't sent",
+                record.name
+            )));
         }
-        let (client, generation) = match self.client(&record).await {
+        let (client, generation, ours) = match self.client_renewing(&record).await {
             Ok(ready) => ready,
             Err(Unready::NeedsReconnect) => {
                 self.expire(&record);
@@ -226,40 +224,51 @@ impl Connectors {
                 return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
             }
         };
-        // Right before the send, on the sending session: still the tool it was approved as.
-        if let Some(expect) = expect
-            && !self.still_listed(&record.id, tool, expect)
-        {
-            return Err(CallError::NotRun(format!(
-                "{} changed this tool since the call was approved, so it wasn't sent",
-                record.name
-            )));
-        }
-        let mut answer = client
-            .call_asking(tool, arguments.clone(), Map::new(), asker.clone())
-            .await;
+        // Right before the send: this client, its generation and its own listing, together.
+        let checked = match expect {
+            Some(expect) => {
+                self.check(&record.name, tool, expect, &client, generation, ours)
+                    .await
+            }
+            None => Checked::Same,
+        };
+        let mut answer = match checked {
+            Checked::Same => {
+                client
+                    .call_asking(tool, arguments.clone(), Map::new(), asker.clone())
+                    .await
+            }
+            // Its listing was refused: nothing was sent, and this call renews below.
+            Checked::Refused => Err(ToolsError::Refused),
+            Checked::No(refused) => return Err(refused),
+        };
         // Refused before it ran: the sign-in expired. Renewed, the call is sent once more on the
         // new sign-in, which is safe since the first never ran; the bot never hears of it.
         if matches!(answer, Err(ToolsError::Refused)) {
             match self.renew(&record, generation).await {
-                Ok(()) => match self.client(&record).await {
-                    // Renewed by this call, which never ran: the definition is checked again
-                    // on the renewed session before the one send it gets.
-                    Ok(_)
-                        if expect
-                            .is_some_and(|expect| !self.still_listed(&record.id, tool, expect)) =>
-                    {
-                        return Err(CallError::NotRun(format!(
-                            "{} changed this tool since the call was approved, so it wasn't sent",
-                            record.name
-                        )));
-                    }
-                    Ok((renewed, _)) => {
+                Ok(renewed_here) => match self.current_client(&record.id) {
+                    Some((renewed, now)) => {
+                        // Renewed by this call, which never ran: its one retry goes out only on
+                        // the session this renewal opened, checked against that session's own
+                        // listing. Another caller's renewal meanwhile isn't this call's to use.
+                        if let Some(expect) = expect {
+                            match self
+                                .check(&record.name, tool, expect, &renewed, now, renewed_here)
+                                .await
+                            {
+                                Checked::Same => {}
+                                Checked::Refused => {
+                                    self.expire(&record);
+                                    return Err(CallError::NeedsReconnect(record.name));
+                                }
+                                Checked::No(refused) => return Err(refused),
+                            }
+                        }
                         answer = renewed
                             .call_asking(tool, arguments, Map::new(), asker)
                             .await;
                     }
-                    Err(_) => {
+                    None => {
                         return Err(CallError::NotRun(format!(
                             "the sign-in to {} had expired and is now renewed",
                             record.name
@@ -398,7 +407,7 @@ impl Connectors {
                     }
                 }
                 Err((_, Some(generation))) => match self.renew(&record, generation).await {
-                    Ok(()) => {}
+                    Ok(_) => {}
                     Err(Unready::NeedsReconnect) => {
                         self.expire(&record);
                         return;
@@ -430,6 +439,17 @@ impl Connectors {
     /// The connector's client, opened with its current credential, renewed first when its
     /// access token is about to expire; and the generation it belongs to.
     async fn client(&self, record: &Record) -> Result<(Arc<McpClient>, u64), Unready> {
+        self.client_renewing(record)
+            .await
+            .map(|(client, generation, _)| (client, generation))
+    }
+
+    /// [`Connectors::client`], with the generation of the session this very call's renewal
+    /// opened, when it renewed.
+    async fn client_renewing(
+        &self,
+        record: &Record,
+    ) -> Result<(Arc<McpClient>, u64, Option<u64>), Unready> {
         let (existing, generation) = {
             let live = self.live.read().unwrap_or_else(|p| p.into_inner());
             let session = live.get(&record.id);
@@ -449,9 +469,10 @@ impl Connectors {
         };
         if expiring {
             match self.renew(record, generation).await {
-                Ok(()) => {
+                Ok(ours) => {
                     return self
                         .current_client(&record.id)
+                        .map(|(client, generation)| (client, generation, ours))
                         .ok_or_else(|| Unready::Other("the renewed session went away".into()));
                 }
                 // Spade Cloud or ace is away: a token that is still good keeps working until it
@@ -464,7 +485,7 @@ impl Connectors {
             }
         }
         if let Some(client) = existing {
-            return Ok((client, generation));
+            return Ok((client, generation, None));
         }
         let credentials = match &record.auth {
             Auth::None => Credentials::default(),
@@ -491,7 +512,8 @@ impl Connectors {
                 }
             }
         };
-        Ok(self.install_client(&record.id, credentials))
+        let (client, generation) = self.install_client(&record.id, credentials);
+        Ok((client, generation, None))
     }
 
     fn current_client(&self, id: &str) -> Option<(Arc<McpClient>, u64)> {
@@ -516,7 +538,9 @@ impl Connectors {
 
     /// Renews an OAuth sign-in with its refresh token, once however many callers ask: one that
     /// saw an older generation finds it renewed already.
-    async fn renew(&self, record: &Record, seen: u64) -> Result<(), Unready> {
+    /// Returns the generation of the session it opened, or `None` when another caller had
+    /// renewed already.
+    async fn renew(&self, record: &Record, seen: u64) -> Result<Option<u64>, Unready> {
         let _one = self.renewing.lock().await;
         let generation = self
             .live
@@ -525,7 +549,7 @@ impl Connectors {
             .get(&record.id)
             .map_or(0, |s| s.generation);
         if generation != seen {
-            return Ok(());
+            return Ok(None);
         }
         let epoch = self.epoch(&record.id);
         // Read again under the lock: an earlier renewal may have stored new facts.
@@ -612,11 +636,12 @@ impl Connectors {
         if !self.update_record(renewed).map_err(Unready::Other)? {
             return Err(Unready::Other("disconnected".into()));
         }
-        let wake = {
+        let (wake, opened) = {
             let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
             let session = live.entry(record.id.clone()).or_default();
             // The old client is dropped, not closed: a call on it still completes.
             session.generation += 1;
+            let opened = session.generation;
             let credentials = Credentials {
                 access: Some(tokens.access),
                 others: [Some(refresh), tokens.refresh, client.secret]
@@ -626,10 +651,10 @@ impl Connectors {
             };
             let config = credentials.config(record.url.clone(), self.timeout);
             session.client = Some(Arc::new(McpClient::new(config)));
-            session.wake.clone()
+            (session.wake.clone(), opened)
         };
         wake.notify_one();
-        Ok(())
+        Ok(Some(opened))
     }
 
     fn expire(&self, record: &Record) {

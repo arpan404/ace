@@ -867,6 +867,19 @@ pub fn remembered(events: &[crate::Event], key: &str) -> Option<bool> {
     })
 }
 
+/// Whether Spade's classifier screens a call the gate let run in Full access (ADR 0163,
+/// amendment 2), where it may raise it to the person: anything that runs outside the sandbox or
+/// reaches a server, except a connected app's read the gate resolved, with nothing untrusted in
+/// view or by its server's own trusted word, which stays card-free in every mode (ADR 0202,
+/// amendment 5).
+pub fn full_access_screens(call: &Call<'_>) -> bool {
+    let clean_app_read =
+        call.connected && call.effect == Some(Effect::Read) && !(call.guessed && call.tainted);
+    call.mode == autonomy::Mode::FullAccess
+        && (call.place != Place::Sandbox || call.remote)
+        && !clean_app_read
+}
+
 /// What a request says its call does: the gate's reading, raised by what Spade's classifier
 /// read in it when it raised it to the person (ADR 0202, amendment 5). A card is headed by this,
 /// and an app's Always allow is offered by it, never by the tool's name alone.

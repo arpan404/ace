@@ -38,6 +38,18 @@ impl Engine {
         arguments: &Value,
     ) -> Option<AppCall> {
         let found = self.tools.get_for(conversation, tool)?;
+        self.app_call_with(conversation, &found, arguments)
+    }
+
+    /// [`Engine::app_call`] for the tool `found` as already looked up: one snapshot of it.
+    pub(crate) fn app_call_with(
+        &self,
+        conversation: &str,
+        found: &std::sync::Arc<dyn crate::tools::Tool>,
+        arguments: &Value,
+    ) -> Option<AppCall> {
+        let tool = found.def().spec.name;
+        let tool = tool.as_str();
         let (app, _) = found.app()?;
         let definition = found.definition()?;
         self.seed_pins(conversation, &app);

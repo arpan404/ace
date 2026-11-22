@@ -449,3 +449,25 @@ fn a_write_the_classifier_raises_to_a_send_is_shown_and_offered_as_a_send() {
     }
     assert!(!app_always_offered(false, None));
 }
+
+#[test]
+fn in_full_access_a_clean_app_read_is_never_screened_into_a_card() {
+    let read = Call {
+        mode: Mode::FullAccess,
+        ..notion("list_pages", "", silent())
+    };
+    assert_eq!(route(read), Route::Run);
+    assert!(!full_access_screens(&read));
+    // An app's write, and anything else that may run outside, still is.
+    let write = Call {
+        mode: Mode::FullAccess,
+        effect: Some(Effect::Network),
+        ..read
+    };
+    assert!(full_access_screens(&write));
+    // On the auto-review the classifier screens only what goes to review.
+    assert!(!full_access_screens(&Call {
+        mode: Mode::AutoReview,
+        ..write
+    }));
+}
