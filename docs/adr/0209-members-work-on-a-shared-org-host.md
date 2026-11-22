@@ -252,7 +252,7 @@ Others still help:
 #### 5.3 Where it is kept
 
 - A daemon table, `thread_access (root_id PRIMARY KEY, owner, visibility, readers, changed_at,
-changed_by)`, written from an event, `thread.access.changed`, in the same transaction. Additive:
+  changed_by)`, written from an event, `thread.access.changed`, in the same transaction. Additive:
   a new table, nothing to fill, no index on an existing table (ADR 0170).
 - **Threads from before enrollment** keep their person (ADR 0206 §2.1). Enrollment writes the
   previous owner's account into `ace-owner.json` (`{kind: "org", org, generation, before}`). A
@@ -348,7 +348,7 @@ member's work sooner while the host is cut off.
 
 - **The roster** is the organization's member list as the backend signs it for this host:
   `{v: 1, kind: "org-roster", org, host, version, at, members: [{account, status, role}],
-hosts: [{id, fleet_key}]}`, signed with the grant key, `version` increasing. The host fetches
+  hosts: [{id, fleet_key}]}`, signed with the grant key, `version` increasing. The host fetches
   it with its organization credential every 60 seconds and on a relay nudge
   (`GET /v1/orgs/{org}/hosts/{hostId}/roster`). It never takes a lower version, so an old one
   can't be replayed to bring a removed member back. It also carries names and verified emails
