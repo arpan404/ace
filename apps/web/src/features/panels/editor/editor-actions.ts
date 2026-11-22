@@ -6,7 +6,9 @@ import {
   groupsOf,
   keepTab,
   activateTab,
+  splitSide,
   type EditorLayout,
+  type Room,
   type TabRef,
 } from "@ace/ui-core/editor-workbench";
 import type { EditorBuffers } from "@/features/editor-workbench/index.ts";
@@ -114,14 +116,23 @@ export function allTabs(layout: EditorLayout): TabRef[] {
   );
 }
 
-/** A second view of the focused editor beside (or under) it. */
-export function splitFocused(layout: EditorLayout, side: "right" | "down"): EditorLayout {
+/**
+ * A second view of the focused editor beside (or under) it, by the same rules as the strip's
+ * Split right: a pane that couldn't sit beside goes below (`splitSide` in `room`), and at `cap`
+ * panes nothing is made.
+ */
+export function splitFocused(
+  layout: EditorLayout,
+  side: "right" | "down",
+  room: Room,
+  cap: number,
+): EditorLayout {
   const group = focusedGroup(layout);
-  if (group.active === undefined) return layout;
+  if (group.active === undefined || groupsOf(layout).length >= cap) return layout;
   return copyTab(
     layout,
     { group: group.id, path: group.active },
-    { kind: "side", group: group.id, side },
+    { kind: "side", group: group.id, side: splitSide(layout, group.id, side, room) },
     groupIds(layout),
   );
 }

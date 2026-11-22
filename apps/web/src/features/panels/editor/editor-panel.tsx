@@ -4,6 +4,7 @@ import { formatAge, hunkAt, providerDisplayName, revertChange } from "@ace/ui-co
 import {
   focusedGroup,
   groupsOf,
+  limits,
   moveActiveEditor,
   mruTabs,
   parseLayout,
@@ -47,6 +48,7 @@ import { keyboardEnv } from "@/lib/keybindings.ts";
 import {
   settleReveal,
   useReveal,
+  useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
   type TabViewProps,
@@ -93,6 +95,9 @@ import { sceneThrough } from "@/components/ui/rules.ts";
  * whenever it shows, at every width (never over the code); Hide files and ⌘B put it away per
  * thread, and Show files in the strip brings it back.
  */
+
+/** The most panes beside the chat; full view holds the model's nine (`limits.groups`). */
+const sidePaneCap = 4;
 
 const providerOf = (agent: string) =>
   ProviderKind.options.find((kind) => providerDisplayName(kind) === agent);
@@ -230,6 +235,22 @@ export function EditorPanel(props: TabViewProps) {
   const gone = useCheckoutGone(threadId);
   // The explorer docks beside the code whenever it shows, never over it (spec 5).
   const explorerShown = layout.explorer.open;
+  // Panes: four beside the chat, nine in full view (owner, 2026-11-21).
+  const fullView = useScopeWorkspace(threadId).expanded;
+  const paneCap = fullView ? limits.groups : sidePaneCap;
+  /** The widest and tallest the editor area can get now: the panel widening if it can. */
+  const editorRoom = () => {
+    const panel = root.current?.getBoundingClientRect();
+    const workspace = store.get(threadId);
+    const reach = workspace.expanded ? 0 : panelMax(root.current);
+    const explorerPx = latest.current.explorer.open
+      ? explorerWidth(Math.max(panel?.width ?? 0, reach), latest.current.explorer.width)
+      : 0;
+    return {
+      width: Math.max(panel?.width ?? 0, reach) - explorerPx,
+      height: panel?.height ?? 0,
+    };
+  };
   const setExplorer = (patch: Partial<ExplorerState>) =>
     change({ ...latest.current, explorer: { ...latest.current.explorer, ...patch } });
   const [focusSearch, setFocusSearch] = useState(0);
@@ -305,13 +326,18 @@ export function EditorPanel(props: TabViewProps) {
         );
       case "moveEditorBack":
       case "moveEditorOn":
+        // Past the last pane this would make one: not beyond the cap.
+        if (command === "moveEditorOn" && groupsOf(now).length >= paneCap) {
+          const groups = groupsOf(now);
+          if (groups.at(-1)?.id === focusedGroup(now).id) return;
+        }
         return change(
           moveActiveEditor(now, command === "moveEditorOn" ? "next" : "previous", groupIds(now)),
         );
       case "splitRight":
-        return change(splitFocused(now, "right"));
+        return change(splitFocused(now, "right", editorRoom(), paneCap));
       case "splitDown":
-        return change(splitFocused(now, "down"));
+        return change(splitFocused(now, "down", editorRoom(), paneCap));
       case "explorer":
         return setExplorer({ open: !now.explorer.open });
       case "searchFiles":
@@ -438,6 +464,8 @@ export function EditorPanel(props: TabViewProps) {
                 tabMenuItems={menuFor(threadId)}
                 threadId={threadId}
                 onNeedRoom={onNeedRoom}
+                paneCap={paneCap}
+                room={editorRoom}
                 explorerToggle={
                   !explorerShown && (
                     <IconButton
