@@ -179,6 +179,7 @@ struct InboxView: View {
         .environment(\.spadeWorking, inbox.spadeWorking)
         .environment(\.homeRetap, retap)
         .environment(\.homeTab, tab)
+        .modifier(SearchInTabBar(on: SearchHome.fieldInBar(regular: sizeClass == .regular), query: $searchQuery, focusAsks: searchFocusAsks))
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
@@ -236,7 +237,7 @@ struct InboxView: View {
                    account: AccountToolbarItem(open: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) },
                                                settings: { open(.settings) }),
                    query: $searchQuery, focusAsks: searchFocusAsks,
-                   hasLock: lock != nil)
+                   hasLock: lock != nil, fieldInBar: SearchHome.fieldInBar(regular: sizeClass == .regular))
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }

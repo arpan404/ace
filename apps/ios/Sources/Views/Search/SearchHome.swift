@@ -3,8 +3,9 @@ import SwiftUI
 /// The Search tab (the web's command palette and search, in place of a More tab). Before a query:
 /// the places outside the thread lists as a grid of their glyphs, the last searches and the
 /// latest threads. With one: actions, threads, projects, pull requests and messages of every
-/// paired machine (`InboxSearchList`). On iOS 26 its field is the tab bar's own detached search;
-/// where Search is a plain tab (iOS 27) the field stays under the title, never behind a pull.
+/// paired machine (`InboxSearchList`). On a phone running iOS 26 its field is the tab bar's own
+/// (`SearchInTabBar`), which is what lets the system draw Search as its own glass circle at the
+/// bar's end; elsewhere the field stays under the title, never behind a pull.
 /// The bar above the title holds the account button, as Projects' and Chats' do, so the title
 /// sits under it at the same height instead of under an empty bar.
 struct SearchHome: View {
@@ -19,6 +20,8 @@ struct SearchHome: View {
     var focusAsks = 0
     /// The app has a lock, so Search finds App lock.
     var hasLock = false
+    /// The tab bar carries the field (`SearchInTabBar`), so this page adds none of its own.
+    var fieldInBar = false
     @State private var openPulls: Int?
     @FocusState private var fieldFocused: Bool
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -36,8 +39,7 @@ struct SearchHome: View {
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.large)
             .toolbar { account }
-            .searchable(text: $query, placement: Self.fieldPlacement, prompt: Text("Threads, pull requests, settings"))
-            .searchFocused($fieldFocused)
+            .modifier(DrawerSearch(on: !fieldInBar, query: $query, focused: $fieldFocused))
         }
         .onChange(of: focusAsks) { fieldFocused = true }
         .task(id: inbox.sessions.map { "\($0.hostId):\($0.client.connection)" }) {
@@ -47,7 +49,51 @@ struct SearchHome: View {
     }
 }
 
+/// Search's own field under the title, where the tab bar doesn't carry it.
+private struct DrawerSearch: ViewModifier {
+    let on: Bool
+    @Binding var query: String
+    var focused: FocusState<Bool>.Binding
+    func body(content: Content) -> some View {
+        if on {
+            content
+                .searchable(text: $query, placement: SearchHome.fieldPlacement, prompt: Text(SearchHome.fieldPrompt))
+                .searchFocused(focused)
+        } else {
+            content
+        }
+    }
+}
+
+/// The field in the tab bar's Search tab on a phone running iOS 26: `.searchable` on the TabView
+/// with the activation tied to the search tab's selection, which is how the system moves the
+/// field into the bar and draws the Search role as its own glass circle (SwiftUI docs,
+/// `tabViewSearchActivation`). Asked to focus (a second tap on Search), the field takes focus.
+struct SearchInTabBar: ViewModifier {
+    let on: Bool
+    @Binding var query: String
+    let focusAsks: Int
+    @FocusState private var focused: Bool
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *), on {
+            content
+                .searchable(text: $query, prompt: Text(SearchHome.fieldPrompt))
+                .searchFocused($focused)
+                .tabViewSearchActivation(.searchTabSelection)
+                .onChange(of: focusAsks) { focused = true }
+        } else {
+            content
+        }
+    }
+}
+
 extension SearchHome {
+    static let fieldPrompt = "Threads, pull requests, settings"
+    /// Whether the tab bar carries the field: a phone on iOS 26, where the system draws Search apart.
+    static func fieldInBar(regular: Bool) -> Bool {
+        if #available(iOS 26, *) { return !regular }
+        return false
+    }
     /// Search's field is pinned open in the navigation drawer, at the top as on every iOS this
     /// runs on, rather than waiting collapsed or moving into the tab bar's search tab.
     static var fieldPlacement: SearchFieldPlacement { .navigationBarDrawer(displayMode: .always) }
