@@ -13,7 +13,7 @@ import {
   type SpadeGroupView,
 } from "./group-fold.ts";
 import { spadeView, type SpadeView } from "./view.ts";
-import { parseSpadeEvents, parseSpadeLiveFrame } from "./wire.ts";
+import { parseSpadeEvents, parseSpadeLiveFrame, type SpadeStored } from "./wire.ts";
 import { SpadeRequestError } from "./request-error.ts";
 
 /*
@@ -59,6 +59,11 @@ export interface SpadeFollowSnapshot<V = SpadeView> {
   view: V;
   /** Why the conversation can't be followed live, in words; undefined while it can. */
   problem: string | undefined;
+  /**
+   * The view is only what this device kept from an earlier open (`seed`): Spade hasn't answered
+   * since, so nothing in it is known to be still going or done.
+   */
+  kept: boolean;
 }
 
 /** Events per page when a conversation first opens. */
@@ -115,6 +120,11 @@ export class SpadeLiveConversation<S, V> {
   private framePending = false;
   /** The first open reads the history in pages before it follows live. */
   private paged = false;
+  /** The state began from events kept on this device (`seed`). */
+  private seeded = false;
+  /** ...and Spade hasn't answered since, so the view may be out of date. */
+  private kept = false;
+  private resetListeners = new Set<() => void>();
   private paging = false;
   /** Stopped (unmounted): nothing opens again, however late a page or a timer finishes. */
   private stopped = true;
@@ -137,7 +147,7 @@ export class SpadeLiveConversation<S, V> {
     this.deps = deps;
     this.folder = folder;
     this.state = folder.empty();
-    this.snapshot = { view: folder.view(this.state), problem: undefined };
+    this.snapshot = { view: folder.view(this.state), problem: undefined, kept: false };
   }
 
   get = (): SpadeFollowSnapshot<V> => this.snapshot;
@@ -162,6 +172,29 @@ export class SpadeLiveConversation<S, V> {
   onEnded(listener: () => void): () => void {
     this.endListeners.add(listener);
     return () => this.endListeners.delete(listener);
+  }
+
+  /**
+   * Events this device kept from an earlier open, in `seq` order, folded before `start`: the
+   * conversation shows them at once (`kept` until Spade answers) and the first read asks only
+   * for what came after the last of them.
+   */
+  seed(stored: readonly SpadeStored[]): void {
+    if (!this.stopped || this.seeded || this.lastSeq > 0) return;
+    for (const event of stored) this.folder.fold(this.state, { kind: "stored", stored: event });
+    if (this.lastSeq === 0) return;
+    this.seeded = true;
+    this.kept = true;
+    this.publish();
+  }
+
+  /**
+   * `listener` runs when the kept events turn out not to be Spade's (its history ends before
+   * them) and the conversation is read again from its start.
+   */
+  onReset(listener: () => void): () => void {
+    this.resetListeners.add(listener);
+    return () => this.resetListeners.delete(listener);
   }
 
   /** The highest `seq` folded, for sends that need to know what the person saw. */
@@ -289,6 +322,10 @@ export class SpadeLiveConversation<S, V> {
       if (this.stopped) return;
       const page = parseSpadeEvents(body);
       if (!page) return;
+      // Spade went on from where the kept events end: they are its, and the view is current.
+      // An empty page proves nothing (its history may end before them): the live stream's
+      // caught-up decides then.
+      if (page[0]?.seq === after + 1) this.kept = false;
       for (const stored of page) this.folder.fold(this.state, { kind: "stored", stored });
       if (page.length < pageSize || this.lastSeq === after) return;
     }
@@ -303,12 +340,29 @@ export class SpadeLiveConversation<S, V> {
   private frame(event: string, data: string) {
     for (const listener of this.sideListeners.get(event) ?? []) listener(data);
     const input = parseSpadeLiveFrame(event, data);
+    if (input?.kind === "caught_up" && this.seeded && input.seq < this.lastSeq) return this.reset();
+    if (input?.kind === "caught_up" && this.kept) {
+      this.kept = false;
+      this.schedule();
+    }
     if (input && this.folder.fold(this.state, input)) {
       this.retries = 0;
       this.schedule();
     }
     // Caught up: anything sent before this that Spade stored has arrived by now.
     this.settleSends(input?.kind === "caught_up");
+  }
+
+  /** Spade's history ends before the kept events: they aren't its, so read it all again. */
+  private reset() {
+    this.close();
+    this.state = this.folder.empty();
+    this.seeded = false;
+    this.kept = false;
+    this.paged = false;
+    this.publish();
+    for (const listener of this.resetListeners) listener();
+    this.open();
   }
 
   private ended(reason: SpadeFollowEnd, status: number | undefined) {
@@ -342,7 +396,11 @@ export class SpadeLiveConversation<S, V> {
   }
 
   private publish() {
-    this.snapshot = { view: this.folder.view(this.state), problem: this.snapshot.problem };
+    this.snapshot = {
+      view: this.folder.view(this.state),
+      problem: this.snapshot.problem,
+      kept: this.kept,
+    };
     this.notify();
   }
 
