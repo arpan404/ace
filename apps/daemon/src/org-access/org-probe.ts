@@ -59,7 +59,7 @@ export function orgProbe(dataDir: string): OrgProbe {
       unsubscribe?.();
       source = next;
       unsubscribe = next.onChange?.(() => {
-        for (const listener of [...listeners]) listener();
+        for (const listener of listeners) listener();
       });
     },
     onChange(listener) {
