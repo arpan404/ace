@@ -83,3 +83,52 @@ test("reconnecting saves only the files saved while offline", async () => {
   expect(a.snapshot()).toMatchObject({ dirty: true, manualSave: true });
   expect(problems.at(-1)).toMatchObject({ path: "a.ts" });
 });
+
+test("a Revert made after an offline Save stops its replay even once undone back to the same text", async () => {
+  const disk = fakeDisk({ "a.ts": "a\n" }, root);
+  const time = manualTime();
+  const registry = createBufferRegistry({
+    files: disk.port,
+    drafts: memoryDrafts().store,
+    merge: inlineMerge().port,
+    now: time.now,
+    schedule: time.schedule,
+    ready,
+    attribute: () => ({ kind: "unknown" }),
+  });
+  const buffers = editorBuffers(registry, root);
+  const layout: EditorLayout = {
+    explorer: defaultExplorer,
+    closed: [],
+    root: { kind: "group", id: "g1", tabs: [tab("a.ts")], active: "a.ts", mru: [] },
+    focused: "g1",
+  };
+  buffers.sync(layout);
+  await settle();
+  let online = false;
+  const queued: EditorActionsHost["queued"] = new Map();
+  const host: EditorActionsHost = {
+    buffers,
+    layout: () => layout,
+    change: () => {},
+    online: () => online,
+    problem: () => {},
+    queued,
+  };
+  const a = buffers.buffer("a.ts");
+  if (!a) throw new Error("not open");
+  a.editLines([{ start: 0, end: 1, text: "saved offline\n" }]);
+  await saveFile(host, "a.ts");
+  // A Revert, then undone: the text (and its content id) is what was saved, but a Revert landed.
+  a.editLines([{ start: 0, end: 1, text: "reverted\n" }], { manualSave: true });
+  a.document()?.undo();
+  a.edited();
+  expect(a.document()?.text()).toBe("saved offline\n");
+
+  online = true;
+  await saveQueued(host);
+
+  // The Save was asked for before that Revert: it is not replayed, and the Revert's wait stays.
+  expect(disk.text("a.ts")).toBe("a\n");
+  expect(a.snapshot().manualSave).toBe(true);
+});
