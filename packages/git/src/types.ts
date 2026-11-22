@@ -112,8 +112,6 @@ export type GitErrorCode =
   | "malformed_output"
   | "filesystem_error"
   | "output_too_large"
-  /** A file too large for the read asked of it (blame reads it at every commit it walks). */
-  | "file_too_large"
   | "not_a_repo"
   | "invalid_argument"
   | "invalid_ref"

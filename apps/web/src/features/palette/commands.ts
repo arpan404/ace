@@ -3,7 +3,6 @@ import {
   ArrowsOutSimpleIcon,
   FileIcon,
   FolderPlusIcon,
-  GitCommitIcon,
   GitDiffIcon,
   GlobeIcon,
   MoonIcon,
@@ -25,7 +24,6 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useBetaEnabled } from "@/lib/beta-enabled.ts";
-import { useEditorPreferences } from "@/lib/editor-preferences.ts";
 import { useOpenMarket } from "@/lib/open-market.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 import { windowsHelpActions } from "@/boot/help-actions.ts";
@@ -121,8 +119,6 @@ export function usePaletteGroups(
   const spadeShown = useSpadeShown() === true;
   const marketplace = useBetaEnabled("marketplace") === true;
   const openMarket = useOpenMarket();
-  const [editorPrefs, updateEditorPrefs] = useEditorPreferences();
-  const inlineBlame = editorPrefs.inlineBlame;
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
       close();
@@ -246,95 +242,86 @@ export function usePaletteGroups(
       },
       {
         value: "Actions",
-        items: [
-          {
-            id: "editor-toggle-inline-blame",
-            label: inlineBlame ? "Hide inline git blame" : "Show inline git blame",
-            keywords: "git blame author commit history inline editor",
-            icon: GitCommitIcon,
-            run: run(() => updateEditorPrefs({ inlineBlame: !inlineBlame })),
-          } satisfies PaletteCommand,
-          ...(scope
-            ? [
-                {
-                  id: "toggle-changes",
-                  label: "Show changes",
-                  keys: keymap.changes.keys,
-                  icon: GitDiffIcon,
-                  run: run(() => panel.toggleKind("changes")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-agents",
-                  label: "Open agent tree",
-                  keys: keymap.agents.keys,
-                  icon: TreeStructureIcon,
-                  run: run(() => panel.toggleKind("work")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-terminal",
-                  label: "Open terminal",
-                  keys: keymap.terminal.keys,
-                  icon: TerminalWindowIcon,
-                  run: run(() => panel.toggleKind("terminal")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-file",
-                  label: "Open a file from the checkout",
-                  keys: keymap.files.keys,
-                  icon: FileIcon,
-                  run: run(() => panel.shortcut("files")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-browser",
-                  label: "Open the browser",
-                  keys: keymap.browser.keys,
-                  icon: GlobeIcon,
-                  run: run(() => panel.shortcut("browser")),
-                } satisfies PaletteCommand,
-                {
-                  id: "new-terminal",
-                  label: "New terminal",
-                  keys: keymap.newTerminal.keys,
-                  icon: TerminalIcon,
-                  run: run(() => openNewTerminal(panel, workspace)),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-logs",
-                  label: "Show logs",
-                  keys: keymap.logs.keys,
-                  icon: ScrollIcon,
-                  run: run(() => panel.toggleKind("logs")),
-                } satisfies PaletteCommand,
-                {
-                  id: "toggle-right",
-                  label: `${workspace.open ? "Hide" : "Show"} side panel`,
-                  keys: keymap.rightPanel.keys,
-                  icon: SidebarSimpleIcon,
-                  run: run(() => panel.toggle()),
-                } satisfies PaletteCommand,
-                {
-                  id: "new-tab",
-                  label: "New tab in the side panel",
-                  keys: keymap.newTab.keys,
-                  icon: PlusSquareIcon,
-                  run: run(() => panel.newTab()),
-                } satisfies PaletteCommand,
-                {
-                  id: "full-view",
-                  label: workspace.expanded ? "Exit full view" : "Side panel in full view",
-                  keys: keymap.fullView.keys,
-                  icon: workspace.expanded ? ArrowsInSimpleIcon : ArrowsOutSimpleIcon,
-                  run: run(() => panel.setExpanded(!workspace.expanded)),
-                } satisfies PaletteCommand,
-                ...tabCommands.map((command): PaletteCommand => ({
-                  ...command,
-                  id: `workspace-${command.id}`,
-                  icon: tabCommandIcon(command),
-                  run: run(command.run),
-                })),
-              ]
-            : []),
-        ],
+        items: scope
+          ? [
+              {
+                id: "toggle-changes",
+                label: "Show changes",
+                keys: keymap.changes.keys,
+                icon: GitDiffIcon,
+                run: run(() => panel.toggleKind("changes")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-agents",
+                label: "Open agent tree",
+                keys: keymap.agents.keys,
+                icon: TreeStructureIcon,
+                run: run(() => panel.toggleKind("work")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-terminal",
+                label: "Open terminal",
+                keys: keymap.terminal.keys,
+                icon: TerminalWindowIcon,
+                run: run(() => panel.toggleKind("terminal")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-file",
+                label: "Open a file from the checkout",
+                keys: keymap.files.keys,
+                icon: FileIcon,
+                run: run(() => panel.shortcut("files")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-browser",
+                label: "Open the browser",
+                keys: keymap.browser.keys,
+                icon: GlobeIcon,
+                run: run(() => panel.shortcut("browser")),
+              } satisfies PaletteCommand,
+              {
+                id: "new-terminal",
+                label: "New terminal",
+                keys: keymap.newTerminal.keys,
+                icon: TerminalIcon,
+                run: run(() => openNewTerminal(panel, workspace)),
+              } satisfies PaletteCommand,
+              {
+                id: "open-logs",
+                label: "Show logs",
+                keys: keymap.logs.keys,
+                icon: ScrollIcon,
+                run: run(() => panel.toggleKind("logs")),
+              } satisfies PaletteCommand,
+              {
+                id: "toggle-right",
+                label: `${workspace.open ? "Hide" : "Show"} side panel`,
+                keys: keymap.rightPanel.keys,
+                icon: SidebarSimpleIcon,
+                run: run(() => panel.toggle()),
+              } satisfies PaletteCommand,
+              {
+                id: "new-tab",
+                label: "New tab in the side panel",
+                keys: keymap.newTab.keys,
+                icon: PlusSquareIcon,
+                run: run(() => panel.newTab()),
+              } satisfies PaletteCommand,
+              {
+                id: "full-view",
+                label: workspace.expanded ? "Exit full view" : "Side panel in full view",
+                keys: keymap.fullView.keys,
+                icon: workspace.expanded ? ArrowsInSimpleIcon : ArrowsOutSimpleIcon,
+                run: run(() => panel.setExpanded(!workspace.expanded)),
+              } satisfies PaletteCommand,
+              ...tabCommands.map((command): PaletteCommand => ({
+                ...command,
+                id: `workspace-${command.id}`,
+                icon: tabCommandIcon(command),
+                run: run(command.run),
+              })),
+            ]
+          : [],
       },
       {
         value: "Theme",
@@ -415,8 +402,6 @@ export function usePaletteGroups(
     spadeShown,
     marketplace,
     openMarket,
-    inlineBlame,
-    updateEditorPrefs,
   ]);
   return useMemo(
     () =>

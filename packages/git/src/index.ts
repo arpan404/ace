@@ -51,11 +51,8 @@ import { snapshot, createCheckpoint, deleteCheckpoints, listCheckpoints } from "
 import { diff } from "./diff.ts";
 import {
   diffCommit,
-  fileBlame,
   fileLog,
   type CommitDiffOptions,
-  type FileBlameOptions,
-  type FileBlameResult,
   type FileLogOptions,
   type FileLogResult,
 } from "./history.ts";
@@ -105,13 +102,7 @@ export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { LayerReplay, StackReplayResult } from "./stack-sync.ts";
 export type { MergeStart } from "./merge-conflicts.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
-export type {
-  CommitDiffOptions,
-  FileBlameOptions,
-  FileBlameResult,
-  FileLogOptions,
-  FileLogResult,
-} from "./history.ts";
+export type { CommitDiffOptions, FileLogOptions, FileLogResult } from "./history.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
 export { GitTransfer } from "./transfer-service.ts";
@@ -128,7 +119,7 @@ export type { CheckoutState } from "./transfer-checkout.ts";
 export class GitService {
   private readonly repository: Repository;
   private readonly maxPatchBytes: number;
-  /** History reads (log, blame, a commit's patch) that may run at once (`ReadGate`). */
+  /** History reads (a file's log, a commit's patch) that may run at once (`ReadGate`). */
   private readonly historyReads = new ReadGate(2);
   /** Moving work to another machine (ADR 0101). */
   readonly transfer: GitTransfer;
@@ -558,12 +549,6 @@ export class GitService {
   async fileLog(options: FileLogOptions): Promise<FileLogResult> {
     const root = await this.repository.root(options.worktree, options.signal);
     return this.historyReads.run(() => fileLog(this.repository, root, options), options.signal);
-  }
-
-  /** Porcelain blame of a 1-based inclusive line range at one commit. */
-  async fileBlame(options: FileBlameOptions): Promise<FileBlameResult> {
-    const root = await this.repository.root(options.worktree, options.signal);
-    return this.historyReads.run(() => fileBlame(this.repository, root, options), options.signal);
   }
 
   /** At most 106 lines and 8192 characters from an immutable commit or checkpoint. */

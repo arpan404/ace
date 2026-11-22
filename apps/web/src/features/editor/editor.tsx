@@ -221,14 +221,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     if (doc) visible.current = { first, last };
   });
 
-  const { onVisibleRange } = props;
-  useEffect(() => {
-    if (!onVisibleRange || !doc || lineCount <= 0) return;
-    const firstLine = Math.min(lineCount, Math.max(1, first + 1));
-    const lastLine = Math.min(lineCount, Math.max(firstLine, last));
-    onVisibleRange({ firstLine, lastLine, lineCount });
-  }, [onVisibleRange, doc, first, last, lineCount]);
-
   const { lines, lineAt } = useVisibleLines({ doc, version: state.version, first, last });
 
   // Sticky scroll: the headers of the blocks around the top line, re-read only when the top row,
@@ -624,13 +616,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                               : undefined
                       }
                       lastRow={at === lineRows.length - 1}
-                      endNote={
-                        at === lineRows.length - 1 &&
-                        line === caretLine &&
-                        props.caretAnnotation?.line === line + 1
-                          ? props.caretAnnotation.content
-                          : undefined
-                      }
                       matches={lineMatches ? segmentsOnRow(lineMatches, row.start, end) : undefined}
                       query={activeQuery}
                       long={long}

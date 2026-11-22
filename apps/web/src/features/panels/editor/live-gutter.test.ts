@@ -423,7 +423,7 @@ test("a Keep the text moved under before it ran retires nothing, never the wrong
   expect(agentLines(gutter)).toEqual([2, 3, 4]);
 });
 
-test("hunks worked out against the old commit are never published as the new commit's", async () => {
+test("hunks worked out against an older read are never published as the newer read's", async () => {
   const { buffer, time } = await opened("one\nTWO\nthree\nfour\n");
   const held: (() => void)[] = [];
   const gutter = new LiveGutter(buffer, {
@@ -436,16 +436,14 @@ test("hunks worked out against the old commit are never published as the new com
     who: () => claude,
     delay: 150,
   });
-  const oldCommit = "a".repeat(40);
-  const newCommit = "b".repeat(40);
-  gutter.setHead(committed, "c1", oldCommit);
+  gutter.setHead(committed, "c1");
   await time.advance(200);
   // HEAD moves while the diff against the old commit is still out.
-  gutter.setHead("one\nTWO\nthree\nfour\n", "c2", newCommit);
+  gutter.setHead("one\nTWO\nthree\nfour\n", "c2");
   for (const release of held.splice(0)) release();
   await settle();
   const late = gutter.state();
-  expect(late.basis?.commit === newCommit && late.hunks.length > 0).toBe(false);
+  expect(late.basis?.generation === "c2" && late.hunks.length > 0).toBe(false);
 
   // The new commit's own diff lands: its hunks say so (the text is as committed now).
   await time.advance(200);
@@ -453,35 +451,7 @@ test("hunks worked out against the old commit are never published as the new com
     for (const release of held.splice(0)) release();
     await settle();
   }
-  expect(gutter.state().basis?.commit).toBe(newCommit);
+  expect(gutter.state().basis?.generation).toBe("c2");
   expect(gutter.state().hunks).toEqual([]);
   gutter.dispose();
-});
-
-test("the hunks are current only for the text as it is and the read of git's diff that is in", async () => {
-  const { buffer, gutter, pause } = await opened("one\nTWO\nthree\nfour\n");
-  gutter.setHead(committed, "c1", "a".repeat(40));
-  await pause();
-  expect(gutter.current()).toBe(true);
-
-  // A save sends a new read out: listeners hear it, and the hunks stop holding.
-  let told = 0;
-  const off = gutter.subscribe(() => told++);
-  gutter.unsettle();
-  expect(told).toBe(1);
-  expect(gutter.current()).toBe(false);
-
-  // The read lands with the committed text for the new disk version: current once worked out.
-  gutter.setHead(committed, "c1-v2", "a".repeat(40));
-  expect(gutter.current()).toBe(false);
-  await pause();
-  expect(gutter.current()).toBe(true);
-
-  // Typing moves the text past the hunks until the pause.
-  type(buffer, 0, "ONE");
-  gutter.edited();
-  expect(gutter.current()).toBe(false);
-  await pause();
-  expect(gutter.current()).toBe(true);
-  off();
 });

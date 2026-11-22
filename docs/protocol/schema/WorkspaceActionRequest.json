@@ -1130,42 +1130,6 @@
           "type": "object"
         },
         {
-          "properties": {
-            "commit": {
-              "$ref": "https://ace.local/protocol/v1/CommitSha.json"
-            },
-            "endLine": {
-              "exclusiveMinimum": 0,
-              "maximum": 10000000,
-              "type": "integer"
-            },
-            "op": {
-              "const": "git.blame",
-              "type": "string"
-            },
-            "path": {
-              "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
-            },
-            "startLine": {
-              "exclusiveMinimum": 0,
-              "maximum": 10000000,
-              "type": "integer"
-            },
-            "threadId": {
-              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-            }
-          },
-          "required": [
-            "op",
-            "threadId",
-            "path",
-            "startLine",
-            "endLine"
-          ],
-          "type": "object",
-          "x-ace-constraint": "endLine >= startLine and endLine - startLine + 1 <= 500."
-        },
-        {
           "$ref": "https://ace.local/protocol/v1/GitConflictsOperation.json"
         },
         {

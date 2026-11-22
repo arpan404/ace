@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -59,102 +59,6 @@ test("fileLog returns an empty history on an unborn repository or untracked file
   expect(untracked.entries).toEqual([]);
   expect(untracked.stopped).toBeUndefined();
   expect(untracked.head).toMatch(/^[0-9a-f]{40,64}$/);
-});
-
-test("fileBlame blames a range at the commit it is given, and stops at its caps", async () => {
-  const repo = await repository({ "app.ts": "line 1\nline 2\nline 3\nline 4\n" });
-  const firstSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
-
-  await put(repo, "app.ts", "line 1\nline 2 edited\nline 3\nline 4\n");
-  await git(repo, "add", "app.ts");
-  await git(repo, "commit", "-m", "Edit line 2");
-  const secondSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
-
-  // The working tree and later commits do not change a blame read at an explicit commit.
-  await put(repo, "app.ts", "inserted\nline 1\nline 2 edited\nline 3 dirty\nline 4\n");
-  await put(repo, "other.ts", "x\n");
-  await git(repo, "add", "other.ts");
-  await git(repo, "commit", "-m", "Unrelated");
-
-  const blamed = await service.fileBlame({
-    worktree: repo,
-    path: "app.ts",
-    commit: secondSha,
-    startLine: 2,
-    endLine: 4,
-  });
-  expect(blamed.head).toBe(secondSha);
-  expect(blamed.capped).toBe(false);
-  expect(blamed.lines).toEqual([
-    { line: 2, sha: secondSha },
-    { line: 3, sha: firstSha },
-    { line: 4, sha: firstSha },
-  ]);
-  expect(blamed.commits.find((c) => c.sha === secondSha)).toMatchObject({
-    sha: secondSha,
-    shortSha: secondSha.slice(0, 7),
-    subject: "Edit line 2",
-  });
-
-  // A file the commit does not have returns no lines without throwing
-  await put(repo, "brand-new.ts", "hello\n");
-  const untracked = await service.fileBlame({
-    worktree: repo,
-    path: "brand-new.ts",
-    commit: secondSha,
-    startLine: 1,
-    endLine: 10,
-  });
-  expect(untracked).toEqual({ head: secondSha, commits: [], lines: [], capped: false });
-
-  // Byte cap stops cleanly and sets capped: true
-  const capped = await service.fileBlame({
-    worktree: repo,
-    path: "app.ts",
-    commit: secondSha,
-    startLine: 1,
-    endLine: 4,
-    maxBytes: 120,
-  });
-  expect(capped.capped).toBe(true);
-  expect(capped.lines.length).toBeLessThan(4);
-});
-
-test("fileBlame fails, rather than answering 'no such file', when Git cannot read the objects", async () => {
-  const repo = await repository({ "app.ts": "one\ntwo\n" });
-  const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
-  const blob = (await git(repo, "rev-parse", "HEAD:app.ts")).toString().trim();
-  const objects = (await git(repo, "rev-parse", "--git-path", "objects")).toString().trim();
-  await rm(join(repo, objects, blob.slice(0, 2), blob.slice(2)));
-  await expect(
-    service.fileBlame({ worktree: repo, path: "app.ts", commit: head, startLine: 1, endLine: 2 }),
-  ).rejects.toBeInstanceOf(Error);
-
-  // A commit the repository does not have is an error too, not an empty file.
-  await expect(
-    service.fileBlame({
-      worktree: repo,
-      path: "app.ts",
-      commit: "e".repeat(40),
-      startLine: 1,
-      endLine: 2,
-    }),
-  ).rejects.toBeInstanceOf(Error);
-});
-
-test("fileBlame refuses a file too large to blame", async () => {
-  const repo = await repository({ "big.txt": "line\n".repeat(10) });
-  const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
-  await expect(
-    service.fileBlame({
-      worktree: repo,
-      path: "big.txt",
-      commit: head,
-      startLine: 1,
-      endLine: 5,
-      maxFileBytes: 20,
-    }),
-  ).rejects.toMatchObject({ code: "file_too_large" });
 });
 
 /** The PID a git alias wrote, once it has. */
@@ -326,7 +230,7 @@ test("diffCommit diffs a root commit, a regular commit, and a rename commit", as
   expect(renameDiff.patch).toContain("rename to b.ts");
 });
 
-test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and bad line ranges", async () => {
+test("fileLog and diffCommit reject unsafe paths and invalid refs", async () => {
   const repo = await repository({ "safe.ts": "one\ntwo\n" });
   const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
 
@@ -335,53 +239,13 @@ test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and 
       code: "invalid_argument",
     });
     await expect(
-      service.fileBlame({ worktree: repo, path: badPath, commit: head, startLine: 1, endLine: 1 }),
-    ).rejects.toMatchObject({ code: "invalid_argument" });
-    await expect(
       service.diffCommit({ worktree: repo, commit: head, paths: [badPath] }),
     ).rejects.toMatchObject({ code: "invalid_argument" });
   }
 
   await expect(
-    service.fileBlame({ worktree: repo, path: "safe.ts", commit: head, startLine: 5, endLine: 2 }),
-  ).rejects.toMatchObject({ code: "invalid_argument" });
-
-  await expect(
-    service.fileBlame({
-      worktree: repo,
-      path: "safe.ts",
-      commit: head,
-      startLine: 1,
-      endLine: 600,
-    }),
-  ).rejects.toMatchObject({ code: "invalid_argument" });
-
-  await expect(
     service.diffCommit({ worktree: repo, commit: "--exec=bad", paths: ["safe.ts"] }),
   ).rejects.toMatchObject({ code: "invalid_ref" });
-
-  // Blame range past EOF returns empty cleanly instead of throwing
-  const pastEof = await service.fileBlame({
-    worktree: repo,
-    path: "safe.ts",
-    commit: head,
-    startLine: 50,
-    endLine: 60,
-  });
-  expect(pastEof).toEqual({ head, commits: [], lines: [], capped: false });
-
-  // A range that runs past the end (an unsaved buffer can be longer) blames the lines that exist
-  const overEnd = await service.fileBlame({
-    worktree: repo,
-    path: "safe.ts",
-    commit: head,
-    startLine: 1,
-    endLine: 120,
-  });
-  expect(overEnd.lines).toEqual([
-    { line: 1, sha: head },
-    { line: 2, sha: head },
-  ]);
 
   // Non-repository folder fails with typed not_a_repo error
   const plain = await scratch();

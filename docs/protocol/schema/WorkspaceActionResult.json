@@ -485,49 +485,6 @@
           "type": "object"
         },
         {
-          "properties": {
-            "capped": {
-              "type": "boolean"
-            },
-            "commits": {
-              "items": {
-                "$ref": "https://ace.local/protocol/v1/GitBlameCommit.json"
-              },
-              "maxItems": 500,
-              "type": "array"
-            },
-            "head": {
-              "anyOf": [
-                {
-                  "$ref": "https://ace.local/protocol/v1/CommitSha.json"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "kind": {
-              "const": "gitBlame",
-              "type": "string"
-            },
-            "lines": {
-              "items": {
-                "$ref": "https://ace.local/protocol/v1/GitBlameLine.json"
-              },
-              "maxItems": 500,
-              "type": "array"
-            }
-          },
-          "required": [
-            "kind",
-            "head",
-            "commits",
-            "lines",
-            "capped"
-          ],
-          "type": "object"
-        },
-        {
           "$ref": "https://ace.local/protocol/v1/GitConflictsResult.json"
         },
         {

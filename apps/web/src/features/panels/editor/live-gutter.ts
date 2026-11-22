@@ -40,16 +40,7 @@ export interface GutterState {
   /** Lines agents wrote, in the text's 0-based lines. */
   agent: readonly AgentBlock[];
   /** What the hunks were worked out on: a hunk acts only while all of it still holds. */
-  basis?:
-    | {
-        doc: EditorDocument;
-        version: number;
-        head: string;
-        generation: string;
-        /** The commit `head` is the text of, when the caller named it (blame maps through it). */
-        commit: string | undefined;
-      }
-    | undefined;
+  basis?: { doc: EditorDocument; version: number; head: string; generation: string } | undefined;
 }
 
 export interface LiveGutterDeps {
@@ -119,8 +110,6 @@ export class LiveGutter {
   #head: string | undefined;
   /** Which read of git's diff the committed text came from (the commit and the disk version). */
   #generation = "";
-  /** The commit the committed text is of, when the caller named it. */
-  #commit: string | undefined;
   /** That read is the one for the text on disk now: until it is, Revert does nothing. */
   #settled = true;
   #state: GutterState = empty;
@@ -162,47 +151,17 @@ export class LiveGutter {
    * The committed text, as git's diff of the file rebuilds it, from the read `generation` names
    * (the commit and the disk version it was read for); undefined for none known.
    */
-  setHead(head: string | undefined, generation = "", commit?: string): void {
-    if (
-      head === this.#head &&
-      generation === this.#generation &&
-      commit === this.#commit &&
-      this.#settled
-    )
-      return;
+  setHead(head: string | undefined, generation = ""): void {
+    if (head === this.#head && generation === this.#generation && this.#settled) return;
     this.#head = head;
     this.#generation = generation;
-    this.#commit = commit;
     this.#settled = true;
     this.edited();
   }
 
   /** A new read of git's diff is under way (a commit, a new disk version): Revert waits for it. */
   unsettle(): void {
-    if (!this.#settled) return;
     this.#settled = false;
-    // Whoever maps lines through the hunks (blame) must stop until the new read's are in.
-    for (const listener of this.#listeners) listener();
-  }
-
-  /**
-   * The hunks hold now: worked out on the text as it is, against the committed text of the read
-   * that is in (settled), for the commit and read named. Only then do they map a line of the
-   * text to its line in that commit.
-   */
-  current(): boolean {
-    const doc = this.#buffer.document();
-    const basis = this.#state.basis;
-    return (
-      doc !== undefined &&
-      basis !== undefined &&
-      this.#settled &&
-      basis.doc === doc &&
-      basis.version === doc.version() &&
-      basis.generation === this.#generation &&
-      basis.commit === this.#commit &&
-      basis.head === (this.#head ?? this.#buffer.baseText())
-    );
   }
 
   /** The text changed (a view's edit): the marks are worked out again once typing pauses. */
@@ -430,7 +389,6 @@ export class LiveGutter {
     this.#recall(doc, text);
     const head = this.#head ?? this.#buffer.baseText();
     const generation = this.#generation;
-    const commit = this.#commit;
     const layers = this.#layers;
     const [changes, ...moved] = await Promise.all([
       head === undefined ? [] : this.#deps.diff.lineChanges(text, head),
@@ -448,13 +406,9 @@ export class LiveGutter {
     // The text moved while the diff ran: the next pause works the hunks out again.
     if (this.#buffer.document() !== doc || doc.version() !== version)
       return this.#publish({ ...this.#state, agent: this.#shown });
-    // The committed text moved (a new commit, a new read): these hunks are of the old one and
-    // are never published under the new one's name; its own recompute is already queued.
-    if (
-      this.#generation !== generation ||
-      this.#commit !== commit ||
-      (this.#head ?? this.#buffer.baseText()) !== head
-    )
+    // A newer read of the committed text arrived meanwhile: these hunks are of the old one and
+    // are never published under the new read's name; its own recompute is already queued.
+    if (this.#generation !== generation || (this.#head ?? this.#buffer.baseText()) !== head)
       return this.#publish({ ...this.#state, agent: this.#shown });
     // Kept on the device only for the text the lines were worked out on.
     this.#remember();
@@ -464,7 +418,7 @@ export class LiveGutter {
       hunks,
       marks: marks.size ? marks : undefined,
       agent: this.#shown,
-      basis: head === undefined ? undefined : { doc, version, head, generation, commit },
+      basis: head === undefined ? undefined : { doc, version, head, generation },
     });
   }
 

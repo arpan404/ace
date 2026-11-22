@@ -569,12 +569,6 @@ const entries = [
     title: "Cursor blinking",
     keywords: ["caret", "cursor", "blink"],
   },
-  {
-    id: "editor.inlineBlame",
-    page: "/settings/editor",
-    title: "Inline git blame",
-    keywords: ["git", "blame", "author", "commit", "history"],
-  },
   // Notifications
   {
     id: "notifications.inApp",

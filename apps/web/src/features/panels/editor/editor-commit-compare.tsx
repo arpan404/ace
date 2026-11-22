@@ -27,7 +27,7 @@ interface CommitDiffState {
 
 /**
  * Read-only diff of one commit's change to a file (reusing the Changes/Compare `FileDiffBlock`
- * shell and the commit-scoped `git.diff` op). Opened from Timeline or Inline Blame.
+ * shell and the commit-scoped `git.diff` op). Opened from Timeline.
  */
 export function EditorCommitCompare(props: {
   threadId: string;

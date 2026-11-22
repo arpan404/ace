@@ -1,7 +1,7 @@
 import { GitError } from "./types.ts";
 
 /*
- * At most `limit` history reads (log, blame, a commit's diff) run at once across the service;
+ * At most `limit` history reads (a file's log, a commit's diff) run at once across the service;
  * the rest wait their turn. A waiter whose signal aborts leaves the queue. These reads only look
  * at immutable commits, so they don't take the repository's serial lock and never hold up its
  * writes or status reads.

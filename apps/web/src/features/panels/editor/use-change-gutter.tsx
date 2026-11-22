@@ -27,7 +27,6 @@ const noMarks: ReadonlyMap<number, LineMark> = new Map();
 export interface ChangeGutterView {
   marks: ReadonlyMap<number, LineMark> | undefined;
   agentMarks: readonly AgentMark[];
-  head: string | undefined;
   hunks: readonly ChangeHunk[];
   onMarkClick(line: number): void;
   peek: { after: number; content: ReactNode } | undefined;
@@ -83,7 +82,7 @@ export function useChangeGutter(input: {
     // A patch with a hunk cut short gives nothing.
     const head = patch ? committedFromPatch(base, patch) : base;
     if (head === undefined) return gutter.unsettle();
-    gutter.setHead(head, `${commit ?? ""}\u0000${version}`, commit);
+    gutter.setHead(head, `${commit ?? ""}\u0000${version}`);
   }, [buffer, gutter, version, patch, settled, truncated, commit]);
 
   const agentMarks = useMemo(
@@ -123,7 +122,6 @@ export function useChangeGutter(input: {
     // Always a map, even an empty one: the live marks are the gutter's only marks.
     marks: state.marks ?? noMarks,
     agentMarks,
-    head: commit,
     hunks: state.hunks,
     onMarkClick: setPeekLine,
     peek,

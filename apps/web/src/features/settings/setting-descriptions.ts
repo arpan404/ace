@@ -21,7 +21,6 @@ export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
   "editor.tabSize": "For files whose own indentation can't be detected.",
   "editor.insertSpaces": "For files whose own indentation can't be detected.",
   "editor.stickyScroll": "Pins the enclosing blocks' first lines at the top.",
-  "editor.inlineBlame": "Shows who last changed the current line at the end of the line.",
   "storage.backupWorktrees": "Pushes everything not in .gitignore, .env included.",
   "browser.pip": "While an agent browses or a page plays sound.",
   "browser.connectionStats": "Round-trip time for clicks and keys, in the ⋯ menu.",

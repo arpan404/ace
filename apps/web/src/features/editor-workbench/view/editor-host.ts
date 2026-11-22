@@ -61,12 +61,6 @@ export interface BufferEditorProps {
   onMarkClick?: ((line: number) => void) | undefined;
   /** An inline block under a line (a change's diff). */
   peek?: { after: number; content: ReactNode } | undefined;
-  /** Reports the 1-based visible line range and total line count (e.g. for inline git blame). */
-  onVisibleRange?:
-    | ((range: { firstLine: number; lastLine: number; lineCount: number }) => void)
-    | undefined;
-  /** Quiet end-of-line annotation drawn on the caret line only (e.g. inline git blame). */
-  caretAnnotation?: { line: number; content: ReactNode } | undefined;
   /** The person typed in this view (auto save waits for a pause). */
   onEdited?: (() => void) | undefined;
   /** This view's text lost the keyboard (auto save on focus change). */
@@ -124,8 +118,8 @@ export interface EditorHost {
   /** Jump to a symbol picked from a pane's breadcrumbs. */
   onRevealSymbol?: ((group: string, path: string, symbol: OutlineSymbol) => void) | undefined;
   /**
-   * Optional pane overlay rendered in place of the editor (e.g. a read-only commit diff opened
-   * from Timeline or Inline Blame).
+   * Optional pane overlay rendered in place of the editor (a read-only commit diff opened from
+   * Timeline).
    */
   renderOverlay?: ((group: string, path: string | undefined) => ReactNode) | undefined;
   /** The host's own items at the end of a tab's menu: Reveal in Files, Open in ›, the paths. */

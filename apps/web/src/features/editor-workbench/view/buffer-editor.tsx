@@ -89,8 +89,6 @@ export function BufferEditor(props: BufferEditorProps) {
       agentMarks={props.agentMarks}
       onMarkClick={props.marks ? props.onMarkClick : undefined}
       peek={props.peek}
-      onVisibleRange={props.onVisibleRange}
-      caretAnnotation={props.caretAnnotation}
       layer={props.layer}
       line={reveal?.line}
       column={reveal?.column}

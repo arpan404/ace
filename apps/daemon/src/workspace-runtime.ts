@@ -1,7 +1,6 @@
 import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
 import { diffPage, filePatchBytes } from "./git-diff-page.ts";
 import { FilePatchCache } from "./git-diff-cache.ts";
-import { GitBlameCache } from "./git-blame-cache.ts";
 import { ForgeMediaService } from "./forge-media/media-service.ts";
 import type { ForgeMediaGrants } from "./forge-media/media-grants.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
@@ -160,8 +159,6 @@ export class WorkspaceRuntime {
   private origins: OriginCache;
   /** One file's patch, read once for all its pages (`git.diff` with `path`). */
   private filePatches: FilePatchCache;
-  /** Bounded range cache for `git.blame`, keyed by checkout, HEAD, file stamp, and range. */
-  private fileBlames: GitBlameCache;
   private options: WorkspaceRuntimeOptions;
   private prLifetime = new AbortController();
   private manager: TerminalManager;
@@ -189,7 +186,6 @@ export class WorkspaceRuntime {
     this.git = options.gitService ?? new GitService(options.git);
     this.origins = new OriginCache(this.git.transfer, now);
     this.filePatches = new FilePatchCache(now);
-    this.fileBlames = new GitBlameCache(now);
     this.defaultBranches = new DefaultBranches(now);
     this.media = lazyMedia(
       options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
@@ -864,36 +860,6 @@ export class WorkspaceRuntime {
       });
       if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
       return wrap({ kind: "gitLog", ...log });
-    }
-    if (op.op === "git.blame") {
-      const root = this.root(op.threadId);
-      // Blame at one resolved commit: the answer never changes, so it is keyed on that id.
-      const commit =
-        op.commit ??
-        (await this.git
-          .resolveCommit({ worktree: root, ref: "HEAD", signal })
-          .catch((error: unknown) => {
-            if (error instanceof GitError && error.code === "unborn_head") return null;
-            throw error;
-          }));
-      if (commit === null)
-        return wrap({ kind: "gitBlame", head: null, commits: [], lines: [], capped: false });
-      const key = JSON.stringify([root, commit, op.path, op.startLine, op.endLine]);
-      const blamed = await this.fileBlames.read(
-        key,
-        (stop) =>
-          this.git.fileBlame({
-            worktree: root,
-            path: op.path,
-            commit,
-            startLine: op.startLine,
-            endLine: op.endLine,
-            signal: stop,
-          }),
-        signal,
-      );
-      if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
-      return wrap({ kind: "gitBlame", ...blamed });
     }
     if (op.op === "git.status") {
       const root = this.root(op.threadId);

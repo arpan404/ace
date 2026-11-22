@@ -2,7 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { CommitSha, ReviewPath, ThreadId } from "@ace/protocol";
 import { CommandRefused } from "./daemon-command.ts";
 
-/** One commit opened in the read-only commit diff viewer (from Timeline or Inline Blame). */
+/** One commit opened in the read-only commit diff viewer (from Timeline). */
 export interface CommitDiffTarget {
   /** File path at this commit (or current checkout path). */
   path: string;
@@ -35,36 +35,6 @@ export async function readGitLog(
   );
   if (reply.result.kind === "error") throw new CommandRefused(reply.result.code);
   if (reply.result.kind !== "gitLog") throw new CommandRefused("git_log_unavailable");
-  return reply.result;
-}
-
-/**
- * Reads blame for a bounded 1-based line range of a file at `commit` via `git.blame`. Lines are
- * the file's lines at that commit.
- */
-export async function readGitBlame(
-  client: ClientApi,
-  threadId: string,
-  path: string,
-  range: { commit: string; startLine: number; endLine: number },
-  signal?: AbortSignal,
-) {
-  const { commit, startLine, endLine } = range;
-  const reply = await client.request(
-    {
-      type: "workspace.request",
-      operation: {
-        op: "git.blame",
-        threadId: ThreadId.parse(threadId),
-        path: ReviewPath.parse(path),
-        commit: CommitSha.parse(commit),
-        startLine,
-        endLine,
-      },
-    },
-    signal ? { signal } : {},
-  );
-  if (reply.result.kind !== "gitBlame") throw new CommandRefused("git_blame_unavailable");
   return reply.result;
 }
 

@@ -11,8 +11,6 @@ import {
   gitStatusLimit,
   ServerMessage,
   InstalledEditor,
-  type GitBlameCommit,
-  type GitBlameLine,
   type GitLogEntry,
   type GitStatusFile,
   type WorkspaceActionRequest,
@@ -46,7 +44,6 @@ export type FakeWorkspaceControls = Pick<
   | "setGitDiff"
   | "setGitCommitDiff"
   | "setGitLog"
-  | "setGitBlame"
   | "setEditors"
   | "setTerminals"
   | "opened"
@@ -337,19 +334,6 @@ export class FakeWorkspaceWire {
     this.gitLogs.set(`${threadId}:${path}`, entries);
     if (stopped) this.gitLogStops.set(`${threadId}:${path}`, stopped);
     else this.gitLogStops.delete(`${threadId}:${path}`);
-  }
-  private gitBlames = new Map<
-    string,
-    { commits: readonly GitBlameCommit[]; lines: readonly GitBlameLine[]; capped?: boolean }
-  >();
-  setGitBlame(
-    threadId: string,
-    path: string,
-    data: { commits: readonly GitBlameCommit[]; lines: readonly GitBlameLine[]; capped?: boolean },
-    /** The commit this blame answers for; left out, it answers for every commit. */
-    commit?: string,
-  ): void {
-    this.gitBlames.set(`${threadId}:${path}:${commit ?? ""}`, data);
   }
   /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
   gitStatus(threadId: string): readonly GitStatusFile[] {
@@ -653,28 +637,6 @@ export class FakeWorkspaceWire {
           entries: all.slice(0, gitLogMaxLimit),
           ...(stopped ? { stopped } : {}),
           head: this.head(op.threadId) ?? null,
-        },
-      });
-    }
-    if (op.op === "git.blame") {
-      const head = op.commit ?? this.head(op.threadId) ?? null;
-      const seeded =
-        this.gitBlames.get(`${op.threadId}:${op.path}:${head ?? ""}`) ??
-        this.gitBlames.get(`${op.threadId}:${op.path}:`);
-      const lines = (seeded?.lines ?? []).filter(
-        (entry) => entry.line >= op.startLine && entry.line <= op.endLine,
-      );
-      const used = new Set(lines.map((entry) => entry.sha).filter((sha) => sha !== null));
-      const commits = (seeded?.commits ?? []).filter((commit) => used.has(commit.sha));
-      return ServerMessage.parse({
-        type: "workspace.result",
-        requestId: request.requestId,
-        result: {
-          kind: "gitBlame",
-          head,
-          commits,
-          lines,
-          capped: seeded?.capped ?? false,
         },
       });
     }
