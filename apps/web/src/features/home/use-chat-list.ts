@@ -87,7 +87,7 @@ export function useChatList(
         : merged;
       const unconfirmed = reader.unconfirmed;
       const standingOf = unconfirmed
-        ? () => ({ level: "syncing" as const, done: false, held: false })
+        ? () => ({ level: "syncing" as const, done: false, held: false, recovery: false })
         : standing;
       const isChat = isChatThread;
       const all = chatList({ entries, isChat, standing: standingOf, now });
