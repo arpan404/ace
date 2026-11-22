@@ -4,6 +4,7 @@ import {
   type SpadeEndpoint,
   type SpadeModelInfo,
 } from "./endpoints.ts";
+import { spadeAccountLabels } from "./accounts.ts";
 import { splitSpadeModel } from "./agents.ts";
 import {
   spadeCantRunBots,
@@ -83,14 +84,17 @@ export function spadeModelGroups(
       options: [{ value: "", name: none, source: undefined, facts: noneFacts }],
     });
   const endpoints = spadeLocalFirst(sources.endpoints, (each) => each.endpoint.local);
+  // Two accounts of one name are told apart by their ids (ADR 0213).
+  const labels = spadeAccountLabels(endpoints.map((each) => each.endpoint));
   for (const { endpoint, models } of endpoints) {
+    const label = labels.get(endpoint.id) ?? endpoint.name;
     const options: SpadeModelOption[] = models
-      .filter((model) => !typed || matches(typed, model.name, model.id, endpoint.name))
+      .filter((model) => !typed || matches(typed, model.name, model.id, label))
       .map((model) => {
         const option: SpadeModelOption = {
           value: `${endpoint.id}/${model.id}`,
           name: model.name,
-          source: endpoint.name,
+          source: label,
           facts: endpoint.local
             ? [model.knownGood ? spadeWorksWell : spadeModelFacts(model), "Runs on this computer"]
                 .filter(Boolean)
@@ -108,11 +112,11 @@ export function spadeModelGroups(
       options.push({
         value: `${endpoint.id}/${typed}`,
         name: `Use “${typed}”`,
-        source: endpoint.name,
+        source: label,
         facts: "",
         typed: true,
       });
-    if (options.length) groups.push({ label: endpoint.name, options });
+    if (options.length) groups.push({ label, options });
   }
   const adds = (sources.adds ?? [])
     .filter(({ server, model }) => !typed || matches(typed, model, server.name))
@@ -172,7 +176,9 @@ export function spadeModelLabel(
   const info = found?.models.find((each) => each.id === model);
   return {
     name: info?.name ?? spadeModelWords(model),
-    source: found?.endpoint.name ?? (id || undefined),
+    source: found
+      ? spadeAccountLabels(sources.endpoints.map((each) => each.endpoint)).get(found.endpoint.id)
+      : id || undefined,
   };
 }
 

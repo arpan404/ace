@@ -1,4 +1,8 @@
-import type { SpadeEndpoint, SpadeModelInfo } from "@ace/ui-core/spade-chat";
+import {
+  spadeEndpointUsable,
+  type SpadeEndpoint,
+  type SpadeModelInfo,
+} from "@ace/ui-core/spade-chat";
 
 /*
  * Which of the person's own models can turn speech into words, or read words aloud (ADR 0134,
@@ -31,7 +35,10 @@ const serves = (model: SpadeModelInfo, role: VoiceRole) =>
 export function voiceEndpoints(endpoints: readonly SpadeEndpoint[]): SpadeEndpoint[] {
   return endpoints.filter(
     (endpoint) =>
-      endpoint.format !== "anthropic" && (!endpoint.needsKey || endpoint.keySet === true),
+      // A ChatGPT sign-in's backend serves replies only, never voice.
+      endpoint.format !== "anthropic" &&
+      endpoint.auth !== "chatgpt" &&
+      spadeEndpointUsable(endpoint),
   );
 }
 

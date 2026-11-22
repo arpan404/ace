@@ -1,6 +1,7 @@
 import {
   mergeSpadeModels,
   spadeChecking,
+  spadeEndpointUsable,
   spadeLocalChoices,
   spadeModelGroups,
   spadeModelLabel,
@@ -211,7 +212,7 @@ function useModelSources(
       queryKey: [...modelsKey, machine, "live", endpoint.id],
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         readLiveModels(client, endpoint.id, { signal }),
-      enabled: live && (!endpoint.needsKey || endpoint.keySet === true),
+      enabled: live && spadeEndpointUsable(endpoint),
       staleTime: 60_000,
       retry: false,
     })),

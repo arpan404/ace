@@ -91,10 +91,10 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
     });
     api.addAgent({ id: "inbox", name: "Inbox", model: "openrouter/meta/llama" });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
   await choose(dialog, "From", "OpenCode Go");
-  await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints")).toEqual([
       {
