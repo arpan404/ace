@@ -144,4 +144,14 @@ describe("ace icons", () => {
       }
     }
   });
+  it("paints a folder's mark in the accent colour and the folder in the ink", () => {
+    const drawn = doc(html(icons.SourceFolderIcon, { color: "gray", accent: "blue" }));
+    const strokes = [...drawn.querySelectorAll("path")].map((p) => p.getAttribute("stroke"));
+    expect(strokes).toContain("gray");
+    expect(strokes).toContain("blue");
+    const plain = doc(html(icons.SourceFolderIcon, { color: "gray" }));
+    expect(
+      new Set([...plain.querySelectorAll("path")].map((p) => p.getAttribute("stroke"))),
+    ).toEqual(new Set(["gray"]));
+  });
 });

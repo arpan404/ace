@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { arc, arrowhead, onCircle, polyline } from "../geometry.ts";
-import { line } from "../parts.ts";
+import { line, type Part } from "../parts.ts";
 
 /** History, or rewind: a clock's rim turning back, with its hands. */
-export const ClockCounterClockwiseIcon = /* @__PURE__ */ glyph("ClockCounterClockwise", () => [
+export const clockBack = (): Part[] => [
   line(arc(12, 12, 8.75, -155, 165)),
   line(arrowhead(onCircle(12, 12, 8.75, -155), 112, 3.4)),
   line(
@@ -13,4 +13,6 @@ export const ClockCounterClockwiseIcon = /* @__PURE__ */ glyph("ClockCounterCloc
       [14.75, 13.75],
     ]),
   ),
-]);
+];
+
+export const ClockCounterClockwiseIcon = /* @__PURE__ */ glyph("ClockCounterClockwise", clockBack);

@@ -113,6 +113,26 @@ test("each thread-row status colour stands out on the sidebar, its hover and the
     }
 });
 
+test("each file-type tone stands out on the page, the sidebar, a hovered row and the selected row, in every theme", () => {
+  const tones = [
+    "--file-blue",
+    "--file-sky",
+    "--file-teal",
+    "--file-green",
+    "--file-yellow",
+    "--file-orange",
+    "--file-red",
+    "--file-pink",
+    "--file-purple",
+  ];
+  const rows = ["--background", "--sidebar", "--surface-1", "--hover", "--active"];
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect([id, scheme, below(tokens, tones, rows, 3)]).toEqual([id, scheme, []]);
+    }
+});
+
 test("a danger button's label reads at AA on its fill at rest, hovered and pressed, in every theme", () => {
   for (const id of themeIds)
     for (const scheme of schemes) {

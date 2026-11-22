@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polyline, rect } from "../geometry.ts";
-import { detail, shape } from "../parts.ts";
+import { detail, shape, type Part } from "../parts.ts";
 
 /** A terminal: a window holding a prompt. */
-export const TerminalWindowIcon = /* @__PURE__ */ glyph("TerminalWindow", () => [
+export const terminalWindow = (): Part[] => [
   shape(rect(2.5, 4, 19, 16, 5)),
   detail(
     polyline([
@@ -13,4 +13,6 @@ export const TerminalWindowIcon = /* @__PURE__ */ glyph("TerminalWindow", () => 
     ]),
   ),
   detail("M12.5 14.5h4"),
-]);
+];
+
+export const TerminalWindowIcon = /* @__PURE__ */ glyph("TerminalWindow", terminalWindow);
