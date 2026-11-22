@@ -250,7 +250,10 @@ final class NativeHost: @unchecked Sendable {
             let socket: any DaemonSocket
             switch (SocketOpening.parse(text), target.relay) {
             case (.daemon, let relay?): socket = RelaySocket(route: relay, streams: streams, event: event)
-            case (.daemon, nil): socket = PinnedSocket(target: target, session: pinned(target), streams: streams, event: event)
+            case (.daemon, nil):
+                // A paired machine's socket proves the person's standing itself (ADR 0190 §7).
+                socket = PinnedSocket(target: target, session: pinned(target), standing: services.standingProof(binding: nil),
+                                      streams: streams, event: event)
             // Through the relay a media connection is always a relay stream, whatever URL came with it:
             // the phone has no pin for the machine's own listeners there.
             case (.media, let relay?): socket = RelaySocket(route: relay, purpose: "media", path: id, streams: streams, event: event)

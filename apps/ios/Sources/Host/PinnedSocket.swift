@@ -109,6 +109,11 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     private var ended = false
     /// The daemon's welcome arrived on this socket (`LaunchTrace` marks the first).
     private var welcomed = false
+    /// A paired machine's daemon socket proves the person's standing (ADR 0190 §7) from the
+    /// welcome that arrives here, on this socket; nil for every other socket.
+    private let standing: PairedStandingProof?
+    /// This socket sent its proof and the daemon's answer hasn't come yet.
+    private var awaitingVerdict = false
     private let connectTimeout: TimeInterval
     private var deadline: DispatchWorkItem?
     private var queue: OperationQueue { session.queue }
@@ -118,9 +123,10 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     let path: String?
     init(target: ConnectionTarget, session: PinnedSession? = nil, path: String? = nil,
          now: @escaping @Sendable () -> Date = { Date() },
-         connectTimeout: TimeInterval = PinnedSocket.connectTimeout,
+         connectTimeout: TimeInterval = PinnedSocket.connectTimeout, standing: PairedStandingProof? = nil,
          streams: BrowserStreamHub? = nil, event: @escaping @Sendable (String, SocketPayload) -> Void) {
         self.target = target
+        self.standing = standing
         self.path = path
         self.connectTimeout = connectTimeout
         self.event = event
@@ -188,8 +194,19 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
                 guard let self, !self.ended else { return }
                 switch result {
                 case .success(.string(let text)):
-                    if !self.welcomed, text.hasPrefix(#"{"type":"welcome""#) { self.welcomed = true; LaunchTrace.mark("socket.welcome") }
-                    self.event("message", .text(self.streams?.text(text) ?? text)); self.receive()
+                    if !self.welcomed, text.hasPrefix(#"{"type":"welcome""#) {
+                        self.welcomed = true; LaunchTrace.mark("socket.welcome")
+                        // Before the script hears the welcome, so the proof goes ahead of its requests.
+                        self.prove(welcome: text)
+                    }
+                    // The answer to this socket's own proof is native's: the script hears the verdict only.
+                    if self.awaitingVerdict, let verdict = self.standing?.verdict(text) {
+                        self.awaitingVerdict = false
+                        self.event("standing", .text(verdict.rawValue))
+                    } else {
+                        self.event("message", .text(self.streams?.text(text) ?? text))
+                    }
+                    self.receive()
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
                     case .none: break
@@ -203,6 +220,19 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
                 case .failure: self.finish(1006)
                 @unknown default: self.finish(4002)
                 }
+            }
+        }
+    }
+    /// On the session queue: answer this socket's standing challenge on this socket.
+    private func prove(welcome text: String) {
+        guard let standing else { return }
+        switch standing.step(forWelcome: text) {
+        case .notAsked: return
+        case .missing: event("standing", .text(PairedStanding.missing.rawValue))
+        case .send(let message):
+            awaitingVerdict = true
+            task?.send(.string(message)) { [weak self] error in
+                if error != nil { self?.queue.addOperation { [weak self] in self?.finish(1006) } }
             }
         }
     }

@@ -82,6 +82,9 @@ import QuartzCore
     @ObservationIgnored var onMachineIdentity: ((MachineIdentityPatch) -> Void)?
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
+    /// Whether this paired machine took this phone's proof of the person's standing; nil until a
+    /// socket proved, for an account machine, and for a daemon that asks for none.
+    var standing: PairedStanding?
     /// Why this account machine wants its machine code now (`MachineCodeAsk`), or nil.
     var machineCodeAsk: MachineCodeAsk? { didSet { if machineCodeAsk != oldValue { machineCodeDeferred = false } } }
     /// The person chose Not now for this ask; Machines › the machine asks again.
@@ -274,7 +277,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
-        connection = "connecting"; error = nil; problem = nil; sawConfirmedRow = false
+        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
@@ -590,6 +593,7 @@ import QuartzCore
                 if state != "ready" { invalidateConfirmations() }
                 activityChanged = true
             case .problem(let notice): problem = notice
+            case .standing(let state): if standing != state { standing = state }
             case .machineCode(let reason, let until):
                 // Every refused retry says it again; only a change redraws.
                 let ask = reason.flatMap(MachineCodeAsk.init(rawValue:))
