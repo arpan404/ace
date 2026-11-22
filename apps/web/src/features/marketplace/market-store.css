@@ -178,6 +178,18 @@
     aspect-ratio: 16 / 9;
     border-radius: inherit;
   }
+  /* A featured bot is its bare face, flat: no colour wash, ring or floor behind it. */
+  .st-feature-picture > .mk-stage[data-type="bot"],
+  :root[data-scheme="dark"] .st-feature-picture > .mk-stage[data-type="bot"] {
+    background: transparent;
+  }
+  .st-feature-picture > .mk-stage[data-type="bot"]::after,
+  .st-feature-picture > .mk-stage[data-type="bot"] .mk-floor {
+    display: none;
+  }
+  .st-feature-picture > .mk-stage[data-type="bot"] .bot-face {
+    max-height: 80%;
+  }
   .st-feature-picture:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 3px;
