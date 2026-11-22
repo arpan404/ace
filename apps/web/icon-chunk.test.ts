@@ -90,32 +90,40 @@ const modules: Record<string, { code: string; importedIds: string[] }> = {
   },
   // The package's own modules: one per icon, each importing the shared renderer.
   ...Object.fromEntries(
-    [
-      "Gear",
-      "Robot",
-      "Rocket",
-      "Heart",
-      "Palette",
-      "Star",
-      "Brain",
-      "Leaf",
-      "Wrench",
-      "Hammer",
-    ].map((name) => [
-      glyph(name),
-      {
-        code: `import { glyph } from "../glyph.ts";\nexport const ${name}Icon = /* @__PURE__ */ glyph("${name}", () => []);`,
-        importedIds: [`${icons}/glyph.ts`],
-      },
-    ]),
+    ["Robot", "Rocket", "Heart", "Palette", "Star", "Brain", "Leaf", "Wrench", "Hammer"].map(
+      (name) => [
+        glyph(name),
+        {
+          code: `import { glyph } from "../glyph.ts";\nexport const ${name}Icon = /* @__PURE__ */ glyph("${name}", () => []);`,
+          importedIds: [`${icons}/glyph.ts`],
+        },
+      ],
+    ),
   ),
+  // A thread icon drawn with another glyph's drawing, which the thread page never draws itself.
+  [glyph("Gear")]: {
+    code: 'import { glyph } from "../glyph.ts";\nimport { cog } from "./cog.ts";\nexport const GearIcon = /* @__PURE__ */ glyph("Gear", cog);',
+    importedIds: [`${icons}/glyph.ts`, glyph("Cog")],
+  },
+  [glyph("Cog")]: {
+    code: 'import { glyph } from "../glyph.ts";\nexport const cog = () => [];\nexport const CogIcon = /* @__PURE__ */ glyph("Cog", cog);',
+    importedIds: [`${icons}/glyph.ts`],
+  },
   [`${icons}/glyph.ts`]: { code: "export function glyph() {}", importedIds: [] },
 };
+
+/** Who imports each module, as the bundler reports it. */
+const importers = new Map<string, string[]>();
+for (const [id, module] of Object.entries(modules))
+  for (const imported of module.importedIds)
+    importers.set(imported, [...(importers.get(imported) ?? []), id]);
 
 /** The module graph as the bundler reports it; the group reads only code and static imports. */
 function getModuleInfo(module: string): ModuleInfo | null {
   const found = modules[module];
-  return found ? ({ ...found, id: module } as ModuleInfo) : null;
+  return found
+    ? ({ ...found, id: module, importers: importers.get(module) ?? [] } as ModuleInfo)
+    : null;
 }
 
 function chunkOf(id: string) {
@@ -131,7 +139,16 @@ describe("the shared icon chunks", () => {
 
   test("keep icons other pages or later imports draw in the shared chunk", () => {
     expect(chunkOf(glyph("Rocket"))).toBe("icons");
-    expect(chunkOf(`${icons}/glyph.ts`)).toBe("icons");
+  });
+
+  test("keep what a thread icon imports in its chunk, so the two chunks never import each other", () => {
+    // The thread page draws only the gear, but the gear is drawn with the cog's drawing.
+    expect(chunkOf(glyph("Cog"))).toBe("icons-thread");
+    expect(chunkOf(`${icons}/glyph.ts`)).toBe("icons-thread");
+    for (const [id, module] of Object.entries(modules)) {
+      if (!id.startsWith(icons) || chunkOf(id) !== "icons-thread") continue;
+      for (const imported of module.importedIds) expect(chunkOf(imported)).toBe("icons-thread");
+    }
   });
 
   test("count only the modules a barrel's imported names come from", () => {

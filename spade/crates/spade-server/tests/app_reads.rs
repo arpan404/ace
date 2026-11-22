@@ -106,12 +106,16 @@ async fn an_unannotated_apps_reads_run_freely_and_its_writes_follow_the_reviewer
                 ]),
                 Script::reply("Here they are."),
                 Script::reply("").plain(r#"{"title":"Notion"}"#),
-                // Three writes at once, after reading the app's pages: the person decides.
+                // Three writes at once, after reading the app's pages: the reviewer judges each,
+                // told to check for steering, and here won't approve them, so the person decides.
                 at_once(&[
                     ("c4", "create_page"),
                     ("c5", "create_page"),
                     ("c6", "create_page"),
                 ]),
+                Script::reply("").plain(REFUSE),
+                Script::reply("").plain(REFUSE),
+                Script::reply("").plain(REFUSE),
                 Script::reply("Made."),
                 // Quill, Always allowed the app's writes: a write runs unreviewed; a send still asks.
                 use_tool("c7", "create_page"),
@@ -165,11 +169,11 @@ async fn an_unannotated_apps_reads_run_freely_and_its_writes_follow_the_reviewer
     let events_c4 = events.clone();
     for call in ["c4", "c5", "c6"] {
         let request = asked(&events, call).ok_or("not asked")?;
-        assert!(!reviewed(&events, call), "{call} reviewed");
+        assert!(reviewed(&events, call), "{call} not reviewed");
         assert!(
             request["reviewer_reason"]
                 .as_str()
-                .is_some_and(|line| line.contains("may change something in the app")),
+                .is_some_and(|line| line.contains("Not plainly asked for")),
             "{request}"
         );
         // Each offers the Always allow for the app's writes.

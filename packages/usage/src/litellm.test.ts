@@ -56,6 +56,10 @@ test("exact routes win and CLI routes and explicit aliases match deterministical
   expect(matchModel("opencode-go/muse-spark-1.3-contributor", prices.models)).toBe(
     "opencode_go/muse-spark-1.3-contributor",
   );
+  // OpenCode Go's Anthropic-format endpoint is the same plan: its rate, not Anthropic's.
+  expect(matchModel("opencode-go-anthropic/muse-spark-1.3-contributor", prices.models)).toBe(
+    "opencode_go/muse-spark-1.3-contributor",
+  );
   expect(matchModel("gemini-pro", prices.models)).toBe("gemini/gemini-2.5-pro");
   expect(matchModel("openrouter/anthropic/claude-opus-5.5", prices.models)).toBe("claude-opus-5-5");
   expect(matchModel("openai-codex/claude-opus-5-5", prices.models)).toBe("claude-opus-5-5");

@@ -212,6 +212,7 @@ const whole = (ids: readonly string[]) => ids.map((id) => ({ id, wanted: "all" a
  */
 export function lazyIconChunk(threadPage: string): Group {
   let threadIcons: Set<string> | undefined;
+  const placed = new Map<string, boolean>();
   return {
     debugName: "icons",
     includeDependenciesRecursively: false,
@@ -220,8 +221,49 @@ export function lazyIconChunk(threadPage: string): Group {
     name: (id, ctx) => {
       threadIcons ??= iconsReachedFrom(threadPage, (module) => ctx.getModuleInfo(module));
       const drawn = threadIcons;
-      const icons = iconsOfModule(id, drawn.size ? ctx.getModuleInfo(id)?.code : undefined);
-      return icons.some((icon) => drawn.has(icon)) ? "icons-thread" : "icons";
+      if (drawn.size === 0) return "icons";
+      const draws = (module: string) =>
+        iconsOfModule(module, ctx.getModuleInfo(module)?.code).some((icon) => drawn.has(icon));
+      return neededByThreadIcons(id, draws, (module) => ctx.getModuleInfo(module), placed)
+        ? "icons-thread"
+        : "icons";
     },
   };
+}
+
+/**
+ * Whether a module of the icon package belongs in the thread page's icon chunk: it draws one of
+ * the thread page's icons, or one that does imports it, directly or through others. Glyphs reuse
+ * each other's drawings (a Git file's mark is the Git branch), so a thread icon's module can
+ * import one the thread page never draws. Leaving that one in the other chunk made the two
+ * chunks import each other, and whichever ran second read the other's drawings before they were
+ * defined: the Git file mark crashed the editor's explorer. The thread chunk holds everything its
+ * icons import, so imports only ever run from the shared chunk into it.
+ */
+function neededByThreadIcons(
+  id: string,
+  draws: (id: string) => boolean,
+  info: (id: string) => Pick<Rolldown.ModuleInfo, "importers"> | null,
+  placed: Map<string, boolean>,
+): boolean {
+  const known = placed.get(id);
+  if (known !== undefined) return known;
+  const seen = new Set([id]);
+  const queue = [id];
+  let needed = false;
+  for (const module of queue) {
+    const cached = placed.get(module);
+    if (cached ?? draws(module)) {
+      needed = true;
+      break;
+    }
+    if (cached === false) continue;
+    for (const importer of info(module)?.importers ?? [])
+      if (iconPackageModule.test(importer) && !seen.has(importer)) {
+        seen.add(importer);
+        queue.push(importer);
+      }
+  }
+  placed.set(id, needed);
+  return needed;
 }

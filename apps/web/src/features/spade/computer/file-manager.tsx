@@ -1,17 +1,20 @@
-import { formatBytes } from "@ace/ui-core/byte-size";
-import { formatAgo } from "@ace/ui-core/time";
-import { DotsThreeIcon, FileIcon, FolderIcon } from "@ace/icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import {
+  focusedGroup,
+  groupsOf,
+  openEditor,
+  openEditorToSide,
+  type EditorLayout,
+} from "@ace/ui-core/editor-workbench";
+import { FolderPlusIcon, SidebarSimpleIcon, UploadSimpleIcon } from "@ace/icons";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
-import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
-import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { part } from "@/lib/suit-part.ts";
+import { useElementSize } from "@/lib/element-size.ts";
+import { groupIds } from "@/lib/workspace/index.ts";
 import type { ConversationFollow } from "../conversation-follow.ts";
 import { saveAs } from "../save-as.ts";
 import { SpadeRequestError } from "../spade-requests.ts";
@@ -21,20 +24,31 @@ import {
   deletePath,
   downloadFile,
   readFile,
-  readFolder,
   type SpadeFileEntry,
+  type SpadeFolder,
 } from "../spade-workspace-api.ts";
 import { changedSinceOpened, makeFolder, movePath, uploadFile } from "./computer-api.ts";
-import { FileEditor, notNowToChange } from "./file-editor.tsx";
+import { SpadeEditor, useSpadeEditorLayout } from "./editor/spade-editor.tsx";
+import {
+  bindSpadeRoot,
+  spadeEditorRegistry,
+  spadeEditorRoot,
+} from "./editor/spade-editor-registry.ts";
+import { SpadeFileTree, type OpenHow } from "./editor/spade-file-tree.tsx";
+
+/** Why a change to the bot's files can't be made now: the computer is changing hands. */
+export const notNowToChange = "Files can change once the computer is yours or shared again";
+
+/** Narrower than this, the files and the editor take turns instead of sitting side by side. */
+const sideBySide = 560;
 
 /**
- * A bot's files as a file manager: one folder at a time under a trail that leads back up, Upload
- * and New folder beside it. A row opens its folder or file; its ⋯ downloads, renames or moves
- * (typing a path with folders moves it), or deletes after asking. A text file opens to edit and
- * save. The list reads again when the bot's stream says its files changed. Browsing and downloads
- * always work; every change needs the person able to act (`writable`: cowork, or exclusive while
- * they drive), checked again right before it goes, so nothing lands while the computer changes
- * hands.
+ * A bot's files in ace's editor: its explorer (the files as a tree, Upload, New folder, and on
+ * each row's ⋯ Download, Rename or move, Delete after asking) beside the editor's tabs. The tree
+ * reads again, and open files check their revision, when the bot's stream says its files changed.
+ * Browsing and downloads always work; every change needs the person able to act (`writable`:
+ * cowork, or exclusive while they drive), checked again right before it goes, so nothing lands
+ * while the computer changes hands.
  */
 /** What the person saw of a file before changing it. */
 type Seen =
@@ -45,17 +59,21 @@ type Seen =
 const unseen: Seen = { kind: "revision", revision: undefined };
 const couldntCheck = "Couldn't check the file. Try again.";
 
+/** Every folder on the way to `folder`, outermost first: "a", "a/b". */
+const foldersTo = (folder: string) =>
+  folder ? folder.split("/").map((_, index, parts) => parts.slice(0, index + 1).join("/")) : [];
+
 export function FileManager(props: {
   bot: { id: string; name: string };
+  /** The folder a link pointed at: it opens in the tree, and new files go there. */
   folder: string;
+  /** A file a link asked to open: it opens in the editor, kept. */
   file: string | undefined;
-  /** Shows another folder, or a file in it. */
-  onOpen(to: { folder: string; file?: string | undefined }): void;
   side: Pick<ConversationFollow, "onSide" | "onEnded"> | undefined;
   /** The person may act: their changes may go to Spade. */
   writable: boolean;
 }) {
-  const { bot, folder } = props;
+  const { bot } = props;
   // Read again right before each change goes, after any wait (a confirmation, a file's bytes).
   const writable = useRef(props.writable);
   useEffect(() => {
@@ -67,20 +85,89 @@ export function FileManager(props: {
   const toast = useToast();
   const [confirming, setConfirming] = useState<Confirming>();
   const [renaming, setRenaming] = useState<string>();
-  const [making, setMaking] = useState(false);
+  /** The folder a new folder's name is being typed in. */
+  const [making, setMaking] = useState<string>();
+  /** Where Upload and New folder put things: the folder last opened in the tree. */
+  const [folder, setFolder] = useState(props.folder);
   const picker = useRef<HTMLInputElement>(null);
   const workspaceKey = ["spade", "workspace", machine.key, bot.id] as const;
-  const listing = useQuery({
-    queryKey: [...workspaceKey, folder],
-    queryFn: ({ signal }) => readFolder(client, bot.id, folder, { signal }),
-  });
-  const refresh = () => void cache.invalidateQueries({ queryKey: workspaceKey });
+  const folderKey = (path: string) => [...workspaceKey, path] as const;
+  const root = spadeEditorRoot(machine.key, bot.id);
+  const registry = spadeEditorRegistry(client);
+  const { layout, change, current } = useSpadeEditorLayout(root);
+  // The editor's buffers read once its passive effects run: the bot's files are bound in a layout
+  // effect, which runs before them. A binding stays (see `bindSpadeRoot`), so it needs no cleanup.
+  useLayoutEffect(() => {
+    bindSpadeRoot(root, {
+      target: client,
+      bot: bot.id,
+      name: bot.name,
+      mayWrite: () => (writable.current ? true : new Error(notNowToChange)),
+    });
+  }, [root, client, bot.id, bot.name]);
+  const refresh = () => {
+    void cache.invalidateQueries({ queryKey: workspaceKey });
+    registry.recheck(root);
+  };
   useEffect(
     () =>
-      props.side?.onSide("files", () => void cache.invalidateQueries({ queryKey: workspaceKey })),
+      props.side?.onSide("files", () => {
+        void cache.invalidateQueries({ queryKey: workspaceKey });
+        registry.recheck(root);
+      }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the key is the bot's, fixed per mount
-    [props.side, cache],
+    [props.side, cache, registry, root],
   );
+
+  // Room: side by side when there is, else the files and the editor take turns.
+  const box = useRef<HTMLDivElement>(null);
+  const width = useElementSize(box).width;
+  const narrow = width < sideBySide;
+  const [browsing, setBrowsing] = useState(false);
+  const explorer = layout.explorer;
+  const showFiles = narrow ? browsing || !anyOpen(layout) : explorer.open;
+  const setExplorer = (patch: Partial<EditorLayout["explorer"]>) =>
+    change({ ...current(), explorer: { ...current().explorer, ...patch } });
+  const expanded = new Set(explorer.expanded);
+  const toggle = (path: string) => {
+    const now = new Set(current().explorer.expanded);
+    if (now.has(path)) now.delete(path);
+    else {
+      now.add(path);
+      setFolder(path);
+    }
+    setExplorer({ expanded: [...now] });
+  };
+  const open = (path: string, how: OpenHow) => {
+    const now = current();
+    change(
+      how === "side"
+        ? openEditorToSide(now, path, { intent: "keep" }, groupIds(now))
+        : openEditor(now, path, { intent: how === "keep" ? "keep" : "glance" }),
+    );
+    setBrowsing(false);
+  };
+  // A link's folder opens in the tree (new files go there), and its file in the editor.
+  const [linked, setLinked] = useState({ folder: props.folder, file: props.file });
+  if (linked.folder !== props.folder || linked.file !== props.file) {
+    setLinked({ folder: props.folder, file: props.file });
+    if (linked.folder !== props.folder) setFolder(props.folder);
+    if (linked.file !== props.file) setBrowsing(false);
+  }
+  useEffect(() => {
+    if (!props.folder) return;
+    const now = current();
+    const wanted = foldersTo(props.folder).filter((path) => !now.explorer.expanded.includes(path));
+    if (wanted.length)
+      change({
+        ...now,
+        explorer: { ...now.explorer, expanded: [...now.explorer.expanded, ...wanted] },
+      });
+  }, [props.folder, change, current]);
+  useEffect(() => {
+    if (props.file !== undefined) change(openEditor(current(), props.file, { intent: "keep" }));
+  }, [props.file, change, current]);
+
   const failed = (title: string) => (error: unknown) =>
     toast.error({
       title,
@@ -129,9 +216,9 @@ export function FileManager(props: {
       if (!mayWrite()) break;
       const path = inFolder(file.name);
       // Replacing a file shown here: only the one the person saw.
-      const replaced = listing.data?.entries.some(
-        (entry) => entry.kind === "file" && entry.path === path,
-      );
+      const replaced = cache
+        .getQueryData<SpadeFolder>(folderKey(folder))
+        ?.entries.some((entry) => entry.kind === "file" && entry.path === path);
       const seen = replaced ? seenOf(path) : Promise.resolve(unseen);
       const bytes = new Uint8Array(await file.arrayBuffer());
       const saw = await seen;
@@ -175,10 +262,7 @@ export function FileManager(props: {
           // Checked again once the revision is in, right before it goes.
           if (!base || !mayWrite()) return;
           return deletePath(client, bot.id, entry.path, base.revision).then(
-            () => {
-              if (props.file === entry.path) props.onOpen({ folder });
-              refresh();
-            },
+            refresh,
             failed(`Couldn't delete ${entry.name}`),
           );
         });
@@ -206,42 +290,78 @@ export function FileManager(props: {
     });
   };
   const create = (name: string) => {
-    setMaking(false);
+    setMaking(undefined);
     if (!name || !mayWrite()) return;
     void makeFolder(client, bot.id, inFolder(name)).then(refresh, failed(`Couldn't make ${name}`));
   };
   const reason = props.writable ? undefined : notNowToChange;
+  const menu = (entry: SpadeFileEntry) => (
+    <>
+      {entry.kind !== "folder" && (
+        <MenuItem onClick={() => open(entry.path, "keep")}>Open</MenuItem>
+      )}
+      {entry.kind !== "folder" && (
+        <MenuItem onClick={() => open(entry.path, "side")}>Open to the side</MenuItem>
+      )}
+      {entry.kind === "file" && <MenuItem onClick={() => download(entry.path)}>Download</MenuItem>}
+      <MenuItem disabled={!props.writable} reason={reason} onClick={() => startRename(entry)}>
+        Rename or move
+      </MenuItem>
+      <MenuItem danger disabled={!props.writable} reason={reason} onClick={() => remove(entry)}>
+        Delete
+      </MenuItem>
+    </>
+  );
+  const currentFile = focusedGroup(layout).active;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
-        <Trail
-          folder={folder}
-          file={props.file}
-          onFolder={(path) => props.onOpen({ folder: path })}
-        />
-        {!props.file && (
-          <span className="ml-auto flex shrink-0 items-center gap-1">
+    <div
+      ref={box}
+      className="flex h-[max(26rem,calc(100dvh-24rem))] min-h-0 overflow-hidden border-y border-border"
+    >
+      {showFiles && (
+        <aside
+          aria-label={`${bot.name}'s files`}
+          style={narrow ? undefined : { width: Math.min(explorer.width, 240) }}
+          className={
+            narrow
+              ? "flex min-w-0 flex-1 flex-col"
+              : "flex shrink-0 flex-col border-r border-border"
+          }
+        >
+          <div
+            data-part="tabs"
+            className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border pr-1.5 pl-3"
+          >
+            <span className="min-w-0 flex-1 truncate text-ui font-medium text-muted-foreground">
+              Files
+            </span>
             <DisabledReason reason={reason}>
-              <Button
-                size="xs"
-                variant="ghost"
+              <IconButton
+                icon={UploadSimpleIcon}
+                label="Upload"
                 disabled={!props.writable}
                 onClick={() => picker.current?.click()}
-              >
-                Upload
-              </Button>
+                className="size-7 rounded-sm hover:bg-hover"
+              />
             </DisabledReason>
             <DisabledReason reason={reason}>
-              <Button
-                size="xs"
-                variant="ghost"
+              <IconButton
+                icon={FolderPlusIcon}
+                label="New folder"
                 disabled={!props.writable}
-                onClick={() => setMaking(true)}
-              >
-                New folder
-              </Button>
+                onClick={() => setMaking(folder)}
+                className="size-7 rounded-sm hover:bg-hover"
+              />
             </DisabledReason>
+            {(narrow ? anyOpen(layout) : true) && (
+              <IconButton
+                icon={SidebarSimpleIcon}
+                label={narrow ? "Back to the editor" : "Hide files"}
+                onClick={() => (narrow ? setBrowsing(false) : setExplorer({ open: false }))}
+                className="size-7 rounded-sm hover:bg-hover"
+              />
+            )}
             <input
               ref={picker}
               type="file"
@@ -254,212 +374,51 @@ export function FileManager(props: {
                 event.target.value = "";
               }}
             />
-          </span>
-        )}
-      </div>
-      {props.file ? (
-        <FileEditor
-          key={props.file}
-          bot={bot.id}
-          path={props.file}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <SpadeFileTree
+              tree={{
+                bot,
+                folderKey,
+                expanded,
+                toggle,
+                current: currentFile,
+                open,
+                renaming,
+                onRenamed: move,
+                making,
+                onMade: create,
+                menu,
+              }}
+            />
+          </div>
+        </aside>
+      )}
+      {!(narrow && showFiles) && (
+        <SpadeEditor
+          root={root}
+          bot={bot}
+          layout={layout}
+          onLayoutChange={change}
+          current={current}
           writable={props.writable}
-          mayWrite={mayWrite}
-          onDownload={() => download(props.file ?? "")}
-          onDelete={(opened) =>
-            remove(
-              {
-                path: props.file ?? "",
-                name: props.file?.split("/").at(-1) ?? "",
-                kind: "file",
-              },
-              opened,
+          onDownload={download}
+          explorerToggle={
+            showFiles ? undefined : (
+              <IconButton
+                icon={SidebarSimpleIcon}
+                label="Show files"
+                onClick={() => (narrow ? setBrowsing(true) : setExplorer({ open: true }))}
+                className="ml-1 size-7 shrink-0 rounded-sm hover:bg-hover"
+              />
             )
           }
         />
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-          {making && <NameField label="New folder name" initial="" onDone={create} />}
-          {listing.isPending ? (
-            <LoadingRegion label="Files" className="flex flex-col gap-1 px-2">
-              <Skeleton className="h-(--row-height) w-full rounded-md" />
-              <Skeleton className="h-(--row-height) w-2/3 rounded-md" />
-            </LoadingRegion>
-          ) : listing.isError ? (
-            <div
-              role="alert"
-              className="flex items-center gap-2 px-2 text-ui text-muted-foreground"
-            >
-              <span className="min-w-0 flex-1">{message(listing.error)}</span>
-              <Button size="xs" variant="ghost" onClick={() => void listing.refetch()}>
-                Try again
-              </Button>
-            </div>
-          ) : listing.data.entries.length === 0 && !making ? (
-            <p className="px-2 pt-2 text-ui text-muted-foreground">
-              {folder ? "This folder is empty." : `${bot.name} hasn't kept any files yet.`}
-            </p>
-          ) : (
-            <ul aria-label="Files" className="flex flex-col gap-0.5">
-              {listing.data.entries.map((entry) =>
-                renaming === entry.path ? (
-                  <li key={entry.path}>
-                    <NameField
-                      label={`New name or path for ${entry.name}`}
-                      initial={entry.path}
-                      onDone={(to) => move(entry.path, to)}
-                    />
-                  </li>
-                ) : (
-                  <li
-                    key={entry.path}
-                    {...part("list-row", undefined, entry.kind)}
-                    className="group flex h-(--row-height) min-w-0 items-center gap-1 rounded-md pr-1 hover:bg-hover focus-within:bg-hover"
-                  >
-                    <button
-                      type="button"
-                      className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 text-left text-md focus-ring-inset"
-                      onClick={() =>
-                        entry.kind === "folder"
-                          ? props.onOpen({ folder: entry.path })
-                          : props.onOpen({ folder, file: entry.path })
-                      }
-                    >
-                      <Icon
-                        icon={entry.kind === "folder" ? FolderIcon : FileIcon}
-                        size={16}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                      <span className="shrink-0 text-meta text-muted-foreground tabular-nums">
-                        {facts(entry)}
-                      </span>
-                    </button>
-                    <Menu>
-                      <MenuTrigger
-                        render={
-                          <IconButton
-                            icon={DotsThreeIcon}
-                            size="sm"
-                            label={`More for ${entry.name}`}
-                            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-popup-open:opacity-100 pointer-coarse:opacity-100"
-                          />
-                        }
-                      />
-                      <MenuContent align="end">
-                        {entry.kind === "file" && (
-                          <MenuItem onClick={() => download(entry.path)}>Download</MenuItem>
-                        )}
-                        <MenuItem
-                          disabled={!props.writable}
-                          reason={reason}
-                          onClick={() => startRename(entry)}
-                        >
-                          Rename or move
-                        </MenuItem>
-                        <MenuItem
-                          danger
-                          disabled={!props.writable}
-                          reason={reason}
-                          onClick={() => remove(entry)}
-                        >
-                          Delete
-                        </MenuItem>
-                      </MenuContent>
-                    </Menu>
-                  </li>
-                ),
-              )}
-              {listing.data.truncated && (
-                <li className="px-2.5 pt-1 text-ui text-muted-foreground">
-                  Only the first {listing.data.entries.length} are shown.
-                </li>
-              )}
-            </ul>
-          )}
-        </div>
       )}
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </div>
   );
 }
 
-/** A name typed in place: Enter keeps it, Esc or leaving the field drops it. */
-function NameField(props: { label: string; initial: string; onDone(value: string): void }) {
-  const [value, setValue] = useState(props.initial);
-  const done = useRef(false);
-  const finish = (keep: boolean) => {
-    if (done.current) return;
-    done.current = true;
-    props.onDone(keep ? value : "");
-  };
-  return (
-    <input
-      // oxlint-disable-next-line jsx-a11y/no-autofocus -- the person just asked to type a name
-      autoFocus
-      aria-label={props.label}
-      placeholder={props.label}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") finish(true);
-        if (event.key === "Escape") {
-          event.stopPropagation();
-          finish(false);
-        }
-      }}
-      onBlur={() => finish(false)}
-      className="mb-0.5 h-(--row-height) w-full rounded-md bg-secondary px-2.5 text-md text-foreground focus-ring"
-    />
-  );
-}
-
-/** A row's own facts: a file's size and age, a link as such. */
-function facts(entry: SpadeFileEntry): string {
-  if (entry.kind === "link") return "Link";
-  const age = entry.modifiedAt === undefined ? undefined : formatAgo(entry.modifiedAt, Date.now());
-  if (entry.kind === "folder") return age ?? "";
-  return age ? `${formatBytes(entry.size)} · ${age}` : formatBytes(entry.size);
-}
-
-/** "Files / reports / week.md": each folder leads back to itself; the last part is where you are. */
-function Trail(props: { folder: string; file: string | undefined; onFolder(path: string): void }) {
-  const parts = props.folder ? props.folder.split("/") : [];
-  const fileName = props.file?.split("/").at(-1);
-  const crumbs = [
-    { label: "Files", path: "" },
-    ...parts.map((label, index) => ({ label, path: parts.slice(0, index + 1).join("/") })),
-  ];
-  return (
-    <nav aria-label="Folder" className="flex min-w-0 items-center gap-1 overflow-hidden text-ui">
-      {crumbs.map((crumb, index) => {
-        const here = !fileName && index === crumbs.length - 1;
-        return (
-          <span key={crumb.path} className="flex min-w-0 items-center gap-1">
-            {index > 0 && <span className="text-subtle-foreground">/</span>}
-            {here ? (
-              <span aria-current="page" className="truncate text-foreground">
-                {crumb.label}
-              </span>
-            ) : (
-              <button
-                type="button"
-                className="truncate rounded-sm text-muted-foreground hover:text-foreground focus-ring"
-                onClick={() => props.onFolder(crumb.path)}
-              >
-                {crumb.label}
-              </button>
-            )}
-          </span>
-        );
-      })}
-      {fileName && (
-        <>
-          <span className="text-subtle-foreground">/</span>
-          <span aria-current="page" className="truncate text-foreground">
-            {fileName}
-          </span>
-        </>
-      )}
-    </nav>
-  );
-}
+/** Whether any pane has a file open. */
+const anyOpen = (layout: EditorLayout) => groupsOf(layout).some((group) => group.tabs.length > 0);

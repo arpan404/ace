@@ -459,7 +459,8 @@ start programs), `ip`, `ss`, `netstat`, `lsof`, `lsblk`, `lscpu`, `dmesg`, the c
 
 ### The reviewer
 
-`review_model` from `/v1/oversight`, else the fast model, else the bot's own. Typed output:
+`review_model` from `/v1/oversight`, else the strongest model the person already uses that lists at
+least the bot's price (as `verify`), else the bot's own. Typed output:
 
 ```json
 { "verdict": "approve" | "refuse", "reason": "one sentence" }

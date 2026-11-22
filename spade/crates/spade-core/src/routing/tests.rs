@@ -65,7 +65,7 @@ fn with_fast() -> Defaults {
 #[test]
 fn sub_work_defaults_to_the_fast_model_and_main_is_always_the_bots_own() {
     let none = Overrides::default();
-    for role in [Role::Helper, Role::Compact, Role::Title, Role::Review] {
+    for role in [Role::Helper, Role::Compact, Role::Title] {
         assert_eq!(
             choose("a/strong", &none, &none, &with_fast(), role),
             ("a/fast".to_owned(), Source::Default),
@@ -100,26 +100,39 @@ fn with_no_fast_model_or_a_fast_bot_sub_work_stays_on_the_bots_model() {
 }
 
 #[test]
-fn the_verifier_defaults_to_the_strongest_model_in_use_that_is_not_the_bots() {
+fn the_verifier_and_the_reviewer_default_to_the_strongest_model_in_use_never_a_weaker_one() {
     let none = Overrides::default();
-    assert_eq!(
-        choose("a/strong", &none, &none, &with_fast(), Role::Verify),
-        ("b/stronger".to_owned(), Source::Default)
-    );
-    // Only weaker models in use: the bot's own checks rather than a weaker one.
-    let weaker = Defaults {
-        fast: Some("a/fast".to_owned()),
-        in_use: vec!["a/mid".to_owned()],
-    };
-    assert_eq!(
-        choose("a/strong", &none, &none, &weaker, Role::Verify),
-        ("a/strong".to_owned(), Source::Own)
-    );
-    // An unpriced bot can't be compared: its own model checks.
+    for role in [Role::Verify, Role::Review] {
+        assert_eq!(
+            choose("a/strong", &none, &none, &with_fast(), role),
+            ("b/stronger".to_owned(), Source::Default),
+            "{role:?}"
+        );
+        // Only weaker models in use: the bot's own checks rather than a weaker one.
+        let weaker = Defaults {
+            fast: Some("a/fast".to_owned()),
+            in_use: vec!["a/mid".to_owned()],
+        };
+        assert_eq!(
+            choose("a/strong", &none, &none, &weaker, role),
+            ("a/strong".to_owned(), Source::Own),
+            "{role:?}"
+        );
+    }
+    // An unpriced bot can't be compared: its own model verifies, and the fast model reviews,
+    // as it did before; a subscription bot's reviewer is the fast endpoint model, never the
+    // subscription, which a review can't run on.
     assert_eq!(
         choose("local/llama", &none, &none, &with_fast(), Role::Verify),
         ("local/llama".to_owned(), Source::Own)
     );
+    for own in ["local/llama", "cli:codex/gpt-6.2-sol"] {
+        assert_eq!(
+            choose(own, &none, &none, &with_fast(), Role::Review),
+            ("a/fast".to_owned(), Source::Default),
+            "{own}"
+        );
+    }
 }
 
 #[test]

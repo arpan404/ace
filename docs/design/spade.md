@@ -296,7 +296,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   profile, never here. Import lives once, in +; a failed import is said where the bot would have
   appeared.
 - **The first reply.** The bot opens as "New bot" and names itself: one quiet line, "Named itself
-  Ivy", its 20px face opening the face popover and its name turning into its field, each on one
+  Release Notes" (a bot names itself after its job in plain words, never a nickname), its 20px face opening the face popover and its name turning into its field, each on one
   click. Under it, the apps its task names that aren't connected ("It may need Gmail and
   Slack." and Connect apps). Then its words, at most one card of questions and a schedule
   question when the job recurs.

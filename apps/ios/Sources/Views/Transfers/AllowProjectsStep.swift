@@ -76,11 +76,14 @@ struct AllowProjectsStep: View {
         if next == .proceed { model.transfer(["kind": "allowed", "hostId": step.machine.hostId]); return }
         guard let there else { return }
         allowing = true
+        // The offer this Allow answered. A reconnect may move `offer` on before the call reports
+        // failure; the refusal is about this one, so a later read that differs lifts it.
+        let asked = offer
         Task {
             let answer = await there.setLinkProjects(deviceId: step.machine.deviceId, allowed: true, machine: step.machine.name)
             allowing = false
             if answer.ok { model.transfer(["kind": "allowed", "hostId": step.machine.hostId]); return }
-            refused = Refusal(words: answer.message ?? "\(step.machine.name) didn't change the link.", against: offer)
+            refused = Refusal(words: answer.message ?? "\(step.machine.name) didn't change the link.", against: asked)
             // The reply may be what was lost: read the offer again, so a grant that landed shows Continue.
             await read()
         }
