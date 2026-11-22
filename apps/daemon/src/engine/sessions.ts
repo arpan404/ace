@@ -500,6 +500,7 @@ export class Sessions {
           this.dependencies.repo.requireState(actor.id).interactions[key]?.id,
       };
       attemptingResume = metadata.nativeSessionId !== undefined;
+      const storeGeneration = this.dependencies.repo.transitions.generations.get(actor.id);
       const session = await adapter.openSession({
         ...context,
         outputFlow: actor.outputFlow,
@@ -585,6 +586,7 @@ export class Sessions {
             }
           : {}),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
+        ...(storeGeneration ? { storeGeneration } : {}),
         ...(metadata.model === undefined || isDefaultSelection(metadata.model)
           ? {}
           : { model: metadata.model }),

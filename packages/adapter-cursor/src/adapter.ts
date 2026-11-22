@@ -157,9 +157,7 @@ export function createCursorAdapter(
               threadId: context.threadId,
               agentId: context.resume.nativeSessionId,
               cwd: context.cwd,
-              ...(context.storeGeneration
-                ? { checkpointGeneration: context.storeGeneration }
-                : {}),
+              ...(context.storeGeneration ? { checkpointGeneration: context.storeGeneration } : {}),
             },
             context.signal,
           ).catch((error: unknown) => {

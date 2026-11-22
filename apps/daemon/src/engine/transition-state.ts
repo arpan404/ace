@@ -3,6 +3,7 @@ import { NativeSessionId } from "@ace/protocol";
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
 import { ProviderSessions } from "./provider-sessions.ts";
+import { StoreGenerations } from "./store-generations.ts";
 import type { Store } from "../store.ts";
 import {
   ExecutionSelection,
@@ -52,10 +53,13 @@ export class TransitionState {
   readonly history: HandoffAccess;
   /** Native sessions a provider left behind, resumed when the thread returns to it. */
   readonly left: ProviderSessions;
+  /** Which provider-private session store generation each thread opens (ADR 0211). */
+  readonly generations: StoreGenerations;
   constructor(store: Store) {
     this.store = store;
     this.history = new HandoffAccess(store);
     this.left = new ProviderSessions(store);
+    this.generations = new StoreGenerations(store);
     store.atomic((_db) =>
       _db.exec(`
       CREATE TABLE IF NOT EXISTS engine_transitions (

@@ -4,6 +4,8 @@ import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Frame, Translator } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
+import { sessionStoreUnusable } from "@ace/provider-kit/open-error";
+import { cursorStoreUnusable } from "@ace/adapter-cursor/store-fence";
 import type { Store } from "../store.ts";
 
 const CapturedFrame = z.object({
@@ -16,8 +18,14 @@ const CapturedFrame = z.object({
 const Offset = z.object({ boundaryOffset: z.number().int().positive().max(10000000).optional() });
 const HostFence = z.object({
   kind: z.literal("error"),
-  body: z.object({ code: z.enum(["boundary_overflow", "checkpoint_budget"]) }),
+  body: z.object({
+    code: z.enum(["boundary_overflow", "checkpoint_budget"]),
+    message: z.string().max(4096).optional().catch(undefined),
+  }),
 });
+/** The saved session can never be opened again: the engine hands off instead (ADR 0211). */
+const unusable = (message: string) =>
+  Object.assign(new Error(message), { code: sessionStoreUnusable });
 
 /** One prepared cursor owner; updates share the transaction that commits canonical facts. */
 export class ProviderRecovery {
@@ -55,17 +63,30 @@ export class ProviderRecovery {
         // A previous host's emergency fence is historical, not a translator overflow.
         // Opening the replacement host still verifies its journal, quota, ownership
         // and native run state before any new send can reach the pinned checkpoint.
-        if (
-          facts.some((fact) => fact.type === "process.exited") &&
-          !HostFence.safeParse(frame.data).success
-        )
-          throw new Error(
+        const fence = HostFence.safeParse(frame.data);
+        if (facts.some((fact) => fact.type === "process.exited") && !fence.success)
+          throw unusable(
             "SDK translation provenance is fenced by its budget; use bounded context handoff",
           );
+        // A checkpoint that outgrew its budget would fence the next turn the same way: the
+        // saved session is not resumed at all.
+        if (
+          fence.success &&
+          fence.data.body.code === "checkpoint_budget" &&
+          cursorStoreUnusable(fence.data.body.message)
+        )
+          throw unusable(fence.data.body.message ?? "Cursor's checkpoint exceeds its budget");
         rowid = z.number().int().positive().parse(row.rowid);
       }
       await yieldImmediate();
     } while (rowid > 0);
+  }
+  /** Forgets a session's frames and boundary cursor: the thread's next session starts fresh. */
+  reset(threadId: ThreadId): void {
+    this.store.atomic(() => {
+      this.store.statement("DELETE FROM engine_provider_frames WHERE thread_id=?").run(threadId);
+      this.store.statement("DELETE FROM engine_provider_cursors WHERE thread_id=?").run(threadId);
+    });
   }
   /** Settled turns have no live identities to hydrate. Keep the latest session open. */
   beginTurn(threadId: ThreadId): void {
