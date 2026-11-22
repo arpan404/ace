@@ -79,7 +79,7 @@ import {
 } from "./usage-ledger.ts";
 import { UsagePartRequest, readUsagePart } from "./usage-part.ts";
 import { UsageCombineRequest, combineUsage } from "./usage-report.ts";
-import { host } from "./host.ts";
+import { host, scheduler } from "./host.ts";
 import { HostCareRequest, type HostCare } from "./host-care.ts";
 import { HostProblem } from "./host-problem.ts";
 import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
@@ -97,7 +97,7 @@ import { combineFleetMap, FleetMapCombineRequest } from "./fleet-map.ts";
 import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
-import { NativeMarket, NativeMarketRequest } from "./market.ts";
+import { NativeMarket, NativeMarketRequest, pauseOn } from "./market.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
@@ -218,7 +218,12 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
-    this.market = new NativeMarket(owner, now, undefined, (id) => this.spade?.bot(id)?.name);
+    this.market = new NativeMarket(
+      owner,
+      now,
+      pauseOn((delayMs, callback) => scheduler.set(delayMs, callback)),
+      (id) => this.spade?.bot(id)?.name,
+    );
     this.automations = automations;
     this.projects = projects;
     this.inbox = inbox;
