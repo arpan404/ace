@@ -1,5 +1,7 @@
 //! The I/O shell: turns Spade prompts into calls on the endpoint a model reference names.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use futures_util::{Stream, StreamExt};
@@ -13,6 +15,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Endpoint, Model, Price, Role};
+use crate::effort::{self, Refusals};
 use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
@@ -31,7 +34,11 @@ pub struct Models {
     user_agent: String,
     http: reqwest::Client,
     listing: ListBounds,
+    refusals: Refusals,
 }
+
+/// A streamed reply, its first item already read.
+type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
 pub const KEYLESS: &str = "no-key";
@@ -41,6 +48,8 @@ struct Call {
     reference: String,
     target: ServiceTarget,
     options: ChatOptions,
+    /// Whether a reasoning setting is sent.
+    thinks: bool,
 }
 
 impl Models {
@@ -68,6 +77,7 @@ impl Models {
             user_agent,
             http,
             listing: ListBounds::default(),
+            refusals: Refusals::default(),
         })
     }
 
@@ -196,8 +206,37 @@ impl Models {
             })
     }
 
+    /// Runs `once` on the call for `reference`, with the prompt's effort. An endpoint that
+    /// refuses the request with it is asked once more without; when that answers, the model is
+    /// sent no effort again (ADR 0213), so a turn never fails over a setting.
+    async fn thinking<T, F, Fut>(
+        &self,
+        reference: &str,
+        prompt: &Prompt,
+        once: F,
+    ) -> Result<T, ModelError>
+    where
+        F: Fn(Call) -> Fut,
+        Fut: Future<Output = Result<T, ModelError>>,
+    {
+        let call = self.call(reference, prompt, true).await?;
+        let thinks = call.thinks;
+        match once(call).await {
+            Err(error) if thinks && effort::refused(&error) => {
+                let answered = once(self.call(reference, prompt, false).await?).await?;
+                self.refusals.remember(reference);
+                Ok(answered)
+            }
+            other => other,
+        }
+    }
+
     pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
-        let call = self.call(reference, prompt).await?;
+        self.thinking(reference, prompt, |call| self.chat_once(call, prompt))
+            .await
+    }
+
+    async fn chat_once(&self, call: Call, prompt: &Prompt) -> Result<Reply, ModelError> {
         let response = self
             .client
             .exec_chat(call.target, request(prompt), Some(&call.options))
@@ -239,7 +278,18 @@ impl Models {
     where
         T: JsonSchema + DeserializeOwned,
     {
-        let call = self.call(reference, prompt).await?;
+        self.thinking(reference, prompt, |call| self.generate_once(call, prompt))
+            .await
+    }
+
+    async fn generate_once<T>(
+        &self,
+        call: Call,
+        prompt: &Prompt,
+    ) -> Result<Generated<T>, ModelError>
+    where
+        T: JsonSchema + DeserializeOwned,
+    {
         let options = call.options.with_response_format(typed::spec::<T>()?);
         let response = self
             .client
@@ -257,13 +307,31 @@ impl Models {
         })
     }
 
-    /// Streams the reply. The last item is [`Delta::Done`] unless the stream fails first.
+    /// Streams the reply. The last item is [`Delta::Done`] unless the stream fails first. The
+    /// first item is read before this returns, so an endpoint that refuses the request before
+    /// answering fails here.
     pub async fn stream(
         &self,
         reference: &str,
         prompt: &Prompt,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
-        let call = self.call(reference, prompt).await?;
+        self.thinking(reference, prompt, |call| self.stream_once(call, prompt))
+            .await
+    }
+
+    async fn stream_once(&self, call: Call, prompt: &Prompt) -> Result<Deltas, ModelError> {
+        let mut stream = Box::pin(self.open_stream(call, prompt).await?);
+        match stream.next().await {
+            Some(Err(error)) => Err(error),
+            first => Ok(Box::pin(futures_util::stream::iter(first).chain(stream))),
+        }
+    }
+
+    async fn open_stream(
+        &self,
+        call: Call,
+        prompt: &Prompt,
+    ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
         let options = call
             .options
             .with_capture_usage(true)
@@ -318,7 +386,14 @@ impl Models {
             .flat_map(futures_util::stream::iter))
     }
 
-    async fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
+    /// The call for `reference`. `thinking` allows the prompt's effort, which is sent unless the
+    /// model's endpoint refused one before.
+    async fn call(
+        &self,
+        reference: &str,
+        prompt: &Prompt,
+        thinking: bool,
+    ) -> Result<Call, ModelError> {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
@@ -336,8 +411,20 @@ impl Models {
             AuthData::from_single(KEYLESS)
         };
         let mut options = ChatOptions::default();
+        let effort = (thinking && !self.refusals.refuses(reference))
+            .then(|| prompt.effort.sdk(endpoint.format))
+            .flatten();
+        let room = if effort.is_some() {
+            prompt.effort.room()
+        } else {
+            0
+        };
         if let Some(value) = prompt.max_tokens {
-            options = options.with_max_tokens(value);
+            options = options.with_max_tokens(value.saturating_add(room));
+        }
+        let thinks = effort.is_some();
+        if let Some(effort) = effort {
+            options = options.with_reasoning_effort(effort);
         }
         let mut headers = endpoint.headers.clone();
         headers.push(("user-agent".to_owned(), self.user_agent.clone()));
@@ -353,6 +440,7 @@ impl Models {
                 model: ModelIden::new(endpoint.format.adapter(), model.id.as_str()),
             },
             options,
+            thinks,
         })
     }
 }
