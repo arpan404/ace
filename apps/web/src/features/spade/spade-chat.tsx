@@ -817,7 +817,6 @@ function Single(props: {
         <div className={space}>
           <SpadeChildRow
             name={item.bot}
-            meta="Contract"
             state={item.state}
             detail={item.open || !item.result ? item.text : item.result}
             startedAt={item.at}
