@@ -33,13 +33,15 @@ async function crashAt(
   host: {
     /** What Cursor's store says of the cut-off run. */
     stored?: "finished" | "running";
+    /** Cursor's store has a run for the attempted send (it was created before the crash). */
+    attemptAdmitted?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
     openFails?: boolean;
     /** Whether the person presses Resume; without it only ace acts. */
     resume?: boolean;
   } = {},
 ) {
-  const { stored = "finished", openFails = false, resume = true } = host;
+  const { stored = "finished", openFails = false, resume = true, attemptAdmitted = false } = host;
   const root = await mkdtemp(join(tmpdir(), "cursor-daemon-recovery-"));
   const path = join(root, "state.sqlite");
   const child = fork(new URL("./cursor-recovery-child.ts", import.meta.url), [path, root, window], {
@@ -95,7 +97,19 @@ async function crashAt(
         await emit("open", { cwd: root, model: "composer-2.5" });
         // As the host does: what the daemon's record lacks is read back from Cursor's store.
         const unsettled = context.resume?.unsettled;
-        if (unsettled?.attempt) await emit("admission", { ...unsettled.attempt, admitted: false });
+        if (unsettled?.attempt && attemptAdmitted) {
+          await emit(
+            "admission",
+            { ...unsettled.attempt, admitted: true, nativeRunId: "run-1" },
+            { runId: "run-1" },
+          );
+          await emit(
+            "recovery",
+            { nativeStatus: "finished", interrupted: false, result: "answered before the crash" },
+            { runId: "run-1" },
+          );
+        } else if (unsettled?.attempt)
+          await emit("admission", { ...unsettled.attempt, admitted: false });
         for (const run of unsettled?.runs ?? [])
           await emit(
             "recovery",
@@ -374,4 +388,15 @@ it("a send stays held as uncertain only when Cursor's store can't be read", asyn
   await using crash = await crashAt("attempted", { openFails: true, resume: false });
   expect(crash.sent).toEqual([]);
   expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
+});
+
+it("a send Cursor had already made a run for is acknowledged on reopen, never held for a resend", async () => {
+  await using crash = await crashAt("attempted", { attemptAdmitted: true, resume: false });
+  expect(crash.sent).toEqual([]);
+  expect(crash.held).toMatchObject({ paused: false, pendingCount: 0 });
+  expect(crash.held.reason).not.toBe("uncertain");
+  expect(JSON.stringify(crash.items)).toContain("answered before the crash");
+  expect(
+    crash.items.some((item) => item.type === "notice" && item.code === "delivery_uncertain"),
+  ).toBe(false);
 });

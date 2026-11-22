@@ -1,3 +1,4 @@
+import { settleCursorAttempt } from "./cursor-attempt.ts";
 import { interruptedNotice } from "./thread-liveness.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import { homeWaitText } from "@ace/accounts/home-wait";
@@ -752,6 +753,11 @@ export class Sessions {
           this.dependencies.clock.now(),
         );
       });
+      // After the transition state above is stored: settling may clear the handoff it holds.
+      if ((session.backend ?? backend) === "cursor-sdk")
+        this.dependencies.repo.store.atomic(() =>
+          settleCursorAttempt(this.dependencies.repo, actor.id, this.dependencies.clock.now()),
+        );
       this.forgetRefusedOptions(actor, session.refusedOptions, rootKey);
       // Before it takes input: a choice made while it opened, or modes the session reported
       // only now (a first session whose agent's modes weren't known yet), reach it.

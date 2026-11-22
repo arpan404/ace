@@ -173,6 +173,12 @@ export class EngineRepository {
   nextCommandId() {
     return CommandId.parse(this.commandId());
   }
+  /** Acknowledges the input `commandId` sent, as its admission does; the ids it took. */
+  acknowledgeCommand(id: ThreadId, commandId: string): number[] {
+    return this.store.atomic(() =>
+      this.admissionStatements.correlated.all(id, commandId).map((row) => Number(row.id)),
+    );
+  }
   beginSessionOpen(id: ThreadId): void {
     this.opening.add(id);
   }

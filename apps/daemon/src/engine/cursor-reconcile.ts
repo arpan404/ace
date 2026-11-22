@@ -15,7 +15,8 @@ import { lostWork } from "./lost-work.ts";
  * - a run Cursor finished ends completed with its stored result: the continuation is dropped and
  *   the queue goes on;
  * - a run that really was cut off ends failed, and the continuation stays held, as before;
- * - a send Cursor provably never received goes back in the queue and is sent once.
+ * - a send Cursor provably never received goes back in the queue and is sent once, and one it
+ *   had is acknowledged (cursor-attempt.ts, run by every Cursor open).
  *
  * When the host can't be opened, the turn fails as a restart always failed it. Until then the
  * thread shows working: nothing in it is called done while Cursor may still own it.
@@ -92,28 +93,6 @@ function release(deps: ReconcileDependencies, id: ThreadId): void {
   recovery.sync(id);
 }
 
-/**
- * A send held as uncertain goes back in the queue when the reopened host showed Cursor never
- * had it: no run for it in Cursor's store, and nothing of it beyond the attempt in ace's record.
- */
-function requeueUnreceived(deps: ReconcileDependencies, id: ThreadId): boolean {
-  const { repo, clock } = deps;
-  const admission = repo.recovery.lastAdmission(id);
-  if (!admission || admission.admitted || !admission.commandId) return false;
-  if (repo.recovery.admissionRecorded(id, admission.commandId)) return false;
-  const intent = repo.pending.uncertainSend(id, admission.commandId);
-  if (!intent) return false;
-  repo.queue.clearUncertain(intent.id);
-  repo.pending.defer(intent);
-  repo.queue.track(intent.id, id, intent.command);
-  repo.queue.reconcileUncertainty(id, clock.now());
-  const queue = repo.queue.get(id);
-  // Held only for this send's uncertainty: nothing else is waiting on the person.
-  if (queue.paused && !queue.continuation && !queue.limited && queue.reason === "manual")
-    repo.queue.set(id, { paused: false, reason: null }, clock.now());
-  return true;
-}
-
 export async function reconcileCursorRestart(
   deps: ReconcileDependencies,
   id: ThreadId,
@@ -150,7 +129,6 @@ export async function reconcileCursorRestart(
     if (repo.requireState(id).agents[state.rootKey ?? ""]?.activeRun) fail(actor);
   } else if (finished(repo, id)) repo.store.atomic(() => release(deps, id));
   else actor.apply([interruptedNotice(state.rootKey, clock.now(), "restart")]);
-  repo.store.atomic(() => requeueUnreceived(deps, id));
   deps.wake(id);
 }
 
