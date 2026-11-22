@@ -1,6 +1,6 @@
 import { GrantKeySet } from "@ace/account-grant";
 import { AceAccountGrant } from "@ace/protocol/ace-account";
-import type { AceOrgHostCredentialRequest } from "@ace/protocol/ace-org";
+import { AceOrgStanding, type AceOrgHostCredentialRequest } from "@ace/protocol/ace-org";
 
 /** Why the account backend did not answer: 401 means the session is gone. */
 export class AccountBackendError extends Error {
@@ -72,6 +72,30 @@ export function accountBackend(options: { fetch: typeof fetch }) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+          },
+          signal,
+        ),
+      );
+    },
+    /**
+     * Whether a member's grant still speaks for them (ADR 0206 §8.1): the backend asks WorkOS
+     * now. Throws when it can't answer; the caller refuses.
+     */
+    async memberStanding(
+      origin: string,
+      credential: string,
+      grant: string,
+      signal: AbortSignal,
+    ): Promise<AceOrgStanding> {
+      return AceOrgStanding.parse(
+        await call(
+          `${origin}/v1/grants/standing`,
+          {
+            method: "POST",
+            // The host's own organization credential: the backend answers a host only about its
+            // own organization's members.
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${credential}` },
+            body: JSON.stringify({ grant }),
           },
           signal,
         ),

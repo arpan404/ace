@@ -35,13 +35,16 @@ export async function startFakeAccountBackend(
     readonly signedInAt?: () => number;
     /** Each grant is answered once this settles: a slow backend, as the test controls it. */
     readonly grantGate?: () => Promise<void>;
+    /** The organizations the account is an active member of (ADR 0206). */
+    readonly memberOf?: readonly string[];
   } = {},
 ) {
   const signingKey = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
   const token = base64url43();
   const sessions = new Set([token]);
   const grantRequests: z.infer<typeof GrantBody>[] = [];
-  const logins = new Map<string, { secret: string; complete: boolean }>();
+  const logins = new Map<string, { secret: string; complete: boolean; org?: string }>();
+  const LoginBody = z.looseObject({ org: z.string().optional() });
   let origin = "";
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
@@ -54,7 +57,9 @@ export async function startFakeAccountBackend(
       if (url.pathname === "/v1/account/login" && request.method === "POST") {
         const id = base64url43();
         const secret = base64url43();
-        logins.set(id, { secret, complete: false });
+        const body = LoginBody.safeParse(JSON.parse(Buffer.concat(chunks).toString() || "{}"));
+        const org = body.success ? body.data.org : undefined;
+        logins.set(id, { secret, complete: false, ...(org ? { org } : {}) });
         return reply(response, 200, {
           id,
           secret,
@@ -72,7 +77,13 @@ export async function startFakeAccountBackend(
         sessions.add(issued);
         return reply(response, 200, {
           status: "complete",
-          session: { account, expiresAt: now() + 86_400_000, token: issued },
+          session: {
+            account,
+            expiresAt: now() + 86_400_000,
+            token: issued,
+            // A sign-in for an organization names it only for one of its members.
+            ...(pending.org && options.memberOf?.includes(pending.org) ? { org: pending.org } : {}),
+          },
         });
       }
       if (!signedIn) return reply(response, 401, { error: "unauthorized" });

@@ -16,7 +16,15 @@ export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "on
   Partial<Pick<SpadeLink, "revokeGrant" | "personKey" | "previews">>;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> &
   Partial<
-    Pick<SocketContext, "device" | "personProven" | "memberStanding" | "orgHost" | "spadeAuthorize">
+    Pick<
+      SocketContext,
+      | "device"
+      | "personProven"
+      | "memberStanding"
+      | "memberStandingChecked"
+      | "orgHost"
+      | "spadeAuthorize"
+    >
   > & {
     options: {
       spade?: SpadeAccess | undefined;
@@ -88,8 +96,9 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     answerStamp: async (write) => {
       // A person's machine: answers go as they always have.
       if (context.orgHost?.() !== true) return undefined;
-      // An organization's host: only a member whose standing is current answers (ADR 0206 §2.3).
-      const member = context.memberStanding?.();
+      // An organization's host: only a member whose standing is current answers (ADR 0206 §2.3),
+      // confirmed with the backend once it is over a minute old (§8.1).
+      const member = await context.memberStandingChecked?.();
       if (!member)
         return {
           refused: "Prove you're a member of this organization on this connection to answer.",

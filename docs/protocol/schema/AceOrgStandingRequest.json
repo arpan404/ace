@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceOrgStandingRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "grant": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "grant"
+  ],
+  "type": "object"
+}

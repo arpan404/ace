@@ -20,10 +20,16 @@ import {
  * daemon, a socket or a file.
  */
 
-function orgOf(args: Args): string {
-  const org = MarketOrgId.safeParse(option(args, "org"));
+/** `--org`, or else the space `ace login --org` selected on this machine. */
+function orgOf(args: Args, space: string | undefined): string {
+  const org = MarketOrgId.safeParse(option(args, "org") ?? space);
   if (!org.success)
-    throw usageFailure("Name the organization with --org org_….", { argument: "--org" });
+    throw usageFailure(
+      "Name the organization with --org org_…, or select one with ace login --org.",
+      {
+        argument: "--org",
+      },
+    );
   return org.data;
 }
 
@@ -40,8 +46,8 @@ function deps(args: Args): RegistrySignerDeps {
 const failed = (error: unknown) =>
   new CliFailure("refused", error instanceof Error ? error.message : String(error));
 
-export async function registryKeyCommand(args: Args): Promise<void> {
-  const org = orgOf(args);
+export async function registryKeyCommand(args: Args, space?: string): Promise<void> {
+  const org = orgOf(args, space);
   const owner = option(args, "owner");
   if (!owner)
     throw usageFailure("Name the owner who will publish the key with --owner.", {
@@ -58,8 +64,8 @@ export async function registryKeyCommand(args: Args): Promise<void> {
   await print(args, { org, ...made });
 }
 
-export async function registrySignCommand(args: Args): Promise<void> {
-  const org = orgOf(args);
+export async function registrySignCommand(args: Args, space?: string): Promise<void> {
+  const org = orgOf(args, space);
   const report = await signRegistry(
     {
       ...deps(args),

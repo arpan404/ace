@@ -101,6 +101,19 @@ export function portalRevocations(deps: {
            ON CONFLICT (org_id, account_id) DO UPDATE SET queued = queued + 1, tries = 0, next_at = excluded.next_at`,
         )
         .bind(org, account, now()),
+    /**
+     * Queues a revocation in every organization where WorkOS's deletion of the user at `version`
+     * removes a membership (`OrgStore.removingAccount`); runs in its batch before the rows move.
+     */
+    queueingAccount: (account: string, version: string) =>
+      db
+        .prepare(
+          `INSERT INTO org_portal_revocations (org_id, account_id, queued, tries, next_at)
+           SELECT org_id, account_id, 1, 0, ?3 FROM org_members
+           WHERE account_id = ?1 AND status != 'removed' AND version <= ?2
+           ON CONFLICT (org_id, account_id) DO UPDATE SET queued = queued + 1, tries = 0, next_at = excluded.next_at`,
+        )
+        .bind(account, version, now()),
     /** Tries a queued revocation now, without waiting on a link being issued; the cron retries. */
     revokeNow: (org: string, account: string) => attempt(org, account, 1),
     /** Tries every revocation that is due (the minute cron). */

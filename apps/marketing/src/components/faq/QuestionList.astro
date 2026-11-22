@@ -17,7 +17,7 @@ const ids = anchorIds(questions.map((entry) => entry.question));
 <div class="card list">
   {
     questions.map((entry, index) => (
-      <details id={ids[index]}>
+      <details id={ids[index]} data-question>
         <summary>
           <h3>{entry.question}</h3>
           <span class="sign" aria-hidden="true" />

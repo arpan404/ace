@@ -273,6 +273,63 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   expect(restarted.status().signedIn).toBe(false);
 });
 
+it("ace login --org selects the organization for a member and refuses one the account isn't a member of", async () => {
+  const backend = await startFakeAccountBackend(Date.now, { memberOf: ["org_01ACME"] });
+  cleanup.push(() => backend.close());
+  const root = await mkdtemp(join(tmpdir(), "ace-account-login-org-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const store = new Store(join(root, "store.sqlite"));
+  cleanup.push(() => store.close());
+  const options = {
+    relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
+    dataDir: root,
+    codes: store.machineCodes,
+    fetch: globalThis.fetch,
+    now: Date.now,
+    randomBytes,
+    defaultOrigin: backend.origin,
+    delay: (run: () => void) => {
+      const timer = setTimeout(run, 10);
+      return () => clearTimeout(timer);
+    },
+  };
+  const account = machineAccount(options);
+  cleanup.push(() => account.close());
+
+  // Not a member: the sign-in is ended at the backend and the machine stays signed out.
+  expect((await account.startLogin(undefined, "org_01OTHER")).login).toMatchObject({
+    org: "org_01OTHER",
+  });
+  backend.completeLogins();
+  await expect
+    .poll(() => account.status().loginRefused)
+    .toEqual({ org: "org_01OTHER", error: "not_member" });
+  expect(account.status()).toMatchObject({ signedIn: false });
+  expect(account.status().space).toBeUndefined();
+
+  // A member: signed in, with the organization as this machine's space, kept across a restart.
+  await account.startLogin(undefined, "org_01ACME");
+  expect(account.status().loginRefused).toBeUndefined();
+  backend.completeLogins();
+  await expect.poll(() => account.status().signedIn).toBe(true);
+  expect(account.status()).toMatchObject({ source: "login", space: { org: "org_01ACME" } });
+  const restarted = machineAccount(options);
+  cleanup.push(() => restarted.close());
+  await restarted.load();
+  expect(restarted.status().space).toEqual({ org: "org_01ACME" });
+
+  // Asking for another organization later refuses it and leaves this sign-in and space as they are.
+  await restarted.startLogin(undefined, "org_01OTHER");
+  backend.completeLogins();
+  await expect.poll(() => restarted.status().loginRefused?.org).toBe("org_01OTHER");
+  expect(restarted.status()).toMatchObject({ signedIn: true, space: { org: "org_01ACME" } });
+  // A plain ace login selects no space.
+  await restarted.startLogin();
+  backend.completeLogins();
+  await expect.poll(() => restarted.status().space).toBeUndefined();
+  expect(restarted.status().signedIn).toBe(true);
+});
+
 it("a sign-in or sign-out decided on an older read never replaces the machine's own sign-in", async () => {
   const backend = await startFakeAccountBackend(Date.now);
   cleanup.push(() => backend.close());
