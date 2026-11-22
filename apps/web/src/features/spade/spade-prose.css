@@ -84,16 +84,3 @@
 .markit-ace.ace-spade-prose-mine :is(blockquote, li::marker) {
   color: var(--chat-mine-meta);
 }
-
-/*
- * A bot's Markdown file shown rendered in the profile's Files well (computer/file-editor.tsx).
- * The well is narrow: a table keeps readable columns and scrolls inside its own block, rather
- * than squeezing a long link into a sliver many lines tall.
- */
-.markit-ace.ace-spade-file :is(td, th) {
-  min-width: 7.5rem;
-}
-.markit-ace.ace-spade-file td a {
-  overflow-wrap: normal;
-  white-space: nowrap;
-}

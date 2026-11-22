@@ -1,7 +1,6 @@
 import { fakeFileRevision, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createMemoryHistory } from "@tanstack/react-router";
 import { beforeEach, expect, test } from "vitest";
 import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
 import { openSource } from "@/test/spade-files.ts";
@@ -142,11 +141,9 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
   await userEvent.click(await inner.findByRole("button", { name: /^plan\.md/ }));
   await openSource("notes/plan.md", "# Plan\nShip it.");
 
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Folder" })).getByText("Files"),
-  );
-  const top = within(await screen.findByRole("list", { name: "Files" }));
-  const todo = top.getAllByRole("listitem").find((row) => row.textContent?.includes("todo.txt"));
+  const todo = files
+    .getAllByRole("listitem")
+    .find((row) => row.textContent?.startsWith("todo.txt"));
   if (!todo) throw new Error("no todo.txt row");
   await userEvent.click(within(todo).getByRole("button", { name: "More for todo.txt" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
@@ -159,38 +156,21 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
         .map((request) => request.path),
     ).toEqual([`/v1/agents/writer/workspace?path=todo.txt&base=${fakeFileRevision("milk")}`]),
   );
-  await waitFor(() => expect(screen.queryByText("todo.txt")).toBeNull());
+  await waitFor(() => expect(files.queryByRole("button", { name: "todo.txt" })).toBeNull());
 });
 
-test("moving to another folder closes the open file, and Delete names the file's path", async () => {
-  const history = createMemoryHistory({
-    initialEntries: ["/spade/writer?profile=computer&computer=files&files=notes"],
+test("a link to a folder opens it in the tree, and Delete names the file's path", async () => {
+  await spadeApp("/spade/writer?profile=computer&computer=files&files=notes", (api) => {
+    withWriter(api);
+    api.files.set("writer", { "notes/plan.md": "# Plan", "todo.txt": "milk" });
   });
-  await spadeApp(
-    "/spade/writer?profile=computer&computer=files&files=notes",
-    (api) => {
-      withWriter(api);
-      api.files.set("writer", { "notes/plan.md": "# Plan", "todo.txt": "milk" });
-    },
-    { history },
-  );
-  const inner = within(await screen.findByRole("list", { name: "Files" }));
-  const plan = (await inner.findAllByRole("listitem")).find((row) =>
-    row.textContent?.includes("plan.md"),
-  );
-  if (!plan) throw new Error("no plan.md row");
-  await userEvent.click(within(plan).getByRole("button", { name: "More for plan.md" }));
+  const tree = within(await screen.findByRole("list", { name: "Files" }));
+  const plan = within(await tree.findByRole("group", { name: "notes" }));
+  await userEvent.click(await plan.findByRole("button", { name: "More for plan.md" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const confirm = await screen.findByRole("dialog", { name: "Delete plan.md?" });
   expect(confirm.textContent).toContain("This deletes notes/plan.md from Writer's files.");
   await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
-
-  await userEvent.click(within(plan).getByRole("button", { name: /^plan\.md/ }));
-  await screen.findByRole("region", { name: "Preview of notes/plan.md" });
-  history.push("/spade/writer?profile=computer&computer=files&files=.");
-  const top = within(await screen.findByRole("list", { name: "Files" }));
-  await top.findByRole("button", { name: /^todo\.txt/ });
-  expect(screen.queryByRole("region", { name: "Preview of notes/plan.md" })).toBeNull();
 });
 
 test("a proposal answered meanwhile shows as answered after Save is refused", async () => {

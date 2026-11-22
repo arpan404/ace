@@ -250,7 +250,6 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
   );
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nDay 2");
 
-  await userEvent.click(screen.getByRole("button", { name: "Files" }));
   await userEvent.click(await screen.findByRole("button", { name: "New folder" }));
   await userEvent.type(screen.getByRole("textbox", { name: "New folder name" }), "trips{Enter}");
   await waitFor(() =>
@@ -417,7 +416,8 @@ test("while a take-over is on its way, files can be read and downloaded but ever
   expect(editor.readOnly).toBe(false);
 
   // Delete asks first; taken over meanwhile (the bot's work still stopping), the answer waits.
-  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await userEvent.click(within(files).getByRole("button", { name: "More for plan.md" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
   spade.computer.stopping("scout", true);
   spade.answer({ method: "POST", path: "/v1/agents/scout/computer/take-over", body: undefined });
@@ -426,10 +426,10 @@ test("while a take-over is on its way, files can be read and downloaded but ever
   expect(writes()).toEqual([]);
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\n");
   await screen.findByText("Stopping Scout…");
-  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(
-    false,
-  );
+  // Reading and downloading still work.
+  await userEvent.click(within(files).getByRole("button", { name: "More for plan.md" }));
+  const download = await screen.findByRole("menuitem", { name: "Download" });
+  expect(download.getAttribute("aria-disabled")).not.toBe("true");
 });
 
 test("the status says the bot waits for the person while their input makes it yield", async () => {
