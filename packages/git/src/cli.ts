@@ -1009,6 +1009,17 @@ export class GitCli {
           );
           return;
         }
+        // A bounded read that ended by itself may still have left a helper in its group: it is
+        // ended, and the read settles once the group is gone, as a stopped read does.
+        if (bounded && pid && this.runtime.platform !== "win32") {
+          try {
+            if (this.runtime.groupAlive(pid)) this.runtime.signalGroup(pid, "SIGKILL");
+          } catch {
+            // Gone already.
+          }
+          await groupGone(this.runtime, pid);
+          if (settled) return;
+        }
         detach();
         settled = true;
         if (spawnFailure) failure ??= await spawnFailure;

@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { spawnSync } from "node:child_process";
 import { GitCli } from "./cli.ts";
 import { ReadGate } from "./read-gate.ts";
-import { GitService } from "./index.ts";
+import { GitService, spawnGitProcess } from "./index.ts";
 import { git, put, repository, scratch } from "./test-repo.ts";
 
 const service = new GitService();
@@ -219,6 +219,49 @@ test.skipIf(process.platform === "win32")(
     const next = gate.run(async () => running(pid));
     controller.abort();
     await expect(first).rejects.toMatchObject({ code: "git_cancelled" });
+    expect(await next).toBe(false);
+  },
+);
+
+test("history reads on cold checkouts run no more than two Git processes at once", async () => {
+  let running = 0;
+  let peak = 0;
+  const counted = new GitService({
+    processRuntime: {
+      spawn: (command, args, options) => {
+        const child = spawnGitProcess(command, args, options);
+        running++;
+        peak = Math.max(peak, running);
+        child.once("exit", () => running--);
+        return child;
+      },
+    },
+  });
+  const repos = await Promise.all(
+    Array.from({ length: 6 }, (_, index) => repository({ [`f${index}.ts`]: "1\n" })),
+  );
+  // Warm Git itself (its version check), not the checkouts.
+  await counted.resolveCommit({ worktree: repos[0] ?? "", ref: "HEAD" }).catch(() => {});
+  peak = 0;
+  const reads = await Promise.all(
+    repos.slice(1).map((repo, index) => counted.fileLog({ worktree: repo, path: `f${index + 1}.ts` })),
+  );
+  expect(reads.every((read) => read.entries.length === 1)).toBe(true);
+  expect(peak).toBeLessThanOrEqual(2);
+});
+
+test.skipIf(process.platform === "win32")(
+  "a read whose Git exits normally keeps the slot until a helper it left behind is gone",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    const gate = new ReadGate(1);
+    const cli = new GitCli({});
+    // Git exits at once; the helper it started lives on, its output sent elsewhere.
+    const { file, args } = await aliasWritingPid("sleep 60 >/dev/null 2>&1", true);
+    const first = gate.run(() => cli.bounded(() => cli.call(repo, args, {})));
+    const pid = await writtenPid(file);
+    const next = gate.run(async () => running(pid));
+    await first;
     expect(await next).toBe(false);
   },
 );

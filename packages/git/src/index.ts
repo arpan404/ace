@@ -534,24 +534,28 @@ export class GitService {
   async diffCommit(
     options: Omit<CommitDiffOptions, "maxPatchBytes"> & { maxPatchBytes?: number },
   ): Promise<DiffResult> {
-    const root = await this.repository.root(options.worktree, options.signal);
+    // The checkout's root is found inside the gate too: a cold checkout's discovery is Git work.
     return this.historyReads.run(
       () =>
-        this.repository.cli.bounded(() =>
-          diffCommit(this.repository, root, {
+        this.repository.cli.bounded(async () => {
+          const root = await this.repository.root(options.worktree, options.signal);
+          return diffCommit(this.repository, root, {
             ...options,
             maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
-          }),
-        ),
+          });
+        }),
       options.signal,
     );
   }
 
   /** A file's newest commits following renames, in one bounded walk. */
   async fileLog(options: FileLogOptions): Promise<FileLogResult> {
-    const root = await this.repository.root(options.worktree, options.signal);
     return this.historyReads.run(
-      () => this.repository.cli.bounded(() => fileLog(this.repository, root, options)),
+      () =>
+        this.repository.cli.bounded(async () => {
+          const root = await this.repository.root(options.worktree, options.signal);
+          return fileLog(this.repository, root, options);
+        }),
       options.signal,
     );
   }
