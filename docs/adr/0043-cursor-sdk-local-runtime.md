@@ -296,9 +296,11 @@ checkpoint directory walk before every send and a full journal read on every ope
    boundary cursor (`engine_provider_cursors`) go away; frames are ordered by the daemon's own
    frame sequence.
 2. **One channel per update.** `onDelta` is the only content channel. The `run.stream()` copy
-   of each update is consumed but not framed; the host only counts it, and stamps that count
-   (`streamSeq`) on the run's frames so the daemon knows how far into the SDK's own run events
-   its record reaches. Run events are no longer re-emitted as `observe` frames on open.
+   of each update is drained, never framed. The host watches the SDK's own run-event writes
+   (the store it hands the SDK) and stamps each content frame with the sequence of the last
+   stored event (`eventSeq`) and the identity of the event its update becomes (`nextEvent`,
+   `event-identity.ts`): SDK 1.0.35 calls onDelta, then stores the mapped event. Recovery skips
+   exactly the events ace's frames cover. Run events are no longer re-emitted on open.
 3. **Crash recovery reads the SDK store.** The journal existed to keep a turn's tail across a
    daemon crash. The host cannot outlive the daemon by more than `graceMs` (5 s): it is
    spawned in its own process group and kills it on stdin EOF. Within that window the SDK
@@ -308,9 +310,12 @@ checkpoint directory walk before every send and a full journal read on every ope
    `activeRunId`), never the thread's run history:
    - a run that **finished** ends the turn as finished; its `result` text is the final answer;
    - a run still **queued or running** is cancelled as before;
-   - in both cases the run events after the daemon's `streamSeq` are translated as the turn's
-     missing tail and marked **recovered**, so the transcript says they came from Cursor's
-     store after a restart rather than from the live stream;
+   - in both cases the stored events past that seam are turned back into the updates they
+     came from and translated as live ones (text, thinking, tool calls with results, a shell's
+     output from its completed result), continuing the turn's own items; a notice says they
+     were **recovered**. SDK 1.0.35 stores no subagent steps and only shortened copies of some
+     tool input or output (`truncated`); when a recovered tail meets either, one plain notice
+     names that gap;
    - a store that cannot be read is the existing fresh-session handoff (ADR 0211).
 4. **A send is acknowledged only after the SDK admitted it.** The host frames `send` (the
    attempt) before calling `Agent.send`, but a turn starts, and the queued input is
@@ -349,9 +354,10 @@ checkpoint directory walk before every send and a full journal read on every ope
   SQLite `synchronous=NORMAL`, so the last updates before a power loss can be missing. It is
   labelled as recovered, and a run whose status is still non-terminal is cancelled, never
   shown done.
-- Run events and `onDelta` share no id. The seam between the daemon's record and the
-  recovered tail is the `streamSeq` count, which assumes the SDK writes one run event per
-  streamed message in stream order; an update at the seam may show twice or not at all.
+- The seam assumes SDK 1.0.35's order: onDelta, then the stored event, with no other event in
+  between. If the SDK's own write of an update fails (it swallows those) and the next update
+  has the same identity, that update is skipped.
 - Batching adds up to the window (32 ms) to a text chunk's arrival.
-- These SDK behaviours (one `run_stream_event` per message, `runs.result` at the end, no
-  local idempotency) are re-checked at every SDK version bump.
+- These SDK behaviours (onDelta before the stored event, which updates it stores, the agent's
+  `activeRunId`/`updatedAt` on run creation, `runs.result` at the end, no local idempotency)
+  are re-checked at every SDK version bump.

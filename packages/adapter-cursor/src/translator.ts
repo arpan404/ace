@@ -10,7 +10,7 @@ import { Transcript } from "./transcript.ts";
 import { ToolEvents } from "./tool-events.ts";
 import { translateDelta } from "./delta-events.ts";
 import { cursorFailure } from "./failure-kind.ts";
-import { RecoveredTail } from "./recovered-tail.ts";
+import { storedUpdate, storeGap } from "./recovered-tail.ts";
 
 const InputParts = z.array(ContentPart).max(64);
 
@@ -45,7 +45,13 @@ export class CursorTranslator implements Translator {
   private noticeSequence = -1;
   /** The attempted send whose admission (its `segment`) starts the turn. */
   private attempt: CursorEnvelope | undefined;
-  private tail: RecoveredTail;
+  /** The admitted turn's own namespace: a recovered tail continues its items, not new ones. */
+  private turnNamespace = "";
+  /** Whether the open turn showed any answer text, live or recovered. */
+  private sawText = false;
+  /** Whether anything of the open turn came back from Cursor's store, and what never can. */
+  private recoveredAny = false;
+  private gaps = new Set<string>();
   private now = 0;
   constructor(options: CursorTranslatorOptions) {
     this.root = options.rootKey;
@@ -67,7 +73,6 @@ export class CursorTranslator implements Translator {
       retainedLimit: this.retainedLimit,
     });
     this.transcript = new Transcript("unopened", this.max);
-    this.tail = new RecoveredTail(64);
   }
   takeDiagnostics(): import("@ace/protocol").RawPayload[] {
     const diagnostics = this.diagnostics;
@@ -195,7 +200,11 @@ export class CursorTranslator implements Translator {
     }
     if (event.kind === "recovered") {
       if (!this.active || !event.runId) return [];
-      return this.tail.add(event.runId, event.body, this.root, this.namespace());
+      this.recoveredAny = true;
+      const gap = storeGap(event.body);
+      if (gap && this.gaps.size < 4) this.gaps.add(gap);
+      const update = storedUpdate(event.body);
+      return update ? this.delta(update, this.root, this.turnNamespace, 0) : [];
     }
     if (event.kind === "recovery") return this.recover(event, body);
     if (event.kind === "snapshot")
@@ -398,9 +407,6 @@ export class CursorTranslator implements Translator {
         return [];
     }
   }
-  private namespace(): string {
-    return `${this.generation ?? ""}:${this.operation ?? ""}:${this.segment}`;
-  }
   /** Cursor admitted the attempted send: the turn starts and its input shows. */
   private admit(event: CursorEnvelope): Fact[] {
     this.attempt = undefined;
@@ -441,6 +447,10 @@ export class CursorTranslator implements Translator {
     this.replacement = false;
     this.interrupted = false;
     this.transcript = new Transcript(namespace, this.max);
+    this.turnNamespace = namespace;
+    this.sawText = false;
+    this.recoveredAny = false;
+    this.gaps.clear();
     return facts;
   }
   /**
@@ -450,15 +460,36 @@ export class CursorTranslator implements Translator {
    */
   private recover(event: CursorEnvelope, body: Record<string, unknown>): Fact[] {
     const status = string(body.nativeStatus) ?? "unknown";
-    const runId = event.runId ?? "";
-    const ended = this.tail.finish(runId, status, string(body.result), this.root, this.namespace());
+    const result = string(body.result);
+    // The stored result stands in for an answer only when none was shown, live or recovered.
+    const answer =
+      status === "finished" && result && !this.sawText && this.active
+        ? this.delta({ type: "text-delta", text: result }, this.root, this.turnNamespace, 0)
+        : [];
+    const what =
+      status === "finished"
+        ? "Cursor finished this run while ace was restarting."
+        : status === "running" || status === "queued"
+          ? "ace restarted while this Cursor run was working, so it was stopped. Nothing was sent again."
+          : `Cursor's run ended (${status}) while ace was restarting.`;
+    const source =
+      this.recoveredAny || answer.length
+        ? " What it did after the live stream was cut off is recovered from Cursor's saved session."
+        : "";
     const facts: Fact[] = [
+      ...answer,
       ...this.transcript.end(),
-      ...ended.facts,
       ...this.tools.preserve(),
       ...this.children.preserve(),
-      this.notice(ended.text, event, body.interrupted ? "warning" : "info", "cursor.recovered"),
+      this.notice(
+        `${what}${source}`,
+        event,
+        body.interrupted ? "warning" : "info",
+        "cursor.recovered",
+      ),
+      ...[...this.gaps].map((gap) => this.notice(gap, event, "info", "cursor.recovered")),
     ];
+    this.gaps.clear();
     if (!this.active || !this.operation) return facts;
     this.active = false;
     // A run a restart cut off is not done: it stopped part-way and needs the person's look.
@@ -517,6 +548,7 @@ export class CursorTranslator implements Translator {
     namespace: string,
     depth: number,
   ): Fact[] {
+    if (depth === 0 && agent === this.root && body.type === "text-delta") this.sawText = true;
     return translateDelta(
       body,
       agent,

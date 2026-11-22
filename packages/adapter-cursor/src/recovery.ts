@@ -2,6 +2,7 @@ import type { LocalAgentStore } from "@cursor/sdk";
 import type { SdkModule } from "./host-runtime.ts";
 import type { OpenOptions } from "./contracts.ts";
 import { z } from "zod";
+import { storedIdentity } from "./event-identity.ts";
 
 const AgentIdentity = z.object({ agentId: z.string().min(1).max(512), cwd: z.string().max(4096) });
 const AgentRuns = z.object({
@@ -78,17 +79,21 @@ async function attemptedRun(
   return undefined;
 }
 
-/** The run's stored messages after the daemon's last committed `streamSeq`. */
+/**
+ * The run's stored messages ace's record lacks: those after the last event its frames cover,
+ * less the one right after it when ace committed that event's update too (event-identity.ts).
+ */
 async function tail(
   store: LocalAgentStore,
   runId: string,
-  through: number,
+  { through, next }: { through: number; next?: string | undefined },
   limits: Limits,
   push: (message: unknown) => void,
 ): Promise<void> {
   let afterOffset: string | undefined;
   let events = 0;
   let lastSeq = 0;
+  let seamChecked = next === undefined;
   for (;;) {
     const page = await store.runEvents.list({
       runId,
@@ -106,7 +111,12 @@ async function tail(
       if (event.seq <= through) continue;
       const stored = StreamEvent.safeParse(event.payload);
       // Unknown event shapes are kept as raw data, never dropped.
-      push(stored.success ? stored.data.message : event.payload);
+      const message = stored.success ? stored.data.message : event.payload;
+      if (!seamChecked) {
+        seamChecked = true;
+        if (storedIdentity(message) === next) continue;
+      }
+      push(message);
     }
     if (!page.nextOffset || page.items.length === 0) return;
     if (page.nextOffset !== afterOffset) throw new Error("SDK run event cursor did not advance");
@@ -147,11 +157,13 @@ export async function recoverCursorCheckpoint(
   if (agent.agentId !== agentId || agent.cwd !== options.cwd)
     throw new Error("SDK checkpoint belongs to another workspace/agent");
   const recover = options.recover ?? { runs: [] };
-  const through = new Map(recover.runs.map((run) => [run.runId, run.through]));
+  const through = new Map<string, { through: number; next?: string | undefined }>(
+    recover.runs.map((run) => [run.runId, { through: run.through, next: run.next }]),
+  );
   // Unreadable, the agent counts as touched since any attempt: the catalog decides.
   const agentRuns = AgentRuns.catch({ updatedAt: Number.POSITIVE_INFINITY }).parse(document);
   const active = agentRuns.activeRunId;
-  if (active && !through.has(active)) through.set(active, 0);
+  if (active && !through.has(active)) through.set(active, { through: 0 });
   const runs = new Map<string, z.infer<typeof RunRecord>>();
   if (recover.attempt && recover.runs.length === 0) {
     const attempt = recover.attempt;
@@ -172,7 +184,7 @@ export async function recoverCursorCheckpoint(
       });
     if (run) {
       runs.set(run.runId, run);
-      if (!through.has(run.runId)) through.set(run.runId, 0);
+      if (!through.has(run.runId)) through.set(run.runId, { through: 0 });
     }
   }
   for (const [runId, seen] of through) {

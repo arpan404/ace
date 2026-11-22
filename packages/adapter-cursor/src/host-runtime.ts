@@ -20,7 +20,8 @@ import {
   type OpenOptions,
   type SendOptions,
 } from "./contracts.ts";
-import { openSdkCheckpointStore, checkpointRevision } from "./sdk-store.ts";
+import { openSdkCheckpointStore, checkpointRevision, observeRunEvents } from "./sdk-store.ts";
+import { updateIdentity } from "./event-identity.ts";
 import { recoverCursorCheckpoint, type Recovered } from "./recovery.ts";
 import { FrameBatch, type BatchTimer } from "./frame-batch.ts";
 import { nativeCursorOptions } from "./agent-options.ts";
@@ -71,8 +72,8 @@ export class HostRuntime {
   private callbackBytes = 0;
   private root: string | undefined;
   private batch: FrameBatch | undefined;
-  /** The current run's streamed messages so far: the seam with the SDK's run events. */
-  private streamed = 0;
+  /** The last run event the SDK stored: the seam with ace's record (event-identity.ts). */
+  private lastEvent: { runId: string; seq: number } | undefined;
   private wallClock: () => number;
   private timer: BatchTimer | undefined;
   private store: LocalAgentStore | undefined;
@@ -190,7 +191,7 @@ export class HostRuntime {
         ...(scope?.commandId ? { commandId: scope.commandId } : {}),
         segment: scope?.segment ?? 0,
         ...(this.agent ? { agentId: this.agent.agentId } : {}),
-        ...(nativeRun ? { runId: nativeRun.id, streamSeq: this.streamed } : {}),
+        ...this.seam(kind, body, nativeRun),
         kind,
         body: safe,
         ...(prepared.raw ? { raw: prepared.raw } : {}),
@@ -203,6 +204,26 @@ export class HostRuntime {
       this.callbacks--;
       this.callbackBytes -= admittedBytes;
     }
+  }
+  /**
+   * Where a content frame stands against the SDK's stored events: the run, the last event it
+   * had stored, and the event this update becomes. Before the run is known (inside the SDK's
+   * send), the run is the one whose events are being stored.
+   */
+  private seam(
+    kind: string,
+    body: unknown,
+    nativeRun: Pick<SdkRunBoundary, "id"> | undefined,
+  ): Partial<CursorEnvelope> {
+    const content = ["delta", "delta-chunk", "shell-output", "blob"].includes(kind);
+    const runId = nativeRun?.id ?? (content && this.sending ? this.lastEvent?.runId : undefined);
+    if (!runId) return {};
+    const next = kind === "delta" ? updateIdentity(body) : undefined;
+    return {
+      runId,
+      eventSeq: this.lastEvent?.runId === runId ? this.lastEvent.seq : 0,
+      ...(next ? { nextEvent: next } : {}),
+    };
   }
   /** Stores one frame through the batch, which keeps order and coalesces streamed chunks. */
   private publish(envelope: CursorEnvelope, bytes: number): Promise<void> {
@@ -318,7 +339,9 @@ export class HostRuntime {
         options.cwd,
         options.limits.maxCheckpointBytes,
       );
-      this.store = this.storeOwner.store;
+      this.store = observeRunEvents(this.storeOwner.store, (event) => {
+        this.lastEvent = event;
+      });
       this.scrub = createRedactor(
         {
           env: { CURSOR_API_KEY: this.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
@@ -437,7 +460,7 @@ export class HostRuntime {
       // input never reached Cursor and delivers it again. The turn starts at Cursor's first
       // sign of having it: an update for it, or the `segment` naming its run.
       await this.frame("send", { input: input.input, attemptedAt: this.wallClock() });
-      this.streamed = 0;
+      this.lastEvent = undefined;
       let segmentRun: SdkRunBoundary | undefined;
       segmentRun = await this.agent.send(sdkInput(input.input), {
         model: {
@@ -482,9 +505,8 @@ export class HostRuntime {
   }
   private async consume(run: SdkRunBoundary, scope: SendOptions): Promise<void> {
     try {
-      // The stream repeats each onDelta update as a message; only its count is kept, as the seam
-      // with the SDK's own run events (ADR 0043, amendment of 2026-11-22).
-      for await (const _ of run.stream()) this.streamed++;
+      // The stream repeats each onDelta update as a message: drained, never framed twice.
+      for await (const _ of run.stream());
       const result = await run.wait();
       this.terminalDraining = true;
       await this.frame(

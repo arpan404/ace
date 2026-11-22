@@ -173,11 +173,12 @@ export interface SessionContext {
     instanceId?: string;
     /**
      * Daemon-owned, from its own committed frames (ADR 0043, amendment of 2026-11-22): the runs
-     * the open turn started and never saw end, each with the last streamed-message count ace
-     * committed, and a send the host attempted with no admission evidence yet.
+     * the open turn started and never saw end, each with the last SDK-stored event ace's frames
+     * cover (and the one after it, when ace committed that event's update), and a send the host
+     * attempted with no admission evidence yet.
      */
     unsettled?: {
-      runs: { runId: string; through: number }[];
+      runs: { runId: string; through: number; next?: string }[];
       attempt?: { operationId: string; commandId?: string; segment: number; at: number };
     };
   };

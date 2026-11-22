@@ -125,7 +125,17 @@ async function crashAt(
           );
         } else if (unsettled?.attempt)
           await emit("admission", { ...unsettled.attempt, admitted: false });
-        for (const run of unsettled?.runs ?? [])
+        for (const run of unsettled?.runs ?? []) {
+          // The tail Cursor's store has past the daemon's record: the rest of the answer.
+          if (stored === "finished")
+            await emit(
+              "recovered",
+              {
+                type: "assistant",
+                message: { content: [{ type: "text", text: " finished after the crash" }] },
+              },
+              { runId: run.runId },
+            );
           await emit(
             "recovery",
             stored === "finished"
@@ -133,6 +143,7 @@ async function crashAt(
               : { nativeStatus: "running", interrupted: true },
             { runId: run.runId },
           );
+        }
         return {
           nativeSessionId: "native-agent",
           backend: "cursor-sdk",

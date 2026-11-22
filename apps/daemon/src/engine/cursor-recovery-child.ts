@@ -72,7 +72,7 @@ registry.register(
             context,
             "delta",
             { type: "text-delta", text: "before" },
-            { runId: "run-1", streamSeq: 1 },
+            { runId: "run-1", eventSeq: 1 },
           );
           return reached();
         },

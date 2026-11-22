@@ -102,17 +102,31 @@ test("a cut-off run's missing tail is recovered and marked as recovered, and the
   t.frame("open", { cwd: "/w" });
   t.frame("send", { input: [{ type: "text", text: "go" }] });
   t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
-  t.frame("delta", { type: "text-delta", text: "live part" }, { runId: "run", streamSeq: 1 });
+  t.frame("delta", { type: "text-delta", text: "live part " }, { runId: "run", eventSeq: 1 });
   const after = { generation: "host2", operationId: "open", runId: "run" };
   t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
   t.frame("recovered", said("missed "), after);
   t.frame("recovered", said("tail"), after);
-  t.frame("recovered", { type: "tool_call", name: "shell", status: "completed" }, after);
+  t.frame(
+    "recovered",
+    {
+      type: "tool_call",
+      call_id: "x",
+      name: "shell",
+      status: "completed",
+      args: { command: "ls" },
+      result: { status: "success", value: { exitCode: 0, stdout: "a", stderr: "" } },
+      truncated: { result: true },
+    },
+    after,
+  );
   t.frame("recovery", { nativeStatus: "running", interrupted: true }, after);
-  expect(t.text("assistant")).toEqual(["live part", "missed tail"]);
+  // The answer the live stream started continues: one message, not a second copy.
+  expect(t.text("assistant")).toEqual(["live part missed tail"]);
   const notice = t.notices().join(" ");
   expect(notice).toContain("recovered from Cursor's saved session");
-  expect(notice).toContain("shell (completed)");
+  // The one thing the store can't give back is named, once.
+  expect(t.notices().filter((text) => text.includes("shortened copy"))).toHaveLength(1);
   expect(t.runs().map((run) => run.state)).toEqual(["failed"]);
   expect(t.status()).not.toBe("done");
 });

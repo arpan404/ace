@@ -62,3 +62,26 @@ export async function checkpointRevision(store: LocalAgentStore, agentId: string
     );
   return createHash("sha256").update(boundedJson(document, 2048)).digest("hex");
 }
+
+/**
+ * `store`, telling `appended` each run event the SDK stores, in order, once it is stored. The
+ * SDK stores an update's event right after handing the update to onDelta, so at any frame the
+ * last appended event is the seam with ace's record (event-identity.ts).
+ */
+export function observeRunEvents(
+  store: LocalAgentStore,
+  appended: (event: { runId: string; seq: number }) => void,
+): LocalAgentStore {
+  return {
+    ...store,
+    runEvents: {
+      list: (input) => store.runEvents.list(input),
+      delete: (input) => store.runEvents.delete(input),
+      append: async (input) => {
+        const stored = await store.runEvents.append(input);
+        appended({ runId: stored.runId, seq: stored.seq });
+        return stored;
+      },
+    },
+  };
+}

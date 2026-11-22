@@ -38,8 +38,13 @@ export const Envelope = z
     kind: z.string().min(1).max(128),
     body: z.unknown(),
     raw: RawPayload.optional(),
-    /** How many of the run's streamed messages the host had seen: the SDK run-event seam. */
-    streamSeq: z.number().int().nonnegative().max(100_000_000).optional(),
+    /** The sequence of the run's last event the SDK had stored before this frame. */
+    eventSeq: z.number().int().nonnegative().max(100_000_000).optional(),
+    /** The identity of the event the SDK will store for this frame's update (event-identity.ts). */
+    nextEvent: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
   })
   .passthrough();
 export type CursorEnvelope = z.infer<typeof Envelope>;
@@ -53,9 +58,20 @@ export const Open = z.strictObject({
   /** What the daemon's record of the open turn lacks, read back from the SDK store at open. */
   recover: z
     .strictObject({
-      /** Runs the open turn started and the daemon never saw end, with their last `streamSeq`. */
+      /** Runs the open turn started and the daemon never saw end, with how far it saw them. */
       runs: z
-        .array(z.strictObject({ runId: identity, through: z.number().int().nonnegative() }))
+        .array(
+          z.strictObject({
+            runId: identity,
+            /** The last stored event ace's record covers. */
+            through: z.number().int().nonnegative(),
+            /** The event right after it, when ace committed that one's update too. */
+            next: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .optional(),
+          }),
+        )
         .max(64)
         .default([]),
       /** A send the host attempted with no admission evidence yet; `at` is its wall clock. */

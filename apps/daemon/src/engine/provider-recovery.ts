@@ -6,6 +6,7 @@ import type { Frame, Translator } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import { sessionStoreUnusable } from "@ace/provider-kit/open-error";
 import { cursorStoreUnusable } from "@ace/adapter-cursor/store-fence";
+import { UnsettledRuns, type Unsettled } from "@ace/adapter-cursor/unsettled";
 import type { Store } from "../store.ts";
 
 const CapturedFrame = z.object({
@@ -15,78 +16,11 @@ const CapturedFrame = z.object({
   channel: z.literal("sdk"),
   data: z.unknown(),
 });
-/** The fields of a Cursor frame that say how far the daemon's record of a run reaches. */
-const Progress = z.object({
-  kind: z.string(),
-  operationId: z.string().min(1).max(512),
-  commandId: z.string().min(1).max(512).optional(),
-  segment: z.number().int().nonnegative(),
-  runId: z.string().min(1).max(512).optional(),
-  streamSeq: z.number().int().nonnegative().optional(),
-  body: z.unknown(),
-});
-const Attempted = z.object({ attemptedAt: z.number().finite().nonnegative() });
-const Admitted = z.object({ nativeRunId: z.string().min(1).max(512) });
-const Settled = z.object({ settled: z.literal(true) });
 const Admission = z.object({
   kind: z.literal("admission"),
   body: z.object({ admitted: z.boolean(), commandId: z.string().min(1).max(512).optional() }),
 });
-/** What a reopened Cursor host reads back from its store: see `SessionContext.resume`. */
-export type Unsettled = NonNullable<
-  NonNullable<import("@ace/engine-api").SessionContext["resume"]>["unsettled"]
->;
-/** Folds committed frames, in order, into what the open turn's record lacks. Pure. */
-export class UnsettledRuns {
-  private runs = new Map<string, number>();
-  private attempt: Unsettled["attempt"];
-  private current: string | undefined;
-  add(data: unknown): void {
-    const frame = Progress.safeParse(data);
-    if (!frame.success) return;
-    const { kind, runId, streamSeq, body } = frame.data;
-    if (kind === "send") {
-      const attempted = Attempted.safeParse(body);
-      this.attempt = attempted.success
-        ? {
-            operationId: frame.data.operationId,
-            ...(frame.data.commandId ? { commandId: frame.data.commandId } : {}),
-            segment: frame.data.segment,
-            at: attempted.data.attemptedAt,
-          }
-        : undefined;
-      return;
-    }
-    if (kind === "segment") {
-      this.attempt = undefined;
-      const admitted = Admitted.safeParse(body);
-      const id = admitted.success ? admitted.data.nativeRunId : runId;
-      if (id) {
-        this.current = id;
-        this.runs.set(id, Math.max(this.runs.get(id) ?? 0, streamSeq ?? 0));
-      }
-      return;
-    }
-    // A send Cursor refused or failed is the session's own error, already in the record.
-    if (kind === "error" && this.attempt?.operationId === frame.data.operationId)
-      this.attempt = undefined;
-    const id = runId ?? this.current;
-    if (!id) return;
-    const ends =
-      kind === "result" ||
-      kind === "recovery" ||
-      ((kind === "error" || kind === "cancel") && Settled.safeParse(body).success);
-    if (ends) {
-      this.runs.delete(id);
-      if (id === this.current) this.current = undefined;
-    } else if (runId && this.runs.has(runId) && streamSeq !== undefined)
-      this.runs.set(runId, Math.max(this.runs.get(runId) ?? 0, streamSeq));
-  }
-  result(): Unsettled {
-    const runs = [...this.runs].slice(-64).map(([runId, through]) => ({ runId, through }));
-    return { runs, ...(this.attempt ? { attempt: this.attempt } : {}) };
-  }
-}
+
 const HostFence = z.object({
   kind: z.literal("error"),
   body: z.object({
