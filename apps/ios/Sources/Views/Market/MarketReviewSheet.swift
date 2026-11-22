@@ -103,7 +103,11 @@ struct MarketReviewSheet: View {
     /// Install, what stops it, or what went wrong, always in view at the sheet's foot.
     private var foot: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            if state.needsComputer, let line = state.review?.standingSentence {
+            if state.needsPerson, let refusal = state.refusal {
+                MarketConfirmPerson(refusal: refusal, hostId: model.hostId, busy: state.installing || !online) {
+                    if let review = state.review { install(review, confirmed: true) }
+                }
+            } else if state.needsComputer, let line = state.review?.standingSentence {
                 Text(line).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceTheme.StatusText.needsYou)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("market.review.computer")
@@ -179,12 +183,12 @@ struct MarketReviewSheet: View {
         } catch {}
     }
 
-    private func install(_ review: MarketReview) {
-        guard state.canInstall else { return }
+    private func install(_ review: MarketReview, confirmed: Bool = false) {
+        guard confirmed ? state.canConfirm : state.canInstall else { return }
         state.started()
         Task {
             do {
-                let landed = try await model.marketInstall(review, choices: state.choices.payload)
+                let landed = try await model.marketInstall(review, choices: state.choices.payload, confirmed: confirmed)
                 lease.installed()
                 state.finished()
                 // Played here, not by a trigger: the sheet closes in the same moment.

@@ -117,11 +117,16 @@ struct MarketReviewState: Equatable {
         return review.bot?.needs.first { $0.required && choices.needs[$0.key] != true }?.offSentence
     }
 
-    /// An install refused for the person's standing or a fresh sign-in, which this phone can't
-    /// prove yet, whatever its type: it says to install from the computer instead (until #2499).
-    var needsComputer: Bool { review != nil && refusal?.way == .confirm }
+    /// An install refused for the person's standing, whatever its type: Confirm it's you or Pair
+    /// again takes Install's place (`MarketConfirmPerson`).
+    var needsPerson: Bool { review != nil && refusal?.asksForPerson == true }
+    /// The market wants a person's grant, which only ace on the computer can get (ADR 0190 §6).
+    var needsComputer: Bool { review != nil && refusal?.code == "person_grant" }
 
-    var canInstall: Bool { review != nil && complete && seenEnd && stuck == nil && !installing && !needsComputer }
+    private var ready: Bool { review != nil && complete && seenEnd && stuck == nil && !installing }
+    var canInstall: Bool { ready && !needsPerson && !needsComputer }
+    /// Confirm it's you sends Install once more, confirmed.
+    var canConfirm: Bool { ready && refusal?.way == .confirm }
 
     /// Each switch's binding, read and written by key.
     func need(_ key: String) -> Bool { choices.needs[key] == true }
