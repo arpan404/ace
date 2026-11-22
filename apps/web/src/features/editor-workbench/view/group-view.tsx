@@ -35,6 +35,8 @@ export function GroupView(props: {
   host: EditorHost;
   actions: GroupActions;
   stripLead?: ReactNode;
+  /** Folded to its strip in a stacked accordion (`collapsedPanes`). */
+  folded?: boolean;
 }) {
   const { group, host, actions } = props;
   const path = group.active;
@@ -70,7 +72,12 @@ export function GroupView(props: {
       aria-label={`Pane ${props.number}`}
       data-group-id={group.id}
       data-focused={props.focused ? "" : undefined}
-      className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-background", sceneThrough)}
+      data-folded={props.folded ? "" : undefined}
+      className={cn(
+        "flex min-h-0 min-w-0 flex-col bg-background",
+        props.folded ? "flex-none" : "flex-1",
+        sceneThrough,
+      )}
       onFocusCapture={actions.focus}
       onPointerDownCapture={actions.focus}
     >
@@ -83,105 +90,116 @@ export function GroupView(props: {
         tabMenuItems={host.tabMenuItems}
         threadId={host.threadId}
       />
-      <Breadcrumbs
-        path={path}
-        textStart={textStart}
-        end={
-          path !== undefined &&
-          markdown &&
-          load?.kind === "ready" && (
-            <MarkdownChoice
-              value={markdown}
-              onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
-            />
-          )
-        }
-      />
-      <div
-        ref={setArea}
-        data-part="buffer-editor"
-        // The code editor dims its own caret without focus and clears its scrollbar corner.
-        className="relative flex min-h-0 flex-1 flex-col"
-        // Captured, so a tab or file dropped on the code reaches the drop zones and never the
-        // text input under the pointer, which would paste its path.
-        onDragOverCapture={(event) => {
-          if (!carriesGroupDrag(event.dataTransfer)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
-          const box = event.currentTarget.getBoundingClientRect();
-          const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
-          // The wash shows what a drop would do: an edge that stacks washes the stacked half,
-          // and past the pane cap an edge takes nothing and washes nothing.
-          const next = at === "center" ? at : actions.edge(at);
-          if (next !== zone) setZone(next);
-        }}
-        onDragLeave={(event) => {
-          const into = event.relatedTarget;
-          if (!(into instanceof Node && event.currentTarget.contains(into))) setZone(undefined);
-        }}
-        onDropCapture={(event) => {
-          if (!carriesGroupDrag(event.dataTransfer)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          const drag = readGroupDrag(event.dataTransfer, host.threadId);
-          const box = event.currentTarget.getBoundingClientRect();
-          const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
-          setZone(undefined);
-          if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
-        }}
-      >
-        {path === undefined ? (
-          props.last ? (
-            <NoFileOpen onQuickOpen={host.onQuickOpen} />
-          ) : null
-        ) : compare && buffer ? (
-          compare({ path, buffer })
-        ) : conflict && buffer ? (
-          <ConflictBlocks
-            clash={conflict}
-            buffer={buffer}
-            theirName={host.buffers.changer(conflict.by)?.name}
-          />
-        ) : buffer && load?.kind === "ready" ? (
-          markdown === "preview" ? (
-            <Suspense fallback={<LoadingLines />}>
-              <MarkdownPreview buffer={buffer} path={path} onStatus={onStatus} />
-            </Suspense>
-          ) : (
-            showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
-          )
-        ) : load?.kind === "unreadable" && host.renderViewer ? (
-          host.renderViewer({ path, group: group.id, reason: load.reason })
-        ) : load &&
-          (load.kind === "missing" || load.kind === "unreadable" || load.kind === "failed") ? (
-          <FileProblem
+      {/* Folded in a stacked accordion: the strip alone, a click away from opening. */}
+      {!props.folded && (
+        <>
+          <Breadcrumbs
             path={path}
-            status={load}
-            onClose={() => actions.close([path])}
-            onRetry={() => void buffer?.reload()}
+            textStart={textStart}
+            end={
+              path !== undefined &&
+              markdown &&
+              load?.kind === "ready" && (
+                <MarkdownChoice
+                  value={markdown}
+                  onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
+                />
+              )
+            }
           />
-        ) : (
-          // Loading, or freed under the memory cap and reading again now it is shown.
-          <LoadingLines />
-        )}
-        {zone && <DropWash zone={zone} />}
-      </div>
-      {/* Spec 46, at the editor's foot: who changed what while the person was editing. */}
-      {path !== undefined && (
-        <AgentNotice
-          snapshot={snapshot}
-          buffer={buffer}
-          buffers={host.buffers}
-          comparing={compare !== undefined}
-          onMerge={() => (host.onMerge ? host.onMerge(path) : void buffer?.merge())}
-          onCompare={
-            host.renderCompare &&
-            (() => setComparing((was) => (was === path && compare ? undefined : path)))
-          }
-          onKeepMine={() => void buffer?.keepMine()}
-          onTakeTheirs={() => void buffer?.takeTheirs()}
-        />
+          <div
+            ref={setArea}
+            data-part="buffer-editor"
+            // The code editor dims its own caret without focus and clears its scrollbar corner.
+            className="relative flex min-h-0 flex-1 flex-col"
+            // Captured, so a tab or file dropped on the code reaches the drop zones and never the
+            // text input under the pointer, which would paste its path.
+            onDragOverCapture={(event) => {
+              if (!carriesGroupDrag(event.dataTransfer)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
+              const box = event.currentTarget.getBoundingClientRect();
+              const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
+              // The wash shows what a drop would do: an edge that stacks washes the stacked half,
+              // and past the pane cap an edge takes nothing and washes nothing.
+              const next = at === "center" ? at : actions.edge(at);
+              if (next !== zone) setZone(next);
+            }}
+            onDragLeave={(event) => {
+              const into = event.relatedTarget;
+              if (!(into instanceof Node && event.currentTarget.contains(into))) setZone(undefined);
+            }}
+            onDropCapture={(event) => {
+              if (!carriesGroupDrag(event.dataTransfer)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const drag = readGroupDrag(event.dataTransfer, host.threadId);
+              const box = event.currentTarget.getBoundingClientRect();
+              const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
+              setZone(undefined);
+              if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
+            }}
+          >
+            {path === undefined ? (
+              props.last ? (
+                <NoFileOpen onQuickOpen={host.onQuickOpen} />
+              ) : null
+            ) : compare && buffer ? (
+              compare({ path, buffer })
+            ) : conflict && buffer ? (
+              <ConflictBlocks
+                clash={conflict}
+                buffer={buffer}
+                theirName={host.buffers.changer(conflict.by)?.name}
+              />
+            ) : buffer && load?.kind === "ready" ? (
+              markdown === "preview" ? (
+                <Suspense fallback={<LoadingLines />}>
+                  <MarkdownPreview buffer={buffer} path={path} onStatus={onStatus} />
+                </Suspense>
+              ) : (
+                showEditor(host, {
+                  path,
+                  buffer,
+                  group: group.id,
+                  focused: props.focused,
+                  onStatus,
+                })
+              )
+            ) : load?.kind === "unreadable" && host.renderViewer ? (
+              host.renderViewer({ path, group: group.id, reason: load.reason })
+            ) : load &&
+              (load.kind === "missing" || load.kind === "unreadable" || load.kind === "failed") ? (
+              <FileProblem
+                path={path}
+                status={load}
+                onClose={() => actions.close([path])}
+                onRetry={() => void buffer?.reload()}
+              />
+            ) : (
+              // Loading, or freed under the memory cap and reading again now it is shown.
+              <LoadingLines />
+            )}
+            {zone && <DropWash zone={zone} />}
+          </div>
+          {/* Spec 46, at the editor's foot: who changed what while the person was editing. */}
+          {path !== undefined && (
+            <AgentNotice
+              snapshot={snapshot}
+              buffer={buffer}
+              buffers={host.buffers}
+              comparing={compare !== undefined}
+              onMerge={() => (host.onMerge ? host.onMerge(path) : void buffer?.merge())}
+              onCompare={
+                host.renderCompare &&
+                (() => setComparing((was) => (was === path && compare ? undefined : path)))
+              }
+              onKeepMine={() => void buffer?.keepMine()}
+              onTakeTheirs={() => void buffer?.takeTheirs()}
+            />
+          )}
+        </>
       )}
     </section>
   );
