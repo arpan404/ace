@@ -6,19 +6,21 @@ import type { SpadeBubbleRow } from "./spade-rows.ts";
  * done, since any of that may have changed since. Pure.
  */
 
+/** A row of the conversation, with its JSON when already made. */
+type KeptRow = { key: string; row: SpadeBubbleRow; text?: string };
+
 /**
  * The rows as kept: a reply that was being written shows its words, no longer writing; an
  * approval or an unsettled card (which may have been answered elsewhere) and the workers' rows
  * (whose states come from live reads) wait for Spade.
  */
-export function spadeKeptRows<T extends { key: string; row: SpadeBubbleRow }>(
-  rows: readonly T[],
-): T[] {
-  return rows.flatMap((each): T[] => {
+export function spadeKeptRows(rows: readonly KeptRow[]): KeptRow[] {
+  return rows.flatMap((each): KeptRow[] => {
     const { row } = each;
     if (row.kind === "ask" || row.kind === "workers") return [];
     if (row.kind === "question" && row.standing !== "settled") return [];
-    if (row.kind === "bot" && row.live) return [{ ...each, row: { ...row, live: false } }];
+    // A changed row leaves its JSON behind: it is no longer the row's.
+    if (row.kind === "bot" && row.live) return [{ key: each.key, row: { ...row, live: false } }];
     return [each];
   });
 }

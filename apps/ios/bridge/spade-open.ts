@@ -11,7 +11,8 @@ import type { PatchSink } from "./agents.ts";
 import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
 import { SpadeKeptEvents, type SpadeKeep } from "./spade-kept-events.ts";
 import { spadeKeptHead, spadeKeptRows } from "./spade-kept-rows.ts";
-import { spadeConversationHead, spadeConversationRows } from "./spade-rows.ts";
+import { SpadeRowCache } from "./spade-row-cache.ts";
+import { spadeConversationHead } from "./spade-rows.ts";
 import { segment, spadeText } from "./spade-text.ts";
 import { SpadeWorkerTree } from "./spade-worker-tree.ts";
 import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
@@ -56,6 +57,8 @@ export class SpadeOpenChat {
   /** What Swift holds of the open conversation: each row as last put, and their order. */
   private sent = new Map<string, string>();
   private order: readonly string[] = [];
+  /** The open bot conversation's rows, each worked out once while its bubble stays the same. */
+  private rows = new SpadeRowCache();
   /** The seen mark last sent, `conversation:seq`, so each latest message is marked once. */
   private seen: string | undefined;
   private readonly live: SpadeDaemonLive;
@@ -119,6 +122,7 @@ export class SpadeOpenChat {
     this.tree.stop();
     this.sent.clear();
     this.order = [];
+    this.rows = new SpadeRowCache();
     this.host.sink.clear("spade:row:");
     if (conversationId === null) {
       this.host.sink.put("spade:conversation", () => ({ type: "spade.conversation.closed" }));
@@ -203,7 +207,7 @@ export class SpadeOpenChat {
         (id) => this.tree.node(id),
       );
       const approvers = bot ? this.host.approvers(bot.id) : null;
-      const rows = spadeConversationRows(view, bot?.name || "Spade", facts, approvers);
+      const rows = this.rows.rows(view, bot?.name || "Spade", facts, approvers);
       // Its workers are read from the kept rows too, beside Spade's own answer.
       this.workers.showing(rows);
       this.tree.showing(bot?.id, rows);
@@ -231,12 +235,12 @@ export class SpadeOpenChat {
    * Put what changed: a row Swift already holds as it is now is never sent again, so a reply's
    * live words are one row per frame.
    */
-  private putRows(id: string, rows: readonly { key: string; row: unknown }[]) {
+  private putRows(id: string, rows: readonly { key: string; row: unknown; text?: string }[]) {
     const order = rows.map(({ key }) => key);
     const kept = new Set(order);
     for (const key of this.sent.keys()) if (!kept.has(key)) this.sent.delete(key);
-    for (const { key, row } of rows) {
-      const text = JSON.stringify(row);
+    for (const { key, row, text: made } of rows) {
+      const text = made ?? JSON.stringify(row);
       if (this.sent.get(key) === text) continue;
       this.sent.set(key, text);
       this.host.sink.put(`spade:row:${key}`, () => ({

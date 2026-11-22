@@ -1,7 +1,6 @@
 import {
   spadeBotRow,
   spadeGroupRow,
-  spadeBubbles,
   spadeByState,
   spadeFailureSentence,
   spadeForLaterWords,
@@ -317,20 +316,6 @@ export function spadeBubbleRow(
     case "search-setup":
       return { kind: "note", text: "Web search isn't set up yet." };
   }
-}
-
-/** A conversation's bubbles with their keys, in order. */
-export function spadeConversationRows(
-  view: SpadeView,
-  who: string,
-  workers: SpadeWorkerFacts = unknownWorkers,
-  approvers: string | null = null,
-): { key: string; row: SpadeBubbleRow }[] {
-  return spadeBubbles(view).flatMap((bubble): { key: string; row: SpadeBubbleRow }[] => {
-    const row = spadeBubbleRow(bubble, who, workers);
-    if (row?.kind === "ask") return [{ key: bubble.key, row: { ...row, approvers } }];
-    return row ? [{ key: bubble.key, row }] : [];
-  });
 }
 
 /** The conversation around its bubbles: whether it has loaded, works, and why it can't follow. */
