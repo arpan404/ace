@@ -155,7 +155,11 @@ final class SystemNotificationCenter: NotificationCenterPort {
     }
     /// Posted after every earlier post, unless a later post or withdrawal of the same
     /// notification overtakes it first. Done when it has landed or been skipped.
+    /// The space a machine's alerts are labelled with (`Spaces.noticeLabel`), by its host id.
+    var spaceLabel: ((String?) -> String?)?
     @discardableResult func post(_ content: AlertContent) -> Task<Void, Never> {
+        var content = content
+        if content.space == nil { content.space = spaceLabel?(content.hostId) }
         let id = content.identifier
         generation += 1
         let mine = generation

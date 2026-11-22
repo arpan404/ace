@@ -147,9 +147,12 @@ struct NotificationHooks: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .task(id: inbox.sessions.compactMap { session in session.client.deepLink.map { "\(session.hostId)/\($0)" } }) {
-                guard let session = inbox.sessions.first(where: { $0.client.deepLink != nil }), let id = session.client.deepLink else { return }
+            // A link opens on its machine in any space: the phone first switches to that machine's
+            // space (ADR 0206 §1.5), so the thread shows where it belongs.
+            .task(id: inbox.all.compactMap { session in session.client.deepLink.map { "\(session.hostId)/\($0)" } }) {
+                guard let session = inbox.all.first(where: { $0.client.deepLink != nil }), let id = session.client.deepLink else { return }
                 session.client.deepLink = nil
+                inbox.enterSpace?(session.hostId)
                 open(InboxKey(machineId: session.hostId, id: id))
             }
             .task(id: inbox.sessions.contains { $0.client.inboxLoaded && !$0.client.inbox.isEmpty && $0.client.connection == "ready" }) {

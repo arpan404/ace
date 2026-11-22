@@ -102,3 +102,14 @@ test("an exited fake terminal permits deletion without an explicit terminal clos
   ).toBe(true);
   expect(daemon.terminals.list("thread")).toEqual([]);
 });
+
+test("a scripted delete drops a thread still waiting on the person, and later facts change nothing", () => {
+  const f = world();
+  expect(f.view()).toBeDefined();
+
+  f.daemon.deleteThread("thread");
+
+  expect(f.view()).toBeUndefined();
+  f.daemon.apply("thread", [turn("root")]);
+  expect(f.view()).toBeUndefined();
+});

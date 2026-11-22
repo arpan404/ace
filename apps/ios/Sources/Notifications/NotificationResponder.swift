@@ -18,7 +18,7 @@ enum BackgroundConnection {
         }
         let machines = ProductionApp.machines(directory: directory, notifications: coordinator, now: coordinator.now)
         await machines.load()
-        return machines.inbox.sessions.map(\.client)
+        return machines.inbox.all.map(\.client)
     }
 }
 

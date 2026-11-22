@@ -34,6 +34,9 @@ const trip = [
   { prompt: "How many nights?", kind: "number", min: 1, max: 14, unit: "nights" },
 ];
 
+/** The seeded fake Spade, for scenarios that add to it (`space-scenario.ts`). */
+export const seededSpade = (): FakeSpadeApi | undefined => api;
+
 export function seedSpade(daemon: FakeDaemon, now: number): void {
   daemon.services.settings.seed({ "beta.spade": true, "spade.enabled": true });
   daemon.spade.status = { state: "ready", version: "0.6.0" };
