@@ -26,7 +26,9 @@ export function fakeGitDiff(
       : { kind: "gitDiff", patch, truncated: false };
   // As the daemon does, a file's patch with `from` also holds the file it came from.
   const text = patchSections(patch)
-    .filter((section) => section.path === op.path || (op.from !== undefined && section.path === op.from))
+    .filter(
+      (section) => section.path === op.path || (op.from !== undefined && section.path === op.from),
+    )
     .map((section) => section.text)
     .join("");
   const validator = contentHash(text);

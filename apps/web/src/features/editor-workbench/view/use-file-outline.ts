@@ -21,6 +21,8 @@ const emptySymbols: readonly OutlineSymbol[] = [];
  */
 const cache = new Map<TextBuffer, CacheEntry>();
 const pending = new Map<TextBuffer, string>();
+/** Each buffer's mounted outlines, told when a read lands on text that has since changed. */
+const waiting = new WeakMap<TextBuffer, Set<() => void>>();
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -79,31 +81,35 @@ export function useFileOutline(
       const doc = buffer.document();
       const stamp = stampOf(buffer, languageOrPath);
       if (disposed || !doc || !stamp) return;
-      if (cache.get(buffer)?.key === stamp || pending.get(buffer) === stamp) return;
+      // One read at a time per buffer: edits meanwhile wait for it, then the latest is read.
+      if (pending.has(buffer) || cache.get(buffer)?.key === stamp) return;
       pending.set(buffer, stamp);
-      void port.extract(doc.text(), languageOrPath).then(
-        (symbols) => {
-          if (pending.get(buffer) === stamp) pending.delete(buffer);
-          // A newer edit already superseded this read: its own read will land.
-          if (stampOf(buffer, languageOrPath) !== stamp && cache.has(buffer)) return;
-          setCached(buffer, stamp, symbols);
-        },
-        () => {
-          // Keep the last outline rather than clearing it on an unexpected failure.
-          if (pending.get(buffer) === stamp) pending.delete(buffer);
-        },
-      );
+      const landed = (symbols: readonly OutlineSymbol[] | undefined) => {
+        pending.delete(buffer);
+        if (symbols) setCached(buffer, stamp, symbols);
+        if (stampOf(buffer, languageOrPath) !== stamp) {
+          const heard = waiting.get(buffer);
+          if (heard) for (const listener of heard) listener();
+        }
+      };
+      void port.extract(doc.text(), languageOrPath).then(landed, () => landed(undefined));
     };
 
     const changed = () => {
       const stamp = stampOf(buffer, languageOrPath);
       if (!stamp || cache.get(buffer)?.key === stamp) return;
       if (timer !== undefined) clearTimeout(timer);
-      // A file with no outline yet is read now; an edited one waits for the typing pause.
-      if (!cache.has(buffer)) read();
+      // A file with no outline and no read out is read now; otherwise after the typing pause.
+      if (!cache.has(buffer) && !pending.has(buffer)) read();
       else timer = setTimeout(read, debounceMs);
     };
 
+    let heard = waiting.get(buffer);
+    if (!heard) {
+      heard = new Set();
+      waiting.set(buffer, heard);
+    }
+    heard.add(changed);
     changed();
     const offBuffer = buffer.subscribe(changed);
     const offEdits = onBufferEdits(buffer, changed);
@@ -112,6 +118,7 @@ export function useFileOutline(
       if (timer !== undefined) clearTimeout(timer);
       offBuffer();
       offEdits();
+      heard.delete(changed);
     };
   }, [buffer, languageOrPath, port, debounceMs]);
 

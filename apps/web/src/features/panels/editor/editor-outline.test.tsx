@@ -11,7 +11,12 @@ import { Breadcrumbs } from "@/features/editor-workbench/view/breadcrumbs.tsx";
 import { EditorOutline } from "./editor-outline.tsx";
 import { GoToSymbolDialog } from "./go-to-symbol.tsx";
 import { editorKeys } from "./editor-keys.ts";
-import { noteBufferEdited } from "@/features/editor-workbench/index.ts";
+import {
+  noteBufferEdited,
+  useFileOutline,
+  type OutlinePort,
+} from "@/features/editor-workbench/index.ts";
+import { extractSymbols } from "@ace/ui-core/editor-workbench";
 
 afterEach(cleanup);
 
@@ -163,6 +168,40 @@ describe("EditorOutline", () => {
     });
     expect(screen.getByRole("button", { name: /activateTab/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /alphaHelper/ })).toBeNull();
+  });
+});
+
+describe("useFileOutline while the first read is out", () => {
+  test("typing sends no read per keystroke, and the next read is of the latest text", async () => {
+    const buffer = fakeBuffer("src/slow.ts", "export function first() {}\n");
+    const sent: string[] = [];
+    const answers: ((symbols: readonly OutlineSymbol[]) => void)[] = [];
+    const port: OutlinePort = {
+      extract(text) {
+        sent.push(text);
+        return new Promise((resolve) => answers.push(resolve));
+      },
+    };
+    function Probe() {
+      const { symbols } = useFileOutline(buffer, "src/slow.ts", { port, debounceMs: 20 });
+      return <div data-testid="names">{symbols.map((symbol) => symbol.name).join(",")}</div>;
+    }
+    render(<Probe />);
+    expect(sent).toHaveLength(1);
+
+    for (const name of ["s", "se", "sec", "second"]) {
+      buffer.type(`export function first() {}\nexport function ${name}() {}\n`);
+      act(() => noteBufferEdited(buffer));
+    }
+    // The first read is still out: the keystrokes waited for it.
+    expect(sent).toHaveLength(1);
+
+    await act(async () => answers[0]?.(extractSymbols(sent[0] ?? "", "src/slow.ts")));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toContain("function second()");
+    await act(async () => answers[1]?.(extractSymbols(sent[1] ?? "", "src/slow.ts")));
+    await waitFor(() => expect(screen.getByTestId("names").textContent).toBe("first,second"));
+    expect(sent).toHaveLength(2);
   });
 });
 
