@@ -1,3 +1,4 @@
+import type { SpadeQuote } from "@ace/ui-core/spade-chat";
 import type { SpadeGroupBot } from "@ace/ui-core/spade-chat";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
@@ -145,6 +146,8 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
   const [stopping, setStopping] = useState(false);
   // Messages sent from here: each one takes the conversation to its end.
   const [sent, setSent] = useState(0);
+  // The message the person replies to (ADR 0212 §4), until it goes or they clear it.
+  const [replying, setReplying] = useState<SpadeQuote>();
   if (stopping && !view.busy) setStopping(false);
   const stop = () => {
     setStopping(true);
@@ -221,6 +224,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
           <SpadeGroupChat
             name={group.name}
             view={view}
+            onReply={setReplying}
             members={group.members.map((member, index) => ({
               id: member.agent,
               name: members[index]?.name ?? member.name,
@@ -252,6 +256,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
               }))
             : undefined
         }
+        replying={replying && { quote: replying, onClear: () => setReplying(undefined) }}
         send={(outgoing) => {
           setSent((count) => count + 1);
           return conversation.send(outgoing);

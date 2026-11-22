@@ -5,6 +5,7 @@ import {
   spadeSentText,
   spadeStateLine,
   spadeTaskLine,
+  type SpadeQuote,
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -126,6 +127,8 @@ export function Conversation(props: {
   const [sent, setSent] = useState(0);
   // A decision the person is changing: quoted on their next message (Work's Change).
   const [quote, setQuote] = useState<string>();
+  // The message the person is replying to (ADR 0212 §4), until it goes or they clear it.
+  const [replying, setReplying] = useState<SpadeQuote>();
   const covering = useMediaQuery(coverQuery, false);
   const memoryKey = `${bot.machine.key}/${bot.id}`;
   const [width, setWidth] = useState(() => readPanel(storage(), memoryKey).width);
@@ -270,6 +273,7 @@ export function Conversation(props: {
         ) : (
           <SpadeChat
             bot={chatBot}
+            onReply={setReplying}
             profile={bot.kind === "main" ? undefined : bot}
             start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
@@ -388,6 +392,7 @@ export function Conversation(props: {
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }
+        replying={replying && { quote: replying, onClear: () => setReplying(undefined) }}
         send={(outgoing) => {
           setSent((count) => count + 1);
           return conversation.send(outgoing);

@@ -1,4 +1,5 @@
 import { FakeSpadeTasks } from "./spade-self-edit.ts";
+import { fakeSpadeQuoted } from "./spade-quoted.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
@@ -220,6 +221,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       addAgent: (fields) => this.addAgent(fields),
       openConversation: (id) => void this.events.set(id, this.events.get(id) ?? []),
       store: (conversation, event) => this.store(conversation, event),
+      quoted: (conversation, id) => fakeSpadeQuoted(this.events.get(conversation) ?? [], id),
       emitStatus: (conversation, state, status, waiting) =>
         this.spade.emit(
           `/v1/conversations/${conversation}/live`,
@@ -308,6 +310,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
   store(conversation: string, event: Json, at?: number): void {
     const stored = this.keep(conversation, event, at);
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** The events a conversation stored, oldest first, as Spade's events route returns them. */
+  eventsOf(conversation: string): Json[] {
+    return (this.events.get(conversation) ?? []).map((stored) => stored.event);
   }
 
   /** Words of an open reply as they stream: sent live, never stored. */
@@ -888,7 +895,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const media = mediaOf(body);
     for (const image of (media.images ?? []) as Json[])
       this.images.set(String(image.sha256), String(image.media_type));
-    this.store(conversation, { type: "user_message", text: body.text ?? "", ...media });
+    // As Spade: a reply stores what it quoted; an id it can't find quotes nothing (ADR 0212).
+    const quoted = fakeSpadeQuoted(this.events.get(conversation) ?? [], body.reply_to);
+    this.store(conversation, {
+      type: "user_message",
+      text: body.text ?? "",
+      ...media,
+      ...(quoted ? { reply_to: quoted } : {}),
+    });
     if (agent)
       agent.last_message = {
         from: "person",

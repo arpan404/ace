@@ -88,6 +88,12 @@ export interface ComposerProps {
    */
   capsule?: boolean | undefined;
   /**
+   * Inside the composer's surface, above the words: what the next message answers (a Spade
+   * reply's quoted line, ADR 0212). It belongs to the composer, so nothing floats loose over
+   * the transcript, and it opens a capsule as a quote does.
+   */
+  heading?: ReactNode;
+  /**
    * The tab attached to the composer (what the agents are doing, their plan, an
    * agent's question): drawn above it, narrower and tucked behind its top edge. It reads
    * `useComposerCompact()` too.

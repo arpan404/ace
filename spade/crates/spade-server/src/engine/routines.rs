@@ -75,6 +75,7 @@ impl Engine {
             from_routine: Some(Box::new(from.clone())),
             from_group: None,
             from_thread: None,
+            reply_to: None,
         });
         // The instruction is the person's own words: it recalls notes like their messages do.
         let message = super::memory::with_recall(self, conversation, message);

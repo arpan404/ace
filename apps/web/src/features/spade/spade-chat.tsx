@@ -27,10 +27,12 @@ import {
   type SpadeDigest,
   type SpadeRestAction,
   spadeGroupAppRequests,
+  spadeQuoteLine,
+  type SpadeQuote,
   spadeContractAskedLine,
   spadeTogether,
 } from "@ace/ui-core/spade-chat";
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { FromThreadLine } from "./from-thread-line.tsx";
@@ -64,6 +66,7 @@ import { SpadeStepsLine } from "./spade-steps-line.tsx";
 import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
 import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
+import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -147,6 +150,8 @@ export function SpadeChat(props: {
   profile?: RosterBot | undefined;
   /** Opened to answer what its workers wait on: that shows at the end, brought into view. */
   revealWorkers?: boolean | undefined;
+  /** Reply to a message (ADR 0212 §4): the composer shows its strip. Absent offers no Reply. */
+  onReply?: ((quote: SpadeQuote) => void) | undefined;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
@@ -179,7 +184,8 @@ export function SpadeChat(props: {
       ),
     [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
-  const from = useNewestFirst(rows.length);
+  const [from, drawAll] = useNewestFirst(rows.length);
+  const replies = useReplies(bot.name, props.onReply, drawAll);
   const started = useMemo(() => startedWorkers(rows), [rows]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
@@ -260,82 +266,84 @@ export function SpadeChat(props: {
   };
   return (
     <CardFace value={bot.avatar}>
-      <div
-        role="feed"
-        aria-label={`Conversation with ${bot.name}`}
-        aria-busy={view.busy}
-        className="flex flex-col"
-      >
-        <KeepCaseDialog
-          bot={{ id: bot.id, name: bot.name }}
-          reply={keeping}
-          onDone={() => setKeeping(undefined)}
-        />
-        {rows.length === 0 && !lined && !rest && props.start}
-        {rows.slice(from).map((row, index) => (
-          <Row
-            key={row.key}
-            row={row}
-            previous={rows[from + index - 1]}
-            bot={bot}
-            handlers={handlers}
+      <SpadeReplyContext value={replies}>
+        <div
+          role="feed"
+          aria-label={`Conversation with ${bot.name}`}
+          aria-busy={view.busy}
+          className="flex flex-col"
+        >
+          <KeepCaseDialog
+            bot={{ id: bot.id, name: bot.name }}
+            reply={keeping}
+            onDone={() => setKeeping(undefined)}
           />
-        ))}
-        <SpadeWaitingWorkers
-          workers={started}
-          reveal={props.revealWorkers === true}
-          handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
-        />
-        {rest && !props.paused && onWake ? (
-          <RestingLine
-            avatar={bot.avatar}
-            line={rest}
-            onAction={(action) => onWake(rest.wake, action)}
+          {rows.length === 0 && !lined && !rest && props.start}
+          {rows.slice(from).map((row, index) => (
+            <Row
+              key={row.key}
+              row={row}
+              previous={rows[from + index - 1]}
+              bot={bot}
+              handlers={handlers}
+            />
+          ))}
+          <SpadeWaitingWorkers
+            workers={started}
+            reveal={props.revealWorkers === true}
+            handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
           />
-        ) : (
-          lined &&
-          (props.paused ? (
-            // Paused by Spade while the person drives: nothing runs, so no clock.
-            <WorkingLine
+          {rest && !props.paused && onWake ? (
+            <RestingLine
               avatar={bot.avatar}
-              state="idle"
-              label="Paused while you have the computer"
-              since={undefined}
-              onWatch={undefined}
-            />
-          ) : task?.tone === "needs-you" ? (
-            <WorkingLine
-              avatar={bot.avatar}
-              state="needs-you"
-              label={task.sentence}
-              since={undefined}
-              onWatch={undefined}
-            />
-          ) : task?.tone === "waiting" && !working ? (
-            // Waiting on something other than the person: it says so, with no spinner or clock.
-            <WorkingLine
-              avatar={bot.avatar}
-              state="idle"
-              label={[task.sentence, task.step].filter(Boolean).join(" · ")}
-              since={undefined}
-              onWatch={undefined}
+              line={rest}
+              onAction={(action) => onWake(rest.wake, action)}
             />
           ) : (
-            <WorkingLine
-              avatar={bot.avatar}
-              state={task && !working ? "working" : lineState}
-              label={
-                task && task.tone !== "waiting"
-                  ? [task.sentence, task.step].filter(Boolean).join(" · ")
-                  : phrase
-              }
-              detail={working ? running : undefined}
-              since={working ? view.working?.since : undefined}
-              onWatch={props.onWatch}
-            />
-          ))
-        )}
-      </div>
+            lined &&
+            (props.paused ? (
+              // Paused by Spade while the person drives: nothing runs, so no clock.
+              <WorkingLine
+                avatar={bot.avatar}
+                state="idle"
+                label="Paused while you have the computer"
+                since={undefined}
+                onWatch={undefined}
+              />
+            ) : task?.tone === "needs-you" ? (
+              <WorkingLine
+                avatar={bot.avatar}
+                state="needs-you"
+                label={task.sentence}
+                since={undefined}
+                onWatch={undefined}
+              />
+            ) : task?.tone === "waiting" && !working ? (
+              // Waiting on something other than the person: it says so, with no spinner or clock.
+              <WorkingLine
+                avatar={bot.avatar}
+                state="idle"
+                label={[task.sentence, task.step].filter(Boolean).join(" · ")}
+                since={undefined}
+                onWatch={undefined}
+              />
+            ) : (
+              <WorkingLine
+                avatar={bot.avatar}
+                state={task && !working ? "working" : lineState}
+                label={
+                  task && task.tone !== "waiting"
+                    ? [task.sentence, task.step].filter(Boolean).join(" · ")
+                    : phrase
+                }
+                detail={working ? running : undefined}
+                since={working ? view.working?.since : undefined}
+                onWatch={props.onWatch}
+              />
+            ))
+          )}
+        </div>
+      </SpadeReplyContext>
     </CardFace>
   );
 }
@@ -348,13 +356,15 @@ const openingRows = 40;
  * at its end, and the older ones join above them a batch at a time while the page is idle, so
  * opening never waits on drawing all of its history. Rows arriving later always draw.
  */
-function useNewestFirst(count: number): number {
+function useNewestFirst(count: number): [number, () => void] {
   const [from, setFrom] = useState(() => Math.max(0, count - openingRows));
   useEffect(() => {
     if (from === 0) return;
     return whenIdle(() => setFrom((start) => Math.max(0, start - openingRows)), 250);
   }, [from]);
-  return Math.min(from, count);
+  // Going to an older message draws every row at once.
+  const drawAll = useCallback(() => setFrom(0), []);
+  return [Math.min(from, count), drawAll];
 }
 
 /** Every worker the chat's cards started, in the order they started. */
@@ -471,6 +481,20 @@ const Row = memo(function Row(props: {
         {row.label}
       </div>
     );
+  if (row.kind === "run" && row.sender.kind === "person")
+    return (
+      <div
+        role="article"
+        aria-label="You"
+        className={cn("flex min-w-0 flex-col items-end gap-(--chat-run-gap)", space)}
+      >
+        {row.items.map((item, index) =>
+          item.kind === "person" ? (
+            <PersonItem key={item.key} item={item} when={row.whens[index]} />
+          ) : null,
+        )}
+      </div>
+    );
   if (row.kind === "run") {
     const other = row.sender.kind === "other" ? row.sender.agent : undefined;
     return (
@@ -542,6 +566,44 @@ function RunItem(props: {
           {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
         </>
       );
+      const doc = item.doc;
+      // A stored message offers Reply, quoting its words or its document's title.
+      const reply: SpadeQuote | undefined =
+        item.id && !item.live
+          ? {
+              id: item.id,
+              who: { kind: "bot" },
+              text: spadeQuoteLine(item.text || doc?.title || ""),
+            }
+          : undefined;
+      // A finished reply to another bot's message went back to it.
+      const replied = item.repliedTo && (
+        <p
+          data-replied-to={item.repliedTo.id}
+          className="ml-1 text-xs leading-4 text-subtle-foreground"
+        >
+          Replied to {item.repliedTo.name}
+        </p>
+      );
+      if (doc && !words)
+        return (
+          <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
+            <BubbleFrame
+              side="bot"
+              when={props.when}
+              copy={doc.text}
+              speak={undefined}
+              reply={reply}
+              quote={item.quote}
+              onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
+            >
+              <DocumentCard doc={doc} />
+            </BubbleFrame>
+            {media}
+            {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
+            {replied}
+          </div>
+        );
       return (
         <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
           {/* Its words went back to the bot that wrote, not to the person. */}
@@ -549,8 +611,10 @@ function RunItem(props: {
             <BubbleFrame
               side="bot"
               when={props.when}
-              copy={said && spadePlainText(said)}
+              copy={doc ? doc.text : said && spadePlainText(said)}
               speak={said}
+              reply={reply}
+              quote={item.quote}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
               work={item.live ? undefined : handlers.work(item.turn)}
             >
@@ -592,6 +656,7 @@ function RunItem(props: {
                   )
                 )}
               </div>
+              {doc && <DocumentCard doc={doc} />}
             </BubbleFrame>
           ) : (
             media
@@ -599,31 +664,36 @@ function RunItem(props: {
           {/* What its tools showed the person, after its words (ADR 0134). */}
           {words && media}
           {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
-          {/* A finished reply to another bot's message went back to it. */}
-          {item.repliedTo && (
-            <p
-              data-replied-to={item.repliedTo.id}
-              className="ml-1 text-xs leading-4 text-subtle-foreground"
-            >
-              Replied to {item.repliedTo.name}
-            </p>
-          )}
+          {replied}
         </div>
       );
     }
-    case "other":
+    case "other": {
+      // Another bot's message: split like a reply, with Reply naming that bot (ADR 0212).
+      const reply: SpadeQuote | undefined = item.id
+        ? {
+            id: item.id,
+            who: { kind: "member", name: item.agent.name },
+            text: spadeQuoteLine(item.text || item.doc?.title || ""),
+          }
+        : undefined;
       return (
         <BubbleFrame
           side="mine"
           when={props.when}
-          copy={spadePlainText(item.text)}
+          copy={item.doc ? item.doc.text : spadePlainText(item.text)}
           speak={undefined}
+          reply={reply}
         >
-          <div {...part("spade-message", undefined, "other")} className={cn(inputBubble, framed)}>
-            <SpadeBubbleText text={item.text} />
-          </div>
+          {item.text && (
+            <div {...part("spade-message", undefined, "other")} className={cn(inputBubble, framed)}>
+              <SpadeBubbleText text={item.text} />
+            </div>
+          )}
+          {item.doc && <DocumentCard doc={item.doc} />}
         </BubbleFrame>
       );
+    }
     case "steps":
       return (
         <SpadeStepsLine
@@ -767,37 +837,8 @@ function Single(props: {
     }
     case "person":
       return (
-        <div
-          role="article"
-          aria-label="You"
-          aria-busy={item.sending || undefined}
-          className={cn(
-            "flex flex-col items-end gap-(--chat-run-gap)",
-            item.sending && "opacity-70",
-            space,
-          )}
-        >
-          {item.fromThread && <FromThreadLine thread={item.fromThread} />}
-          {item.images.length > 0 && <Pictures images={item.images} side="person" />}
-          {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
-          {item.text && (
-            <BubbleFrame
-              side="mine"
-              when={props.when}
-              copy={spadePlainText(item.text)}
-              speak={undefined}
-            >
-              <div {...part("spade-message", undefined, "user")} className={cn(mineBubble, framed)}>
-                <SpadeBubbleText text={item.text} side="mine" />
-                {/* A voice message: its transcript, and the recording to play. */}
-                {item.voice && (
-                  <div className="-mx-2 mt-0.5 -mb-1 flex">
-                    <VoicePlay voice={item.voice} />
-                  </div>
-                )}
-              </div>
-            </BubbleFrame>
-          )}
+        <div role="article" aria-label="You" className={cn("flex flex-col items-end", space)}>
+          <PersonItem item={item} when={props.when} />
         </div>
       );
     case "task-paused":
@@ -893,4 +934,52 @@ function Single(props: {
     default:
       return null;
   }
+}
+
+/**
+ * One of the person's messages: the line from an ace thread, pictures, files, then the bubble,
+ * with the message it replies to quoted above it and Reply once it is stored.
+ */
+function PersonItem(props: {
+  item: Extract<SpadeChatItem, { kind: "person" }>;
+  when: string | undefined;
+}) {
+  const { item } = props;
+  const reply: SpadeQuote | undefined =
+    item.id && !item.sending
+      ? { id: item.id, who: { kind: "person" }, text: spadeQuoteLine(item.text) }
+      : undefined;
+  return (
+    <div
+      aria-busy={item.sending || undefined}
+      className={cn(
+        "flex w-full flex-col items-end gap-(--chat-run-gap)",
+        item.sending && "opacity-70",
+      )}
+    >
+      {item.fromThread && <FromThreadLine thread={item.fromThread} />}
+      {item.images.length > 0 && <Pictures images={item.images} side="person" />}
+      {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
+      {item.text && (
+        <BubbleFrame
+          side="mine"
+          when={props.when}
+          copy={spadePlainText(item.text)}
+          speak={undefined}
+          reply={reply}
+          quote={item.quote}
+        >
+          <div {...part("spade-message", undefined, "user")} className={cn(mineBubble, framed)}>
+            <SpadeBubbleText text={item.text} side="mine" />
+            {/* A voice message: its transcript, and the recording to play. */}
+            {item.voice && (
+              <div className="-mx-2 mt-0.5 -mb-1 flex">
+                <VoicePlay voice={item.voice} />
+              </div>
+            )}
+          </div>
+        </BubbleFrame>
+      )}
+    </div>
+  );
 }

@@ -82,6 +82,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     images: message.images,
     ...(message.documents ? { documents: message.documents } : {}),
     ...(message.voice ? { voice: message.voice } : {}),
+    ...(message.replyTo ? { replyTo: message.replyTo } : {}),
     pending: true,
   }));
   return {

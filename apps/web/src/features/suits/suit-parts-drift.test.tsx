@@ -427,7 +427,7 @@ const pagesScreen = [
   "stat",
   "chart",
   "filter-bar",
-  "label-chip",
+  // No label-chip: History's project filter is one menu now; the Code review pages draw it.
   "chat-row",
 ] as const;
 

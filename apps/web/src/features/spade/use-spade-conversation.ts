@@ -82,6 +82,19 @@ export function useSpadeConversation(conversation: string) {
         images: images.map((image) => image.ref),
         documents: (message.documents ?? []).map((document) => document.ref),
         ...(message.voice ? { voice: message.voice.ref } : {}),
+        // Until Spade stores what it quoted, the bubble quotes what the person picked.
+        ...(message.replyTo
+          ? {
+              replyTo: {
+                id: message.replyTo.id,
+                text: message.replyTo.text,
+                mine: message.replyTo.who.kind === "person",
+                ...(message.replyTo.who.kind === "member"
+                  ? { name: message.replyTo.who.name }
+                  : {}),
+              },
+            }
+          : {}),
       });
       try {
         await spadeHttp(client, "POST", `${path}/messages`, { body: spadeBody(message) });

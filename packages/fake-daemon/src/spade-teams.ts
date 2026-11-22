@@ -52,6 +52,8 @@ export interface FakeTeamsHost {
   /** Opens an empty conversation for a group. */
   openConversation(id: string): void;
   store(conversation: string, event: Json): void;
+  /** What a reply to message `id` of the conversation quoted, as Spade stores it. */
+  quoted(conversation: string, id: unknown): Json | undefined;
   emitStatus(
     conversation: string,
     state: string,
@@ -150,7 +152,14 @@ export class FakeSpadeTeams {
     if (sub === "messages" && method === "POST") {
       const text = String(body.text ?? "");
       const run = `run-${++this.sequence}`;
-      this.host.store(group.conversation, { type: "group_message", run, text, from: null });
+      const quoted = this.host.quoted(group.conversation, body.reply_to);
+      this.host.store(group.conversation, {
+        type: "group_message",
+        run,
+        text,
+        from: null,
+        ...(quoted ? { reply_to: quoted } : {}),
+      });
       group.last_message = { from: "person", text, at: this.host.now(), agent: null };
       return reply({ run }, 202);
     }
