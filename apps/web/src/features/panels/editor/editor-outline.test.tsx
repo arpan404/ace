@@ -11,7 +11,7 @@ import { Breadcrumbs } from "@/features/editor-workbench/view/breadcrumbs.tsx";
 import { EditorOutline } from "./editor-outline.tsx";
 import { GoToSymbolDialog } from "./go-to-symbol.tsx";
 import { editorKeys } from "./editor-keys.ts";
-import { noteBufferEdited } from "@/features/editor-workbench/view/use-file-outline.ts";
+import { noteBufferEdited } from "@/features/editor-workbench/index.ts";
 
 afterEach(cleanup);
 

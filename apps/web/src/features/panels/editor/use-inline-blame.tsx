@@ -1,7 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { CheckIcon, CopyIcon, GitCommitIcon } from "@ace/icons";
 import type { GitBlameCommit } from "@ace/protocol";
-import type { LineMark } from "@ace/ui-core";
 import {
   createContext,
   useCallback,
@@ -18,13 +17,22 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { HoverCardContent } from "@/components/ui/hover-card-content.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
+  onBufferEdits,
   useStatusReport,
   type StatusStore,
   type TextBuffer,
 } from "@/features/editor-workbench/index.ts";
 import { readGitBlame, type CommitDiffTarget } from "@/lib/git-history.ts";
-import type { AgentBlock } from "./agent-lines.ts";
-import { missingBlameChunks, resolveCaretBlame, type BlameAttribution } from "./inline-blame.ts";
+import {
+  blameChunkSize,
+  committedLineAt,
+  committedRange,
+  missingBlameChunks,
+  resolveCaretBlame,
+  type BlameAttribution,
+  type BlameRangeChunk,
+} from "./inline-blame.ts";
+import type { GutterState } from "./live-gutter.ts";
 
 export interface EditorBlameHost {
   statusStore: StatusStore;
@@ -42,9 +50,13 @@ interface BlameFileCache {
   lines: Map<number, string | null>;
   fetchedChunks: Set<number>;
   inflightChunks: Set<number>;
+  /** Fetched chunks, oldest first: past `maxChunksPerFile` the oldest is let go. */
+  chunkOrder: number[];
 }
 
 const maxCachedFiles = 24;
+/** Committed lines kept per file: `maxChunksPerFile` × `blameChunkSize`. */
+export const maxChunksPerFile = 24;
 const blameCache = new Map<string, BlameFileCache>();
 const cacheListeners = new Set<() => void>();
 
@@ -69,6 +81,7 @@ function getOrCreateCache(key: string): BlameFileCache {
     lines: new Map(),
     fetchedChunks: new Set(),
     inflightChunks: new Set(),
+    chunkOrder: [],
   };
   blameCache.set(key, entry);
   if (blameCache.size > maxCachedFiles) {
@@ -78,16 +91,48 @@ function getOrCreateCache(key: string): BlameFileCache {
   return entry;
 }
 
+/** Keeps a chunk's answer, letting the oldest chunk (and commits no line names) go past the cap. */
+function keepChunk(entry: BlameFileCache, chunk: BlameRangeChunk): void {
+  entry.fetchedChunks.add(chunk.index);
+  entry.chunkOrder.push(chunk.index);
+  while (entry.chunkOrder.length > maxChunksPerFile) {
+    const oldest = entry.chunkOrder.shift();
+    if (oldest === undefined) break;
+    entry.fetchedChunks.delete(oldest);
+    for (let line = oldest * blameChunkSize + 1; line <= (oldest + 1) * blameChunkSize; line++)
+      entry.lines.delete(line);
+  }
+  if (entry.commits.size > entry.lines.size) {
+    const named = new Set(entry.lines.values());
+    for (const sha of entry.commits.keys()) if (!named.has(sha)) entry.commits.delete(sha);
+  }
+}
+
 /** Clears cached blame ranges (used by tests between runs). */
 export function clearInlineBlameCache(): void {
   blameCache.clear();
   notifyCache();
 }
 
+/** How many committed lines of `path` at `commit` are held (bounded by `maxChunksPerFile`). */
+export function heldBlameLines(threadId: string, path: string, commit: string): number {
+  return blameCache.get(cacheKeyOf(threadId, path, commit))?.lines.size ?? 0;
+}
+
+function cacheKeyOf(threadId: string, path: string, commit: string): string {
+  return `${threadId}\u0000${path}\u0000${commit}`;
+}
+
 export interface VisibleRange {
   firstLine: number;
   lastLine: number;
   lineCount: number;
+}
+
+/** The live gutter's store, as blame reads it: its hunks against `commit` and when they hold. */
+export interface BlameGutter {
+  state(): GutterState;
+  subscribe(listener: () => void): () => void;
 }
 
 const inertStatusStore: StatusStore = {
@@ -97,12 +142,28 @@ const inertStatusStore: StatusStore = {
 };
 
 /**
- * Visible-range inline git blame for one editor pane:
- * - Off by default (`enabled: false` issues zero requests).
- * - Fetches `git.blame` for visible line chunks only, cached per `(threadId, path, head, diskVersion)`.
- * - Recomputes only when saved (`diskVersion` changes) or HEAD changes, never per keystroke.
- * - Renders a quiet end-of-line annotation on the caret line only, with a hover card showing the
- *   full commit and "Open changes".
+ * The gutter's state while its hunks were worked out on the buffer's text as it is now; undefined
+ * while typing has moved past them (the lines can't be mapped to the commit then).
+ */
+function currentGutter(gutter: BlameGutter, buffer: TextBuffer): GutterState | undefined {
+  const state = gutter.state();
+  const basis = state.basis;
+  // No committed text to compare with yet (an untracked file, or a read still out): lines map
+  // to themselves only while the text is what is on disk.
+  if (!basis) return state.hunks.length === 0 && !buffer.snapshot().dirty ? state : undefined;
+  const doc = buffer.document();
+  return doc !== undefined && basis.doc === doc && basis.version === doc.version()
+    ? state
+    : undefined;
+}
+
+/**
+ * Inline git blame on the caret line of one pane, off by default (no requests while off).
+ * Blame is read at `commit`, the commit the gutter's hunks compare the text against, for the
+ * committed lines behind the visible lines, in whole fixed chunks cached per file and commit (a
+ * blame at a commit never changes, so typing and saving never read it again). The caret line is
+ * mapped to its committed line through the hunks: a line added or changed since, saved or not,
+ * says "You · not committed yet", and nothing is said while the hunks are out of date.
  */
 export function useInlineBlame(input: {
   enabled: boolean;
@@ -110,9 +171,8 @@ export function useInlineBlame(input: {
   path: string;
   group: string;
   buffer: TextBuffer;
-  head: string | undefined;
-  agentBlocks: readonly AgentBlock[];
-  marks: ReadonlyMap<number, LineMark> | undefined;
+  commit: string | undefined;
+  gutter: BlameGutter;
   statusStore?: StatusStore | undefined;
   onOpenCommit?: ((target: CommitDiffTarget) => void) | undefined;
   now?: (() => number) | undefined;
@@ -120,23 +180,25 @@ export function useInlineBlame(input: {
   onVisibleRange: (range: VisibleRange) => void;
   caretAnnotation: { line: number; content: ReactNode } | undefined;
 } {
-  const {
-    enabled,
-    threadId,
-    path,
-    group,
-    buffer,
-    head,
-    agentBlocks,
-    marks,
-    statusStore,
-    onOpenCommit,
-  } = input;
+  const { enabled, threadId, path, group, buffer, commit, gutter, statusStore, onOpenCommit } =
+    input;
   const client = useClient();
 
-  const onBuffer = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
-  // `version` changes ONLY on load, save, or reload — never on typing keystrokes.
-  const diskVersion = useSyncExternalStore(onBuffer, () => buffer.snapshot().version);
+  // The gutter's state while it holds for the text as typed; rechecked on every edit.
+  const subscribeView = useCallback(
+    (changed: () => void) => {
+      const offs = [
+        gutter.subscribe(changed),
+        buffer.subscribe(changed),
+        onBufferEdits(buffer, changed),
+      ];
+      return () => {
+        for (const off of offs) off();
+      };
+    },
+    [gutter, buffer],
+  );
+  const view = useSyncExternalStore(subscribeView, () => currentGutter(gutter, buffer));
   const report = useStatusReport(statusStore ?? inertStatusStore, group);
   const caretLine = report?.status.line;
 
@@ -152,14 +214,16 @@ export function useInlineBlame(input: {
     );
   }, []);
 
-  const cacheKey = `${threadId}\u0000${path}\u0000${head ?? ""}\u0000${diskVersion ?? ""}`;
+  const cacheKey = commit === undefined ? undefined : cacheKeyOf(threadId, path, commit);
   const cacheTick = useSyncExternalStore(subscribeCache, () => {
-    const entry = blameCache.get(cacheKey);
-    return entry ? `${entry.fetchedChunks.size}:${entry.lines.size}` : "";
+    const entry = cacheKey === undefined ? undefined : blameCache.get(cacheKey);
+    return entry
+      ? `${entry.fetchedChunks.size}:${entry.lines.size}:${entry.chunkOrder.at(-1)}`
+      : "";
   });
 
-  // One abort scope per file version: scrolling never cancels a read still on screen, while a
-  // save, a new HEAD, another file or turning blame off drops what is in flight.
+  // One abort scope per file and commit: scrolling never cancels a read still on screen, while
+  // a new commit, another file or turning blame off drops what is in flight.
   const scope = useRef<{ key: string; controller: AbortController } | undefined>(undefined);
   useEffect(
     () => () => {
@@ -169,15 +233,15 @@ export function useInlineBlame(input: {
     [enabled, cacheKey],
   );
 
+  const hunks = view?.hunks;
   useEffect(() => {
-    if (!enabled || !visible) return;
+    if (!enabled || !visible || !hunks || commit === undefined || cacheKey === undefined) return;
+    const range = committedRange(hunks, visible.firstLine, visible.lastLine);
+    if (!range) return;
     const entry = getOrCreateCache(cacheKey);
-    const missing = missingBlameChunks(
-      entry.fetchedChunks,
-      visible.firstLine,
-      visible.lastLine,
-      visible.lineCount,
-    ).filter((chunk) => !entry.inflightChunks.has(chunk.index));
+    const missing = missingBlameChunks(entry.fetchedChunks, range.first, range.last).filter(
+      (chunk) => !entry.inflightChunks.has(chunk.index),
+    );
     if (missing.length === 0) return;
     if (scope.current?.key !== cacheKey) {
       scope.current?.controller.abort();
@@ -189,40 +253,42 @@ export function useInlineBlame(input: {
       const settle = () => {
         entry.inflightChunks.delete(chunk.index);
         if (signal.aborted) return false;
-        // A failed read is not asked again for this file version: no request storm on scroll.
-        entry.fetchedChunks.add(chunk.index);
+        // A failed read is not asked again for this commit: no request storm on scroll.
+        keepChunk(entry, chunk);
         return true;
       };
-      void readGitBlame(client, threadId, path, chunk.startLine, chunk.endLine, signal).then(
+      const asked = { commit, startLine: chunk.startLine, endLine: chunk.endLine };
+      void readGitBlame(client, threadId, path, asked, signal).then(
         (result) => {
-          if (!settle()) return;
-          for (const commit of result.commits) entry.commits.set(commit.sha, commit);
+          for (const commitInfo of result.commits) entry.commits.set(commitInfo.sha, commitInfo);
           for (const item of result.lines) entry.lines.set(item.line, item.sha);
-          // A line git has no history for (an untracked file, past the end on disk) is not
-          // committed yet; a capped read proves nothing about the lines it left out.
+          // A line git has no history for at the commit (an untracked file) is not committed
+          // yet; a capped read proves nothing about the lines it left out.
           if (!result.capped)
             for (let line = chunk.startLine; line <= chunk.endLine; line++)
               if (!entry.lines.has(line)) entry.lines.set(line, null);
-          notifyCache();
+          if (settle()) notifyCache();
         },
         () => {
           if (settle()) notifyCache();
         },
       );
     }
-  }, [enabled, client, threadId, path, cacheKey, visible]);
+  }, [enabled, client, threadId, path, commit, cacheKey, visible, hunks]);
 
   const [now] = useState(() => (input.now ?? Date.now)());
 
-  // Recomputed when the caret moves or a chunk lands (`cacheTick`); it is a few map reads.
-  const entry = cacheTick === "" ? undefined : blameCache.get(cacheKey);
+  // Recomputed when the caret moves, the hunks change or a chunk lands; a few map reads.
+  const entry = cacheTick === "" || cacheKey === undefined ? undefined : blameCache.get(cacheKey);
+  const committedLine =
+    caretLine === undefined || !view ? undefined : committedLineAt(view.hunks, caretLine);
   const attribution: BlameAttribution | undefined =
-    enabled && caretLine !== undefined
+    enabled && caretLine !== undefined && view
       ? resolveCaretBlame({
           caretLine,
-          agentBlocks,
-          marks,
-          lineSha: entry?.lines.get(caretLine),
+          agentBlocks: view.agent,
+          committedLine,
+          lineSha: typeof committedLine === "number" ? entry?.lines.get(committedLine) : undefined,
           commits: entry?.commits ?? emptyCommits,
           now,
         })

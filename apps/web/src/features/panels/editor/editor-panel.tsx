@@ -769,12 +769,12 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
     path,
     group: editor.group,
     buffer,
-    head: gutter.head,
-    agentBlocks: gutter.agentBlocks,
-    marks: gutter.marks,
+    commit: gutter.head,
+    gutter: liveGutterFor(buffer),
     statusStore: blameHost?.statusStore,
     onOpenCommit: blameHost?.openCommitDiff,
   });
+
   // A turn under review shows its hunks inline, to keep, revert or comment on (Review in editor).
   const review = useTurnReview({
     threadId,

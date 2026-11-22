@@ -1,6 +1,7 @@
 import type { OutlineSymbol } from "@ace/ui-core/editor-workbench";
 import { useEffect, useSyncExternalStore } from "react";
 import { outlinePort, type OutlinePort, type TextBuffer } from "../buffers/index.ts";
+import { onBufferEdits } from "./buffer-edits.ts";
 
 /** Wait this long after an edit before asking the worker for fresh symbols. */
 export const outlineDebounceMs = 300;
@@ -15,13 +16,12 @@ const emptySymbols: readonly OutlineSymbol[] = [];
 
 /*
  * One outline per buffer, shared by the breadcrumbs, the Outline view and Go to symbol, so a file
- * is read once per settled edit, never once per consumer. Typing does not emit buffer events (a
- * view's own edits are silent), so the view reports edits here through `noteBufferEdited`.
+ * is read once per settled edit, never once per consumer. Edits are heard through
+ * `onBufferEdits` (a view's own typing emits no buffer event).
  */
 const cache = new Map<TextBuffer, CacheEntry>();
 const pending = new Map<TextBuffer, string>();
 const listeners = new Set<() => void>();
-const editListeners = new WeakMap<TextBuffer, Set<() => void>>();
 
 function notify(): void {
   for (const listener of listeners) listener();
@@ -40,22 +40,6 @@ function setCached(buffer: TextBuffer, key: string, symbols: readonly OutlineSym
     if (oldest) cache.delete(oldest);
   }
   notify();
-}
-
-/** A view typed into `buffer`: outlines of it are read again once typing pauses. */
-export function noteBufferEdited(buffer: TextBuffer): void {
-  const heard = editListeners.get(buffer);
-  if (heard) for (const listener of heard) listener();
-}
-
-function onEdits(buffer: TextBuffer, listener: () => void): () => void {
-  let heard = editListeners.get(buffer);
-  if (!heard) {
-    heard = new Set();
-    editListeners.set(buffer, heard);
-  }
-  heard.add(listener);
-  return () => void heard.delete(listener);
 }
 
 function stampOf(buffer: TextBuffer, language: string | undefined): string | undefined {
@@ -122,7 +106,7 @@ export function useFileOutline(
 
     changed();
     const offBuffer = buffer.subscribe(changed);
-    const offEdits = onEdits(buffer, changed);
+    const offEdits = onBufferEdits(buffer, changed);
     return () => {
       disposed = true;
       if (timer !== undefined) clearTimeout(timer);

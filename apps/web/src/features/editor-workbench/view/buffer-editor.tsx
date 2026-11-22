@@ -6,7 +6,7 @@ import {
   type EditorStatusActions,
 } from "@/features/editor";
 import type { BufferEditorProps } from "./editor-host.ts";
-import { noteBufferEdited } from "./use-file-outline.ts";
+import { noteBufferEdited } from "./buffer-edits.ts";
 
 /**
  * A group's shown editor: `CodeEditor` on the buffer's shared document (spec 56), so every view

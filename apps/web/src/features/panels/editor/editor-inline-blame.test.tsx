@@ -1,19 +1,29 @@
 // @vitest-environment jsdom
 import { ClientProvider } from "@ace/client-react";
+import type { EditorDocument } from "@ace/editor";
 import { FakeDaemon } from "@ace/fake-daemon";
-import type { LineMark } from "@ace/ui-core";
+import type { GitBlameCommit } from "@ace/protocol";
+import { hunksFromChanges, type WholeLineChange } from "@ace/ui-core";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   createStatusStore,
+  noteBufferEdited,
   type StatusReport,
   type TextBuffer,
 } from "@/features/editor-workbench/index.ts";
 import { defaultEditorPreferences } from "@/lib/editor-preferences.ts";
 import { fakeClient } from "@/test/fake-client.ts";
 import type { AgentBlock } from "./agent-lines.ts";
-import { clearInlineBlameCache, useInlineBlame } from "./use-inline-blame.tsx";
+import type { GutterState } from "./live-gutter.ts";
+import {
+  clearInlineBlameCache,
+  heldBlameLines,
+  maxChunksPerFile,
+  useInlineBlame,
+  type BlameGutter,
+} from "./use-inline-blame.tsx";
 
 afterEach(() => {
   cleanup();
@@ -21,16 +31,30 @@ afterEach(() => {
 });
 
 const threadId = "thread-blame";
+const path = "src/app.ts";
 const nowMs = 1_700_000_000_000;
 const headSha = "b".repeat(40);
 const nextHeadSha = "c".repeat(40);
+const olderSha = "d".repeat(40);
 
-function makeFakeBuffer(path: string, initialVersion = "v1") {
-  let version = initialVersion;
-  const listeners = new Set<() => void>();
+function author(sha: string, name: string, subject: string): GitBlameCommit {
+  return {
+    sha,
+    shortSha: sha.slice(0, 7),
+    subject,
+    authorName: name,
+    authorEmail: `${name.toLowerCase()}@example.invalid`,
+    authoredAt: nowMs - 3 * 86_400_000,
+  };
+}
+
+/** A buffer whose document's version moves as the person types. */
+function fakeBuffer() {
+  let version = 1;
+  const doc = { version: () => version };
   const buffer: TextBuffer = {
     key: { root: threadId, path },
-    document: () => undefined,
+    document: () => doc as unknown as EditorDocument,
     view: () => undefined,
     snapshot: () => ({
       path,
@@ -40,21 +64,14 @@ function makeFakeBuffer(path: string, initialVersion = "v1") {
       clash: undefined,
       draftKept: false,
       manualSave: false,
-      version,
+      version: "v1",
     }),
     baseText: () => "",
-    subscribe: (listener) => {
-      const wrap = () => listener({ type: "state" });
-      listeners.add(wrap);
-      return () => void listeners.delete(wrap);
-    },
-    edited: () => {
-      // Typing emits buffer events without changing disk version.
-      for (const listener of listeners) listener();
-    },
+    subscribe: () => () => {},
+    edited: () => {},
     editLines: () => false,
-    save: async () => ({ kind: "saved", version }),
-    replace: async () => ({ kind: "saved", version }),
+    save: async () => ({ kind: "saved", version: "v1" }),
+    replace: async () => ({ kind: "saved", version: "v1" }),
     merge: async () => {},
     keepMine: async () => {},
     takeTheirs: async () => {},
@@ -66,8 +83,44 @@ function makeFakeBuffer(path: string, initialVersion = "v1") {
   };
   return {
     buffer,
-    bumpDiskVersion(next: string) {
-      version = next;
+    doc,
+    type() {
+      version++;
+      noteBufferEdited(buffer);
+    },
+  };
+}
+
+/** The live gutter as blame reads it: hunks worked out on the document at its version. */
+function fakeGutter(doc: { version(): number }) {
+  const listeners = new Set<() => void>();
+  let state: GutterState = { hunks: [], marks: undefined, agent: [] };
+  const gutter: BlameGutter = {
+    state: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+  return {
+    gutter,
+    /** The gutter worked the hunks out again on the text as it is now. */
+    settle(
+      lines: readonly string[],
+      changes: readonly WholeLineChange[],
+      agent: AgentBlock[] = [],
+    ) {
+      state = {
+        hunks: hunksFromChanges(changes, (line) => lines[line] ?? "", lines.length),
+        marks: undefined,
+        agent,
+        basis: {
+          doc: doc as unknown as EditorDocument,
+          version: doc.version(),
+          head: "",
+          generation: "",
+        },
+      };
       for (const listener of listeners) listener();
     },
   };
@@ -101,187 +154,235 @@ function statusAt(line: number): StatusReport {
 function BlameProbe(props: {
   enabled: boolean;
   buffer: TextBuffer;
-  head: string | undefined;
+  commit: string | undefined;
+  gutter: BlameGutter;
   statusStore: ReturnType<typeof createStatusStore>;
-  agentBlocks?: readonly AgentBlock[];
-  marks?: ReadonlyMap<number, LineMark>;
+  first?: number;
   onOpenCommit?: (target: { sha: string; path: string }) => void;
 }) {
   const { onVisibleRange, caretAnnotation } = useInlineBlame({
     enabled: props.enabled,
     threadId,
-    path: "src/app.ts",
+    path,
     group: "g1",
     buffer: props.buffer,
-    head: props.head,
-    agentBlocks: props.agentBlocks ?? [],
-    marks: props.marks,
+    commit: props.commit,
+    gutter: props.gutter,
     statusStore: props.statusStore,
     onOpenCommit: props.onOpenCommit,
     now: () => nowMs,
   });
-
+  const first = props.first ?? 1;
   useEffect(() => {
-    onVisibleRange({ firstLine: 1, lastLine: 20, lineCount: 20 });
-  }, [onVisibleRange]);
+    onVisibleRange({ firstLine: first, lastLine: first + 19, lineCount: first + 19 });
+  }, [onVisibleRange, first]);
+  return <div data-testid="caret-line">{caretAnnotation?.content ?? null}</div>;
+}
 
-  return (
-    <div data-testid="caret-line" data-line={caretAnnotation?.line ?? ""}>
-      {caretAnnotation?.content ?? null}
-    </div>
-  );
+async function connected(daemon: FakeDaemon) {
+  const client = fakeClient(daemon);
+  const spy = vi.spyOn(client, "request");
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const blameRequests = () =>
+    spy.mock.calls.flatMap(([req]) =>
+      req.type === "workspace.request" && req.operation.op === "git.blame" ? [req.operation] : [],
+    );
+  return { client, blameRequests };
+}
+
+function setup() {
+  const typing = fakeBuffer();
+  const gutter = fakeGutter(typing.doc);
+  const statusStore = createStatusStore();
+  statusStore.report("g1", statusAt(1));
+  return { typing, gutter, statusStore };
 }
 
 describe("Inline git blame", () => {
   test("is off by default and makes no git.blame requests while disabled", async () => {
     expect(defaultEditorPreferences.inlineBlame).toBe(false);
-
-    const daemon = new FakeDaemon({ clock: () => nowMs });
-    const client = fakeClient(daemon);
-    const spy = vi.spyOn(client, "request");
-    await client.start();
-    await waitFor(() => expect(client.state).toBe("ready"));
-
-    const { buffer } = makeFakeBuffer("src/app.ts");
-    const statusStore = createStatusStore();
-    statusStore.report("g1", statusAt(1));
+    const { client, blameRequests } = await connected(new FakeDaemon({ clock: () => nowMs }));
+    const { typing, gutter, statusStore } = setup();
 
     render(
       <ClientProvider client={client}>
-        <BlameProbe enabled={false} buffer={buffer} head={headSha} statusStore={statusStore} />
+        <BlameProbe
+          enabled={false}
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
+          statusStore={statusStore}
+        />
       </ClientProvider>,
     );
 
     expect(screen.getByTestId("caret-line").textContent).toBe("");
-    const blameCalls = spy.mock.calls.filter(
-      ([req]) => req.type === "workspace.request" && req.operation.op === "git.blame",
-    );
-    expect(blameCalls).toHaveLength(0);
+    expect(blameRequests()).toHaveLength(0);
   });
 
-  test("a file git has no history for says it is not committed yet", async () => {
-    const daemon = new FakeDaemon({ clock: () => nowMs });
-    const client = fakeClient(daemon);
-    await client.start();
-    await waitFor(() => expect(client.state).toBe("ready"));
-    const { buffer } = makeFakeBuffer("src/app.ts");
-    const statusStore = createStatusStore();
+  test("a file git has no history for says it is not committed yet, after asking git", async () => {
+    const { client, blameRequests } = await connected(new FakeDaemon({ clock: () => nowMs }));
+    const { typing, gutter, statusStore } = setup();
     statusStore.report("g1", statusAt(3));
 
     render(
       <ClientProvider client={client}>
-        <BlameProbe enabled buffer={buffer} head={headSha} statusStore={statusStore} />
+        <BlameProbe
+          enabled
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
+          statusStore={statusStore}
+        />
       </ClientProvider>,
     );
 
     expect(await screen.findByText("You · not committed yet")).toBeTruthy();
+    expect(blameRequests()).toEqual([
+      expect.objectContaining({ path, commit: headSha, startLine: 1, endLine: 120 }),
+    ]);
   });
 
-  test("shows committed, uncommitted, and agent lines on the caret line, caches across keystrokes, and recomputes on save or HEAD change", async () => {
+  test("after an unsaved deletion the next line keeps its own author, never the deleted line's", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
-    daemon.workspace.setGitBlame(threadId, "src/app.ts", {
-      commits: [
-        {
-          sha: headSha,
-          shortSha: headSha.slice(0, 7),
-          subject: "Wire inline blame",
-          authorName: "Arpan",
-          authorEmail: "arpan@example.invalid",
-          authoredAt: nowMs - 3 * 86_400_000,
-        },
-      ],
+    daemon.workspace.setGitBlame(threadId, path, {
+      commits: [author(olderSha, "Robin", "First line"), author(headSha, "Sam", "Second line")],
       lines: [
-        { line: 1, sha: headSha },
-        { line: 2, sha: null },
+        { line: 1, sha: olderSha },
+        { line: 2, sha: headSha },
         { line: 3, sha: headSha },
       ],
-      capped: false,
     });
+    const { client, blameRequests } = await connected(daemon);
+    const { typing, gutter, statusStore } = setup();
+    gutter.settle(["first", "second", "third"], []);
 
-    const client = fakeClient(daemon);
-    const spy = vi.spyOn(client, "request");
-    await client.start();
-    await waitFor(() => expect(client.state).toBe("ready"));
-
-    const { buffer, bumpDiskVersion } = makeFakeBuffer("src/app.ts", "v1");
-    const statusStore = createStatusStore();
-    statusStore.report("g1", statusAt(1));
-    const onOpenCommit = vi.fn();
-    const agentBlocks: AgentBlock[] = [
-      { start: 2, end: 3, who: { name: "Claude Code", turn: 4 }, at: nowMs - 60_000 },
-    ];
-
-    const view = render(
+    render(
       <ClientProvider client={client}>
         <BlameProbe
           enabled
-          buffer={buffer}
-          head={headSha}
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
           statusStore={statusStore}
-          agentBlocks={agentBlocks}
-          onOpenCommit={onOpenCommit}
         />
       </ClientProvider>,
     );
+    expect(
+      await screen.findByRole("button", { name: "Robin, 3 days ago · First line" }),
+    ).toBeTruthy();
 
-    const committed = await screen.findByRole("button", {
-      name: "Arpan, 3 days ago · Wire inline blame",
-    });
-    expect(committed).toBeTruthy();
+    // The person deletes line 1 without saving: until the gutter has caught up nothing is said.
+    act(() => typing.type());
+    expect(screen.getByTestId("caret-line").textContent).toBe("");
+    // The gutter's hunks now say committed line 1 was removed: editor line 1 is committed line 2.
+    act(() => gutter.settle(["second", "third"], [{ start: 0, end: 0, text: "first\n" }]));
+    expect(screen.getByRole("button", { name: "Sam, 3 days ago · Second line" })).toBeTruthy();
 
-    const blameCallCount = () =>
-      spy.mock.calls.filter(
-        ([req]) => req.type === "workspace.request" && req.operation.op === "git.blame",
-      ).length;
-    expect(blameCallCount()).toBe(1);
-
-    // Typing keystrokes (buffer edits without disk version change) must NOT re-fetch git.blame.
-    act(() => {
-      buffer.edited();
-      buffer.edited();
-    });
-    expect(blameCallCount()).toBe(1);
-
-    // Caret moving to an uncommitted line says "You · not committed yet" without another request.
-    act(() => statusStore.report("g1", statusAt(2)));
+    // A line typed in its place (unsaved) is not committed yet.
+    act(() => typing.type());
+    act(() => gutter.settle(["new", "second", "third"], [{ start: 0, end: 1, text: "first\n" }]));
     expect(screen.getByText("You · not committed yet")).toBeTruthy();
-    expect(blameCallCount()).toBe(1);
+    // Typing never asks git again: the blame is of the commit, which does not change.
+    expect(blameRequests()).toHaveLength(1);
+  });
 
-    // Caret moving to an agent-authored line says the agent's name.
-    act(() => statusStore.report("g1", statusAt(3)));
-    expect(screen.getByText("Claude Code, 1 minute ago · turn 4")).toBeTruthy();
-    expect(blameCallCount()).toBe(1);
-
-    // Saving (disk version changes) recomputes blame for the visible range.
-    act(() => bumpDiskVersion("v2"));
-    await waitFor(() => expect(blameCallCount()).toBe(2));
-
-    // A HEAD change also recomputes blame for the visible range.
-    view.rerender(
+  test("lines an agent wrote say the agent's name", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitBlame(threadId, path, {
+      commits: [author(headSha, "Sam", "Second line")],
+      lines: [{ line: 1, sha: headSha }],
+    });
+    const { client } = await connected(daemon);
+    const { typing, gutter, statusStore } = setup();
+    gutter.settle(
+      ["a"],
+      [],
+      [{ start: 0, end: 1, who: { name: "Builder", turn: 4 }, at: nowMs - 60_000 }],
+    );
+    render(
       <ClientProvider client={client}>
         <BlameProbe
           enabled
-          buffer={buffer}
-          head={nextHeadSha}
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
           statusStore={statusStore}
-          agentBlocks={agentBlocks}
-          onOpenCommit={onOpenCommit}
         />
       </ClientProvider>,
     );
-    await waitFor(() => expect(blameCallCount()).toBe(3));
+    expect(await screen.findByText("Builder, 1 minute ago · turn 4")).toBeTruthy();
+  });
 
-    // Clicking/hovering a committed annotation opens the commit card with "Open changes".
-    act(() => statusStore.report("g1", statusAt(1)));
-    const trigger = await screen.findByRole("button", {
-      name: "Arpan, 3 days ago · Wire inline blame",
-    });
-    fireEvent.mouseEnter(trigger);
-    fireEvent.focus(trigger);
-    const openBtn = await screen.findByRole("button", { name: "Open changes" });
-    fireEvent.click(openBtn);
-    expect(onOpenCommit).toHaveBeenCalledWith(
-      expect.objectContaining({ sha: headSha, path: "src/app.ts" }),
+  test("a new commit reads blame at that commit and shows its author", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitBlame(
+      threadId,
+      path,
+      { commits: [author(headSha, "Sam", "Before")], lines: [{ line: 1, sha: headSha }] },
+      headSha,
     );
+    daemon.workspace.setGitBlame(
+      threadId,
+      path,
+      { commits: [author(nextHeadSha, "Kai", "After")], lines: [{ line: 1, sha: nextHeadSha }] },
+      nextHeadSha,
+    );
+    const { client, blameRequests } = await connected(daemon);
+    const { typing, gutter, statusStore } = setup();
+    const onOpenCommit = vi.fn();
+    const probe = (commit: string) => (
+      <ClientProvider client={client}>
+        <BlameProbe
+          enabled
+          buffer={typing.buffer}
+          commit={commit}
+          gutter={gutter.gutter}
+          statusStore={statusStore}
+          onOpenCommit={onOpenCommit}
+        />
+      </ClientProvider>
+    );
+    const view = render(probe(headSha));
+    expect(await screen.findByRole("button", { name: "Sam, 3 days ago · Before" })).toBeTruthy();
+
+    view.rerender(probe(nextHeadSha));
+    const after = await screen.findByRole("button", { name: "Kai, 3 days ago · After" });
+    expect(blameRequests().at(-1)).toEqual(
+      expect.objectContaining({ commit: nextHeadSha, startLine: 1, endLine: 120 }),
+    );
+
+    // Hovering the annotation offers the commit's changes.
+    fireEvent.mouseEnter(after);
+    fireEvent.focus(after);
+    fireEvent.click(await screen.findByRole("button", { name: "Open changes" }));
+    expect(onOpenCommit).toHaveBeenCalledWith(expect.objectContaining({ sha: nextHeadSha, path }));
+  });
+
+  test("scrolling through a long file keeps a bounded number of blamed lines", async () => {
+    const { client } = await connected(new FakeDaemon({ clock: () => nowMs }));
+    const { typing, gutter, statusStore } = setup();
+    const probe = (first: number) => (
+      <ClientProvider client={client}>
+        <BlameProbe
+          enabled
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
+          statusStore={statusStore}
+          first={first}
+        />
+      </ClientProvider>
+    );
+    const view = render(probe(1));
+    for (let chunk = 1; chunk <= maxChunksPerFile + 6; chunk++) {
+      view.rerender(probe(chunk * 120 + 1));
+      await waitFor(() =>
+        expect(heldBlameLines(threadId, path, headSha)).toBe(
+          Math.min(chunk + 1, maxChunksPerFile) * 120,
+        ),
+      );
+    }
   });
 });

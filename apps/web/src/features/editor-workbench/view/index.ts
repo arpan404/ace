@@ -8,6 +8,7 @@ export { Editor, type EditorProps } from "./editor.tsx";
 export { OpenEditors } from "./open-editors.tsx";
 export { SymbolIcon, symbolKindLabel } from "./symbol-icon.tsx";
 export { useFileOutline, outlineDebounceMs, type FileOutlineState } from "./use-file-outline.ts";
+export { noteBufferEdited, onBufferEdits } from "./buffer-edits.ts";
 export { createStatusStore, useStatusReport, type StatusStore } from "./status-store.ts";
 export type { EditorLayoutProps } from "./group-actions.ts";
 export { paneCapReason } from "./group-actions.ts";
