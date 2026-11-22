@@ -1,12 +1,9 @@
 import type {
-  BranchRef,
   CommandPayload,
   CommandResult,
-  GitStashEntry,
   GitStatusFile,
   GitStatusSectionEntry,
 } from "@ace/protocol";
-import { fakeBranchRefs } from "./worktree-base.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 
 /** A seeded status entry; its fingerprint defaults to a first version. */
@@ -26,27 +23,16 @@ export interface FakeSourceControlSeed {
   unstaged?: readonly FakeSectionSeed[] | undefined;
   untracked?: readonly FakeSectionSeed[] | undefined;
   conflicted?: readonly FakeSectionSeed[] | undefined;
-  stashes?: readonly GitStashEntry[] | undefined;
-  branches?: readonly string[] | undefined;
-  refs?: readonly BranchRef[] | undefined;
   upstream?: string | null | undefined;
   ahead?: number | undefined;
   behind?: number | undefined;
   detached?: boolean | undefined;
-  pullError?: string | undefined;
-  /** What a failed pull's fetch still learned: the remote moved this far ahead. */
-  pullErrorBehind?: number | undefined;
-  /** HEAD's text of tracked files: a discard writes it back into the checkout. */
-  committed?: Readonly<Record<string, string>> | undefined;
-  /** What switching to a branch writes into the checkout (null: the file goes). */
-  branchFiles?: Readonly<Record<string, Readonly<Record<string, string | null>>>> | undefined;
-  /** What a successful pull writes into the checkout (null: the file goes). */
-  incoming?: Readonly<Record<string, string | null>> | undefined;
-}
-
-/** The thread's checkout as the fake files wire keeps it: what Git actions write into. */
-export interface FakeCheckoutDisk {
-  write(threadId: string, path: string, text: string | null): void;
+  /** `git.fetch` fails with this code. */
+  fetchError?: string | undefined;
+  /** What a failed fetch still learned from the remotes it reached: this many behind. */
+  fetchErrorBehind?: number | undefined;
+  /** Someone committed between the review and the commit: it lands on top, and says so. */
+  branchMovesOnCommit?: boolean | undefined;
 }
 
 interface ThreadSourceControl {
@@ -54,23 +40,13 @@ interface ThreadSourceControl {
   unstaged: GitStatusSectionEntry[];
   untracked: GitStatusSectionEntry[];
   conflicted: GitStatusSectionEntry[];
-  stashes: {
-    entry: GitStashEntry;
-    staged: GitStatusSectionEntry[];
-    unstaged: GitStatusSectionEntry[];
-    untracked: GitStatusSectionEntry[];
-  }[];
-  branches: string[];
-  refs: BranchRef[];
   upstream: string | null;
   ahead: number;
   behind: number;
   detached: boolean;
-  pullError?: string | undefined;
-  pullErrorBehind?: number | undefined;
-  committed: Readonly<Record<string, string>>;
-  branchFiles: Readonly<Record<string, Readonly<Record<string, string | null>>>>;
-  incoming: Readonly<Record<string, string | null>>;
+  fetchError?: string | undefined;
+  fetchErrorBehind?: number | undefined;
+  branchMovesOnCommit: boolean;
   commits: { message: string; amend: boolean; stagedOnly: boolean; head: string }[];
   /** Bumped whenever the staged set changes, like the daemon's index fingerprint. */
   indexVersion: number;
@@ -124,28 +100,17 @@ function flatFilesOf(state: ThreadSourceControl): GitStatusFile[] {
   return byPath([...map.values()]);
 }
 
-function isBusy(state: string | undefined): boolean {
-  return state === "working" || state === "needs_you" || state === "waiting";
-}
-
+/**
+ * Source control for fake threads: `git.status` sections, staging, fetch and reviewed commits,
+ * answered as the daemon would.
+ */
 export class FakeSourceControlWire {
   private states = new Map<string, ThreadSourceControl>();
   private commitSeq = 0;
   private context: FakeServiceContext;
 
-  private disk: FakeCheckoutDisk | undefined;
-
   constructor(context: FakeServiceContext) {
     this.context = context;
-  }
-
-  /** Let Git actions change the checkout's files, as the daemon's real ones do. */
-  useDisk(disk: FakeCheckoutDisk): void {
-    this.disk = disk;
-  }
-
-  private writeAll(threadId: string, files: Readonly<Record<string, string | null>>): void {
-    for (const [path, text] of Object.entries(files)) this.disk?.write(threadId, path, text);
   }
 
   private ensure(threadId: string, fallbackFiles: readonly GitStatusFile[]): ThreadSourceControl {
@@ -159,18 +124,13 @@ export class FakeSourceControlWire {
         unstaged: derived.unstaged,
         untracked: derived.untracked,
         conflicted: [],
-        stashes: [],
-        branches: [...new Set([branch, "main", "develop"])],
-        refs: [...fakeBranchRefs],
         upstream: `origin/${branch}`,
         ahead: thread?.details?.ahead ?? 0,
         behind: thread?.details?.behind ?? 0,
         detached: false,
+        branchMovesOnCommit: false,
         commits: [],
         indexVersion: 0,
-        committed: {},
-        branchFiles: {},
-        incoming: {},
       };
       this.states.set(threadId, state);
     }
@@ -193,29 +153,18 @@ export class FakeSourceControlWire {
     if (seed.unstaged !== undefined) state.unstaged = byPath(seed.unstaged.map(printed));
     if (seed.untracked !== undefined) state.untracked = byPath(seed.untracked.map(printed));
     if (seed.conflicted !== undefined) state.conflicted = byPath(seed.conflicted.map(printed));
-    if (seed.stashes !== undefined) {
-      state.stashes = seed.stashes.map((entry) => ({
-        entry,
-        staged: [],
-        unstaged: [],
-        untracked: [],
-      }));
-    }
-    if (seed.branches !== undefined) state.branches = [...seed.branches];
-    if (seed.refs !== undefined) state.refs = [...seed.refs];
     if (seed.upstream !== undefined) state.upstream = seed.upstream;
     if (seed.ahead !== undefined) state.ahead = seed.ahead;
     if (seed.behind !== undefined) state.behind = seed.behind;
     if (seed.detached !== undefined) state.detached = seed.detached;
-    if (seed.pullError !== undefined) state.pullError = seed.pullError;
-    if (seed.pullErrorBehind !== undefined) state.pullErrorBehind = seed.pullErrorBehind;
-    if (seed.committed !== undefined) state.committed = seed.committed;
-    if (seed.branchFiles !== undefined) state.branchFiles = seed.branchFiles;
-    if (seed.incoming !== undefined) state.incoming = seed.incoming;
+    if (seed.fetchError !== undefined) state.fetchError = seed.fetchError;
+    if (seed.fetchErrorBehind !== undefined) state.fetchErrorBehind = seed.fetchErrorBehind;
+    if (seed.branchMovesOnCommit !== undefined)
+      state.branchMovesOnCommit = seed.branchMovesOnCommit;
     this.syncDetails(threadId, state);
   }
 
-  /** Someone (an agent, another tab) changed `path` on disk after a status was read. */
+  /** Someone changed `path` on disk after a status was read: its fingerprint moves. */
   touch(threadId: string, path: string): void {
     const state = this.states.get(threadId);
     if (!state) return;
@@ -278,43 +227,6 @@ export class FakeSourceControlWire {
     return state ? flatFilesOf(state) : [];
   }
 
-  branches(threadId: string) {
-    const state = this.ensure(threadId, []);
-    const thread = this.context.thread(threadId)?.thread;
-    const current = state.detached ? null : (thread?.details?.branch ?? "main");
-    return {
-      kind: "branches" as const,
-      branches: [...state.branches],
-      truncated: false,
-      refs: [...state.refs],
-      defaultBranch: "main",
-      current,
-      detached: state.detached,
-      unbornHead: false,
-    };
-  }
-
-  stashes(threadId: string) {
-    const state = this.states.get(threadId);
-    return {
-      kind: "gitStashes" as const,
-      stashes: (state?.stashes ?? []).map((item, index): GitStashEntry =>
-        item.entry.branch !== undefined
-          ? {
-              ref: `stash@{${index}}`,
-              index,
-              message: item.entry.message,
-              branch: item.entry.branch,
-            }
-          : {
-              ref: `stash@{${index}}`,
-              index,
-              message: item.entry.message,
-            },
-      ),
-    };
-  }
-
   commit(
     threadId: string,
     payload: Extract<CommandPayload, { type: "git.commit" }>,
@@ -339,8 +251,8 @@ export class FakeSourceControlWire {
       if (payload.reviewed.some((file) => shown.get(file.path) !== file.fingerprint))
         return { ok: false, error: "git_changed_since_review" };
     }
-    state.indexVersion += 1;
     if (state.conflicted.length > 0) return { ok: false, error: "git_conflicts" };
+    state.indexVersion += 1;
     if (payload.amend && !thread?.details?.head) return { ok: false, error: "git_unborn_head" };
     if (payload.stagedOnly && !payload.paths) {
       if (!payload.amend && state.staged.length === 0) {
@@ -374,178 +286,73 @@ export class FakeSourceControlWire {
       head: hex,
     });
     this.syncDetails(threadId, state, { head: hex });
-    return { ok: true, commit: hex };
+    return {
+      ok: true,
+      commit: hex,
+      ...(state.branchMovesOnCommit ? { commitBranchMoved: true } : {}),
+    };
   }
 
   command(
     payload: CommandPayload,
     fallbackFiles: readonly GitStatusFile[],
   ): Omit<CommandResult, "commandId"> | undefined {
-    if (!("threadId" in payload) || !payload.threadId) return undefined;
-    const threadId = payload.threadId;
-    const thread = this.context.thread(threadId)?.thread;
-
     if (
-      payload.type === "git.stage" ||
-      payload.type === "git.unstage" ||
-      payload.type === "git.discard" ||
-      payload.type === "git.branch.switch" ||
-      payload.type === "git.branch.create" ||
-      payload.type === "git.pull" ||
-      payload.type === "git.fetch" ||
-      payload.type === "git.stash.push" ||
-      payload.type === "git.stash.pop"
-    ) {
-      if (!thread) return { ok: false, error: "thread_not_found" };
-      if (
-        (payload.type === "git.branch.switch" ||
-          payload.type === "git.branch.create" ||
-          payload.type === "git.pull" ||
-          payload.type === "git.stash.push" ||
-          payload.type === "git.stash.pop") &&
-        isBusy(thread.status.state)
-      ) {
-        return { ok: false, error: "agent_working" };
+      payload.type !== "git.stage" &&
+      payload.type !== "git.unstage" &&
+      payload.type !== "git.fetch"
+    )
+      return undefined;
+    const threadId = payload.threadId;
+    if (!this.context.thread(threadId)) return { ok: false, error: "thread_not_found" };
+    const state = this.ensure(threadId, fallbackFiles);
+    switch (payload.type) {
+      case "git.stage": {
+        const target = payload.paths ? new Set(payload.paths) : undefined;
+        const move = (entry: GitStatusSectionEntry) => !target || target.has(entry.path);
+        const nextStaged = new Map(state.staged.map((e) => [e.path, e]));
+        for (const entry of state.unstaged.filter(move)) nextStaged.set(entry.path, entry);
+        for (const entry of state.untracked.filter(move))
+          nextStaged.set(entry.path, { ...entry, status: "added" });
+        for (const entry of state.conflicted.filter(move))
+          nextStaged.set(entry.path, { ...entry, status: "modified" });
+        state.staged = byPath([...nextStaged.values()]);
+        state.indexVersion += 1;
+        state.unstaged = state.unstaged.filter((e) => !move(e));
+        state.untracked = state.untracked.filter((e) => !move(e));
+        state.conflicted = state.conflicted.filter((e) => !move(e));
+        this.syncDetails(threadId, state);
+        return { ok: true };
       }
-      const state = this.ensure(threadId, fallbackFiles);
-
-      switch (payload.type) {
-        case "git.stage": {
-          const target = payload.paths ? new Set(payload.paths) : undefined;
-          const move = (entry: GitStatusSectionEntry) => !target || target.has(entry.path);
-          const nextStaged = new Map(state.staged.map((e) => [e.path, e]));
-          for (const entry of state.unstaged.filter(move)) nextStaged.set(entry.path, entry);
-          for (const entry of state.untracked.filter(move))
-            nextStaged.set(entry.path, { ...entry, status: "added" });
-          for (const entry of state.conflicted.filter(move))
-            nextStaged.set(entry.path, { ...entry, status: "modified" });
-          state.staged = byPath([...nextStaged.values()]);
-          state.indexVersion += 1;
-          state.unstaged = state.unstaged.filter((e) => !move(e));
-          state.untracked = state.untracked.filter((e) => !move(e));
-          state.conflicted = state.conflicted.filter((e) => !move(e));
-          this.syncDetails(threadId, state);
-          return { ok: true };
-        }
-        case "git.unstage": {
-          const target = payload.paths ? new Set(payload.paths) : undefined;
-          const move = (entry: GitStatusSectionEntry) => !target || target.has(entry.path);
-          const nextUnstaged = new Map(state.unstaged.map((e) => [e.path, e]));
-          const nextUntracked = new Map(state.untracked.map((e) => [e.path, e]));
-          for (const entry of state.staged.filter(move)) {
-            if (entry.status === "added") {
-              nextUntracked.set(entry.path, { ...entry, status: "untracked" });
-            } else {
-              nextUnstaged.set(entry.path, entry);
-            }
+      case "git.unstage": {
+        const target = payload.paths ? new Set(payload.paths) : undefined;
+        const move = (entry: GitStatusSectionEntry) => !target || target.has(entry.path);
+        const nextUnstaged = new Map(state.unstaged.map((e) => [e.path, e]));
+        const nextUntracked = new Map(state.untracked.map((e) => [e.path, e]));
+        for (const entry of state.staged.filter(move)) {
+          if (entry.status === "added") {
+            nextUntracked.set(entry.path, { ...entry, status: "untracked" });
+          } else {
+            nextUnstaged.set(entry.path, entry);
           }
-          state.staged = state.staged.filter((e) => !move(e));
-          state.indexVersion += 1;
-          state.unstaged = byPath([...nextUnstaged.values()]);
-          state.untracked = byPath([...nextUntracked.values()]);
-          this.syncDetails(threadId, state);
-          return { ok: true };
         }
-        case "git.discard": {
-          // Like the daemon: only what the person reviewed, and nothing if any of it changed.
-          const shown = new Map(
-            [...state.unstaged, ...state.untracked].map((entry) => [entry.path, entry.fingerprint]),
-          );
-          if (payload.files.some((file) => shown.get(file.path) !== file.fingerprint))
-            return { ok: false, error: "git_changed_since_review" };
-          const target = new Set(payload.files.map((file) => file.path));
-          // Tracked files go back to HEAD's text; untracked ones leave the checkout.
-          for (const path of target)
-            this.disk?.write(threadId, path, state.committed[path] ?? null);
-          state.unstaged = state.unstaged.filter((e) => !target.has(e.path));
-          state.untracked = state.untracked.filter((e) => !target.has(e.path));
-          this.syncDetails(threadId, state);
-          return { ok: true };
+        state.staged = state.staged.filter((e) => !move(e));
+        state.indexVersion += 1;
+        state.unstaged = byPath([...nextUnstaged.values()]);
+        state.untracked = byPath([...nextUntracked.values()]);
+        this.syncDetails(threadId, state);
+        return { ok: true };
+      }
+      case "git.fetch": {
+        if (state.fetchError) {
+          // A fetch that failed on one remote still moved what it reached: details did not.
+          if (state.fetchErrorBehind !== undefined) state.behind = state.fetchErrorBehind;
+          return { ok: false, error: state.fetchError };
         }
-        case "git.branch.switch": {
-          if (!state.branches.includes(payload.branch) && !payload.remote) {
-            return { ok: false, error: "git_invalid_ref" };
-          }
-          if (!state.branches.includes(payload.branch)) state.branches.push(payload.branch);
-          state.detached = false;
-          state.upstream = payload.remote
-            ? `${payload.remote}/${payload.branch}`
-            : `origin/${payload.branch}`;
-          this.writeAll(threadId, state.branchFiles[payload.branch] ?? {});
-          this.syncDetails(threadId, state, { branch: payload.branch });
-          return { ok: true };
-        }
-        case "git.branch.create": {
-          if (state.branches.includes(payload.branch)) {
-            return { ok: false, error: "git_branch_exists" };
-          }
-          state.branches.push(payload.branch);
-          state.refs.unshift({ name: payload.branch, ahead: 0, behind: 0 });
-          state.detached = false;
-          state.upstream = null;
-          state.ahead = 0;
-          state.behind = 0;
-          this.syncDetails(threadId, state, { branch: payload.branch });
-          return { ok: true };
-        }
-        case "git.pull": {
-          if (state.pullError) {
-            // A refused ff-only merge still fetched: remote refs moved, details did not.
-            if (state.pullErrorBehind !== undefined) state.behind = state.pullErrorBehind;
-            return { ok: false, error: state.pullError };
-          }
-          if (!state.upstream && !payload.remote) return { ok: false, error: "git_no_upstream" };
-          state.behind = 0;
-          this.writeAll(threadId, state.incoming);
-          this.syncDetails(threadId, state);
-          return { ok: true };
-        }
-        case "git.fetch": {
-          this.syncDetails(threadId, state);
-          return { ok: true };
-        }
-        case "git.stash.push": {
-          const hasChanges =
-            state.staged.length > 0 ||
-            state.unstaged.length > 0 ||
-            (payload.includeUntracked && state.untracked.length > 0);
-          if (!hasChanges) return { ok: false, error: "git_nothing_to_stash" };
-          const branch = thread.details?.branch ?? "main";
-          const captured = {
-            entry: {
-              ref: "stash@{0}",
-              index: 0,
-              message: payload.message?.trim() || `WIP on ${branch}`,
-              branch,
-            },
-            staged: [...state.staged],
-            unstaged: [...state.unstaged],
-            untracked: payload.includeUntracked ? [...state.untracked] : [],
-          };
-          state.stashes.unshift(captured);
-          state.staged = [];
-          state.unstaged = [];
-          if (payload.includeUntracked) state.untracked = [];
-          this.syncDetails(threadId, state);
-          return { ok: true };
-        }
-        case "git.stash.pop": {
-          if (state.stashes.length === 0) return { ok: false, error: "git_stash_empty" };
-          const idx = payload.stash
-            ? Number(/^stash@\{(\d+)\}$/.exec(payload.stash)?.[1] ?? -1)
-            : 0;
-          const popped = state.stashes[idx];
-          if (!popped) return { ok: false, error: "git_stash_empty" };
-          state.stashes.splice(idx, 1);
-          state.staged = byPath([...state.staged, ...popped.staged]);
-          state.unstaged = byPath([...state.unstaged, ...popped.unstaged]);
-          state.untracked = byPath([...state.untracked, ...popped.untracked]);
-          this.syncDetails(threadId, state);
-          return { ok: true };
-        }
+        this.syncDetails(threadId, state);
+        return { ok: true };
       }
     }
-    return undefined;
   }
 
   private syncDetails(

@@ -1,4 +1,3 @@
-import { CheckoutHolds, type CheckoutHoldRequest } from "./checkout-hold.ts";
 import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
 import * as liveMove from "./live-move.ts";
@@ -144,10 +143,6 @@ export class Engine {
       options.aceToolAction,
       () => this.clock.now(),
     );
-    this.holds = new CheckoutHolds(this.repo, this.clock, () => {
-      this.wakeQueued();
-      for (const owner of this.actors.keys()) this.wake(owner);
-    });
     this.hosts = new HostThreads(this.repo, () => this.clock.now());
     this.guests = new GuestThreads(
       this.repo,
@@ -161,7 +156,7 @@ export class Engine {
           repo: this.repo,
           actors: () => this.actors.entries(),
           closing: (id) => this.sessions.isClosing(id),
-          held: (id) => this.paused(id),
+          held: (id) => this.fenced(id),
           retire: (id) => this.controls.wake(id),
         },
         retiring,
@@ -216,7 +211,7 @@ export class Engine {
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
-      fenced: (id) => this.paused(id),
+      fenced: (id) => this.fenced(id),
       wake: (id) => this.wake(id),
       released: (id) => {
         this.releaseDormant(id);
@@ -414,8 +409,6 @@ export class Engine {
           cause: error,
         }),
       );
-    // Worktrees a stopped daemon held stay held before anything queued is recovered.
-    this.holds.restore();
     const recover = () =>
       recoverEngine(
         this.repo,
@@ -474,9 +467,6 @@ export class Engine {
   private fence?: Parameters<typeof liveMove.fenceCommand>[1];
   /** Moving or moved (ADR 0191): nothing runs here, at admission, dispatch or session open. */
   private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
-  private holds!: CheckoutHolds;
-  /** Nothing dispatches or opens here now: the thread is moving, or its Git worktree is held. */
-  private paused = (id: ThreadId) => this.fenced(id) || this.holds.covers(id);
   bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
     this.fence = fence;
   }
@@ -959,7 +949,6 @@ export class Engine {
     },
     commit: () => void = () => {},
   ): Promise<void> {
-    if (this.holds.touches(reservation.roots)) throw new Error("workspace_change_in_progress");
     if (this.closing || this.workspaceChanges.has(id))
       throw new Error("workspace_change_in_progress");
     const change = changeEngineWorkspace(
@@ -983,12 +972,6 @@ export class Engine {
     ).finally(() => this.workspaceChanges.delete(id));
     this.workspaceChanges.set(id, change);
     return change;
-  }
-  /** Hold the Git worktree at `top` while a source control change rewrites its files. */
-  holdCheckout<T>(request: CheckoutHoldRequest<T>): Promise<T> {
-    if (this.closing) return Promise.reject(new Error("engine_closing"));
-    const opening = (owner: ThreadId) => this.repo.sessionOpening(owner);
-    return this.holds.hold({ ...request, live: [...this.actors.keys()], opening });
   }
   /** Settles what dead providers left in the tree; genuinely live work is untouched. */
   async reconcileThread(id: ThreadId): Promise<void> {
@@ -1249,7 +1232,7 @@ export class Engine {
   private wakeQueued(): void {
     if (this.closing) return;
     for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
-      if (!this.paused(id) && this.repo.reserve(id)) this.wake(id);
+      if (!this.fenced(id) && this.repo.reserve(id)) this.wake(id);
   }
   private releaseDormant(id: ThreadId): void {
     const actor = this.actors.get(id);
@@ -1263,7 +1246,7 @@ export class Engine {
     const queue = this.repo.queue.get(id);
     // A fenced thread holds no slot for work it won't run here (ADR 0191).
     if (
-      !this.paused(id) &&
+      !this.fenced(id) &&
       (this.repo.pending.recovery(id) ||
         this.repo.pending.transition(id) ||
         this.repo.pending.controls(id).length ||
@@ -1350,7 +1333,7 @@ export class Engine {
       return;
     }
     if (this.repo.store.workspaceReservations.reserved(this.repo.session(actor.id).cwd)) return;
-    if (this.paused(actor.id)) return this.releaseDormant(actor.id);
+    if (this.fenced(actor.id)) return this.releaseDormant(actor.id);
     // Controls own idle retirement; sends must remain free to open a replacement.
     if (this.closing || (actor.idleDue && actor.session)) return;
     const guard = this.repo.transitions.guardOwner(actor.id);
@@ -1421,7 +1404,7 @@ export class Engine {
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned || this.closing || this.repo.cleaning(actor.id) || !actor.session) return;
-    if (this.paused(actor.id)) return;
+    if (this.fenced(actor.id)) return;
     const queue = this.repo.queue.get(actor.id);
     if (queue.paused || queue.limited) return;
     await this.steerLane.run(actor);

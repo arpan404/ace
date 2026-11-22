@@ -139,11 +139,6 @@ export const ThreadDetails = z.object({
       branch: z.string().max(1024).optional(),
     })
     .optional(),
-  /**
-   * A source control change holds this thread's Git worktree: nothing runs here until it ends,
-   * and a message sent meanwhile waits in the queue. Absent when no hold covers the thread.
-   */
-  gitBusy: z.object({ since: Timestamp }).optional(),
   /** The thread's checkout folder no longer exists (deleted, or removed by storage cleanup). */
   worktreeMissing: z.boolean().optional(),
   /**

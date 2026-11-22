@@ -1,5 +1,4 @@
 import {
-  ArrowUUpLeftIcon,
   CaretDownIcon,
   CaretRightIcon,
   FileIcon,
@@ -21,7 +20,7 @@ import {
 
 /**
  * One collapsible section of Source control (`Merge conflicts`, `Staged changes`, or `Changes`),
- * with section-level actions (Stage all, Unstage all, Discard all), ⌘/⇧-click multi-select rows,
+ * with section-level actions (Stage all, Unstage all), ⌘/⇧-click multi-select rows,
  * subtle folder labels (`FolderLabel`), status letters in status colors, and bare hover action
  * icons with tooltips.
  */
@@ -42,15 +41,10 @@ export function FileSection(props: {
   onStageAll?(): void;
   onUnstage?(paths: readonly string[]): void;
   onUnstageAll?(): void;
-  onDiscard?(items: readonly SourceControlItem[]): void;
-  onDiscardAll?(): void;
-  /** Why discarding waits (the agent is working), shown on the disabled discard icons. */
-  discardWait?: string | undefined;
 }) {
   const [open, setOpen] = useState(true);
   const { items, selected, section } = props;
   const orderedPaths = items.map((item) => item.path);
-  const byPath = new Map(items.map((item) => [item.path, item]));
 
   return (
     <section aria-label={props.title} data-part="source-control-section" className="flex flex-col">
@@ -72,17 +66,6 @@ export function FileSection(props: {
         </button>
 
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-within:opacity-100">
-          {props.onDiscardAll && (
-            <IconButton
-              icon={ArrowUUpLeftIcon}
-              label="Discard all"
-              size="sm"
-              disabled={props.disabled || items.length === 0 || props.discardWait !== undefined}
-              reason={props.discardWait}
-              onClick={props.onDiscardAll}
-              className="size-5 rounded-sm hover:bg-hover"
-            />
-          )}
           {props.onStageAll && (
             <IconButton
               icon={PlusIcon}
@@ -122,9 +105,6 @@ export function FileSection(props: {
             const isSelected = selected.has(item.path);
             const targets = targetPaths(orderedPaths, selected, item.path);
             const targetCount = targets.length;
-            const targetItems = targets
-              .map((path) => byPath.get(path))
-              .filter((found): found is SourceControlItem => found !== undefined);
             const plural = targetCount > 1 ? ` (${targetCount} files)` : "";
 
             return (
@@ -185,18 +165,6 @@ export function FileSection(props: {
                     onClick={() => props.onOpenChanges(item)}
                     className="size-5 rounded-sm hover:bg-hover"
                   />
-                  {props.onDiscard && (
-                    <IconButton
-                      icon={ArrowUUpLeftIcon}
-                      label={`Discard ${targetCount > 1 ? `${targetCount} files` : name}`}
-                      tip={`Discard${plural}`}
-                      size="sm"
-                      disabled={props.disabled || props.discardWait !== undefined}
-                      reason={props.discardWait}
-                      onClick={() => props.onDiscard?.(targetItems)}
-                      className="size-5 rounded-sm hover:bg-hover"
-                    />
-                  )}
                   {props.onStage && (
                     <IconButton
                       icon={PlusIcon}

@@ -76,15 +76,6 @@ export interface WorkspaceRuntimeOptions {
   reconcileThread?(id: ThreadId): Promise<void>;
   /** Provider background work still runs, or is lost track of (the workspace fence's check). */
   runsProviderWork?(id: ThreadId): boolean;
-  /** Move an untracked file, relative to the checkout `root` Git holds, into Recently deleted. */
-  trashFile?(id: ThreadId, root: string, path: string, fingerprint: string): Promise<void>;
-  /** Hold every thread bound to `root` quiet while a source control change runs (engine). */
-  holdCheckout?<T>(
-    threadId: ThreadId,
-    commandId: string,
-    top: string,
-    effect: (signal: AbortSignal) => Promise<T>,
-  ): Promise<T>;
   changeWorkspace?(
     id: ThreadId,
     commandId: string,
@@ -825,27 +816,6 @@ export class WorkspaceRuntime {
       );
       return wrap({ kind: "gitConflicts", conflicts });
     }
-    if (op.op === "git.branches") {
-      const root = this.root(op.threadId);
-      const [listed, refs, info] = await Promise.all([
-        this.git.branches(root),
-        this.git.branchRefs(root),
-        this.git.repositoryInfo(root),
-      ]);
-      return wrap({
-        kind: "branches",
-        ...listed,
-        refs: refs.refs,
-        defaultBranch: await this.defaultBranch(root, refs.defaultBranch),
-        current: info.branch,
-        detached: info.detached,
-        unbornHead: info.head === null && !info.detached,
-      });
-    }
-    if (op.op === "git.stash.list") {
-      const root = this.root(op.threadId);
-      return wrap({ kind: "gitStashes", stashes: await this.git.stashList(root) });
-    }
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
       const from =
@@ -1043,34 +1013,39 @@ export class WorkspaceRuntime {
           p.step,
         );
       if (p.type === "git.commit") {
-        const commit = await asPerson(() =>
-          this.git.commit({
-            worktree: cwd,
-            message: p.message,
-            expectedHead: p.expectedHead,
-            paths: p.paths,
-            stagedOnly: p.stagedOnly,
-            amend: p.amend,
-            expectedIndex: p.expectedIndex,
-            reviewed: p.reviewed,
-            amendPublished: p.amendPublished,
-            draftFingerprint: p.draftFingerprint,
-          }),
-        );
+        const base = {
+          worktree: cwd,
+          message: p.message,
+          expectedHead: p.expectedHead,
+          amend: p.amend,
+          draftFingerprint: p.draftFingerprint,
+        };
+        // Source control commits exactly what the person reviewed; other callers commit as before.
+        const { reviewed, expectedIndex, amendPublished } = p;
+        const outcome = reviewed
+          ? await asPerson(() => this.git.commitReviewed({ ...base, reviewed, amendPublished }))
+          : expectedIndex
+            ? await asPerson(() =>
+                this.git.commitReviewed({ ...base, expectedIndex, amendPublished }),
+              )
+            : {
+                commit: await asPerson(() =>
+                  this.git.commit({ ...base, paths: p.paths, stagedOnly: p.stagedOnly }),
+                ),
+                branchMoved: false,
+              };
         await this.details(threadId).catch(() => {});
-        return { ok: true, commit };
+        return {
+          ok: true,
+          commit: outcome.commit,
+          ...(outcome.branchMoved ? { commitBranchMoved: true } : {}),
+        };
       }
       if (isSourceControlCommand(p)) {
         return runSourceControlCommand(
           {
             git: this.git,
-            store: this.store,
-            threadId,
             cwd,
-            commandId: command.id,
-            runsProviderWork: (owner) => this.options.runsProviderWork?.(owner) ?? false,
-            trashFile: this.options.trashFile,
-            holdCheckout: this.options.holdCheckout,
             refreshDetails: async () => {
               await this.details(threadId);
             },

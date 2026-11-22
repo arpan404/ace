@@ -11,6 +11,12 @@ const text = (output: { stdout: Buffer }) => output.stdout.toString("utf8").trim
 const nulList = (output: { stdout: Buffer }) =>
   output.stdout.toString("utf8").split("\0").filter(Boolean);
 
+/** The commit made, and whether the branch had moved past the HEAD the person reviewed. */
+export interface CommitOutcome {
+  commit: string;
+  branchMoved: boolean;
+}
+
 export interface ReviewedCommitOptions {
   root: string;
   message: string;
@@ -32,14 +38,15 @@ export interface ReviewedCommitOptions {
  * Commit exactly what the person reviewed. The tree is built in a temporary index the checkout
  * can't touch: a snapshot of the staged entries whose fingerprint must equal the reviewed one,
  * or HEAD plus the reviewed files, each refused if its fingerprint moved. The person's own
- * `git commit` then commits that index (their hooks and signing run). If HEAD moved underneath
- * it (a hook, a terminal), the new commit is taken back off with a compare-and-swap and the
- * commit is refused: it never lands on top of work it didn't see.
+ * `git commit` then commits that index (their hooks and signing run). Git's own compare-and-swap
+ * on HEAD refuses a commit whose HEAD moved while Git ran. If HEAD moved earlier (after the
+ * review, before Git read it), the commit lands on top and `branchMoved` says so: no ref is ever
+ * moved back, so no one's commit is destroyed.
  */
 export async function reviewedCommit(
   repository: Repository,
   options: ReviewedCommitOptions,
-): Promise<string> {
+): Promise<CommitOutcome> {
   const { root, head, read } = options;
   const call = repository.cli.call.bind(repository.cli);
   if (options.amend && !options.amendPublished && head) {
@@ -130,36 +137,15 @@ export async function reviewedCommit(
   });
 
   const created = text(await read(() => call(root, ["rev-parse", "--verify", "HEAD"])));
-  const parents = await parentsOf(created);
-  if (parents.join(" ") !== expectedParents.join(" ")) {
-    // HEAD moved while Git committed: put back what was there, only if nothing moved it since.
-    const before = text(
-      await read(() => call(root, ["rev-parse", "--verify", "HEAD@{1}"], { allowFailure: true })),
-    );
-    if (before)
-      await read(() =>
-        call(
-          root,
-          ["update-ref", "-m", "ace: undo a commit made on a moved HEAD", "HEAD", before, created],
-          {
-            write: true,
-          },
-        ),
-      );
-    throw new GitError("head_moved", "HEAD moved while committing; nothing was committed");
-  }
+  // Something committed between the review and this commit (a hook, a terminal): Git placed
+  // ours on top of it. No ref is ever moved back, so no one's commit is lost; the person is told
+  // the branch moved and checks the history.
+  const branchMoved = (await parentsOf(created)).join(" ") !== expectedParents.join(" ");
+  const base = branchMoved ? `${created}^` : (head ?? "--root");
   // The real index catches up with what was committed, path by path.
   const changed = nulList(
     await read(() =>
-      call(root, [
-        "diff-tree",
-        "-r",
-        "--no-renames",
-        "--name-only",
-        "-z",
-        head ?? "--root",
-        created,
-      ]),
+      call(root, ["diff-tree", "-r", "--no-renames", "--name-only", "-z", base, created]),
     ),
   ).filter((path) => path !== created);
   if (changed.length > 0)
@@ -170,5 +156,5 @@ export async function reviewedCommit(
         input: changed.map((path) => `${path}\0`).join(""),
       }),
     );
-  return created;
+  return { commit: created, branchMoved };
 }

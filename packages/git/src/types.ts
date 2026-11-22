@@ -123,15 +123,9 @@ export type GitErrorCode =
   | "checkpoint_not_found"
   | "restore_collision"
   | "unsupported_repository"
-  | "pull_diverged"
-  | "no_upstream"
-  | "trash_unavailable"
-  | "stash_empty"
-  | "nothing_to_stash"
   | "path_outside_repo"
+  | "no_upstream"
   | "changed_since_review"
-  | "path_occupied"
-  | "untracked_overwritten"
   | "index_moved"
   | "amend_published"
   | "private_path_staged"
@@ -271,11 +265,11 @@ export interface SourceControlSectionEntry {
   path: string;
   from?: string;
   status: "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
-  /** The file as the status read it (`fileFingerprint`); a discard must quote it back. */
+  /** The file as the status read it (`fileFingerprint`); a commit of it quotes it back. */
   fingerprint: string;
 }
 
-/** A file the person confirmed discarding, with the fingerprint the dialog showed. */
+/** A file the person reviewed, with the fingerprint the status showed them. */
 export interface ReviewedFile {
   path: string;
   fingerprint: string;
@@ -296,13 +290,6 @@ export interface SourceControlStatus {
   upstream: string | null;
   ahead: number;
   behind: number;
-}
-
-export interface GitStash {
-  ref: string;
-  index: number;
-  message: string;
-  branch?: string;
 }
 
 /** A bounded failure can outlive its supervised mutation ownership. */

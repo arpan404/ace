@@ -1,13 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { Turn } from "@ace/ui-core";
 import {
-  branchOptionsFrom,
   buildSections,
   canCommitChanges,
   emptySelection,
-  filterBranches,
   pruneSelection,
-  lastTurnEditedPaths,
   selectRow,
   splitPath,
   targetPaths,
@@ -75,69 +71,6 @@ describe("source-control-model", () => {
 
     sel = pruneSelection(sel, ["a.ts", "d.ts"]);
     expect([...sel.selected]).toEqual(["a.ts"]);
-  });
-
-  test("filterBranches separates locals/remotes and only offers create for valid new names", () => {
-    const options = branchOptionsFrom(
-      {
-        kind: "branches",
-        branches: ["main", "feat/sc"],
-        truncated: false,
-        current: "feat/sc",
-        refs: [
-          { name: "main" },
-          { name: "feat/sc" },
-          { name: "main", remote: "origin" },
-          { name: "release/1.0", remote: "origin" },
-        ],
-      },
-      "feat/sc",
-    );
-
-    expect(filterBranches(options, "main")).toEqual({
-      locals: [{ name: "main", remote: undefined, current: false, label: "main" }],
-      remotes: [{ name: "main", remote: "origin", current: false, label: "origin/main" }],
-      createName: undefined,
-    });
-
-    const created = filterBranches(options, "fix/staging");
-    expect(created.locals).toEqual([]);
-    expect(created.remotes).toEqual([]);
-    expect(created.createName).toBe("fix/staging");
-
-    expect(filterBranches(options, "bad name with spaces").createName).toBeUndefined();
-  });
-
-  test("lastTurnEditedPaths returns the repo-relative paths the latest turn edited", () => {
-    const turns = [
-      {
-        id: "run-1",
-        number: 1,
-        edits: [
-          {
-            id: "item-1",
-            type: "tool_call",
-            agentId: "agent-1",
-            createdAt: 1,
-            call: {
-              name: "write",
-              status: "succeeded",
-              detail: {
-                kind: "file_edit",
-                changes: [
-                  { path: "/repo/src/edited.ts", kind: "update" },
-                  { path: "src/other.ts", kind: "create" },
-                ],
-              },
-            },
-          },
-        ],
-      },
-    ] as unknown as readonly Turn[];
-
-    const edited = lastTurnEditedPaths(turns, "/repo");
-    expect([...edited].toSorted()).toEqual(["src/edited.ts", "src/other.ts"]);
-    expect(lastTurnEditedPaths([], "/repo").size).toBe(0);
   });
 
   test("canCommitChanges blocks commits with empty message or unresolved conflicts", () => {

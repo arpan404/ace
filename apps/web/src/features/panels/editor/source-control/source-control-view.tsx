@@ -18,7 +18,6 @@ import { cn } from "@/lib/cn.ts";
 import { AmendDialog } from "./amend-dialog.tsx";
 import { BranchBar } from "./branch-bar.tsx";
 import { CommitBox } from "./commit-box.tsx";
-import { DiscardDialog, type DiscardRequest } from "./discard-dialog.tsx";
 import { FileSection } from "./file-section.tsx";
 import {
   emptySelection,
@@ -32,18 +31,12 @@ import {
   cancelCommitDraft,
   clearStaleGitLock,
   commitChanges,
-  createBranch,
-  discardFiles,
   fetchRemote,
   generateCommitDraft,
-  pullBranch,
   pushChanges,
   sourceControlErrorCode,
   sourceControlErrorText,
   stageFiles,
-  stashPop,
-  stashPush,
-  switchBranch,
   unstageFiles,
 } from "./source-control-source.ts";
 import { useSourceControl } from "./use-source-control.ts";
@@ -57,7 +50,7 @@ export interface OpenChangesRequest {
 }
 
 /**
- * The Editor explorer's Source control view: branch picker + sync + stash bar, commit box with
+ * The Editor explorer's Source control view: the branch line (name, ahead and behind, Push, Fetch), commit box with
  * Write message and Commit/Amend/Commit and push, and Merge conflicts / Staged changes / Changes
  * sections. Shares the explorer's surface and portals its Refresh action into `ExplorerHeader`.
  */
@@ -84,7 +77,6 @@ export function SourceControlView(props: {
     changes: emptySelection,
   });
 
-  const [discardRequest, setDiscardRequest] = useState<DiscardRequest | undefined>(undefined);
   const [amendAsk, setAmendAsk] = useState(false);
   const [clearingLock, setClearingLock] = useState(false);
 
@@ -206,11 +198,10 @@ export function SourceControlView(props: {
           expectedHead: sc.head,
           // Bound to what the person reviewed: the staged index as read, or exactly the changes
           // shown, each with the fingerprint the status gave it.
-          ...(stagedOnly
-            ? { expectedIndex: sc.status?.index, stagedOnly: true }
-            : sc.sections.changes.length > 0
-              ? { reviewed: sc.sections.changes }
-              : {}),
+          // (An amend with nothing changed quotes the index too: it only rewords.)
+          ...(!stagedOnly && sc.sections.changes.length > 0
+            ? { reviewed: sc.sections.changes }
+            : { expectedIndex: sc.status?.index, stagedOnly: true }),
           amend: mode === "amend",
           amendPublished,
           draftFingerprint,
@@ -226,6 +217,10 @@ export function SourceControlView(props: {
       return;
     }
     if (!committed) return;
+    // Someone committed between the review and this commit: it landed on top. Nothing was moved
+    // back; the person looks at the history.
+    if (committed.commitBranchMoved)
+      toast.add({ title: "Committed, but the branch had moved: check the history" });
     // The commit landed: its message is spent even if the push below fails.
     setMessage("");
     setDraftFingerprint(undefined);
@@ -239,14 +234,6 @@ export function SourceControlView(props: {
       return;
     }
     toast.add({ title: mode === "amend" ? "Amended last commit" : "Committed changes" });
-  };
-
-  const handleConfirmDiscard = async () => {
-    const request = discardRequest;
-    if (!request) return;
-    setDiscardRequest(undefined);
-    // Exactly the files the dialog named, as they were then: a file changed since is refused.
-    await sc.runAction("discard", () => discardFiles(client, threadId, request.items));
   };
 
   const handleClearLock = async () => {
@@ -265,13 +252,6 @@ export function SourceControlView(props: {
       setClearingLock(false);
     }
   };
-
-  const discardAgentPaths = useMemo(() => {
-    if (!discardRequest) return [];
-    return discardRequest.items
-      .map((item) => item.path)
-      .filter((path) => sc.agentTurnPaths.has(path));
-  }, [discardRequest, sc.agentTurnPaths]);
 
   const headerActions = props.actionsIn
     ? createPortal(
@@ -312,38 +292,14 @@ export function SourceControlView(props: {
             branch={sc.branch}
             ahead={sc.ahead}
             behind={sc.behind}
-            branches={sc.branches}
-            branchesLoading={sc.branchesLoading}
-            stashes={sc.stashes}
-            stashesLoading={sc.stashesLoading}
             disabled={!sc.online}
-            agentWorking={sc.agentWorking}
             pendingAction={sc.pendingAction}
-            onOpenBranches={sc.refetchBranches}
-            onOpenStashes={sc.refetchStashes}
-            onSwitchBranch={(branch, remote) =>
-              void sc.runAction("branch", () => switchBranch(client, threadId, branch, remote))
-            }
-            onCreateBranch={(name) =>
-              void sc.runAction("branch", () => createBranch(client, threadId, name))
-            }
-            onPull={() => void sc.runAction("pull", () => pullBranch(client, threadId))}
             onPush={() =>
               void sc
                 .runAction("push", () => pushChanges(client, threadId))
                 .then((res) => res && toast.add({ title: "Pushed branch" }))
             }
             onFetch={() => void sc.runAction("fetch", () => fetchRemote(client, threadId))}
-            onStash={(includeUntracked) =>
-              void sc
-                .runAction("stash", () => stashPush(client, threadId, { includeUntracked }))
-                .then((res) => res && toast.add({ title: "Stashed changes" }))
-            }
-            onPopStash={(ref) =>
-              void sc
-                .runAction("stash-pop", () => stashPop(client, threadId, ref))
-                .then((res) => res && toast.add({ title: "Popped stash" }))
-            }
           />
 
           <CommitBox
@@ -512,11 +468,6 @@ export function SourceControlView(props: {
                     onStageAll={() =>
                       void sc.runAction("stage", () => stageFiles(client, threadId))
                     }
-                    discardWait={sc.agentWorking ? "Wait for the agent to finish" : undefined}
-                    onDiscard={(items) => setDiscardRequest({ items, all: false })}
-                    onDiscardAll={() =>
-                      setDiscardRequest({ items: sc.sections.changes, all: true })
-                    }
                   />
                 )}
               </>
@@ -532,17 +483,6 @@ export function SourceControlView(props: {
             setAmendAsk(false);
             void handleCommit("amend", true);
           }}
-        />
-      )}
-
-      {discardRequest && (
-        <DiscardDialog
-          key={`${discardRequest.all}:${discardRequest.items.map((item) => item.path).join(",")}`}
-          request={discardRequest}
-          agentEditedPaths={discardAgentPaths}
-          busy={sc.pendingAction === "discard"}
-          onCancel={() => setDiscardRequest(undefined)}
-          onConfirm={() => void handleConfirmDiscard()}
         />
       )}
     </div>

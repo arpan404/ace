@@ -1076,38 +1076,6 @@
         },
         {
           "properties": {
-            "op": {
-              "const": "git.branches",
-              "type": "string"
-            },
-            "threadId": {
-              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-            }
-          },
-          "required": [
-            "op",
-            "threadId"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "op": {
-              "const": "git.stash.list",
-              "type": "string"
-            },
-            "threadId": {
-              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-            }
-          },
-          "required": [
-            "op",
-            "threadId"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
             "expected": {
               "maxLength": 128,
               "minLength": 1,

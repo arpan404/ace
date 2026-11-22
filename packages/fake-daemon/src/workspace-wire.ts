@@ -77,7 +77,7 @@ export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
   /** The projects' repositories as Git finds them: not one, empty, locked, failing setup. */
   readonly git = new FakeGitStates();
-  /** Per-thread source control state (staged, unstaged, untracked, conflicted, branches, stashes). */
+  /** Per-thread source control state: staged, unstaged, untracked and conflicted files. */
   readonly sourceControl: FakeSourceControlWire;
   /** Someone changed `path` on disk after the view read its status (its fingerprint moves). */
   touchSourceControl(threadId: string, path: string): void {
@@ -649,28 +649,21 @@ export class FakeWorkspaceWire {
               : this.git.branches(op.workspaceId)
             : op.op === "pr.status"
               ? { kind: "pr", status: this.forge.status(op.threadId) }
-              : op.op === "git.branches"
-                ? this.sourceControl.branches(op.threadId)
-                : op.op === "git.stash.list"
-                  ? this.sourceControl.stashes(op.threadId)
-                  : op.op === "git.status"
-                    ? {
-                        kind: "gitStatus",
-                        files: this.gitStatus(op.threadId).slice(0, gitStatusLimit),
-                        truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
-                        head: this.head(op.threadId),
-                        hooks: this.git.hooks(op.threadId),
-                        ...this.sourceControl.statusFields(
-                          op.threadId,
-                          this.gitStatus(op.threadId),
-                        ),
-                      }
-                    : op.op === "thread.details"
-                      ? {
-                          kind: "details",
-                          details: this.context.thread(op.threadId)?.thread.details ?? {},
-                        }
-                      : { kind: "error", code: "unsupported" };
+              : op.op === "git.status"
+                ? {
+                    kind: "gitStatus",
+                    files: this.gitStatus(op.threadId).slice(0, gitStatusLimit),
+                    truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
+                    head: this.head(op.threadId),
+                    hooks: this.git.hooks(op.threadId),
+                    ...this.sourceControl.statusFields(op.threadId, this.gitStatus(op.threadId)),
+                  }
+                : op.op === "thread.details"
+                  ? {
+                      kind: "details",
+                      details: this.context.thread(op.threadId)?.thread.details ?? {},
+                    }
+                  : { kind: "error", code: "unsupported" };
     return ServerMessage.parse({ type: "workspace.result", requestId: request.requestId, result });
   }
   command(

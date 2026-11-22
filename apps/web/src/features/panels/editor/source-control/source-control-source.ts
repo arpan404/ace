@@ -3,7 +3,6 @@ import {
   ThreadId,
   type CommandPayload,
   type CommandResult,
-  type GitStashesResult,
   type SourceControlContext,
   type SourceControlDraft,
   type SourceControlSelection,
@@ -12,7 +11,7 @@ import {
 } from "@ace/protocol";
 import { actionErrorText } from "@ace/ui-core";
 import { readPushRemote } from "@/lib/project-repositories.ts";
-import type { GitBranchesReply, GitDiffReply, GitStatusReply } from "./source-control-model.ts";
+import type { GitDiffReply, GitStatusReply } from "./source-control-model.ts";
 
 type Operation = WorkspaceActionRequest["operation"];
 type Result = WorkspaceActionResult["result"];
@@ -81,26 +80,6 @@ export function readSourceControlStatus(
   });
 }
 
-export function readBranches(
-  client: ClientApi,
-  threadId: string,
-  signal?: AbortSignal,
-): Promise<GitBranchesReply> {
-  return readWorkspace(client, { op: "git.branches", threadId: tid(threadId) }, "branches", {
-    signal,
-  });
-}
-
-export function readStashes(
-  client: ClientApi,
-  threadId: string,
-  signal?: AbortSignal,
-): Promise<GitStashesResult> {
-  return readWorkspace(client, { op: "git.stash.list", threadId: tid(threadId) }, "gitStashes", {
-    signal,
-  });
-}
-
 export function readFileGitDiff(
   client: ClientApi,
   threadId: string,
@@ -142,18 +121,6 @@ export function unstageFiles(
     type: "git.unstage",
     threadId: tid(threadId),
     ...(paths ? { paths: [...paths] } : {}),
-  });
-}
-
-export function discardFiles(
-  client: ClientApi,
-  threadId: string,
-  files: readonly { path: string; fingerprint: string }[],
-): Promise<CommandResult> {
-  return runWorkspace(client, {
-    type: "git.discard",
-    threadId: tid(threadId),
-    files: files.map((file) => ({ path: file.path, fingerprint: file.fingerprint })),
   });
 }
 
@@ -201,68 +168,10 @@ export async function pushChanges(client: ClientApi, threadId: string): Promise<
   });
 }
 
-export function switchBranch(
-  client: ClientApi,
-  threadId: string,
-  branch: string,
-  remote?: string,
-): Promise<CommandResult> {
-  return runWorkspace(client, {
-    type: "git.branch.switch",
-    threadId: tid(threadId),
-    branch,
-    ...(remote ? { remote } : {}),
-  });
-}
-
-export function createBranch(
-  client: ClientApi,
-  threadId: string,
-  branch: string,
-): Promise<CommandResult> {
-  return runWorkspace(client, {
-    type: "git.branch.create",
-    threadId: tid(threadId),
-    branch,
-  });
-}
-
-export function pullBranch(client: ClientApi, threadId: string): Promise<CommandResult> {
-  return runWorkspace(client, {
-    type: "git.pull",
-    threadId: tid(threadId),
-  });
-}
-
 export function fetchRemote(client: ClientApi, threadId: string): Promise<CommandResult> {
   return runWorkspace(client, {
     type: "git.fetch",
     threadId: tid(threadId),
-  });
-}
-
-export function stashPush(
-  client: ClientApi,
-  threadId: string,
-  options: { message?: string | undefined; includeUntracked: boolean },
-): Promise<CommandResult> {
-  return runWorkspace(client, {
-    type: "git.stash.push",
-    threadId: tid(threadId),
-    ...(options.message ? { message: options.message } : {}),
-    includeUntracked: options.includeUntracked,
-  });
-}
-
-export function stashPop(
-  client: ClientApi,
-  threadId: string,
-  stash?: string,
-): Promise<CommandResult> {
-  return runWorkspace(client, {
-    type: "git.stash.pop",
-    threadId: tid(threadId),
-    ...(stash ? { stash } : {}),
   });
 }
 

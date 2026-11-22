@@ -1,8 +1,6 @@
-import type { BranchRef, GitStatusSectionEntry, WorkspaceActionResult } from "@ace/protocol";
-import { fileChanges, type Turn } from "@ace/ui-core";
+import type { GitStatusSectionEntry, WorkspaceActionResult } from "@ace/protocol";
 
 export type GitStatusReply = Extract<WorkspaceActionResult["result"], { kind: "gitStatus" }>;
-export type GitBranchesReply = Extract<WorkspaceActionResult["result"], { kind: "branches" }>;
 export type GitDiffReply = Extract<WorkspaceActionResult["result"], { kind: "gitDiff" }>;
 
 export type SourceControlSection = "conflicts" | "staged" | "changes";
@@ -183,101 +181,6 @@ export function targetPaths(
     return orderedPaths.filter((path) => selected.has(path));
   }
   return [clickedPath];
-}
-
-export interface BranchOption {
-  readonly name: string;
-  readonly remote?: string | undefined;
-  readonly current: boolean;
-  readonly label: string;
-}
-
-export interface FilteredBranches {
-  readonly locals: readonly BranchOption[];
-  readonly remotes: readonly BranchOption[];
-  readonly createName: string | undefined;
-}
-
-/** Convert `git.branches` reply into sorted local and remote branch options. */
-export function branchOptionsFrom(
-  reply: GitBranchesReply | undefined,
-  currentBranch: string | null,
-): readonly BranchOption[] {
-  if (!reply) return [];
-  const active = reply.current ?? currentBranch;
-  if (reply.refs && reply.refs.length > 0) {
-    return reply.refs.map((ref: BranchRef) => ({
-      name: ref.name,
-      remote: ref.remote,
-      current: !ref.remote && active === ref.name,
-      label: ref.remote ? `${ref.remote}/${ref.name}` : ref.name,
-    }));
-  }
-  return reply.branches.map((name) => ({
-    name,
-    current: active === name,
-    label: name,
-  }));
-}
-
-/**
- * Filter local and remote branches by a case-insensitive substring query, and decide whether the
- * query offers a "Create branch" action.
- */
-export function filterBranches(branches: readonly BranchOption[], query: string): FilteredBranches {
-  const trimmed = query.trim();
-  const needle = trimmed.toLowerCase();
-  const locals: BranchOption[] = [];
-  const remotes: BranchOption[] = [];
-  let exactLocal = false;
-
-  for (const branch of branches) {
-    if (!branch.remote && branch.name === trimmed) exactLocal = true;
-    if (needle && !branch.label.toLowerCase().includes(needle)) continue;
-    if (branch.remote) remotes.push(branch);
-    else locals.push(branch);
-  }
-
-  const validName =
-    trimmed.length > 0 &&
-    !exactLocal &&
-    !/\s|\.\.|~|\^|:|\?|\*|\[|\\|^\/|\/$|\.$|@\{/.test(trimmed);
-
-  return {
-    locals,
-    remotes,
-    createName: validName ? trimmed : undefined,
-  };
-}
-
-/** Normalize an agent edit path (absolute or relative) to a repo-relative POSIX path. */
-function relativeToCheckout(path: string, checkoutRoot: string | undefined): string {
-  const normalized = path.replaceAll("\\", "/");
-  if (!checkoutRoot) return normalized.replace(/^\.\//, "");
-  const root = checkoutRoot.replaceAll("\\", "/").replace(/\/+$/, "");
-  const prefix = `${root}/`;
-  if (normalized.startsWith(prefix)) return normalized.slice(prefix.length);
-  return normalized.replace(/^\.\//, "");
-}
-
-/**
- * Repo-relative paths the agent edited in its latest turn. A discard runs only while no agent
- * works in the checkout, so these are the agent's most recent changes: discarding one asks again.
- */
-export function lastTurnEditedPaths(
-  turns: readonly Turn[],
-  checkoutRoot: string | undefined,
-): ReadonlySet<string> {
-  const lastTurn = turns.at(-1);
-  if (!lastTurn) return new Set();
-  const paths = new Set<string>();
-  for (const edit of lastTurn.edits) {
-    for (const change of fileChanges(edit)) {
-      paths.add(relativeToCheckout(change.path, checkoutRoot));
-      if (change.movePath) paths.add(relativeToCheckout(change.movePath, checkoutRoot));
-    }
-  }
-  return paths;
 }
 
 /** Whether a commit can be triggered given the current message and working tree state. */

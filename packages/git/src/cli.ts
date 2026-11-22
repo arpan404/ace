@@ -75,13 +75,9 @@ export interface Output {
   truncated: boolean;
 }
 
-const cancelledError = () => new GitError("git_cancelled", "Git operation cancelled");
-
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
-  /** A held source control change's deadline: every Git call inside it stops when it aborts. */
-  private readonly cancellation = new AsyncLocalStorage<AbortSignal>();
   private readonly executionPolicy = new AsyncLocalStorage<
     "non-executing" | { protocols: readonly string[] }
   >();
@@ -327,26 +323,8 @@ export class GitCli {
       );
     return this.closing;
   }
-  /** Run `operation` so every Git call it makes is cancelled once `signal` aborts. */
-  async cancellable<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
-    if (signal.aborted) throw cancelledError();
-    try {
-      return await this.cancellation.run(signal, operation);
-    } catch (error) {
-      // Whatever stopped on the abort (a spawn, a wait) reads as one cancellation.
-      if (signal.aborted && !(error instanceof GitError)) throw cancelledError();
-      throw error;
-    }
-  }
-  /** Throws `git_cancelled` when the surrounding `cancellable` scope was cancelled. */
-  checkCancelled(): void {
-    if (this.cancellation.getStore()?.aborted)
-      throw new GitError("git_cancelled", "Git operation cancelled");
-  }
   call(cwd: string, args: string[], options: CallOptions = {}): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
-    const ambient = this.cancellation.getStore();
-    if (ambient && !options.signal) options = { ...options, signal: ambient };
     if (this.calls.size >= 64)
       return Promise.reject(new GitError("git_busy", "Git call limit reached"));
     const result = this.runCall(cwd, args, options);

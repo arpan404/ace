@@ -20,12 +20,7 @@ import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
 import { BranchRef } from "./worktree-base.ts";
 import { GitConflictsCommand, GitConflictsOperation, GitConflictsResult } from "./git-conflicts.ts";
-import {
-  GitSourceControlCommands,
-  GitSourceControlOperations,
-  GitStashesResult,
-  GitStatusSectionEntry,
-} from "./git-source-control.ts";
+import { GitSourceControlCommands, GitStatusSectionEntry } from "./git-source-control.ts";
 import { ReviewPath } from "./review.ts";
 const id = z.string().min(1).max(128);
 /** How far into one file's patch `git.diff` pages reach (UTF-16 code units). */
@@ -126,7 +121,6 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("pr.status"), threadId: ThreadId }),
     /** The files a commit of the thread's checkout would take, as `git status` reports them. */
     z.object({ op: z.literal("git.status"), threadId: ThreadId }),
-    ...GitSourceControlOperations,
     /**
      * The working tree against HEAD, capped at 256 KiB. With `path`, only that file (and `from`,
      * a rename's old path), read in pages from `offset` (UTF-16 code units into the file's patch):
@@ -194,10 +188,6 @@ export const WorkspaceActionResult = z.object({
       refs: z.array(BranchRef).max(1000).optional(),
       /** The repository's default branch (the origin's `HEAD`, else `main` or `master`). */
       defaultBranch: z.string().max(1024).optional(),
-      /** The checkout's currently checked-out branch, or null when detached. */
-      current: z.string().max(1024).nullable().optional(),
-      /** Whether HEAD is detached rather than on a local branch. */
-      detached: z.boolean().optional(),
       /**
        * HEAD names a branch with no commit yet: there is nothing to start a worktree from. A
        * detached HEAD, or a repository with no branches but a commit, is not unborn.
@@ -266,7 +256,6 @@ export const WorkspaceActionResult = z.object({
         .regex(/^[a-f0-9]{64}$/)
         .optional(),
     }),
-    GitStashesResult,
     z.object({
       kind: z.literal("gitDiff"),
       patch: z.string().max(262144),
@@ -443,12 +432,7 @@ export const GitActionError = z.enum([
   "git_failed",
   "git_dirty_worktree",
   "git_invalid_ref",
-  "git_branch_exists",
-  "git_pull_diverged",
   "git_no_upstream",
-  "git_trash_unavailable",
-  "git_stash_empty",
-  "git_nothing_to_stash",
   "git_path_outside_repo",
 ]);
 export type GitActionError = z.infer<typeof GitActionError>;

@@ -99,23 +99,9 @@
               "maxItems": 1000,
               "type": "array"
             },
-            "current": {
-              "anyOf": [
-                {
-                  "maxLength": 1024,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "defaultBranch": {
               "maxLength": 1024,
               "type": "string"
-            },
-            "detached": {
-              "type": "boolean"
             },
             "kind": {
               "const": "branches",
@@ -391,9 +377,6 @@
             "truncated"
           ],
           "type": "object"
-        },
-        {
-          "$ref": "https://ace.local/protocol/v1/GitStashesResult.json"
         },
         {
           "properties": {

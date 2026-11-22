@@ -40,20 +40,13 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   push_rejected: "The remote has commits this branch does not; pull or rebase first",
   protected_branch: "The remote refused the push: the branch is protected",
   push_lease_stale: "The remote branch moved past the leased revision; fetch and review first",
-  pull_diverged: "Branch diverged from its upstream and cannot fast-forward",
-  no_upstream: "Current branch has no upstream configured",
-  trash_unavailable: "Recently deleted is unavailable; cannot discard untracked files",
-  stash_empty: "There are no stashes to pop",
-  nothing_to_stash: "There are no local changes to stash",
   path_outside_repo: "Path is outside the repository",
-  changed_since_review: "A file changed after you reviewed it; look again before discarding",
-  path_occupied: "Another file already uses that name",
+  no_upstream: "This repository has no remote to fetch from",
+  changed_since_review: "A file changed after you reviewed it; look again before committing",
   amend_published: "A remote already has this commit; amending rewrites it",
   private_path_staged:
     "ace's own Recently deleted files are staged; unstage them before committing",
   index_moved: "The staged changes moved after you reviewed them; look again before committing",
-  untracked_overwritten:
-    "Files Git doesn't track, or ignores, would be overwritten; move them first",
 };
 
 /** One plain sentence for a failed command's cause. What Git wrote stays in `details.stderr`. */

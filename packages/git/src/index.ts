@@ -1,5 +1,6 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
 import { excludeAcePrivate } from "./ace-private.ts";
+import type { CommitOutcome } from "./reviewed-commit.ts";
 import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
@@ -26,7 +27,14 @@ import {
   type ProjectGitPolicy,
 } from "./projects.ts";
 import { forgetIntegrations, integrateRevision } from "./integration.ts";
-import { commitChanges, pushBranch, probeRemote, listBranches, switchBranch } from "./actions.ts";
+import {
+  commitChanges,
+  commitReviewedChanges,
+  pushBranch,
+  probeRemote,
+  listBranches,
+  switchBranch,
+} from "./actions.ts";
 import { pushLeasedRefs, type LeasedPushOptions } from "./leased-push.ts";
 import {
   continueStackReplay,
@@ -42,17 +50,7 @@ import {
   sourceControlState,
   sourceControlStatus,
 } from "./changed-files.ts";
-import {
-  createBranch,
-  discardPaths,
-  fetchRemote,
-  pullBranch,
-  stagePaths,
-  stashList,
-  stashPop,
-  stashPush,
-  unstagePaths,
-} from "./source-control-ops.ts";
+import { fetchRemote, stagePaths, unstagePaths } from "./source-control-ops.ts";
 import {
   abortMerge,
   commitMerge,
@@ -82,25 +80,17 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type {
-  ChangedFile,
-  Checkpoint,
-  DiffSide,
-  GitOptions,
-  PushOptions,
-  ReviewedFile,
-} from "./types.ts";
+import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
 
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
 export { validateCloneUrl } from "./projects.ts";
-export { parseStashList, validateRepoPaths } from "./source-control-ops.ts";
+export { validateRepoPaths } from "./source-control-ops.ts";
 import { remoteDefaultBranch, type RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export type { RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, gitFailureCodes, isMutationUnavailable } from "./types.ts";
-export { fileFingerprint } from "./file-fingerprint.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
@@ -161,10 +151,6 @@ export class GitService {
   /** A commit or push the person asked for runs their hooks and signing, as their Git would. */
   asPerson<T>(operation: () => Promise<T>): Promise<T> {
     return this.repository.cli.asPerson(operation);
-  }
-  /** Run `operation` so its Git calls (and discard's file moves) stop once `signal` aborts. */
-  cancellable<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
-    return this.repository.cli.cancellable(signal, operation);
   }
   /** `asPerson` in a checkout of someone else's code: hooks inside that checkout never run. */
   asReviewer<T>(operation: () => Promise<T>): Promise<T> {
@@ -306,11 +292,15 @@ export class GitService {
     paths?: readonly string[] | undefined;
     stagedOnly?: boolean | undefined;
     amend?: boolean | undefined;
-    expectedIndex?: string | undefined;
-    reviewed?: readonly ReviewedFile[] | undefined;
-    amendPublished?: boolean | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
+  }
+  /**
+   * Commit exactly what the person reviewed: the staged index matching `expectedIndex`, or HEAD
+   * plus the `reviewed` files. `branchMoved` says the branch had moved past the reviewed HEAD.
+   */
+  commitReviewed(options: Parameters<typeof commitReviewedChanges>[1]): Promise<CommitOutcome> {
+    return commitReviewedChanges(this.repository, options);
   }
   /** The files `git status` reports, with lines changed against HEAD (first `limit`). */
   changedFiles(
@@ -335,17 +325,6 @@ export class GitService {
   unstage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
     return unstagePaths(this.repository, options);
   }
-  /**
-   * Discard exactly the files the person reviewed, refusing any that changed since. Tracked
-   * changes are restored; untracked files go to `trash` (refused when `trash` is absent).
-   */
-  discard(options: {
-    worktree: string;
-    files: readonly ReviewedFile[];
-    trash?: ((root: string, path: string, fingerprint: string) => Promise<void>) | undefined;
-  }): Promise<void> {
-    return discardPaths(this.repository, options);
-  }
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
   }
@@ -363,30 +342,6 @@ export class GitService {
     timeoutMs?: number | undefined;
   }): Promise<void> {
     return fetchRemote(this.repository, options);
-  }
-  /** Fetch and fast-forward the current branch (`--ff-only`). */
-  pull(options: {
-    worktree: string;
-    remote?: string | undefined;
-    timeoutMs?: number | undefined;
-  }): Promise<void> {
-    return pullBranch(this.repository, options);
-  }
-  /** List stashes in the checkout, newest first. */
-  stashList(worktree: string) {
-    return stashList(this.repository, worktree);
-  }
-  /** Push local changes onto the stash stack. */
-  stashPush(options: {
-    worktree: string;
-    message?: string | undefined;
-    includeUntracked?: boolean | undefined;
-  }): Promise<void> {
-    return stashPush(this.repository, options);
-  }
-  /** Pop the latest stash or a specific `stash@{N}` entry. */
-  stashPop(options: { worktree: string; stash?: string | undefined }): Promise<void> {
-    return stashPop(this.repository, options);
   }
   /** Move several branches in one atomic push, each leased to a caller-reviewed revision. */
   pushLeased(options: LeasedPushOptions) {
@@ -442,13 +397,8 @@ export class GitService {
     worktree: string;
     branch: string;
     allowUncommitted: boolean;
-    remote?: string | undefined;
   }): Promise<void> {
     return switchBranch(this.repository, options);
-  }
-  /** Create a new branch at HEAD and switch to it. */
-  createBranch(options: { worktree: string; branch: string }): Promise<void> {
-    return createBranch(this.repository, options);
   }
   branches(worktree: string): Promise<{ branches: string[]; truncated: boolean }> {
     return listBranches(this.repository, worktree);
@@ -499,11 +449,6 @@ export class GitService {
   async excludeAcePrivate(path: string): Promise<void> {
     const root = await this.repository.root(path);
     await this.repository.serial(root, () => excludeAcePrivate(this.repository, root));
-  }
-
-  /** The top level of the Git worktree holding `path`: the unit a source control change rewrites. */
-  worktreeTop(path: string): Promise<string> {
-    return this.repository.root(path);
   }
 
   async repositoryInfo(repo: string) {

@@ -271,9 +271,6 @@ function compactStatus(
     return resumesLabel(fact.resumesAt, now, locale);
   if (fact?.kind === "limited" && fact.until !== undefined && fact.until > now)
     return `Limited ${formatShortClock(fact.until, locale)}`;
-  // A message waiting on a held Git worktree: queued, never running.
-  if (entry.status.state === "waiting" && entry.status.on === "queue" && entry.details?.gitBusy)
-    return "Queued · Git busy";
   if (entry.status.state === "waiting") return "Waiting";
   if (entry.status.state === "unresponsive") return "Failed";
   return threadStatusLabel(entry.status).label;

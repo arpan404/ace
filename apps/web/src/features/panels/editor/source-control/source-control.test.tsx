@@ -20,11 +20,6 @@ const samplePatch = [
   "",
 ].join("\n");
 
-/** Disabled outright, or disabled with a reason (still focusable, `aria-disabled`). */
-function isDisabled(element: HTMLElement): boolean {
-  return element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
-}
-
 async function openSourceControl(seed?: FakeSourceControlSeed) {
   const app = harness({ storage: memoryKeyValue() });
   app.play(coldStartReplay()).runThrough("root-replied");
@@ -35,23 +30,11 @@ async function openSourceControl(seed?: FakeSourceControlSeed) {
     thread,
     seed ?? {
       branch: "feat/source-control",
-      branches: ["main", "feat/source-control"],
-      refs: [
-        { name: "main" },
-        {
-          name: "feat/source-control",
-          upstream: "origin/feat/source-control",
-          ahead: 1,
-          behind: 0,
-        },
-        { name: "main", remote: "origin" },
-      ],
       ahead: 1,
       behind: 0,
       staged: [{ path: "src/staged.ts", status: "added" }],
       unstaged: [{ path: "src/app.ts", status: "modified" }],
       untracked: [{ path: "src/new.ts", status: "untracked" }],
-      stashes: [{ ref: "stash@{0}", index: 0, message: "WIP: saved edits", branch: "main" }],
     },
   );
   app.daemon.workspace.setGitDiff(thread, samplePatch);
@@ -170,127 +153,6 @@ test("commits staged changes, generates a commit message, Commit and push, and a
   });
 });
 
-test("confirms discards, waits while the agent works, and asks again for its last turn's edits", async () => {
-  const { app, explorer } = await openSourceControl({
-    branch: "main",
-    branches: ["main"],
-    refs: [{ name: "main" }],
-    unstaged: [{ path: "src/app.ts", status: "modified" }],
-    untracked: [{ path: "src/new.ts", status: "untracked" }],
-  });
-
-  // Discard untracked file -> mentions Recently deleted and removes it on confirm.
-  const changes = await within(explorer).findByRole("region", { name: "Changes" });
-  await userEvent.click(within(changes).getByRole("button", { name: "Discard new.ts" }));
-  const dialog = await screen.findByRole("dialog");
-  expect(dialog.textContent).toContain("new.ts");
-  expect(dialog.textContent).toContain("Recently deleted");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
-  await waitFor(() => {
-    expect(within(explorer).queryByText("new.ts")).toBeNull();
-  });
-
-  // While the agent works in the checkout, discarding waits.
-  app.daemon.apply(thread, [
-    facts.turn("root"),
-    facts.tool("root", "live-edit-1", {
-      kind: "file.edit",
-      title: "Edit src/app.ts",
-      detail: {
-        kind: "file.edit",
-        changes: [{ path: "src/app.ts", kind: "update", oldText: "a", newText: "b" }],
-      },
-    }),
-    facts.toolDone("root", "live-edit-1"),
-  ]);
-  await waitFor(() => {
-    expect(isDisabled(within(explorer).getByRole("button", { name: "Discard app.ts" }))).toBe(true);
-  });
-
-  // Once its turn ends, discarding the file that turn edited asks a second time.
-  app.daemon.apply(thread, [facts.endTurn("root")]);
-  const discard = within(explorer).getByRole("button", { name: "Discard app.ts" });
-  await waitFor(() => {
-    expect(isDisabled(discard)).toBe(false);
-  });
-  await userEvent.click(discard);
-  const firstStep = await screen.findByRole("dialog");
-  expect(firstStep.textContent).toContain("The agent changed app.ts in its last turn");
-  await userEvent.click(within(firstStep).getByRole("button", { name: "Continue" }));
-  expect(firstStep.textContent).toContain("Discard the agent's latest edits?");
-  await userEvent.click(within(firstStep).getByRole("button", { name: "Discard anyway" }));
-  await waitFor(() => {
-    expect(within(explorer).getByText("No changes in this checkout.")).toBeTruthy();
-  });
-});
-
-test("a file that changed after the discard dialog opened is kept, and the view says why", async () => {
-  const { app, explorer } = await openSourceControl({
-    branch: "main",
-    branches: ["main"],
-    refs: [{ name: "main" }],
-    unstaged: [{ path: "src/app.ts", status: "modified" }],
-  });
-  const changes = await within(explorer).findByRole("region", { name: "Changes" });
-  await userEvent.click(within(changes).getByRole("button", { name: "Discard all" }));
-  const dialog = await screen.findByRole("dialog");
-  // Something writes to the file while the person reads the dialog.
-  app.daemon.workspace.touchSourceControl(thread, "src/app.ts");
-  await userEvent.click(within(dialog).getByRole("button", { name: /Discard/ }));
-  await waitFor(() => {
-    expect(within(explorer).getByRole("alert").textContent).toContain(
-      "changed after you reviewed it",
-    );
-  });
-  expect(within(changes).getByRole("option", { name: /app/ })).toBeTruthy();
-});
-
-test("switches and creates branches, stashes and pops, and waits to switch or pull while the agent works", async () => {
-  const { app, explorer } = await openSourceControl();
-
-  // Switch to an existing branch via the branch picker popover.
-  await userEvent.click(
-    await within(explorer).findByRole("button", { name: "Branch: feat/source-control" }),
-  );
-  await userEvent.click(await screen.findByRole("button", { name: "main" }));
-  await within(explorer).findByRole("button", { name: "Branch: main" });
-
-  // Create a new branch from the picker's filter input.
-  await userEvent.click(within(explorer).getByRole("button", { name: "Branch: main" }));
-  const filter = await screen.findByRole("textbox", { name: "Filter or create branch" });
-  await userEvent.type(filter, "feat/new-branch");
-  await userEvent.click(
-    await screen.findByRole("button", { name: /Create branch “feat\/new-branch”/ }),
-  );
-  await within(explorer).findByRole("button", { name: "Branch: feat/new-branch" });
-
-  // Stash including untracked clears changes, and Pop latest stash restores them.
-  await userEvent.click(
-    within(explorer).getByRole("button", { name: "More source control actions" }),
-  );
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Stash including untracked" }));
-  await waitFor(() => {
-    expect(within(explorer).getByText("No changes in this checkout.")).toBeTruthy();
-  });
-  await userEvent.click(
-    within(explorer).getByRole("button", { name: "More source control actions" }),
-  );
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Pop latest stash" }));
-  await within(explorer).findByRole("region", { name: "Changes" });
-
-  // While the agent works, switching branches, pulling and stashing wait, and say why.
-  app.daemon.apply(thread, [facts.turn("root")]);
-  await waitFor(() => {
-    expect(
-      within(explorer)
-        .getByRole("button", { name: "Branch: feat/new-branch" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
-  });
-  const pull = within(explorer).getByRole("button", { name: "Pull: wait for the agent to finish" });
-  expect(pull.hasAttribute("disabled")).toBe(true);
-});
-
 test("Open changes opens the file diff in the editor via editor-compare, and Open file returns to editing", async () => {
   const { panel, explorer } = await openSourceControl();
 
@@ -309,27 +171,55 @@ test("Open changes opens the file diff in the editor via editor-compare, and Ope
   });
 });
 
-test("a failed pull still shows what its fetch learned, alongside the error", async () => {
+test("a failed fetch still shows what it learned, alongside the error", async () => {
   const { explorer } = await openSourceControl({
     branch: "main",
-    branches: ["main"],
-    refs: [{ name: "main" }],
     behind: 0,
-    pullError: "git_pull_diverged",
-    pullErrorBehind: 3,
+    fetchError: "git_remote_unreachable",
+    fetchErrorBehind: 3,
   });
-  await userEvent.click(await within(explorer).findByRole("button", { name: "Pull" }));
+  await userEvent.click(await within(explorer).findByRole("button", { name: "Fetch" }));
+  await within(explorer).findByRole("alert");
+  await within(explorer).findByLabelText("3 behind");
+});
+
+test("Commit takes exactly the changes shown, and keeps them when one changed after the review", async () => {
+  const { app, explorer } = await openSourceControl({
+    branch: "main",
+    unstaged: [{ path: "src/app.ts", status: "modified" }],
+  });
+  const box = await within(explorer).findByRole("textbox", { name: "Commit message" });
+  await userEvent.type(box, "Bump version");
+  // Something writes to the file after the view read it.
+  app.daemon.workspace.touchSourceControl(thread, "src/app.ts");
+  await userEvent.click(within(explorer).getByRole("button", { name: "Commit" }));
   await waitFor(() => {
-    expect(within(explorer).getByRole("alert").textContent).toContain("diverged");
+    expect(within(explorer).getByRole("alert").textContent).toContain(
+      "changed after you reviewed it",
+    );
   });
-  await within(explorer).findByRole("button", { name: "Pull (3 behind)" });
+  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(0);
+  // Read again, the same Commit goes through.
+  await userEvent.click(within(explorer).getByRole("button", { name: "Commit" }));
+  await waitFor(() => expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(1));
+});
+
+test("a commit that landed on a moved branch says so in words", async () => {
+  const { app, explorer } = await openSourceControl({
+    branch: "main",
+    staged: [{ path: "src/staged.ts", status: "added" }],
+    branchMovesOnCommit: true,
+  });
+  const box = await within(explorer).findByRole("textbox", { name: "Commit message" });
+  await userEvent.type(box, "Add staged file");
+  await userEvent.click(within(explorer).getByRole("button", { name: "Commit" }));
+  await screen.findByText("Committed, but the branch had moved: check the history");
+  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(1);
 });
 
 test("one Git action at a time: Commit waits while a stage is still finishing", async () => {
   const { app, explorer } = await openSourceControl({
     branch: "main",
-    branches: ["main"],
-    refs: [{ name: "main" }],
     staged: [{ path: "src/staged.ts", status: "added" }],
     unstaged: [{ path: "src/app.ts", status: "modified" }],
   });

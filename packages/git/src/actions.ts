@@ -5,7 +5,7 @@ import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions, type ReviewedFile } from "./types.ts";
 import { excludeAcePrivate, isAcePrivate, personPathspecs } from "./ace-private.ts";
-import { reviewedCommit } from "./reviewed-commit.ts";
+import { reviewedCommit, type CommitOutcome } from "./reviewed-commit.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -39,12 +39,6 @@ export async function commitChanges(
     paths?: readonly string[] | undefined;
     stagedOnly?: boolean | undefined;
     amend?: boolean | undefined;
-    /** The `indexFingerprint` the person reviewed; the commit is refused if the index moved. */
-    expectedIndex?: string | undefined;
-    /** Commit-all of exactly these reviewed files (each refused if its fingerprint moved). */
-    reviewed?: readonly ReviewedFile[] | undefined;
-    /** Amend even though a remote already has the commit. */
-    amendPublished?: boolean | undefined;
     beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
@@ -63,32 +57,6 @@ export async function commitChanges(
     if (options.amend && info.head === null)
       throw new GitError("unborn_head", "Cannot amend before the first commit");
     const status = await read(() => repository.status(root));
-    if (options.expectedIndex !== undefined || options.reviewed !== undefined) {
-      if (status.conflicted.length)
-        throw new GitError("conflicts", "Resolve conflicts before committing");
-      if (options.draftFingerprint) {
-        const drafted = options.reviewed
-          ? options.reviewed.map((file) => file.path)
-          : status.staged.map((entry) => entry.path);
-        if (
-          !drafted.length ||
-          (await read(() => writingContext(repository, root, { kind: "commit", paths: drafted })))
-            .fingerprint !== options.draftFingerprint
-        )
-          throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
-      }
-      return reviewedCommit(repository, {
-        root,
-        message,
-        head: info.head,
-        amend: Boolean(options.amend),
-        amendPublished: Boolean(options.amendPublished),
-        expectedIndex: options.expectedIndex,
-        reviewed: options.reviewed,
-        beforeCommit: options.beforeCommit,
-        read,
-      });
-    }
     if (options.draftFingerprint) {
       // A staged-only commit's draft was written for the staged files.
       const drafted =
@@ -163,6 +131,66 @@ const ExpectedPushTarget = z.object({
   pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
 });
 const BranchNames = z.array(z.string().min(1).max(1024)).max(1001);
+/**
+ * Commit exactly what the person reviewed in Source control: the staged index matching
+ * `expectedIndex`, or HEAD plus the `reviewed` files (see `reviewedCommit`).
+ */
+export async function commitReviewedChanges(
+  repository: Repository,
+  options: {
+    worktree: string;
+    message: string;
+    expectedHead: string | null;
+    draftFingerprint?: string | undefined;
+    amend?: boolean | undefined;
+    /** Amend even though a remote already has the commit. */
+    amendPublished?: boolean | undefined;
+    beforeCommit?: (() => void) | undefined;
+  } & (
+    | { expectedIndex: string; reviewed?: undefined }
+    | { reviewed: readonly ReviewedFile[]; expectedIndex?: undefined }
+  ),
+): Promise<CommitOutcome> {
+  const message = z.string().trim().min(1).max(maxCommitMessageLength).parse(options.message);
+  const expected = head.nullable().parse(options.expectedHead);
+  // ace's own reads keep the checkout's protections; `commit` is the person's.
+  const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
+  const root = await read(() => repository.root(options.worktree));
+  return repository.serial(root, async () => {
+    const info = await read(() => repository.info(root));
+    if (info.head !== expected)
+      throw new GitError("head_moved", "HEAD changed; refresh before committing");
+    if (options.amend && info.head === null)
+      throw new GitError("unborn_head", "Cannot amend before the first commit");
+    const status = await read(() => repository.status(root));
+    if (status.conflicted.length)
+      throw new GitError("conflicts", "Resolve conflicts before committing");
+    if (options.draftFingerprint) {
+      // The draft was written for the files committed: the reviewed ones, or the staged ones.
+      const drafted = options.reviewed
+        ? options.reviewed.map((file) => file.path)
+        : status.staged.map((entry) => entry.path);
+      if (
+        !drafted.length ||
+        (await read(() => writingContext(repository, root, { kind: "commit", paths: drafted })))
+          .fingerprint !== options.draftFingerprint
+      )
+        throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
+    }
+    return reviewedCommit(repository, {
+      root,
+      message,
+      head: info.head,
+      amend: Boolean(options.amend),
+      amendPublished: Boolean(options.amendPublished),
+      expectedIndex: options.expectedIndex,
+      reviewed: options.reviewed,
+      beforeCommit: options.beforeCommit,
+      read,
+    });
+  });
+}
+
 export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
   const remote = remoteName.parse(options.remote);
   const expected =
@@ -259,12 +287,7 @@ export async function probeRemote(
 
 export async function switchBranch(
   repository: Repository,
-  options: {
-    worktree: string;
-    branch: string;
-    allowUncommitted: boolean;
-    remote?: string | undefined;
-  },
+  options: { worktree: string; branch: string; allowUncommitted: boolean },
 ): Promise<void> {
   const root = await repository.root(options.worktree);
   await repository.serial(root, async () => {
@@ -273,12 +296,7 @@ export async function switchBranch(
       ["check-ref-format", "--branch", options.branch],
       { allowFailure: true },
     );
-    if (
-      !options.branch ||
-      options.branch.startsWith("-") ||
-      valid.exitCode !== 0 ||
-      valid.stdout.toString("utf8").trim() !== options.branch
-    )
+    if (!options.branch || options.branch.startsWith("-") || valid.exitCode !== 0)
       throw new GitError("invalid_ref", "Invalid branch");
     const status = await repository.status(root);
     if (status.conflicted.length)
@@ -288,61 +306,11 @@ export async function switchBranch(
       (status.staged.length || status.unstaged.length || status.untracked.length)
     )
       throw new GitError("dirty_worktree", "Commit or explicitly allow uncommitted changes");
-    let args: string[];
-    if (options.remote) {
-      const remote = remoteName.parse(options.remote);
-      const localExists =
-        (
-          await repository.cli.call(
-            root,
-            ["show-ref", "--verify", "--quiet", `refs/heads/${options.branch}`],
-            { allowFailure: true },
-          )
-        ).exitCode === 0;
-      args = localExists
-        ? ["switch", "--no-guess", "--no-overwrite-ignore", "--", options.branch]
-        : [
-            "switch",
-            "--no-guess",
-            "--no-overwrite-ignore",
-            "--track",
-            "-c",
-            options.branch,
-            "--",
-            `refs/remotes/${remote}/${options.branch}`,
-          ];
-    } else {
-      // An ignored file (a `.env`) the target branch tracks is the person's: never replace it.
-      args = ["switch", "--no-guess", "--no-overwrite-ignore", "--", options.branch];
-    }
-    const result = await repository.cli.call(root, args, {
+    await repository.cli.call(root, ["switch", "--no-guess", "--", options.branch], {
       write: true,
-      allowFailure: true,
       timeoutMs: longWriteTimeoutMs,
       env: { GIT_TRACE2_EVENT: "1" },
     });
-    if (result.exitCode !== 0) {
-      const stderr = result.stderr;
-      if (/untracked working tree files would be (?:overwritten|removed)/i.test(stderr))
-        throw new GitError("untracked_overwritten", failureMessage("untracked_overwritten"), {
-          stderr,
-        });
-      if (
-        /would be overwritten by (?:checkout|switch)|local changes to the following files/i.test(
-          stderr,
-        )
-      )
-        throw new GitError(
-          "dirty_worktree",
-          "Uncommitted changes would be overwritten by switching branches",
-          { stderr },
-        );
-      if (/is already (?:checked out|used by worktree) at/i.test(stderr))
-        throw new GitError("branch_checked_out", failureMessage("branch_checked_out"), { stderr });
-      if (/invalid reference|did not match any file|unknown revision/i.test(stderr))
-        throw new GitError("invalid_ref", "Branch does not exist", { stderr });
-      throw new GitError("git_failed", "Could not switch branches", { stderr });
-    }
   });
 }
 export async function listBranches(

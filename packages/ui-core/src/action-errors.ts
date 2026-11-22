@@ -20,8 +20,6 @@ const copy: Record<string, string> = {
   workspace_change_interrupted:
     "The checkout move stopped when the daemon restarted: the thread stayed where it was. Retry to move it.",
   thread_not_found: "The thread is gone: it may have been deleted on another device.",
-  agent_working:
-    "The agent is working in this checkout: wait for it to finish before switching branches, pulling or stashing.",
   thread_tree_is_live: "Agents are working in the checkout: wait for them to stop, then retry.",
   terminal_owned: "The thread's terminals use the checkout: close them, then retry.",
   terminal_limit: "Too many terminals are open: close one, then retry.",
@@ -110,25 +108,16 @@ const copy: Record<string, string> = {
   git_protected_branch: "The remote protects that branch: push to a new branch and open a PR.",
   git_pr_head_unavailable:
     "The pull request's branch can't be pushed from here: add a remote for its repository, or its fork was deleted.",
-  git_pull_diverged: "This branch has diverged from its upstream: merge or rebase in a terminal.",
-  git_no_upstream: "This branch has no upstream yet: push it first to set one.",
-  git_trash_unavailable:
-    "Untracked files can't be discarded because Recently deleted isn't available for this checkout.",
-  git_stash_empty: "There are no stashes to pop.",
-  git_nothing_to_stash: "There are no local changes to stash.",
+  git_no_upstream: "This repository has no remote to fetch from.",
   git_path_outside_repo: "That path is outside the repository and can't be changed.",
   git_changed_since_review:
-    "A file changed after you reviewed it, so nothing was discarded. Look at it again first.",
-  git_untracked_overwritten:
-    "Files Git doesn't track or ignores, like a .env, would be overwritten. Move them aside first.",
+    "A file changed after you reviewed it, so nothing was committed. Look at it again first.",
   git_amend_published:
     "A remote already has the last commit; amending rewrites it, so pushing needs a force push.",
   git_private_path_staged:
     "ace's own Recently deleted files are staged. Unstage them, then commit.",
   git_index_moved:
     "The staged changes moved after you reviewed them, so nothing was committed. Look again first.",
-  git_path_occupied:
-    "Another file now has the renamed file's old name, so nothing was discarded. Move it first.",
   // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the
   // host refuses gets its own code so the fix names what changed.
   forge_cli:

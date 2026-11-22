@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, Thread, type ThreadId } from "@ace/protocol";
@@ -29,13 +29,6 @@ function runGit(cwd: string, args: string[]): string {
 async function setupFixture(
   options: {
     runsProviderWork?: (id: ThreadId) => boolean;
-    trashFile?: (id: ThreadId, root: string, path: string, fingerprint: string) => Promise<void>;
-    holdCheckout?: <T>(
-      threadId: ThreadId,
-      commandId: string,
-      top: string,
-      effect: (signal: AbortSignal) => Promise<T>,
-    ) => Promise<T>;
     threadState?: "new" | "working";
   } = {},
 ) {
@@ -65,8 +58,6 @@ async function setupFixture(
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
   const runtime = new WorkspaceRuntime(store, dataDir, () => 1000, {
     runsProviderWork: options.runsProviderWork ?? (() => false),
-    ...(options.trashFile ? { trashFile: options.trashFile } : {}),
-    ...(options.holdCheckout ? { holdCheckout: options.holdCheckout } : {}),
   });
   let seq = 0;
   const cmd = (payload: z.input<typeof Command>["payload"]) =>
@@ -79,7 +70,7 @@ async function setupFixture(
   return { dir, repo, store, thread, runtime, cmd };
 }
 
-/** The status entry the person reviewed for `path`, as a discard quotes it back. */
+/** The status entry the person reviewed for `path`, as a commit quotes it back. */
 async function reviewed(
   fixture: Awaited<ReturnType<typeof setupFixture>>,
   path: string,
@@ -120,159 +111,6 @@ describe("daemon source control handlers", () => {
         cmd({ type: "git.unstage", threadId: thread.id, paths: ["/etc/passwd"] }),
       );
       expect(unstageAbs).toMatchObject({ ok: false, error: "git_path_outside_repo" });
-
-      const discardGit = await runtime.execute(
-        cmd({
-          type: "git.discard",
-          threadId: thread.id,
-          files: [{ path: ".git/config", fingerprint: "missing" }],
-        }),
-      );
-      expect(discardGit).toMatchObject({ ok: false, error: "git_path_outside_repo" });
-    } finally {
-      await runtime.close();
-      await store.close();
-    }
-  });
-
-  it("refuses branch switch, branch create, pull and stash while an agent is working", async () => {
-    let providerBusy = true;
-    const { runtime, store, thread, repo, cmd } = await setupFixture({
-      runsProviderWork: () => providerBusy,
-    });
-    try {
-      runGit(repo, ["branch", "other"]);
-
-      const switchBusy = await runtime.execute(
-        cmd({ type: "git.branch.switch", threadId: thread.id, branch: "other" }),
-      );
-      expect(switchBusy).toMatchObject({ ok: false, error: "agent_working" });
-
-      const createBusy = await runtime.execute(
-        cmd({ type: "git.branch.create", threadId: thread.id, branch: "feat/x" }),
-      );
-      expect(createBusy).toMatchObject({ ok: false, error: "agent_working" });
-
-      const pullBusy = await runtime.execute(cmd({ type: "git.pull", threadId: thread.id }));
-      expect(pullBusy).toMatchObject({ ok: false, error: "agent_working" });
-
-      await writeFile(join(repo, "file.txt"), "edited by the agent\n");
-      const stashBusy = await runtime.execute(cmd({ type: "git.stash.push", threadId: thread.id }));
-      expect(stashBusy).toMatchObject({ ok: false, error: "agent_working" });
-      expect(await readFile(join(repo, "file.txt"), "utf8")).toBe("edited by the agent\n");
-      runGit(repo, ["checkout", "--", "file.txt"]);
-
-      // Once idle, switching branches succeeds.
-      providerBusy = false;
-      const switchIdle = await runtime.execute(
-        cmd({ type: "git.branch.switch", threadId: thread.id, branch: "other" }),
-      );
-      expect(switchIdle).toMatchObject({ ok: true });
-      expect(runGit(repo, ["branch", "--show-current"])).toBe("other");
-    } finally {
-      await runtime.close();
-      await store.close();
-    }
-  });
-
-  it("refuses branch switch when thread status is working even if runsProviderWork is false", async () => {
-    const { runtime, store, thread, repo, cmd } = await setupFixture({
-      runsProviderWork: () => false,
-      threadState: "working",
-    });
-    try {
-      runGit(repo, ["branch", "other"]);
-      const result = await runtime.execute(
-        cmd({ type: "git.branch.switch", threadId: thread.id, branch: "other" }),
-      );
-      expect(result).toMatchObject({ ok: false, error: "agent_working" });
-    } finally {
-      await runtime.close();
-      await store.close();
-    }
-  });
-
-  it("routes untracked discard through trashFile at the checkout Git holds, and refuses without it", async () => {
-    const trashed: string[] = [];
-    const trashDir = await mkdtemp(join(tmpdir(), "ace-daemon-trash-"));
-    tempDirs.push(trashDir);
-    const withTrash = await setupFixture({
-      trashFile: async (_id, root, path) => {
-        trashed.push(path);
-        await rename(join(root, path), join(trashDir, path));
-      },
-    });
-    try {
-      await writeFile(join(withTrash.repo, "scratch.txt"), "keep me in trash\n");
-      const files = [await reviewed(withTrash, "scratch.txt")];
-      const ok = await withTrash.runtime.execute(
-        withTrash.cmd({ type: "git.discard", threadId: withTrash.thread.id, files }),
-      );
-      expect(ok).toMatchObject({ ok: true });
-      expect(trashed).toEqual(["scratch.txt"]);
-      expect(await readFile(join(trashDir, "scratch.txt"), "utf8")).toBe("keep me in trash\n");
-    } finally {
-      await withTrash.runtime.close();
-      await withTrash.store.close();
-    }
-
-    const withoutTrash = await setupFixture();
-    try {
-      await writeFile(join(withoutTrash.repo, "scratch.txt"), "do not delete\n");
-      const files = [await reviewed(withoutTrash, "scratch.txt")];
-      const refused = await withoutTrash.runtime.execute(
-        withoutTrash.cmd({ type: "git.discard", threadId: withoutTrash.thread.id, files }),
-      );
-      expect(refused).toMatchObject({ ok: false, error: "git_trash_unavailable" });
-      expect(await readFile(join(withoutTrash.repo, "scratch.txt"), "utf8")).toBe(
-        "do not delete\n",
-      );
-    } finally {
-      await withoutTrash.runtime.close();
-      await withoutTrash.store.close();
-    }
-  });
-
-  it("discards nothing while the checkout hold refuses, and nothing that changed since review", async () => {
-    let refuse = true;
-    const trashDir = await mkdtemp(join(tmpdir(), "ace-daemon-trash-"));
-    tempDirs.push(trashDir);
-    const fixture = await setupFixture({
-      holdCheckout: async (_threadId, _commandId, _top, effect) => {
-        if (refuse) throw new Error("agent_working");
-        return effect(new AbortController().signal);
-      },
-      trashFile: async (_id, root, path) => {
-        await rename(join(root, path), join(trashDir, path));
-      },
-    });
-    const { runtime, store, thread, repo, cmd } = fixture;
-    try {
-      await writeFile(join(repo, "file.txt"), "my edit\n");
-      const files = [await reviewed(fixture, "file.txt")];
-      expect(
-        await runtime.execute(cmd({ type: "git.discard", threadId: thread.id, files })),
-      ).toMatchObject({ ok: false, error: "agent_working" });
-      expect(await readFile(join(repo, "file.txt"), "utf8")).toBe("my edit\n");
-
-      refuse = false;
-      await writeFile(join(repo, "file.txt"), "my edit, then the agent's line\n");
-      expect(
-        await runtime.execute(cmd({ type: "git.discard", threadId: thread.id, files })),
-      ).toMatchObject({ ok: false, error: "git_changed_since_review" });
-      expect(await readFile(join(repo, "file.txt"), "utf8")).toBe(
-        "my edit, then the agent's line\n",
-      );
-
-      const fresh = [await reviewed(fixture, "file.txt")];
-      expect(
-        await runtime.execute(cmd({ type: "git.discard", threadId: thread.id, files: fresh })),
-      ).toMatchObject({ ok: true });
-      expect(await readFile(join(repo, "file.txt"), "utf8")).toBe("one\n");
-      // What the discard replaced is in Recently deleted.
-      expect(await readFile(join(trashDir, "file.txt"), "utf8")).toBe(
-        "my edit, then the agent's line\n",
-      );
     } finally {
       await runtime.close();
       await store.close();
@@ -292,7 +130,47 @@ describe("daemon source control handlers", () => {
     }
   });
 
-  it("serves enriched git.status, git.branches, git.diff stage views, and stash commands", async () => {
+  it("commits exactly the reviewed files, and refuses one that changed after the review", async () => {
+    const fixture = await setupFixture();
+    const { runtime, store, thread, repo, cmd } = fixture;
+    try {
+      await writeFile(join(repo, "file.txt"), "reviewed\n");
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      const files = [await reviewed(fixture, "file.txt")];
+      await writeFile(join(repo, "file.txt"), "changed after the review\n");
+      expect(
+        await runtime.execute(
+          cmd({
+            type: "git.commit",
+            threadId: thread.id,
+            message: "m",
+            expectedHead: head,
+            reviewed: files,
+          }),
+        ),
+      ).toMatchObject({ ok: false, error: "git_changed_since_review" });
+      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
+
+      const again = [await reviewed(fixture, "file.txt")];
+      const done = await runtime.execute(
+        cmd({
+          type: "git.commit",
+          threadId: thread.id,
+          message: "m",
+          expectedHead: head,
+          reviewed: again,
+        }),
+      );
+      expect(done).toMatchObject({ ok: true });
+      expect(done).not.toHaveProperty("commitBranchMoved");
+      expect(runGit(repo, ["show", "HEAD:file.txt"])).toBe("changed after the review");
+    } finally {
+      await runtime.close();
+      await store.close();
+    }
+  });
+
+  it("serves git.status sections and the staged and unstaged diff of one file", async () => {
     const { runtime, store, thread, repo, cmd } = await setupFixture();
     try {
       await writeFile(join(repo, "file.txt"), "staged\n");
@@ -335,42 +213,6 @@ describe("daemon source control handlers", () => {
       if (unstagedDiff.result.kind === "gitDiff") {
         expect(unstagedDiff.result.patch).toContain("+unstaged");
       }
-
-      const branchesRes = await runtime.read({
-        type: "workspace.request",
-        requestId: "r-branches",
-        operation: { op: "git.branches", threadId: thread.id },
-      });
-      expect(branchesRes.result).toMatchObject({
-        kind: "branches",
-        current: "main",
-        detached: false,
-      });
-
-      expect(
-        await runtime.execute(
-          cmd({
-            type: "git.stash.push",
-            threadId: thread.id,
-            message: "wip",
-            includeUntracked: false,
-          }),
-        ),
-      ).toMatchObject({ ok: true });
-
-      const stashRes = await runtime.read({
-        type: "workspace.request",
-        requestId: "r-stashes",
-        operation: { op: "git.stash.list", threadId: thread.id },
-      });
-      expect(stashRes.result).toMatchObject({
-        kind: "gitStashes",
-        stashes: [{ ref: "stash@{0}", index: 0, message: "wip", branch: "main" }],
-      });
-
-      expect(
-        await runtime.execute(cmd({ type: "git.stash.pop", threadId: thread.id })),
-      ).toMatchObject({ ok: true });
     } finally {
       await runtime.close();
       store.close();

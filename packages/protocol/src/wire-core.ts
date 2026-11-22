@@ -246,6 +246,11 @@ export const CommandResult = z.object({
     .string()
     .regex(/^[a-f0-9]{40,64}$/)
     .optional(),
+  /**
+   * `git.commit` landed, but the branch had moved past the HEAD the person reviewed (a hook or a
+   * terminal committed in between): the commit sits on top. No ref was moved back.
+   */
+  commitBranchMoved: z.boolean().optional(),
   /** A `git_push_rejected` push's remote-tracking revision: the lease for a force push. */
   remoteHead: z
     .string()

@@ -2,20 +2,14 @@ import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react"
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { useTurns } from "@/lib/diffs/use-turns.ts";
-import { threadCheckoutRoot } from "@/lib/thread-fields.ts";
 import { watchFolders } from "../../files/folder-watch.ts";
 import {
-  branchOptionsFrom,
   buildSections,
-  lastTurnEditedPaths,
   type GitStatusReply,
   type SourceControlSections,
 } from "./source-control-model.ts";
 import {
-  readBranches,
   readSourceControlStatus,
-  readStashes,
   sourceControlErrorCode,
   sourceControlErrorText,
 } from "./source-control-source.ts";
@@ -25,12 +19,6 @@ const watchRefreshMs = 250;
 
 export const sourceControlStatusKey = (threadId: string) =>
   ["source-control-status", threadId] as const;
-
-export const sourceControlBranchesKey = (threadId: string) =>
-  ["source-control-branches", threadId] as const;
-
-export const sourceControlStashesKey = (threadId: string) =>
-  ["source-control-stashes", threadId] as const;
 
 export const sourceControlDiffKey = (threadId: string) =>
   ["source-control-diff", threadId] as const;
@@ -71,9 +59,9 @@ export interface SourceControlActionError {
 }
 
 /**
- * Live Source control state for a thread's checkout: `git.status`, branches, stashes, running-turn
- * agent edit detection, live refresh from `files.folders_changed` / `files.changed` and
- * `thread.details`, and cache invalidation after any mutation.
+ * Live Source control state for a thread's checkout: `git.status` (sections, branch, ahead and
+ * behind), live refresh from `files.folders_changed` / `files.changed` and `thread.details`, and
+ * one Git action at a time with a refresh after it, failed or not.
  */
 export function useSourceControl(threadId: string) {
   const client = useClient();
@@ -81,7 +69,6 @@ export function useSourceControl(threadId: string) {
   const online = useConnectionState() === "ready";
   const thread = useThreadMeta(threadId);
   const details = thread?.details;
-  const turns = useTurns(threadId);
 
   const statusQuery = useDaemonQuery<GitStatusReply>({
     queryKey: [
@@ -105,27 +92,9 @@ export function useSourceControl(threadId: string) {
     read: (daemon, signal) => readSourceControlStatus(daemon, threadId, signal),
   });
 
-  const branchesQuery = useDaemonQuery({
-    queryKey: [...sourceControlBranchesKey(threadId), details?.worktree, details?.branch],
-    staleTime: 30_000,
-    retry: false,
-    enabled: online,
-    read: (daemon, signal) => readBranches(daemon, threadId, signal),
-  });
-
-  const stashesQuery = useDaemonQuery({
-    queryKey: [...sourceControlStashesKey(threadId), details?.worktree],
-    staleTime: 30_000,
-    retry: false,
-    enabled: online,
-    read: (daemon, signal) => readStashes(daemon, threadId, signal),
-  });
-
   const refresh = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: sourceControlStatusKey(threadId) }),
-      queryClient.invalidateQueries({ queryKey: sourceControlBranchesKey(threadId) }),
-      queryClient.invalidateQueries({ queryKey: sourceControlStashesKey(threadId) }),
       queryClient.invalidateQueries({ queryKey: sourceControlDiffKey(threadId) }),
       queryClient.invalidateQueries({ queryKey: ["working-tree-diff", threadId] }),
     ]);
@@ -164,12 +133,6 @@ export function useSourceControl(threadId: string) {
     [statusQuery.data],
   );
 
-  const checkoutRoot = thread ? threadCheckoutRoot(thread) : undefined;
-  const agentTurnPaths = useMemo(
-    () => lastTurnEditedPaths(turns, checkoutRoot),
-    [turns, checkoutRoot],
-  );
-
   const [pendingAction, setPendingAction] = useState<string | undefined>(undefined);
   const pending = useRef<string | undefined>(undefined);
   const [actionError, setActionError] = useState<SourceControlActionError | undefined>(undefined);
@@ -191,7 +154,8 @@ export function useSourceControl(threadId: string) {
           code: sourceControlErrorCode(error),
           message: sourceControlErrorText(error),
         });
-        // A failed pull may have fetched, a conflicted pop left unmerged files: show what's there.
+        // A failed fetch may still have moved some refs, a refused commit left the index as it
+        // was: show what is there now.
         await refresh();
         return undefined;
       } finally {
@@ -206,18 +170,9 @@ export function useSourceControl(threadId: string) {
     ? sourceControlErrorCode(statusQuery.error)
     : undefined;
   const branch = statusQuery.data?.branch ?? details?.branch ?? null;
-  const branches = useMemo(
-    () => branchOptionsFrom(branchesQuery.data, branch),
-    [branchesQuery.data, branch],
-  );
-
-  const state = thread?.status.state;
-  const agentWorking = state === "working" || state === "needs_you" || state === "waiting";
-
   return {
     online,
     thread,
-    agentWorking,
     status: statusQuery.data,
     statusLoading: statusQuery.isPending && !statusQuery.data,
     statusRefreshing: statusQuery.isFetching && !statusQuery.isPlaceholderData,
@@ -228,17 +183,10 @@ export function useSourceControl(threadId: string) {
     ahead: statusQuery.data?.ahead ?? details?.ahead ?? 0,
     behind: statusQuery.data?.behind ?? details?.behind ?? 0,
     head: statusQuery.data?.head ?? details?.head ?? null,
-    branches,
-    branchesLoading: branchesQuery.isFetching && !branchesQuery.data,
-    stashes: stashesQuery.data?.stashes ?? [],
-    stashesLoading: stashesQuery.isFetching && !stashesQuery.data,
-    agentTurnPaths,
     pendingAction,
     actionError,
     clearActionError: () => setActionError(undefined),
     runAction,
     refresh,
-    refetchBranches: () => void branchesQuery.refetch(),
-    refetchStashes: () => void stashesQuery.refetch(),
   };
 }
