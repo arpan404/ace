@@ -146,7 +146,24 @@ import Testing
         #expect(!state.canConfirm)
     }
 
-    @Test func anInstallFromAPhoneWithoutStandingCanOnlyPairAgain() throws {
+    @Test func aRefusedConfirmItsYouKeepsInstallOffUntilTheReviewIsReadAgain() throws {
+        var state = MarketReviewState()
+        let review = try Self.review(type: "spade-plugin")
+        state.opened(review)
+        try Self.readAll(&state, review)
+        state.refused(MarketRefusal(code: "reauth", message: "Sign in again to do this.", way: .confirm, offline: false))
+        state.started(confirmed: true)
+        state.refused(MarketRefusal(code: "reauth", message: "Sign in again to do this.", way: nil, offline: false))
+        #expect(state.exhausted)
+        #expect(state.refusal?.message == "Sign in again to do this.")
+        #expect(!state.canInstall)
+        #expect(!state.canConfirm)
+        // A review read again starts over.
+        state.opened(try Self.review(id: "review-2", type: "spade-plugin"))
+        #expect(!state.exhausted)
+    }
+
+        @Test func anInstallFromAPhoneWithoutStandingCanOnlyPairAgain() throws {
         var state = MarketReviewState()
         let review = try Self.review(type: "spade-plugin")
         state.opened(review)

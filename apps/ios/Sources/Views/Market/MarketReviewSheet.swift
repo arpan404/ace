@@ -103,7 +103,11 @@ struct MarketReviewSheet: View {
     /// Install, what stops it, or what went wrong, always in view at the sheet's foot.
     private var foot: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            if state.needsPerson, let refusal = state.refusal {
+            if state.exhausted, let refusal = state.refusal {
+                // The one retry was refused: the sentence stays, and nothing more is sent from here.
+                ProblemRow(refusal.message, id: "market.review.problem")
+                    .padding(.horizontal, -AceDesign.Space.margin)
+            } else if state.needsPerson, let refusal = state.refusal {
                 MarketConfirmPerson(refusal: refusal, hostId: model.hostId, busy: state.installing || !online) {
                     if let review = state.review { install(review, confirmed: true) }
                 }
@@ -185,7 +189,7 @@ struct MarketReviewSheet: View {
 
     private func install(_ review: MarketReview, confirmed: Bool = false) {
         guard confirmed ? state.canConfirm : state.canInstall else { return }
-        state.started()
+        state.started(confirmed: confirmed)
         Task {
             do {
                 let landed = try await model.marketInstall(review, choices: state.choices.payload, confirmed: confirmed)

@@ -46,6 +46,11 @@ struct MarketReviewState: Equatable {
     var choices = MarketChoices.none
     private(set) var refusal: MarketRefusal?
     private(set) var installing = false
+    /// The install under way is the person's Confirm it's you.
+    private var confirming = false
+    /// Confirm it's you was refused too: nothing more is sent from this review. Reading a review
+    /// again starts over.
+    private(set) var exhausted = false
     /// The switches from a review that was dropped, kept for the one read in its place.
     private var dropped: MarketChoices?
 
@@ -59,6 +64,7 @@ struct MarketReviewState: Equatable {
         choices = dropped?.carried(onto: fresh.choices) ?? fresh.choices
         dropped = nil
         refusal = nil
+        exhausted = false
     }
 
     /// One page read, in order; a page of another review, or out of order, is ignored.
@@ -85,8 +91,9 @@ struct MarketReviewState: Equatable {
         offsetY + containerHeight - insetBottom >= contentHeight - slack
     }
 
-    mutating func started() {
+    mutating func started(confirmed: Bool = false) {
         installing = true
+        confirming = confirmed
         refusal = nil
     }
 
@@ -94,6 +101,9 @@ struct MarketReviewState: Equatable {
     /// anything else keeps it, read as it was.
     mutating func refused(_ refusal: MarketRefusal) {
         installing = false
+        // The one retry was refused for standing again (the bridge offers no way after it).
+        if confirming, refusal.way == nil || refusal.asksForPerson { exhausted = true }
+        confirming = false
         self.refusal = refusal
         guard refusal.way == .reread, review != nil else { return }
         dropped = choices
@@ -124,9 +134,9 @@ struct MarketReviewState: Equatable {
     var needsComputer: Bool { review != nil && refusal?.code == "person_grant" }
 
     private var ready: Bool { review != nil && complete && seenEnd && stuck == nil && !installing }
-    var canInstall: Bool { ready && !needsPerson && !needsComputer }
+    var canInstall: Bool { ready && !needsPerson && !needsComputer && !exhausted }
     /// Confirm it's you sends Install once more, confirmed.
-    var canConfirm: Bool { ready && refusal?.way == .confirm }
+    var canConfirm: Bool { ready && refusal?.way == .confirm && !exhausted }
 
     /// Each switch's binding, read and written by key.
     func need(_ key: String) -> Bool { choices.needs[key] == true }

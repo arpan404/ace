@@ -12,8 +12,8 @@ import Testing
         var state = MarketBotsApprovalState()
         #expect(state.canTurnOn(online: true))
         #expect(!state.canTurnOn(online: false))
-        #expect(state.start())
-        #expect(!state.start())
+        #expect(state.start(confirmed: false))
+        #expect(!state.start(confirmed: false))
         #expect(!state.canTurnOn(online: true))
         state.turnedOn()
         #expect(state.canTurnOn(online: true))
@@ -22,7 +22,7 @@ import Testing
 
     @Test func aRefusalForStandingAsksForThePersonAndKeepsTurnOnForConfirm() {
         var state = MarketBotsApprovalState()
-        _ = state.start()
+        _ = state.start(confirmed: false)
         state.refused(Self.refusal("reauth", .confirm))
         #expect(state.refusal?.asksForPerson == true)
         #expect(state.canTurnOn(online: true))
@@ -30,19 +30,45 @@ import Testing
 
     @Test func aPhoneWithoutStandingCantTurnOnUntilPairedAgain() {
         var state = MarketBotsApprovalState()
-        _ = state.start()
+        _ = state.start(confirmed: false)
         state.refused(Self.refusal("reauth", .pairAgain))
         #expect(state.refusal?.asksForPerson == true)
         #expect(!state.canTurnOn(online: true))
     }
 
-    @Test func aNewerVersionIsReadAgainRatherThanAskingForThePerson() {
+    @Test func aRefusedConfirmItsYouHoldsTurnOnUntilTheRowIsReadAgain() {
         var state = MarketBotsApprovalState()
-        _ = state.start()
-        state.refused(Self.refusal("conflict", .reread))
-        #expect(state.refusal?.asksForPerson == false)
-        state.dismiss()
-        #expect(state.refusal == nil)
+        _ = state.start(confirmed: false)
+        state.refused(Self.refusal("reauth", .confirm))
+        #expect(state.start(confirmed: true))
+        // The bridge sends the retry once; refused again, it offers no way.
+        state.refused(Self.refusal("reauth", nil))
+        #expect(state.exhausted)
+        #expect(state.readsAgain)
+        #expect(!state.canTurnOn(online: true))
+        #expect(!state.start(confirmed: false))
+        #expect(!state.start(confirmed: true))
+        state.lookAgain()
         #expect(state.canTurnOn(online: true))
+    }
+
+    @Test func aNewerVersionHoldsTurnOnWhileItIsReadAndAfterTheReadFails() {
+        var state = MarketBotsApprovalState()
+        _ = state.start(confirmed: false)
+        state.refused(Self.refusal("conflict", .reread))
+        state.lookAgain()
+        // Read under way, or failed and the row unchanged: its hash is still stale.
+        #expect(!state.canTurnOn(online: true))
+        #expect(state.readsAgain)
+        state.readAgain()
+        #expect(state.canTurnOn(online: true))
+    }
+
+    @Test func aTurnOnThatNeedsThePersonsGrantGoesToTheComputerWithNoRetry() {
+        var state = MarketBotsApprovalState()
+        _ = state.start(confirmed: false)
+        state.refused(Self.refusal("person_grant", .computer))
+        #expect(!state.canTurnOn(online: true))
+        #expect(!state.readsAgain)
     }
 }
