@@ -31,6 +31,8 @@ export interface ReconcileDependencies {
   open(actor: ThreadActor): Promise<void>;
   close(actor: ThreadActor): Promise<void>;
   wake(id: ThreadId): void;
+  /** Whether startup proved the previous run's processes gone; the turn shows working until. */
+  verified?(): Promise<boolean>;
   /** Waits between opens of a busy store; the turn shows working meanwhile. */
   retryMs?: readonly number[];
 }
@@ -112,6 +114,13 @@ export async function reconcileCursorRestart(
     if (actor) actor.apply(facts);
     else repo.store.atomic(() => repo.apply(id, facts, clock.now()));
   };
+  // A host of the previous run may still be writing the store: wait for the proof it is gone.
+  // Without it, the turn fails as a restart always failed it and sends stay uncertain.
+  if (!((await deps.verified?.()) ?? true)) {
+    fail();
+    deps.wake(id);
+    return;
+  }
   if (!repo.reserve(id)) {
     fail();
     return;

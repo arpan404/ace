@@ -318,22 +318,36 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   try {
-    inventory.recover();
-    {
-      // The engine decides what the previous run left running, and reads any provider store it
-      // wrote, only once ended processes are verifiably gone: a SIGKILLed group can still be
-      // running, mid-write, when recover() returns. Anything unproven is reported as such.
-      const recovery = await verifyRecovery(
-        process.platform === "win32" ? { recover: () => inventory.recoverWindows() } : inventory,
+    const first = inventory.recover();
+    const unverified = (unresolved: number) =>
+      log.log(
+        "warn",
+        "Previous run's processes could not all be verified as stopped",
+        logFields([["unresolved", unresolved]]),
       );
+    if (process.platform === "win32") {
+      // The engine decides what the previous run left running only once ended processes are
+      // verifiably gone; anything unproven is reported as such, never as stopped.
+      const recovery = await verifyRecovery({ recover: () => inventory.recoverWindows() });
       if (!recovery.verified) {
-        log.log(
-          "warn",
-          "Previous run's processes could not all be verified as stopped",
-          logFields([["unresolved", recovery.unresolved]]),
-        );
+        unverified(recovery.unresolved);
         options = { ...options, engine: { ...options.engine, previousProcessesUnverified: true } };
       }
+    } else {
+      // A SIGKILLed group can still be running, mid-write, when recover() returns. Proving it
+      // gone runs beside startup (ADR 0170): the daemon listens and every provider starts now;
+      // only what must not read a store a dying process may still write waits on it.
+      const verified =
+        first.killed === 0 && first.unresolved === 0
+          ? Promise.resolve(true)
+          : verifyRecovery(inventory).then(
+              (recovery) => {
+                if (!recovery.verified) unverified(recovery.unresolved);
+                return recovery.verified;
+              },
+              () => false,
+            );
+      options = { ...options, engine: { ...options.engine, previousProcessesVerified: verified } };
     }
   } catch (error) {
     inventory.close();

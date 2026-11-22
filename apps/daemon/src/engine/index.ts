@@ -129,9 +129,11 @@ export class Engine {
       close: (actor) => this.sessions.close(actor, "idle"),
       wake: (id) => this.wake(id),
       ...(this.reconcileRetryMs ? { retryMs: this.reconcileRetryMs } : {}),
+      verified: () => this.processesVerified,
     }),
   );
   private reconcileRetryMs: readonly number[] | undefined;
+  private processesVerified: Promise<boolean> = Promise.resolve(true);
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -192,6 +194,7 @@ export class Engine {
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
     this.reconcileRetryMs = options.cursorReconcileRetryMs;
+    this.processesVerified = options.previousProcessesVerified ?? Promise.resolve(true);
     this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
@@ -202,6 +205,7 @@ export class Engine {
     );
     this.sessions = new Sessions({
       models,
+      processesVerified: () => this.processesVerified,
       ...(options.waitForProvider ? { waitForProvider: options.waitForProvider } : {}),
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),

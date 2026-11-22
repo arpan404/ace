@@ -34,6 +34,8 @@ async function crashAt(
   host: {
     /** What Cursor's store says of the cut-off run. */
     stored?: "finished" | "running";
+    /** Startup's proof that the previous run's processes are gone. */
+    verified?: boolean;
     /** The first opens find Cursor's store busy (another writer holds it). */
     busyOpens?: number;
     /** The engine's waits between busy opens. */
@@ -168,6 +170,9 @@ async function crashAt(
     registry,
     selectInstance: () => "account-a",
     ...(host.retryMs ? { cursorReconcileRetryMs: host.retryMs } : {}),
+    ...(host.verified === undefined
+      ? {}
+      : { previousProcessesVerified: Promise.resolve(host.verified) }),
   });
   await engine.flush();
   const held = engine.queue(threadId);
@@ -454,4 +459,21 @@ it("a store still busy when the retries run out fails the turn and keeps what wa
   expect(crash.runs).toEqual(["failed"]);
   expect(crash.held).toMatchObject({ paused: true, reason: "restart" });
   expect(crash.sent).toEqual([]);
+});
+
+it("without proof the last run's processes are gone, a send in doubt is never re-queued and Cursor's store is not read", async () => {
+  await using crash = await crashAt("attempted", { resume: false, verified: false });
+  expect(crash.opened).toEqual([]);
+  expect(crash.sent).toEqual([]);
+  expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
+});
+
+it("without that proof a cut-off run fails as a restart fails it instead of reading the store", async () => {
+  await using crash = await crashAt("admitted", {
+    stored: "finished",
+    resume: false,
+    verified: false,
+  });
+  expect(crash.opened).toEqual([]);
+  expect(crash.runs).toEqual(["failed"]);
 });

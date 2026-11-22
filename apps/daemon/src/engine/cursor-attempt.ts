@@ -12,13 +12,20 @@ import type { EngineRepository } from "./repository.ts";
  * - Cursor has none, and ace recorded nothing of it but the attempt: it never reached Cursor,
  *   so it goes back in the queue and is sent once.
  */
-export function settleCursorAttempt(repo: EngineRepository, id: ThreadId, at: number): void {
+export function settleCursorAttempt(
+  repo: EngineRepository,
+  id: ThreadId,
+  at: number,
+  /** Startup proved the previous run's processes gone: an empty read of the store is final. */
+  verified: boolean,
+): void {
   const admission = repo.recovery.lastAdmission(id);
   if (!admission?.commandId) return;
   const intent = repo.pending.uncertainSend(id, admission.commandId);
   if (!intent) return;
   if (admission.admitted) acknowledge(repo, id, intent.id, admission.commandId, at);
-  else if (!repo.recovery.admissionRecorded(id, admission.commandId)) {
+  // Unverified, a dying host may still be creating the run: the send stays uncertain.
+  else if (verified && !repo.recovery.admissionRecorded(id, admission.commandId)) {
     repo.queue.clearUncertain(intent.id);
     repo.pending.defer(intent);
     repo.queue.track(intent.id, id, intent.command);

@@ -19,6 +19,12 @@ export interface EngineOptions {
    */
   previousProcessesUnverified?: boolean;
   /**
+   * Resolves once startup has proven, or failed to prove, the previous run's processes gone
+   * (macOS and Linux, where it runs beside startup). Cursor opens wait on it: a store a dying
+   * host may still write is never read as final before then.
+   */
+  previousProcessesVerified?: Promise<boolean>;
+  /**
    * Waits between attempts to open a Cursor host whose store is busy during a restart
    * reconcile (cursor-reconcile.ts); once they run out the turn fails as a restart fails it.
    */

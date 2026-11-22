@@ -47,6 +47,8 @@ const SessionIdentity = z.strictObject({
 
 interface SessionDependencies {
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
+  /** Whether startup proved the previous run's processes gone; settles beside startup. */
+  processesVerified?(): Promise<boolean>;
   commandEvent?(event: ProviderCommandEvent): void;
   models: EngineModels;
   repo: EngineRepository;
@@ -344,6 +346,12 @@ export class Sessions {
     const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
     if (actor.session && ownLive) return;
     await this.dependencies.waitForProvider?.(stateBefore.config.provider);
+    // A store an old host may still be writing is never read as final: a Cursor open waits
+    // for startup's proof that the previous run's processes are gone.
+    const verified =
+      this.dependencies.repo.backend(actor.id) === "cursor-sdk"
+        ? ((await this.dependencies.processesVerified?.()) ?? true)
+        : true;
     await this.dependencies.repo.store.writable();
     if (this.dependencies.closing() || this.dependencies.repo.cleaning(actor.id))
       throw new Error("Thread is closing");
@@ -773,7 +781,12 @@ export class Sessions {
       // After the transition state above is stored: settling may clear the handoff it holds.
       if ((session.backend ?? backend) === "cursor-sdk")
         this.dependencies.repo.store.atomic(() =>
-          settleCursorAttempt(this.dependencies.repo, actor.id, this.dependencies.clock.now()),
+          settleCursorAttempt(
+            this.dependencies.repo,
+            actor.id,
+            this.dependencies.clock.now(),
+            verified,
+          ),
         );
       this.forgetRefusedOptions(actor, session.refusedOptions, rootKey);
       // Before it takes input: a choice made while it opened, or modes the session reported
