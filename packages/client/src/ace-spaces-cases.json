@@ -1,0 +1,284 @@
+[
+  {
+    "case": "signed out: every machine shows in Personal",
+    "chosen": "personal",
+    "spaces": null,
+    "hostsOf": {},
+    "orgs": [],
+    "machines": ["LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL", null],
+    "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+    "expect": {
+      "shown": "personal",
+      "inSpace": [0, 1],
+      "startBlock": null,
+      "manage": null,
+      "noticeLabel": null,
+      "phoneStartBlock": null
+    }
+  },
+  {
+    "case": "Personal leaves out an organization's hosts once they are known",
+    "chosen": "personal",
+    "spaces": [
+      {
+        "id": "org_acme",
+        "name": "Acme Robotics",
+        "role": "admin",
+        "plan": "team",
+        "directoryManaged": false
+      }
+    ],
+    "hostsOf": {
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+    },
+    "orgs": ["org_acme"],
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      null
+    ],
+    "noticeHost": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expect": {
+      "shown": "personal",
+      "inSpace": [0, 2],
+      "startBlock": null,
+      "manage": null,
+      "noticeLabel": "Acme Robotics",
+      "phoneStartBlock": null
+    }
+  },
+  {
+    "case": "an organization's space shows only its hosts",
+    "chosen": "org_acme",
+    "spaces": [
+      {
+        "id": "org_acme",
+        "name": "Acme Robotics",
+        "role": "admin",
+        "plan": "team",
+        "directoryManaged": false
+      }
+    ],
+    "hostsOf": {
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+    },
+    "orgs": ["org_acme"],
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      null
+    ],
+    "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+    "expect": {
+      "shown": "org_acme",
+      "inSpace": [1],
+      "startBlock": null,
+      "manage": "Manage Acme Robotics on desktop or the web",
+      "noticeLabel": "Personal",
+      "phoneStartBlock": null
+    }
+  },
+  {
+    "case": "while an organization's hosts load, its space shows nothing and Personal shows no account machine",
+    "chosen": "org_acme",
+    "spaces": [
+      {
+        "id": "org_acme",
+        "name": "Acme Robotics",
+        "role": "admin",
+        "plan": "team",
+        "directoryManaged": false
+      }
+    ],
+    "hostsOf": {},
+    "orgs": ["org_acme"],
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      null
+    ],
+    "noticeHost": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expect": {
+      "shown": "org_acme",
+      "inSpace": [],
+      "startBlock": "Loading Acme Robotics' machines…",
+      "manage": "Manage Acme Robotics on desktop or the web",
+      "noticeLabel": "Personal",
+      "phoneStartBlock": "Loading Acme Robotics' machines…"
+    }
+  },
+  {
+    "case": "Personal while another organization's hosts load places only LAN machines",
+    "chosen": "personal",
+    "spaces": [
+      {
+        "id": "org_acme",
+        "name": "Acme Robotics",
+        "role": "admin",
+        "plan": "team",
+        "directoryManaged": false
+      },
+      {
+        "id": "org_lab",
+        "name": "Lab",
+        "role": "owner",
+        "plan": "pilot",
+        "directoryManaged": false
+      }
+    ],
+    "hostsOf": {
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+    },
+    "orgs": ["org_acme", "org_lab"],
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      null
+    ],
+    "noticeHost": null,
+    "expect": {
+      "shown": "personal",
+      "inSpace": [2],
+      "startBlock": null,
+      "manage": null,
+      "noticeLabel": "Personal",
+      "phoneStartBlock": null
+    }
+  },
+  {
+    "case": "while the list of organizations loads a chosen organization draws nothing",
+    "chosen": "org_acme",
+    "spaces": null,
+    "hostsOf": {},
+    "orgs": null,
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      null
+    ],
+    "noticeHost": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expect": {
+      "shown": null,
+      "inSpace": [],
+      "startBlock": "Loading this organization's machines…",
+      "manage": null,
+      "noticeLabel": null,
+      "phoneStartBlock": "Loading this organization's machines…"
+    }
+  },
+  {
+    "case": "while the list of organizations loads Personal places only LAN machines",
+    "chosen": "personal",
+    "spaces": null,
+    "hostsOf": {},
+    "orgs": null,
+    "machines": ["LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL", null],
+    "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+    "expect": {
+      "shown": "personal",
+      "inSpace": [1],
+      "startBlock": null,
+      "manage": null,
+      "noticeLabel": null,
+      "phoneStartBlock": null
+    }
+  },
+  {
+    "case": "an organization the person left shows Personal",
+    "chosen": "org_gone",
+    "spaces": [
+      {
+        "id": "org_acme",
+        "name": "Acme Robotics",
+        "role": "admin",
+        "plan": "team",
+        "directoryManaged": false
+      }
+    ],
+    "hostsOf": {
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+    },
+    "orgs": ["org_acme"],
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    ],
+    "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+    "expect": {
+      "shown": "personal",
+      "inSpace": [0],
+      "startBlock": null,
+      "manage": null,
+      "noticeLabel": "Personal",
+      "phoneStartBlock": null
+    }
+  },
+  {
+    "case": "an organization with no machines refuses a new thread",
+    "chosen": "org_lab",
+    "spaces": [
+      {
+        "id": "org_acme",
+        "name": "Acme Robotics",
+        "role": "admin",
+        "plan": "team",
+        "directoryManaged": false
+      },
+      {
+        "id": "org_lab",
+        "name": "Lab",
+        "role": "owner",
+        "plan": "pilot",
+        "directoryManaged": false
+      }
+    ],
+    "hostsOf": {
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+      "org_lab": []
+    },
+    "orgs": ["org_acme", "org_lab"],
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    ],
+    "noticeHost": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expect": {
+      "shown": "org_lab",
+      "inSpace": [],
+      "startBlock": "Lab has no machines yet.",
+      "manage": "Manage Lab on desktop or the web",
+      "noticeLabel": "Acme Robotics",
+      "phoneStartBlock": "Lab has no machines yet."
+    }
+  },
+  {
+    "case": "an organization whose hosts this phone doesn't reach refuses a new thread",
+    "chosen": "org_acme",
+    "spaces": [
+      {
+        "id": "org_acme",
+        "name": "Acme Robotics",
+        "role": "member",
+        "plan": "team",
+        "directoryManaged": false
+      }
+    ],
+    "hostsOf": {
+      "org_acme": ["BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"]
+    },
+    "orgs": ["org_acme"],
+    "machines": [
+      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    ],
+    "noticeHost": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "expect": {
+      "shown": "org_acme",
+      "inSpace": [],
+      "startBlock": "None of Acme Robotics' machines are connected to this window.",
+      "manage": null,
+      "noticeLabel": "Acme Robotics",
+      "phoneStartBlock": "None of Acme Robotics' machines are connected."
+    }
+  }
+]
