@@ -365,6 +365,6 @@ describe("a connect card (ADR 0131, amendment 1)", () => {
     });
     const view = c.view();
     expect(view.asking).toBe(true);
-    expect(view.working).toMatchObject({ label: "Waiting for you", moving: false });
+    expect(view.working).toMatchObject({ label: "Needs you", moving: false });
   });
 });

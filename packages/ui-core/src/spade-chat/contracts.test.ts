@@ -6,6 +6,7 @@ import {
   parseSpadePackage,
   spadeBubbles,
   spadeContractEffects,
+  spadeContractResult,
   spadeReplySteps,
   spadeView,
 } from "./index.ts";
@@ -67,7 +68,7 @@ describe("a contract call in the caller's conversation", () => {
   test("is one line that says whom it asked, then what came back", () => {
     const c = conversation();
     calls(c);
-    expect(lines(c)).toEqual([["Asking Flight watcher: cheapest_fare", ""]]);
+    expect(lines(c)).toEqual([["Asking Flight watcher: cheapest fare", ""]]);
     // Its reply is over, but the call is open: never done while it is.
     expect(c.view().busy).toBe(true);
     c.stored({
@@ -77,7 +78,7 @@ describe("a contract call in the caller's conversation", () => {
       content:
         '<contract_result call="cc.c1.j1" bot="Flight watcher" contract="cheapest_fare" status="returned">\n{\n  "fare": 182,\n  "currency": "USD"\n}\n</contract_result>',
     });
-    expect(lines(c)).toEqual([["Asked Flight watcher: cheapest_fare", "fare 182 · currency USD"]]);
+    expect(lines(c)).toEqual([["Asked Flight watcher: cheapest fare", "$182"]]);
     expect(c.view().busy).toBe(false);
     // Not a step of its reply too: its own line says it.
     const reply = c.view().entries.find((entry) => entry.kind === "reply");
@@ -96,7 +97,7 @@ describe("a contract call in the caller's conversation", () => {
         '<contract_result call="cc.c1.j1" status="failed">\noutput.fare: is a number\n</contract_result>',
     });
     expect(lines(failed)).toEqual([
-      ["Flight watcher on Studio couldn't answer cheapest_fare", "output.fare: is a number"],
+      ["Flight watcher on Studio couldn't answer cheapest fare", "output.fare: is a number"],
     ]);
     const stopped = conversation();
     calls(stopped);
@@ -108,7 +109,7 @@ describe("a contract call in the caller's conversation", () => {
       is_error: true,
       content: "Stopped by the person before it finished.",
     });
-    expect(lines(stopped)[0]?.[0]).toBe("Stopped asking Flight watcher: cheapest_fare");
+    expect(lines(stopped)[0]?.[0]).toBe("Stopped asking Flight watcher: cheapest fare");
   });
 });
 
@@ -134,7 +135,7 @@ describe("a contract call in the callee's conversation", () => {
       {
         kind: "other",
         agent: { name: "Trip planner" },
-        text: "Asked for cheapest_fare: from KTM · month 2027-01",
+        text: "Asked for cheapest fare: KTM, 2027-01",
       },
     ]);
   });
@@ -156,5 +157,14 @@ describe("a bot's contracts in its profile", () => {
       "It may reach outside its folder while answering.",
     );
     expect(spadeContractEffects([])).toBe("It only reads and uses its own things while answering.");
+  });
+});
+
+describe("a contract's answer in plain words", () => {
+  test("reads an amount, its currency and who sells it as a short phrase, without keys or moments", () => {
+    const read = spadeContractResult(
+      '<contract_result call="c" bot="Fare watch" contract="cheapest_fare" status="returned">\n{"fare":78,"currency":"EUR","carrier":"TAP","seen_at":"today 07:40"}\n</contract_result>',
+    );
+    expect(read.result).toBe("€78 with TAP");
   });
 });

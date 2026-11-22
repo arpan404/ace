@@ -21,7 +21,7 @@ export function RegistryPage(props: { org: AceOrgSpace }) {
           inline
         >
           <Button size="sm" variant="ghost" onClick={() => openMarket("installed")}>
-            Open Store
+            Open Marketplace
           </Button>
         </SettingRow>
         <SettingRow

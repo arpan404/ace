@@ -38,7 +38,7 @@ test("Running lists every bot in Spade's order with its state in words, and Paus
     "Spade",
   ]);
   const [mail, fares, post] = rows.map((row) => within(row));
-  expect(mail?.getByText("Waiting on you: a question")).toBeTruthy();
+  expect(mail?.getByText("Asks you a question")).toBeTruthy();
   expect(fares?.getByText("Checking fares")).toBeTruthy();
   expect(fares?.getByText(/\$0\.42 today · \$3\.10 this month/)).toBeTruthy();
   expect(fares?.getByText(/1\.2 kB with api\.fares\.dev/)).toBeTruthy();

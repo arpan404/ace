@@ -56,7 +56,7 @@ function Waiting(props: {
     <div
       ref={region}
       role="region"
-      aria-label="Waiting for you"
+      aria-label="Needs you"
       tabIndex={-1}
       data-request="workers"
       // Focused as the chat opens on it, for the keyboard: a target, not a control, so no ring.

@@ -9,6 +9,7 @@ import {
 import { faceForId, parseStoredBotFace, type BotFace } from "../bot-face/index.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
 import { spadeWorkingPhrase } from "./working-phrase.ts";
+import { spadeNeedsYouWords } from "./needs-you.ts";
 
 /*
  * Spade's teams (ADR 0132, spade/docs/teams.md): groups of bots with their own transcript,
@@ -176,7 +177,7 @@ export function spadeGroupLine(group: SpadeGroup): {
   tone?: "working" | "needs-you";
 } {
   if (group.state === "waiting")
-    return { text: group.status ?? "Waiting for you", tone: "needs-you" };
+    return { text: spadeNeedsYouWords(group.status), tone: "needs-you" };
   // What it does now, as the club's Working line says it.
   if (group.state === "working") return { text: spadeWorkingPhrase(group.status), tone: "working" };
   const last = group.lastMessage;

@@ -28,7 +28,7 @@ export function spadeSubagentTone(state: SubagentState): SpadeSubagentTone {
 /** A row's state in Spade's words. */
 const stateWords: Record<SubagentState, string> = {
   working: "Working",
-  human: "Waiting for you",
+  human: "Needs you",
   waiting: "Waiting",
   queued: "Queued",
   unresponsive: "Not responding",
