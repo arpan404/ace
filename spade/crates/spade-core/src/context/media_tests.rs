@@ -32,6 +32,7 @@ fn message(text: &str, documents: Vec<DocumentRef>, voice: Option<Box<VoiceRef>>
         from_routine: None,
         from_group: None,
         from_thread: None,
+        reply_to: None,
     })
 }
 
@@ -51,7 +52,7 @@ fn a_document_shows_its_view_and_how_to_read_on() {
     )]);
     let (text, images) = person_text(&messages);
     assert_eq!(images, 0);
-    assert!(text.starts_with("What does it say?\n\n<document name=\"contract final.pdf\" id=\"ab12cd34ef56-pdf-v1\" pages=\"12\" chars=\"10000\">\nSection 1. Terms\n</document>"), "{text}");
+    assert!(text.starts_with("[m1] What does it say?\n\n<document name=\"contract final.pdf\" id=\"ab12cd34ef56-pdf-v1\" pages=\"12\" chars=\"10000\">\nSection 1. Terms\n</document>"), "{text}");
     assert!(
         text.ends_with(
             "[9984 more characters; read on with document_read id=\"ab12cd34ef56-pdf-v1\" offset=16]"
@@ -108,7 +109,7 @@ fn a_spoken_message_reads_as_its_transcript_marked_as_spoken() {
         Some(Box::new(voice)),
     )]);
     let (text, _) = person_text(&messages);
-    assert_eq!(text, "[Spoken; transcribed] turn the lights off");
+    assert_eq!(text, "[m1] [Spoken; transcribed] turn the lights off");
 }
 
 #[test]

@@ -72,6 +72,7 @@ fn day() -> Vec<Event> {
             })),
             from_group: None,
             from_thread: None,
+            reply_to: None,
         }),
         k(Known::UserMessage {
             text: "Here are the numbers".into(),
@@ -89,6 +90,7 @@ fn day() -> Vec<Event> {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         }),
         Event::reply_started("r1", "fake/m"),
         step(

@@ -138,6 +138,7 @@ mod tests {
                 })
             }),
             from_thread: None,
+            reply_to: None,
         })
     }
 

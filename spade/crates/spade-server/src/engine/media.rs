@@ -70,6 +70,7 @@ impl Engine {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         });
         let message = memory::with_recall(self, id, message);
         let message = with_devices(message, &outgoing_devices);
@@ -172,6 +173,7 @@ fn with_devices(event: Event, devices: &[spade_core::named_devices::NamedDevice]
             from_routine,
             from_group,
             from_thread,
+            reply_to,
         }) => Event::Known(Known::UserMessage {
             text,
             context: Some(match context {
@@ -185,6 +187,7 @@ fn with_devices(event: Event, devices: &[spade_core::named_devices::NamedDevice]
             from_routine,
             from_group,
             from_thread,
+            reply_to,
         }),
         other => other,
     }

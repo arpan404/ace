@@ -78,6 +78,7 @@ impl Engine {
             text: text.to_owned(),
             from: None,
             thread: from_thread,
+            reply_to: None,
         });
         let seq = match delivery {
             None => self.record(&group.conversation, &message)?.seq,
@@ -236,6 +237,7 @@ impl Engine {
             from_routine: None,
             from_group: Some(Box::new(from_group)),
             from_thread: None,
+            reply_to: None,
         });
         let frames = self.live(&agent.conversation).frames.subscribe();
         let delivered = self
@@ -427,6 +429,7 @@ impl Engine {
                     text: text.clone(),
                     from: Some(to.clone()),
                     thread: None,
+                    reply_to: None,
                 }));
             }
             {
