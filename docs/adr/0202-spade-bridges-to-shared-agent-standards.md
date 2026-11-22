@@ -710,7 +710,9 @@ reviewer run on the strongest model the person uses (ADR 0205).
    the verifier does (ADR 0205), and the bot's own model when none is. It used to be the fast
    model, which let a reviewer far weaker than the bot judge it. A bot whose model has no price to
    compare (a subscription, an unpriced local model) keeps the fast model for its reviewer, since
-   a review can't run on a subscription.
+   a review can't run on a subscription. Preset models with no hand-written price get LiteLLM's public rate
+   (ADR 0040's list and matcher), filled into `spade/config/models.json` by
+   `bun scripts/update-spade-prices.ts`, so OpenCode Go's DeepSeek and Kimi can be compared too.
 7. **A shared bot's unresolved app call is outward** (ADR 0206). For the organization's policy
    and its approvers, a connected app's or remote plugin's call that declares nothing, or calls
    its write local, reads as `network`, as the package ceiling already reads it. So what the
