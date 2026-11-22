@@ -1,24 +1,21 @@
 import { CaretDownIcon } from "@ace/icons";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
-import { PanelTitle, panelTitleText } from "@/components/ui/panel.tsx";
+import { panelTitleText } from "@/components/ui/panel.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
-import { useMachines } from "@/lib/machines.ts";
 import { DeviceItems, ScopeMark, scopeNames, useScopeMachines } from "./device-filter.tsx";
 import { useChatsDevice } from "./device-filter-state.ts";
 
 /**
- * The Chats panel's title. While more than one device is connected it is "Chats" with a caret,
+ * The Chats panel's title when more than one device is connected: it is "Chats" with a caret,
  * which opens the device filter (chats have no project, so only devices); chosen devices add
  * their mark, as Threads' title does. The choice is the Chats panel's own, apart from Threads'.
  */
 export function ChatsFilter() {
-  const machines = useMachines();
   const deviceId = useChatsDevice();
   const organizer = useOrganizer();
   const chosen = useScopeMachines(deviceId);
-  if (machines.length < 2) return <PanelTitle>Chats</PanelTitle>;
   const names = scopeNames(chosen);
   return (
     <span className="flex min-w-0 flex-1">
