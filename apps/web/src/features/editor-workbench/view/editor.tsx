@@ -16,6 +16,7 @@ import { GroupView } from "./group-view.tsx";
 import { SplitGrid } from "./split-grid.tsx";
 import { StatusLine } from "./status-line.tsx";
 import { createStatusStore, useStatusReport, type StatusStore } from "./status-store.ts";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLayoutProps {
   /**
@@ -122,7 +123,7 @@ export function Editor(props: EditorProps) {
       aria-label="Editor"
       data-part="editor"
       data-compact={sideBySide ? undefined : ""}
-      className="flex h-full min-h-0 min-w-0 flex-col bg-background"
+      className={`flex h-full min-h-0 min-w-0 flex-col bg-background ${sceneThrough}`}
       onKeyDown={(event) => {
         const number = groupKey(event);
         if (number === undefined) return;

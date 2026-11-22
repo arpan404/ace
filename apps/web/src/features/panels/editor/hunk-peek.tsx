@@ -1,6 +1,7 @@
 // oxlint-disable react/no-array-index-key -- a hunk's lines have no identity but their place.
 import type { ChangeHunk } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
@@ -23,7 +24,7 @@ export function HunkPeek(props: { hunk: ChangeHunk; onRevert(): void; onClose():
       role="group"
       aria-label={`Change at line ${hunk.start}`}
       data-hunk-peek
-      className="border-y border-border bg-background py-1 shadow-sm"
+      className={`border-y border-border bg-background py-1 shadow-sm ${sceneThrough}`}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.stopPropagation();

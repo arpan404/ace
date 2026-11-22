@@ -3,6 +3,7 @@ import { tokensFit } from "@/components/markdown/code-lines.ts";
 import { CodeTokens } from "@/components/markdown/code-tokens.tsx";
 import type { LineMark } from "@ace/ui-core";
 import { memo } from "react";
+import { panelReveal } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import type { MatchSegment } from "./find-matches.ts";
 import { tabSize } from "./geometry.ts";
@@ -122,6 +123,8 @@ export const EditorLine = memo(function EditorLine(props: {
         style={{ width: props.gutter }}
         className={cn(
           "sticky left-0 z-[1] shrink-0 bg-background pr-4 text-right text-subtle-foreground tabular-nums select-none",
+          // Over a scene the numbers sit on the panel's own tint: code scrolled under them stays hidden.
+          panelReveal,
           props.current && "text-foreground",
           props.mark && markBar[props.mark],
           props.mark && props.markAction && "cursor-pointer",

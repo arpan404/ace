@@ -85,6 +85,7 @@ import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
 import { HunkPeek } from "./hunk-peek.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 /*
  * The editor panel tab (docs/editor/workbench.md): the thread's explorer and editor groups over
@@ -407,7 +408,7 @@ export function EditorPanel(props: TabViewProps) {
               role="complementary"
               aria-label="Explorer"
               style={{ width: explorerWidth(width, layout.explorer.width) }}
-              className="relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar"
+              className={`relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar ${sceneThrough}`}
             >
               <ResizeHandle
                 label="Resize the explorer"

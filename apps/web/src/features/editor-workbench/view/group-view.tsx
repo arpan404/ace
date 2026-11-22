@@ -17,6 +17,7 @@ const MarkdownPreview = lazy(() =>
 );
 import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 /**
  * One group: its strip, breadcrumbs, the agent notice when the shown file's disk version moved
@@ -66,7 +67,7 @@ export function GroupView(props: {
       aria-label={`Group ${props.number}`}
       data-group-id={group.id}
       data-focused={props.focused ? "" : undefined}
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-background", sceneThrough)}
       onFocusCapture={actions.focus}
       onPointerDownCapture={actions.focus}
     >
