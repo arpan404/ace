@@ -13,6 +13,21 @@ const json = async (reply: Response | undefined) => {
 const requests = async (account: SpikeAccount) =>
   (await json(await account.handle(new Request(`${origin}/account/requests`)))).requests;
 
+const send = (account: SpikeAccount, method: string, path: string, body?: unknown) =>
+  account.handle(
+    new Request(`${origin}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${spikeAccountToken}` },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+  );
+const acme = () => {
+  process.env.ACE_IOS_SPIKE_ORG_HOSTS = "H".repeat(52);
+  const account = new SpikeAccount(() => 0);
+  delete process.env.ACE_IOS_SPIKE_ORG_HOSTS;
+  return account;
+};
+
 describe("spike account backend", () => {
   it("answers the session and lists the account's machines", async () => {
     const account = new SpikeAccount(() => 1_000_000);
@@ -86,21 +101,6 @@ describe("spike account backend", () => {
   });
 
   describe("an organization's admin routes", () => {
-    const send = (account: SpikeAccount, method: string, path: string, body?: unknown) =>
-      account.handle(
-        new Request(`${origin}${path}`, {
-          method,
-          headers: { authorization: `Bearer ${spikeAccountToken}` },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        }),
-      );
-    const acme = () => {
-      process.env.ACE_IOS_SPIKE_ORG_HOSTS = "H".repeat(52);
-      const account = new SpikeAccount(() => 0);
-      delete process.env.ACE_IOS_SPIKE_ORG_HOSTS;
-      return account;
-    };
-
     it("an invitation, a role change and a removal show in the lists and the log", async () => {
       const account = acme();
       await json(
