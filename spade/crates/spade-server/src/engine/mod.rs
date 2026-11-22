@@ -77,6 +77,7 @@ mod security;
 pub use code::CodeCall;
 mod self_edit;
 mod services;
+mod sign_in;
 mod speech;
 mod style;
 mod suggest;
@@ -283,6 +284,8 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// Sign-ins to ChatGPT accounts (ADR 0213, `sign_in`), once the server has set them.
+    sign_ins: std::sync::OnceLock<Arc<spade_chatgpt::Flows>>,
     /// The person's outside A2A agents (ADR 0202 §5), once the server has set them.
     outside_agents: std::sync::OnceLock<Arc<crate::a2a::OutsideAgents>>,
     /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
@@ -468,6 +471,7 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            sign_ins: std::sync::OnceLock::new(),
             outside_agents: std::sync::OnceLock::new(),
             market: std::sync::OnceLock::new(),
             suggest_lock: Mutex::default(),

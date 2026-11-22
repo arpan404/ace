@@ -417,6 +417,7 @@ fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
         base_url: "https://example.test/v1/".into(),
         headers: vec![("x-team".into(), "blue".into())],
         session_header: Some("x-session".into()),
+        sign_in: None,
         needs_key: true,
         key_env: Some("GO_KEY".into()),
         preset: Some("opencode-go".into()),

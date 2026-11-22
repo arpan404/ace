@@ -164,6 +164,9 @@ pub struct Endpoint {
     /// The header that carries the conversation's session id, for endpoints that route by it
     /// (OpenCode Go's `x-opencode-session`). Calls without a session send none.
     pub session_header: Option<String>,
+    /// How it signs in when not with a key: a ChatGPT account (ADR 0213). `None` for a key or
+    /// no key at all, as `needs_key` says.
+    pub sign_in: Option<crate::chatgpt::SignIn>,
     pub models: Vec<Model>,
 }
 
@@ -477,6 +480,7 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
         key_env,
         headers: endpoint.headers.into_iter().collect(),
         session_header,
+        sign_in: None,
         models,
     }
 }

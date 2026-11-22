@@ -6,6 +6,7 @@
 
 pub mod base_url;
 pub mod catalog;
+pub mod chatgpt;
 mod client;
 pub mod config;
 mod error;
@@ -25,7 +26,8 @@ mod web_search;
 pub use catalog::{
     Capability, Catalog, CatalogError, DEFAULT_CONTEXT, Endpoint, Model, Price, Resolved, Role,
 };
-pub use client::{KEYLESS, Models};
+pub use chatgpt::SignIn;
+pub use client::{Bearers, KEYLESS, Models};
 pub use config::ModelsConfig;
 pub use error::{ModelError, Unserved};
 pub use format::Format;

@@ -921,7 +921,7 @@ impl FailureKind {
     pub fn of(error: &spade_models::ModelError) -> Self {
         use spade_models::ModelError;
         match error {
-            ModelError::MissingKey { .. } => Self::Key,
+            ModelError::MissingKey { .. } | ModelError::SignIn { .. } => Self::Key,
             ModelError::Unanswered { status: None, .. } => Self::Unreachable,
             ModelError::Unanswered {
                 status: Some(401 | 403),

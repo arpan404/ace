@@ -18,6 +18,11 @@ pub enum ModelError {
         var: Option<String>,
     },
 
+    /// A sign-in account (ADR 0213) has no usable token: signed out, or its refresh failed.
+    /// One plain line.
+    #[error("{message}")]
+    SignIn { endpoint: String, message: String },
+
     /// The HTTP client could not be built (TLS or proxy setup).
     #[error("model client setup failed: {0}")]
     Setup(String),

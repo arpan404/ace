@@ -1,5 +1,7 @@
 //! The I/O shell: turns Spade prompts into calls on the endpoint a model reference names.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use futures_util::{Stream, StreamExt};
@@ -13,6 +15,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Endpoint, Model, Price, Role};
+use crate::chatgpt::{self, SignIn};
 use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
@@ -31,6 +34,28 @@ pub struct Models {
     user_agent: String,
     http: reqwest::Client,
     listing: ListBounds,
+    /// Access tokens for accounts that sign in (ADR 0213), set by the server.
+    bearers: Arc<RwLock<Option<Bearers>>>,
+}
+
+/// What [`Bearers`] answers: a token, or one plain line saying why there is none.
+pub type BearerFuture = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
+
+/// Finds a signed-in account's access token by account (endpoint) id, refreshing it when it is
+/// about to end. Tokens are never printed.
+#[derive(Clone)]
+pub struct Bearers(Arc<dyn Fn(String) -> BearerFuture + Send + Sync>);
+
+impl Bearers {
+    pub fn new(find: impl Fn(String) -> BearerFuture + Send + Sync + 'static) -> Self {
+        Self(Arc::new(find))
+    }
+}
+
+impl std::fmt::Debug for Bearers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Bearers(…)")
+    }
 }
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
@@ -41,6 +66,8 @@ struct Call {
     reference: String,
     target: ServiceTarget,
     options: ChatOptions,
+    /// The endpoint answers only streamed requests (a ChatGPT account).
+    streamed_only: bool,
 }
 
 impl Models {
@@ -68,6 +95,7 @@ impl Models {
             user_agent,
             http,
             listing: ListBounds::default(),
+            bearers: Arc::default(),
         })
     }
 
@@ -75,6 +103,32 @@ impl Models {
     pub fn with_listing_bounds(mut self, bounds: ListBounds) -> Self {
         self.listing = bounds;
         self
+    }
+
+    /// Where signed-in accounts' tokens come from (ADR 0213).
+    pub fn set_bearers(&self, bearers: Bearers) {
+        *self.bearers.write().unwrap_or_else(|p| p.into_inner()) = Some(bearers);
+    }
+
+    /// The access token for a signed-in account, or why there is none.
+    async fn bearer(&self, endpoint: &Endpoint) -> Result<String, ModelError> {
+        let find = self
+            .bearers
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        let Some(find) = find else {
+            return Err(ModelError::SignIn {
+                endpoint: endpoint.id.clone(),
+                message: "this Spade cannot use sign-in accounts".to_owned(),
+            });
+        };
+        (find.0)(endpoint.id.clone())
+            .await
+            .map_err(|message| ModelError::SignIn {
+                endpoint: endpoint.id.clone(),
+                message,
+            })
     }
 
     /// The shipped presets: endpoint templates and known model facts.
@@ -176,6 +230,26 @@ impl Models {
         let endpoint = self
             .endpoint(endpoint_id)
             .ok_or_else(|| ModelError::UnknownModel(format!("{endpoint_id}/")))?;
+        if let Some(SignIn::ChatGpt { account_id }) = &endpoint.sign_in {
+            let token = self.bearer(&endpoint).await.map_err(|e| ModelError::Listing {
+                endpoint: endpoint.id.clone(),
+                message: e.to_string(),
+            })?;
+            let mut signed = endpoint.clone();
+            signed.headers.extend(chatgpt::headers(account_id, None));
+            return listing::fetch(
+                &self.http,
+                &signed,
+                Some(&token),
+                &[("client_version", chatgpt::CLIENT_VERSION)],
+                self.listing,
+            )
+            .await
+            .map_err(|message| ModelError::Listing {
+                endpoint: endpoint.id.clone(),
+                message,
+            });
+        }
         let key = if endpoint.needs_key {
             Some(
                 self.key_for_call(&endpoint)
@@ -188,7 +262,7 @@ impl Models {
         } else {
             None
         };
-        listing::fetch(&self.http, &endpoint, key.as_deref(), self.listing)
+        listing::fetch(&self.http, &endpoint, key.as_deref(), &[], self.listing)
             .await
             .map_err(|message| ModelError::Listing {
                 endpoint: endpoint.id.clone(),
@@ -198,9 +272,14 @@ impl Models {
 
     pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
         let call = self.call(reference, prompt).await?;
+        if call.streamed_only {
+            let reference = call.reference.clone();
+            let stream = self.open_stream(call, prompt, None).await?;
+            return fold(reference, stream).await;
+        }
         let response = self
             .client
-            .exec_chat(call.target, request(prompt), Some(&call.options))
+            .exec_chat(call.target, request(prompt, false), Some(&call.options))
             .await
             .map_err(|error| failure::read(&call.reference, &error, false))?;
         let usage = usage(&response.usage);
@@ -240,10 +319,22 @@ impl Models {
         T: JsonSchema + DeserializeOwned,
     {
         let call = self.call(reference, prompt).await?;
+        if call.streamed_only {
+            let reference = call.reference.clone();
+            let stream = self
+                .open_stream(call, prompt, Some(typed::spec::<T>()?.into()))
+                .await?;
+            let reply = fold(reference.clone(), stream).await?;
+            return Ok(Generated {
+                value: typed::parse(&reference, &reply.text)
+                    .map_err(|e| error::charged(e, reply.usage))?,
+                usage: reply.usage,
+            });
+        }
         let options = call.options.with_response_format(typed::spec::<T>()?);
         let response = self
             .client
-            .exec_chat(call.target, request(prompt), Some(&options))
+            .exec_chat(call.target, request(prompt, false), Some(&options))
             .await
             .map_err(|error| failure::read(&call.reference, &error, false))?;
         let cost = usage(&response.usage);
@@ -264,15 +355,27 @@ impl Models {
         prompt: &Prompt,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
         let call = self.call(reference, prompt).await?;
-        let options = call
-            .options
+        self.open_stream(call, prompt, None).await
+    }
+
+    async fn open_stream(
+        &self,
+        call: Call,
+        prompt: &Prompt,
+        format: Option<genai::chat::ChatResponseFormat>,
+    ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
+        let mut options = call.options;
+        if let Some(format) = format {
+            options = options.with_response_format(format);
+        }
+        let options = options
             .with_capture_usage(true)
             .with_capture_tool_calls(true)
             .with_capture_content(true)
             .with_capture_reasoning_content(true);
         let response = self
             .client
-            .exec_chat_stream(call.target, request(prompt), Some(&options))
+            .exec_chat_stream(call.target, request(prompt, call.streamed_only), Some(&options))
             .await
             .map_err(|error| failure::read(&call.reference, &error, false))?;
         let reference = call.reference;
@@ -322,7 +425,17 @@ impl Models {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
-        let auth = if endpoint.needs_key {
+        let signed = match &endpoint.sign_in {
+            Some(SignIn::ChatGpt { account_id }) => Some((
+                self.bearer(&endpoint).await?,
+                chatgpt::headers(account_id, prompt.session.as_deref()),
+            )),
+            None => None,
+        };
+        let streamed_only = signed.is_some();
+        let auth = if let Some((token, _)) = &signed {
+            AuthData::from_single(token.clone())
+        } else if endpoint.needs_key {
             let key = self
                 .key_for_call(&endpoint)
                 .await
@@ -336,13 +449,17 @@ impl Models {
             AuthData::from_single(KEYLESS)
         };
         let mut options = ChatOptions::default();
-        if let Some(value) = prompt.max_tokens {
+        // The ChatGPT backend refuses an output limit.
+        if let Some(value) = prompt.max_tokens.filter(|_| !streamed_only) {
             options = options.with_max_tokens(value);
         }
         let mut headers = endpoint.headers.clone();
         headers.push(("user-agent".to_owned(), self.user_agent.clone()));
         if let (Some(name), Some(session)) = (&endpoint.session_header, &prompt.session) {
             headers.push((name.clone(), session.clone()));
+        }
+        if let Some((_, extra)) = signed {
+            headers.extend(extra);
         }
         options = options.with_extra_headers(Headers::from(headers));
         Ok(Call {
@@ -353,14 +470,52 @@ impl Models {
                 model: ModelIden::new(endpoint.format.adapter(), model.id.as_str()),
             },
             options,
+            streamed_only,
         })
     }
 }
 
-fn request(prompt: &Prompt) -> ChatRequest {
+/// A whole reply read off a stream, for an account whose backend only streams.
+async fn fold(
+    reference: String,
+    stream: impl Stream<Item = Result<Delta, ModelError>> + Send,
+) -> Result<Reply, ModelError> {
+    let mut stream = std::pin::pin!(stream);
+    let mut reply = Reply {
+        model: reference,
+        text: String::new(),
+        calls: Vec::new(),
+        thoughts: Vec::new(),
+        usage: Usage::default(),
+    };
+    while let Some(delta) = stream.next().await {
+        match delta? {
+            Delta::Text(text) => reply.text.push_str(&text),
+            Delta::Call(call) => reply.calls.push(call),
+            Delta::Done { usage, thoughts } => {
+                reply.usage = usage;
+                reply.thoughts = thoughts;
+            }
+            Delta::Reasoning(_) => {}
+        }
+    }
+    if reply.text.is_empty() && reply.calls.is_empty() {
+        return Err(ModelError::Empty {
+            model: reply.model,
+            usage: reply.usage,
+        });
+    }
+    Ok(reply)
+}
+
+/// The request for `prompt`. `instructed`: the endpoint needs instructions even when the prompt
+/// has none (the ChatGPT backend refuses a request without them).
+fn request(prompt: &Prompt, instructed: bool) -> ChatRequest {
     let mut request = ChatRequest::new(prompt.messages.iter().map(message).collect());
-    if let Some(system) = &prompt.system {
-        request = request.with_system(system.as_str());
+    match &prompt.system {
+        Some(system) => request = request.with_system(system.as_str()),
+        None if instructed => request = request.with_system(""),
+        None => {}
     }
     if !prompt.tools.is_empty() {
         request = request.with_tools(prompt.tools.iter().map(|tool| {

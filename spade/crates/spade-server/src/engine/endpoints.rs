@@ -6,7 +6,7 @@ use spade_core::brain::CliModel;
 use std::collections::HashSet;
 
 use spade_models::base_url::{self, same_origin};
-use spade_models::{Capability, Endpoint, Format, Listed, Model, ModelError};
+use spade_models::{Capability, Endpoint, Format, Listed, Model, ModelError, SignIn};
 use spade_store::{StoreError, StoredEndpoint, StoredModel};
 
 use super::Engine;
@@ -208,6 +208,14 @@ impl Engine {
 
     fn endpoint_of(&self, stored: &StoredEndpoint) -> Option<Endpoint> {
         let format = Format::parse(&stored.format)?;
+        // A sign-in this build doesn't know (from a newer Spade) can't be called at all.
+        let sign_in = match &stored.sign_in {
+            None => None,
+            Some(s) if s.kind == super::sign_in::CHATGPT => Some(SignIn::ChatGpt {
+                account_id: s.account_id.clone(),
+            }),
+            Some(_) => return None,
+        };
         Some(Endpoint {
             id: stored.id.clone(),
             name: stored.name.clone(),
@@ -217,6 +225,7 @@ impl Engine {
             key_env: stored.key_env.clone(),
             headers: stored.headers.clone(),
             session_header: stored.session_header.clone(),
+            sign_in,
             models: self
                 .models_of(stored)
                 .into_iter()
@@ -263,7 +272,10 @@ impl Engine {
     /// one first, then an endpoint with its key (ADR 0205 §1); "" when they have none yet. Never
     /// a subscription: one is only ever the person's own choice for a bot.
     pub fn default_model(&self) -> String {
-        first_model(&self.models.endpoints(), |e| self.models.has_key(e))
+        let signed_out = self.signed_out();
+        first_model(&self.models.endpoints(), |e| {
+            self.models.has_key(e) && !signed_out.contains(&e.id)
+        })
     }
 
     pub fn endpoint_views(&self) -> Result<Vec<EndpointView>, StoreError> {
@@ -351,6 +363,7 @@ impl Engine {
                     base_url: String::new(),
                     headers: Vec::new(),
                     session_header: None,
+                    sign_in: None,
                     needs_key: true,
                     key_env: None,
                     preset: None,
@@ -510,6 +523,7 @@ impl Engine {
                 .delete(id)
                 .map_err(|e| EndpointError::Keychain(e.to_string()))?;
         }
+        self.forget_sign_in(id)?;
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         // Only the very row this delete started with, never a replacement under the same id.
         match self.store.endpoints()?.into_iter().find(|e| e.id == id) {
@@ -872,6 +886,7 @@ mod tests {
             key_env: None,
             headers: Vec::new(),
             session_header: None,
+            sign_in: None,
             models: model.into_iter().map(Model::unknown).collect(),
         }
     }

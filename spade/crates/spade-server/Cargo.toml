@@ -30,6 +30,7 @@ spade-keys = { path = "../spade-keys" }
 spade-models = { path = "../spade-models" }
 spade-ace = { path = "../spade-ace" }
 spade-connect = { path = "../spade-connect" }
+spade-chatgpt = { path = "../spade-chatgpt" }
 spade-mcp = { path = "../spade-mcp" }
 spade-fetch = { path = "../spade-fetch" }
 spade-docs = { path = "../spade-docs" }

@@ -133,6 +133,17 @@ fn endpoint_json(state: &AppState, view: &EndpointView, in_keychain: Option<bool
         "needs_key": e.needs_key,
         "key_set": key_set,
         "key_source": source,
+        // ADR 0213: the provider it is an account of, how it signs in, and who uses it.
+        "provider": crate::engine::Engine::provider_of(e),
+        "auth": match &e.sign_in {
+            Some(sign_in) => sign_in.kind.as_str(),
+            None if e.needs_key => "key",
+            None => "none",
+        },
+        "account": e.sign_in.as_ref().map(|s| json!({
+            "email": s.email, "plan": s.plan, "signed_in": s.signed_in,
+        })),
+        "used_by": engine.bots_on(&e.id),
         // Only stated facts: `null` where nobody said, never Spade's own guess.
         "models": view.models.iter().map(|shown| json!({
             "id": shown.model.id,
@@ -148,12 +159,12 @@ fn endpoint_json(state: &AppState, view: &EndpointView, in_keychain: Option<bool
 }
 
 /// One endpoint, as `/v1/models` lists it.
-fn one_endpoint(state: &AppState, view: &EndpointView) -> Value {
+pub(super) fn one_endpoint(state: &AppState, view: &EndpointView) -> Value {
     let known = in_keychain(state, std::slice::from_ref(view));
     endpoint_json(state, view, known.first().copied().flatten())
 }
 
-fn endpoint_problem(error: &EndpointError) -> Response {
+pub(super) fn endpoint_problem(error: &EndpointError) -> Response {
     match error {
         EndpointError::InUse(names) => (
             StatusCode::CONFLICT,
@@ -212,6 +223,7 @@ fn models_now(state: &AppState) -> Response {
         "speech_model": engine.speech_model().ok().flatten(),
         "new_bot_model": engine.new_bot_model().ok().flatten(),
         "keychain": state.keys.is_some(),
+        "sign_in": engine.sign_in_kinds(),
         "starting": engine.starting().is_some(),
         "starting_reason": engine.starting(),
     }))

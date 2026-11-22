@@ -577,6 +577,22 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    // ChatGPT sign-ins (ADR 0213): tokens in the keychain only; none without one.
+    match spade_chatgpt::Accounts::new(
+        keychain.clone(),
+        spade_chatgpt::Config::openai(),
+        Arc::new(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        }),
+    ) {
+        Ok(accounts) => engine.set_sign_ins(spade_chatgpt::Flows::new(
+            Arc::new(accounts),
+            Arc::new(spade_connect::OsRandom),
+        )),
+        Err(error) => tracing::warn!(%error, "ChatGPT sign-in is off"),
+    }
     // An org host's audit log is checkpointed at least every five minutes (ADR 0206 §4.2).
     {
         let engine = engine.clone();

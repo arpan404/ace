@@ -635,6 +635,7 @@ pub fn undecided(error: &spade_models::ModelError) -> &'static str {
     match error {
         E::Shape { .. } | E::Empty { .. } => UNDECIDED,
         E::MissingKey { .. } => "The reviewer's endpoint needs a key, so you decide.",
+        E::SignIn { .. } => "The reviewer's account is signed out, so you decide.",
         E::UnknownModel(_) => "The reviewer's model isn't on your endpoints, so you decide.",
         E::Listing { .. } | E::Setup(_) | E::Provider { .. } | E::Unanswered { .. } => {
             "The reviewer couldn't be reached, so you decide."
