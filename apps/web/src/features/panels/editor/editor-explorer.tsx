@@ -50,6 +50,8 @@ export function EditorExplorer(props: {
   onOpen(path: string, open: ExplorerOpen): void;
   onOpenChanges(request: OpenChangesRequest): void;
   openEditors: ReactNode;
+  /** Collapsible bottom sections of the Files view (Outline, Timeline). */
+  sections?: ReactNode;
   /** Bumped to put the keyboard in Search's field (⇧⌘F). */
   focusSearch: number;
   /** Rows an agent changed recently carry its mark, as their tabs do. */
@@ -154,13 +156,16 @@ export function EditorExplorer(props: {
           openEditors={props.openEditors}
           marks={props.marks}
           footer={
-            fileActions.upload && (
-              <UploadStatus
-                state={fileActions.upload}
-                onReplace={fileActions.replace}
-                onDismiss={fileActions.dismissUpload}
-              />
-            )
+            <>
+              {props.sections}
+              {fileActions.upload && (
+                <UploadStatus
+                  state={fileActions.upload}
+                  onReplace={fileActions.replace}
+                  onDismiss={fileActions.dismissUpload}
+                />
+              )}
+            </>
           }
         />
       )}

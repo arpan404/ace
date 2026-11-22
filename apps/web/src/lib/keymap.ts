@@ -371,6 +371,12 @@ export const keymap = {
     scope: "editor",
     fixed: true,
   },
+  "editor.goToSymbol": {
+    keys: "shift+mod+o",
+    label: "Go to symbol",
+    scope: "editor",
+    fixed: true,
+  },
   "editor.composer": {
     keys: "escape",
     label: "Back to the composer",

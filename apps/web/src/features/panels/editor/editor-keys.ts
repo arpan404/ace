@@ -28,6 +28,7 @@ export type EditorPanelCommand =
   | "previousHit"
   | "nextChange"
   | "previousChange"
+  | "goToSymbol"
   | "composer";
 
 const single: readonly [KeymapId, EditorPanelCommand][] = [
@@ -42,6 +43,7 @@ const single: readonly [KeymapId, EditorPanelCommand][] = [
   ["editor.explorer", "explorer"],
   ["files.search", "searchFiles"],
   ["editor.sourceControl", "sourceControl"],
+  ["editor.goToSymbol", "goToSymbol"],
   ["editor.composer", "composer"],
 ];
 

@@ -510,6 +510,44 @@
           "type": "object"
         },
         {
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitLogEntry.json"
+              },
+              "maxItems": 200,
+              "type": "array"
+            },
+            "head": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/CommitSha.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "gitLog",
+              "type": "string"
+            },
+            "stopped": {
+              "enum": [
+                "limit",
+                "budget"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "entries",
+            "head"
+          ],
+          "type": "object"
+        },
+        {
           "$ref": "https://ace.local/protocol/v1/GitConflictsResult.json"
         },
         {

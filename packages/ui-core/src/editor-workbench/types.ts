@@ -63,6 +63,12 @@ export interface ExplorerState {
   query: string;
   /** The Open editors section is unfolded. */
   openEditors: boolean;
+  /** The Outline section is unfolded. */
+  outlineOpen?: boolean | undefined;
+  /** Outline ordering: source position or name. */
+  outlineSort?: "position" | "name" | undefined;
+  /** The Timeline section is unfolded. */
+  timelineOpen?: boolean | undefined;
   readonly [extra: string]: unknown;
 }
 

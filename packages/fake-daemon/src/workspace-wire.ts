@@ -7,9 +7,11 @@ import {
   ForgeBrowserResult,
   ForgeIssueSearch,
   type ForgeBrowserOperation,
+  gitLogMaxLimit,
   gitStatusLimit,
   ServerMessage,
   InstalledEditor,
+  type GitLogEntry,
   type GitStatusFile,
   type WorkspaceActionRequest,
   type CommandPayload,
@@ -41,6 +43,9 @@ export type FakeWorkspaceControls = Pick<
   | "gitStatus"
   | "setGitStatus"
   | "setGitDiff"
+  | "setGitCommitDiff"
+  | "failGitCommitDiff"
+  | "setGitLog"
   | "setEditors"
   | "setTerminals"
   | "opened"
@@ -340,6 +345,28 @@ export class FakeWorkspaceWire {
   setGitDiff(threadId: string, patch: string): void {
     this.gitPatches.set(threadId, patch);
   }
+  private gitCommitPatches = new Map<string, string>();
+  setGitCommitDiff(threadId: string, commit: string, patch: string): void {
+    this.gitCommitPatches.set(`${threadId}:${commit}`, patch);
+  }
+  private gitCommitFailures = new Map<string, string>();
+  /** The daemon refuses this commit's patch with `code` (a shallow clone's boundary, say). */
+  failGitCommitDiff(threadId: string, commit: string, code: string): void {
+    this.gitCommitFailures.set(`${threadId}:${commit}`, code);
+  }
+  private gitLogs = new Map<string, readonly GitLogEntry[]>();
+  private gitLogStops = new Map<string, "limit" | "budget">();
+  /** The file's commits, newest first; `stopped` says the walk ended early (else the limit). */
+  setGitLog(
+    threadId: string,
+    path: string,
+    entries: readonly GitLogEntry[],
+    stopped?: "limit" | "budget",
+  ): void {
+    this.gitLogs.set(`${threadId}:${path}`, entries);
+    if (stopped) this.gitLogStops.set(`${threadId}:${path}`, stopped);
+    else this.gitLogStops.delete(`${threadId}:${path}`);
+  }
   /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
   gitStatus(threadId: string): readonly GitStatusFile[] {
     if (this.sourceControl.hasState(threadId)) return this.sourceControl.flatFiles(threadId);
@@ -619,12 +646,43 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "gitConflicts", conflicts: this.conflicts.read(op.threadId) },
       });
-    if (op.op === "git.diff")
+    if (op.op === "git.diff") {
+      const refused =
+        op.commit === undefined
+          ? undefined
+          : this.gitCommitFailures.get(`${op.threadId}:${op.commit}`);
+      if (refused)
+        return ServerMessage.parse({
+          type: "workspace.result",
+          requestId: request.requestId,
+          result: { kind: "error", code: refused },
+        });
+      const patch =
+        op.commit !== undefined
+          ? (this.gitCommitPatches.get(`${op.threadId}:${op.commit}`) ?? "")
+          : (this.gitPatches.get(op.threadId) ?? "");
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: fakeGitDiff(this.gitPatches.get(op.threadId) ?? "", op),
+        result: fakeGitDiff(patch, op),
       });
+    }
+    if (op.op === "git.log") {
+      const all = this.gitLogs.get(`${op.threadId}:${op.path}`) ?? [];
+      const stopped =
+        this.gitLogStops.get(`${op.threadId}:${op.path}`) ??
+        (all.length > gitLogMaxLimit ? "limit" : undefined);
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "gitLog",
+          entries: all.slice(0, gitLogMaxLimit),
+          ...(stopped ? { stopped } : {}),
+          head: this.head(op.threadId) ?? null,
+        },
+      });
+    }
     const result =
       op.op === "editors.list"
         ? {

@@ -1,4 +1,5 @@
 import type { LineMark } from "@ace/ui-core";
+import type { OutlineSymbol } from "@ace/ui-core/editor-workbench";
 import type { ReactNode } from "react";
 import type { AgentMark, EditorLayer, EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { TextBuffer } from "../buffers/index.ts";
@@ -119,6 +120,13 @@ export interface EditorHost {
    */
   renderGitCompare?: ((path: string) => ReactNode) | undefined;
   onQuickOpen?: (() => void) | undefined;
+  /** Jump to a symbol picked from a pane's breadcrumbs. */
+  onRevealSymbol?: ((group: string, path: string, symbol: OutlineSymbol) => void) | undefined;
+  /**
+   * Optional pane overlay rendered in place of the editor (a read-only commit diff opened from
+   * Timeline).
+   */
+  renderOverlay?: ((group: string, path: string | undefined) => ReactNode) | undefined;
   /** The host's own items at the end of a tab's menu: Reveal in Files, Open in ›, the paths. */
   tabMenuItems?: ((path: string) => ReactNode) | undefined;
 }
