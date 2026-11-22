@@ -271,7 +271,6 @@ test("a client that fails to load shows why ace couldn't start, not an endless s
   });
   await connect();
   expect(await screen.findByRole("heading", { name: "ace couldn't start" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Details" }));
   expect(screen.getByText("Failed to fetch dynamically imported module")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
 });
