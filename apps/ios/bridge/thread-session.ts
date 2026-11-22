@@ -50,6 +50,7 @@ import {
 } from "./thread-attachments.ts";
 import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
 import { QuoteShelf, quoteText, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
+import { ThreadCodeNotes, withCodeNotes } from "./thread-code-notes.ts";
 import { followBlocks, placedMoments } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
@@ -108,6 +109,8 @@ export class ThreadSession {
   readonly annotations: ThreadAnnotations;
   /** The passages of the agent's messages the next message replies to. */
   readonly #quotes: ThreadQuotes;
+  /** The phone's code notes for the next message. */
+  readonly #code: ThreadCodeNotes;
   readonly #whole: WholeRequests;
   #lane: { agentId: string; tap: ChangeTap; info: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
@@ -260,6 +263,7 @@ export class ThreadSession {
       () => host.uuid(),
       preview,
     );
+    this.#code = new ThreadCodeNotes((patch) => put("codeSent", () => patch));
     this.#whole = new WholeRequests(client, store, this.#threadId, signal, (id) =>
       this.#interaction(id),
     );
@@ -599,6 +603,9 @@ export class ThreadSession {
       case "quote.clear":
         this.#quotes.clear();
         break;
+      case "code.set":
+        this.#code.set(action.notes);
+        break;
       case "atEnd":
         this.#readMark.atEnd(action.atEnd);
         break;
@@ -715,7 +722,7 @@ export class ThreadSession {
       return;
     }
     const content = messageContent(text, references, this.#catalog(this.#threadId));
-    const extras = this.#tray.size + this.annotations.count + this.#quotes.count;
+    const extras = this.#tray.size + this.annotations.count + this.#quotes.count + this.#code.count;
     if (!messageHasContent(text, extras)) {
       this.#admission(id, false, "Write a message or attach a file.");
       return;
@@ -740,6 +747,7 @@ export class ThreadSession {
       payload.delivery,
     );
     const quoted = this.#quotes.handOff();
+    const coded = this.#code.handOff();
     const joined = withAnnotations(
       withQuotes(content.input, quoted),
       joinContext(files.context, content.references),
@@ -747,7 +755,7 @@ export class ThreadSession {
     );
     const message: CommandPayload = {
       ...payload,
-      input: joined.input,
+      input: withCodeNotes(joined.input, coded),
       ...(options ? { options } : {}),
       ...(joined.context ? { context: joined.context } : {}),
     };
@@ -757,6 +765,7 @@ export class ThreadSession {
         tray.sent(files.ids);
         if (marked) this.annotations.sent();
         if (quoted) this.#quotes.sent(quoted);
+        if (coded) this.#code.sent(coded);
       },
       receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
