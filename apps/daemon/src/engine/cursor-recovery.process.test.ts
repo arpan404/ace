@@ -25,6 +25,11 @@ const deliver = (context: SessionContext, value: CursorEnvelope, seq: number) =>
 const threadId = ThreadId.parse("crashed-thread");
 
 const nothing = () => {};
+/** The notices a crashed thread shows, as `title: text`. */
+const said = (crash: { items: { type: string; title?: string; text?: string }[] }) =>
+  crash.items.flatMap((item) =>
+    item.type === "notice" ? [`${item.title ?? ""}: ${item.text ?? ""}`] : [],
+  );
 
 /**
  * Kills a daemon (a real process) at `window` of its first send, then starts a new one on the
@@ -48,6 +53,10 @@ async function crashAt(
     runAppearsDuringProof?: boolean;
     /** The person presses Resume while the reconcile waits on a busy store. */
     resumeWhileBusy?: boolean;
+    /** The host reopens without reading back the attempt (a legacy search gave up). */
+    noAdmission?: boolean;
+    /** The re-sent message never reaches Cursor: the host attempts it and nothing follows. */
+    resendStalls?: boolean;
     /** Once the busy opens run out, a later transaction finds the disk full, once. */
     fullAfterBusy?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
@@ -152,7 +161,7 @@ async function crashAt(
             { nativeStatus: "finished", interrupted: false, result: "answered before the crash" },
             { runId: "run-1" },
           );
-        } else if (unsettled?.attempt)
+        } else if (unsettled?.attempt && !host.noAdmission)
           await emit("admission", { ...unsettled.attempt, admitted: false });
         for (const run of unsettled?.runs ?? []) {
           // The tail Cursor's store has past the daemon's record: the rest of the answer.
@@ -181,6 +190,7 @@ async function crashAt(
             sent.push(input.map((part) => (part.type === "text" ? part.text : "")).join("\n"));
             operationId = intent ?? "resent";
             await emit("send", { input, attemptedAt: 1 });
+            if (host.resendStalls) return;
             await emit("segment", { nativeRunId: "run-2" }, { runId: "run-2" });
             await emit("result", { status: "finished" }, { runId: "run-2" });
           },
@@ -468,12 +478,31 @@ it("a send Cursor never received goes back in the queue by itself and is sent on
   expect(crash.sent.filter((text) => text.endsWith("first"))).toHaveLength(1);
   expect(crash.held.reason).not.toBe("uncertain");
   expect(crash.userTexts.filter((text) => text === "first")).toHaveLength(1);
-  // Proven absent: said so, and that it went again.
-  const said = crash.items.flatMap((item) =>
-    item.type === "notice" ? [`${item.title ?? ""} ${item.text ?? ""}`] : [],
+  // Proven absent, sent again, and Cursor had it this time: said so.
+  expect(said(crash)).toContain(
+    "Sent again: ace restarted before Cursor received this message, so it was sent again",
   );
-  expect(said.join(" | ")).toMatch(/before Cursor received this message/);
   expect(crash.statusAfter()).toBe("done");
+});
+
+it("a send queued again that Cursor hasn't had yet says it is queued, not that it was sent", async () => {
+  await using crash = await crashAt("attempted", { resume: false, resendStalls: true });
+  expect(crash.sent.filter((text) => text.endsWith("first"))).toHaveLength(1);
+  expect(said(crash)).toContain(
+    "Queued to send again: ace restarted before Cursor received this message, so it is queued to send again",
+  );
+  expect(said(crash).join(" | ")).not.toMatch(/Sent again/);
+});
+
+it("a send whose attempt the reopened host couldn't read back says ace couldn't confirm it", async () => {
+  await using crash = await crashAt("attempted", { resume: false, noAdmission: true });
+  expect(crash.sent).toEqual([]);
+  expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
+  expect(said(crash)).toContain(
+    "Delivery unconfirmed: ace couldn't confirm whether Cursor received this message. It is held in the queue: check the conversation before sending it again",
+  );
+  expect(said(crash).join(" | ")).not.toMatch(/not sent/i);
+  expect(crash.statusAfter()).toBe("waiting");
 });
 
 it("a send stays held as uncertain only when Cursor's store can't be read", async () => {

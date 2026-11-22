@@ -32,7 +32,18 @@ export function settleCursorAttempt(
   verified: boolean,
 ): void {
   const admission = repo.recovery.lastAdmission(id);
-  if (!admission?.commandId) return;
+  if (!admission?.commandId) {
+    // The host read nothing back of the attempt (an earlier build's search gave up): its fate
+    // is unknown, and the thread says that, not the restart's "not sent".
+    const command = repo.recovery.attemptedCommand(id);
+    const waiting = command ? repo.pending.uncertainSend(id, command) : undefined;
+    if (!waiting) return;
+    unconfirmed(repo, id, waiting.id, at);
+    // Nothing more will come of the attempt: the thread waits on the person, not on Cursor.
+    const root = repo.requireState(id).rootKey ?? "root";
+    repo.apply(id, [{ type: "wake.expected", agent: root, until: at }], at);
+    return;
+  }
   const intent = repo.pending.uncertainSend(id, admission.commandId);
   if (!intent) return;
   if (admission.admitted) acknowledge(repo, id, intent.id, admission.commandId, at);
@@ -41,7 +52,7 @@ export function settleCursorAttempt(
     repo.queue.clearUncertain(intent.id);
     repo.pending.defer(intent);
     repo.queue.track(intent.id, id, intent.command);
-    say(repo, id, intent.id, at, resentNotice);
+    say(repo, id, intent.id, at, requeuedNotice);
   } else {
     unconfirmed(repo, id, intent.id, at);
     return;
@@ -88,13 +99,25 @@ function acknowledge(
     );
 }
 
-type Notice = { code: string; level: "info" | "warning"; title: string; text: string };
-/** Proven never to have reached Cursor: the only case ace says it wasn't sent. */
-const resentNotice: Notice = {
-  code: "input_requeued",
+/** A message queued to send again, its notice waiting for Cursor's acknowledgement. */
+export const resendingCode = "delivery_resending";
+/** What a re-queued message's notice becomes once its new delivery is acknowledged. */
+export const resentNotice = {
+  code: "delivery_confirmed",
   level: "info",
   title: "Sent again",
   text: "ace restarted before Cursor received this message, so it was sent again",
+} as const;
+type Notice = { code: string; level: "info" | "warning"; title: string; text: string };
+/**
+ * Proven never to have reached Cursor, and back in the queue: the only case ace says it wasn't
+ * sent. It says "Sent again" (`resentNotice`) only once Cursor acknowledges the new delivery.
+ */
+const requeuedNotice: Notice = {
+  code: resendingCode,
+  level: "info",
+  title: "Queued to send again",
+  text: "ace restarted before Cursor received this message, so it is queued to send again",
 };
 const unconfirmedNotice: Notice = {
   code: "delivery_uncertain",

@@ -1,4 +1,5 @@
 import { aceWaitFact } from "./ace-waits.ts";
+import { resendingCode, resentNotice } from "./cursor-attempt.ts";
 import { goalChange } from "./goal-change.ts";
 import type { StatementSync } from "node:sqlite";
 import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
@@ -285,6 +286,10 @@ export function foldProviderFacts(
         };
         state.items[noticeKey] = confirmed;
         inputUpdates.push({ type: "item.updated", item: confirmed });
+      } else if (notice?.type === "notice" && notice.code === resendingCode) {
+        const resent = { ...notice, ...resentNotice };
+        state.items[noticeKey] = resent;
+        inputUpdates.push({ type: "item.updated", item: resent });
       }
     }
     if (acknowledged.length) {
