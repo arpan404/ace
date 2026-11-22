@@ -4,8 +4,8 @@ import type { ProviderKind } from "@ace/protocol";
 /*
  * `?fakeWorld=spade`, Research: a bot that started four ace agents with one `delegate` to
  * research competitors. One waits on the person to approve its plan, two work, one is done; its
- * chat shows them as one "Started 4 agents" card, the plan at its end, and the bot list says it
- * needs the person.
+ * chat shows them as one subagent card, the plan at its end, and the bot list says it needs the
+ * person. Survey: a bot whose seven agents have all finished, its card folded past five rows.
  */
 
 const children: readonly {
@@ -150,4 +150,60 @@ export function seedFakeDelegation(
   const said = "The four research agents are paused pending your approval in the sidebar.";
   here.store(c, { type: "step_finished", reply: "r-research", text: said });
   here.store(c, { type: "reply_finished", reply: "r-research", text: said });
+}
+
+/** Survey's agents: each read one market and finished. */
+const surveyed = ["Germany", "France", "Spain", "Italy", "Japan", "Brazil", "Canada"];
+
+export function seedFakeSurvey(
+  daemon: FakeDaemon,
+  here: FakeSpadeApi,
+  minutes: (n: number) => number,
+) {
+  const survey = here.addAgent({
+    id: "survey",
+    name: "Survey",
+    task: "Size the market in each country we sell to.",
+    state: "idle",
+    last_activity: minutes(20),
+  });
+  const c = survey.conversation;
+  here.store(c, { type: "user_message", text: "Size our seven markets." });
+  here.store(c, { type: "reply_started", reply: "r-survey" });
+  here.store(c, {
+    type: "step_finished",
+    reply: "r-survey",
+    text: "I'll start one agent per market.",
+    calls: [{ id: "d-survey", name: "delegate", arguments: { tasks: surveyed } }],
+  });
+  const workspace =
+    daemon.projects.list().workspaces.find((each) => each.name === "relay") ??
+    daemon.projects.list().workspaces[0];
+  for (const [at, country] of surveyed.entries()) {
+    const id = `survey-${country.toLowerCase()}`;
+    const name = `Market-${country.toLowerCase()}`;
+    const provider: ProviderKind = at % 2 ? "codex" : "claude";
+    here.store(c, { type: "worker_started", worker: id, kind: "ace", name, call: "d-survey" });
+    here.work.addAce("survey", { id, name, state: "done" });
+    if (!workspace) continue;
+    new ScenarioPlayer(daemon, {
+      thread: { id, workspaceId: workspace.id, title: name, provider },
+      steps: [
+        {
+          kind: "facts",
+          agoMs: (20 - at) * 60_000,
+          facts: [
+            facts.rootAgent(provider, "/Users/dev/relay"),
+            facts.turn("root"),
+            facts.message("root", "ask", "user", `Size the market in ${country}.`),
+            facts.message("root", "say", "assistant", `${country}: the notes are in ${id}.md.`),
+            facts.endTurn("root"),
+          ],
+        },
+      ],
+    }).runUntilBlocked();
+  }
+  const said = "All seven markets are sized; the notes are in each agent's file.";
+  here.store(c, { type: "step_finished", reply: "r-survey", text: said });
+  here.store(c, { type: "reply_finished", reply: "r-survey", text: said });
 }

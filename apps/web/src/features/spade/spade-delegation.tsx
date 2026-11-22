@@ -174,15 +174,15 @@ function WorkerRow(props: {
   const live = useLive(props.fresh);
   const navigate = useNavigate();
   const words = useAgentWords(entry.kind === "ace" && props.reachable ? entry.id : undefined);
-  // An ace agent's step or last line, as ace says it for a delegated child.
+  // An ace agent's step as ace says it for a delegated child, else the last thing it said.
   const detail =
     entry.kind === "ace"
-      ? subagentDetailLine(
+      ? (subagentDetailLine(
           live,
           { ...entry, agentId: words?.root, result: words?.line },
           words?.status ? { status: words.status } : undefined,
           undefined,
-        ).detail
+        ).detail ?? words?.line)
       : undefined;
   const facts = { ...entry, detail };
   const label = `Open ${entry.title}${entry.machine ? ` on ${entry.machine}` : ""}`;

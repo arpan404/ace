@@ -173,7 +173,10 @@ test("a bot that delegates to four agents shows one card, one row per agent with
       "Waiting for you to approve its plan",
     ),
   );
-  expect(rowOf(rows(), "Research-reviews").textContent).toContain("Working");
+  // A working agent says what it does now beside its state.
+  await waitFor(() =>
+    expect(rowOf(rows(), "Research-reviews").textContent).toMatch(/Working · \S/),
+  );
   expect(rowOf(rows(), "Research-features").textContent).toContain("Working");
   const support = rowOf(rows(), "Research-support");
   expect(support.textContent).toContain("Done");

@@ -164,7 +164,7 @@ function Mark(props: { row: SpadeSubagentRowView }) {
       {row.kind === "bot" && row.face ? (
         <SpadeFace avatar={row.face} size={22} />
       ) : row.provider ? (
-        <ProviderIcon provider={row.provider} size={14} decorative />
+        <ProviderIcon provider={row.provider} size={14} variant="mono" decorative />
       ) : (
         <span className="size-1.5 rounded-full bg-current" />
       )}
