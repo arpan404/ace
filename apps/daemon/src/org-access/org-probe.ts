@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ownerOrgOf, sealOrgOf } from "../account-access/owner.ts";
+import { ownerOrgOf, sealOf } from "../account-access/owner.ts";
 
 /*
  * Whether this machine is an organization's host, for the services that start before the
@@ -43,14 +43,15 @@ export function orgProbe(dataDir: string): OrgProbe {
         } catch {
           fromFile = undefined;
         }
-        // A released organization's home stays under its policy (ADR 0209 amendment 1).
+        // A released organization's home stays under its policy (ADR 0209 amendment 1). Only a
+        // missing seal makes a person's machine: one that can't be read or parsed fails closed.
+        let seal: { text: string } | { error: unknown };
         try {
-          fromFile ??= sealOrgOf(
-            JSON.parse(readFileSync(join(dataDir, "ace-org-seal.json"), "utf8")),
-          );
-        } catch {
-          // No seal: a person's machine.
+          seal = { text: readFileSync(join(dataDir, "ace-org-seal.json"), "utf8") };
+        } catch (error) {
+          seal = { error };
         }
+        fromFile ??= sealOf(seal);
       }
       return fromFile;
     },

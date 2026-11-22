@@ -143,7 +143,9 @@ export function machineAccount(options: {
   let noCredentials = false;
   // Never keys from the session's origin, which the host token sets, or from ACE_ACCOUNT_URL.
   const personKeys = options.personKeys ?? shippedGrantKeys;
-  const owner = machineOwner(options.dataDir);
+  // The seal takes effect before the owner record is written: everything listening (parcels in
+  // flight, sockets) hears it then, even if the record's write is slow or fails.
+  const owner = machineOwner(options.dataDir, { sealed: () => notify() });
   const enrollment = orgEnrollment({
     owner,
     backend,

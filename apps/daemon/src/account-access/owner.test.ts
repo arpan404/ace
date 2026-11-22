@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -146,5 +146,45 @@ test("an owner record naming another organization than the seal never rewrites t
   expect(await readFile(join(root, "ace-org-seal.json"), "utf8")).toBe(sealed);
   expect(owner.sealed()).toBe("org_first");
   expect(owner.org()).toBeUndefined();
+  expect(await owner.claim("user_p", owner.generation())).toBe(false);
+});
+
+test("enrollment says the home is sealed the moment the seal lands, even when the owner record then fails to write", async () => {
+  const { root } = await owned();
+  const heard: (string | undefined)[] = [];
+  const owner = machineOwner(root, { sealed: () => heard.push(owner.sealed()) });
+  await owner.load();
+  expect(await owner.claim("user_p", owner.generation())).toBe(true);
+  // The owner record can't be replaced: a directory with something in it stands in its place.
+  await rm(join(root, "ace-owner.json"));
+  await mkdir(join(root, "ace-owner.json", "stuck"), { recursive: true });
+  await expect(owner.enroll("user_p", "org_acme", owner.generation(), () => {})).rejects.toThrow();
+  expect(heard).toEqual(["org_acme"]);
+  expect(owner.sealed()).toBe("org_acme");
+  expect(await owner.claim("user_p", owner.generation())).toBe(false);
+});
+
+test("a seal that can't be read or doesn't parse keeps the home sealed, and the owner record never replaces it", async () => {
+  for (const body of ["{not json", JSON.stringify({ kind: "org-seal", org: "acme" })]) {
+    const { root } = await owned();
+    await writeFile(join(root, "ace-org-seal.json"), body);
+    await writeFile(join(root, "ace-owner.json"), JSON.stringify({ kind: "org", org: "org_acme" }));
+    const owner = machineOwner(root);
+    await owner.load();
+    expect(await readFile(join(root, "ace-org-seal.json"), "utf8")).toBe(body);
+    expect(owner.sealed()).toBeDefined();
+    expect(owner.org()).toBeUndefined();
+    expect(owner.current()).toBeUndefined();
+    expect(await owner.claim("user_p", owner.generation())).toBe(false);
+  }
+});
+
+test("a seal that is there but unreadable keeps a released home sealed, never a person's", async () => {
+  const { root } = await owned();
+  // Reading it fails with something other than "no such file": here, it is a directory.
+  await mkdir(join(root, "ace-org-seal.json"));
+  const owner = machineOwner(root);
+  await owner.load();
+  expect(owner.sealed()).toBeDefined();
   expect(await owner.claim("user_p", owner.generation())).toBe(false);
 });

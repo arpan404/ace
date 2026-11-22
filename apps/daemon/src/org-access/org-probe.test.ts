@@ -32,3 +32,20 @@ it("tells its listeners when the machine becomes an organization's host", () => 
   for (const listener of changes) listener();
   expect(heard).toEqual(["org_acme"]);
 });
+
+it("takes a seal it can't read or parse for an organization's, before the account loads", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  for (const seal of ["{not json", "directory"]) {
+    const home = mkdtempSync(join(tmpdir(), "ace-probe-"));
+    homes.push(home);
+    if (seal === "directory") mkdirSync(join(home, "ace-org-seal.json"));
+    else writeFileSync(join(home, "ace-org-seal.json"), seal);
+    expect(orgProbe(home).org()).toBeDefined();
+  }
+});
+
+it("reads a person's machine, with no seal at all, as nobody's organization", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-probe-"));
+  homes.push(home);
+  expect(orgProbe(home).org()).toBeUndefined();
+});

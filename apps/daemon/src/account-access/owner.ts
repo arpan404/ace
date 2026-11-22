@@ -38,6 +38,26 @@ const sealFile = (dataDir: string) => join(dataDir, "ace-org-seal.json");
 const Seal = z.object({ kind: z.literal("org-seal"), org: OrgOwner.shape.org });
 /** The organization an `ace-org-seal.json` body names. */
 export const sealOrgOf = (raw: unknown): string | undefined => Seal.safeParse(raw).data?.org;
+/**
+ * What a seal that is there but can't be read or parsed stands for: an organization ace can't
+ * name. It never matches a real one (`org_` ids have no `?`), so the home stays sealed, no
+ * person claims it, and no member is admitted.
+ */
+export const UNREADABLE_SEAL = "org_?unreadable";
+const missing = (error: unknown) =>
+  error instanceof Error && "code" in error && error.code === "ENOENT";
+/**
+ * The organization a read of `ace-org-seal.json` names: undefined only when there is no seal
+ * file at all (`ENOENT`). Any other read error, or a body that isn't a seal, fails closed.
+ */
+export function sealOf(read: { text: string } | { error: unknown }): string | undefined {
+  if ("error" in read) return missing(read.error) ? undefined : UNREADABLE_SEAL;
+  try {
+    return sealOrgOf(JSON.parse(read.text)) ?? UNREADABLE_SEAL;
+  } catch {
+    return UNREADABLE_SEAL;
+  }
+}
 /** The organization an `ace-owner.json` body names, or undefined for a person's machine. */
 export const ownerOrgOf = (raw: unknown): string | undefined => {
   const org = OrgOwner.safeParse(raw);
@@ -49,7 +69,16 @@ const parseOwner = (raw: unknown): Owner => {
   return { kind: "person", account: PersonOwner.parse(raw).account };
 };
 
-export function machineOwner(dataDir: string) {
+export function machineOwner(
+  dataDir: string,
+  hooks: {
+    /**
+     * The home was sealed just now, before anything else of the enrollment is written: work an
+     * org host refuses (parcels in flight) ends here, whether or not the owner record follows.
+     */
+    sealed?: () => void;
+  } = {},
+) {
   let owner: Owner | undefined;
   let seal: string | undefined;
   const writeSeal = async (org: string) => {
@@ -58,6 +87,7 @@ export function machineOwner(dataDir: string) {
     await writeFile(temporary, JSON.stringify({ kind: "org-seal", org }), { mode: 0o600 });
     await rename(temporary, sealFile(dataDir));
     seal = org;
+    hooks.sealed?.();
   };
   let generation = 0;
   let changing = false;
@@ -97,13 +127,13 @@ export function machineOwner(dataDir: string) {
       } catch {
         owner = undefined;
       }
-      try {
-        seal = Seal.parse(JSON.parse(await readFile(sealFile(dataDir), "utf8"))).org;
-      } catch {
-        seal = undefined;
-      }
+      // Only a missing seal is no seal: one that can't be read or parsed fails closed.
+      seal = await readFile(sealFile(dataDir), "utf8").then(
+        (text) => sealOf({ text }),
+        (error: unknown) => sealOf({ error }),
+      );
       // A home given to an organization before seals existed is sealed now; only a home with no
-      // seal at all. A seal for another organization than the owner record stands, and the
+      // seal file at all. A seal for another organization than the owner record stands, and the
       // record answers for nobody: the mismatch fails closed.
       if (owner?.kind === "org" && seal === undefined) await writeSeal(owner.org);
       else if (owner?.kind === "org" && seal !== owner.org) owner = undefined;
