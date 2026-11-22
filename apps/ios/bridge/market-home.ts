@@ -98,7 +98,7 @@ function sourceRow(source: MarketSource, words: MarketWords) {
   return {
     id: source.id,
     kind: source.kind,
-    title: source.kind === "market" ? "ace's marketplace" : source.address,
+    title: source.kind === "market" ? "ace Store" : source.address,
     address: source.address,
     enabled: source.enabled,
     /** Only a git catalog the person added can be removed; ace's marketplace is turned off. */
