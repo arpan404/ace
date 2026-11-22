@@ -4,7 +4,8 @@ import type { InflateFormat, NativeHost } from "./contract.ts";
 
 /*
  * The Web APIs the shared client needs that a bare JS engine lacks, each backed by the host:
- * text encoding, URL, AbortController, base64, entropy and (with `inflate`) DecompressionStream.
+ * text encoding, URL, AbortController, timers, `performance.now`, base64, entropy and (with
+ * `inflate`) DecompressionStream.
  * Only what the engine is missing is installed.
  */
 
@@ -247,7 +248,6 @@ function decompressionStream(inflate: NonNullable<NativeHost["inflate"]>) {
   };
 }
 
-/** Installs, on `target`, each Web API the engine lacks, backed by `host`. */
 /**
  * setTimeout, clearTimeout, setInterval and clearInterval on the host's timer. JavaScriptCore
  * has none of them, so shared code that reaches for one would throw a ReferenceError on the
@@ -285,6 +285,7 @@ function installTimers(host: NativeHost, add: (name: string, value: unknown) => 
   add("clearInterval", stop);
 }
 
+/** Installs, on `target`, each Web API the engine lacks, backed by `host`. */
 export function installWebPlatform(host: NativeHost, target: object = globalThis): void {
   const missing = (name: string) => typeof Reflect.get(target, name) === "undefined";
   const add = (name: string, value: unknown) => {
@@ -317,6 +318,7 @@ export function installWebPlatform(host: NativeHost, target: object = globalThis
       .catch(() => {});
   });
   installTimers(host, add);
+  add("performance", { now: () => host.monotonicMs() });
   add("btoa", (value: string) => host.latin1Base64(value, false));
   add("atob", (value: string) => host.latin1Base64(value, true));
   add("crypto", {

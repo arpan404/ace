@@ -46,9 +46,9 @@ describe("the native host contract", () => {
   });
 });
 
-const platform = (without: ("inflate" | "trace")[] = []) => {
+const platform = (without: ("inflate" | "trace")[] = [], monotonicMs?: () => number) => {
   const target: Record<string, unknown> = {};
-  installWebPlatform(createNodeHost({ without }), target);
+  installWebPlatform(createNodeHost(monotonicMs ? { without, monotonicMs } : { without }), target);
   return target as {
     TextEncoder: typeof TextEncoder;
     TextDecoder: typeof TextDecoder;
@@ -62,6 +62,7 @@ const platform = (without: ("inflate" | "trace")[] = []) => {
     clearTimeout: (id?: number) => void;
     setInterval: (callback: () => void, ms?: number) => number;
     clearInterval: (id?: number) => void;
+    performance: { now(): number };
   };
 };
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -87,6 +88,14 @@ describe("Web APIs backed by the host", () => {
     }, 5);
     await pause(80);
     expect(ticks).toBe(3);
+  });
+
+  it("reads performance.now from the host's monotonic clock", () => {
+    let uptime = 1000.25;
+    const { performance: clock } = platform([], () => uptime);
+    expect(clock.now()).toBe(1000.25);
+    uptime = 1500.5;
+    expect(clock.now()).toBe(1500.5);
   });
 
   it("combines cancellation signals and preserves the first abort reason", () => {
