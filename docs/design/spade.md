@@ -128,23 +128,25 @@ Spade is one of ace's places. It adds no navigation of its own.
   into "and 3 more", which opens; a waiting one is never folded. "Needs you" in the list and a
   notice open the chat at that request. The bot's own words about them stay as written. The words
   and rules are in `@ace/ui-core/spade-chat` (`subagent-card.ts`) for every client.
-- **Talking with other bots (ADR 0127, ADR 0200 §7).** Whom a bot talked to is never work it
-  hides: with Show work off it stays. The messages one turn sends one other bot (`bot_message`)
-  are one conversation card, the subagent card's shape: the other bot's face and "Quill asked
-  Writing", or "Quill talked with Writing · 3 messages" for several ("is talking with" while a
-  reply is owed); then a flat row per line said, under the face of whoever said it, in one quiet
-  line with its time and a caret that opens it in place to the whole of it. While a reply is
-  owed its row says who is on it, in the other bot's own working phrase when known ("Drafting a
-  title"), else "Writing is working on it", in the step's light; the card never reads finished
-  and the bot stays busy. A failed message says "Didn't reach Writing · why"; a stopped one
-  "Stopped before Writing answered". The first line's caret opens the other bot's chat. A
-  contract call is the same card: "Asked Flight watcher for the cheapest fare" (the contract's
-  title, else its name in words), its row what came back in one line or "Flight watcher couldn't
-  answer · why". In the receiver's chat a bot's message sits on the left under "From Quill" and
-  Quill's face, and the bot's answer to it carries a small quiet "To Quill" above it; a contract
-  call reads "Quill asked for cheapest fare", its input in one line and what this bot returned.
-  The first-time approval card ("Quill wants to message Writing") is unchanged. The words and
-  rules are in `@ace/ui-core/spade-chat` (`bot-talk.ts`) for every client.
+- **Working with other bots (ADR 0127, ADR 0200 §7).** Everything one turn did with other
+  bots and agents is one card, the subagent card above, a turn apart from what is around it, and
+  never hidden with the work: the messages it sent other bots (`bot_message`), the contracts it
+  called (`contract_call`) and the agents it started. Its first line is the bot's face and one
+  sentence, "Quill worked with Writing and Flight watcher" ("is working with" while anything in it
+  is owed or at work; ace agents counted, "and 2 agents"), with the turn's time on the right. One
+  flat row per message, call or agent: the other bot's face (16px, its own colours), its name,
+  and a second line in plain words of what came back ("Replied: Three days on the river…",
+  "Cheapest fare: …"), its live working phrase in the step's light while a reply is owed, or what
+  went wrong in the failed colour ("Couldn't get the seat map: closed until check-in"). A row's
+  time shows only while it runs; one caret on the right. A message's or a call's row opens in
+  place to the exchange (what this bot sent, then what came back, each under a small name label,
+  in full) and closes again; an agent's row opens its thread or chat. In the receiver's chat a
+  bot's message is input: on the person's side, in an outline bubble rather than the accent,
+  under the sender's face and name; the finished answer that went back carries one quiet line,
+  "Replied to Quill". A contract call it was given is one compact line, "Quill asked for the
+  cheapest fare · what it returned". The first-time approval card ("Quill wants to message
+  Writing") is unchanged. The words and rules are in `@ace/ui-core/spade-chat` (`together.ts`,
+  `bot-talk.ts`) for every client.
 - **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
   ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.

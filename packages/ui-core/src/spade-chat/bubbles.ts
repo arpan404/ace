@@ -14,6 +14,7 @@ import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind, SpadeStoppedKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeContractAsked, SpadeContractEntry, SpadeTalkEntry } from "./bot-talk.ts";
+import type { SpadeTogetherBubble } from "./together.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 import type { SpadeTurnUndo } from "./undo.ts";
@@ -82,8 +83,11 @@ type SpadeBubbleOf =
       keep?: string;
       /** The turn it is part of, whose work lines Show work brings back (`spadeWorkTurn`). */
       turn?: string;
-      /** It answers a message another bot sent: its first bubble is labelled "To" that bot. */
-      to?: { id: string; name: string };
+      /**
+       * The last words of a finished reply to a message another bot sent, which went back to
+       * that bot: one quiet line under it says "Replied to Quill".
+       */
+      repliedTo?: { id: string; name: string };
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -149,6 +153,8 @@ type SpadeBubbleOf =
    * never hidden with the work.
    */
   | ({ kind: "talk" } & Omit<SpadeTalkEntry, "kind" | "at"> & { at?: number })
+  /** A turn's talk, contract calls and started workers as one card (`spadeTogether`). */
+  | Omit<SpadeTogetherBubble, "at">
   /**
    * A helper the bot started (ADR 0152): one quiet line in Spade's words that expands to the
    * helper's own steps, read from its job's hidden conversation.
@@ -233,7 +239,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const held: Held = { paths: [], key: undefined };
   /** The notes recalled for the latest message, until the reply to it finishes. */
   let recalled: readonly string[] = [];
-  let answering: { id: string; name: string } | undefined;
+  let answering: { id: string; name: string; from: number } | undefined;
   // Since the last reply ended: whether anything arrived, and whether all of it was a heartbeat.
   // A quiet answer only to heartbeats shows as nothing, like the heartbeats themselves (ADR 0129;
   // `silent_replies` in spade-core); one that also answers anything else always shows.
@@ -351,7 +357,10 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.kind === "user") {
       recalled = entry.recalled ?? [];
       // A plain message from another bot is answered back to it; a contract call by its return.
-      answering = entry.fromAgent && !entry.fromAgent.contract ? entry.fromAgent : undefined;
+      answering =
+        entry.fromAgent && !entry.fromAgent.contract
+          ? { id: entry.fromAgent.id, name: entry.fromAgent.name, from: bubbles.length + 1 }
+          : undefined;
       inputs = true;
       onlyBeats &&= entry.fromRoutine?.heartbeat === true;
       onlyGroups &&= entry.fromGroup !== undefined;
@@ -413,18 +422,16 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       onlyBeats = true;
       onlyGroups = true;
     }
-    const from = bubbles.length;
     if (grouped) cardBubbles(entry, bubbles, ask);
     else if (!quiet) replyBubbles(entry, bubbles, held, ask);
-    // Its words went back to the bot that wrote: the first of them says so.
-    if (answering) {
-      const first = bubbles.findIndex((bubble, at) => at >= from && bubble.kind === "bot");
-      const bubble = bubbles[first];
-      if (bubble?.kind === "bot") {
-        bubbles[first] = { ...bubble, to: answering };
-        answering = undefined;
+    // A finished reply's words went back to the bot that wrote: its last bubble says so.
+    if (answering && entry.end?.kind === "finished")
+      for (let at = bubbles.length - 1; at >= answering.from; at--) {
+        const bubble = bubbles[at];
+        if (bubble?.kind !== "bot") continue;
+        bubbles[at] = { ...bubble, repliedTo: { id: answering.id, name: answering.name } };
+        break;
       }
-    }
     if (entry.end !== undefined) answering = undefined;
     // What it had in mind, under the reply that answered the message, once it finished.
     if (!quiet && !grouped && entry.end && recalled.length) {

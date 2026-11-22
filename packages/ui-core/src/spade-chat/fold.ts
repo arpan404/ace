@@ -556,7 +556,14 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     (quiet) => steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
     (call, worker) =>
       spadeJoinWorkers(state.entries, call, worker) ||
-      steer(state, { kind: "workers", key, call, workers: [worker], ...stamp(stored) }),
+      steer(state, {
+        kind: "workers",
+        key,
+        call,
+        workers: [worker],
+        ...(state.open ? { reply: state.open.reply } : {}),
+        ...stamp(stored),
+      }),
   );
   if (capability !== undefined) return capability;
   switch (event.type) {
@@ -875,15 +882,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "job_started": {
       // A message to another bot: its turn's card with that bot, where the first was sent.
       const talk =
-        event.name === spadeBotMessageTool
-          ? spadeTalkStarted(state.entries, {
-              key,
-              job: event.job,
-              reply: event.reply,
-              arguments: state.calls.get(event.job)?.arguments,
-              at: stamp(stored).at,
-            })
-          : undefined;
+        event.name === spadeBotMessageTool && spadeTalkStarted(state, key, event, stored);
       if (talk) steer(state, talk);
       if (event.name === spadeHelperTool)
         // Its line, where it started: the reply's later words read below it.
@@ -906,7 +905,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "contract_ended":
       return spadeContractEnded(state.entries, event);
     case "contract_called":
-      steer(state, spadeContractCalled(key, event, stamp(stored).at));
+      steer(state, spadeContractCalled(key, event, stamp(stored).at, state));
       return true;
     case "job_finished": {
       state.jobs.delete(event.job);

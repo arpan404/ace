@@ -6,8 +6,13 @@ import {
   spadeSubagentLine,
   spadeSubagentName,
   spadeSubagentsSpan,
+  spadeTogetherHeader,
+  spadeTogetherRows,
+  spadeTogetherSpan,
+  spadeTogetherState,
   type SpadeAvatar,
-  type SpadeStartedWorker,
+  type SpadeTogetherPart,
+  type SpadeTogetherRow,
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useContext, type ReactNode } from "react";
@@ -16,10 +21,12 @@ import { useLive } from "@/lib/live-connection.ts";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { CardFace } from "./spade-card.tsx";
+import { SpadeTalkRow, type SpadeTalkContext } from "./spade-talk-row.tsx";
 import {
   SpadeSubagentCard,
   SpadeSubagentRow,
   type SpadeSubagentOpen,
+  type SpadeSubagentSpan,
 } from "./spade-subagent-card.tsx";
 import {
   firstLine,
@@ -29,12 +36,14 @@ import {
 } from "./use-spade-workers.ts";
 
 /*
- * The bots and ace agents a bot started (ADR 0161), in the turn that started them, as Spade's
- * subagent card (`SpadeSubagentCard`): the bot's face and one sentence, then a row per worker with
- * its state in words, what it does now, how long it has run and Open, which goes to the agent's
- * thread (on its machine) or the bot's chat. One that waits on the person shows Review in its
- * row, which goes to its request where the chat waits on it (`SpadeWaitingWorkers`), else opens
- * it.
+ * Everything one turn of a bot did with other bots and agents (ADR 0161, ADR 0127, ADR 0200 §7)
+ * as Spade's subagent card (`SpadeSubagentCard`, `spadeTogether`): the bot's face and one
+ * sentence with the turn's time, then a row per thing it did. An agent or bot it started reads
+ * its state in words and what it does now, its time while it runs, and opens its thread (on its
+ * machine) or the bot's chat; one that waits on the person shows Review, which goes to its
+ * request where the chat waits on it (`SpadeWaitingWorkers`), else opens it. A message it sent
+ * another bot, or a contract it called, reads what came back and opens in place to the exchange
+ * (`SpadeTalkRow`).
  */
 
 /** The anchor of a waiting worker's request at the chat's end. */
@@ -54,6 +63,8 @@ export interface WorkerHandlers {
   bot: string;
   face(id: string): SpadeAvatar;
   onOpenBot: ((id: string) => void) | undefined;
+  /** What the rows of messages and contract calls read; without it they don't show. */
+  talk?: SpadeTalkContext | undefined;
 }
 
 /**
@@ -72,7 +83,8 @@ export function OnBotMachine(props: { children: (reachable: boolean) => ReactNod
 }
 
 export function SpadeDelegation(props: {
-  workers: readonly SpadeStartedWorker[];
+  /** The turn's started workers, messages and contract calls (`spadeTogether`). */
+  parts: readonly SpadeTogetherPart[];
   at: number | undefined;
   /** The bot's name, for the card's first line. */
   botName: string;
@@ -82,48 +94,108 @@ export function SpadeDelegation(props: {
 }
 
 function Card(props: {
-  workers: readonly SpadeStartedWorker[];
+  parts: readonly SpadeTogetherPart[];
   at: number | undefined;
   botName: string;
   handlers: WorkerHandlers;
   reachable: boolean;
 }) {
+  const workers = props.parts.flatMap((part) => (part.kind === "workers" ? part.workers : []));
   const { entries, fresh } = useSpadeWorkers(
     props.handlers.bot,
-    props.workers,
+    workers,
     props.at ?? 0,
     props.reachable,
   );
   const face = useContext(CardFace);
-  const span = spadeSubagentsSpan(entries);
+  const talk = props.handlers.talk;
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  // Each row with what the card reads of it: a worker's live entry, a message's or a call's own.
+  const rows = spadeTogetherRows(props.parts).flatMap((row): CardRow[] => {
+    if (row.kind === "worker") {
+      const entry = byId.get(row.worker.id);
+      const span: SpadeSubagentSpan = entry ?? { id: row.key, state: "working" };
+      return entry ? [{ row, entry, span }] : [];
+    }
+    if (!talk) return [];
+    return [
+      {
+        row,
+        entry: undefined,
+        span: { id: row.key, state: spadeTogetherState(row), ...spadeTogetherSpan(row) },
+      },
+    ];
+  });
+  const spans = rows.map((each) => each.span);
+  const span = spadeSubagentsSpan(spans);
+  const workersOnly = rows.every((each) => each.row.kind === "worker");
+  const header =
+    workersOnly || !talk
+      ? undefined
+      : spadeTogetherHeader(
+          props.botName,
+          rows.map(({ row, entry }) => ({
+            name: entry
+              ? spadeSubagentName(entry.title, props.botName)
+              : row.kind === "message"
+                ? talkName(talk, row.bot)
+                : row.kind === "contract"
+                  ? row.call.bot
+                  : "",
+            ace: entry?.kind === "ace",
+            state: entry?.state ?? (row.kind === "worker" ? "working" : spadeTogetherState(row)),
+          })),
+          { current: fresh, workersOnly: false },
+        );
+  const running = spans.some((each) => subagentRunning(each.state));
   return (
     <div className="w-full max-w-150 min-w-0">
       <SpadeSubagentCard
         botName={props.botName}
         face={face}
-        agents={entries}
+        agents={spans}
         current={fresh}
+        header={header}
         elapsed={
           fresh &&
           span && (
             <AgentTime
               startedAt={span.startedAt}
               endedAt={span.endedAt}
-              running={entries.some((entry) => subagentRunning(entry.state))}
+              running={running}
               fresh={fresh}
             />
           )
         }
         renderRow={(at) => {
-          const entry = entries[at];
-          return (
-            entry && (
+          const each = rows[at];
+          if (!each) return null;
+          if (each.entry)
+            return (
               <WorkerRow
-                entry={entry}
+                entry={each.entry}
                 botName={props.botName}
                 fresh={fresh}
                 handlers={props.handlers}
                 reachable={props.reachable}
+              />
+            );
+          return (
+            talk &&
+            each.row.kind !== "worker" && (
+              <SpadeTalkRow
+                row={each.row}
+                context={talk}
+                elapsed={
+                  each.span.startedAt !== undefined && (
+                    <AgentTime
+                      startedAt={each.span.startedAt}
+                      endedAt={undefined}
+                      running
+                      fresh={fresh}
+                    />
+                  )
+                }
               />
             )
           );
@@ -131,6 +203,18 @@ function Card(props: {
       />
     </div>
   );
+}
+
+/** A row of the card, with what it reads: a worker's live entry, else its own span. */
+interface CardRow {
+  row: SpadeTogetherRow;
+  entry: SpadeWorkerEntry | undefined;
+  span: SpadeSubagentSpan;
+}
+
+/** A bot named by id or by name, as its name. */
+function talkName(talk: SpadeTalkContext, ref: string): string {
+  return talk.names.get(ref) ?? ref;
 }
 
 /** An ace agent's latest words and what its root agent does now, read from its thread. */
@@ -222,8 +306,8 @@ function WorkerRow(props: {
         provider: entry.provider,
         face: entry.kind === "bot" ? handlers.face(entry.id) : undefined,
         machine: entry.machine,
-        // Its time: running, or how long it took once it ended.
-        elapsed: live.current && (
+        // Its time while it runs; the card's first line holds the turn's time.
+        elapsed: live.current && subagentRunning(entry.state) && (
           <AgentTime
             startedAt={entry.startedAt}
             endedAt={entry.endedAt}

@@ -57,15 +57,13 @@ const botSide = new Set<SpadeChatItem["kind"]>([
   "card",
   "notice",
   "workers",
-  // Whom the bot talked with: its own doing, so in its run.
-  "talk",
-  "contract",
 ]);
 
 /** Whose run an item belongs to, if any: "bot", another bot's id, or undefined for its own row. */
 function senderOf(item: SpadeChatItem): string | undefined {
   if (botSide.has(item.kind)) return "bot";
-  if (item.kind === "other") return `other:${item.agent.id}`;
+  // A contract call another bot made is one compact row of its own.
+  if (item.kind === "other") return item.contract ? undefined : `other:${item.agent.id}`;
   return undefined;
 }
 

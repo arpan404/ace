@@ -27,6 +27,8 @@ import {
   type SpadeDigest,
   type SpadeRestAction,
   spadeGroupAppRequests,
+  spadeContractAskedLine,
+  spadeTogether,
 } from "@ace/ui-core/spade-chat";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
@@ -37,12 +39,12 @@ import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
-import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
+import { chatBubble, framed, inputBubble, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeChildRow } from "./spade-child-row.tsx";
-import { SpadeTalkItem, type SpadeTalkContext } from "./spade-talk-items.tsx";
+import type { SpadeTalkContext } from "./spade-talk-row.tsx";
 import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeRequestGroup } from "./spade-request-group.tsx";
@@ -52,6 +54,7 @@ import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeDelegation } from "./spade-delegation.tsx";
+import { SpadeFace } from "./spade-face.tsx";
 import { SpadeWaitingWorkers } from "./spade-waiting-workers.tsx";
 import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
@@ -157,7 +160,8 @@ export function SpadeChat(props: {
   // person shows it: for every reply in Settings, or for one from its More menu.
   const showWork = useShowWork();
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
-  const bubbles = useMemo(() => spadeBubbles(view), [view]);
+  // A turn's messages to other bots, contract calls and started agents are one card.
+  const bubbles = useMemo(() => spadeTogether(spadeBubbles(view)), [view]);
   const workTurns = useMemo(() => spadeTurnsWithWork(bubbles), [bubbles]);
   const rows = useMemo(
     () =>
@@ -242,13 +246,12 @@ export function SpadeChat(props: {
     profile: props.profile,
     listed: (id) => bot.names.has(id),
     talk: {
-      self: { id: bot.id, name: bot.name, avatar: bot.avatar },
+      self: { name: bot.name, avatar: bot.avatar },
       names: bot.names,
-      faces: bot.others,
+      face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
       phrases: bot.phrases,
-      busy: view.busy,
-      onOpenBot: props.onOpenBot,
     },
+    busy: view.busy,
   };
   return (
     <CardFace value={bot.avatar}>
@@ -354,6 +357,8 @@ function startedWorkers(rows: readonly SpadeChatRow[]): SpadeStartedWorker[] {
   const workers: SpadeStartedWorker[] = [];
   const add = (item: SpadeChatItem) => {
     if (item.kind === "workers") workers.push(...item.workers);
+    if (item.kind === "together")
+      for (const each of item.parts) if (each.kind === "workers") workers.push(...each.workers);
   };
   for (const row of rows)
     if (row.kind === "run") row.items.forEach(add);
@@ -395,8 +400,10 @@ interface Handlers {
   profile: RosterBot | undefined;
   /** Whether a bot is still in the person's list. */
   listed(id: string): boolean;
-  /** What the conversation cards read: this bot and the others it talks with. */
+  /** What a turn card's messages and contract calls read: this bot and the others. */
   talk: SpadeTalkContext;
+  /** This bot is at work: a contract call it was given is being answered. */
+  busy: boolean;
 }
 
 /**
@@ -465,12 +472,17 @@ const Row = memo(function Row(props: {
       <div
         role="article"
         aria-label={other ? other.name : bot.name}
-        className={cn("flex min-w-0 flex-col items-start gap-(--chat-run-gap)", space)}
+        // Another bot's messages are input to this one: on the person's side, under its name.
+        className={cn(
+          "flex min-w-0 flex-col gap-(--chat-run-gap)",
+          other ? "items-end" : "items-start",
+          space,
+        )}
       >
         {other && (
           <SpeakerLine
             avatar={bot.others.get(other.id) ?? parseSpadeAvatar(undefined, other.id)}
-            name={`From ${other.name}`}
+            name={other.name}
           />
         )}
         {/* Open requests one app made together answer on one card (ADR 0202, amendment 5). */}
@@ -498,7 +510,9 @@ const Row = memo(function Row(props: {
       </div>
     );
   }
-  return <Single item={row.item} when={row.when} space={space} handlers={props.handlers} />;
+  return (
+    <Single item={row.item} when={row.when} space={space} bot={bot} handlers={props.handlers} />
+  );
 });
 
 /** Who wrote a bubble of the bot's, for its `spade-message` variant: Spade itself or a bot. */
@@ -526,11 +540,6 @@ function RunItem(props: {
       return (
         <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
           {/* Its words went back to the bot that wrote, not to the person. */}
-          {item.to && (
-            <p data-reply-to={item.to.id} className="ml-1 text-xs leading-4 text-subtle-foreground">
-              To {item.to.name}
-            </p>
-          )}
           {words ? (
             <BubbleFrame
               side="bot"
@@ -585,23 +594,27 @@ function RunItem(props: {
           {/* What its tools showed the person, after its words (ADR 0134). */}
           {words && media}
           {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
+          {/* A finished reply to another bot's message went back to it. */}
+          {item.repliedTo && (
+            <p
+              data-replied-to={item.repliedTo.id}
+              className="ml-1 text-xs leading-4 text-subtle-foreground"
+            >
+              Replied to {item.repliedTo.name}
+            </p>
+          )}
         </div>
       );
     }
-    case "talk":
-    case "contract":
-      return <SpadeTalkItem item={item} context={handlers.talk} />;
     case "other":
-      // A contract call another bot made reads as its card, with what this bot returned.
-      if (item.contract) return <SpadeTalkItem item={item} context={handlers.talk} />;
       return (
         <BubbleFrame
-          side="bot"
+          side="mine"
           when={props.when}
           copy={spadePlainText(item.text)}
-          speak={item.text}
+          speak={undefined}
         >
-          <div {...part("spade-message", undefined, "other")} className={cn(chatBubble, framed)}>
+          <div {...part("spade-message", undefined, "other")} className={cn(inputBubble, framed)}>
             <SpadeBubbleText text={item.text} />
           </div>
         </BubbleFrame>
@@ -630,7 +643,7 @@ function RunItem(props: {
     case "workers":
       return (
         <SpadeDelegation
-          workers={item.workers}
+          parts={[item]}
           at={item.at}
           botName={bot.name}
           handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
@@ -705,10 +718,48 @@ function Single(props: {
   item: SpadeChatItem;
   when: string | undefined;
   space: string;
+  bot: ChatBot;
   handlers: Handlers;
 }) {
-  const { item, space } = props;
+  const { item, space, bot, handlers } = props;
   switch (item.kind) {
+    // Everything one turn did with other bots and agents: one card, a turn apart.
+    case "together":
+      return (
+        <div className={space}>
+          <SpadeDelegation
+            parts={item.parts}
+            at={item.at}
+            botName={bot.name}
+            handlers={{
+              bot: bot.id,
+              face: handlers.face,
+              onOpenBot: handlers.onOpenBot,
+              talk: handlers.talk,
+            }}
+          />
+        </div>
+      );
+    // A contract call another bot made: one compact line with what this bot returned.
+    case "other": {
+      if (!item.contract) return null;
+      const line = spadeContractAskedLine(item.contract, {
+        from: item.agent.name,
+        working: handlers.busy,
+      });
+      return (
+        <p
+          className={cn(
+            "flex min-w-0 items-center gap-2 text-ui leading-5",
+            line.tone === "failed" ? "text-(--status-failed-text)" : "text-muted-foreground",
+            space,
+          )}
+        >
+          <SpadeFace avatar={handlers.face(item.agent.id)} size={16} />
+          <span className={cn("min-w-0 truncate", line.live && "step-shimmer")}>{line.text}</span>
+        </p>
+      );
+    }
     case "person":
       return (
         <div

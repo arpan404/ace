@@ -1,4 +1,3 @@
-import { pluralCount } from "../counts.ts";
 import { fieldsLine, spadeContractResult, type SpadeContractOutcome } from "./contract-words.ts";
 import { spadeRecord } from "./json.ts";
 
@@ -52,7 +51,8 @@ const text = (value: unknown) => (typeof value === "string" ? value.trim() : "")
 /** `call_tool` carries the tool it reaches inside: `{name, arguments}`. */
 function messageArguments(argumentsValue: unknown): Record<string, unknown> | undefined {
   const outer = spadeRecord(argumentsValue);
-  if (outer && text(outer.name) === spadeBotMessageTool) return spadeRecord(outer.arguments);
+  if (outer && text(outer.name) && outer.arguments !== undefined)
+    return spadeRecord(outer.arguments);
   return outer;
 }
 
@@ -64,10 +64,22 @@ const joinReach = 64;
  * card to place where it was sent is returned. `entries` is changed in place when it joins.
  */
 export function spadeTalkStarted(
-  entries: ({ kind: string } | SpadeTalkEntry)[],
-  start: { key: string; job: string; reply: string; arguments: unknown; at: number | undefined },
+  state: {
+    entries: ({ kind: string } | SpadeTalkEntry)[];
+    calls: ReadonlyMap<string, { arguments?: unknown }>;
+  },
+  key: string,
+  event: { job: string; reply: string },
+  stored: { at: number },
 ): SpadeTalkEntry | undefined {
-  const fields = messageArguments(start.arguments);
+  const entries = state.entries;
+  const start = {
+    key,
+    job: event.job,
+    reply: event.reply,
+    at: stored.at > 0 ? stored.at : undefined,
+  };
+  const fields = messageArguments(state.calls.get(event.job)?.arguments);
   const bot = text(fields?.bot) || "another bot";
   const machine = text(fields?.machine) || undefined;
   const exchange: SpadeTalkExchange = {
@@ -141,6 +153,10 @@ export interface SpadeContractEntry {
   kind: "contract";
   key: string;
   job: string;
+  /** The reply (turn) that made it: its turn's card holds it. */
+  reply?: string;
+  /** What it asked with, its input's fields in one line. */
+  input?: string;
   /** The called bot's name, and its id for its face. */
   bot: string;
   botId?: string;
@@ -164,11 +180,20 @@ export function spadeContractCalled(
     contract: string;
   },
   at: number | undefined,
+  state: {
+    jobs: ReadonlyMap<string, { reply: string }>;
+    calls: ReadonlyMap<string, { arguments?: unknown }>;
+  },
 ): SpadeContractEntry {
+  const reply = state.jobs.get(event.job)?.reply;
+  const fields = messageArguments(state.calls.get(event.job)?.arguments);
+  const input = spadeRecord(fields?.input);
   return {
     kind: "contract",
     key,
     job: event.job,
+    ...(reply ? { reply } : {}),
+    ...(input ? { input: fieldsLine(input) } : {}),
     bot: event.name || "Another bot",
     ...(event.bot ? { botId: event.bot } : {}),
     ...(event.machine_name ? { machine: event.machine_name } : {}),
@@ -280,202 +305,4 @@ export function spadeContractTitle(name: string, declared?: string): string {
   const title = declared?.trim();
   if (title) return title;
   return name.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase() || name;
-}
-
-/** How a card's row reads: quiet words, the live wait, a failure, or a settled answer. */
-export type SpadeTalkTone = "quiet" | "working" | "failed" | "settled";
-
-/** One row of a conversation card: who said it, and its one line. */
-export interface SpadeTalkRow {
-  key: string;
-  /** This bot (`self`) or the other one. */
-  from: "self" | "other";
-  text: string;
-  tone: SpadeTalkTone;
-  /** It is the live wait for a reply: it shimmers. */
-  live: boolean;
-  at?: number;
-}
-
-/** A conversation card as every client draws it. */
-export interface SpadeTalkCard {
-  header: string;
-  /** A reply is still owed: the card never reads as finished. */
-  pending: boolean;
-  rows: readonly SpadeTalkRow[];
-}
-
-/** What a card needs to say who: the two bots' names, and the other's live phrase if known. */
-export interface SpadeTalkNames {
-  self: string;
-  other: string;
-  /** What the other bot says it does now, while it works ("Reading the brief"). */
-  otherPhrase?: string | undefined;
-}
-
-/** The row that waits for a reply: the other bot's live phrase, else that it is on it. */
-function waitingRow(key: string, names: SpadeTalkNames): SpadeTalkRow {
-  const phrase = names.otherPhrase?.trim();
-  return {
-    key,
-    from: "other",
-    text: phrase || `${names.other} is working on it`,
-    tone: "working",
-    live: true,
-  };
-}
-
-/**
- * The sender's card: "Quill asked Writing" for one message, "Quill talked with Writing · 3
- * messages" for several ("is talking with" while a reply is owed); under it each message, then
- * its reply, the live wait, or why it has none.
- */
-export function spadeTalkCard(entry: SpadeTalkEntry, names: SpadeTalkNames): SpadeTalkCard {
-  const pending = entry.exchanges.some((each) => each.outcome === undefined);
-  const count = entry.exchanges.length;
-  const other = entry.machine ? `${names.other} on ${entry.machine}` : names.other;
-  const header =
-    count <= 1
-      ? `${names.self} asked ${other}`
-      : `${names.self} ${pending ? "is talking" : "talked"} with ${other} · ${pluralCount(count, "message")}`;
-  const rows = entry.exchanges.flatMap((exchange): SpadeTalkRow[] => {
-    const sent: SpadeTalkRow = {
-      key: `${exchange.job}:sent`,
-      from: "self",
-      text: exchange.text,
-      tone: "quiet",
-      live: false,
-      ...(exchange.at === undefined ? {} : { at: exchange.at }),
-    };
-    const key = `${exchange.job}:reply`;
-    const when = exchange.answeredAt === undefined ? {} : { at: exchange.answeredAt };
-    switch (exchange.outcome) {
-      case undefined:
-        return [sent, waitingRow(key, names)];
-      case "answered":
-        return [
-          sent,
-          {
-            key,
-            from: "other",
-            text: exchange.answer || `${names.other} answered`,
-            tone: "settled",
-            live: false,
-            ...when,
-          },
-        ];
-      case "failed":
-        return [
-          sent,
-          {
-            key,
-            from: "other",
-            text: exchange.answer
-              ? `Didn't reach ${names.other} · ${exchange.answer}`
-              : `Didn't reach ${names.other}`,
-            tone: "failed",
-            live: false,
-            ...when,
-          },
-        ];
-      case "stopped":
-        return [
-          sent,
-          {
-            key,
-            from: "other",
-            text: `Stopped before ${names.other} answered`,
-            tone: "quiet",
-            live: false,
-            ...when,
-          },
-        ];
-    }
-  });
-  return { header, pending, rows };
-}
-
-/**
- * The caller's contract card: "Asked Flight watcher for the cheapest fare" ("Asking" while it
- * is owed); under it what came back in one line, the live wait, or why there is none.
- */
-export function spadeContractCard(
-  entry: Omit<SpadeContractEntry, "kind" | "key">,
-  names: { otherPhrase?: string | undefined; title?: string | undefined },
-): SpadeTalkCard {
-  const pending = entry.outcome === undefined;
-  const bot = entry.machine ? `${entry.bot} on ${entry.machine}` : entry.bot;
-  const title = spadeContractTitle(entry.contract, names.title);
-  const header = `${pending ? "Asking" : "Asked"} ${bot} for the ${title}`;
-  const key = `${entry.job}:result`;
-  const when = entry.answeredAt === undefined ? {} : { at: entry.answeredAt };
-  const row = (words: string, tone: SpadeTalkTone): SpadeTalkRow => ({
-    key,
-    from: "other",
-    text: words,
-    tone,
-    live: false,
-    ...when,
-  });
-  switch (entry.outcome) {
-    case undefined:
-      return {
-        header,
-        pending,
-        rows: [waitingRow(key, { self: "", other: entry.bot, otherPhrase: names.otherPhrase })],
-      };
-    case "returned":
-      return { header, pending, rows: [row(entry.result || `${entry.bot} answered`, "settled")] };
-    case "failed":
-      return {
-        header,
-        pending,
-        rows: [
-          row(
-            entry.result
-              ? `${entry.bot} couldn't answer · ${entry.result}`
-              : `${entry.bot} couldn't answer`,
-            "failed",
-          ),
-        ],
-      };
-    case "stopped":
-      return { header, pending, rows: [row(`Stopped before ${entry.bot} answered`, "quiet")] };
-  }
-}
-
-/** A row of the receiver's own answer to a contract call. */
-const askedRow = (words: string, tone: SpadeTalkTone, live = false): SpadeTalkRow => ({
-  key: "returned",
-  from: "self",
-  text: words,
-  tone,
-  live,
-});
-
-/**
- * The receiver's card for a contract call it was given: "Quill asked for cheapest fare", its
- * input in one line, and what this bot returned (or that it is working on it).
- */
-export function spadeContractAskedCard(
-  asked: SpadeContractAsked,
-  names: { from: string; self: string; working: boolean },
-): SpadeTalkCard {
-  const title = spadeContractTitle(asked.contract);
-  const rows: SpadeTalkRow[] = [];
-  if (asked.input)
-    rows.push({ key: "input", from: "other", text: asked.input, tone: "quiet", live: false });
-  const ended = asked.ended;
-  const row = askedRow;
-  if (ended?.outcome === "returned") rows.push(row(ended.text || "Returned", "settled"));
-  else if (ended?.outcome === "failed")
-    rows.push(row(ended.text ? `Couldn't answer · ${ended.text}` : "Couldn't answer", "failed"));
-  else if (ended?.outcome === "stopped") rows.push(row(`${names.from} stopped asking`, "quiet"));
-  else if (names.working) rows.push(row(`${names.self} is working on it`, "working", true));
-  else rows.push(row(`${names.self} hasn't answered`, "quiet"));
-  return {
-    header: `${names.from} asked for ${title}`,
-    pending: ended === undefined,
-    rows,
-  };
 }
