@@ -48,6 +48,8 @@ async function crashAt(
     runAppearsDuringProof?: boolean;
     /** The person presses Resume while the reconcile waits on a busy store. */
     resumeWhileBusy?: boolean;
+    /** Once the busy opens run out, a later transaction finds the disk full, once. */
+    fullAfterBusy?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
     openFails?: boolean;
     /** Whether the person presses Resume; without it only ace acts. */
@@ -78,6 +80,19 @@ async function crashAt(
     await exit;
   }
   const store = new Store(path);
+  let diskFull = () => {};
+  if (host.fullAfterBusy) {
+    const atomic = store.atomic.bind(store);
+    let armed = -1;
+    // The second: the reconcile's own write of the failed turn, past the session's own.
+    diskFull = () => (armed = 2);
+    store.atomic = ((run: Parameters<typeof atomic>[0]) => {
+      if (armed > 0 && --armed === 0) {
+        throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
+      }
+      return atomic(run);
+    }) as typeof store.atomic;
+  }
   const registry = new AdapterRegistry();
   const opened: SessionContext["resume"][] = [];
   const sent: string[] = [];
@@ -91,6 +106,7 @@ async function crashAt(
         opened.push(context.resume);
         if (openFails) throw new Error("Cursor SDK host could not start");
         if (busy-- > 0) {
+          if (host.fullAfterBusy && whileBusy.length === (host.retryMs?.length ?? 0)) diskFull();
           whileBusy.push(store.getThread(threadId)?.status.state);
           if (host.resumeWhileBusy) pressResume();
           // As the Cursor adapter marks it (store-fence.ts).
@@ -515,6 +531,19 @@ it("a Resume pressed while the reconcile waits on a busy store leaves one reconc
   expect(crash.runs).toEqual(["completed"]);
   expect(crash.sent).toEqual([]);
   expect(crash.statusAfter()).toBe("done");
+});
+
+it("a reconcile whose failure can't be written at first still fails the turn and holds the queue", async () => {
+  await using crash = await crashAt("admitted", {
+    resume: false,
+    busyOpens: 100,
+    retryMs: [10, 10],
+    fullAfterBusy: true,
+  });
+  expect(crash.runs).toEqual(["failed"]);
+  expect(crash.held).toMatchObject({ paused: true, reason: "restart" });
+  expect(crash.sent).toEqual([]);
+  expect(crash.statusAfter()).not.toBe("working");
 });
 
 it("a store still busy when the retries run out fails the turn and keeps what waits in the queue", async () => {

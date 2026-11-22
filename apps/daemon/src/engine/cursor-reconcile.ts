@@ -104,10 +104,42 @@ function release(deps: ReconcileDependencies, id: ThreadId): void {
   recovery.sync(id);
 }
 
+/**
+ * Reconciles `id`, and ends in a defined state whatever throws: a turn still running is failed
+ * with its queue kept and held for the person, never left working. Writing that failure is tried
+ * again a bounded number of times (a full disk can clear); only then is the error the caller's.
+ */
 export async function reconcileCursorRestart(
   deps: ReconcileDependencies,
   id: ThreadId,
 ): Promise<void> {
+  try {
+    await reconcileOnce(deps, id);
+  } catch (error) {
+    const { repo, clock } = deps;
+    for (const wait of [0, ...(deps.retryMs ?? busyRetryMs)]) {
+      if (wait) await new Promise<void>((resolve) => clock.setTimer(resolve, wait));
+      try {
+        const state = repo.requireState(id);
+        if (state.agents[state.rootKey ?? ""]?.activeRun)
+          repo.store.atomic(() =>
+            repo.apply(id, restartFailure(repo, id, clock.now()), clock.now()),
+          );
+        repo.store.atomic(() => {
+          const command = repo.recovery.attemptedCommand(id);
+          const intent = command ? repo.pending.uncertainSend(id, command) : undefined;
+          if (intent) unconfirmed(repo, id, intent.id, clock.now());
+        });
+        break;
+      } catch {
+        // Tried again after the next wait.
+      }
+    }
+    throw error;
+  }
+}
+
+async function reconcileOnce(deps: ReconcileDependencies, id: ThreadId): Promise<void> {
   const { repo, clock } = deps;
   const before = repo.requireState(id);
   const wasRunning = before.agents[before.rootKey ?? ""]?.activeRun !== undefined;
