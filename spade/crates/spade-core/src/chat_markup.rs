@@ -8,7 +8,7 @@ mod scan;
 #[cfg(test)]
 mod tests;
 
-pub use quote::{QUOTE_CHARS, quoted};
+pub use quote::{QUOTE_CHARS, quote_of, quoted};
 use scan::Piece;
 
 /// The most messages one model step makes; later ones join the last.
@@ -59,6 +59,11 @@ pub fn id(seq: u64, index: usize) -> String {
 /// Whether `value` reads as a message id.
 pub fn is_id(value: &str) -> bool {
     split_id(value).is_some()
+}
+
+/// The seq of the event a message id names.
+pub fn seq_of(id: &str) -> Option<u64> {
+    split_id(id).map(|(seq, _)| seq)
 }
 
 /// A message id's event seq and segment index.

@@ -20,6 +20,8 @@ pub struct Outgoing {
     pub voice: Option<VoiceRef>,
     /// Devices the person named with `@` (ADR 0198).
     pub devices: Vec<spade_core::named_devices::NamedDevice>,
+    /// The id of an earlier message of the conversation the person replied to (ADR 0212).
+    pub reply_to: Option<String>,
 }
 
 impl Engine {
@@ -70,12 +72,30 @@ impl Engine {
             from_routine: None,
             from_group: None,
             from_thread: None,
-            reply_to: None,
+            reply_to: self.quote(id, outgoing.reply_to.as_deref()).map(Box::new),
         });
         let message = memory::with_recall(self, id, message);
         let message = with_devices(message, &outgoing_devices);
         self.deliver(id, &message)?;
         Ok(())
+    }
+
+    /// The message `reply_to` names in conversation `id`, as a reply stores it; `None` when
+    /// there is none or it names nothing there (the message is still sent).
+    pub(super) fn quote(
+        &self,
+        id: &str,
+        reply_to: Option<&str>,
+    ) -> Option<spade_core::event::ReplyTo> {
+        let reply_to = reply_to?;
+        let seq = i64::try_from(spade_core::chat_markup::seq_of(reply_to)?).ok()?;
+        match self.store.event_at(id, seq) {
+            Ok(event) => spade_core::chat_markup::quote_of(&event?, reply_to),
+            Err(error) => {
+                tracing::warn!(%error, "the message replied to could not be read");
+                None
+            }
+        }
     }
 
     /// Attached documents and recordings.

@@ -225,7 +225,7 @@ impl Engine {
             since_ms: now - 24 * 60 * 60_000,
             most: MOST_PER_DAY,
         };
-        match self.post_group_as(id, text, Some(thread), Some(delivery)) {
+        match self.post_group_as(id, text, Some(thread), Some(delivery), None) {
             Ok(Some(_)) => (200, json!({ "status": "accepted" })),
             Ok(None) => (200, json!({ "status": "duplicate" })),
             Err(GroupError::NotFound) => refuse(404, "That club isn't on this machine's Spade."),

@@ -192,6 +192,10 @@ async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Respon
 #[derive(Deserialize)]
 struct Message {
     text: String,
+    /// The id of the club's message the person replied to (ADR 0212); one that isn't a string
+    /// is ignored.
+    #[serde(default)]
+    reply_to: serde_json::Value,
 }
 
 async fn post_message(
@@ -199,7 +203,10 @@ async fn post_message(
     Path(id): Path<String>,
     Body(body): Body<Message>,
 ) -> Response {
-    match state.engine.post_group(&id, &body.text) {
+    match state
+        .engine
+        .post_group(&id, &body.text, body.reply_to.as_str())
+    {
         Ok(run) => (StatusCode::ACCEPTED, Json(json!({ "run": run }))).into_response(),
         Err(error) => group_problem(&error),
     }

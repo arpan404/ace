@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use spade_core::event::{FromAgent, FromGroup, GroupBot, Known};
+use spade_core::event::{FromAgent, FromGroup, GroupBot, Known, ReplyTo};
 use spade_core::{Event, group};
 use spade_store::{StoreError, StoredGroup, StoredMember};
 use tokio::sync::watch;
@@ -17,11 +17,13 @@ use super::groups::{FEWEST_MEMBERS, GroupError, bot_of};
 use crate::teams::Outcome;
 use crate::tools::ToolOutput;
 
-/// What an ace thread adds to a member's ask: its context pack and the devices named.
+/// What the person's post adds to a member's ask: an ace thread's context pack and the devices
+/// named, and the club message the person replied to (ADR 0212).
 #[derive(Default, Clone, Copy)]
 struct ThreadExtra<'a> {
     pack: Option<&'a str>,
     devices: Option<&'a str>,
+    reply_to: Option<&'a ReplyTo>,
 }
 
 /// How long `group_ask` waits for a member's answer.
@@ -39,9 +41,15 @@ pub(crate) struct FromAceThread {
 }
 
 impl Engine {
-    /// The person posts in a group. Returns the run it starts.
-    pub fn post_group(self: &Arc<Self>, id: &str, text: &str) -> Result<String, GroupError> {
-        self.post_group_as(id, text, None, None)
+    /// The person posts in a group, replying to the club's message `reply_to` when it names one
+    /// (an id that names nothing is dropped). Returns the run it starts.
+    pub fn post_group(
+        self: &Arc<Self>,
+        id: &str,
+        text: &str,
+        reply_to: Option<&str>,
+    ) -> Result<String, GroupError> {
+        self.post_group_as(id, text, None, None, reply_to)
             .map(|posted| posted.map_or_else(String::new, |(run, _)| run))
     }
 
@@ -55,6 +63,7 @@ impl Engine {
         text: &str,
         thread: Option<FromAceThread>,
         delivery: Option<spade_store::Delivery<'_>>,
+        reply_to: Option<&str>,
     ) -> Result<Option<(String, i64)>, GroupError> {
         let text = text.trim();
         if text.is_empty() {
@@ -73,12 +82,13 @@ impl Engine {
         let (from_thread, pack, devices) = thread.map_or((None, None, None), |thread| {
             (Some(thread.from), thread.pack, thread.devices)
         });
+        let quote = self.quote(&group.conversation, reply_to);
         let message = Event::Known(Known::GroupMessage {
             run: run.clone(),
             text: text.to_owned(),
             from: None,
             thread: from_thread,
-            reply_to: None,
+            reply_to: quote.clone().map(Box::new),
         });
         let seq = match delivery {
             None => self.record(&group.conversation, &message)?.seq,
@@ -111,6 +121,7 @@ impl Engine {
             let extra = ThreadExtra {
                 pack: pack.as_deref(),
                 devices: devices.as_deref(),
+                reply_to: quote.as_ref(),
             };
             if let Err(why) = self.start_ask_with(&group, &run, None, 1, target, said, extra) {
                 tracing::warn!(%why, "a group message was not handed on");
@@ -193,7 +204,8 @@ impl Engine {
             untrusted,
         };
         let delivered = if to.machine.is_empty() {
-            self.ask_here(group, &ask, to, text, context, by, depth, from_group)
+            let quote = thread.reply_to.cloned();
+            self.ask_here(group, &ask, to, text, context, by, depth, from_group, quote)
         } else {
             self.ask_elsewhere(group, &ask, to, text, context, by.as_ref(), depth, run)
         };
@@ -215,6 +227,7 @@ impl Engine {
         by: Option<GroupBot>,
         depth: u32,
         from_group: FromGroup,
+        reply_to: Option<ReplyTo>,
     ) -> Result<(), String> {
         let agent = self
             .store
@@ -237,7 +250,7 @@ impl Engine {
             from_routine: None,
             from_group: Some(Box::new(from_group)),
             from_thread: None,
-            reply_to: None,
+            reply_to: reply_to.map(Box::new),
         });
         let frames = self.live(&agent.conversation).frames.subscribe();
         let delivered = self

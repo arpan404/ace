@@ -9,8 +9,14 @@ pub const QUOTE_CHARS: usize = 280;
 /// The message `id` names in a conversation's `events` (`events[seq - 1]` is the event with
 /// `seq`), as a reply stores it; `None` when no message has that id.
 pub fn quoted(events: &[Event], id: &str) -> Option<ReplyTo> {
-    let (seq, index) = split_id(id)?;
-    let event = events.get(usize::try_from(seq).ok()?.checked_sub(1)?)?;
+    let (seq, _) = split_id(id)?;
+    quote_of(events.get(usize::try_from(seq).ok()?.checked_sub(1)?)?, id)
+}
+
+/// The event an id's seq names, as a reply stores the message `id` names in it; `None` when it
+/// holds no such message. For a caller that reads that one event on its own.
+pub fn quote_of(event: &Event, id: &str) -> Option<ReplyTo> {
+    let (_, index) = split_id(id)?;
     let (text, mine, name) = match event {
         Event::Known(Known::UserMessage { text, .. })
             if crate::question::typed_by_person(event) =>
