@@ -36,8 +36,8 @@ test("the inbox lists unread notifications with why each reached you, and the si
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   const first = await row("Reconnect the client worker");
   expect(first.textContent).toContain("#229");
-  expect(first.textContent).toContain("review requested");
-  expect((await row("Rewrite the install page")).textContent).toContain("mention");
+  expect(first.textContent).toContain("Review requested");
+  expect((await row("Rewrite the install page")).textContent).toContain("Mention");
   expect((await row("CI workflow run failed")).textContent).toContain("Workflow run");
   expect(await screen.findByRole("link", { name: /7 unread$/ })).toBeTruthy();
 });
@@ -131,7 +131,7 @@ test("with a reason chosen, only those notifications show, read ones included in
   const app = withInbox();
   await app.open("/inbox?view=all&reason=team_mention");
   await waitFor(async () => expect(await rows()).toHaveLength(2));
-  expect((await rows()).every((text) => text.includes("team mention"))).toBe(true);
+  expect((await rows()).every((text) => text.includes("Your team was mentioned"))).toBe(true);
 });
 
 test("a gh sign-in that can't read notifications says how to fix it", async () => {
