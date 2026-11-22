@@ -4,13 +4,13 @@ use std::time::Duration;
 use spade_fetch::{Fetcher, Policy};
 use spade_keys::{KeyStore, Keys};
 use spade_models::Models;
-use spade_search::{Search, SearchConfig};
+use spade_search::Search;
 use spade_server::api::AppState;
 use spade_server::clock::{SystemClock, SystemIds, local_offset_seconds};
 use spade_server::computer::{Computers, Terminals};
 use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
-use spade_server::home::{DEFAULT_SEARCH, Home, HomeError, new_token};
+use spade_server::home::{Home, HomeError, new_token};
 use spade_server::images::ImageStore;
 use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
@@ -296,25 +296,6 @@ async fn run() -> Result<(), Failure> {
     )
     .map_err(other)?;
     let models = Models::new(startup.presets, keys, spade_server::home::VERSION).map_err(other)?;
-    let search_path = home
-        .file_or_default("search.json", DEFAULT_SEARCH)
-        .map_err(other)?;
-    // Search keys have their own keychain accounts (`search:<id>`), apart from endpoints'.
-    let search_lookup = keychain.clone();
-    let search_keys = Keys::keychain_then_env(
-        move |backend| {
-            search_lookup
-                .as_ref()
-                .and_then(|k| k.search_key(backend).ok().flatten())
-        },
-        |var| std::env::var(var).ok(),
-    );
-    let search = Search::new(
-        SearchConfig::load(&search_path).map_err(other)?,
-        search_keys,
-        Duration::from_secs(10),
-    )
-    .map_err(other)?;
     // ace's tools and skill library, found from ace's home with the grant ace handed over (or
     // the SPADE_ACE_* variables in development). Absent while ace is away.
     let ace = match AceTarget::from_env(env) {
@@ -324,6 +305,24 @@ async fn run() -> Result<(), Failure> {
             None
         }
     };
+    // ace cloud (ADR 0140, 0210): the sign-in broker and web search, both shown the person's ace
+    // account grant, held in memory only. `SPADE_CLOUD_URL=off` turns both off.
+    let cloud_url = match env("SPADE_CLOUD_URL").map(|v| v.trim().to_owned()) {
+        Some(off) if off == "off" => None,
+        url => Some(
+            url.filter(|v| !v.is_empty())
+                .unwrap_or_else(|| spade_connect::CLOUD_URL.to_owned()),
+        ),
+    };
+    let cloud_account = Arc::new(spade_server::tools::CloudAccount::new(ace.clone()));
+    let search = Search::new(spade_search::Cloud {
+        url: cloud_url.clone(),
+        credential: cloud_account.clone(),
+        ace_client: Some(spade_server::home::ace_client()),
+        timeout: Duration::from_secs(10),
+        clock: Arc::new(std::time::Instant::now),
+    })
+    .map_err(other)?;
     // Documents are read by this same binary in a child process it kills at the deadline
     // (ADR 0134); without a path to it, in process.
     let reader = match std::env::current_exe() {
@@ -348,7 +347,6 @@ async fn run() -> Result<(), Failure> {
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
             search: search.clone(),
-            ace_fallback: ace.is_some(),
             bots: bots.clone(),
         }),
         Arc::new(WebFetch(fetcher.clone())),
@@ -516,16 +514,11 @@ async fn run() -> Result<(), Failure> {
         tick: Duration::from_secs(1),
         // Spade Cloud signs in to apps that need a client secret, with the person's ace account
         // (ADR 0140). `SPADE_CLOUD_URL=off` leaves those apps on the person's own client ID.
-        cloud: match env("SPADE_CLOUD_URL").map(|v| v.trim().to_owned()) {
-            Some(off) if off == "off" => None,
-            url => Some(spade_connect::Cloud {
-                url: url
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| spade_connect::CLOUD_URL.to_owned()),
-                credential: Arc::new(spade_server::tools::CloudAccount::new(ace.clone())),
-                ace_client: Some(spade_server::home::ace_client()),
-            }),
-        },
+        cloud: cloud_url.map(|url| spade_connect::Cloud {
+            url,
+            credential: cloud_account.clone(),
+            ace_client: Some(spade_server::home::ace_client()),
+        }),
     })
     .map_err(other)?;
     tools = tools.with_source(Arc::new(
@@ -633,15 +626,6 @@ async fn run() -> Result<(), Failure> {
         computers.set_daemon(link.clone(), agents, spade_server::computer::RESYNC);
     }
     computers.reap_idle(spade_server::computer::terminal::IDLE);
-    // The person's own SearXNG, as they set it in Spade's settings.
-    match engine.searxng_url() {
-        Ok(url) => {
-            if let Err(error) = search.set_searxng(url.as_deref()) {
-                tracing::warn!(%error, "the saved SearXNG address is not used");
-            }
-        }
-        Err(error) => tracing::warn!(%error, "could not read the SearXNG address"),
-    }
     engine.media().read_with(reader);
     if let Some(link) = &ace {
         engine.set_remote(link.clone());
