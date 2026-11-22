@@ -213,6 +213,46 @@ test("the first reopen of a thread an earlier build left reads from its latest s
   expect(count(h)).toBe(2001 - 256);
 });
 
+test("an earlier build's send older than its newest 4,096 frames is held as attempted, never sent again", async () => {
+  const h = await thread();
+  // The send is the thread's second frame; past it, more frames than the newest window holds.
+  h.store.atomic(() => {
+    storeFrame(h, 1, "open");
+    storeFrame(h, 2, "send", "old");
+    for (let seq = 3; seq < 5000; seq++) storeFrame(h, seq, "host-output", "other");
+  });
+  // Startup asks before any reopen.
+  const before = new ProviderRecovery(h.store);
+  expect(before.attempted(h.id, "send-1")).toBe(true);
+  expect(before.admissionRecorded(h.id, "send-1")).toBe(true);
+  // And after the first reopen has made the thread this build's.
+  await before.restore(h.id, { translate: () => [], tick: () => [] });
+  const after = new ProviderRecovery(h.store);
+  expect(after.attempted(h.id, "send-1")).toBe(true);
+  expect(after.admissionRecorded(h.id, "send-1")).toBe(true);
+});
+
+test("a crash during an earlier build's first reopen still leaves its send's attempt on record", async () => {
+  const h = await thread();
+  storeFrame(h, 1, "open");
+  storeFrame(h, 2, "send", "new");
+  storeFrame(h, 3, "delta", "new");
+  // The reopen dies as it replays the send (the daemon was killed there).
+  await expect(
+    new ProviderRecovery(h.store).restore(h.id, {
+      translate(input) {
+        if ((input.data as { kind?: string }).kind === "send") throw new Error("killed");
+        return [];
+      },
+      tick: () => [],
+    }),
+  ).rejects.toThrow("killed");
+  // The next boot still knows the send was attempted and that Cursor's run had output.
+  const next = new ProviderRecovery(h.store);
+  expect(next.attempted(h.id, "send-1")).toBe(true);
+  expect(next.admissionRecorded(h.id, "send-1")).toBe(true);
+});
+
 test("an idle thread's settled frames go a bounded batch per sweep, with no new frame committed", async () => {
   const h = await thread();
   const recovery = new ProviderRecovery(h.store);

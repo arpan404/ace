@@ -22,10 +22,6 @@ const CapturedFrame = z.object({
   channel: z.literal("sdk"),
   data: z.unknown(),
 });
-const Admission = z.object({
-  kind: z.literal("admission"),
-  body: z.object({ admitted: z.boolean(), commandId: z.string().min(1).max(512).optional() }),
-});
 
 const HostFence = z.object({
   kind: z.literal("error"),
@@ -35,6 +31,10 @@ const HostFence = z.object({
   }),
 });
 /** The saved session can never be opened again: the engine hands off instead (ADR 0211). */
+/** How many of an earlier build's newest frames its first reopen reads (ADR 0170). */
+const legacyWindow = 4096;
+/** An earlier build's thread with no send among the frames read and older ones past them. */
+const olderRecord: AttemptRecord = { commandId: "", operationId: "", evidence: true, older: true };
 const unusable = (message: string) =>
   Object.assign(new Error(message), { code: sessionStoreUnusable });
 
@@ -42,9 +42,6 @@ const unusable = (message: string) =>
 export class ProviderRecovery {
   private store: Store;
   private readFrames: StatementSync;
-  private readAttempt: StatementSync;
-  private readAdmission: StatementSync;
-  private readOutput: StatementSync;
   private readRecord: StatementSync;
   private writeRecord: StatementSync;
   private readFramesRecord: StatementSync;
@@ -60,9 +57,6 @@ export class ProviderRecovery {
     this.store = store;
     [
       this.readFrames,
-      this.readAttempt,
-      this.readAdmission,
-      this.readOutput,
       this.readRecord,
       this.writeRecord,
       this.readFramesRecord,
@@ -80,17 +74,6 @@ export class ProviderRecovery {
           // A seek on the thread's index from the open turn's first frame on, never a filter.
           db.prepare(
             "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? ORDER BY rowid LIMIT 8",
-          ),
-          db.prepare(
-            // An earlier build's frames, with no attempt record: the newest frames only.
-            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096) AND json_extract(frame,'$.data.kind')='send' AND json_extract(frame,'$.data.commandId')=? LIMIT 1",
-          ),
-          db.prepare(
-            "SELECT frame FROM engine_provider_frames WHERE thread_id=? AND rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096) AND json_extract(frame,'$.data.kind')='admission' ORDER BY rowid DESC LIMIT 1",
-          ),
-          // A segment, a run id or any output under the send's operation is admission evidence.
-          db.prepare(
-            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096) AND (json_extract(frame,'$.data.commandId')=? OR json_extract(frame,'$.data.operationId')=?) AND json_extract(frame,'$.data.kind') NOT IN ('send','admission','error','cancel','host-exit','host-output','snapshot','run') LIMIT 1",
           ),
           db.prepare(
             "SELECT value FROM engine_state_records WHERE thread_id=? AND section='cursorAttempt' AND key='latest'",
@@ -114,9 +97,10 @@ export class ProviderRecovery {
           db.prepare(
             "SELECT value FROM engine_state_records WHERE thread_id=? AND section='cursorRetired' AND key='root'",
           ),
-          // Newest first, bounded: where an earlier build's open turn and session start.
+          // Newest first, bounded (one past the window, to tell whether older frames exist):
+          // where an earlier build's open turn and session start, and what its send's record is.
           db.prepare(
-            "SELECT rowid, json_extract(frame,'$.data.kind') AS kind FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096",
+            `SELECT rowid, json_extract(frame,'$.data.kind') AS kind, json_extract(frame,'$.data.operationId') AS operationId, json_extract(frame,'$.data.commandId') AS commandId, json_extract(frame,'$.data.body.admitted') AS admitted, json_extract(frame,'$.data.body.commandId') AS admittedCommand FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT ${legacyWindow + 1}`,
           ),
           // Threads whose settled frames are still waiting to be deleted, a few at a time.
           db.prepare(
@@ -126,9 +110,6 @@ export class ProviderRecovery {
             "INSERT INTO engine_state_records VALUES (?,'cursorRetired','root',?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
           ),
         ] satisfies [
-          StatementSync,
-          StatementSync,
-          StatementSync,
           StatementSync,
           StatementSync,
           StatementSync,
@@ -153,8 +134,7 @@ export class ProviderRecovery {
     const unsettled = new UnsettledRuns();
     // An earlier build's thread has no records yet: its first reopen finds where its open turn
     // starts among the newest frames, and from then on it is this build's (`migrate`).
-    const migrating = this.legacy(threadId, this.record(threadId));
-    if (migrating) this.migrate(threadId);
+    if (this.legacy(threadId, this.record(threadId))) this.migrate(threadId);
     // The latest session's open frame, read by its row when the open turn began after it, then
     // the open turn's frames: frames of settled turns still waiting to be deleted are not read.
     const { below = 0, open } = this.frames(threadId);
@@ -175,8 +155,6 @@ export class ProviderRecovery {
         const frame: Frame = { ...parsed, data: payload.data, payload };
         const facts = translator.translate(frame, parsed.t);
         unsettled.add(frame.data);
-        // The attempt record an earlier build never kept, rebuilt from the same frames.
-        if (migrating) this.note(threadId, frame.data);
         // A previous host's emergency fence is historical, not a translator overflow.
         // Opening the replacement host still verifies its journal, quota, ownership
         // and native run state before any new send can reach the pinned checkpoint.
@@ -211,28 +189,39 @@ export class ProviderRecovery {
   }
   /**
    * The records of an earlier build's thread, from its newest frames only (bounded): its open
-   * turn starts at its latest send, and its session's open frame is the latest before that.
-   * With no send among them, the oldest of them marks the start.
+   * turn starts at its latest send, and its session's open frame is the latest before that. Its
+   * attempt record is rebuilt from the same rows and written with the boundary, in one
+   * transaction, so a crash never leaves the boundary without the record. With no send among
+   * them but older frames past them, a send can't be ruled out: the record says so, and any
+   * send in doubt is then held as attempted, never sent again (`older`).
    */
   private migrate(threadId: ThreadId): void {
-    const recent = this.store.atomic(() => this.recentKinds.all(threadId));
-    let below: number | undefined;
-    let open: number | undefined;
-    for (const row of recent) {
-      const rowid = Number(row.rowid);
-      if (below === undefined && row.kind === "send") below = rowid;
-      else if (below !== undefined && row.kind === "open") {
-        open = rowid;
-        break;
-      }
-    }
-    const last = recent.at(-1);
-    if (below === undefined && last) below = Number(last.rowid);
-    if (below === undefined) return;
-    this.writeFramesRecord.run(
-      threadId,
-      JSON.stringify({ below, ...(open === undefined ? {} : { open }), trimmed: false }),
-    );
+    this.store.atomic(() => {
+      const rows = this.recentKinds.all(threadId);
+      const older = rows.length > legacyWindow;
+      const recent = rows.slice(0, legacyWindow);
+      const sent = recent.findIndex((row) => row.kind === "send");
+      const opened = recent.findIndex((row, index) => index > sent && row.kind === "open");
+      const start = sent >= 0 ? sent : recent.length - 1;
+      let record: AttemptRecord | undefined = older && sent < 0 ? olderRecord : undefined;
+      for (const row of recent.slice(0, sent + 1).reverse())
+        record = noteAttempt(record, {
+          kind: row.kind,
+          operationId: row.operationId,
+          ...(row.commandId ? { commandId: row.commandId } : {}),
+          body: { admitted: row.admitted === 1, commandId: row.admittedCommand ?? undefined },
+        });
+      const first = recent[start];
+      if (!first) return;
+      const below = Number(first.rowid);
+      const openRow = sent >= 0 ? recent[opened] : undefined;
+      const open = openRow ? Number(openRow.rowid) : undefined;
+      if (record) this.writeRecord.run(threadId, JSON.stringify(record));
+      this.writeFramesRecord.run(
+        threadId,
+        JSON.stringify({ below, ...(open === undefined ? {} : { open }), trimmed: false }),
+      );
+    });
   }
   /** Sends of retired sessions, with their delivery evidence (see `reset`). */
   private retired(threadId: ThreadId): AttemptRecord[] {
@@ -255,48 +244,37 @@ export class ProviderRecovery {
    * input never reached Cursor and is delivered again.
    */
   attempted(threadId: ThreadId, commandId: string): boolean {
-    const record = this.record(threadId);
+    const record = this.current(threadId);
     if (record?.commandId === commandId) return true;
     if (this.retired(threadId).some((kept) => kept.commandId === commandId)) return true;
-    if (!this.legacy(threadId, record)) return false;
-    return this.store.atomic(
-      () => this.readAttempt.get(threadId, threadId, commandId) !== undefined,
-    );
+    // An earlier build's send past the frames it kept can't be ruled out.
+    return record?.older === true;
   }
   /**
    * The newest admission a reopened Cursor host read back from its store, if any: whether Cursor
    * ever had the send the daemon saw attempted (ADR 0043, amendment of 2026-11-22).
    */
   lastAdmission(threadId: ThreadId): { commandId?: string; admitted: boolean } | undefined {
-    const record = this.record(threadId);
-    if (record) {
-      return record.admitted === undefined
-        ? undefined
-        : { commandId: record.commandId, admitted: record.admitted };
-    }
-    if (!this.legacy(threadId, record)) return undefined;
-    const row = this.store.atomic(() => this.readAdmission.get(threadId, threadId));
-    if (!row) return undefined;
-    const frame = CapturedFrame.safeParse(JSON.parse(z.string().parse(row.frame)));
-    const body = Admission.safeParse(frame.success ? frame.data.data : undefined);
-    return body.success
-      ? {
-          admitted: body.data.body.admitted,
-          ...(body.data.body.commandId ? { commandId: body.data.body.commandId } : {}),
-        }
-      : undefined;
+    const record = this.current(threadId);
+    return record?.admitted === undefined
+      ? undefined
+      : { commandId: record.commandId, admitted: record.admitted };
   }
   /** True when anything of `commandId`'s send beyond the attempt itself was recorded. */
   admissionRecorded(threadId: ThreadId, commandId: string): boolean {
-    const record = this.record(threadId);
+    const record = this.current(threadId);
     if (record?.commandId === commandId) return record.evidence;
-    const kept = this.retired(threadId).find((retired) => retired.commandId === commandId);
     // A retired session's send: only it could have had it, and it is gone. Never re-sent.
-    if (kept) return true;
-    if (!this.legacy(threadId, record)) return false;
-    return this.store.atomic(
-      () => this.readOutput.get(threadId, threadId, commandId, commandId) !== undefined,
-    );
+    if (this.retired(threadId).some((kept) => kept.commandId === commandId)) return true;
+    // Nor is an earlier build's send whose frames are past the newest it kept.
+    return record?.older === true;
+  }
+  /** The attempt record, an earlier build's thread's first rebuilt from its newest frames. */
+  private current(threadId: ThreadId): AttemptRecord | undefined {
+    const record = this.record(threadId);
+    if (!this.legacy(threadId, record)) return record;
+    this.migrate(threadId);
+    return this.record(threadId);
   }
   /**
    * Forgets a session's frames (and an earlier build's boundary cursor): the thread's next

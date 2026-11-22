@@ -350,6 +350,10 @@ checkpoint directory walk before every send and a full journal read on every ope
 7. **Old journals.** A checkpoint folder from an earlier build may hold `ace-boundary.ndjson`,
    torn or not. It is never read, never fences the thread and is left in place, so a downgrade
    or a diagnosis can still find it.
+8. **Earlier builds' frames.** A thread an earlier build left has none of the daemon's attempt
+   or boundary records. They are rebuilt from its newest 4,096 frames, both in one transaction,
+   the first time anything asks. When those frames hold no send but older frames lie past them,
+   a send can't be ruled out: any send in doubt is held as attempted, never sent again.
 
 ### Risks
 

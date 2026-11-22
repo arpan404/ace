@@ -146,6 +146,11 @@ export interface AttemptRecord {
   evidence: boolean;
   /** What a reopened host read back from Cursor's store about it, if it did. */
   admitted?: boolean;
+  /**
+   * Rebuilt for an earlier build's thread whose newest frames held no send, with older frames
+   * past them: a send of its can't be ruled out, so none is ever taken as unattempted.
+   */
+  older?: boolean;
 }
 const AttemptFrame = z.object({
   kind: z.string(),
