@@ -43,11 +43,11 @@ test("each bubble offers its exact time and Copy, and Copy takes the words witho
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     const garden = spade.addAgent({ id: "garden", name: "Garden" });
-    spade.reply(garden, "## Garlic\n- Plant in **October**");
+    spade.reply(garden, "**Garlic**\n- Plant in **October**");
   });
   const chat = within(await feed("Garden"));
-  // The marks never show: the heading and bold read as what they mean.
-  expect((await chat.findByRole("heading", { name: "Garlic" })).textContent).toBe("Garlic");
+  // The marks never show: bold reads as what it means. (A heading makes a document card.)
+  expect((await chat.findByText("Garlic")).tagName).toBe("STRONG");
   expect(chat.queryByText(/\*\*|##/)).toBeNull();
   const run = chat.getByRole("article", { name: "Garden" });
   expect(within(run).getByText(/^Today \d{1,2}:\d{2}/)).toBeTruthy();
@@ -83,12 +83,12 @@ test("a reply still arriving reads as formatted text, nested lists nested", asyn
     spade.store(garden.conversation, {
       type: "reply_progress",
       reply: "r1",
-      text: "## Plan\n\n1. Dig the **east** bed\n   - compost first\n2. Sow",
+      text: "The plan:\n\n1. Dig the **east** bed\n   - compost first\n2. Sow",
     });
   });
   const chat = within(await feed("Garden"));
-  expect((await chat.findByRole("heading", { name: "Plan" })).textContent).toBe("Plan");
-  expect(chat.queryByText(/\*\*|##/)).toBeNull();
+  expect((await chat.findByText("east")).tagName).toBe("STRONG");
+  expect(chat.queryByText(/\*\*/)).toBeNull();
   // The sub-item sits inside its item, not after the list.
   const sub = chat.getByText("compost first").closest("li");
   expect(sub?.parentElement?.closest("li")?.textContent).toMatch(/^Dig the east bed/);
