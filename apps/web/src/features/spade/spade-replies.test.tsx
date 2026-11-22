@@ -72,9 +72,12 @@ test("Reply on a bot's message shows it above the composer, and the sent message
     spade.reply(bot, "<msg>Tuesday or Wednesday?</msg>");
   });
   const chat = within(await feed("Garden"));
-  const asked = await chat.findByText("Tuesday or Wednesday?");
-  const frame = asked.closest("[data-spade-message]");
-  if (!(frame instanceof HTMLElement)) throw new Error("expected the message's frame");
+  // The words show at once; their frame carries the message's id once it is stored.
+  const frame = await waitFor(() => {
+    const found = chat.getByText("Tuesday or Wednesday?").closest("[data-spade-message]");
+    if (!(found instanceof HTMLElement)) throw new Error("expected the message's frame");
+    return found;
+  });
   await userEvent.click(within(frame).getByRole("button", { name: "Reply" }));
   expect(await screen.findByRole("status", { name: "Replying to Garden" })).toBeTruthy();
   await userEvent.type(screen.getByRole("combobox", { name: "Message Garden" }), "Tuesday{Enter}");
