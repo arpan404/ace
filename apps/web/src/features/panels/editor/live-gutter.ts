@@ -40,7 +40,16 @@ export interface GutterState {
   /** Lines agents wrote, in the text's 0-based lines. */
   agent: readonly AgentBlock[];
   /** What the hunks were worked out on: a hunk acts only while all of it still holds. */
-  basis?: { doc: EditorDocument; version: number; head: string; generation: string } | undefined;
+  basis?:
+    | {
+        doc: EditorDocument;
+        version: number;
+        head: string;
+        generation: string;
+        /** The commit `head` is the text of, when the caller named it (blame maps through it). */
+        commit: string | undefined;
+      }
+    | undefined;
 }
 
 export interface LiveGutterDeps {
@@ -110,6 +119,8 @@ export class LiveGutter {
   #head: string | undefined;
   /** Which read of git's diff the committed text came from (the commit and the disk version). */
   #generation = "";
+  /** The commit the committed text is of, when the caller named it. */
+  #commit: string | undefined;
   /** That read is the one for the text on disk now: until it is, Revert does nothing. */
   #settled = true;
   #state: GutterState = empty;
@@ -151,10 +162,17 @@ export class LiveGutter {
    * The committed text, as git's diff of the file rebuilds it, from the read `generation` names
    * (the commit and the disk version it was read for); undefined for none known.
    */
-  setHead(head: string | undefined, generation = ""): void {
-    if (head === this.#head && generation === this.#generation && this.#settled) return;
+  setHead(head: string | undefined, generation = "", commit?: string): void {
+    if (
+      head === this.#head &&
+      generation === this.#generation &&
+      commit === this.#commit &&
+      this.#settled
+    )
+      return;
     this.#head = head;
     this.#generation = generation;
+    this.#commit = commit;
     this.#settled = true;
     this.edited();
   }
@@ -388,6 +406,8 @@ export class LiveGutter {
     const text = doc.text();
     this.#recall(doc, text);
     const head = this.#head ?? this.#buffer.baseText();
+    const generation = this.#generation;
+    const commit = this.#commit;
     const layers = this.#layers;
     const [changes, ...moved] = await Promise.all([
       head === undefined ? [] : this.#deps.diff.lineChanges(text, head),
@@ -405,6 +425,14 @@ export class LiveGutter {
     // The text moved while the diff ran: the next pause works the hunks out again.
     if (this.#buffer.document() !== doc || doc.version() !== version)
       return this.#publish({ ...this.#state, agent: this.#shown });
+    // The committed text moved (a new commit, a new read): these hunks are of the old one and
+    // are never published under the new one's name; its own recompute is already queued.
+    if (
+      this.#generation !== generation ||
+      this.#commit !== commit ||
+      (this.#head ?? this.#buffer.baseText()) !== head
+    )
+      return this.#publish({ ...this.#state, agent: this.#shown });
     // Kept on the device only for the text the lines were worked out on.
     this.#remember();
     const hunks = hunksFromChanges(changes, (line) => doc.line(line), doc.lenLines());
@@ -413,7 +441,7 @@ export class LiveGutter {
       hunks,
       marks: marks.size ? marks : undefined,
       agent: this.#shown,
-      basis: head === undefined ? undefined : { doc, version, head, generation: this.#generation },
+      basis: head === undefined ? undefined : { doc, version, head, generation, commit },
     });
   }
 

@@ -83,7 +83,7 @@ export function useChangeGutter(input: {
     // A patch with a hunk cut short gives nothing.
     const head = patch ? committedFromPatch(base, patch) : base;
     if (head === undefined) return gutter.unsettle();
-    gutter.setHead(head, `${commit ?? ""}\u0000${version}`);
+    gutter.setHead(head, `${commit ?? ""}\u0000${version}`, commit);
   }, [buffer, gutter, version, patch, settled, truncated, commit]);
 
   const agentMarks = useMemo(

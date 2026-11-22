@@ -109,6 +109,7 @@ function fakeGutter(doc: { version(): number }) {
       lines: readonly string[],
       changes: readonly WholeLineChange[],
       agent: AgentBlock[] = [],
+      commit: string = headSha,
     ) {
       state = {
         hunks: hunksFromChanges(changes, (line) => lines[line] ?? "", lines.length),
@@ -119,6 +120,7 @@ function fakeGutter(doc: { version(): number }) {
           version: doc.version(),
           head: "",
           generation: "",
+          commit,
         },
       };
       for (const listener of listeners) listener();
@@ -344,10 +346,18 @@ describe("Inline git blame", () => {
         />
       </ClientProvider>
     );
+    gutter.settle(["line"], [], [], headSha);
     const view = render(probe(headSha));
     expect(await screen.findByRole("button", { name: "Sam, 3 days ago · Before" })).toBeTruthy();
 
+    // HEAD moved, but the gutter's hunks are still against the old commit: nothing is said.
     view.rerender(probe(nextHeadSha));
+    await waitFor(() =>
+      expect(blameRequests().some((request) => request.commit === nextHeadSha)).toBe(false),
+    );
+    expect(screen.getByTestId("caret-line").textContent).toBe("");
+
+    act(() => gutter.settle(["line"], [], [], nextHeadSha));
     const after = await screen.findByRole("button", { name: "Kai, 3 days ago · After" });
     expect(blameRequests().at(-1)).toEqual(
       expect.objectContaining({ commit: nextHeadSha, startLine: 1, endLine: 120 }),

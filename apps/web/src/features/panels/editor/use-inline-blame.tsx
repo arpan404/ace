@@ -142,17 +142,26 @@ const inertStatusStore: StatusStore = {
 };
 
 /**
- * The gutter's state while its hunks were worked out on the buffer's text as it is now; undefined
- * while typing has moved past them (the lines can't be mapped to the commit then).
+ * The gutter's state while its hunks were worked out on the buffer's text as it is now and
+ * against `commit`; undefined while typing has moved past them or they are of another commit
+ * (the lines can't be mapped to the blamed commit then, and nothing is said).
  */
-function currentGutter(gutter: BlameGutter, buffer: TextBuffer): GutterState | undefined {
+function currentGutter(
+  gutter: BlameGutter,
+  buffer: TextBuffer,
+  commit: string | undefined,
+): GutterState | undefined {
   const state = gutter.state();
   const basis = state.basis;
   // No committed text to compare with yet (an untracked file, or a read still out): lines map
   // to themselves only while the text is what is on disk.
   if (!basis) return state.hunks.length === 0 && !buffer.snapshot().dirty ? state : undefined;
   const doc = buffer.document();
-  return doc !== undefined && basis.doc === doc && basis.version === doc.version()
+  // Hunks against another commit than the one blamed would map lines to the wrong file.
+  return doc !== undefined &&
+    basis.doc === doc &&
+    basis.version === doc.version() &&
+    basis.commit === commit
     ? state
     : undefined;
 }
@@ -198,7 +207,7 @@ export function useInlineBlame(input: {
     },
     [gutter, buffer],
   );
-  const view = useSyncExternalStore(subscribeView, () => currentGutter(gutter, buffer));
+  const view = useSyncExternalStore(subscribeView, () => currentGutter(gutter, buffer, commit));
   const report = useStatusReport(statusStore ?? inertStatusStore, group);
   const caretLine = report?.status.line;
 

@@ -422,3 +422,38 @@ test("a Keep the text moved under before it ran retires nothing, never the wrong
   // Line 3 now is "agent b": it is not retired; nothing is, and every agent line moved down one.
   expect(agentLines(gutter)).toEqual([2, 3, 4]);
 });
+
+test("hunks worked out against the old commit are never published as the new commit's", async () => {
+  const { buffer, time } = await opened("one\nTWO\nthree\nfour\n");
+  const held: (() => void)[] = [];
+  const gutter = new LiveGutter(buffer, {
+    diff: {
+      lineChanges: (before, after) =>
+        new Promise((resolve) => held.push(() => resolve(lineChanges(before, after)))),
+    },
+    schedule: time.schedule,
+    now: time.now,
+    who: () => claude,
+    delay: 150,
+  });
+  const oldCommit = "a".repeat(40);
+  const newCommit = "b".repeat(40);
+  gutter.setHead(committed, "c1", oldCommit);
+  await time.advance(200);
+  // HEAD moves while the diff against the old commit is still out.
+  gutter.setHead("one\nTWO\nthree\nfour\n", "c2", newCommit);
+  for (const release of held.splice(0)) release();
+  await settle();
+  const late = gutter.state();
+  expect(late.basis?.commit === newCommit && late.hunks.length > 0).toBe(false);
+
+  // The new commit's own diff lands: its hunks say so (the text is as committed now).
+  await time.advance(200);
+  for (let round = 0; round < 3; round++) {
+    for (const release of held.splice(0)) release();
+    await settle();
+  }
+  expect(gutter.state().basis?.commit).toBe(newCommit);
+  expect(gutter.state().hunks).toEqual([]);
+  gutter.dispose();
+});
