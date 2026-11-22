@@ -165,7 +165,7 @@ struct SpadeMicButton: View {
 struct SpadeVoicePlay: View {
     let voice: SpadeModel.Voice
     /// The recording's bytes; nil when it couldn't be read.
-    let read: (String) async -> Data?
+    let read: @MainActor (String) async -> Data?
     var onAccent = false
     @Environment(\.spadeVoicePlayback) private var playback
 

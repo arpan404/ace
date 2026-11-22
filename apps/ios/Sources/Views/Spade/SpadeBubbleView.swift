@@ -19,7 +19,7 @@ struct SpadeBubbleView: View {
     /// What a card's inputs hold, by call, kept beyond the card's view.
     var drafts: (String) -> Binding<[SpadeQuestionCard.Draft]> = { _ in .constant([]) }
     /// A voice message's recording, by its hash; nil when it couldn't be read.
-    var audio: (String) async -> Data? = { _ in nil }
+    var audio: @MainActor (String) async -> Data? = { _ in nil }
 
     var body: some View {
         switch bubble {
