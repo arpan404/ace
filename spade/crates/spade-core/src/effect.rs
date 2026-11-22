@@ -675,7 +675,13 @@ fn undeclared(call: Call<'_>) -> Route {
         if call.granted == Granted::Tool && call.remembered.is_none() {
             return review(call, Some(GRANTED_TAINTED));
         }
-        return Route::ask(UNDECLARED_TAINTED);
+        // A connected app's tool its name doesn't make a read may change something there: the
+        // person is told that, not that it says nothing.
+        return Route::ask(if call.connected {
+            APP_WRITE_TAINTED
+        } else {
+            UNDECLARED_TAINTED
+        });
     }
     if call.remembered == Some(true) || call.granted == Granted::Tool {
         return Route::Run;
@@ -850,6 +856,8 @@ pub const UNDECLARED_REVIEW: &str = "It doesn't declare what it does. Judge it f
      tell.";
 pub const UNDECLARED_TAINTED: &str =
     "It doesn't say what it does and untrusted content is in view, so you decide.";
+pub const APP_WRITE_TAINTED: &str =
+    "It may change something in the app, and the bot has read untrusted content, so you decide.";
 pub const DESTRUCTIVE: &str = "It may delete or overwrite something, so you decide each time.";
 pub const DRIVES: &str = "It acts in a page or app as you, so you decide.";
 pub const UNKNOWN: &str = "It declares something Spade doesn't know yet, so you decide.";

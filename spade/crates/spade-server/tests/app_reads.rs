@@ -168,7 +168,7 @@ async fn an_unannotated_apps_reads_run_freely_and_its_writes_follow_the_reviewer
         assert!(
             request["reviewer_reason"]
                 .as_str()
-                .is_some_and(|line| line.contains("untrusted content is in view")),
+                .is_some_and(|line| line.contains("may change something in the app")),
             "{request}"
         );
         // Each offers the Always allow for the app's writes.

@@ -182,7 +182,7 @@ fn with_untrusted_content_in_view_an_apps_writes_stay_with_the_person() {
             };
             assert_eq!(
                 route(call),
-                Route::ask(UNDECLARED_TAINTED),
+                Route::ask(APP_WRITE_TAINTED),
                 "{remembered:?} {mode:?}"
             );
         }
