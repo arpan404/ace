@@ -335,7 +335,7 @@ export class GitService {
   push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);
   }
-  /** Fetch updates from a remote with pruning. */
+  /** Fetch a remote's branches into remote-tracking refs only; never a local branch. */
   fetch(options: {
     worktree: string;
     remote?: string | undefined;

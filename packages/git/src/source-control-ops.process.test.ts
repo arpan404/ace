@@ -171,6 +171,66 @@ describe("source control git operations", () => {
     }
   });
 
+  it("stages names that only look unusual, and refuses real traversal and absolute paths", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await mkdir(join(repo, "dir"), { recursive: true });
+      await writeFile(join(repo, "..notes"), "notes\n");
+      await writeFile(join(repo, "dir", "..config"), "config\n");
+      await writeFile(join(repo, "dir", "a..b.txt"), "dots\n");
+      // A name that reads like pathspec magic is only ever that file.
+      await writeFile(join(repo, ":(glob)*.txt"), "literal\n");
+      await writeFile(join(repo, "other.txt"), "other\n");
+      await git.stage({
+        worktree: repo,
+        paths: ["..notes", "dir/..config", "dir/a..b.txt", ":(glob)*.txt"],
+      });
+      expect(runGit(repo, ["diff", "--cached", "--name-only"]).split("\n").toSorted()).toEqual(
+        ["..notes", ":(glob)*.txt", "dir/..config", "dir/a..b.txt"].toSorted(),
+      );
+      for (const path of ["..", "../outside.txt", "dir/../../outside.txt", "dir/..", "/etc/passwd"])
+        await expectGitError(git.stage({ worktree: repo, paths: [path] }), "path_outside_repo");
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("fetch only ever writes remote-tracking refs, whatever refspec the config names", async () => {
+    const { local, peer } = await createRepoWithRemote();
+    const git = new GitService({ transportProtocols: ["file"] });
+    try {
+      // A hostile config that would make a plain `git fetch` overwrite local branches.
+      runGit(local, [
+        "config",
+        "--replace-all",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/heads/*",
+      ]);
+      await writeFile(join(local, "mine.txt"), "mine\n");
+      runGit(local, ["add", "mine.txt"]);
+      runGit(local, ["commit", "-m", "local work"]);
+      const mine = runGit(local, ["rev-parse", "refs/heads/main"]);
+      await writeFile(join(peer, "theirs.txt"), "theirs\n");
+      runGit(peer, ["add", "theirs.txt"]);
+      runGit(peer, ["commit", "-m", "remote work"]);
+      runGit(peer, ["push", "-q", "origin", "main"]);
+      runGit(peer, ["push", "-q", "origin", "main:evil"]);
+      const theirs = runGit(peer, ["rev-parse", "HEAD"]);
+      runGit(local, ["switch", "-q", "--detach"]);
+
+      await git.fetch({ worktree: local });
+      expect(runGit(local, ["rev-parse", "refs/heads/main"])).toBe(mine);
+      expect(runGit(local, ["for-each-ref", "--format=%(refname)", "refs/heads"])).toBe(
+        "refs/heads/main",
+      );
+      expect(runGit(local, ["rev-parse", "refs/remotes/origin/main"])).toBe(theirs);
+      expect(runGit(local, ["rev-parse", "refs/remotes/origin/evil"])).toBe(theirs);
+    } finally {
+      await git.close();
+    }
+  });
+
   it("fetch updates ahead and behind without touching the checkout", async () => {
     const { local, peer } = await createRepoWithRemote();
     const git = new GitService({ transportProtocols: ["file"] });

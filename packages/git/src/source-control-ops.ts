@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { longWriteTimeoutMs } from "./deadlines.ts";
 import { GitDiagnostics } from "./diagnostics.ts";
@@ -21,8 +21,9 @@ const remoteName = z
   .refine((value) => !value.startsWith("-"));
 
 /**
- * Validate repository-relative paths so none escape `root`, target `.git`, or pass empty/NUL
- * pathspecs to Git. Pure: operates on strings and `path.resolve`/`relative`.
+ * Validate repository-relative paths so none escape `root` (a whole `..` segment, an absolute
+ * path), target `.git`, or pass empty/NUL pathspecs to Git. A name like `..notes` is a file.
+ * Pathspec magic can't arise: every path reaches Git literally. Pure: operates on strings and `path.resolve`/`relative`.
  */
 export function validateRepoPaths(root: string, paths: readonly string[]): string[] {
   if (paths.length === 0 || paths.length > maxPaths)
@@ -33,7 +34,9 @@ export function validateRepoPaths(root: string, paths: readonly string[]): strin
   for (const raw of paths) {
     if (!raw || raw.length > 4096 || raw.includes("\0"))
       throw new GitError("path_outside_repo", "Path is invalid or contains NUL bytes");
-    if (raw.startsWith("/") || raw.startsWith("\\") || /^[a-zA-Z]:/.test(raw) || isAbsolute(raw)) {
+    // A drive letter only means a root on Windows; elsewhere `c:notes` is a file name.
+    const driveRoot = sep === "\\" && /^[a-zA-Z]:/.test(raw);
+    if (raw.startsWith("/") || raw.startsWith("\\") || driveRoot || isAbsolute(raw)) {
       throw new GitError("path_outside_repo", "Absolute paths are not allowed");
     }
     const segments = raw.split(/[/\\]/);
@@ -47,7 +50,8 @@ export function validateRepoPaths(root: string, paths: readonly string[]): strin
     }
     const target = resolve(root, raw);
     const rel = relative(root, target);
-    if (!rel || rel === "." || rel.startsWith("..") || isAbsolute(rel))
+    // `..` as a whole segment climbs out; `..notes` is a file name.
+    if (!rel || rel === "." || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
       throw new GitError("path_outside_repo", "Path escapes the repository root");
     totalBytes += Buffer.byteLength(raw) + 1;
     if (totalBytes > maxPathBytes)
@@ -164,7 +168,10 @@ async function resolveRemote(
   throw new GitError("no_upstream", failureMessage("no_upstream"));
 }
 
-/** Fetch updates from a remote (default: branch's upstream remote or origin) with pruning. */
+/**
+ * Fetch a remote's branches into `refs/remotes/<remote>/*` (default remote: the branch's own, or
+ * origin). It can never write a local branch, a tag or FETCH_HEAD, and prunes nothing.
+ */
 export async function fetchRemote(
   repository: Repository,
   options: { worktree: string; remote?: string | undefined; timeoutMs?: number | undefined },
@@ -177,11 +184,17 @@ export async function fetchRemote(
     root,
     [
       "fetch",
-      "--prune",
+      // Only remote-tracking refs: the configured refspecs (which may name `refs/heads/*`) never
+      // apply, not even for the opportunistic update an empty `--refmap=` turns off.
+      "--refmap=",
+      "--no-tags",
+      "--no-prune",
+      "--no-write-fetch-head",
       "--no-recurse-submodules",
       "--no-auto-maintenance",
       "--end-of-options",
       remote,
+      `+refs/heads/*:refs/remotes/${remote}/*`,
     ],
     {
       write: true,
