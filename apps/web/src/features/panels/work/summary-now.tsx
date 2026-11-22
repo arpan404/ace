@@ -1,6 +1,8 @@
 import type { LinkedPullRequest, Thread, TurnSummary } from "@ace/protocol";
 import {
   forestNow,
+  forestRequests,
+  pluralCount,
   mainAgentError,
   optionEffort,
   providerNames,
@@ -62,7 +64,7 @@ export function SummaryNow(props: {
   // What works now and for how long is the copy's fact: while it isn't current the line says only
   // that ("Syncing…"), with no request to open.
   const { live } = useThreadFreshness(props.threadId);
-  const line = summaryNow(live, {
+  const said = summaryNow(live, {
     status: props.thread.status,
     // The whole tree, not just the thread's own status: never done while any branch is live.
     ...forestNow(props.forest),
@@ -76,6 +78,14 @@ export function SummaryNow(props: {
     asker: asker && { name: identity.name, root: asker.root, request: asker.request },
     error: mainAgentError(props.forest),
   });
+  // An approval is asked once, in the composer's strip: the Summary only counts what waits.
+  const line =
+    asker?.request?.kind === "approval"
+      ? {
+          ...said,
+          sub: `${pluralCount(forestRequests(props.works).size || 1, "request")} waiting on you`,
+        }
+      : said;
   const tone = line.tone === "plain" ? undefined : line.tone;
   const target = live.current ? asker?.open : undefined;
   const open = target ? () => openSubagent(target) : undefined;

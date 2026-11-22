@@ -73,6 +73,7 @@ export * from "./browser-annotation-parse.ts";
 export * from "./code-annotation.ts";
 export * from "./content-hash.ts";
 export * from "./counts.ts";
+export * from "./short-forge-links.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
 export { diffBytes } from "./diff-weight.ts";
