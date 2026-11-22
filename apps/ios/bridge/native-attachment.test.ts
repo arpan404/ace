@@ -284,3 +284,27 @@ test("a preview the machine is too busy for is never swapped for the whole origi
     read(owner, { threadId: "busy", itemId, ref: fixtureImage.sha256, variant: "thumbnail" }),
   ).rejects.toThrow();
 });
+
+test("a HEIC preview the machine is too busy for is never swapped for the whole original", async () => {
+  const bytes = "\0\0\0\x18ftypheic\0\0\0\0mif1heic the rest";
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const heic: Attachment = {
+    sha256: sha,
+    bytes: Buffer.byteLength(bytes),
+    mimeType: "image/heic",
+    name: "Photo.heic",
+    kind: "binary",
+    thumbnailAvailable: true,
+  };
+  const fake = sentFromWeb("busy-heic", [{ type: "text", text: "Look" }], [heic], "busy");
+  fake.seedServices({
+    previewRefusal: "busy",
+    attachmentTexts: [
+      { threadId: "busy-heic", sha256: sha, text: bytes, name: heic.name, mimeType: "image/heic" },
+    ],
+  });
+  const { owner, itemId } = await personsRow(fake, "busy-heic");
+  await expect(
+    read(owner, { threadId: "busy-heic", itemId, ref: sha, variant: "thumbnail" }),
+  ).rejects.toThrow();
+});

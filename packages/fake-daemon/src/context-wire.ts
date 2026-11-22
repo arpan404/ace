@@ -257,9 +257,9 @@ export class FakeContextWire {
         const attachment = this.references(op.threadId).get(op.sha256),
           bytes = this.blobs.get(op.sha256);
         if (!attachment || !bytes) throw new Error("not_found");
+        if (op.variant === "thumbnail" && this.previewRefusal) throw new Error(this.previewRefusal);
         if (op.variant === "thumbnail" && !attachment.thumbnailAvailable)
           throw new Error("unsupported");
-        if (op.variant === "thumbnail" && this.previewRefusal) throw new Error(this.previewRefusal);
         if (op.offset > bytes.length) throw new Error("offset");
         const chunk = bytes.subarray(op.offset, op.offset + op.limit);
         result = {

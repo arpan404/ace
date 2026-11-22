@@ -118,10 +118,14 @@ async function readStored(
       { signal },
     );
   const original = () => read("original", thumbnail ? heicOriginalLimit : originalLimit);
+  // The daemon refused the preview outright (no decoder for it). A busy, offline or aborted
+  // read never turns into a read of the whole original: the tile tries the preview again.
+  const refused = (error: unknown) =>
+    error instanceof ClientError && error.code === "daemon" && !signal.aborted;
   const fetch = () =>
     thumbnail && attachment.thumbnailAvailable
       ? read("thumbnail", undefined).catch((error: unknown) => {
-          if (!standIn || signal.aborted) throw error;
+          if (!standIn || !refused(error)) throw error;
           return original();
         })
       : original();
@@ -134,9 +138,7 @@ async function readStored(
   const result = await budgeted(most, fetch).catch(async (error: unknown) => {
     // The daemon refused a preview it advertised (no decoder): a small picture is drawn from its
     // original instead. Busy, offline or aborted reads are the caller's to try again.
-    const refused = error instanceof ClientError && error.code === "daemon";
-    if (!thumbnail || standIn || !refused || signal.aborted || !originalDrawsIn(attachment))
-      throw error;
+    if (!thumbnail || standIn || !refused(error) || !originalDrawsIn(attachment)) throw error;
     return budgeted(Math.ceil((attachment.bytes * 4) / 3), original);
   });
   // Only bytes that begin as a picture are ever handed to the phone's decoder.
