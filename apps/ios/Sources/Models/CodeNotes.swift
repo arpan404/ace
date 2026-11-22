@@ -11,6 +11,10 @@ struct CodeNote: Codable, Equatable, Sendable, Identifiable {
     var comment: String
     /// The code it pointed at changed or was deleted since it was made.
     var outdated = false
+    /// A diff read since couldn't tell where its code is now (its lines weren't shown and its
+    /// code wasn't on any that were): the agent is told it may have moved, as for an outdated
+    /// note, until the editor or a later diff finds it again.
+    var unverified = false
     /// The checkout it was made in (machine and checkout root), so a rename in that checkout
     /// moves it and one in another checkout never does; nil when the root wasn't known yet.
     var checkout: String? = nil
@@ -29,6 +33,10 @@ struct CodeNote: Codable, Equatable, Sendable, Identifiable {
 struct CodeNotes: Equatable, Sendable {
     /// At most this many in one message (`codeAnnotationLimit` in `@ace/ui-core`).
     static let limit = 20
+    /// A note's words, in UTF-16 units (`codeCommentLimit` in `@ace/ui-core`): the bridge drops a
+    /// longer note whole.
+    static let commentLimit = 4000
+    static func fits(_ comment: String) -> Bool { comment.utf16.count <= commentLimit }
     /// Threads holding notes at once, as the phone keeps composer drafts (`ThreadDrafts.limit`):
     /// a note on a fifty-first thread lets the least recently noted thread's notes go.
     static let threadLimit = 50
@@ -120,11 +128,13 @@ struct CodeNotes: Equatable, Sendable {
     mutating func reloaded(_ thread: String, path: String, before: [String]?, after: [String]) {
         update(thread) { note in
             guard note.path == path, !note.outdated else { return }
-            let anchored = before.map {
+            // An unverified note's place may not be the editor's old text's: it is looked for whole.
+            let anchored = (note.unverified ? nil : before).map {
                 AnnotationAnchor.reanchor(note.span, excerpt: note.excerpt, cut: note.cut, before: $0, after: after)
             } ?? AnnotationAnchor.verify(note.span, excerpt: note.excerpt, cut: note.cut, lines: after)
             note.span = anchored.span
             note.outdated = anchored.outdated
+            note.unverified = false
         }
     }
 
@@ -154,7 +164,7 @@ struct CodeNotes: Equatable, Sendable {
                 "excerpt": note.excerpt, "comment": note.comment,
             ]
             if note.cut { record["cut"] = true }
-            if note.outdated { record["outdated"] = true }
+            if note.outdated || note.unverified { record["outdated"] = true }
             return record
         }
     }
@@ -190,5 +200,23 @@ extension CodeNotes: Codable {
         var container = encoder.container(keyedBy: Keys.self)
         try container.encode(1, forKey: .v)
         try container.encode(recent.compactMap { thread in threads[thread].map { Kept(thread: thread, notes: $0) } }, forKey: .threads)
+    }
+}
+
+extension CodeNote {
+    private enum Keys: String, CodingKey { case id, path, span, excerpt, cut, comment, outdated, unverified, checkout }
+
+    /// Kept notes read leniently: a field a later build added is absent from an earlier one's.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        id = try container.decode(String.self, forKey: .id)
+        path = try container.decode(String.self, forKey: .path)
+        span = try container.decode(TextSpan.self, forKey: .span)
+        excerpt = try container.decode(String.self, forKey: .excerpt)
+        cut = try container.decodeIfPresent(Bool.self, forKey: .cut) ?? false
+        comment = try container.decodeIfPresent(String.self, forKey: .comment) ?? ""
+        outdated = try container.decodeIfPresent(Bool.self, forKey: .outdated) ?? false
+        unverified = try container.decodeIfPresent(Bool.self, forKey: .unverified) ?? false
+        checkout = try container.decodeIfPresent(String.self, forKey: .checkout)
     }
 }

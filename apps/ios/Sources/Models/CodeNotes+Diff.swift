@@ -1,11 +1,12 @@
 import Foundation
 
 /// Notes made from a diff (a pull request's file, Changes) rather than the editor. A diff shows
-/// only some of a file's lines, so a note there takes whole lines of the new side, and a diff
-/// read again checks only notes whose every line it shows: kept when their code is still on
-/// those lines, moved when it is now on other shown lines (once), outdated when it is gone. A
-/// note on lines the diff doesn't show waits for the editor, which checks it against the whole
-/// file when it opens (`reloaded`). Pure.
+/// only some of a file's lines, so a note there takes whole lines of the new side. A diff read
+/// again keeps a note whose code is still on its lines, and otherwise looks for the code on every
+/// line it shows: found once, the note moves there. Not found, a note whose lines are all shown is
+/// outdated (its code is gone); one whose lines aren't is unverified, as its code may sit on lines
+/// the diff leaves out. The editor checks it against the whole file when it opens (`reloaded`).
+/// Pure.
 extension CodeNotes {
     /// The range of whole lines `first`…`first + texts.count - 1` (1-based), whose texts are `texts`.
     static func span(first: Int, texts: [String]) -> TextSpan {
@@ -30,15 +31,19 @@ extension CodeNotes {
         let runs = Self.runs(lines)
         update(thread) { note in
             guard note.path == path, !note.outdated else { return }
-            let numbers = note.lines
-            guard numbers.allSatisfy({ lines[$0] != nil }) else { return }
-            let here = AnnotationAnchor.text(of: note.span) { lines[$0 + 1] ?? "" }
-            let holds = note.cut ? here.utf16.starts(with: note.excerpt.utf16) : AnnotationAnchor.same(here, note.excerpt)
-            if holds { return }
+            let shownWhole = note.lines.allSatisfy { lines[$0] != nil }
+            if shownWhole {
+                let here = AnnotationAnchor.text(of: note.span) { lines[$0 + 1] ?? "" }
+                let holds = note.cut ? here.utf16.starts(with: note.excerpt.utf16) : AnnotationAnchor.same(here, note.excerpt)
+                if holds { note.unverified = false; return }
+            }
             if !note.cut, let found = Self.findOnce(note.excerpt, in: runs) {
                 note.span = found
-            } else {
+                note.unverified = false
+            } else if shownWhole {
                 note.outdated = true
+            } else {
+                note.unverified = true
             }
         }
     }
