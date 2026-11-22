@@ -61,22 +61,49 @@ import Testing
     @Test func aNumberTypedAcrossTwoKeyboardsIsSentUnread() {
         let empty = SpadeQuestionCard.Draft.number("", language: nil)
         // `1,23` on an English keyboard, then `4` on a German one: neither reading is safe.
-        let both = empty.typingNumber("1,23", on: "en-US").typingNumber("1,234", on: "de-DE")
+        let both = empty.typing("1,23", on: "en-US").typing("4", on: "de-DE")
         #expect(both.payload["unread"] as? Bool == true)
         // Cleared and typed again on one keyboard, it is read again.
-        let again = both.typingNumber("", on: "de-DE").typingNumber("1,5", on: "de-DE")
+        let again = both.replacingAll(with: "", on: "de-DE").typing("1,5", on: "de-DE")
         #expect(again.payload["text"] as? String == "1.5")
         // An edit whose keyboard isn't known keeps the one the number has.
-        let unknown = SpadeQuestionCard.Draft.number("1,5", language: "de-DE").typingNumber("1,55", on: nil)
+        let unknown = SpadeQuestionCard.Draft.number("1,5", language: "de-DE").typing("5", on: nil)
         #expect(unknown.payload["text"] as? String == "1.55")
         // Begun where the keyboard wasn't known and finished on a known one: unread.
-        let late = empty.typingNumber("1,2", on: nil).typingNumber("1,25", on: "de-DE")
+        let late = empty.typing("1,2", on: nil).typing("5", on: "de-DE")
         #expect(late.payload["unread"] as? Bool == true)
         // Select All and paste on a known keyboard replaces it: read on that keyboard alone.
-        let pasted = empty.typingNumber("12", on: nil).typingNumber("1,5", on: "de-DE")
+        let pasted = empty.typing("12", on: nil).replacingAll(with: "1,5", on: "de-DE")
         #expect(pasted.payload["text"] as? String == "1.5")
-        let mixedThenPasted = both.typingNumber("7", on: "de-DE").typingNumber("2,5", on: "de-DE")
+        let mixedThenPasted = both.replacingAll(with: "2,5", on: "de-DE")
         #expect(mixedThenPasted.payload["text"] as? String == "2.5")
+    }
+
+    @Test func aPasteOverTheWholeNumberStartsItOverEvenWhenItSharesTheOldStart() {
+        // #2297: `1,2` typed where the keyboard wasn't known, then `1,5` pasted over all of it on
+        // a German keyboard. The old comma is gone, though both read `1,` at the start.
+        let typed = SpadeQuestionCard.Draft.number("", language: nil).typing("1,2", on: nil)
+        let pasted = typed.replacingAll(with: "1,5", on: "de-DE")
+        #expect(pasted.payload["text"] as? String == "1.5")
+        #expect(pasted.payload["unread"] == nil)
+    }
+
+    @Test func aPasteOverPartOfTheNumberKeepsTheRestsKeyboard() {
+        let typed = SpadeQuestionCard.Draft.number("", language: nil).typing("1,2", on: "en-US")
+        // Only the `2` replaced on a German keyboard: the English comma stays, so it is unread.
+        let pasted = typed.editingNumber(replacing: NSRange(location: 2, length: 1), with: "5", on: "de-DE")
+        #expect(pasted.payload["unread"] as? Bool == true)
+        #expect(pasted.payload["text"] as? String == "1,5")
+        // Only the `1` replaced: the comma kept is still English, so `5,2` stays unread too.
+        let front = typed.editingNumber(replacing: NSRange(location: 0, length: 1), with: "5", on: "de-DE")
+        #expect(front.payload["unread"] as? Bool == true)
+    }
+
+    @Test func anEditWithoutAKnownRangeNeverReadsAMarkOnOneKeyboard() {
+        let typed = SpadeQuestionCard.Draft.number("1,5", language: "de-DE")
+        // Undo puts `1,25` back without saying what it replaced.
+        #expect(typed.changingNumber(to: "1,25").payload["unread"] as? Bool == true)
+        #expect(typed.changingNumber(to: "125").payload["text"] as? String == "125")
     }
 
     @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {
@@ -95,5 +122,19 @@ import Testing
         #expect(SpadeQuestionCard.date(from: withTime, time: true, in: zone) == date)
         #expect(SpadeQuestionCard.date(from: "", time: false, in: zone) == nil)
         #expect(SpadeQuestionCard.date(from: "2026-13-40", time: false, in: zone) == nil)
+    }
+}
+
+private extension SpadeQuestionCard.Draft {
+    /// `string` typed at the end of the number.
+    func typing(_ string: String, on language: String?) -> Self {
+        guard case let .number(typed, _, _) = self else { return self }
+        return editingNumber(replacing: NSRange(location: typed.utf16.count, length: 0), with: string, on: language)
+    }
+
+    /// Select All, then `string` pasted (or Delete, for none).
+    func replacingAll(with string: String, on language: String?) -> Self {
+        guard case let .number(typed, _, _) = self else { return self }
+        return editingNumber(replacing: NSRange(location: 0, length: typed.utf16.count), with: string, on: language)
     }
 }
