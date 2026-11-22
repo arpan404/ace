@@ -27,8 +27,8 @@ const empty: ParsedCatalog = { name: "Catalog", entries: [], problems: [] };
 
 /** A git catalog whose read waits until the test lets it finish. */
 function slowGit() {
-  let finish: (read: Read) => void = () => {};
-  let fail: (error: Error) => void = () => {};
+  let finish: ((read: Read) => void) | undefined;
+  let fail: ((error: Error) => void) | undefined;
   const git = {
     read: () =>
       new Promise<Read>((resolve, reject) => {
@@ -38,8 +38,8 @@ function slowGit() {
   };
   return {
     git,
-    finish: () => finish({ commit: "c1", catalog: empty }),
-    fail: (error: Error) => fail(error),
+    finish: () => finish?.({ commit: "c1", catalog: empty }),
+    fail: (error: Error) => fail?.(error),
   };
 }
 
