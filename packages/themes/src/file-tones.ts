@@ -17,7 +17,8 @@ export type FileToneColour =
  * a TypeScript file reads apart from a Rust one at a glance. They are marks, never status: each
  * file type also has its own outline, so the colour never carries the meaning alone. Each needs
  * 3:1 against the surfaces a file row sits on, its hover and the selected row
- * (readability.test.ts). Grey types (a plain file, a lockfile) take the row's own ink instead. The web draws them as `--file-*`; a Suit may set its own.
+ * (readability.test.ts); a Suit keeps its scheme's tones. Grey types (a plain file, a lockfile)
+ * take the row's own ink. The web draws them as `--file-*`.
  */
 export const fileToneColours: Record<Scheme, Record<FileToneColour, string>> = {
   dark: {
