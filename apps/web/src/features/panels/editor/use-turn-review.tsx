@@ -140,10 +140,10 @@ export function useTurnReview(input: {
   // where the peek shows it. If the text moved and the review hasn't looked again yet, nothing is
   // kept and the review stays put (it shows the change in its new place after the pause).
   const keep = () => {
-    const doc = buffer.document();
+    const text = buffer.document();
     const turnHunk = hunks[index];
-    if (!doc || !turnHunk || !current) return;
-    const now = keepAt(turnHunk, current, (line) => doc.line(line), doc.lenLines());
+    if (!text || !turnHunk || !current) return;
+    const now = keepAt(turnHunk, current, (line) => text.line(line), text.lenLines());
     if (!now) return gutter.edited();
     gutter.keep(now.start - 1, now.start - 1 + Math.max(1, now.added.length));
     step(1, new Set(done).add(index));
