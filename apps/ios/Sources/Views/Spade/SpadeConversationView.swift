@@ -3,7 +3,8 @@ import SwiftUI
 /// One bot's conversation (docs/design/spade.md §3), as a messenger: the bot's bubbles on the
 /// left, the person's on the right in the accent, an approval as a raised card where it was
 /// asked, the working line under the last bubble while the bot works, and the composer at the
-/// foot: Send once something is typed, Stop while a reply is open. The bot's face and name head
+/// foot (`SpadeComposer`): photos, files and a voice message with the words, Send once something
+/// is ready, Stop while a reply is open. The bot's face and name head
 /// it, and open its profile. A group's (ADR 0132) is the same chat with each member's face and
 /// name, its members' faces at the top, and a waiting member's chat one tap away. Everything
 /// is the bridge's.
@@ -14,13 +15,11 @@ struct SpadeConversationView: View {
     var group: String?
     /// Opens another conversation over this one: a waiting member's own chat.
     var open: (SpadeRoute) -> Void = { _ in }
-    @State private var draft = ""
     @State private var problem: String?
     @State private var sends = 0
     @State private var stops = 0
     /// Cards for later opened from their line or the top bar's count.
     @State private var unfolded: Set<String> = []
-    @FocusState private var typing: Bool
     @State private var profileShown = false
     /// Whether the chat keeps its end on screen (`ChatEndFollow`): only while the person is there.
     @State private var follow = ChatEndFollow(slack: Double(AceDesign.Space.group))
@@ -114,7 +113,7 @@ struct SpadeConversationView: View {
                             }, sending: { spade.cards.isSending(conversation, callId: $0) }, drafts: { callId in
                                 Binding(get: { spade.cards.drafts(conversation, callId: callId) ?? [] },
                                         set: { spade.cards.keep($0, conversation: conversation, callId: callId) })
-                            })
+                            }, audio: { ref in await recording(ref) })
                             .id(key)
                         }
                     }
@@ -210,78 +209,23 @@ struct SpadeConversationView: View {
             .padding(.top, AceDesign.Space.related)
     }
 
-    private var typed: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
     private func composer(_ reader: ScrollViewProxy) -> some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            if let problem {
-                Text(problem)
-                    .aceFont(AceDesign.TextRole.meta)
-                    .foregroundStyle(AceTheme.StatusText.failed)
-                    .padding(.horizontal, AceDesign.Space.margin)
-                    .accessibilityIdentifier("spade.problem")
-            }
-            HStack(alignment: .bottom, spacing: AceDesign.Space.related) {
-                TextField("Message \(name)", text: $draft, axis: .vertical)
-                    .aceFont(AceDesign.TextRole.message)
-                    .lineLimit(1...6)
-                    .focused($typing)
-                    .padding(.horizontal, AceDesign.Space.margin)
-                    .padding(.vertical, AceDesign.Space.related)
-                    .accessibilityIdentifier("spade.composer")
-                trailing(reader)
-            }
-            .padding(AceDesign.Space.tight)
-            .aceGlass(in: AceDesign.Shape.field, interactive: true)
-            .padding(.horizontal, AceDesign.Space.margin)
-            .padding(.bottom, AceDesign.Space.related)
-        }
+        SpadeComposer(name: name, answering: head?.answering == true, attaches: group == nil, problem: $problem) { out in
+            if let group { return await client.spadeGroupSend(group, conversation: conversation, text: out.text) }
+            return await client.spadeSend(conversation, text: out.text, files: out.files, voice: out.voice)
+        } sent: {
+            sends += 1
+            // What the person sent shows at the end, wherever they were reading.
+            follow.sent()
+            restack()
+            withAnimation { reader.scrollTo(Self.endID, anchor: .bottom) }
+        } stop: { stop() }
     }
 
-    /// Send once something is typed (a message steers an open reply); Stop while one is open.
-    @ViewBuilder private func trailing(_ reader: ScrollViewProxy) -> some View {
-        if !typed && head?.answering == true {
-            Button { stop() } label: {
-                RoundedRectangle(cornerRadius: AceDesign.Corner.glyphStop)
-                    .frame(width: AceDesign.Size.stopGlyph, height: AceDesign.Size.stopGlyph)
-                    .foregroundStyle(AceDesign.Surface.background)
-                    .frame(width: AceDesign.Size.navButton, height: AceDesign.Size.navButton)
-                    .background(AceDesign.Ink.accent, in: Circle())
-            }
-            .accessibilityLabel("Stop")
-            .accessibilityIdentifier("spade.stop")
-        } else {
-            Button { send(reader) } label: {
-                AceIcon(.arrowUp, size: AceDesign.Size.icon, relativeTo: .body)
-                    .foregroundStyle(AceDesign.Surface.background)
-                    .frame(width: AceDesign.Size.navButton, height: AceDesign.Size.navButton)
-                    .background(typed ? AceDesign.Ink.accent : AceDesign.Ink.faint, in: Circle())
-            }
-            .disabled(!typed)
-            .accessibilityLabel("Send")
-            .accessibilityIdentifier("spade.send")
-        }
-    }
-
-    private func send(_ reader: ScrollViewProxy) {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        draft = ""
-        problem = nil
-        sends += 1
-        // What the person sent shows at the end, wherever they were reading.
-        follow.sent()
-        restack()
-        withAnimation { reader.scrollTo(Self.endID, anchor: .bottom) }
-        Task {
-            let outcome: SpadeOutcome
-            if let group { outcome = await client.spadeGroupSend(group, conversation: conversation, text: text) }
-            else { outcome = await client.spadeSend(conversation, text: text) }
-            guard !outcome.ok else { return }
-            // Refused: the words come back, before anything typed while it was out.
-            draft = SpadeDraft.restoring(text, into: draft)
-            problem = outcome.problem
-        }
+    /// A voice message's recording, read from Spade by hash to play.
+    private func recording(_ ref: String) async -> Data? {
+        let read = try? await client.service(["type": "spade.audio", "sha256": ref], as: AttachmentBytes.self, timeout: .seconds(60))
+        return read.flatMap { Data(base64Encoded: $0.data) }
     }
 
     private func stop() {
