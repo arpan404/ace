@@ -18,6 +18,7 @@ import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { usePrimaryInSpace } from "@/lib/machines.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 
@@ -73,7 +74,10 @@ export function SearchStart(props: {
   const navigate = useNavigate();
   const now = useNow();
   const projectName = useProjectName();
-  const threads = useSidebarAll(recentThreadsOf, arrayEqual) ?? noThreads;
+  // Only the window's space's threads (ADR 0206 §2.4).
+  const shown = usePrimaryInSpace();
+  const recent = useSidebarAll(recentThreadsOf, arrayEqual) ?? noThreads;
+  const threads = shown ? recent : noThreads;
   const go = (run: () => Promise<void>) => {
     props.onClose();
     void run();

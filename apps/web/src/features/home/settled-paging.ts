@@ -1,7 +1,7 @@
 import type { SidebarReader } from "@ace/client";
 import { useClient, useSidebar, useSidebarStore } from "@ace/client-react";
 import { useRef, useState } from "react";
-import { usePrimaryMachine } from "@/lib/machines.ts";
+import { usePrimaryInSpace, usePrimaryMachine } from "@/lib/machines.ts";
 import { type DeviceScope, inScope } from "./device-filter-state.ts";
 import { scopeOf } from "./project-scope.ts";
 import { useProjectGroups } from "./use-project-scope.ts";
@@ -57,7 +57,9 @@ export function useSettledPaging(project: string | null, device?: DeviceScope): 
   const asking = useRef(false);
   const groups = useProjectGroups();
   const here = project === null || scopeOf(project, groups, own).here.length > 0;
-  const hasMore = nextAt !== undefined && !request.stalled && inScope(device, own) && here;
+  const ownShown = usePrimaryInSpace();
+  const hasMore =
+    nextAt !== undefined && !request.stalled && ownShown && inScope(device, own) && here;
   const update = (patch: Partial<Request>) =>
     setRequest((current) => ({ ...(current.key === key ? current : request), ...patch, key }));
   const more = async () => {

@@ -70,10 +70,10 @@ export function FileRowItems(props: { entry: TreeEntry; commands: TreeCommands }
       {!several && folder && (
         <>
           <Item disabled={offline} onClick={run({ kind: "create", folder: into })}>
-            New file…
+            New file
           </Item>
           <Item disabled={offline} onClick={run({ kind: "mkdir", folder: into })}>
-            New folder…
+            New folder
           </Item>
         </>
       )}

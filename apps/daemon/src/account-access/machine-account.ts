@@ -74,6 +74,7 @@ const asCredential = (
   origin: string,
   credential: AceAccountGrant,
   source: StoredSession["source"],
+  space?: string,
 ): StoredSession => ({
   origin,
   token: credential.token,
@@ -81,6 +82,7 @@ const asCredential = (
   expiresAt: credential.expiresAt,
   source,
   kind: "machine",
+  ...(space ? { space } : {}),
 });
 
 /** What the daemon keeps for its organization credential as an org host (ADR 0206 §2.1). */
@@ -134,7 +136,9 @@ export function machineAccount(options: {
   let session: StoredSession | undefined;
   /** In memory only: a restart gives the session a new id, so no decision outlives it. */
   let sessionId: string | null = null;
-  let login: { url: string; expiresAt: number; stop(): void } | undefined;
+  let login: { url: string; expiresAt: number; org?: string; stop(): void } | undefined;
+  /** The last `ace login --org` found the account wasn't that organization's member. */
+  let refused: { org: string; error: "not_member" } | undefined;
   /** The backend answered that it has no machine credentials (an older one): sessions stay. */
   let noCredentials = false;
   // Never keys from the session's origin, which the host token sets, or from ACE_ACCOUNT_URL.
@@ -346,7 +350,7 @@ export function machineAccount(options: {
       return true;
     }
     if (!credential) return false;
-    await settle(current, asCredential(current.origin, credential, current.source));
+    await settle(current, asCredential(current.origin, credential, current.source, current.space));
     return true;
   }
   /**
@@ -697,8 +701,16 @@ export function machineAccount(options: {
           ? { signInAgain: true as const }
           : {}),
         ...(login && login.expiresAt > options.now()
-          ? { login: { url: login.url, expiresAt: login.expiresAt } }
+          ? {
+              login: {
+                url: login.url,
+                expiresAt: login.expiresAt,
+                ...(login.org ? { org: login.org } : {}),
+              },
+            }
           : {}),
+        ...(session?.space ? { space: { org: session.space } } : {}),
+        ...(refused ? { loginRefused: refused } : {}),
         machineCode: {
           set: code !== undefined,
           ...(lock.lockedUntil !== null && lock.lockedUntil > options.now()
@@ -777,11 +789,19 @@ export function machineAccount(options: {
       return this.status();
     },
     /** Start signing in from this machine; the sign-in finishes when the person opens the URL. */
-    async startLogin(origin = options.defaultOrigin): Promise<MachineAccountStatus> {
+    /**
+     * `ace login`. With `org` (`ace login --org`, ADR 0206 §1.4): the sign-in goes through that
+     * organization's sign-in policy, and is kept only if the backend says it entered the
+     * organization as an active member; the organization is then this sign-in's space. Otherwise
+     * the new session is ended at once, the machine keeps whatever sign-in it had, and the status
+     * says `loginRefused`.
+     */
+    async startLogin(origin = options.defaultOrigin, org?: string): Promise<MachineAccountStatus> {
       if (!origin)
         throw new AccessError(400, "No ace account address. Set ACE_ACCOUNT_URL or pass --origin.");
       if (session?.source === "org" && owner.org() !== undefined) throw signedInAsOrg();
       stopLogin();
+      refused = undefined;
       // Closing the account gives the sign-in up too, from its first request on.
       const controller = new AbortController();
       const signal = AbortSignal.any([controller.signal, closing.signal]);
@@ -790,7 +810,7 @@ export function machineAccount(options: {
       let started;
       try {
         // A daemon's sign-in: its session never speaks for the person (ADR 0190).
-        started = await account.login(signal, { holder: "machine" });
+        started = await account.login(signal, { holder: "machine", ...(org ? { org } : {}) });
       } catch {
         throw unreachable();
       }
@@ -800,6 +820,7 @@ export function machineAccount(options: {
       const current = {
         url: started.loginUrl,
         expiresAt: started.expiresAt,
+        ...(org ? { org } : {}),
         stop() {
           cancelPoll();
           controller.abort();
@@ -821,6 +842,13 @@ export function machineAccount(options: {
               if (result.status === "pending") return poll();
               login = undefined;
               const { token, account: who, expiresAt } = result.session;
+              // Asked for an organization the account isn't an active member of: this sign-in
+              // isn't kept, and the machine stays as it was.
+              if (org !== undefined && result.session.org !== org) {
+                refused = { org, error: "not_member" };
+                await account.logout(token, request()).catch(() => {});
+                return;
+              }
               // This daemon is the session's only holder: it keeps this machine's credential
               // instead, and the session's token is retired (ADR 0190). If that fails, the
               // sign-in ends without writing the session; the person signs in again.
@@ -839,8 +867,15 @@ export function machineAccount(options: {
                 }
                 await adopt(
                   credential
-                    ? asCredential(origin, credential, "login")
-                    : { origin, token, account: who, expiresAt, source: "login" },
+                    ? asCredential(origin, credential, "login", org)
+                    : {
+                        origin,
+                        token,
+                        account: who,
+                        expiresAt,
+                        source: "login",
+                        ...(org ? { space: org } : {}),
+                      },
                 );
                 await writePending(options.dataDir, null);
               });
@@ -965,7 +1000,10 @@ export function machineAccount(options: {
       nonce: string;
       binding: string | undefined;
       deviceId: string;
-    }): Promise<{ until: number; generation: number; member: Member; policy: number } | undefined> {
+    }): Promise<
+      | { until: number; issuedAt: number; generation: number; member: Member; policy: number }
+      | undefined
+    > {
       const seen = owner.generation();
       const org = owner.org();
       if (!owner.holds(seen) || org === undefined) return undefined;
@@ -979,12 +1017,29 @@ export function machineAccount(options: {
       if (!proven || !owner.holds(seen) || owner.org() !== org) return undefined;
       return {
         until: proven.until,
+        issuedAt: proven.issuedAt,
         generation: seen,
         member: proven.member,
         policy: proven.policy,
       };
     },
     /** The clock grants are checked against: a standing's `until` is on it. */
+    /**
+     * The account backend's word, now, on a member grant this host took (ADR 0206 §8.1). Throws
+     * when this machine has no backend to ask or the backend can't answer.
+     */
+    async memberStandingNow(
+      grant: string,
+    ): Promise<{ current: boolean; role?: string | undefined }> {
+      const current = active();
+      if (!current) throw new AccessError(503, "ace account is unavailable");
+      return backend.memberStanding(
+        current.origin,
+        current.token,
+        grant,
+        AbortSignal.timeout(10_000),
+      );
+    },
     grantClock(): number {
       return options.now();
     },

@@ -793,6 +793,23 @@ Example:
       },
       "enabled": true,
       "listenOverride": null,
+      "networks": {
+        "account": {
+          "state": "failed",
+          "warning": "example"
+        },
+        "lan": {
+          "state": "example",
+          "warning": "example"
+        },
+        "relay": {
+          "state": "example"
+        },
+        "tailscale": {
+          "error": "example",
+          "state": "waiting"
+        }
+      },
       "relayOverride": true,
       "transport": "lan"
     }

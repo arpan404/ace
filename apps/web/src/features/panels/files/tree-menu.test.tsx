@@ -26,15 +26,6 @@ test("Shift+F10 opens a row's menu, each action showing its shortcut", async () 
   expect(side.textContent).toMatch(/Ctrl\+(Enter|↵)$/);
 });
 
-test("a folder row's New file starts in that folder", async () => {
-  const { tree } = await renderTree();
-  await menuPick(await row(tree, "apps/"), "New file…");
-  const dialog = await screen.findByRole("dialog", { name: "New file" });
-  expect(within(dialog).getByRole<HTMLInputElement>("textbox", { name: "Path" }).value).toBe(
-    "apps/",
-  );
-});
-
 test("Duplicate copies a file beside it as 'name copy' with the same contents", async () => {
   const { client, tree } = await renderTree();
   const before = await bytes({ client }, "README.md");
@@ -105,10 +96,14 @@ test("the tree's empty space acts on the checkout's root", async () => {
   await renderTree();
   const empty = document.querySelector<HTMLElement>('[data-part="tree-root"]');
   if (!empty) throw new Error("No empty tree space");
-  await menuPick(empty, "New folder…");
-  const dialog = await screen.findByRole("dialog", { name: "New folder" });
-  expect(within(dialog).getByRole<HTMLInputElement>("textbox", { name: "Path" }).value).toBe("");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await menuPick(empty, "New folder");
+  // The new folder's field leads the tree, at the root's level.
+  const field = await screen.findByRole("textbox", { name: "New folder name" });
+  expect(field.closest("[role='treeitem']")?.getAttribute("aria-level")).toBe("1");
+  await userEvent.type(field, "{Escape}");
+  await waitFor(() =>
+    expect(screen.queryByRole("textbox", { name: "New folder name" })).toBeNull(),
+  );
   await userEvent.pointer({ target: empty, keys: "[MouseRight]" });
   const menu = await screen.findByRole("menu");
   expect(within(menu).queryByRole("menuitem", { name: /^Rename/ })).toBeNull();
@@ -131,3 +126,19 @@ test("Reveal shows the file in the machine's file manager when ace runs on this 
     ]),
   );
 });
+
+test("Collapse all folders in the explorer's header folds every open folder", async () => {
+  const { tree } = await renderTree();
+  await expand(tree, ["apps/", "apps/web/", "apps/web/src/"]);
+  const panel = tree.closest("section");
+  if (!panel) throw new Error("no panel");
+  await userEvent.click(within(panel).getByRole("button", { name: "Collapse all folders" }));
+  await waitFor(() => expect(listedRow(tree, "apps/").getAttribute("aria-expanded")).toBe("false"));
+  expect(tree.querySelector('[data-path="apps/web/"]')).toBeNull();
+});
+
+const listedRow = (tree: HTMLElement, path: string) => {
+  const found = tree.querySelector<HTMLElement>(`[data-path="${path}"]`);
+  if (!found) throw new Error(`${path} is not listed`);
+  return found;
+};

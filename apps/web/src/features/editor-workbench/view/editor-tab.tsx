@@ -75,16 +75,17 @@ export function EditorTabView(props: {
       }}
       className={cn(
         "flex h-7 shrink-0 cursor-default items-center gap-1 rounded-sm pr-1 pl-2.5 text-ui whitespace-nowrap select-none focus-ring-inset",
-        "text-subtle-foreground transition-[background-color,color] duration-(--motion-fast) hover:text-foreground",
+        "transition-[background-color,color] duration-(--motion-fast)",
         props.active
-          ? cn("bg-active", props.groupFocused ? "text-foreground" : "text-muted-foreground")
-          : "hover:bg-hover",
+          ? // The focused group's shown tab in full ink; another group's keeps the fill, muted.
+            cn("bg-active", props.groupFocused ? "text-foreground" : "text-muted-foreground")
+          : "text-muted-foreground hover:bg-hover hover:text-foreground",
       )}
     >
       <span data-tab-title className={cn("max-w-[180px] truncate", tab.preview && "italic")}>
         {name}
       </span>
-      {props.hint && <span className="text-xs text-subtle-foreground">· {props.hint}</span>}
+      {props.hint && <span className="-ml-0.5 text-xs text-subtle-foreground">· {props.hint}</span>}
       <TabSlot
         shows={shows}
         unsaved={unsaved}

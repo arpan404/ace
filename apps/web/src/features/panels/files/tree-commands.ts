@@ -8,6 +8,7 @@ import { keyboardEnv } from "@/lib/keybindings.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { treeClipboard, useTreeClip, type TreeClip } from "./tree-clipboard.ts";
 import type { TreeEntry } from "./tree-entry.ts";
+import { checkoutError } from "./checkout-source.ts";
 import { useFileMutations } from "./use-file-mutations.ts";
 
 export type { TreeEntry } from "./tree-entry.ts";
@@ -40,7 +41,7 @@ export interface TreeCommands {
   download(path: string): void;
   /** Fold every open folder under `folder` ("" folds them all). */
   collapseBelow(folder: string): void;
-  /** Ask before moving the entries to Recently deleted. */
+  /** Move the entries to Recently deleted at once; a toast offers Undo. */
   remove(entries: readonly TreeEntry[]): void;
 }
 
@@ -136,13 +137,15 @@ export function useTreeCommands(inputs: TreeCommandInputs): TreeCommands {
         [...inputs.opened].filter((key) => !key.startsWith(prefix) || key === prefix),
       );
     },
+    // Nothing asks first: a delete goes to Recently deleted, and its toast's Undo brings it back.
     remove: (entries) => {
-      const [first] = entries;
-      if (!first) return;
-      inputs.operation({
-        kind: "delete",
-        path: first.path,
-        paths: entries.map((entry) => cleanPath(entry.path)),
+      if (!entries.length) return;
+      void mutations.remove(entries.map((entry) => cleanPath(entry.path))).catch((failure) => {
+        const only = entries.length === 1 ? entries[0]?.path : undefined;
+        toast.error({
+          title: only ? `Couldn't delete ${only}` : "Couldn't delete the files",
+          description: checkoutError(failure).message,
+        });
       });
     },
   };

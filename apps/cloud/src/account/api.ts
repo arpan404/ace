@@ -20,8 +20,10 @@ import { sessionStore } from "./sessions.ts";
 import { workos } from "./workos.ts";
 import { workosOrgs } from "./workos-orgs.ts";
 import { workosTokenVerifier } from "./workos-jwt.ts";
+import { workosWebhookRoute } from "./workos-webhook-route.ts";
 import { orgAccess } from "./org-access.ts";
 import { orgAudit } from "./org-audit.ts";
+import { auditOutbox } from "./org-audit-outbox.ts";
 import { orgChecker } from "./org-check.ts";
 import { orgEvents } from "./org-events.ts";
 import { orgHostRoutes } from "./org-host-routes.ts";
@@ -29,6 +31,7 @@ import { orgLocks } from "./org-locks.ts";
 import { portalRevocations } from "./org-portal.ts";
 import { orgRegistryRoutes } from "./org-registry-routes.ts";
 import { orgRoutes } from "./org-routes.ts";
+import { orgStandingRoute } from "./org-standing-route.ts";
 import { orgStore } from "./org-store.ts";
 
 /** Paths the account API owns; everything else on the Worker is the relay. */
@@ -62,6 +65,12 @@ export function accountApi(
     sleep?: (ms: number) => Promise<void>;
     /** A machine left the account's list: one still registered on the relay lists itself again. */
     forgotten?: (hostId: string, accountId: string) => Promise<void>;
+    /** The standing route's limit per caller and member account; none when unset. */
+    standingLimited?: (key: string) => Promise<boolean>;
+    /** The standing route's limit on WorkOS lookups overall; none when unset. */
+    standingWorkosLimited?: () => Promise<boolean>;
+    /** The per-address limit, for the standing route's callers that don't authenticate. */
+    addressLimited?: (request: Request) => Promise<boolean>;
   },
 ) {
   if (setup.status !== "ready")
@@ -141,7 +150,26 @@ export function accountApi(
     now,
     newEnrollment: newId,
   });
-  const events = orgEvents({ orgs, workos: workosOrg, portal, now });
+  const outbox = auditOutbox({ db: deps.db, workos: workosOrg, now });
+  const events = orgEvents({ orgs, workos: workosOrg, portal, outbox, now });
+  const standing = orgStandingRoute({
+    keys,
+    issuer: new URL(config.publicUrl).host,
+    orgs,
+    workos: workosOrg,
+    now,
+    marketToken: config.marketStandingToken,
+    hostOrg: async (token) => {
+      const principal = await principals.read(token);
+      if (!principal) return undefined;
+      if (principal.kind !== "machine") return null;
+      return (await orgs.credentialOrg(principal.hash)) ?? null;
+    },
+    addressLimited: deps.addressLimited ?? (async () => false),
+    limited: deps.standingLimited ?? (async () => false),
+    workosLimited: deps.standingWorkosLimited ?? (async () => false),
+  });
+  const webhook = workosWebhookRoute({ secret: config.webhookSecret, events, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
     return loginRoutes({
@@ -154,6 +182,7 @@ export function accountApi(
       joined: async (account, org) => {
         if (org) await checker.mirror(account, org);
       },
+      entered: (account, org) => checker.activeNow(account, org),
     });
   };
   // The canonical URL still serves deployments with a single public address. Multi-host
@@ -190,6 +219,7 @@ export function accountApi(
     const method = request.method;
     if (pathname === "/v1/keys" && method === "GET") return directory.keys();
     if (pathname === "/v1/grants" && method === "POST") return directory.grant(request);
+    if (pathname === "/v1/grants/standing" && method === "POST") return standing(request);
     if (pathname === "/v1/machine-credentials" && method === "POST")
       return machineSignIn.exchange(request);
     if (pathname === "/v1/machine-enrollments" && method === "POST")
@@ -198,6 +228,7 @@ export function accountApi(
       const space = url.searchParams.get("space");
       return space === null ? directory.list(request) : hostApi.machines(request, space);
     }
+    if (pathname === "/v1/workos/webhook" && method === "POST") return webhook(request);
     if (pathname === "/v1/orgs" && method === "GET") return orgApi.list(request);
     if (pathname === "/v1/orgs" && method === "POST") return orgApi.create(request);
     if (pathname === joinPath && method === "GET") return orgApi.joinPage(url);

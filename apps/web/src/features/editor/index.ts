@@ -15,6 +15,7 @@ export { ensureEditorReady } from "./wasm.ts";
 export type { LineHighlighter, Token } from "./highlighter.ts";
 export { EditorStatusLine } from "./status-line.tsx";
 export {
+  editorStatus,
   indentText,
   languageName,
   lineEndingText,

@@ -1,9 +1,13 @@
 import { Fragment, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
-import type { GroupNode, SplitNode, NodePath } from "@ace/ui-core/editor-workbench";
-
-/** A group never gets narrower or shorter than this by dragging an edge. */
-const minGroupPx = 160;
+import {
+  groupMinHeight,
+  groupMinWidth,
+  roomNeeded,
+  type GroupNode,
+  type SplitNode,
+  type NodePath,
+} from "@ace/ui-core/editor-workbench";
 
 /**
  * The editor area's split tree: each split lays its children out by weight, with an edge
@@ -34,7 +38,17 @@ export function SplitGrid(props: {
               onEven={() => props.onEven(path)}
             />
           )}
-          <div className="flex min-h-0 min-w-0" style={{ flex: `${node.sizes[index] ?? 1} 1 0px` }}>
+          <div
+            className="flex min-h-0 min-w-0"
+            style={{
+              flex: `${node.sizes[index] ?? 1} 1 0px`,
+              // The split shows only while every group has its room (spec 5), so each child
+              // keeps that room whatever its stored share.
+              ...(row
+                ? { minWidth: roomNeeded(child).width }
+                : { minHeight: roomNeeded(child).height }),
+            }}
+          >
             <SplitGrid
               node={child}
               path={[...path, index]}
@@ -66,7 +80,9 @@ function SplitEdge(props: {
   const shift = (from: readonly number[], delta: number, px: number) => {
     const a = from[props.before] ?? 0;
     const b = from[props.before + 1] ?? 0;
-    const floor = px > 0 ? (minGroupPx / px) * total : 0;
+    // A group never gets narrower or shorter by dragging than the room it shows in.
+    const least = props.row ? groupMinWidth : groupMinHeight;
+    const floor = px > 0 ? (least / px) * total : 0;
     const moved = Math.min(Math.max(delta, floor - a), b - floor);
     const next = [...from];
     next[props.before] = a + moved;
@@ -87,11 +103,14 @@ function SplitEdge(props: {
       aria-valuemin={0}
       aria-valuemax={100}
       className={cn(
-        "relative z-[3] shrink-0 bg-border outline-none",
-        "after:absolute after:transition-colors after:duration-(--motion-fast) hover:after:bg-ring/45 focus-visible:after:bg-ring/45",
+        "group/edge relative z-[3] shrink-0 bg-border outline-none",
+        // `after`: the invisible 9px the pointer takes. `before`: a 3px line that shows only
+        // while the edge is held, hovered a moment, or focused.
+        "after:absolute before:pointer-events-none before:absolute before:bg-ring/50 before:opacity-0",
+        "before:transition-opacity before:duration-(--motion-fast) hover:before:opacity-100 hover:before:delay-150 focus-visible:before:opacity-100 active:before:opacity-100",
         props.row
-          ? "w-px cursor-col-resize after:inset-y-0 after:-left-[3px] after:w-[7px]"
-          : "h-px cursor-row-resize after:inset-x-0 after:-top-[3px] after:h-[7px]",
+          ? "w-px cursor-col-resize after:inset-y-0 after:-left-1 after:w-[9px] before:inset-y-0 before:-left-px before:w-[3px]"
+          : "h-px cursor-row-resize after:inset-x-0 after:-top-1 after:h-[9px] before:inset-x-0 before:-top-px before:h-[3px]",
       )}
       onPointerDown={(event) => {
         if (event.button !== 0) return;

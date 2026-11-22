@@ -9,12 +9,12 @@ import {
 } from "@/components/ui/menu.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
-import { type Machine, useMachines } from "@/lib/machines.ts";
+import { type Machine, useMachinesInSpace } from "@/lib/machines.ts";
 import { type DeviceScope, toggled, useSidebarDevice } from "./device-filter-state.ts";
 
 /** The machines a filter lets through, in the machines' order (none for every device). */
 export function useScopeMachines(scope: DeviceScope): readonly Machine[] {
-  const machines = useMachines();
+  const machines = useMachinesInSpace();
   return scope ? machines.filter((machine) => scope.includes(machine.id)) : [];
 }
 
@@ -47,7 +47,7 @@ function Row(props: { children: ReactNode }) {
 
 /** Filter the Threads panel by device, as a submenu, only while there is a choice of devices. */
 export function DeviceFilter() {
-  const machines = useMachines();
+  const machines = useMachinesInSpace();
   const device = useSidebarDevice();
   const chosen = useScopeMachines(device);
   const organizer = useOrganizer();
@@ -82,7 +82,7 @@ export function DeviceFilter() {
  * chosen together.
  */
 export function DeviceItems(props: { device: DeviceScope; onDevice(device: DeviceScope): void }) {
-  const machines = useMachines();
+  const machines = useMachinesInSpace();
   const known = machines.map((machine) => machine.id);
   return (
     <>

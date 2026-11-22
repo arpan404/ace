@@ -1,8 +1,11 @@
 /*
  * Tab drags carry their own type, so the side panel's strip (which takes `tabDragType`) ignores
- * them, plus the path as plain text for anything else that accepts a file path. When W5 joins
- * the explorer's file drags to the editor (spec 16), file drops read the same path type.
+ * them, plus the path as plain text for anything else that accepts a file path. Files dragged
+ * from the explorer carry the tree's rows (`treeEntriesDragType`, written by
+ * `panels/files/use-tree-drag.ts`): dropped on a group, the files among them open there (spec 16).
  */
+
+import { treeEntriesDragType } from "@/lib/workspace/index.ts";
 
 export const editorTabDragType = "application/x-ace-editor-tab";
 
@@ -37,4 +40,46 @@ export function readTabDrag(transfer: DataTransfer): TabDrag | undefined {
 /** ⌥-drag opens a second view and leaves the original (spec 16). */
 export function copiesOnDrop(event: { altKey: boolean }): boolean {
   return event.altKey;
+}
+
+/** A drag a group takes: one of its tabs, or files from the explorer. */
+export type GroupDrag = { kind: "tab"; tab: TabDrag } | { kind: "files"; paths: string[] };
+
+/** Over a group only the drag's types can be read: a tab or the explorer's rows. */
+export function carriesGroupDrag(transfer: DataTransfer): boolean {
+  const types = new Set(transfer.types);
+  return types.has(editorTabDragType) || types.has(treeEntriesDragType);
+}
+
+/**
+ * The files dragged from `threadId`'s explorer (folders left out). Rows from another thread's
+ * tree name another checkout's files, so they open nothing here.
+ */
+export function readFileDrag(transfer: DataTransfer, threadId: string | undefined): string[] {
+  if (threadId === undefined) return [];
+  try {
+    const value: unknown = JSON.parse(transfer.getData(treeEntriesDragType));
+    if (typeof value !== "object" || value === null) return [];
+    if (Reflect.get(value, "threadId") !== threadId) return [];
+    const entries: unknown = Reflect.get(value, "entries");
+    if (!Array.isArray(entries)) return [];
+    return entries.flatMap((entry: unknown) => {
+      if (typeof entry !== "object" || entry === null) return [];
+      const path: unknown = Reflect.get(entry, "path");
+      return typeof path === "string" && Reflect.get(entry, "folder") !== true ? [path] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** What a drop on a group carries: a tab first, else this thread's files. */
+export function readGroupDrag(
+  transfer: DataTransfer,
+  threadId: string | undefined,
+): GroupDrag | undefined {
+  const tab = readTabDrag(transfer);
+  if (tab) return { kind: "tab", tab };
+  const paths = readFileDrag(transfer, threadId);
+  return paths.length > 0 ? { kind: "files", paths } : undefined;
 }

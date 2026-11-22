@@ -1,6 +1,8 @@
-import { configure, fireEvent, screen, waitFor } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { treeEntriesDragType } from "@/lib/workspace/index.ts";
+import { threadId } from "./tree-test-queries.ts";
 import { bytes, expand, renderTree, row } from "./tree-test-support.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -105,4 +107,38 @@ test("rows dragged from another checkout's tree never move this checkout's files
   expect(await bytes({ client }, "README.md")).toBe(before);
   await expand(tree, ["apps/"]);
   expect(tree.querySelector('[data-path="apps/README.md"]')).toBeNull();
+});
+
+/** What a drag from the explorer hands a drop target outside the tree (an editor group). */
+function dragged(dataTransfer: ReturnType<typeof transfer>) {
+  return JSON.parse(dataTransfer.getData(treeEntriesDragType)) as unknown;
+}
+
+test("a tree row drags as the tree's rows, which an editor group reads to open the file", async () => {
+  const { tree } = await renderTree();
+  const dataTransfer = transfer();
+  fireEvent.dragStart(await row(tree, "README.md"), { dataTransfer });
+  expect(dragged(dataTransfer)).toEqual({
+    threadId,
+    entries: [{ path: "README.md", folder: false }],
+  });
+});
+
+test("a filter match drags as the tree's rows too", async () => {
+  const { tree } = await renderTree();
+  const panel = tree.closest("section");
+  if (!panel) throw new Error("no panel");
+  await userEvent.type(
+    within(panel).getByRole("searchbox", { name: "Find files in the checkout" }),
+    "socket",
+  );
+  const match = await within(panel).findByRole("option", { name: /^socket\.ts/ });
+  expect(match.getAttribute("draggable")).toBe("true");
+  const dataTransfer = transfer();
+  fireEvent.dragStart(match, { dataTransfer });
+  expect(dragged(dataTransfer)).toEqual({
+    threadId,
+    entries: [{ path: "apps/web/src/relay/socket.ts", folder: false }],
+  });
+  expect(dataTransfer.getData("text/plain")).toBe("apps/web/src/relay/socket.ts");
 });
