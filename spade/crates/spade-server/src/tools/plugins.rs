@@ -137,13 +137,24 @@ impl Tool for PluginCall {
     /// The plugin and its accepted version, the server, the server's own tool name and its schema.
     fn identity(&self) -> String {
         format!(
+            "plugin:{}@{}/{}:{}#def:{}",
+            self.server.plugin,
+            self.server.version(),
+            self.server.name,
+            self.tool.name,
+            spade_connect::definition(&self.tool)
+        )
+    }
+
+    fn legacy_identity(&self) -> Option<String> {
+        Some(format!(
             "plugin:{}@{}/{}:{}#{}",
             self.server.plugin,
             self.server.version(),
             self.server.name,
             self.tool.name,
             super::schema_hash(&self.tool.input_schema)
-        )
+        ))
     }
 
     fn run(&self, _key: &str, arguments: Value) -> ToolFuture {

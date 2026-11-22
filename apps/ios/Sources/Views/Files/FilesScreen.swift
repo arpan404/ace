@@ -1,15 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A file to open, at a line when a link named one.
-struct FileTarget: Hashable, Identifiable {
-    let path: String
-    var line: Int?
-    /// The tree marked it changed since the last commit (a deleted file has no lines to mark).
-    var changed = false
-    var id: String { "\(path):\(line ?? 0)" }
-}
-
 /// A thread's checkout (or, from New thread, a project's own folder) as the web's Files tree:
 /// folders first, a folder listed when it opens and a page at a time, each uncommitted change
 /// lettered as the web does, folders holding one open at first, and open folders listed again
@@ -26,6 +17,7 @@ struct FilesScreen: View {
     /// A folder (ending in "/") to open in the tree once it first lists, as a file's breadcrumb asks.
     var folder: String?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     /// Whether this Files screen is on screen (not covered by a pushed file or the background).
     @State private var isPresented = false
     /// The bridge counting this screen as showing the tree, until the background or a pop.
@@ -37,9 +29,9 @@ struct FilesScreen: View {
     @State private var contentSwitches = ContentQuery()
     @State private var results: FileSearch?
     @State private var searchFailure: String?
-    @State private var opened: FileTarget?
+    @State var opened: FileTarget?
     @State private var showTrash = false
-    @State private var actions: FileActions
+    @State var actions: FileActions
     @State private var quickLine: Int?
     @State private var downloading: String?
     @State private var importing = false
@@ -112,8 +104,8 @@ struct FilesScreen: View {
         } message: { Text(importProblem ?? "") }
         .task(id: "\(query)|\(searchScope)") { await search() }
         .navigationDestination(item: $opened) { target in
-            FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 },
-                       openFolder: { folder in reveal(folder); opened = nil })
+            EditorGroups(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 },
+                         openFolder: { folder in reveal(folder); opened = nil })
         }
         .navigationDestination(isPresented: $showTrash) { RecentlyDeletedView(model: model, scope: scope) }
         .modifier(FileActionPrompts(actions: actions))
@@ -121,72 +113,9 @@ struct FilesScreen: View {
 
     /// The live tree the bridge lists for this scope; nil until its first rows arrive. Reading
     /// `treesRevision` notices a new scope; each scope's own model keeps other patches away.
-    private var tree: FileTree? {
+    var tree: FileTree? {
         _ = model.files.treesRevision
         return model.files.existingTree(scope.memoryKey)?.tree
-    }
-
-    // MARK: Tree
-
-    @ViewBuilder private var treeRows: some View {
-        if let tree {
-            if tree.rows.isEmpty {
-                EmptyState(icon: .folder, title: "No files").listRowSeparator(.hidden)
-            }
-            ForEach(tree.rows) { row in
-                switch row.kind {
-                case "loading":
-                    FileTreeNoteRow(row: row, text: "Loading…")
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AceTheme.Colours.background)
-                        .accessibilityIdentifier("files.loading.\(row.folder ?? "")")
-                case "more":
-                    Button { model.moreFilesFolder(scope, row.folder ?? "") } label: {
-                        FileTreeNoteRow(row: row, text: "Show more")
-                    }
-                    .buttonStyle(.textAction())
-                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
-                    .listRowBackground(AceTheme.Colours.background)
-                    .listRowSeparator(.hidden)
-                    .accessibilityIdentifier("files.more.\(row.folder ?? "")")
-                case "error":
-                    Button { model.retryFilesFolder(scope, row.folder ?? "") } label: {
-                        FileTreeNoteRow(row: row, text: row.error ?? "Couldn't list this folder. Try again.")
-                    }
-                    .buttonStyle(.textAction())
-                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
-                    .listRowBackground(AceTheme.Colours.background)
-                    .listRowSeparator(.hidden)
-                    .accessibilityIdentifier("files.error.\(row.folder ?? "")")
-                    .accessibilityHint("Double-tap to try again")
-                default:
-                    Button { tap(row) } label: { FileTreeRowView(row: row) }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
-                        .listRowBackground(AceTheme.Colours.background)
-                        // A tree reads by its indent, not lines: no hairline under every row.
-                        .listRowSeparator(.hidden)
-                        .contextMenu { rowMenu(path: row.key, folder: row.isFolder) }
-                        .swipeActions(edge: .trailing) {
-                            if actions.canChange, row.mark != "D" {
-                                Button("Delete", role: .destructive) { actions.ask(.delete(path: row.key)) }
-                            }
-                        }
-                        .accessibilityIdentifier("file.\(row.key)")
-                }
-            }
-        } else {
-            SkeletonRows(label: "Loading files").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                .listRowInsets(EdgeInsets())
-        }
-    }
-
-    private func tap(_ row: FileTreeRow) {
-        if row.isFolder {
-            if row.expanded { model.closeFilesFolder(scope, row.key) } else { model.openFilesFolder(scope, row.key) }
-        } else {
-            opened = FileTarget(path: row.key, changed: row.mark != nil)
-        }
     }
 
     // MARK: Search
@@ -376,12 +305,15 @@ struct FilesScreen: View {
         .accessibilityIdentifier("files.manage")
     }
 
-    @ViewBuilder private func rowMenu(path: String, folder: Bool) -> some View {
+    @ViewBuilder func rowMenu(path: String, folder: Bool) -> some View {
         if folder, actions.canChange {
             Button("New file here", ace: .filePlus) { actions.ask(.create(folder: path)) }
             Button("New folder here", ace: .folderPlus) { actions.ask(.mkdir(folder: path)) }
             Button("Upload files here", ace: .export) { uploadFolder = Self.bare(path); importing = true }
             Button("Download folder", ace: .arrowCircleDown) { downloading = Self.bare(path) }
+        }
+        if !folder, sizeClass == .regular {
+            Button("Open to the side", ace: .sidebarSimple) { opened = FileTarget(path: path, side: true) }
         }
         if !folder, let mention {
             Button("Mention in message", ace: .at) { mention(ComposerMention(path: path)) }
@@ -409,108 +341,5 @@ struct FilesScreen: View {
         case .delete?:
             break
         }
-    }
-}
-
-/// The search field's Names and Contents scopes, in a thread's checkout only.
-private struct ContentSearchScopes: ViewModifier {
-    let enabled: Bool
-    @Binding var scope: FilesSearchScope
-    func body(content: Content) -> some View {
-        if enabled {
-            content.searchScopes($scope, activation: .onSearchPresentation) {
-                Text("Names").tag(FilesSearchScope.names)
-                Text("Contents").tag(FilesSearchScope.contents)
-            }
-        } else {
-            content
-        }
-    }
-}
-
-/// A one-line tree row: indent, disclosure for a folder, its symbol, the name, and the change letter.
-struct FileTreeRowView: View {
-    let row: FileTreeRow
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
-            RowCaret()
-                .rotationEffect(.degrees(row.expanded ? 90 : 0))
-                .animation(.default, value: row.expanded)
-                .foregroundStyle(AceTheme.Colours.decoration)
-                .frame(width: AceDesign.Size.caret).opacity(row.isFolder ? 1 : 0)
-            Text(row.name).aceMonospace(AceDesign.TextRole.rowTitle)
-                .foregroundStyle(ink)
-                .strikethrough(row.mark == "D", color: AceTheme.Colours.mutedForeground)
-                .lineLimit(1).truncationMode(.middle)
-            Spacer(minLength: AceTheme.Spacing.sm)
-            if let mark = row.mark {
-                Text(mark).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .accessibilityLabel(row.markLabel ?? mark)
-            }
-        }
-        .frame(minHeight: AceDesign.Size.rowLine).contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(row.isFolder ? (row.expanded ? "Open" : "Closed") : "")
-    }
-    /// Ignored entries and deleted files read quieter than the ones the checkout carries.
-    private var ink: Color {
-        row.ignored || row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground
-    }
-}
-
-/// A folder's Loading…, Show more or error row: one quiet line, indented under its folder.
-struct FileTreeNoteRow: View {
-    let row: FileTreeRow
-    let text: String
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
-            Text(text)
-                .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .lineLimit(2)
-            Spacer(minLength: AceTheme.Spacing.none)
-        }
-        .frame(minHeight: AceDesign.Size.rowLine).contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// A quick-open match: the name with the typed characters in full ink, its folder beneath.
-struct FileSearchRowView: View {
-    let row: FileSearchRow
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(name).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
-                if !row.folder.isEmpty {
-                    Text(row.folder).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
-                }
-            }
-            Spacer(minLength: AceTheme.Spacing.none)
-        }
-        .frame(minHeight: AceDesign.Size.rowDetail).contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-    }
-    /// The name, muted, with the matched characters in ink.
-    private var name: AttributedString {
-        let bare = row.isFolder ? String(row.path.dropLast()) : row.path
-        let start = bare.utf16.count - row.name.utf16.count
-        let hits = Set(row.positions.map { $0 - start })
-        var out = AttributedString()
-        var offset = 0
-        for character in row.name {
-            let width = String(character).utf16.count
-            var piece = AttributedString(String(character))
-            let hit = (offset..<offset + width).contains { hits.contains($0) }
-            piece.foregroundColor = hit ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground
-            if hit { piece.inlinePresentationIntent = .stronglyEmphasized }
-            out += piece
-            offset += width
-        }
-        return out
     }
 }
