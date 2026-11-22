@@ -206,6 +206,10 @@ export function useEditorAnnotations(options: EditorAnnotationsOptions): EditorL
 
   return {
     margin: annotationMargin,
+    annotate: (from, to) => {
+      const current = view.current;
+      if (current) actions.annotate(lineSpan(current, from, Math.max(from, to)));
+    },
     render: (current) => (
       <ViewKeeper view={current} intoRef={view} annotations={annotations} check={check}>
         <AnnotationLayer view={current} annotations={annotations} open={open} actions={actions} />

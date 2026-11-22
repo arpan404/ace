@@ -11,8 +11,9 @@ export interface RouterContext {
   queryClient: QueryClient;
 }
 
-/** `?market=` opens the Marketplace modal over any page (features/marketplace/market-address.ts). */
+/** `?store=` (and legacy `?market=`) opens the Store at that place (features/marketplace/market-address.ts). */
 const Search = z.object({
+  store: z.catch(z.optional(z.string().check(z.maxLength(300))), undefined),
   market: z.catch(z.optional(z.string().check(z.maxLength(300))), undefined),
 });
 

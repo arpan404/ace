@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { WordChoice } from "@/components/ui/word-choice.tsx";
 import type { EditorHost, StatusNotice } from "./editor-host.ts";
 import {
+  collapsedPanes,
+  displayPanes,
   evenSplit,
   focusedGroup,
   focusGroup,
   groupsFit,
   groupsOf,
+  paneShape,
   resizeSplit,
   roomNeeded,
   type GroupNode,
@@ -16,9 +18,7 @@ import { GroupView } from "./group-view.tsx";
 import { SplitGrid } from "./split-grid.tsx";
 import { StatusLine } from "./status-line.tsx";
 import { createStatusStore, useStatusReport, type StatusStore } from "./status-store.ts";
-
-/** Spec 5: under this width the editor panel lays its explorer over the code. */
-export const compactBelowPx = 760;
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLayoutProps {
   /**
@@ -32,30 +32,35 @@ export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLay
    */
   explorerToggle?: ReactNode;
   /**
-   * The groups don't fit side by side: the editor needs this much width to show them all. The
-   * panel widens if it can; until then one group shows, the others a click away.
+   * The panes don't fit side by side at their roomy width: the editor needs this much. The panel
+   * widens if it can; meanwhile the panes sit narrower, or stacked, but always on screen.
    */
   onNeedRoom?: ((width: number) => void) | undefined;
 }
 
 /**
- * The editor: a thread's editor area. Groups in a split tree, each with its own strip; one status
- * line for the focused group; ⌘1–9 focus groups while focus is inside it (spec 27).
+ * The editor: a thread's editor area. Panes in a split tree, each with its own strip; one status
+ * line for the focused pane; ⌘1–9 focus panes while focus is inside it (spec 27).
  */
 export function Editor(props: EditorProps) {
   const { layout, onLayoutChange } = props;
   const root = useRef<HTMLDivElement>(null);
   const box = useBox(root);
   const groups = groupsOf(layout);
-  // A split the person asked for shows whenever each group gets its room (spec 5).
-  const sideBySide = groupsFit(layout.root, box);
-  const needed = sideBySide ? undefined : roomNeeded(layout.root).width;
+  // Every pane the person made is on screen (spec 5): side by side as room allows, else stacked.
+  const shown = displayPanes(layout.root, box);
+  const needed = groupsFit(layout.root, box) ? undefined : roomNeeded(layout.root).width;
   const { onNeedRoom } = props;
   useEffect(() => {
     if (needed !== undefined) onNeedRoom?.(needed);
   }, [needed, onNeedRoom]);
-  const context = groupContext(props);
+  const context = groupContext(props, box);
   const focused = focusedGroup(layout);
+  // Stacked panes without room are an accordion, unless the person dragged this shape's sizes:
+  // those hold until a pane comes or goes.
+  const shape = paneShape(layout.root);
+  const [resized, setResized] = useState<string | undefined>(undefined);
+  const folded = resized === shape ? noneFolded : collapsedPanes(shown.root, focused.id, box);
   // Status lives outside the editor's state: a caret move redraws the status line alone.
   const [status] = useState(createStatusStore);
   const host: EditorHost = { ...props, reportStatus: status.report };
@@ -75,26 +80,9 @@ export function Editor(props: EditorProps) {
     );
   }, [focused.id, ids, known]);
 
-  const leadOf = (group: GroupNode) => {
-    // The explorer's toggle sits at the left of the first strip on screen.
-    const first = sideBySide ? groups[0]?.id === group.id : true;
-    const toggle = first ? props.explorerToggle : undefined;
-    const switcher = !sideBySide && groups.length > 1 && (
-      <WordChoice
-        label="Groups"
-        value={focused.id}
-        options={groups.map((each, index) => ({ value: each.id, label: `Group ${index + 1}` }))}
-        onValueChange={(id) => onLayoutChange(focusGroup(layout, id))}
-        className="mr-1 shrink-0"
-      />
-    );
-    return toggle || switcher ? (
-      <>
-        {toggle}
-        {switcher}
-      </>
-    ) : undefined;
-  };
+  // The explorer's toggle sits at the left of the first pane's strip.
+  const leadOf = (group: GroupNode) =>
+    groups[0]?.id === group.id ? props.explorerToggle : undefined;
 
   const renderGroup = (group: GroupNode) => {
     const number = groups.indexOf(group) + 1;
@@ -109,6 +97,7 @@ export function Editor(props: EditorProps) {
         host={host}
         actions={bindGroupActions(group.id, context)}
         stripLead={leadOf(group)}
+        folded={folded.has(group.id)}
       />
     );
   };
@@ -119,8 +108,8 @@ export function Editor(props: EditorProps) {
       role="group"
       aria-label="Editor"
       data-part="editor"
-      data-compact={sideBySide ? undefined : ""}
-      className="flex h-full min-h-0 min-w-0 flex-col bg-background"
+      data-stacked={shown.root === layout.root ? undefined : ""}
+      className={`flex h-full min-h-0 min-w-0 flex-col bg-background ${sceneThrough}`}
       onKeyDown={(event) => {
         const number = groupKey(event);
         if (number === undefined) return;
@@ -140,21 +129,24 @@ export function Editor(props: EditorProps) {
       }}
     >
       <div className="flex min-h-0 flex-1">
-        {sideBySide ? (
-          <SplitGrid
-            node={layout.root}
-            renderGroup={renderGroup}
-            onResize={(at, sizes) => onLayoutChange(resizeSplit(layout, at, sizes))}
-            onEven={(at) => onLayoutChange(evenSplit(layout, at))}
-          />
-        ) : (
-          renderGroup(focused)
-        )}
+        <SplitGrid
+          node={shown.root}
+          pane={shown.pane}
+          folded={folded}
+          renderGroup={renderGroup}
+          onResize={(at, sizes) => {
+            setResized(shape);
+            onLayoutChange(resizeSplit(layout, at, sizes));
+          }}
+          onEven={(at) => onLayoutChange(evenSplit(layout, at))}
+        />
       </div>
       <FocusedStatusLine store={status} group={focused.id} notice={props.statusNotice} />
     </div>
   );
 }
+
+const noneFolded: ReadonlySet<string> = new Set();
 
 /** The status line on the focused group's report: the one part a status change redraws. */
 function FocusedStatusLine(props: {

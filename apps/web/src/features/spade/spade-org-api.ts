@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { z } from "zod";
+import {
+  spadeOrgView,
+  spadeSharedAccess,
+  type SpadeOrgView,
+  type SpadeSharedAccess,
+} from "@ace/ui-core/spade-chat";
 import { useMachines } from "@/lib/machines.ts";
 import { spadeMachineKey, useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { segment, spadeHttp, SpadeRequestError, type SpadeTarget } from "./spade-requests.ts";
@@ -10,27 +15,10 @@ import { segment, spadeHttp, SpadeRequestError, type SpadeTarget } from "./spade
  * (`GET /v1/org/audit/export`). A personal machine's Spade belongs to no organization.
  */
 
-const OrgView = z.object({
-  org: z.string().max(128).nullable(),
-  name: z.string().max(256).optional(),
-  host: z.string().max(128).optional(),
-  policy: z.number().int().nonnegative().optional(),
-  auditKey: z.string().max(128).nullable().optional(),
-});
-export type SpadeOrgView = z.infer<typeof OrgView>;
-
-const Access = z.object({
-  org: z.string().max(128),
-  maker: z.string().max(256),
-  /** Undefined: every member may talk to it. */
-  talk: z.array(z.string().max(256)).max(200).optional(),
-  approvers: z.array(z.string().max(256)).max(200),
-  configurers: z.array(z.string().max(256)).max(200).optional(),
-});
-export type SpadeSharedAccess = z.infer<typeof Access>;
+export type { SpadeOrgView, SpadeSharedAccess };
 
 export async function readSpadeOrg(target: SpadeTarget, signal?: AbortSignal) {
-  return OrgView.parse(JSON.parse(await spadeHttp(target, "GET", "/v1/org", { signal })));
+  return spadeOrgView(await spadeHttp(target, "GET", "/v1/org", { signal }));
 }
 
 /** A bot's access list, or undefined for a bot that isn't shared. */
@@ -41,7 +29,7 @@ export async function readSharedAccess(
 ): Promise<SpadeSharedAccess | undefined> {
   try {
     const text = await spadeHttp(target, "GET", `/v1/agents/${segment(agent)}/access`, { signal });
-    return z.object({ access: Access }).parse(JSON.parse(text)).access;
+    return spadeSharedAccess(text);
   } catch (error) {
     if (error instanceof SpadeRequestError && error.status === 404) return undefined;
     throw error;

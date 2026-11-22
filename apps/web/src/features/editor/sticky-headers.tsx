@@ -1,3 +1,5 @@
+import { sceneBar } from "@/components/ui/rules.ts";
+
 /**
  * The pinned headers of sticky scroll, over the top of the text: each one's line number and text,
  * scrolled sideways with the text. Picking one puts the caret on it.
@@ -16,7 +18,7 @@ export function StickyHeaders(props: {
       role="group"
       aria-label="Current scope"
       data-sticky-headers
-      className="absolute inset-x-0 top-0 z-[2] overflow-hidden border-b border-border bg-background"
+      className={`absolute inset-x-0 top-0 z-[2] overflow-hidden border-b border-border bg-background ${sceneBar}`}
     >
       {props.lines.map((line) => (
         <button

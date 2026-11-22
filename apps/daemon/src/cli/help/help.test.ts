@@ -38,12 +38,17 @@ test("a noun's page lists each of its commands with one line", () => {
 test("help for a shortcut is the command it stands for", () => {
   expect(helpFor(table, ["run"]).command?.id).toBe("thread.start");
   expect(helpFor(table, ["threads", "list"]).command?.id).toBe("thread.list");
+  expect(helpFor(table, ["market"]).text).toBe(helpFor(table, ["store"]).text);
+  expect(helpFor(table, ["market", "search"]).command?.id).toBe("market.search");
 });
 
 test("topics print their own page", () => {
   for (const topic of ["output", "exit-codes", "agents", "scripting", "remote", "publishing"])
     expect(helpFor(table, [topic]).text.length).toBeGreaterThan(40);
   expect(helpFor(table, ["exit-codes"]).text).toContain("64");
+  expect(helpFor(table, ["market-maintainer"]).text).toBe(
+    helpFor(table, ["store-maintainer"]).text,
+  );
 });
 
 test("help for something that doesn't exist is a usage error with the nearest name", () => {

@@ -23,6 +23,7 @@ import {
   spadeListRows,
   spadePlaceLine,
 } from "./spade-rows.ts";
+import { SpadePeople, SpadeSharing } from "./spade-sharing.ts";
 import { SpadeWorkerTree } from "./spade-worker-tree.ts";
 import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
 
@@ -54,6 +55,8 @@ export const NativeSpadeAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("spade.active"), active: z.boolean() }),
   /** Pull to refresh: read Spade's state, the setting and the bots again now. */
   z.object({ type: z.literal("spade.refresh") }),
+  /** Who the person is and their organizations' members' names, for a shared bot's requests. */
+  z.object({ type: z.literal("spade.people"), people: SpadePeople }),
 ]);
 export type NativeSpadeAction = z.infer<typeof NativeSpadeAction>;
 
@@ -133,6 +136,8 @@ export class NativeSpade {
   private readonly workers: SpadeWorkerWatch;
   /** The open chat's bot's tree, for whether a bot worker has started or finished. */
   private readonly tree: SpadeWorkerTree;
+  /** Which bots an organization shares, on an org host (ADR 0206 §2.3). */
+  private readonly sharing: SpadeSharing;
   private readonly owner: ClientCore;
   private readonly sink: PatchSink;
   private readonly deps: SpadeDeps;
@@ -151,6 +156,14 @@ export class NativeSpade {
       { read: (path) => spadeText(owner, deps.id, "GET", path), later: deps.later },
       () => this.publishOpen(),
     );
+    this.sharing = new SpadeSharing({
+      read: (path) => spadeText(owner, deps.id, "GET", path),
+      now: deps.now,
+      changed: () => {
+        this.put();
+        this.publishOpen();
+      },
+    });
   }
 
   get ready(): boolean {
@@ -210,7 +223,10 @@ export class NativeSpade {
         this.active = action.active;
         return action.active ? this.readList() : this.stopList();
       case "spade.refresh":
+        this.sharing.refresh();
         return this.refresh();
+      case "spade.people":
+        return this.sharing.setPeople(action.people);
     }
   }
 
@@ -311,6 +327,7 @@ export class NativeSpade {
       (body) => {
         const listed = parseSpadeAgents(body);
         if (listed && writes === this.writes) this.agents = listed;
+        if (listed) this.sharing.follow(listed);
         this.listFailed = !listed;
         this.put();
       },
@@ -368,6 +385,7 @@ export class NativeSpade {
                 this.machine ?? "its machine",
                 this.ready,
                 this.hostId,
+                (agent) => this.sharing.sharedIn(agent),
               )
             : null,
         // The bots couldn't be read and none are known: the list says so, with Try again.
@@ -495,7 +513,8 @@ export class NativeSpade {
         () => this.agents,
         (id) => this.tree.node(id),
       );
-      const rows = spadeConversationRows(view, bot?.name || "Spade", facts);
+      const approvers = bot ? this.sharing.approvers(bot.id) : null;
+      const rows = spadeConversationRows(view, bot?.name || "Spade", facts, approvers);
       this.workers.showing(rows);
       this.tree.showing(bot?.id, rows);
       this.putRows(open.id, rows);

@@ -1,5 +1,6 @@
 import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
-import { seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
+import { seededSpade, seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
+import { keepOnlySpaceThreads, recordSeeded, seedSpace } from "./space-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -104,6 +105,8 @@ const details = (branch: string) => ({
   branch,
   machine: { host: hostId, name: machineName },
 });
+// Every thread the scenarios below seed, so an org host can drop them (`ACE_IOS_SPIKE_SPACE`).
+const seeded = recordSeeded(daemon);
 // Seeded first, so they are the list's oldest finished threads and never push the others down.
 seedTransitions(daemon, details);
 daemon.createThread({
@@ -323,6 +326,9 @@ seedProjectMarks(daemon, { host: hostId, name: machineName });
 seedChats(daemon);
 seedOutside(daemon, Date.now());
 seedSpade(daemon, Date.now());
+// Opt-in, for the spaces screenshots: `ACE_IOS_SPIKE_SPACE=personal|acme`.
+const space = process.env.ACE_IOS_SPIKE_SPACE;
+if (space === "personal" || space === "acme") seedSpace(daemon, details, space, seededSpade());
 // Opt-in, so other UI tests keep the list they expect: `ACE_IOS_SPIKE_ROUTING=1`.
 if (process.env.ACE_IOS_SPIKE_ROUTING === "1") seedRouting(daemon, details, machineName);
 // GitHub pull requests, issues and notifications for the Pulls tab.
@@ -405,6 +411,11 @@ const lostReceipt = new LostReceipt();
 const spikeAccount = new SpikeAccount(() => Date.now());
 // The app's `--perf-probe` numbers, for the performance UI tests.
 const perfProbe = new SpikePerfProbe();
+// An org host holds only the organization's work: the person's own threads, seeded above for
+// every fixture, are deleted once everything is seeded, so no thread is on a machine of both
+// spaces.
+if (space === "acme") keepOnlySpaceThreads(daemon, seeded());
+
 const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,

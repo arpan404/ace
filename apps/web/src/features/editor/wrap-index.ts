@@ -64,6 +64,8 @@ function priority(seed: number): number {
 export class WrapIndex implements RowLayout {
   readonly #text: WrapText;
   #columns = Number.POSITIVE_INFINITY;
+  /** Bumped whenever rows may have moved: what a view keeps placed by rows is placed again. */
+  #revision = 0;
   /** The document version every count in the tree was measured from. */
   #version: number;
   /** Measured rows by node, so a line keeps its rows while the lines around it move. */
@@ -110,6 +112,11 @@ export class WrapIndex implements RowLayout {
   }
 
   /** The cells a line wraps at; `Infinity` leaves every line on one row. */
+  /** Moves on with every change that can move rows: an edit, a re-wrap, a fold. */
+  revision(): number {
+    return this.#revision;
+  }
+
   get columns(): number {
     return this.#columns;
   }
@@ -119,6 +126,7 @@ export class WrapIndex implements RowLayout {
    * same width changes nothing.
    */
   setColumns(columns: number, visible?: { first: number; last: number }): boolean {
+    this.#revision++;
     const next = Number.isFinite(columns) && columns > 0 ? Math.floor(columns) : Infinity;
     if (next === this.#columns) return false;
     this.#columns = next;
@@ -217,6 +225,7 @@ export class WrapIndex implements RowLayout {
    * around it move; costs the hidden lines' count, once per fold change, never per keystroke.
    */
   setHidden(ranges: readonly { from: number; to: number }[]): void {
+    this.#revision++;
     const previous = this.#hiddenNodes;
     this.#hiddenNodes = new Set();
     for (const node of previous) {
@@ -240,6 +249,7 @@ export class WrapIndex implements RowLayout {
    * line as it is: costs those lines only.
    */
   showLines(from: number, to: number): void {
+    this.#revision++;
     for (let line = Math.max(0, from); line < Math.min(to, this.#length); line++) {
       const node = this.#nodeAt(line);
       if (node === 0 || this.#hidden[node] !== 1) continue;
@@ -252,6 +262,16 @@ export class WrapIndex implements RowLayout {
   /** Whether a line is inside a folded region. */
   isHidden(line: number): boolean {
     return this.#hidden[this.#nodeAt(line)] === 1;
+  }
+
+  /**
+   * A line's row count as known now, without measuring it: for placing things by rows (the
+   * overview ruler) during a render, where a measure would move rows unseen.
+   */
+  rowCount(line: number): number {
+    const node = this.#nodeAt(line);
+    if (node === 0) return 1;
+    return this.#hidden[node] === 1 ? 0 : this.#countOf(node);
   }
 
   rowsOf(line: number): WrapRows {
@@ -272,6 +292,7 @@ export class WrapIndex implements RowLayout {
    * or queues a span as long as the file for the background pass.
    */
   apply(batches: readonly LineBatch[]): void {
+    this.#revision++;
     for (const batch of batches) {
       this.#version = batch.version;
       if (batch.spans.some((span) => span.removedLines !== span.insertedLines)) {
@@ -287,6 +308,7 @@ export class WrapIndex implements RowLayout {
    * a burst of edits cannot stall the frame that finally pumps it.
    */
   pump(limit: number): number {
+    this.#revision++;
     let remaining = limit;
     while (this.#from < this.#pending.length && remaining > 0) {
       const ticket = this.#pending[this.#from++];
@@ -564,6 +586,8 @@ export class WrapIndex implements RowLayout {
   #measure(node: number): WrapRows | undefined {
     if (this.#text.version() !== this.#version) return undefined;
     const rows = wrapLine(this.#text.line(this.#rankOf(node)), this.#columns);
+    // A count that changed moves rows: whatever is placed by them is placed again.
+    if (this.#count[node] !== rows.length) this.#revision++;
     this.#count[node] = rows.length;
     if (this.#dirty[node] === 1) {
       this.#dirty[node] = 0;

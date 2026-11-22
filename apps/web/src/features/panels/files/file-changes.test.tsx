@@ -47,11 +47,19 @@ test("a file's lines changed since the last commit are marked beside their numbe
     expect(
       within(view)
         .getAllByTitle("Changed since the last commit")
-        .map((gutter) => gutter.textContent),
+        .filter((bar) => bar.hasAttribute("data-change-bar"))
+        .map((bar) => bar.getAttribute("data-change-line")),
     ).toEqual(["2", "4"]),
   );
-  // Unchanged lines carry no mark.
-  expect(within(view).queryAllByTitle(/since the last commit/)).toHaveLength(2);
+  // Unchanged lines carry no mark; the overview ruler shows the same two changes.
+  expect(view.querySelectorAll("[data-change-bar]")).toHaveLength(2);
+  expect(
+    [...view.querySelectorAll("[data-overview-tick]")].map((tick) => tick.getAttribute("title")),
+  ).toEqual([
+    "Changed since the last commit, line 2",
+    "Changed since the last commit, line 4",
+    "Cursor at line 1",
+  ]);
 });
 
 test("a changed file opens its uncommitted diff in Changes from its tab's menu", async () => {
@@ -86,14 +94,14 @@ test("typed text marks the tab unsaved and stays out of the stored layout", asyn
 
 /** Presses a changed line's bar at the gutter's right edge. */
 function pressMark(view: HTMLElement, line: number) {
-  const gutter = view.querySelector<HTMLElement>(`[data-line="${line - 1}"] [data-mark]`);
+  const gutter = view.querySelector<HTMLElement>(`[data-line="${line - 1}"] [data-line-number]`);
   const scroller = view.querySelector<HTMLElement>("[data-editor-scroller]");
   if (!gutter || !scroller) throw new Error(`line ${line} has no mark`);
   const width = Number.parseFloat(gutter.style.width);
   fireEvent.pointerDown(scroller, { button: 0, clientX: width - 2, clientY: (line - 1) * 22 + 5 });
 }
 
-test("a press on a change mark shows what the lines were, and Revert puts them back and saves", async () => {
+test("a press on a change mark shows what the lines were, and Revert puts them back unsaved", async () => {
   const { app, view } = await openRetry();
   await waitFor(() =>
     expect(within(view).getAllByTitle("Changed since the last commit")).toHaveLength(2),
@@ -112,13 +120,17 @@ test("a press on a change mark shows what the lines were, and Revert puts them b
   ]);
 
   await userEvent.click(within(peek).getByRole("button", { name: "Revert" }));
+  await waitFor(() => expect(view.textContent).toContain("return 1;"));
+  expect(within(view).queryByRole("group", { name: /^Change at line/ })).toBeNull();
+  // Nothing is written until the person saves.
+  expect(await bytes(app, "src/retry.ts")).toBe(source);
+  await userEvent.click(within(view).getByRole("textbox", { name: "retry.ts" }));
+  await userEvent.keyboard("{Control>}s{/Control}");
   await waitFor(async () =>
     expect(await bytes(app, "src/retry.ts")).toBe(
       "export function retry() {\n  return 1;\n}\nexport const tries = 2;\n",
     ),
   );
-  expect(view.textContent).toContain("return 1;");
-  expect(within(view).queryByRole("group", { name: /^Change at line/ })).toBeNull();
 });
 
 test("Close and Escape put a change's inline diff away without touching the file", async () => {

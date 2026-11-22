@@ -57,6 +57,7 @@ struct InboxStack<Destination: View, Side: View>: View {
     @State private var problem: InboxConnectionProblem?
     /// Chats' filter field.
     @State private var chatsQuery = ""
+    @Environment(SpacesModel.self) private var spaces: SpacesModel?
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// The scope: a row shows when its machine and project match.
@@ -166,8 +167,16 @@ struct InboxStack<Destination: View, Side: View>: View {
     private var subtitle: String? {
         let scoped = !project.isEmpty || !machine.isEmpty
         let scope = chats ? (machine.isEmpty ? nil : inbox.name(machine)) : (scoped ? filters.subtitle : nil)
-        let parts = [scope, problem?.text].compactMap { $0 }
+        let parts = [spaceName, scope, problem?.text].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The space the list shows (ADR 0206 §1.4), once the person has an organization to tell it
+    /// from: the drawer says which one it is.
+    private var spaceName: String? {
+        guard let spaces, let listed = spaces.spaces, !listed.isEmpty else { return nil }
+        guard let shown = spaces.shown else { return "Loading…" }
+        return shown.org?.name ?? "Personal"
     }
 
     /// A row picked in the list (`ThreadDrawer.pick`): the drawer closes and the row's thread

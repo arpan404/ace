@@ -203,5 +203,9 @@ extension View {
 extension MachineInbox {
     /// Starting is impossible when every paired machine is view-only: the compose button stays
     /// out rather than opening a sheet whose Start can never enable.
-    var canStartThreads: Bool { sessions.isEmpty || sessions.contains { $0.client.canOperate } }
+    /// An organization's space with none of its machines reachable starts nothing (ADR 0206 §2.4).
+    var canStartThreads: Bool {
+        if spaceBlock?() != nil { return false }
+        return sessions.isEmpty || sessions.contains { $0.client.canOperate }
+    }
 }
