@@ -3,6 +3,7 @@ import { CaretDownIcon, CaretUpIcon } from "@ace/icons";
 import type { ChangeHunk } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
@@ -29,7 +30,7 @@ function PeekFrame(props: {
       role="group"
       aria-label={props.label}
       data-hunk-peek
-      className="border-y border-border bg-background py-1 shadow-sm"
+      className={`border-y border-border bg-background py-1 shadow-sm ${sceneThrough}`}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.stopPropagation();

@@ -67,7 +67,6 @@ export {
   useEditorReview,
   type EditorReview,
 } from "./editor-review.ts";
-export { settleExplorerAsk, useExplorerAsk } from "./editor-explorer-ask.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export {
   filePreviewTab,

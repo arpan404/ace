@@ -18,6 +18,7 @@ const MarkdownPreview = lazy(() =>
 );
 import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 /**
  * One group: its strip, breadcrumbs, the shown editor (only the active tab renders: spec 56),
@@ -66,10 +67,10 @@ export function GroupView(props: {
   );
   return (
     <section
-      aria-label={`Group ${props.number}`}
+      aria-label={`Pane ${props.number}`}
       data-group-id={group.id}
       data-focused={props.focused ? "" : undefined}
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-background", sceneThrough)}
       onFocusCapture={actions.focus}
       onPointerDownCapture={actions.focus}
     >
@@ -109,7 +110,10 @@ export function GroupView(props: {
           event.stopPropagation();
           event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
           const box = event.currentTarget.getBoundingClientRect();
-          const next = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
+          const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
+          // The wash shows what a drop would do: an edge that stacks washes the stacked half,
+          // and past the pane cap an edge takes nothing and washes nothing.
+          const next = at === "center" ? at : actions.edge(at);
           if (next !== zone) setZone(next);
         }}
         onDragLeave={(event) => {
@@ -121,7 +125,8 @@ export function GroupView(props: {
           event.preventDefault();
           event.stopPropagation();
           const drag = readGroupDrag(event.dataTransfer, host.threadId);
-          const at = zone ?? "center";
+          const box = event.currentTarget.getBoundingClientRect();
+          const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
           setZone(undefined);
           if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
         }}

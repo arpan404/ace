@@ -15,7 +15,6 @@ export {
   type EditorBuffers,
 } from "./editor-buffers.ts";
 export { BufferEditor } from "./buffer-editor.tsx";
-export { compactBelowPx } from "./editor.tsx";
 export type {
   EditorCompareProps,
   BufferEditorProps,

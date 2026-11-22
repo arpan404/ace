@@ -120,12 +120,14 @@ test("a loading file shows skeleton lines only after 150 ms, never at once", asy
   );
 });
 
-test("Open editors groups rows and offers Save all only while something is unsaved", async () => {
+test("Open editors lists files flat, panes apart by a divider, and offers Save all only while something is unsaved", async () => {
   const onSaveAll = vi.fn();
   const editor = await mountEditor(two([tab("src/a.ts")], [tab("docs/c.md")]), { onSaveAll });
   const list = screen.getByRole("region", { name: "Open editors" });
-  expect(within(list).getByText("Group 1")).toBeTruthy();
-  expect(within(list).getByText("Group 2")).toBeTruthy();
+  expect(within(list).queryByText(/Group/)).toBeNull();
+  expect(within(list).getAllByRole("separator")).toHaveLength(1);
+  expect(within(list).getByTitle("src/a.ts")).toBeTruthy();
+  expect(within(list).getByTitle("docs/c.md")).toBeTruthy();
   expect(within(list).queryByRole("button", { name: "Save all" })).toBeNull();
 
   editor.edit("docs/c.md", "typed");

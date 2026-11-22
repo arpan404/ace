@@ -125,3 +125,31 @@ export function spadeHostSync(
   const choice = { host, version: 1, at: now, by: "seed" };
   return { choice, tell: stale(choice) };
 }
+
+/** A machine's main bot as a roster lists it. */
+export interface SpadeMainOn {
+  /** The roster's key for its machine. */
+  machine: string;
+  /** Its machine's ace host id, as host records name it. */
+  host: string;
+  createdAt: number;
+  /** Its machine's Spade answers now. */
+  answering: boolean;
+}
+
+/**
+ * Which machine's main bot a roster shows as Spade, once across every machine: the one the
+ * newest host record names, kept from its last answer while that machine is away (none while it
+ * listed none). Before any record, the oldest main of the machines answering, as each still
+ * decides, the machine key breaking a tie so every client shows the same one.
+ */
+export function spadeShownMain<T extends SpadeMainOn>(
+  mains: readonly T[],
+  records: readonly (SpadeHostRecord | undefined)[],
+): T | undefined {
+  const choice = newestSpadeHost(records);
+  if (choice) return mains.find((main) => main.host === choice.host);
+  return mains
+    .filter((main) => main.answering)
+    .toSorted((a, b) => a.createdAt - b.createdAt || byHost(a.machine, b.machine))[0];
+}
