@@ -164,7 +164,7 @@ export function MembersPage(props: { org: AceOrgSpace }) {
   );
 }
 
-/** Invite by email (WorkOS sends the mail; the invitee chooses to join), and pending invitations. */
+/** Invite by email (your sign-in provider sends the mail; the invitee chooses to join). */
 function Invitations(props: { org: AceOrgSpace; options: SelectOption<AceOrgAssignableRole>[] }) {
   const { org } = props;
   const invitations = useOrgInvitations(org.id, true);
@@ -179,7 +179,7 @@ function Invitations(props: { org: AceOrgSpace; options: SelectOption<AceOrgAssi
     <SettingSection
       label="Invitations"
       anchor="org.invitations"
-      note="WorkOS sends the invitation. Nobody joins until they choose to."
+      note="Your sign-in provider sends the invitation. Nobody joins until they choose to."
     >
       <form
         className="flex min-h-(--setting-row-height) flex-wrap items-center gap-2 py-(--setting-row-y)"
