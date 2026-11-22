@@ -123,6 +123,12 @@ export type GitErrorCode =
   | "checkpoint_not_found"
   | "restore_collision"
   | "unsupported_repository"
+  | "pull_diverged"
+  | "no_upstream"
+  | "trash_unavailable"
+  | "stash_empty"
+  | "nothing_to_stash"
+  | "path_outside_repo"
   | GitFailureCode;
 
 /**
@@ -225,6 +231,7 @@ export interface RevisionLines {
 
 export type DiffSide =
   | { kind: "working-tree" }
+  | { kind: "index" }
   | { kind: "commit"; ref: string }
   | { kind: "checkpoint"; id: string };
 
@@ -252,6 +259,34 @@ export interface ChangedFile {
   additions: number;
   deletions: number;
   binary: boolean;
+}
+
+export interface SourceControlSectionEntry {
+  path: string;
+  from?: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
+}
+
+export interface SourceControlStatus {
+  files: ChangedFile[];
+  truncated: boolean;
+  staged: SourceControlSectionEntry[];
+  unstaged: SourceControlSectionEntry[];
+  untracked: SourceControlSectionEntry[];
+  conflicted: SourceControlSectionEntry[];
+  branch: string | null;
+  detached: boolean;
+  head: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface GitStash {
+  ref: string;
+  index: number;
+  message: string;
+  branch?: string;
 }
 
 /** A bounded failure can outlive its supervised mutation ownership. */

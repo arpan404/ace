@@ -65,6 +65,7 @@ import { listClientRuns } from "./run-client-storage.ts";
 import { AsyncCommands } from "./async-commands.ts";
 import type { Store } from "./store.ts";
 import { systemCredentials } from "./credential-runtime.ts";
+import { isSourceControlCommand, runSourceControlCommand } from "./workspace-source-control.ts";
 
 export interface WorkspaceRuntimeOptions {
   /** Why the thread opens no terminal now: it is moving to another machine (ADR 0191). */
@@ -75,6 +76,8 @@ export interface WorkspaceRuntimeOptions {
   reconcileThread?(id: ThreadId): Promise<void>;
   /** Provider background work still runs, or is lost track of (the workspace fence's check). */
   runsProviderWork?(id: ThreadId): boolean;
+  /** Move an untracked repository-relative file into Recently deleted (trash). */
+  trashFile?(id: ThreadId, path: string): Promise<void>;
   changeWorkspace?(
     id: ThreadId,
     commandId: string,
@@ -806,25 +809,52 @@ export class WorkspaceRuntime {
       );
       return wrap({ kind: "gitConflicts", conflicts });
     }
+    if (op.op === "git.branches") {
+      const root = this.root(op.threadId);
+      const [listed, refs, info] = await Promise.all([
+        this.git.branches(root),
+        this.git.branchRefs(root),
+        this.git.repositoryInfo(root),
+      ]);
+      return wrap({
+        kind: "branches",
+        ...listed,
+        refs: refs.refs,
+        defaultBranch: await this.defaultBranch(root, refs.defaultBranch),
+        current: info.branch,
+        detached: info.detached,
+        unbornHead: info.head === null && !info.detached,
+      });
+    }
+    if (op.op === "git.stash.list") {
+      const root = this.root(op.threadId);
+      return wrap({ kind: "gitStashes", stashes: await this.git.stashList(root) });
+    }
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
+      const from =
+        op.stage === "unstaged"
+          ? ({ kind: "index" } as const)
+          : ({ kind: "commit", ref: "HEAD" } as const);
+      const to =
+        op.stage === "staged" ? ({ kind: "index" } as const) : ({ kind: "working-tree" } as const);
       if (op.path === undefined) {
         const diff = await this.git.diff({
           worktree: root,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "working-tree" },
+          from,
+          to,
           maxPatchBytes: 262144,
         });
         if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
         return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
       }
       const paths = [op.path, ...(op.from ? [op.from] : [])];
-      const key = JSON.stringify([op.threadId, root, paths]);
+      const key = JSON.stringify([op.threadId, root, op.stage ?? "all", paths]);
       const file = await this.filePatches.read(key, op.expected, async () => {
         const diff = await this.git.diff({
           worktree: root,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "working-tree" },
+          from,
+          to,
           maxPatchBytes: filePatchBytes,
           paths,
         });
@@ -844,9 +874,24 @@ export class WorkspaceRuntime {
       void reviewer?.catch(() => {});
       const { files, truncated } = await this.git.changedFiles(root, gitStatusLimit);
       // A commit made after this read must not reuse an older HEAD as its expected one.
-      const head = await this.git.resolveCommit({ worktree: root, ref: "HEAD" }).catch(() => null);
+      const state = await this.git.sourceControlState(root, gitStatusLimit);
       const hooks = reviewer ? await reviewer : "run";
-      return wrap({ kind: "gitStatus", truncated, files, head, hooks });
+      return wrap({
+        kind: "gitStatus",
+        truncated: truncated || state.truncated,
+        files,
+        head: state.head,
+        hooks,
+        staged: state.staged,
+        unstaged: state.unstaged,
+        untracked: state.untracked,
+        conflicted: state.conflicted,
+        branch: state.branch,
+        detached: state.detached,
+        upstream: state.upstream,
+        ahead: state.ahead,
+        behind: state.behind,
+      });
     }
     return wrap({
       kind: "pr",
@@ -982,19 +1027,37 @@ export class WorkspaceRuntime {
           p.pr,
           p.step,
         );
-      if (p.type === "git.commit")
-        return {
-          ok: true,
-          commit: await asPerson(() =>
-            this.git.commit({
-              worktree: cwd,
-              message: p.message,
-              expectedHead: p.expectedHead,
-              paths: p.paths,
-              draftFingerprint: p.draftFingerprint,
-            }),
-          ),
-        };
+      if (p.type === "git.commit") {
+        const commit = await asPerson(() =>
+          this.git.commit({
+            worktree: cwd,
+            message: p.message,
+            expectedHead: p.expectedHead,
+            paths: p.paths,
+            stagedOnly: p.stagedOnly,
+            amend: p.amend,
+            draftFingerprint: p.draftFingerprint,
+          }),
+        );
+        await this.details(threadId).catch(() => {});
+        return { ok: true, commit };
+      }
+      if (isSourceControlCommand(p)) {
+        return runSourceControlCommand(
+          {
+            git: this.git,
+            store: this.store,
+            threadId,
+            cwd,
+            runsProviderWork: (owner) => this.options.runsProviderWork?.(owner) ?? false,
+            trashFile: this.options.trashFile,
+            refreshDetails: async () => {
+              await this.details(threadId);
+            },
+          },
+          p,
+        );
+      }
       if (p.type === "git.push") {
         try {
           // Only the push itself is the person's; reading the checkout stays ace's own.
@@ -1011,6 +1074,7 @@ export class WorkspaceRuntime {
           if (!remoteHead) throw error;
           return { ok: false, error: actionErrorCode(error), remoteHead };
         }
+        await this.details(threadId).catch(() => {});
         return { ok: true };
       }
       if (p.type === "workspace.editor.open") {

@@ -70,7 +70,34 @@ export async function startWorkspaceActions({
         ),
     },
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
-    ...(services.threadFiles ? { forgeMediaGrants: services.threadFiles.forgeMedia.grants } : {}),
+    ...(services.threadFiles
+      ? {
+          forgeMediaGrants: services.threadFiles.forgeMedia.grants,
+          trashFile: async (threadId, path) => {
+            const threadFiles = services.threadFiles;
+            if (!threadFiles) throw new Error("git_trash_unavailable");
+            const acquired = await threadFiles.acquire(threadId);
+            try {
+              const stat = await acquired.service.request("local", { op: "stat", path });
+              const version =
+                typeof stat === "object" &&
+                stat !== null &&
+                "version" in stat &&
+                typeof stat.version === "string"
+                  ? stat.version
+                  : null;
+              if (!version) return;
+              await acquired.service.request("local", {
+                op: "delete",
+                path,
+                expected: version,
+              });
+            } finally {
+              acquired.release();
+            }
+          },
+        }
+      : {}),
     writingCli:
       options.workspaceActions?.writingCli ??
       createWritingCli({

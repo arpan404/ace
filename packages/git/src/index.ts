@@ -34,7 +34,26 @@ import {
   type LayerReplay,
   type StackReplayOptions,
 } from "./stack-sync.ts";
-import { changedFiles, changeSummary, checkoutSummary } from "./changed-files.ts";
+import {
+  changedFiles,
+  changeSummary,
+  checkoutSummary,
+  sourceControlState,
+  sourceControlStatus,
+} from "./changed-files.ts";
+import {
+  createBranch,
+  discardPaths,
+  fetchRemote,
+  parseStashList,
+  pullBranch,
+  stagePaths,
+  stashList,
+  stashPop,
+  stashPush,
+  unstagePaths,
+  validateRepoPaths,
+} from "./source-control-ops.ts";
 import {
   abortMerge,
   commitMerge,
@@ -69,6 +88,7 @@ import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from 
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
 export { validateCloneUrl } from "./projects.ts";
+export { parseStashList, validateRepoPaths } from "./source-control-ops.ts";
 import { remoteDefaultBranch, type RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export type { RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export { publicationRemote } from "./publication-remote.ts";
@@ -266,13 +286,15 @@ export class GitService {
     return outcome.value;
   }
 
-  /** Commit every change, or only `paths`; other changes stay as they were. */
+  /** Commit every change, only `paths`, or only what is already staged; optionally amend HEAD. */
   commit(options: {
     worktree: string;
     message: string;
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    stagedOnly?: boolean | undefined;
+    amend?: boolean | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
   }
@@ -283,6 +305,31 @@ export class GitService {
   ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
     return changedFiles(this.repository, worktree, limit);
   }
+  /** Staged/unstaged/untracked/conflicted sections + branch/ahead/behind from one status call. */
+  sourceControlState(worktree: string, limit = 500) {
+    return sourceControlState(this.repository, worktree, limit);
+  }
+  /** Full source control status (staged/unstaged/untracked/conflicted + branch ahead/behind). */
+  sourceControlStatus(worktree: string, limit = 500) {
+    return sourceControlStatus(this.repository, worktree, limit);
+  }
+  /** Stage specific paths, or all changes when `paths` is omitted. */
+  stage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
+    return stagePaths(this.repository, options);
+  }
+  /** Unstage specific paths, or all staged changes when `paths` is omitted. */
+  unstage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
+    return unstagePaths(this.repository, options);
+  }
+  /** Discard tracked changes and move untracked paths to `trash` (refuses if `trash` is absent). */
+  discard(options: {
+    worktree: string;
+    paths?: readonly string[] | undefined;
+    includeUntracked?: boolean | undefined;
+    trash?: ((root: string, path: string) => Promise<void>) | undefined;
+  }): Promise<void> {
+    return discardPaths(this.repository, options);
+  }
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
   }
@@ -292,6 +339,38 @@ export class GitService {
   }
   push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);
+  }
+  /** Fetch updates from a remote with pruning. */
+  fetch(options: {
+    worktree: string;
+    remote?: string | undefined;
+    timeoutMs?: number | undefined;
+  }): Promise<void> {
+    return fetchRemote(this.repository, options);
+  }
+  /** Fetch and fast-forward the current branch (`--ff-only`). */
+  pull(options: {
+    worktree: string;
+    remote?: string | undefined;
+    timeoutMs?: number | undefined;
+  }): Promise<void> {
+    return pullBranch(this.repository, options);
+  }
+  /** List stashes in the checkout, newest first. */
+  stashList(worktree: string) {
+    return stashList(this.repository, worktree);
+  }
+  /** Push local changes onto the stash stack. */
+  stashPush(options: {
+    worktree: string;
+    message?: string | undefined;
+    includeUntracked?: boolean | undefined;
+  }): Promise<void> {
+    return stashPush(this.repository, options);
+  }
+  /** Pop the latest stash or a specific `stash@{N}` entry. */
+  stashPop(options: { worktree: string; stash?: string | undefined }): Promise<void> {
+    return stashPop(this.repository, options);
   }
   /** Move several branches in one atomic push, each leased to a caller-reviewed revision. */
   pushLeased(options: LeasedPushOptions) {
@@ -347,8 +426,13 @@ export class GitService {
     worktree: string;
     branch: string;
     allowUncommitted: boolean;
+    remote?: string | undefined;
   }): Promise<void> {
     return switchBranch(this.repository, options);
+  }
+  /** Create a new branch at HEAD and switch to it. */
+  createBranch(options: { worktree: string; branch: string }): Promise<void> {
+    return createBranch(this.repository, options);
   }
   branches(worktree: string): Promise<{ branches: string[]; truncated: boolean }> {
     return listBranches(this.repository, worktree);

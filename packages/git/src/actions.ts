@@ -35,6 +35,8 @@ export async function commitChanges(
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    stagedOnly?: boolean | undefined;
+    amend?: boolean | undefined;
     beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
@@ -50,6 +52,8 @@ export async function commitChanges(
     const info = await read(() => repository.info(root));
     if (info.head !== expected)
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
+    if (options.amend && info.head === null)
+      throw new GitError("unborn_head", "Cannot amend before the first commit");
     if (options.draftFingerprint) {
       if (
         !paths ||
@@ -63,22 +67,33 @@ export async function commitChanges(
       throw new GitError("conflicts", "Resolve conflicts before committing");
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
     const literal = { GIT_LITERAL_PATHSPECS: "1" };
-    const named = paths ? [...new Set(paths.data)] : ["."];
-    // Stage what the working tree changed among them; a path already staged (a rename's old
-    // name, a staged deletion) is in no worktree and `git add` would refuse it.
-    const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
-    const staging = paths ? named.filter((path) => changed.has(path)) : named;
-    if (staging.length)
-      await repository.cli.call(root, ["add", "--all", "--", ...staging], {
-        write: true,
-        beforeSpawn: options.beforeCommit,
-        timeoutMs: longWriteTimeoutMs,
-        captureBytes: 65536,
-        env: literal,
-      });
+    if (options.stagedOnly && !paths) {
+      if (!options.amend && status.staged.length === 0)
+        throw new GitError("nothing_to_commit", "There is nothing staged to commit");
+    } else {
+      const named = paths ? [...new Set(paths.data)] : ["."];
+      // Stage what the working tree changed among them; a path already staged (a rename's old
+      // name, a staged deletion) is in no worktree and `git add` would refuse it.
+      const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
+      const staging = paths ? named.filter((path) => changed.has(path)) : named;
+      if (staging.length)
+        await repository.cli.call(root, ["add", "--all", "--", ...staging], {
+          write: true,
+          beforeSpawn: options.beforeCommit,
+          timeoutMs: longWriteTimeoutMs,
+          captureBytes: 65536,
+          env: literal,
+        });
+    }
+    const named = paths ? [...new Set(paths.data)] : [];
     await repository.cli.call(
       root,
-      ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],
+      [
+        "commit",
+        "--file=-",
+        ...(options.amend ? ["--amend"] : []),
+        ...(paths ? ["--only", "--", ...named] : []),
+      ],
       {
         write: true,
         beforeSpawn: options.beforeCommit,
@@ -199,7 +214,12 @@ export async function probeRemote(
 
 export async function switchBranch(
   repository: Repository,
-  options: { worktree: string; branch: string; allowUncommitted: boolean },
+  options: {
+    worktree: string;
+    branch: string;
+    allowUncommitted: boolean;
+    remote?: string | undefined;
+  },
 ): Promise<void> {
   const root = await repository.root(options.worktree);
   await repository.serial(root, async () => {
@@ -208,7 +228,12 @@ export async function switchBranch(
       ["check-ref-format", "--branch", options.branch],
       { allowFailure: true },
     );
-    if (!options.branch || options.branch.startsWith("-") || valid.exitCode !== 0)
+    if (
+      !options.branch ||
+      options.branch.startsWith("-") ||
+      valid.exitCode !== 0 ||
+      valid.stdout.toString("utf8").trim() !== options.branch
+    )
       throw new GitError("invalid_ref", "Invalid branch");
     const status = await repository.status(root);
     if (status.conflicted.length)
@@ -218,11 +243,55 @@ export async function switchBranch(
       (status.staged.length || status.unstaged.length || status.untracked.length)
     )
       throw new GitError("dirty_worktree", "Commit or explicitly allow uncommitted changes");
-    await repository.cli.call(root, ["switch", "--no-guess", "--", options.branch], {
+    let args: string[];
+    if (options.remote) {
+      const remote = remoteName.parse(options.remote);
+      const localExists =
+        (
+          await repository.cli.call(
+            root,
+            ["show-ref", "--verify", "--quiet", `refs/heads/${options.branch}`],
+            { allowFailure: true },
+          )
+        ).exitCode === 0;
+      args = localExists
+        ? ["switch", "--no-guess", "--", options.branch]
+        : [
+            "switch",
+            "--no-guess",
+            "--track",
+            "-c",
+            options.branch,
+            "--",
+            `refs/remotes/${remote}/${options.branch}`,
+          ];
+    } else {
+      args = ["switch", "--no-guess", "--", options.branch];
+    }
+    const result = await repository.cli.call(root, args, {
       write: true,
+      allowFailure: true,
       timeoutMs: longWriteTimeoutMs,
       env: { GIT_TRACE2_EVENT: "1" },
     });
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr;
+      if (
+        /would be overwritten by (?:checkout|switch)|local changes to the following files/i.test(
+          stderr,
+        )
+      )
+        throw new GitError(
+          "dirty_worktree",
+          "Uncommitted changes would be overwritten by switching branches",
+          { stderr },
+        );
+      if (/is already (?:checked out|used by worktree) at/i.test(stderr))
+        throw new GitError("branch_checked_out", failureMessage("branch_checked_out"), { stderr });
+      if (/invalid reference|did not match any file|unknown revision/i.test(stderr))
+        throw new GitError("invalid_ref", "Branch does not exist", { stderr });
+      throw new GitError("git_failed", "Could not switch branches", { stderr });
+    }
   });
 }
 export async function listBranches(

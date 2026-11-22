@@ -108,6 +108,13 @@ const copy: Record<string, string> = {
   git_protected_branch: "The remote protects that branch: push to a new branch and open a PR.",
   git_pr_head_unavailable:
     "The pull request's branch can't be pushed from here: add a remote for its repository, or its fork was deleted.",
+  git_pull_diverged: "This branch has diverged from its upstream: merge or rebase in a terminal.",
+  git_no_upstream: "This branch has no upstream yet: push it first to set one.",
+  git_trash_unavailable:
+    "Untracked files can't be discarded because Recently deleted isn't available for this checkout.",
+  git_stash_empty: "There are no stashes to pop.",
+  git_nothing_to_stash: "There are no local changes to stash.",
+  git_path_outside_repo: "That path is outside the repository and can't be changed.",
   // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the
   // host refuses gets its own code so the fix names what changed.
   forge_cli:

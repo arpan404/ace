@@ -20,6 +20,12 @@ import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
 import { BranchRef } from "./worktree-base.ts";
 import { GitConflictsCommand, GitConflictsOperation, GitConflictsResult } from "./git-conflicts.ts";
+import {
+  GitSourceControlCommands,
+  GitSourceControlOperations,
+  GitStashesResult,
+  GitStatusSectionEntry,
+} from "./git-source-control.ts";
 import { ReviewPath } from "./review.ts";
 const id = z.string().min(1).max(128);
 /** How far into one file's patch `git.diff` pages reach (UTF-16 code units). */
@@ -120,18 +126,21 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("pr.status"), threadId: ThreadId }),
     /** The files a commit of the thread's checkout would take, as `git status` reports them. */
     z.object({ op: z.literal("git.status"), threadId: ThreadId }),
+    ...GitSourceControlOperations,
     /**
      * The working tree against HEAD, capped at 256 KiB. With `path`, only that file (and `from`,
      * a rename's old path), read in pages from `offset` (UTF-16 code units into the file's patch):
      * a page past which more remains answers `truncated` with the `nextOffset` to ask for.
      * Every page names the file's version in `validator`; a later page sends it as `expected`
      * and is refused with `diff_changed` once the file's patch is no longer that version.
+     * With `stage`, diffs HEAD..index (`staged`) or index..working-tree (`unstaged`).
      */
     z.object({
       op: z.literal("git.diff"),
       threadId: ThreadId,
       path: ReviewPath.optional(),
       from: ReviewPath.optional(),
+      stage: z.enum(["staged", "unstaged"]).optional(),
       offset: z.number().int().min(0).max(gitDiffFileLimit).optional(),
       expected: z.string().min(1).max(128).optional(),
     }),
@@ -185,6 +194,10 @@ export const WorkspaceActionResult = z.object({
       refs: z.array(BranchRef).max(1000).optional(),
       /** The repository's default branch (the origin's `HEAD`, else `main` or `master`). */
       defaultBranch: z.string().max(1024).optional(),
+      /** The checkout's currently checked-out branch, or null when detached. */
+      current: z.string().max(1024).nullable().optional(),
+      /** Whether HEAD is detached rather than on a local branch. */
+      detached: z.boolean().optional(),
       /**
        * HEAD names a branch with no commit yet: there is nothing to start a worktree from. A
        * detached HEAD, or a repository with no branches but a commit, is not unborn.
@@ -229,7 +242,26 @@ export const WorkspaceActionResult = z.object({
        * checkout whose hooks live inside it: those are the PR author's programs.
        */
       hooks: z.enum(["run", "skipped"]).optional(),
+      /** Index changes ready for the next commit. */
+      staged: z.array(GitStatusSectionEntry).max(gitStatusLimit).optional(),
+      /** Tracked working-tree changes not yet staged. */
+      unstaged: z.array(GitStatusSectionEntry).max(gitStatusLimit).optional(),
+      /** Untracked working-tree files. */
+      untracked: z.array(GitStatusSectionEntry).max(gitStatusLimit).optional(),
+      /** Unmerged paths with merge conflicts. */
+      conflicted: z.array(GitStatusSectionEntry).max(gitStatusLimit).optional(),
+      /** Current local branch name, or null when detached. */
+      branch: z.string().max(1024).nullable().optional(),
+      /** Whether HEAD is detached. */
+      detached: z.boolean().optional(),
+      /** Configured upstream tracking ref (e.g. `origin/main`), or null. */
+      upstream: z.string().max(1024).nullable().optional(),
+      /** Commits ahead of upstream. */
+      ahead: z.number().int().nonnegative().optional(),
+      /** Commits behind upstream. */
+      behind: z.number().int().nonnegative().optional(),
     }),
+    GitStashesResult,
     z.object({
       kind: z.literal("gitDiff"),
       patch: z.string().max(262144),
@@ -331,7 +363,12 @@ export const WorkspaceCommands = [
       .min(1)
       .max(2 * gitStatusLimit)
       .optional(),
+    /** Commit only what is already staged in the index, without staging unstaged changes. */
+    stagedOnly: z.boolean().optional(),
+    /** Amend the previous commit (`git commit --amend`). */
+    amend: z.boolean().optional(),
   }),
+  ...GitSourceControlCommands,
   z.object({
     type: z.literal("git.push"),
     threadId: ThreadId,
@@ -385,5 +422,12 @@ export const GitActionError = z.enum([
   "git_failed",
   "git_dirty_worktree",
   "git_invalid_ref",
+  "git_branch_exists",
+  "git_pull_diverged",
+  "git_no_upstream",
+  "git_trash_unavailable",
+  "git_stash_empty",
+  "git_nothing_to_stash",
+  "git_path_outside_repo",
 ]);
 export type GitActionError = z.infer<typeof GitActionError>;

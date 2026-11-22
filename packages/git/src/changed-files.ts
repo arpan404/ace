@@ -4,7 +4,13 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import type { Repository } from "./repository.ts";
-import type { ChangedFile, RepositoryInfo, StatusEntry } from "./types.ts";
+import type {
+  ChangedFile,
+  RepositoryInfo,
+  SourceControlSectionEntry,
+  SourceControlStatus,
+  StatusEntry,
+} from "./types.ts";
 
 const kinds: Record<string, ChangedFile["status"]> = {
   A: "added",
@@ -19,6 +25,23 @@ function kindOf(entry: StatusEntry): ChangedFile["status"] {
   for (const letter of [entry.worktreeStatus, entry.indexStatus])
     if (letter === "D") return "deleted";
   return kinds[entry.indexStatus] ?? "modified";
+}
+
+function stagedKind(entry: StatusEntry): SourceControlSectionEntry["status"] {
+  if (entry.oldPath || entry.indexStatus === "R") return "renamed";
+  if (entry.indexStatus === "A" || entry.indexStatus === "C") return "added";
+  if (entry.indexStatus === "D") return "deleted";
+  return "modified";
+}
+
+function unstagedKind(entry: StatusEntry): SourceControlSectionEntry["status"] {
+  if (entry.worktreeStatus === "D") return "deleted";
+  if (entry.worktreeStatus === "A") return "added";
+  return "modified";
+}
+
+function byPath<T extends { path: string }>(entries: readonly T[]): T[] {
+  return [...entries].toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 /** Untracked files are counted from their first bytes only: larger ones count as unknown. */
@@ -93,6 +116,55 @@ async function untrackedCount(root: string, path: string) {
   }
 }
 
+async function readChangedFiles(
+  repository: Repository,
+  root: string,
+  state: State,
+  limit: number,
+): Promise<{ files: ChangedFile[]; truncated: boolean }> {
+  const { status, branch } = state;
+  const files = new Map<string, ChangedFile>();
+  const add = (path: string, kind: ChangedFile["status"], from?: string) => {
+    if (files.has(path)) return;
+    files.set(path, {
+      path,
+      ...(from ? { from } : {}),
+      status: kind,
+      additions: 0,
+      deletions: 0,
+      binary: false,
+    });
+  };
+  for (const entry of [...status.conflicted, ...status.staged, ...status.unstaged])
+    add(entry.path, kindOf(entry), entry.oldPath);
+  for (const path of status.untracked) add(path, "untracked");
+  const sorted = byPath([...files.values()]);
+  const listed = sorted.slice(0, limit);
+  const tracked = listed.filter((file) => file.status !== "untracked");
+  const counts = branch.head
+    ? await trackedCounts(
+        repository,
+        root,
+        tracked.flatMap((file) => (file.from ? [file.path, file.from] : [file.path])),
+      )
+    : new Map<string, Counted>();
+  for (const file of tracked) {
+    const counted = counts.get(file.path);
+    if (counted) {
+      file.additions = counted.added;
+      file.deletions = counted.deleted;
+      file.binary = counted.binary;
+    }
+  }
+  for (const file of listed)
+    if (file.status === "untracked") {
+      const counted = await untrackedCount(root, file.path);
+      file.additions = counted.added;
+      file.binary = counted.binary;
+    }
+  return { files: listed, truncated: sorted.length > limit };
+}
+
 /**
  * Exactly the files `git status` reports (staged, unstaged, conflicted and untracked, ignored
  * files excluded), sorted by path and capped at `limit`, each with its lines changed against
@@ -105,50 +177,90 @@ export async function changedFiles(
   limit: number,
 ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
   const root = await repository.root(worktree);
+  return repository.serial(root, async () =>
+    readChangedFiles(repository, root, await repository.state(root), limit),
+  );
+}
+
+function sectionsFromState(state: State, limit: number) {
+  const { status, branch } = state;
+  const staged = byPath(
+    status.staged.map((entry) => ({
+      path: entry.path,
+      ...(entry.oldPath ? { from: entry.oldPath } : {}),
+      status: stagedKind(entry),
+    })),
+  );
+  const unstaged = byPath(
+    status.unstaged.map((entry) => ({
+      path: entry.path,
+      ...(entry.oldPath ? { from: entry.oldPath } : {}),
+      status: unstagedKind(entry),
+    })),
+  );
+  const untracked = byPath(
+    status.untracked.map((path) => ({ path, status: "untracked" as const })),
+  );
+  const conflicted = byPath(
+    status.conflicted.map((entry) => ({
+      path: entry.path,
+      ...(entry.oldPath ? { from: entry.oldPath } : {}),
+      status: "conflicted" as const,
+    })),
+  );
+  return {
+    truncated:
+      staged.length > limit ||
+      unstaged.length > limit ||
+      untracked.length > limit ||
+      conflicted.length > limit,
+    staged: staged.slice(0, limit),
+    unstaged: unstaged.slice(0, limit),
+    untracked: untracked.slice(0, limit),
+    conflicted: conflicted.slice(0, limit),
+    branch: branch.branch,
+    detached: branch.detached,
+    head: branch.head,
+    upstream: branch.upstream,
+    ahead: branch.ahead,
+    behind: branch.behind,
+  };
+}
+
+/**
+ * Staged / unstaged / untracked / conflicted sections and branch + ahead/behind counts from a
+ * single `git status` read (no diff numstat or file reads).
+ */
+export async function sourceControlState(
+  repository: Repository,
+  worktree: string,
+  limit: number,
+): Promise<Omit<SourceControlStatus, "files">> {
+  const root = await repository.root(worktree);
+  return repository.serial(root, async () =>
+    sectionsFromState(await repository.state(root), limit),
+  );
+}
+
+/**
+ * Source control view of one checkout from a single `git status`: flat changed files, staged /
+ * unstaged / untracked / conflicted sections, and branch + ahead/behind counts.
+ */
+export async function sourceControlStatus(
+  repository: Repository,
+  worktree: string,
+  limit: number,
+): Promise<SourceControlStatus> {
+  const root = await repository.root(worktree);
   return repository.serial(root, async () => {
-    const { status, branch } = await repository.state(root);
-    const files = new Map<string, ChangedFile>();
-    const add = (path: string, kind: ChangedFile["status"], from?: string) => {
-      if (files.has(path)) return;
-      files.set(path, {
-        path,
-        ...(from ? { from } : {}),
-        status: kind,
-        additions: 0,
-        deletions: 0,
-        binary: false,
-      });
+    const state = await repository.state(root);
+    const { files, truncated } = await readChangedFiles(repository, root, state, limit);
+    const sections = sectionsFromState(state, limit);
+    return {
+      files,
+      ...sections,
+      truncated: truncated || sections.truncated,
     };
-    for (const entry of [...status.conflicted, ...status.staged, ...status.unstaged])
-      add(entry.path, kindOf(entry), entry.oldPath);
-    for (const path of status.untracked) add(path, "untracked");
-    const sorted = [...files.values()].toSorted((a, b) =>
-      a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
-    );
-    const listed = sorted.slice(0, limit);
-    const tracked = listed.filter((file) => file.status !== "untracked");
-    const counts = branch.head
-      ? await trackedCounts(
-          repository,
-          root,
-          tracked.flatMap((file) => (file.from ? [file.path, file.from] : [file.path])),
-        )
-      : new Map<string, Counted>();
-    for (const file of tracked) {
-      const counted = counts.get(file.path);
-      if (counted) {
-        file.additions = counted.added;
-        file.deletions = counted.deleted;
-        file.binary = counted.binary;
-      }
-    }
-    for (const file of listed)
-      if (file.status === "untracked") {
-        const counted = await untrackedCount(root, file.path);
-        file.additions = counted.added;
-        file.binary = counted.binary;
-      }
-    return { files: listed, truncated: sorted.length > limit };
   });
 }
 

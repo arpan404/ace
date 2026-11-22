@@ -40,6 +40,12 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   push_rejected: "The remote has commits this branch does not; pull or rebase first",
   protected_branch: "The remote refused the push: the branch is protected",
   push_lease_stale: "The remote branch moved past the leased revision; fetch and review first",
+  pull_diverged: "Branch diverged from its upstream and cannot fast-forward",
+  no_upstream: "Current branch has no upstream configured",
+  trash_unavailable: "Recently deleted is unavailable; cannot discard untracked files",
+  stash_empty: "There are no stashes to pop",
+  nothing_to_stash: "There are no local changes to stash",
+  path_outside_repo: "Path is outside the repository",
 };
 
 /** One plain sentence for a failed command's cause. What Git wrote stays in `details.stderr`. */
