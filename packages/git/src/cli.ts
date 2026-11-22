@@ -94,6 +94,8 @@ export interface Output {
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
+  /** Calls made inside `bounded()`: each settles only once its process group is gone. */
+  private readonly boundedReads = new AsyncLocalStorage<true>();
   private readonly executionPolicy = new AsyncLocalStorage<
     "non-executing" | { protocols: readonly string[] }
   >();
@@ -249,6 +251,16 @@ export class GitCli {
         }),
       this.leaseProbe,
     );
+  }
+
+  /**
+   * Runs `work` as one bounded read: every Git process it starts, a preflight included, settles
+   * (resolves, fails or is cancelled) only once its process group is gone, so a limit on
+   * concurrent reads keeps counting it until then. POSIX only: on Windows there is no group to
+   * watch and settling is immediate (the job or `taskkill /T` ends the tree).
+   */
+  bounded<T>(work: () => Promise<T>): Promise<T> {
+    return this.boundedReads.run(true, work);
   }
 
   protectWorktree(path: string): void {
@@ -761,8 +773,12 @@ export class GitCli {
       const ownership = captureMutationOwnership();
       let stopped = false;
       let settled = false;
-      // A bounded read (`stopAtCapture`, `stopAfterMs`) settles only once its group is gone.
-      const bounded = options.stopAtCapture === true || options.stopAfterMs !== undefined;
+      // A bounded read (`stopAtCapture`, `stopAfterMs`, `bounded()`) settles only once its
+      // group is gone.
+      const bounded =
+        options.stopAtCapture === true ||
+        options.stopAfterMs !== undefined ||
+        this.boundedReads.getStore() === true;
       // The caller has all it asked for (`stopAtCapture`, `stopAfterMs`): stop Git, keep output.
       let enough: "capture" | "budget" | undefined;
       const enoughOutput = (reason: "capture" | "budget"): Output => ({

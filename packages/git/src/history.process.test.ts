@@ -178,6 +178,37 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
+test.skipIf(process.platform === "win32")(
+  "a cancelled preflight inside a gated read keeps the slot until its descendant has exited",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    const gate = new ReadGate(1);
+    const cli = new GitCli({
+      processRuntime: {
+        signalGroup: (pid, signal) =>
+          void setTimeout(() => {
+            try {
+              process.kill(-pid, signal);
+            } catch {
+              // Already gone.
+            }
+          }, 300),
+      },
+    });
+    const { file, args } = await aliasWritingPid("sleep 60", false);
+    const controller = new AbortController();
+    // A plain call (no byte cap or budget of its own), as a read's preflight makes.
+    const first = gate.run(() =>
+      cli.bounded(() => cli.call(repo, args, { signal: controller.signal })),
+    );
+    const pid = await writtenPid(file);
+    const next = gate.run(async () => running(pid));
+    controller.abort();
+    await expect(first).rejects.toMatchObject({ code: "git_cancelled" });
+    expect(await next).toBe(false);
+  },
+);
+
 test("output of exactly the byte cap stops Git there", async () => {
   const repo = await repository({ "a.ts": "1\n" });
   // Exactly two bytes, then silence: only stopping at the cap itself ends the call.

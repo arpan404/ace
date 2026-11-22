@@ -44,8 +44,9 @@ export function spawnGitProcess(
 
 /**
  * Resolves once the process group `pid` led has no live members, or after `ms` (bounded:
- * a member that cannot be killed must not hold its caller forever). Immediate on Windows,
- * where `killTree` asked taskkill for the tree and there is no group to watch.
+ * a member that cannot be killed must not hold its caller forever). On Windows it returns at
+ * once: there is no process group to watch, and the tree is ended by the call's job or by
+ * `taskkill /T` (which cannot prove an escaped descendant gone).
  */
 export async function groupGone(
   runtime: GitProcessRuntime,

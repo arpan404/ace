@@ -537,10 +537,12 @@ export class GitService {
     const root = await this.repository.root(options.worktree, options.signal);
     return this.historyReads.run(
       () =>
-        diffCommit(this.repository, root, {
-          ...options,
-          maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
-        }),
+        this.repository.cli.bounded(() =>
+          diffCommit(this.repository, root, {
+            ...options,
+            maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
+          }),
+        ),
       options.signal,
     );
   }
@@ -548,7 +550,10 @@ export class GitService {
   /** A file's newest commits following renames, in one bounded walk. */
   async fileLog(options: FileLogOptions): Promise<FileLogResult> {
     const root = await this.repository.root(options.worktree, options.signal);
-    return this.historyReads.run(() => fileLog(this.repository, root, options), options.signal);
+    return this.historyReads.run(
+      () => this.repository.cli.bounded(() => fileLog(this.repository, root, options)),
+      options.signal,
+    );
   }
 
   /** At most 106 lines and 8192 characters from an immutable commit or checkpoint. */
