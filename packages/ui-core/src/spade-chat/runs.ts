@@ -3,9 +3,9 @@ import type { SpadeChatItem } from "./skills.ts";
 
 /*
  * A chat laid out as people read a messenger: the bot's bubbles in runs, another bot's in its
- * own runs under its name, everything else (the person's messages, helper lines) on its own row,
- * and a time line only where time passed: before the first thing said, after a 30-minute gap,
- * and on a new day. A routine's run names itself in its time line ("Morning check · Today 9:00
+ * own runs under its name, the person's one after another in theirs, everything else (helper
+ * lines, quiet lines) on its own row, and a time line only where time passed: before the first
+ * thing said, after a five-minute gap, and on a new day (ADR 0212 §7). A routine's run names itself in its time line ("Morning check · Today 9:00
  * AM") rather than taking a row of its own. Every bubble keeps its exact time for hover. Pure:
  * the caller passes the clock, and the locale and time zone when it wants other than the host's.
  */
@@ -23,7 +23,10 @@ export type SpadeChatRow =
       kind: "run";
       key: string;
       /** Whose bubbles: the bot's own, or another bot's that wrote here. */
-      sender: { kind: "bot" } | { kind: "other"; agent: { id: string; name: string } };
+      sender:
+        | { kind: "bot" }
+        | { kind: "person" }
+        | { kind: "other"; agent: { id: string; name: string } };
       items: SpadeChatItem[];
       /** Each item's exact time, as the time line words it, by index; undefined when unknown. */
       whens: (string | undefined)[];
@@ -43,7 +46,7 @@ export interface SpadeChatClock {
 }
 
 /** A pause this long between two things said starts a new time line. */
-export const spadeTimeGapMs = 30 * 60_000;
+export const spadeTimeGapMs = 5 * 60_000;
 
 const botSide = new Set<SpadeChatItem["kind"]>([
   "bot",
@@ -62,6 +65,7 @@ const botSide = new Set<SpadeChatItem["kind"]>([
 /** Whose run an item belongs to, if any: "bot", another bot's id, or undefined for its own row. */
 function senderOf(item: SpadeChatItem): string | undefined {
   if (botSide.has(item.kind)) return "bot";
+  if (item.kind === "person") return "person";
   if (item.kind === "other") return `other:${item.agent.id}`;
   return undefined;
 }
@@ -119,7 +123,12 @@ export function spadeChatRows(
     run = {
       kind: "run",
       key: `run:${item.key}`,
-      sender: item.kind === "other" ? { kind: "other", agent: item.agent } : { kind: "bot" },
+      sender:
+        item.kind === "other"
+          ? { kind: "other", agent: item.agent }
+          : item.kind === "person"
+            ? { kind: "person" }
+            : { kind: "bot" },
       items: [item],
       whens: [when],
     };

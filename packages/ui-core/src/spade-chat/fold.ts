@@ -36,6 +36,8 @@ import {
   type SpadeStepWeight,
 } from "./step-facts.ts";
 import type { SpadeRefusedHost } from "./wire.ts";
+import { spadeMessageId } from "./chat-markup.ts";
+import type { SpadeReplyTo } from "./replies.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -81,7 +83,8 @@ export type SpadeCallState =
   | "refused";
 
 export type SpadeReplyPart =
-  | { kind: "text"; key: string; text: string }
+  /** `seq`: the stored event holding the words, which names its messages (ADR 0212 §3). */
+  | { kind: "text"; key: string; text: string; seq?: number }
   | {
       kind: "call";
       key: string;
@@ -193,6 +196,10 @@ export type SpadeEntry =
       at?: number;
       /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
       recalled?: readonly string[];
+      /** Its message id (ADR 0212 §3); a message not stored yet has none. */
+      id?: string;
+      /** The message it replies to (ADR 0212 §4). */
+      replyTo?: SpadeReplyTo;
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -419,6 +426,7 @@ export interface SpadePendingMessage {
   images: readonly SpadeImageRef[];
   documents?: readonly SpadeDocumentRef[];
   voice?: SpadeVoiceRef;
+  replyTo?: SpadeReplyTo;
 }
 
 export type SpadeFoldInput =
@@ -431,6 +439,7 @@ export type SpadeFoldInput =
       images?: readonly SpadeImageRef[];
       documents?: readonly SpadeDocumentRef[];
       voice?: SpadeVoiceRef;
+      replyTo?: SpadeReplyTo;
     }
   | { kind: "refused"; key: string };
 
@@ -485,6 +494,7 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
           images: input.images ?? [],
           ...(input.documents?.length ? { documents: input.documents } : {}),
           ...(input.voice ? { voice: input.voice } : {}),
+          ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         },
       ];
       return true;
@@ -602,6 +612,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           : {}),
         ...recalledOf(event.context),
         ...stamp(stored),
+        // Only the person's own words are a message it can point at; relayed ones aren't.
+        ...(relayed ? {} : { id: spadeMessageId(stored.seq) }),
+        ...(event.reply_to ? { replyTo: event.reply_to } : {}),
       });
       return true;
     }
@@ -643,7 +656,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         live: "",
         parts: [
           ...entry.parts,
-          ...(event.text.trim() ? [{ kind: "text" as const, key, text: event.text }] : []),
+          ...(event.text.trim()
+            ? [{ kind: "text" as const, key, text: event.text, seq: stored.seq }]
+            : []),
           ...event.calls.map((call) => {
             const { detail, weight } = spadeStepFacts(call.name, call.arguments);
             return {
@@ -947,9 +962,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return true;
     }
     case "reply_finished":
-      return closeReply(state, event.reply, { kind: "finished" }, event.text);
+      return closeReply(state, event.reply, { kind: "finished" }, event.text, stored.seq);
     case "reply_stopped":
-      return closeReply(state, event.reply, { kind: "stopped" }, event.text);
+      return closeReply(state, event.reply, { kind: "stopped" }, event.text, stored.seq);
     case "reply_failed":
       return closeReply(
         state,
@@ -961,9 +976,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           endpoint: event.endpoint ?? undefined,
         },
         event.text,
+        stored.seq,
       );
     case "reply_interrupted":
-      return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
+      return closeReply(state, event.reply, { kind: "interrupted" }, event.text, stored.seq);
     case "reply_retried": {
       // The next reply answers the same turn in its place: the failure goes, and so do the words
       // its failed call left unfinished (no step stored them), which the model no longer reads
@@ -1426,9 +1442,10 @@ function closeReply(
   reply: string,
   end: SpadeReplyEnd,
   text: string,
+  seq: number,
 ): boolean {
   if (state.open?.reply !== reply) return false;
-  closeOpen(state, end, text);
+  closeOpen(state, end, text, seq);
   return true;
 }
 
@@ -1449,7 +1466,7 @@ function lastWords(state: SpadeConversationState, index: number, reply: string) 
  * End the open reply. A finished reply's text repeats its last step's, already shown; any other
  * end carries the open step's words, which no step stored.
  */
-function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: string) {
+function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: string, seq?: number) {
   const open = state.open;
   if (!open) return;
   const entry = state.entries[open.index];
@@ -1458,7 +1475,15 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
     const last = lastWords(state, open.index, entry.reply);
     const words = end.kind === "finished" ? (last?.text === text ? "" : text) : text || entry.live;
     const parts: SpadeReplyPart[] = words.trim()
-      ? [...entry.parts, { kind: "text", key: `${entry.key}:end`, text: words }]
+      ? [
+          ...entry.parts,
+          {
+            kind: "text",
+            key: `${entry.key}:end`,
+            text: words,
+            ...(seq === undefined ? {} : { seq }),
+          },
+        ]
       : entry.parts.slice();
     state.entries[open.index] = { ...entry, parts, live: "", end };
   }

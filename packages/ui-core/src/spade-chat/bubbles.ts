@@ -20,6 +20,14 @@ import type { SpadeTurnUndo } from "./undo.ts";
 import type { SpadeNoticeRow } from "./notices.ts";
 import type { SpadeCardRow } from "./cards.ts";
 import type { SpadeWorkersEntry } from "./delegations.ts";
+import {
+  spadeChatSegments,
+  spadeLiveChatSegments,
+  spadeMessageId,
+  spadePlainChat,
+} from "./chat-markup.ts";
+import { spadeDocCard, spadeLongWords, type SpadeDocCard } from "./documents-in-chat.ts";
+import { spadeQuoteOf, spadeSaid, type SpadeQuote, type SpadeSaid } from "./replies.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, and under each reply
@@ -46,6 +54,10 @@ type SpadeBubbleOf =
       sending: boolean;
       /** Written in an ace thread (ADR 0198): the line above links back to it. */
       fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
+      /** Its message id, once stored: what Reply quotes (ADR 0212 §3). */
+      id?: string;
+      /** The message it replies to: a small quoted line above it. */
+      quote?: SpadeQuote;
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
@@ -73,6 +85,16 @@ type SpadeBubbleOf =
       keep?: string;
       /** The turn it is part of, whose work lines Show work brings back (`spadeWorkTurn`). */
       turn?: string;
+      /** Its message id, once its words are stored: what Reply quotes (ADR 0212 §3). */
+      id?: string;
+      /** The earlier message it replies to: a small quoted line above it. */
+      quote?: SpadeQuote;
+      /**
+       * Long words as a document card under the bubble (ADR 0212 §5): a `<doc>` the bot wrote,
+       * whose bubble then has no words, or a message too long for one, whose bubble keeps its
+       * first paragraph. The card holds all of it.
+       */
+      doc?: SpadeDocCard;
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -228,6 +250,8 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   // live in the group (ADR 0132; `answering_replies` in spade-core), so the bot's own chat shows
   // only the cards of such a reply still waiting on the person here.
   let onlyGroups = true;
+  // What later replies may quote, as the chat reaches it (ADR 0212 §4).
+  const said = spadeSaid();
   const open = new Map(view.approvals.map((approval) => [approval.callId, approval]));
   const shown = new Set<string>();
   const ask = (request: SpadeRequest, key: string, at: number | undefined) => {
@@ -342,6 +366,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         continue;
       }
       if (entry.fromGroup) continue;
+      if (entry.id && !entry.fromAgent) said.add(entry.id, entry.text, { kind: "person" });
       bubbles.push(
         entry.fromAgent
           ? {
@@ -360,6 +385,8 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
               voice: entry.voice,
               sending: entry.pending === true,
               ...(entry.fromThread ? { fromThread: entry.fromThread } : {}),
+              ...(entry.id ? { id: entry.id } : {}),
+              ...(entry.replyTo ? { quote: spadeQuoteOf(entry.replyTo) } : {}),
               ...stamp(entry.at),
             },
       );
@@ -369,8 +396,14 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     // The whole reply, every step's words: hidden only if all it said was [quiet], and it left
     // nothing else to show (a note it remembered, a question for the person).
     const whole = [
-      ...entry.parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])),
-      ...(entry.live ? [entry.live] : []),
+      ...entry.parts.flatMap((part) => (part.kind === "text" ? [spadePlainChat(part.text)] : [])),
+      ...(entry.live
+        ? [
+            spadeLiveChatSegments(entry.live)
+              .map((segment) => segment.text)
+              .join("\n\n"),
+          ]
+        : []),
     ]
       .join("\n\n")
       .trim();
@@ -388,7 +421,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       onlyGroups = true;
     }
     if (grouped) cardBubbles(entry, bubbles, ask);
-    else if (!quiet) replyBubbles(entry, bubbles, held, ask);
+    else if (!quiet) replyBubbles(entry, bubbles, held, ask, said);
     // What it had in mind, under the reply that answered the message, once it finished.
     if (!quiet && !grouped && entry.end && recalled.length) {
       bubbles.push({
@@ -471,6 +504,7 @@ function replyBubbles(
   bubbles: SpadeBubble[],
   held: Held,
   ask: (request: SpadeRequest, key: string, at: number | undefined) => void,
+  said: SpadeSaid,
 ) {
   const at = stamp(entry.startedAt);
   let images: SpadeImageRef[] = [];
@@ -484,7 +518,7 @@ function replyBubbles(
     documents = [];
     return media;
   };
-  const say = (text: string, live: boolean) => {
+  const push = (text: string, live: boolean, extra: BotExtra = {}) => {
     pushBot(bubbles, held, {
       key: count++ ? `${entry.key}:${count}` : entry.key,
       turn: entry.key,
@@ -493,9 +527,29 @@ function replyBubbles(
       end: undefined,
       failure: undefined,
       ...take(),
+      ...extra,
       ...at,
     });
     latest = bubbles.length - 1;
+  };
+  /**
+   * One step's words as the messages they hold (ADR 0212 §2), each a bubble of its own; `seq`,
+   * the stored event holding them, names each (§3). Live words have no ids yet.
+   */
+  const say = (text: string, live: boolean, seq: number | undefined) => {
+    const segments = live ? spadeLiveChatSegments(text) : spadeChatSegments(text);
+    segments.forEach((segment, index) => {
+      const id = seq === undefined ? undefined : spadeMessageId(seq, index);
+      const quote = segment.reply === undefined ? undefined : said.quote(segment.reply);
+      const long = segment.kind === "msg" ? spadeLongWords(segment.text) : undefined;
+      const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : long?.doc;
+      push(segment.kind === "doc" ? "" : (long?.summary ?? segment.text), live && !!segment.open, {
+        ...(id ? { id } : {}),
+        ...(quote ? { quote } : {}),
+        ...(doc ? { doc } : {}),
+      });
+      if (id) said.add(id, segment.title ?? segment.text, { kind: "bot" });
+    });
   };
   /** The last bubble of the reply, when it is still the chat's last. */
   const tail = () => {
@@ -516,7 +570,7 @@ function replyBubbles(
   for (const part of entry.parts) {
     if (part.kind === "text") {
       const text = part.text.trim();
-      if (text) say(text, false);
+      if (text) say(text, false, part.seq);
     } else if (part.kind === "shared") {
       images.push(...part.images);
       documents.push(...part.documents);
@@ -538,7 +592,7 @@ function replyBubbles(
   }
   const live = entry.end === undefined ? entry.live.trim() : "";
   // The streaming words grow a bubble of their own.
-  if (live) say(live, true);
+  if (live) say(live, true, undefined);
   const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
   const failure =
     entry.end?.kind === "failed"
@@ -554,7 +608,7 @@ function replyBubbles(
     const bubble = tail();
     if (bubble && !bubble.end) bubbles[latest] = { ...bubble, end, failure };
     else {
-      say("", false);
+      push("", false);
       const added = bubbles[latest];
       if (added?.kind === "bot") bubbles[latest] = { ...added, end, failure };
     }
@@ -562,20 +616,21 @@ function replyBubbles(
   // Media with no words before it.
   if (images.length || documents.length) {
     if (tail()) attach();
-    else say("", false);
+    else push("", false);
   }
   // A finished reply can be kept as a test, from its last words.
   if (entry.end?.kind === "finished") {
     const bubble = bubbles[latest];
-    if (bubble?.kind === "bot" && bubble.text) bubbles[latest] = { ...bubble, keep: entry.reply };
+    if (bubble?.kind === "bot" && (bubble.text || bubble.doc))
+      bubbles[latest] = { ...bubble, keep: entry.reply };
   }
   // Where it ran when its route moved it (ADR 0205 §2): once per line, the one that says why
   // before "like the step before".
   const served = [
     ...new Set(entry.parts.flatMap((part) => (part.kind === "served" ? [part.line] : []))),
   ];
-  const said = served.filter((line) => line.includes(":"));
-  for (const line of said.length ? said : served.slice(0, 1))
+  const why = served.filter((line) => line.includes(":"));
+  for (const line of why.length ? why : served.slice(0, 1))
     bubbles.push({
       kind: "quiet",
       key: `${entry.key}:served:${line}`,
@@ -598,6 +653,9 @@ function cardBubbles(
       bubbles.push({ ...part, key: `${entry.key}:${part.key}`, ...stamp(entry.startedAt) });
     else if (part.kind === "request") ask(part, `${entry.key}:${part.key}`, entry.startedAt);
 }
+
+/** What a bot bubble may carry beyond its words: its id, its quote and its document card. */
+type BotExtra = { id?: string; quote?: SpadeQuote; doc?: SpadeDocCard };
 
 interface Held {
   paths: string[];

@@ -362,7 +362,7 @@ describe("the Spade API's later details", () => {
     });
     // The stored copy carries when Spade stored it.
     expect(c.view().entries).toEqual([
-      { kind: "user", key: "s1", text: "", images: [image], at: 1000 },
+      { kind: "user", key: "s1", text: "", images: [image], at: 1000, id: "m1" },
     ]);
   });
 
