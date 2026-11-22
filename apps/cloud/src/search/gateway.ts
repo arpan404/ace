@@ -66,12 +66,12 @@ export function gatewayCheck(deps: {
     async safe(): Promise<boolean> {
       const now = deps.now();
       if (reading && now < reading.until) return reading.safe;
-      const read_ = deps.api ? await read(deps.api) : undefined;
+      const settings = deps.api ? await read(deps.api) : undefined;
       let safe: boolean;
-      if (read_ === false) {
+      if (settings === false) {
         deps.log("gateway_keeps_logs");
         safe = false;
-      } else if (read_ === true) {
+      } else if (settings === true) {
         safe = true;
       } else {
         safe = deps.verifiedByHand;

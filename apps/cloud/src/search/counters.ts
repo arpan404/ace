@@ -1,5 +1,17 @@
 import type { Counter } from "./limits.ts";
 
+const rows = (counters: Counter[]) => counters.map(() => "(?, ?, ?, ?)").join(", ");
+const params = (counters: Counter[]) =>
+  counters.flatMap((counter) => [
+    counter.scope,
+    counter.period.name,
+    counter.period.ends,
+    counter.cap,
+  ]);
+const countOf = (found: { scope: string; period: string; count: number }[], counter: Counter) =>
+  found.find((row) => row.scope === counter.scope && row.period === counter.period.name)?.count ??
+  0;
+
 /**
  * ace search's counters in D1 (`search_counts`, ADR 0210 §4). Counts only, keyed by scope and
  * period: never a query or a result.
@@ -10,18 +22,6 @@ import type { Counter } from "./limits.ts";
  * counter, and a Worker cut short mid-request strands nothing.
  */
 export function searchCounters(db: D1Database) {
-  const rows = (counters: Counter[]) => counters.map(() => "(?, ?, ?, ?)").join(", ");
-  const params = (counters: Counter[]) =>
-    counters.flatMap((counter) => [
-      counter.scope,
-      counter.period.name,
-      counter.period.ends,
-      counter.cap,
-    ]);
-  const countOf = (found: { scope: string; period: string; count: number }[], counter: Counter) =>
-    found.find((row) => row.scope === counter.scope && row.period === counter.period.name)?.count ??
-    0;
-
   async function read(counters: Counter[]): Promise<number[]> {
     const { results } = await db
       .prepare(
