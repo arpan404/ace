@@ -248,6 +248,43 @@ function decompressionStream(inflate: NonNullable<NativeHost["inflate"]>) {
 }
 
 /** Installs, on `target`, each Web API the engine lacks, backed by `host`. */
+/**
+ * setTimeout, clearTimeout, setInterval and clearInterval on the host's timer. JavaScriptCore
+ * has none of them, so shared code that reaches for one would throw a ReferenceError on the
+ * phone though every Node test passes. Ids are small integers, as the web gives.
+ */
+function installTimers(host: NativeHost, add: (name: string, value: unknown) => void): void {
+  const live = new Map<number, string>();
+  let next = 1;
+  const start = (callback: () => void, ms: unknown, repeat: boolean): number => {
+    const id = next++;
+    const delay = typeof ms === "number" && ms > 0 && Number.isFinite(ms) ? ms : 0;
+    const arm = () => {
+      const token = host.uuid();
+      live.set(id, token);
+      host.timer(token, delay, () => {
+        if (live.get(id) !== token) return;
+        if (repeat) arm();
+        else live.delete(id);
+        callback();
+      });
+    };
+    arm();
+    return id;
+  };
+  const stop = (id: unknown) => {
+    if (typeof id !== "number") return;
+    const token = live.get(id);
+    if (token === undefined) return;
+    live.delete(id);
+    host.cancelTimer(token);
+  };
+  add("setTimeout", (callback: () => void, ms?: number) => start(callback, ms, false));
+  add("clearTimeout", stop);
+  add("setInterval", (callback: () => void, ms?: number) => start(callback, ms, true));
+  add("clearInterval", stop);
+}
+
 export function installWebPlatform(host: NativeHost, target: object = globalThis): void {
   const missing = (name: string) => typeof Reflect.get(target, name) === "undefined";
   const add = (name: string, value: unknown) => {
@@ -279,6 +316,7 @@ export function installWebPlatform(host: NativeHost, target: object = globalThis
       .then(callback)
       .catch(() => {});
   });
+  installTimers(host, add);
   add("btoa", (value: string) => host.latin1Base64(value, false));
   add("atob", (value: string) => host.latin1Base64(value, true));
   add("crypto", {

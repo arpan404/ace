@@ -58,10 +58,37 @@ const platform = (without: ("inflate" | "trace")[] = []) => {
     btoa: typeof btoa;
     AbortController: typeof AbortController;
     AbortSignal: typeof AbortSignal;
+    setTimeout: (callback: () => void, ms?: number) => number;
+    clearTimeout: (id?: number) => void;
+    setInterval: (callback: () => void, ms?: number) => number;
+    clearInterval: (id?: number) => void;
   };
 };
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("Web APIs backed by the host", () => {
+  it("runs setTimeout on the host's timer, and clearTimeout cancels it", async () => {
+    const { setTimeout: later, clearTimeout: cancel } = platform();
+    const fired: string[] = [];
+    later(() => fired.push("kept"), 5);
+    const dropped = later(() => fired.push("cancelled"), 5);
+    cancel(dropped);
+    cancel(undefined);
+    await pause(40);
+    expect(fired).toEqual(["kept"]);
+  });
+
+  it("repeats setInterval until clearInterval", async () => {
+    const { setInterval: every, clearInterval: stop } = platform();
+    let ticks = 0;
+    const id = every(() => {
+      ticks++;
+      if (ticks === 3) stop(id);
+    }, 5);
+    await pause(80);
+    expect(ticks).toBe(3);
+  });
+
   it("combines cancellation signals and preserves the first abort reason", () => {
     const { AbortController, AbortSignal } = platform();
     const first = new AbortController();
