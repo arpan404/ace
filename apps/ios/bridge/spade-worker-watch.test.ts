@@ -89,7 +89,7 @@ test("two workers refused for lack of room are each read again as room frees up"
 
   // One slot frees: the redraw reads the freed slot into exactly one worker, and nothing loops.
   holds[0]?.release();
-  await until(() => seen.some((read) => Object.values(read).includes("done")));
+  await until(() => seen.some((states) => Object.values(states).includes("done")));
   const settled = changes;
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(changes).toBe(settled);

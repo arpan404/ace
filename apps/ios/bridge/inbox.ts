@@ -439,7 +439,7 @@ async function locate(owner: ClientCore, id: ThreadId, pump: PatchSink): Promise
   }
   const { store } = lease;
   const settled = () => !store.syncing && !store.unconfirmed;
-  let stop = () => {};
+  let stop: (() => void) | undefined;
   const found = await new Promise<boolean | undefined>((resolve) => {
     const read = () => {
       // Only the daemon's own refusal says the thread is gone; no room, a dropped connection or a
@@ -450,7 +450,7 @@ async function locate(owner: ClientCore, id: ThreadId, pump: PatchSink): Promise
     stop = store.observe(read);
     read();
   });
-  stop();
+  stop?.();
   lease.release();
   if (found !== undefined) answer(found);
 }

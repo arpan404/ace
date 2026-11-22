@@ -59,6 +59,7 @@ type Patch = {
   tabs?: Tabs;
   id?: string;
   ids?: string[];
+  confirmed?: boolean;
   row?: { confirmed: boolean; status: { label: string } } | null;
   sections?: { key: string; ids: string[] }[];
 };
