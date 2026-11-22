@@ -21,6 +21,7 @@ import {
   rowIcon,
 } from "./work-card-parts.tsx";
 import { PrLine } from "./work-card-pr.tsx";
+import { ReviewTurnRow } from "./work-card-review.tsx";
 import { SyncRow } from "./work-card-sync.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
@@ -64,6 +65,7 @@ export function BranchGroup(props: {
               props.onClose();
             }}
           />
+          <ReviewTurnRow threadId={props.thread.id} onClose={props.onClose} />
           <PrLine
             git={git}
             threadId={props.thread.id}

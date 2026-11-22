@@ -76,7 +76,7 @@ export type MarketStep =
   | "change";
 
 const stepFailed: Readonly<Record<MarketStep, string>> = {
-  read: "The marketplace couldn't be read.",
+  read: "The Store couldn't be read.",
   review: "This entry couldn't be reviewed.",
   install: "The install didn't finish, and nothing was installed.",
   remove: "It couldn't be removed.",
@@ -94,7 +94,7 @@ export function failureSentence(error: unknown, step: MarketStep): string {
   const parsed = MarketErrorCode.safeParse(error instanceof MarketFailure ? error.code : undefined);
   switch (parsed.success ? parsed.data : undefined) {
     case "unavailable":
-      return "The marketplace can't be reached right now.";
+      return "The Store can't be reached right now.";
     case "not_found":
       return step === "remove" ? "It isn't installed anymore." : "This entry isn't listed anymore.";
     case "invalid":
@@ -104,7 +104,7 @@ export function failureSentence(error: unknown, step: MarketStep): string {
         ? "ace refused this entry: it didn't pass ace's checks."
         : stepFailed[step];
     case "forbidden":
-      return "This device can't make changes to the marketplace.";
+      return "This device can't make changes to the Store.";
     case "conflict":
       return "The entry changed since its review. Review it again.";
     case "expired":

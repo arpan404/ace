@@ -191,6 +191,7 @@ describe("completion", () => {
     ],
     [["thread", "list", ":--pro"], ["--project"]],
     [["thread", "show", "t1", ":"], []],
+    [["store", ":maint"], []],
     [["market", ":maint"], []],
   ])("ace %j", (words, expected) => {
     const candidates = complete(table, words);
@@ -200,7 +201,15 @@ describe("completion", () => {
 
   test("old spellings and hidden commands are never offered", () => {
     const top = complete(table, [":"]);
-    for (const word of ["threads", "kill-all", "support-bundle", "supervise", "__complete"])
+    expect(top).toContain("store");
+    for (const word of [
+      "market",
+      "threads",
+      "kill-all",
+      "support-bundle",
+      "supervise",
+      "__complete",
+    ])
       expect(top).not.toContain(word);
   });
 

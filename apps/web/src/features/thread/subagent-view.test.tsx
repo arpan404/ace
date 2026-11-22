@@ -301,7 +301,7 @@ test("the details card's Agents names a subagent's parent and its siblings, with
   await screen.findByRole("heading", { level: 1, name: "ack-buffer-test" });
 });
 
-test("a running subagent's transcript ends with the live line: how long it has worked and its step", async () => {
+test("a running subagent's transcript ends with the live line: how long it has worked, and never its step", async () => {
   const app = harness({ uiClock: () => 61_000 });
   app.daemon.createThread({
     id: "live-review",
@@ -318,8 +318,8 @@ test("a running subagent's transcript ends with the live line: how long it has w
   await openFromCard("1 subagent", /^Open Reviewer,/);
   await screen.findByRole("heading", { level: 1, name: "Reviewer" });
   const line = await screen.findByRole("status", { name: "Working" });
-  expect(line.textContent).toMatch(/^Working for \d/);
-  expect(line.textContent).toContain("Read config");
+  expect(line.textContent).toMatch(/^Working for \d+m \d+s$/);
+  expect(line.textContent).not.toContain("Read config");
 });
 
 test("a finished thread ace delegated can be continued: Continue brings its composer back", async () => {

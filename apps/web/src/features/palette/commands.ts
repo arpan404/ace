@@ -183,12 +183,13 @@ export function usePaletteGroups(
               if (view.shortcut) command.keys = keymap[view.shortcut].keys;
               return command;
             }),
-          // The Marketplace is a modal over the page, not a view.
+          // The Store is a page opened via useOpenMarket.
           ...(marketplace
             ? [
                 {
                   id: "go-marketplace",
-                  label: "Marketplace",
+                  label: "Store",
+                  keywords: "marketplace",
                   icon: "view",
                   run: run(() => openMarket()),
                 } satisfies PaletteCommand,

@@ -4,6 +4,7 @@ import type { EditorCompareProps, TextBuffer } from "@/features/editor-workbench
 import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
 import { FileDiffBlock, type FileView } from "../changes/file-diff.tsx";
 import { freshView } from "../changes/file-view.ts";
+import { sceneBar } from "@/components/ui/rules.ts";
 
 /*
  * Compare (spec 46): the disk's text on the left and the unsaved buffer on the right, in the
@@ -63,7 +64,9 @@ export function EditorCompare(props: EditorCompareProps) {
       className="flex min-h-0 flex-1 flex-col overflow-auto"
       tabIndex={-1}
     >
-      <div className="sticky top-0 z-[3] grid h-7 shrink-0 grid-cols-2 border-b border-border bg-background text-xs font-medium text-muted-foreground">
+      <div
+        className={`sticky top-0 z-[3] grid h-7 shrink-0 grid-cols-2 border-b border-border bg-background text-xs font-medium text-muted-foreground ${sceneBar}`}
+      >
         <span className="flex items-center px-3.5">On disk</span>
         <span className="flex items-center border-l border-border px-3.5">Your changes</span>
       </div>

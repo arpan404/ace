@@ -1,9 +1,9 @@
 import { useClient, useConnectionState } from "@ace/client-react";
-import { ProviderKind } from "@ace/protocol";
-import { formatAge, hunkAt, providerDisplayName, revertChange } from "@ace/ui-core";
+import { formatAge } from "@ace/ui-core";
 import {
   focusedGroup,
   groupsOf,
+  limits,
   moveActiveEditor,
   mruTabs,
   parseLayout,
@@ -25,14 +25,14 @@ import {
   lazy,
   Suspense,
 } from "react";
-import { FilesIcon } from "@ace/icons";
+import { SidebarSimpleIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import {
   Editor,
   BufferEditor,
   OpenEditors,
-  compactBelowPx,
+  paneCapReason,
   useEditorBuffers,
   type EditorCompareProps,
   type BufferEditorProps,
@@ -40,15 +40,16 @@ import {
   type StatusNotice,
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
-import { cn } from "@/lib/cn.ts";
 import { roomLimits } from "@/lib/shell-room.ts";
 import { editorLineHeight, useEditorPreferences } from "@/lib/editor-preferences.ts";
 import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import {
+  requestReveal,
   settleReveal,
   useReveal,
+  useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
   type TabViewProps,
@@ -58,9 +59,16 @@ import { onRevealInExplorer } from "../files/file-tree-editor.ts";
 import { openInEditorPanel, type OpenInEditorPanelOptions } from "../files/open-file.ts";
 import { useRecentFilesStore } from "../files/files-state.ts";
 import { MentionSelection } from "../files/mention-selection.tsx";
-import { useChangeMarks } from "../files/use-change-marks.ts";
 import { quickOpen } from "../files/quick-open-store.ts";
-import { changeNotice, nextChange, type TreeMark } from "./agent-changes.ts";
+import {
+  changeNotice,
+  nextChange,
+  providerOf,
+  stepAgentChange,
+  type ChangeStop,
+  type TreeMark,
+} from "./agent-changes.ts";
+import { agentBlocksOf, liveGutterFor } from "./gutter-store.ts";
 import type { RowMark } from "../files/file-tree-row.tsx";
 import {
   allTabs,
@@ -69,19 +77,14 @@ import {
   keepTypedPreviews,
   saveAll,
   saveFile,
+  saveQueued,
   showPath,
   splitFocused,
   unsavedOf,
   type EditorActionsHost,
   type SaveProblem,
 } from "./editor-actions.ts";
-import { useCompactExplorer } from "./compact-explorer.ts";
-import {
-  closesExplorerOnPick,
-  explorerPlace,
-  roomAsk,
-  showsExplorerToggle,
-} from "./editor-room.ts";
+import { explorerWidth, roomAsk } from "./editor-room.ts";
 import { CheckoutGone, useCheckoutGone } from "./checkout-gone.tsx";
 import { EditorExplorer, type ExplorerOpen } from "./editor-explorer.tsx";
 import { EditorTabMenuItems } from "./editor-tab-menu.tsx";
@@ -91,18 +94,21 @@ import { draftsOf, withDrafts, withoutDrafts } from "./editor-migration.ts";
 import { editorRegistry, importDrafts } from "./editor-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
-import { HunkPeek } from "./hunk-peek.tsx";
+import { useChangeGutter } from "./use-change-gutter.tsx";
+import { useTurnReview } from "./use-turn-review.tsx";
+import { ReviewIdle } from "./hunk-peek.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 /*
  * The editor panel tab (docs/editor/workbench.md): the thread's explorer and editor groups over
- * the app's buffer registry, its layout stored as the tab's data. Under 760px it is compact:
- * one group shows and the explorer steps aside behind "Show files", laid over the editor while
- * open. From 760px the explorer docks at the left.
+ * the app's buffer registry, its layout stored as the tab's data. The explorer docks at the left
+ * whenever it shows, at every width (never over the code); Hide files and ⌘B put it away per
+ * thread, and Show files in the strip brings it back.
  */
 
-const providerOf = (agent: string) =>
-  ProviderKind.options.find((kind) => providerDisplayName(kind) === agent);
+/** The most panes beside the chat; full view holds the model's nine (`limits.groups`). */
+const sidePaneCap = 4;
 
 /** ⌘K waits this long for its second key before the palette opens after all. */
 const sequenceMs = 800;
@@ -134,15 +140,20 @@ export function EditorPanel(props: TabViewProps) {
   const session = useEditorSession(threadId, registry, buffers, layout);
   const [problem, setProblem] = useState<SaveProblem | "offline">();
 
+  // Split right or down at the pane cap: why nothing happened, until the layout next changes.
+  const [capNotice, setCapNotice] = useState<string | undefined>(undefined);
   const change = (next: EditorLayout) => {
     if (next === latest.current) return;
     latest.current = next;
+    setCapNotice(undefined);
     // Drafts still on their way to the draft store ride along until it has them.
     actions.update(props.tab.key, {
       data: withDrafts(storedLayout(next, unsavedOf(host)), carried),
     });
   };
   const autoSave = usePanelAutoSave({ buffers, online, problem: setProblem });
+  /** Files the person saved while offline: one set for the panel's life. */
+  const [offlineSaves] = useState<NonNullable<EditorActionsHost["queued"]>>(() => new Map());
   const host: EditorActionsHost = {
     buffers,
     layout: () => latest.current,
@@ -150,6 +161,7 @@ export function EditorPanel(props: TabViewProps) {
     online: () => online,
     problem: setProblem,
     saved: (path) => autoSave.savedByHand(path),
+    queued: offlineSaves,
   };
   const saving = { autoSave, save: (path: string) => saveFile(host, path) };
   const target = {
@@ -208,20 +220,14 @@ export function EditorPanel(props: TabViewProps) {
   }, [focused.active, see]);
   const rowMarks = useMemo(() => rowMarksOf(session.treeMarks), [session.treeMarks]);
 
-  // Saves asked for offline run once the daemon is back (spec 66).
+  // Saves asked for offline run once the daemon is back (spec 66): only those files.
   useEffect(() => {
-    if (online && problem === "offline") void saveAll(host);
+    if (online && problem === "offline") void saveQueued(host);
   });
 
   // Layout by room (spec 5).
   const root = useRef<HTMLDivElement>(null);
   const width = useElementSize(root).width;
-  const compact = width > 0 && width < compactBelowPx;
-  const { shown: overlay, setShown: setOverlay } = useCompactExplorer(
-    threadId,
-    width,
-    openPaths(layout).length === 0,
-  );
   // A split without room asks the docked panel to widen once per shape (spec 5).
   const onNeedRoom = useCallback(
     (needed: number) => {
@@ -241,17 +247,31 @@ export function EditorPanel(props: TabViewProps) {
     [store, threadId, actions],
   );
   const gone = useCheckoutGone(threadId);
-  const empty = openPaths(layout).length === 0;
-  const place = explorerPlace({ width, open: layout.explorer.open, overlay, empty });
-  const explorerShown = place !== "aside";
+  // The explorer docks beside the code whenever it shows, never over it (spec 5).
+  const explorerShown = layout.explorer.open;
+  // Panes: four beside the chat, nine in full view (owner, 2026-11-21).
+  const fullView = useScopeWorkspace(threadId).expanded;
+  const paneCap = fullView ? limits.groups : sidePaneCap;
+  /** The widest and tallest the editor area can get now: the panel widening if it can. */
+  const editorRoom = () => {
+    const panel = root.current?.getBoundingClientRect();
+    const workspace = store.get(threadId);
+    const reach = workspace.expanded ? 0 : panelMax(root.current);
+    const explorerPx = latest.current.explorer.open
+      ? explorerWidth(Math.max(panel?.width ?? 0, reach), latest.current.explorer.width)
+      : 0;
+    return {
+      width: Math.max(panel?.width ?? 0, reach) - explorerPx,
+      height: panel?.height ?? 0,
+    };
+  };
   const setExplorer = (patch: Partial<ExplorerState>) =>
     change({ ...latest.current, explorer: { ...latest.current.explorer, ...patch } });
   const [focusSearch, setFocusSearch] = useState(0);
   // Reveal in Files (the tab menu) brings the explorer out to show the file.
   useEffect(() =>
     onRevealInExplorer(threadId, () => {
-      if (compact) setOverlay(true);
-      else if (!latest.current.explorer.open || latest.current.explorer.side !== "files")
+      if (!latest.current.explorer.open || latest.current.explorer.side !== "files")
         change({
           ...latest.current,
           explorer: { ...latest.current.explorer, open: true, side: "files" },
@@ -267,13 +287,13 @@ export function EditorPanel(props: TabViewProps) {
       length: how.length,
       focus: how.how === "keep",
     });
-    if (compact && closesExplorerOnPick(how.how)) setOverlay(false);
   };
 
   // The status line's left side (spec 41, 45, 66).
   const changes = session.changes;
-  const notice: StatusNotice | undefined =
-    problem === "offline"
+  const notice: StatusNotice | undefined = capNotice
+    ? { text: capNotice }
+    : problem === "offline"
       ? { text: "Saving when the daemon reconnects" }
       : problem
         ? {
@@ -288,6 +308,9 @@ export function EditorPanel(props: TabViewProps) {
           : !online
             ? { text: "Offline. Edits are kept on this device." }
             : undefined;
+
+  // Where Next change last stopped, so the next press moves on from it.
+  const lastStop = useRef<ChangeStop | undefined>(undefined);
 
   // ⌃Tab's list, while ⌃ is held.
   const [recent, setRecent] = useState<number | undefined>(undefined);
@@ -321,18 +344,24 @@ export function EditorPanel(props: TabViewProps) {
         );
       case "moveEditorBack":
       case "moveEditorOn":
+        // Past the last pane this would make one: not beyond the cap.
+        if (command === "moveEditorOn" && groupsOf(now).length >= paneCap) {
+          const groups = groupsOf(now);
+          if (groups.at(-1)?.id === focusedGroup(now).id) return;
+        }
         return change(
           moveActiveEditor(now, command === "moveEditorOn" ? "next" : "previous", groupIds(now)),
         );
       case "splitRight":
-        return change(splitFocused(now, "right"));
       case "splitDown":
-        return change(splitFocused(now, "down"));
+        if (groupsOf(now).length >= paneCap) return setCapNotice(paneCapReason(paneCap));
+        return change(
+          splitFocused(now, command === "splitRight" ? "right" : "down", editorRoom(), paneCap),
+        );
       case "explorer":
-        return compact ? setOverlay((shown) => !shown) : setExplorer({ open: !now.explorer.open });
+        return setExplorer({ open: !now.explorer.open });
       case "searchFiles":
-        if (compact) setOverlay(true);
-        setExplorer({ side: "search", ...(compact ? {} : { open: true }) });
+        setExplorer({ side: "search", open: true });
         return setFocusSearch((value) => value + 1);
       case "nextHit":
       case "previousHit": {
@@ -342,12 +371,32 @@ export function EditorPanel(props: TabViewProps) {
       }
       case "nextChange":
       case "previousChange": {
-        const path = nextChange(changes, openPaths(now), active, command === "nextChange" ? 1 : -1);
+        const direction = command === "nextChange" ? 1 : -1;
+        // Through the agents' blocks, line by line across open files (spec 45).
+        const from = lastStop.current?.path === active ? lastStop.current : undefined;
+        const stop = stepAgentChange(
+          openPaths(now),
+          (path) => agentBlocksOf(buffers, path),
+          { path: active, line: from?.line ?? -1 },
+          direction,
+        );
+        if (stop) {
+          lastStop.current = stop;
+          const next = showPath(now, stop.path);
+          change(next);
+          requestReveal(threadId, {
+            path: stop.path,
+            group: focusedGroup(next).id,
+            line: stop.line + 1,
+            focus: true,
+          });
+          return;
+        }
+        const path = nextChange(changes, openPaths(now), active, direction);
         if (path) change(showPath(now, path));
         return;
       }
       case "composer":
-        if (compact && overlay) return setOverlay(false);
         return runKeymap("focusComposer");
     }
   };
@@ -425,26 +474,18 @@ export function EditorPanel(props: TabViewProps) {
             <aside
               role="complementary"
               aria-label="Explorer"
-              style={{
-                width: compact ? Math.min(layout.explorer.width, 320) : layout.explorer.width,
-              }}
-              className={cn(
-                "relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar",
-                place === "overlay" &&
-                  "fx-panel-in absolute inset-y-0 left-0 z-[4] max-w-[85%] shadow-[12px_0_32px_rgb(0_0_0/0.22)]",
-              )}
+              style={{ width: explorerWidth(width, layout.explorer.width) }}
+              className={`relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar ${sceneThrough}`}
             >
-              {!compact && (
-                <ResizeHandle
-                  label="Resize the explorer"
-                  edge="right"
-                  size={layout.explorer.width}
-                  min={200}
-                  max={360}
-                  onResize={(next) => setExplorer({ width: next })}
-                  onReset={() => setExplorer({ width: 236 })}
-                />
-              )}
+              <ResizeHandle
+                label="Resize the explorer"
+                edge="right"
+                size={layout.explorer.width}
+                min={200}
+                max={360}
+                onResize={(next) => setExplorer({ width: next })}
+                onReset={() => setExplorer({ width: 236 })}
+              />
               {explorer}
             </aside>
           )}
@@ -464,17 +505,16 @@ export function EditorPanel(props: TabViewProps) {
                 tabMenuItems={menuFor(threadId)}
                 threadId={threadId}
                 onNeedRoom={onNeedRoom}
+                paneCap={paneCap}
+                room={editorRoom}
                 explorerToggle={
-                  showsExplorerToggle(place) && (
+                  !explorerShown && (
                     <IconButton
                       label="Show files"
                       shortcut="editor.explorer"
                       size="sm"
-                      icon={FilesIcon}
-                      pressed={place === "overlay"}
-                      onClick={() =>
-                        compact ? setOverlay((shown) => !shown) : setExplorer({ open: true })
-                      }
+                      icon={SidebarSimpleIcon}
+                      onClick={() => setExplorer({ open: true })}
                     />
                   )
                 }
@@ -524,6 +564,7 @@ function emptyOf(layout: EditorLayout): EditorLayout {
 const EditorCompare = lazy(() =>
   import("./editor-compare.tsx").then((module) => ({ default: module.EditorCompare })),
 );
+const ReviewSideBySide = lazy(() => import("./review-side.tsx"));
 const EditorFileView = lazy(() =>
   import("./editor-file-view.tsx").then((module) => ({ default: module.EditorFileView })),
 );
@@ -577,9 +618,6 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
   const { threadId, ...editor } = props;
   const { buffer } = editor;
   const reveal = useReveal(threadId, editor.group, editor.path);
-  const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
-  const version = useSyncExternalStore(subscribe, () => buffer.snapshot().version);
-  const { marks, hunks } = useChangeMarks(threadId, editor.path, version);
   const onRevealed = useCallback((token: number) => settleReveal(threadId, token), [threadId]);
   // Annotations ride on every group's editor; views of one file map their ranges once per edit.
   const layer = useEditorAnnotations({ threadId, path: editor.path });
@@ -601,41 +639,62 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
   const saving = useEditorPanelSaving();
   const autoSave = saving?.autoSave;
   const { path } = editor;
-  const onEdited = useCallback(() => autoSave?.edited(path), [autoSave, path]);
+  // The gutter's live change marks, the agents' lines and the change under a pressed mark.
+  const gutter = useChangeGutter({
+    threadId,
+    path,
+    group: editor.group,
+    buffer,
+  });
+  // A turn under review shows its hunks inline, to keep, revert or comment on (Review in editor).
+  const review = useTurnReview({
+    threadId,
+    path,
+    group: editor.group,
+    buffer,
+    gutter: liveGutterFor(buffer),
+    layer,
+  });
+  const { edited } = gutter;
+  const onEdited = useCallback(() => {
+    edited();
+    autoSave?.edited(path);
+  }, [edited, autoSave, path]);
   const onBlurred = useCallback(() => autoSave?.blurred(path), [autoSave, path]);
-  // A press on a change mark shows that hunk under its lines; Revert puts the committed lines
-  // back and saves through the panel's own save.
-  const [peekLine, setPeekLine] = useState<number>();
-  const hunk = peekLine === undefined || !hunks ? undefined : hunkAt(hunks, peekLine);
-  const revert = () => {
-    const doc = buffer.document();
-    const change = hunk && doc && revertChange(hunk, (line) => doc.line(line), doc.lenLines());
-    setPeekLine(undefined);
-    if (!change || !buffer.editLines([change])) return;
-    void saving?.save(path);
-  };
-  const peek = hunk && {
-    after: Math.max(...hunk.marks) - 1,
-    content: <HunkPeek hunk={hunk} onRevert={revert} onClose={() => setPeekLine(undefined)} />,
-  };
   return (
     <MentionSelection
       path={editor.path}
       onMention={(mention) => mentionInComposer(threadId, mention)}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <BufferEditor
-        {...editor}
-        reveal={reveal}
-        marks={marks}
-        layer={layer}
-        look={look}
-        onMarkClick={setPeekLine}
-        peek={peek}
-        onEdited={onEdited}
-        onBlurred={onBlurred}
-        onRevealed={onRevealed}
-      />
+      <div
+        role="presentation"
+        className="flex min-h-0 flex-1 flex-col"
+        onKeyDown={(event) => {
+          if (review?.onKey(event) || gutter.onKey(event)) event.preventDefault();
+        }}
+      >
+        {review?.idle && <ReviewIdle {...review.idle} />}
+        {review?.side ? (
+          <Suspense fallback={null}>
+            <ReviewSideBySide {...review.side} />
+          </Suspense>
+        ) : (
+          <BufferEditor
+            {...editor}
+            reveal={reveal}
+            marks={gutter.marks}
+            agentMarks={review ? [...gutter.agentMarks, ...review.agentMarks] : gutter.agentMarks}
+            layer={layer}
+            look={look}
+            onMarkClick={gutter.onMarkClick}
+            peek={review?.peek ?? gutter.peek}
+            onEdited={onEdited}
+            onBlurred={onBlurred}
+            onRevealed={onRevealed}
+          />
+        )}
+      </div>
     </MentionSelection>
   );
 }

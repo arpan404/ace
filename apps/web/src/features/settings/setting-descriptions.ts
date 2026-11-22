@@ -7,7 +7,7 @@ export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
   "usage.railMeasure": "What the rail's Usage icon shows.",
   "threads.useWorktree": "Keeps each thread's changes apart.",
   "market.askBeforeAgentPublish":
-    "An agent's publish to the marketplace waits in its thread until you answer it.",
+    "An agent's publish to the Store waits in its thread until you answer it.",
   "threads.forkOnSwitch": "The original thread stays as it was.",
   "threads.settleOnClose": "Closed without merging.",
   "generation.autoDraftCommits": "Drafted from your changes.",

@@ -20,3 +20,4 @@ export {
   type BufferRegistryOptions,
 } from "./registry.ts";
 export type * from "./types.ts";
+export { shownVersion } from "./types.ts";

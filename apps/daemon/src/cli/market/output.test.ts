@@ -98,7 +98,7 @@ describe("--json prints each answer's data, and it matches the command's schema"
           {
             id: "market",
             kind: "market",
-            address: "https://market.acehq.dev",
+            address: "https://store.acehq.dev",
             enabled: true,
             entries: 4,
           },
@@ -175,17 +175,17 @@ describe("the market's refusals as the CLI reports them", () => {
     expect(failure.outcome).toBe("refused");
     expect(failure.detail.code).toBe("refused");
     expect(failure.detail.hint).toContain("ace account status");
-    expect(failure.detail.hint).not.toContain("features on marketplace");
+    expect(failure.detail.hint).not.toContain("feature on marketplace");
   });
 
-  it("a marketplace turned off in Settings › Beta says how to turn it on", () => {
+  it("a Store turned off in Settings › Beta says how to turn it on", () => {
     const failure = marketFailure({
       op: "error",
       code: "unavailable",
-      message: "The marketplace is turned off. Turn it on in Settings › Beta.",
+      message: "The Store is turned off. Turn it on in Settings › Beta.",
     });
     expect(failure.detail.code).toBe("turned_off");
-    expect(failure.detail.hint).toBe("Turn the marketplace on with ace features on marketplace.");
+    expect(failure.detail.hint).toBe("Turn the Store on with ace feature on marketplace.");
   });
 
   it("a person-only answer carries the request ace opened", () => {

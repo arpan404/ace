@@ -15,11 +15,13 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
+import { ChangeBars } from "./change-bars.tsx";
 import { Decorations } from "./decorations.tsx";
 import { EditorFindBar } from "./find-bar.tsx";
 import { EditorStatusLine } from "./status-line.tsx";
 import { useEditorStatus } from "./use-editor-status.ts";
 import { GoToLineBar } from "./go-to-line.tsx";
+import { OverviewRuler } from "./overview-ruler.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
 import {
   gutterWidth,
@@ -66,6 +68,7 @@ const markZone = 6;
 /** Rulers are off unless the caller asks for them. */
 const noRulers: readonly number[] = [];
 const noLines: readonly number[] = [];
+const noHits: readonly Range[] = [];
 const noRanges: readonly Range[] = [];
 
 /** How long the first paint waits for colours before it shows plain text. */
@@ -394,6 +397,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     indentSize,
   });
 
+  const changeMarks = props.marks ?? state.marks;
+
   const byLine = useMemo(
     () => segmentsByLine(matches, first, last - 1, currentIndex),
     [matches, first, last, currentIndex],
@@ -600,8 +605,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                       gutter={gutter}
                       top={index * lineHeight}
                       lineHeight={lineHeight}
-                      mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
-                      markAction={props.onMarkClick !== undefined && props.marks !== undefined}
                       current={focused && line === caretLine}
                       fold={
                         at !== 0
@@ -622,6 +625,19 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                 }
                 return drawn;
               })}
+              <ChangeBars
+                marks={changeMarks}
+                agent={props.agentMarks}
+                layout={layout}
+                firstLine={first}
+                lastLine={last - 1}
+                firstRow={firstRow}
+                lastRow={lastRow}
+                gutter={gutter}
+                lineHeight={lineHeight}
+                scrollLeft={scroll.left}
+                clickable={props.onMarkClick !== undefined && props.marks !== undefined}
+              />
               <CaretLayers
                 selections={state.selections}
                 lines={lineAt}
@@ -663,6 +679,28 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             ) : null}
           </div>
         </div>
+        {doc && layout ? (
+          <OverviewRuler
+            rows={rows}
+            viewRows={Math.floor(height / lineHeight)}
+            height={Math.max(0, viewport.height)}
+            revision={layout.revision()}
+            layout={layout}
+            marks={changeMarks}
+            agent={props.agentMarks}
+            hits={activeQuery ? matches : noHits}
+            caretLine={caretLine}
+            onJump={(line) => {
+              const element = scroller.current;
+              if (!element) return;
+              element.scrollTop = Math.max(
+                0,
+                layout.startOf(line) * lineHeight - (viewport.height - lineHeight) / 2,
+              );
+              setScroll({ top: element.scrollTop, left: element.scrollLeft });
+            }}
+          />
+        ) : null}
         {doc ? (
           <StickyHeaders
             lines={pinned}
