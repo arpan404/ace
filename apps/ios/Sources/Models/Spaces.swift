@@ -70,7 +70,8 @@ enum Spaces {
         guard let org = space.org else { return nil }
         guard let hosts = hostsOf[org.id] else { return "Loading \(possessive(org.name)) machines…" }
         if hosts.isEmpty { return "\(org.name) has no machines yet." }
-        if reachable == 0 { return "None of \(possessive(org.name)) machines are connected to this window." }
+        // A phone has no windows (`spaceStartBlock`'s `phone` wording).
+        if reachable == 0 { return "None of \(possessive(org.name)) machines are connected." }
         return nil
     }
 

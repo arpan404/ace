@@ -5,20 +5,15 @@
     "spaces": null,
     "hostsOf": {},
     "orgs": [],
-    "machines": [
-      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
-      null
-    ],
+    "machines": ["LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL", null],
     "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
     "expect": {
       "shown": "personal",
-      "inSpace": [
-        0,
-        1
-      ],
+      "inSpace": [0, 1],
       "startBlock": null,
       "manage": null,
-      "noticeLabel": null
+      "noticeLabel": null,
+      "phoneStartBlock": null
     }
   },
   {
@@ -34,13 +29,9 @@
       }
     ],
     "hostsOf": {
-      "org_acme": [
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-      ]
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
     },
-    "orgs": [
-      "org_acme"
-    ],
+    "orgs": ["org_acme"],
     "machines": [
       "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -49,13 +40,11 @@
     "noticeHost": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     "expect": {
       "shown": "personal",
-      "inSpace": [
-        0,
-        2
-      ],
+      "inSpace": [0, 2],
       "startBlock": null,
       "manage": null,
-      "noticeLabel": "Acme Robotics"
+      "noticeLabel": "Acme Robotics",
+      "phoneStartBlock": null
     }
   },
   {
@@ -71,13 +60,9 @@
       }
     ],
     "hostsOf": {
-      "org_acme": [
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-      ]
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
     },
-    "orgs": [
-      "org_acme"
-    ],
+    "orgs": ["org_acme"],
     "machines": [
       "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -86,12 +71,11 @@
     "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
     "expect": {
       "shown": "org_acme",
-      "inSpace": [
-        1
-      ],
+      "inSpace": [1],
       "startBlock": null,
       "manage": "Manage Acme Robotics on desktop or the web",
-      "noticeLabel": "Personal"
+      "noticeLabel": "Personal",
+      "phoneStartBlock": null
     }
   },
   {
@@ -107,9 +91,7 @@
       }
     ],
     "hostsOf": {},
-    "orgs": [
-      "org_acme"
-    ],
+    "orgs": ["org_acme"],
     "machines": [
       "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -121,7 +103,8 @@
       "inSpace": [],
       "startBlock": "Loading Acme Robotics' machines…",
       "manage": "Manage Acme Robotics on desktop or the web",
-      "noticeLabel": "Personal"
+      "noticeLabel": "Personal",
+      "phoneStartBlock": "Loading Acme Robotics' machines…"
     }
   },
   {
@@ -144,14 +127,9 @@
       }
     ],
     "hostsOf": {
-      "org_acme": [
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-      ]
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
     },
-    "orgs": [
-      "org_acme",
-      "org_lab"
-    ],
+    "orgs": ["org_acme", "org_lab"],
     "machines": [
       "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -160,12 +138,11 @@
     "noticeHost": null,
     "expect": {
       "shown": "personal",
-      "inSpace": [
-        2
-      ],
+      "inSpace": [2],
       "startBlock": null,
       "manage": null,
-      "noticeLabel": "Personal"
+      "noticeLabel": "Personal",
+      "phoneStartBlock": null
     }
   },
   {
@@ -185,7 +162,8 @@
       "inSpace": [],
       "startBlock": "Loading this organization's machines…",
       "manage": null,
-      "noticeLabel": null
+      "noticeLabel": null,
+      "phoneStartBlock": "Loading this organization's machines…"
     }
   },
   {
@@ -194,19 +172,15 @@
     "spaces": null,
     "hostsOf": {},
     "orgs": null,
-    "machines": [
-      "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
-      null
-    ],
+    "machines": ["LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL", null],
     "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
     "expect": {
       "shown": "personal",
-      "inSpace": [
-        1
-      ],
+      "inSpace": [1],
       "startBlock": null,
       "manage": null,
-      "noticeLabel": null
+      "noticeLabel": null,
+      "phoneStartBlock": null
     }
   },
   {
@@ -222,13 +196,9 @@
       }
     ],
     "hostsOf": {
-      "org_acme": [
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-      ]
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
     },
-    "orgs": [
-      "org_acme"
-    ],
+    "orgs": ["org_acme"],
     "machines": [
       "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -236,12 +206,11 @@
     "noticeHost": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
     "expect": {
       "shown": "personal",
-      "inSpace": [
-        0
-      ],
+      "inSpace": [0],
       "startBlock": null,
       "manage": null,
-      "noticeLabel": "Personal"
+      "noticeLabel": "Personal",
+      "phoneStartBlock": null
     }
   },
   {
@@ -264,15 +233,10 @@
       }
     ],
     "hostsOf": {
-      "org_acme": [
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-      ],
+      "org_acme": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
       "org_lab": []
     },
-    "orgs": [
-      "org_acme",
-      "org_lab"
-    ],
+    "orgs": ["org_acme", "org_lab"],
     "machines": [
       "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -283,7 +247,8 @@
       "inSpace": [],
       "startBlock": "Lab has no machines yet.",
       "manage": "Manage Lab on desktop or the web",
-      "noticeLabel": "Acme Robotics"
+      "noticeLabel": "Acme Robotics",
+      "phoneStartBlock": "Lab has no machines yet."
     }
   },
   {
@@ -299,13 +264,9 @@
       }
     ],
     "hostsOf": {
-      "org_acme": [
-        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-      ]
+      "org_acme": ["BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"]
     },
-    "orgs": [
-      "org_acme"
-    ],
+    "orgs": ["org_acme"],
     "machines": [
       "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -316,7 +277,8 @@
       "inSpace": [],
       "startBlock": "None of Acme Robotics' machines are connected to this window.",
       "manage": null,
-      "noticeLabel": "Acme Robotics"
+      "noticeLabel": "Acme Robotics",
+      "phoneStartBlock": "None of Acme Robotics' machines are connected."
     }
   }
 ]

@@ -55,6 +55,8 @@ interface SpaceCase {
     shown: string | null;
     inSpace: number[];
     startBlock: string | null;
+    /** The same sentence as the iPhone words it: a phone has no windows. */
+    phoneStartBlock: string | null;
     manage: string | null;
     noticeLabel: string | null;
   };
@@ -78,6 +80,7 @@ test.each(table.map((entry) => [entry.case, entry] as const))("%s", (_name, entr
     shown: shown?.id ?? null,
     inSpace,
     startBlock: spaceStartBlock(shown, hostsOf, inSpace.length) ?? null,
+    phoneStartBlock: spaceStartBlock(shown, hostsOf, inSpace.length, "phone") ?? null,
     manage: spaceManageLine(shown) ?? null,
     noticeLabel: noticeSpaceLabel(fromOrg, spaces) ?? null,
   }).toEqual(entry.expect);

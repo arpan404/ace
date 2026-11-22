@@ -1,6 +1,6 @@
 import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
 import { seededSpade, seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
-import { seedSpace } from "./space-scenario.ts";
+import { keepOnlySpaceThreads, recordSeeded, seedSpace } from "./space-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -104,6 +104,8 @@ const details = (branch: string) => ({
   branch,
   machine: { host: hostId, name: machineName },
 });
+// Every thread the scenarios below seed, so an org host can drop them (`ACE_IOS_SPIKE_SPACE`).
+const seeded = recordSeeded(daemon);
 // Seeded first, so they are the list's oldest finished threads and never push the others down.
 seedTransitions(daemon, details);
 daemon.createThread({
@@ -407,6 +409,11 @@ const lostReceipt = new LostReceipt();
 const spikeAccount = new SpikeAccount(() => Date.now());
 // The app's `--perf-probe` numbers, for the performance UI tests.
 const perfProbe = new SpikePerfProbe();
+// An org host holds only the organization's work: the person's own threads, seeded above for
+// every fixture, are deleted once everything is seeded, so no thread is on a machine of both
+// spaces.
+if (space === "acme") keepOnlySpaceThreads(daemon, seeded());
+
 const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,

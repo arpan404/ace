@@ -16,7 +16,7 @@ struct SpacesTests {
         let noticeOrg = Spaces.org(of: entry.noticeHost, spaces: entry.spaces ?? [], hostsOf: hostsOf)
         #expect(shown?.id == entry.expect.shown)
         #expect(inSpace == entry.expect.inSpace)
-        #expect(Spaces.startBlock(shown, hostsOf: hostsOf, reachable: inSpace.count) == entry.expect.startBlock)
+        #expect(Spaces.startBlock(shown, hostsOf: hostsOf, reachable: inSpace.count) == entry.expect.phoneStartBlock)
         #expect(Spaces.manageLine(shown) == entry.expect.manage)
         #expect(Spaces.noticeLabel(org: noticeOrg, spaces: entry.spaces) == entry.expect.noticeLabel)
     }
@@ -48,6 +48,8 @@ struct SpaceCase: Decodable, Sendable, CustomTestStringConvertible {
         let shown: String?
         let inSpace: [Int]
         let startBlock: String?
+        /// The iPhone's wording: a phone has no windows.
+        let phoneStartBlock: String?
         let manage: String?
         let noticeLabel: String?
     }

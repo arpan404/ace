@@ -72,3 +72,24 @@ export function seedSpace(
     approvers: ["acct_spike", "acct_dana"],
   });
 }
+
+/** Records each thread `daemon` creates from now on; the ids so far on each call. */
+export function recordSeeded(daemon: FakeDaemon): () => string[] {
+  const ids: string[] = [];
+  const create = daemon.createThread.bind(daemon);
+  daemon.createThread = (init, agoMs) => {
+    ids.push(init.id);
+    create(init, agoMs);
+  };
+  return () => [...ids];
+}
+
+/** The space threads `seedSpace` makes. */
+const spaceThreads: ReadonlySet<string> = new Set(
+  Object.values(titles).flatMap((rows) => rows.map(([id]) => id)),
+);
+
+/** Deletes every seeded thread but the space's own; the fixture's timers skip deleted ones. */
+export function keepOnlySpaceThreads(daemon: FakeDaemon, seeded: readonly string[]): void {
+  for (const id of seeded) if (!spaceThreads.has(id)) daemon.deleteThread(id);
+}
