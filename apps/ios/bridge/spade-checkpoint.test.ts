@@ -51,3 +51,25 @@ test("a machine that stops showing Spade keeps the tab hidden at the next launch
   await until(() => kept.writes.at(-1)?.[0]?.shown === false);
   expect(kept.writes.at(-1)?.[0]?.list.rows).toBeNull();
 });
+
+test("a machine that shows Spade again keeps the tab at the next launch even while its bots can't be read", async () => {
+  const kept = written();
+  const { daemon } = await setUp(
+    (fake) => {
+      const answer = fake.answer.bind(fake);
+      fake.answer = (request) =>
+        request.path.startsWith("/v1/agents")
+          ? { status: 500, body: JSON.stringify({ error: "Spade is busy." }) }
+          : answer(request);
+    },
+    quick,
+    kept,
+  );
+  daemon.spade.setStatus({ state: "off", hidden: true });
+  await until(() => kept.writes.at(-1)?.[0]?.shown === false);
+
+  daemon.spade.setStatus({ state: "ready", version: "0.6.0" });
+
+  await until(() => kept.writes.at(-1)?.[0]?.shown === true);
+  expect(kept.writes.at(-1)?.[0]?.list.rows).toBeNull();
+});

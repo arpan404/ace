@@ -32,13 +32,11 @@ const unconfirmed: SpadeReach = { unconfirmed: "Checking for changes" };
 
 /**
  * Whether what the runtime knows is worth keeping: the daemon has said whether the machine shows
- * Spade, and, while Spade runs and shows, its bots were read on this connection.
+ * Spade. Its bots are kept only once read on this connection; until then the tab is kept alone,
+ * so a list that can't be read never leaves a tab the daemon shows hidden at the next launch.
  */
 export function spadeKeepable(known: SpadeKnown): boolean {
-  const { status } = known;
-  if (status === undefined) return false;
-  if (status.hidden === true || status.state !== "ready") return true;
-  return known.confirmed;
+  return known.status !== undefined;
 }
 
 /** The kept patches: the Spade tab's state as the next launch first draws it. */
