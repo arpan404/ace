@@ -35,12 +35,24 @@ extension ClientModel {
         sendCodeNotes(thread)
         return .success(id)
     }
-    /// New words for a note; refused when they're longer than the agent takes.
+    /// A diff of `path` was read again, showing `lines` of the new side: `thread`'s notes there
+    /// stay, move, or turn outdated or unverified (`CodeNotes.shown`).
+    func diffShown(_ thread: String, path: String, lines: [Int: String]) {
+        let before = codeNotes
+        codeNotes.shown(thread, path: path, lines: lines)
+        if codeNotes != before { sendCodeNotes(thread) }
+    }
+    /// New words for a note, confirmed once kept on the phone; refused when they're longer than
+    /// the agent takes, or can't be kept (the note keeps its old words, the sheet the new).
     @discardableResult
     func commentCodeNote(_ thread: String, id: String, _ comment: String) -> CodeNoteRefusal? {
         guard CodeNotes.fits(comment) else { return .tooLong }
+        let before = codeNotes
         codeNotes.comment(thread, id: id, comment)
-        keepCodeNotes()
+        guard keepCodeNotes() else {
+            codeNotes = before
+            return .notSaved
+        }
         sendCodeNotes(thread)
         return nil
     }
@@ -56,8 +68,32 @@ extension ClientModel {
     }
     /// A message took these notes: kept at once, so a kill can't bring them back to go twice.
     func codeNotesSent(_ thread: String, ids: [String]) {
+        let before = codeNotes
         codeNotes.sent(thread, ids: ids)
+        guard codeNotes != before else { return }
         keepCodeNotes()
+        sendCodeNotes(thread)
+    }
+    /// A message on `thread` is sent by `send` (true once the machine saved it) and carries the
+    /// notes the bridge holds. They leave this phone's disk before it goes, so a kill once the
+    /// machine has saved it can never bring them back onto the next message; a message that
+    /// wasn't saved gives them back. Meanwhile the bridge keeps the list it had, so the message
+    /// carries exactly these, however late the bridge sends it.
+    func sendingCodeNotes(_ thread: String, _ send: () async -> Bool) async -> Bool {
+        let taken = codeNotes[thread]
+        guard !taken.isEmpty else { return await send() }
+        codeNotesSending.insert(thread)
+        codeNotes.clear(thread)
+        // A failed write is tried again; the message still goes, as the person asked.
+        keepCodeNotes()
+        let saved = await send()
+        codeNotesSending.remove(thread)
+        if !saved {
+            codeNotes.putBack(thread, taken)
+            keepCodeNotes()
+        }
+        sendCodeNotes(thread)
+        return saved
     }
     /// Writes the notes now; false when they couldn't be (they're tried again). True when this
     /// connection keeps none (signed out).
@@ -111,7 +147,7 @@ extension ClientModel {
     }
     /// The open thread's session hears `thread`'s notes; another thread's wait until it opens.
     func sendCodeNotes(_ thread: String) {
-        guard canOperate, self.thread?.id == thread else { return }
+        guard canOperate, self.thread?.id == thread, !codeNotesSending.contains(thread) else { return }
         threadAction(["type": "code.set", "notes": codeNotes.wire(thread)])
     }
 }

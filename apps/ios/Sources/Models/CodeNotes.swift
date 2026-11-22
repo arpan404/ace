@@ -97,6 +97,17 @@ struct CodeNotes: Equatable, Sendable {
         dropIfEmpty(thread)
     }
 
+    /// A message that took `notes` wasn't saved: they come back first, ahead of any made since,
+    /// up to the limit.
+    mutating func putBack(_ thread: String, _ notes: [CodeNote]) {
+        guard !notes.isEmpty else { return }
+        let back = Set(notes.map(\.id))
+        threads[thread] = Array((notes + self[thread].filter { !back.contains($0.id) }).prefix(Self.limit))
+        recent.removeAll { $0 == thread }
+        recent.append(thread)
+        while recent.count > Self.threadLimit { threads[recent.removeFirst()] = nil }
+    }
+
     private mutating func dropIfEmpty(_ thread: String) {
         if threads[thread]?.isEmpty == true { clear(thread) }
     }

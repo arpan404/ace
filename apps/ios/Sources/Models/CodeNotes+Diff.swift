@@ -27,7 +27,8 @@ extension CodeNotes {
     /// `path`'s diff was read again and shows `lines` of the new side (1-based number to whole
     /// text; clipped lines left out).
     mutating func shown(_ thread: String, path: String, lines: [Int: String]) {
-        guard !lines.isEmpty, self[thread].contains(where: { $0.path == path && !$0.outdated }) else { return }
+        // Even none shown (only deletions left) is a reread: the notes' places are then unverified.
+        guard self[thread].contains(where: { $0.path == path && !$0.outdated }) else { return }
         let runs = Self.runs(lines)
         update(thread) { note in
             guard note.path == path, !note.outdated else { return }

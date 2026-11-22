@@ -170,6 +170,8 @@ struct ReviewComposer: View {
 
     private var notice: ChangesNotice? { request.flatMap { model.sheets.notices[$0] } }
     private var saving: Bool { request != nil && notice == nil }
+    /// A comment or a note is under way: one in-flight guard for Save and Note for the agent.
+    private var busy: Bool { saving || noting }
 
     var body: some View {
         NavigationStack {
@@ -196,7 +198,7 @@ struct ReviewComposer: View {
                 if let note, editing == nil {
                     Section {
                         Button("Note for the agent") { leave(note) }
-                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || noting || !model.canOperate)
+                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy || !model.canOperate)
                             .accessibilityHint("Puts it on the thread's next message instead of the review")
                             .accessibilityIdentifier("review.note")
                     } footer: {
@@ -211,7 +213,7 @@ struct ReviewComposer: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    if saving { ProgressView() } else {
+                    if busy { ProgressView() } else {
                         Button("Save") { save() }.fontWeight(.semibold)
                             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             .accessibilityIdentifier("review.save")
@@ -232,7 +234,7 @@ struct ReviewComposer: View {
     }
 
     private func leave(_ note: Note) {
-        guard !noting else { return }
+        guard !busy else { return }
         noting = true
         let comment = text
         Task {
@@ -249,6 +251,7 @@ struct ReviewComposer: View {
     }
 
     private func save() {
+        guard !busy else { return }
         var fields: [String: Any] = ["path": path, "side": side, "start": start, "end": end, "text": String(text.prefix(4096))]
         if suggesting { fields["suggestion"] = String(suggestion.prefix(8192)) }
         if let editing { fields["key"] = editing.key }

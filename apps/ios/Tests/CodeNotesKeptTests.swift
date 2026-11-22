@@ -123,12 +123,62 @@ import Testing
         // A new note isn't confirmed when it can't be kept, so the person still has their words.
         #expect(model.addDiffNote("t", path: "a.ts", first: 2, texts: ["y"], comment: "Second") == .failure(.notSaved))
         #expect(model.codeNotes["t"].map(\.id) == [first])
-        // An edit that can't be written yet waits, and is written once the phone can.
-        model.commentCodeNote("t", id: first, "First, edited")
+        // New words aren't confirmed either: the sheet keeps them, and the note its old ones.
+        #expect(model.commentCodeNote("t", id: first, "First, edited") == .notSaved)
+        #expect(model.codeNotes["t"].map(\.comment) == ["First"])
+        // A removal that can't be written yet waits, and is written once the phone can.
+        model.removeCodeNote("t", id: first)
         try FileManager.default.removeItem(at: root)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         for _ in 0..<300 where !FileManager.default.fileExists(atPath: kept.path) { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(CodeNotesKept(url: kept).load()["t"].map(\.comment) == ["First, edited"])
+        #expect(FileManager.default.fileExists(atPath: kept.path))
+        #expect(CodeNotesKept(url: kept).load()["t"].isEmpty)
+    }
+
+    @Test func aNoteAMessageIsCarryingIsOffTheDiskSoAKillMidSendNeverSendsItTwice() async {
+        let root = directory()
+        let model = ClientModel(now: { 0 })
+        model.restoreCodeNotes(keptScope: "alice", in: root)
+        _ = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: "Goes")
+        var onDiskMidSend: [CodeNote] = [placeholder()]
+        let saved = await model.sendingCodeNotes("t") {
+            // The machine may have admitted the message when the app is killed here.
+            let relaunched = ClientModel(now: { 0 })
+            relaunched.restoreCodeNotes(keptScope: "alice", in: root)
+            onDiskMidSend = relaunched.codeNotes["t"]
+            return true
+        }
+        #expect(saved)
+        #expect(onDiskMidSend.isEmpty)
+        #expect(model.codeNotes["t"].isEmpty)
+    }
+
+    @Test func aMessageThatWasntSavedGivesItsNotesBackAheadOfOnesMadeMeanwhile() async {
+        let root = directory()
+        let model = ClientModel(now: { 0 })
+        model.restoreCodeNotes(keptScope: "alice", in: root)
+        _ = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: "First")
+        let saved = await model.sendingCodeNotes("t") {
+            _ = model.addDiffNote("t", path: "a.ts", first: 2, texts: ["y"], comment: "Meanwhile")
+            return false
+        }
+        #expect(!saved)
+        #expect(model.codeNotes["t"].map(\.comment) == ["First", "Meanwhile"])
+        let relaunched = ClientModel(now: { 0 })
+        relaunched.restoreCodeNotes(keptScope: "alice", in: root)
+        #expect(relaunched.codeNotes["t"].map(\.comment) == ["First", "Meanwhile"])
+        // The machine's word that the message took the first after all still drops it.
+        relaunched.codeNotesSent("t", ids: [relaunched.codeNotes["t"][0].id])
+        #expect(relaunched.codeNotes["t"].map(\.comment) == ["Meanwhile"])
+    }
+
+    @Test func aRereadThatShowsNoNewLinesLeavesTheNotesUnverified() {
+        var notes = CodeNotes()
+        notes.add("t", path: "a.ts", first: 3, texts: ["call()"], comment: "", id: "a")
+        // Only deletions are left in the diff: no line of the new side to check against.
+        notes.shown("t", path: "a.ts", lines: [:])
+        #expect(notes["t"].first?.unverified == true)
+        #expect(notes["t"].first?.outdated == false)
     }
 
     @Test func aCommentLongerThanTheAgentTakesIsRefusedBeforeItIsConfirmed() {
@@ -139,6 +189,10 @@ import Testing
         #expect(model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: long) == .failure(.tooLong))
         #expect(CodeNoteRefusal.tooLong.message.contains(CodeNotes.commentLimit.formatted()))
         #expect(model.codeNotes["t"].count == 1)
+        // New words that are too long are refused too, and the note keeps its own.
+        let id = model.codeNotes["t"][0].id
+        #expect(model.commentCodeNote("t", id: id, long) == .tooLong)
+        #expect(model.codeNotes["t"][0].comment.utf16.count == 4000)
     }
 
     @Test func aBurstOfEditsIsWrittenOnceItSettles() async throws {
@@ -164,6 +218,12 @@ import Testing
         #expect(notes["t0"].count == 2)
         #expect(notes["new"].count == 1)
     }
+}
+
+/// A placeholder note, so a check that never ran reads as a failure.
+private func placeholder() -> CodeNote {
+    CodeNote(id: "placeholder", path: "", span: TextSpan(start: TextPlace(line: 0, column: 0), end: TextPlace(line: 0, column: 0)),
+             excerpt: "", cut: false, comment: "")
 }
 
 private extension Result {

@@ -26,10 +26,12 @@ extension ClientModel {
         var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "continues": continues, "requestId": id]
         if let reply { action["reply"] = reply.payload }
         if !references.isEmpty { action["references"] = references }
-        guard continues else { return await admissions.wait(id: id) { threadAction(action) } }
-        let refused = await receipts.wait(id: id) { threadAction(action) }
-        if let refused { error = refused }
-        return refused == nil
+        return await sendingCodeNotes(thread.id) {
+            guard continues else { return await admissions.wait(id: id) { threadAction(action) } }
+            let refused = await receipts.wait(id: id) { threadAction(action) }
+            if let refused { error = refused }
+            return refused == nil
+        }
     }
     /// Stop the whole agent tree of the turn on screen.
     func stopTree() {

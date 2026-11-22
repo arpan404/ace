@@ -104,6 +104,9 @@ import QuartzCore
     /// phone for the machine connected (`codeNotesKept`).
     var codeNotes = CodeNotes() { didSet { if codeNotes != oldValue { codeNotesKept?.changed(codeNotes) } } }
     @ObservationIgnored var codeNotesKept: CodeNotesKept?
+    /// Threads whose message is being sent with their notes (`sendingCodeNotes`): the bridge keeps
+    /// its list until the message is saved or refused.
+    @ObservationIgnored var codeNotesSending: Set<String> = []
     /// Each thread's checkout as code notes name it (`checkoutKey`), once read.
     @ObservationIgnored var checkoutKeys: [String: String] = [:]
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
