@@ -231,10 +231,13 @@ impl Models {
             .endpoint(endpoint_id)
             .ok_or_else(|| ModelError::UnknownModel(format!("{endpoint_id}/")))?;
         if let Some(SignIn::ChatGpt { account_id }) = &endpoint.sign_in {
-            let token = self.bearer(&endpoint).await.map_err(|e| ModelError::Listing {
-                endpoint: endpoint.id.clone(),
-                message: e.to_string(),
-            })?;
+            let token = self
+                .bearer(&endpoint)
+                .await
+                .map_err(|e| ModelError::Listing {
+                    endpoint: endpoint.id.clone(),
+                    message: e.to_string(),
+                })?;
             let mut signed = endpoint.clone();
             signed.headers.extend(chatgpt::headers(account_id, None));
             return listing::fetch(
@@ -375,7 +378,11 @@ impl Models {
             .with_capture_reasoning_content(true);
         let response = self
             .client
-            .exec_chat_stream(call.target, request(prompt, call.streamed_only), Some(&options))
+            .exec_chat_stream(
+                call.target,
+                request(prompt, call.streamed_only),
+                Some(&options),
+            )
             .await
             .map_err(|error| failure::read(&call.reference, &error, false))?;
         let reference = call.reference;

@@ -10,7 +10,7 @@ use spade_chatgpt::{BearerError, FlowView, Flows, Method, SignedIn};
 use spade_models::Bearers;
 use spade_store::{StoreError, StoredEndpoint, StoredModel, StoredSignIn};
 
-use super::{Engine, EndpointError, EndpointView};
+use super::{EndpointError, EndpointView, Engine};
 
 /// The sign-in kind of a ChatGPT account.
 pub(crate) const CHATGPT: &str = "chatgpt";
@@ -242,7 +242,9 @@ impl Engine {
                 .map_err(|e| e.to_string())?;
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
             row.sign_in = Some(facts);
-            self.store.update_endpoint(&row).map_err(|e| e.to_string())?;
+            self.store
+                .update_endpoint(&row)
+                .map_err(|e| e.to_string())?;
             self.sync_endpoints().map_err(|e| e.to_string())?;
             return Ok(row.id);
         }
@@ -263,7 +265,7 @@ impl Engine {
             id: id.clone(),
             name,
             format: spade_models::Format::OpenAiResponses.name().to_owned(),
-            base_url: spade_models::chatgpt::BACKEND_URL.to_owned(),
+            base_url: accounts.config().backend.clone(),
             headers: Vec::new(),
             session_header: None,
             needs_key: false,

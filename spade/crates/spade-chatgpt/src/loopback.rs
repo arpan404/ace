@@ -59,11 +59,21 @@ async fn answer(mut stream: TcpStream, state: &str) -> Option<Result<String, Str
             .map(|(_, value)| value.into_owned())
     };
     if query("state").as_deref() != Some(state) {
-        respond(&mut stream, "400 Bad Request", "This is not the sign-in Spade started.").await;
+        respond(
+            &mut stream,
+            "400 Bad Request",
+            "This is not the sign-in Spade started.",
+        )
+        .await;
         return None;
     }
     if let Some(error) = query("error") {
-        respond(&mut stream, "200 OK", "Sign-in stopped. You can close this tab.").await;
+        respond(
+            &mut stream,
+            "200 OK",
+            "Sign-in stopped. You can close this tab.",
+        )
+        .await;
         let error: String = error
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '_')

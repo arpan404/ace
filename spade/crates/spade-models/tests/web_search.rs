@@ -23,6 +23,7 @@ fn models(root: &str) -> Result<Models> {
         key_env: None,
         headers: Vec::new(),
         session_header: None,
+        sign_in: None,
         models: vec![Model {
             id: "searcher".into(),
             name: "Searcher".into(),

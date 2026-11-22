@@ -91,7 +91,12 @@ pub async fn exchange(
         .form(&form)
         .send()
         .await
-        .map_err(|e| OauthError::Failed(format!("OpenAI's sign-in could not be reached ({})", kind(&e))))?;
+        .map_err(|e| {
+            OauthError::Failed(format!(
+                "OpenAI's sign-in could not be reached ({})",
+                kind(&e)
+            ))
+        })?;
     let (status, body) = read(response).await?;
     if !status.is_success() {
         return Err(OauthError::Failed(format!(
@@ -138,7 +143,12 @@ pub async fn refresh(
         }))
         .send()
         .await
-        .map_err(|e| OauthError::Failed(format!("OpenAI's sign-in could not be reached ({})", kind(&e))))?;
+        .map_err(|e| {
+            OauthError::Failed(format!(
+                "OpenAI's sign-in could not be reached ({})",
+                kind(&e)
+            ))
+        })?;
     let (status, body) = read(response).await?;
     if status.is_success() {
         return serde_json::from_slice(&body)
@@ -167,13 +177,24 @@ pub struct DeviceCode {
 }
 
 /// Asks for a device code.
-pub async fn device_code(http: &reqwest::Client, config: &Config) -> Result<DeviceCode, OauthError> {
+pub async fn device_code(
+    http: &reqwest::Client,
+    config: &Config,
+) -> Result<DeviceCode, OauthError> {
     let response = http
-        .post(format!("{}/api/accounts/deviceauth/usercode", config.issuer))
+        .post(format!(
+            "{}/api/accounts/deviceauth/usercode",
+            config.issuer
+        ))
         .json(&json!({ "client_id": config.client_id }))
         .send()
         .await
-        .map_err(|e| OauthError::Failed(format!("OpenAI's sign-in could not be reached ({})", kind(&e))))?;
+        .map_err(|e| {
+            OauthError::Failed(format!(
+                "OpenAI's sign-in could not be reached ({})",
+                kind(&e)
+            ))
+        })?;
     let (status, body) = read(response).await?;
     if !status.is_success() {
         return Err(OauthError::Failed(format!(
@@ -185,15 +206,21 @@ pub async fn device_code(http: &reqwest::Client, config: &Config) -> Result<Devi
     let value: Value = serde_json::from_slice(&body)
         .map_err(|_| OauthError::Failed("OpenAI's sign-in gave no device code".to_owned()))?;
     let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
-    let (Some(device_auth_id), Some(user_code)) =
-        (text("device_auth_id"), text("user_code").or_else(|| text("usercode")))
-    else {
-        return Err(OauthError::Failed("OpenAI's sign-in gave no device code".to_owned()));
+    let (Some(device_auth_id), Some(user_code)) = (
+        text("device_auth_id"),
+        text("user_code").or_else(|| text("usercode")),
+    ) else {
+        return Err(OauthError::Failed(
+            "OpenAI's sign-in gave no device code".to_owned(),
+        ));
     };
     // The interval may come as a number or as text; at least a second, at most a minute.
     let interval = value
         .get("interval")
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        })
         .unwrap_or(5)
         .clamp(1, 60);
     Ok(DeviceCode {
@@ -224,7 +251,12 @@ pub async fn poll_device(
         .json(&json!({ "device_auth_id": device.device_auth_id, "user_code": device.user_code }))
         .send()
         .await
-        .map_err(|e| OauthError::Failed(format!("OpenAI's sign-in could not be reached ({})", kind(&e))))?;
+        .map_err(|e| {
+            OauthError::Failed(format!(
+                "OpenAI's sign-in could not be reached ({})",
+                kind(&e)
+            ))
+        })?;
     let (status, body) = read(response).await?;
     // Not finished yet reads as 403 or 404.
     if matches!(status.as_u16(), 403 | 404) {
@@ -254,17 +286,22 @@ pub fn device_redirect(config: &Config) -> String {
 /// The most of an answer read.
 const MOST_BODY: usize = 256 * 1024;
 
-async fn read(mut response: reqwest::Response) -> Result<(reqwest::StatusCode, Vec<u8>), OauthError> {
+async fn read(
+    mut response: reqwest::Response,
+) -> Result<(reqwest::StatusCode, Vec<u8>), OauthError> {
     let status = response.status();
     let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| OauthError::Failed(format!("OpenAI's sign-in answer did not arrive ({})", kind(&e))))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(|e| {
+        OauthError::Failed(format!(
+            "OpenAI's sign-in answer did not arrive ({})",
+            kind(&e)
+        ))
+    })? {
         body.extend_from_slice(&chunk);
         if body.len() > MOST_BODY {
-            return Err(OauthError::Failed("OpenAI's sign-in answer is too large".to_owned()));
+            return Err(OauthError::Failed(
+                "OpenAI's sign-in answer is too large".to_owned(),
+            ));
         }
     }
     Ok((status, body))

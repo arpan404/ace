@@ -5,6 +5,7 @@
 
 pub mod a2a;
 mod anthropic;
+pub mod chatgpt;
 pub mod client_document;
 pub mod cloud;
 pub mod connector;
@@ -29,6 +30,7 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 pub use a2a::FakeAgent;
+pub use chatgpt::FakeSignIn;
 pub use client_document::ClientDocument;
 pub use cloud::FakeCloud;
 pub use connector::FakeConnector;

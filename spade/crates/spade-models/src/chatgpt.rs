@@ -87,7 +87,8 @@ mod tests {
 
     #[test]
     fn a_usage_limit_says_when_it_resets() {
-        let body = r#"{"error":{"type":"usage_limit_reached","plan_type":"plus","resets_at":1795400000}}"#;
+        let body =
+            r#"{"error":{"type":"usage_limit_reached","plan_type":"plus","resets_at":1795400000}}"#;
         assert_eq!(
             usage_line(body).as_deref(),
             Some(

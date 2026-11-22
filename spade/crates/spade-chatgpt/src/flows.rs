@@ -11,8 +11,8 @@ use spade_connect::oauth::pkce::{self, Random};
 
 use crate::accounts::Accounts;
 use crate::claims::{self, Account};
-use crate::oauth::{self, OauthError, Poll, Tokens};
 use crate::loopback;
+use crate::oauth::{self, OauthError, Poll, Tokens};
 
 /// How the person signs in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -93,7 +93,11 @@ impl Flows {
 
     /// Starts a sign-in. Fails, with one line, when the port is taken, the device code can't be
     /// had, or there is no keychain to keep the result in.
-    pub async fn start(self: &Arc<Self>, method: Method, finish: Finish) -> Result<FlowView, String> {
+    pub async fn start(
+        self: &Arc<Self>,
+        method: Method,
+        finish: Finish,
+    ) -> Result<FlowView, String> {
         if !self.accounts.can_keep() {
             return Err(
                 "this machine has no keychain Spade can keep a sign-in in, so it can't sign in"
@@ -111,7 +115,8 @@ impl Flows {
                 let redirect = loopback::redirect(port);
                 let verifier = pkce::random_value(self.random.as_ref())?;
                 let state = pkce::random_value(self.random.as_ref())?;
-                let url = oauth::authorize_url(&config, &redirect, &pkce::challenge(&verifier), &state)?;
+                let url =
+                    oauth::authorize_url(&config, &redirect, &pkce::challenge(&verifier), &state)?;
                 let work = Box::pin(async move {
                     let code = loopback::wait(listener, &state).await?;
                     let tokens = oauth::exchange(&http, &config, &code, &redirect, &verifier)
@@ -123,17 +128,25 @@ impl Flows {
             }
             Method::Device => {
                 let device = oauth::device_code(&http, &config).await.map_err(line)?;
-                let view = waiting(&id, method, device.url.clone(), Some(device.user_code.clone()));
+                let view = waiting(
+                    &id,
+                    method,
+                    device.url.clone(),
+                    Some(device.user_code.clone()),
+                );
                 let work = Box::pin(async move {
                     loop {
                         tokio::time::sleep(device.interval).await;
                         if let Poll::Approved { code, verifier } =
-                            oauth::poll_device(&http, &config, &device).await.map_err(line)?
+                            oauth::poll_device(&http, &config, &device)
+                                .await
+                                .map_err(line)?
                         {
                             let redirect = oauth::device_redirect(&config);
-                            let tokens = oauth::exchange(&http, &config, &code, &redirect, &verifier)
-                                .await
-                                .map_err(line)?;
+                            let tokens =
+                                oauth::exchange(&http, &config, &code, &redirect, &verifier)
+                                    .await
+                                    .map_err(line)?;
                             return signed_in(tokens);
                         }
                     }
@@ -152,7 +165,9 @@ impl Flows {
             };
             flows.end(&flow_id, outcome);
         });
-        let started = self.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let started = self
+            .count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut open = self.open.lock().unwrap_or_else(|p| p.into_inner());
         // It may have ended already (a sign-in finished at once); keep what it says.
         let entry = open.entry(id).or_insert(Flow {

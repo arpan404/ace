@@ -35,6 +35,8 @@ pub struct Config {
     pub originator: String,
     /// How long a sign-in waits for the person.
     pub wait: Duration,
+    /// Where a signed-in account's calls go: the ChatGPT backend's Codex routes, ending in `/`.
+    pub backend: String,
 }
 
 impl Config {
@@ -46,6 +48,7 @@ impl Config {
             callback_port: 1455,
             originator: "spade".to_owned(),
             wait: Duration::from_secs(15 * 60),
+            backend: "https://chatgpt.com/backend-api/codex/".to_owned(),
         }
     }
 }

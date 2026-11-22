@@ -32,7 +32,10 @@ fn account(root: &str) -> Endpoint {
 
 /// A client whose only account is the fake's, with `token` as its access token (none: signed
 /// out). Records which accounts asked for a token.
-fn models(fake: &FakeProvider, token: Option<&'static str>) -> Result<(Models, Arc<Mutex<Vec<String>>>)> {
+fn models(
+    fake: &FakeProvider,
+    token: Option<&'static str>,
+) -> Result<(Models, Arc<Mutex<Vec<String>>>)> {
     let models = Models::new(
         Catalog::from_json(r#"{"endpoints":[]}"#)?,
         Keys::new(|_| None),
@@ -82,12 +85,21 @@ async fn a_call_carries_the_accounts_token_and_id_and_is_always_streamed() -> Re
     assert_eq!(seen.len(), 2);
     for request in &seen {
         assert!(request.path.ends_with("/responses"), "{}", request.path);
-        assert_eq!(header(request, "authorization").as_deref(), Some("Bearer access-1"));
-        assert_eq!(header(request, "chatgpt-account-id").as_deref(), Some("acct-1"));
+        assert_eq!(
+            header(request, "authorization").as_deref(),
+            Some("Bearer access-1")
+        );
+        assert_eq!(
+            header(request, "chatgpt-account-id").as_deref(),
+            Some("acct-1")
+        );
         assert_eq!(header(request, "originator").as_deref(), Some("spade"));
         assert_eq!(request.body["stream"], true, "the backend only streams");
         assert_eq!(request.body["store"], false);
-        assert!(request.body["instructions"].is_string(), "instructions always go");
+        assert!(
+            request.body["instructions"].is_string(),
+            "instructions always go"
+        );
         assert!(request.body.get("max_output_tokens").is_none());
     }
     assert_eq!(header(&seen[0], "session_id").as_deref(), Some("conv-1"));

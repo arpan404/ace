@@ -3729,7 +3729,6 @@ dependencies = [
 name = "spade-chatgpt"
 version = "0.1.0"
 dependencies = [
- "axum",
  "base64",
  "futures-util",
  "keyring-core",
@@ -3738,6 +3737,7 @@ dependencies = [
  "serde_json",
  "spade-connect",
  "spade-keys",
+ "spade-testkit",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

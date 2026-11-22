@@ -28,6 +28,7 @@ fn models(root: &str, format: Format) -> Result<Models> {
         key_env: None,
         headers: Vec::new(),
         session_header: None,
+        sign_in: None,
         models: vec![
             model("chat", vec![Capability::Tools]),
             model("painter", vec![Capability::ImageGeneration]),

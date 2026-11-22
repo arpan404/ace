@@ -100,7 +100,10 @@ mod tests {
             PROFILE_CLAIM: { "email": "kim@example.com" }
         }));
         let found = account(None, &access);
-        assert_eq!(found.as_ref().map(|a| a.account_id.as_str()), Some("acct-2"));
+        assert_eq!(
+            found.as_ref().map(|a| a.account_id.as_str()),
+            Some("acct-2")
+        );
         assert_eq!(
             found.and_then(|a| a.email).as_deref(),
             Some("kim@example.com")

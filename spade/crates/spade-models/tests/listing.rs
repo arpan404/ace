@@ -20,6 +20,7 @@ fn endpoint(root: &str, format: Format) -> Endpoint {
         key_env: None,
         headers: vec![("x-team".into(), "spade".into())],
         session_header: None,
+        sign_in: None,
         models: Vec::new(),
     }
 }

@@ -198,15 +198,15 @@ fn item(raw: &Value) -> Option<Listed> {
         Some(slug_capabilities(raw))
     } else {
         raw.get("capabilities").and_then(|c| match c {
-        Value::Array(names) => Some(
-            names
-                .iter()
-                .filter_map(Value::as_str)
-                .filter_map(Capability::parse)
-                .collect(),
-        ),
-        _ => None,
-    })
+            Value::Array(names) => Some(
+                names
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(Capability::parse)
+                    .collect(),
+            ),
+            _ => None,
+        })
     };
     Some(Listed {
         id: id.to_owned(),

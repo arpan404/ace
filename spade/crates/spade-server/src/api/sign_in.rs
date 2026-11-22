@@ -69,8 +69,10 @@ pub(super) async fn cancel(State(state): State<AppState>, Path(flow): Path<Strin
 pub(super) async fn sign_out(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.sign_out(&id).await {
         Ok(view) => {
-            off_thread(move || Json(json!({ "endpoint": one_endpoint(&state, &view) })).into_response())
-                .await
+            off_thread(move || {
+                Json(json!({ "endpoint": one_endpoint(&state, &view) })).into_response()
+            })
+            .await
         }
         Err(error) => endpoint_problem(&error),
     }

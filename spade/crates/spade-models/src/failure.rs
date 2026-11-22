@@ -54,9 +54,9 @@ pub(crate) fn read(model: &str, error: &genai::Error, answered: bool) -> ModelEr
 fn refused_body(error: &genai::Error) -> Option<&str> {
     match error {
         genai::Error::HttpError { body, .. } => Some(body.as_str()),
-        genai::Error::WebStream { error, .. } => error
-            .downcast_ref::<genai::Error>()
-            .and_then(refused_body),
+        genai::Error::WebStream { error, .. } => {
+            error.downcast_ref::<genai::Error>().and_then(refused_body)
+        }
         _ => None,
     }
 }
