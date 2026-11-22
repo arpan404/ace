@@ -322,7 +322,7 @@ struct FormRequestCard: View {
         GroupedRow(first: first) {
             if field.choices.isEmpty {
                 HStack(spacing: AceDesign.Space.row) {
-                    Text(field.title).lineLimit(1).layoutPriority(1)
+                    ExpandableText(field.title, id: "form:\(field.key)", lines: 1).layoutPriority(1)
                     TextField(field.title, text: value, prompt: Text(prompt(field)).foregroundStyle(AceTheme.Colours.subtleForeground))
                         .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
                         .multilineTextAlignment(.trailing)
@@ -336,7 +336,8 @@ struct FormRequestCard: View {
                     }
                 } label: {
                     HStack(spacing: AceDesign.Space.row) {
-                        Text(field.title).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
+                        // In the menu's button: a long name wraps rather than opening in place.
+                        Text(field.title).lineLimit(3).foregroundStyle(AceTheme.Colours.foreground)
                         Spacer(minLength: AceDesign.Space.related)
                         GroupedValue(text: field.choices.first { $0.value == value.wrappedValue }?.label ?? (field.required ? "Choose" : "Optional"))
                     }

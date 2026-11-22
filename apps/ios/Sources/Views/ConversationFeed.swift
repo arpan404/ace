@@ -89,7 +89,9 @@ struct ConversationFeed: View {
     }
 
     var body: some View {
+        // A passage opened in a row is one of the thread's folds: the feed holds the reader's place.
         ScrollViewReader { proxy in feed(proxy) }
+            .environment(\.expansions, shown.disclosures)
     }
 
     /// The scroll view's own frame, header and home indicator included.
