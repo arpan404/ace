@@ -53,13 +53,20 @@ export interface LiveGutterDeps {
   delay: number;
   /** Where attribution outlives the page (the device's storage); none keeps it in memory only. */
   memory?: AttributionMemory | undefined;
+  /**
+   * The file's key on the device: its machine, its checkout and its path. Undefined while not
+   * yet known: nothing is kept or read until it is.
+   */
+  key?: (() => string | undefined) | undefined;
 }
 
-/** Agents' lines kept for a file, for the exact text they were measured on. */
+/**
+ * Agents' lines kept for a file: each block with a fingerprint of its own lines, and the file's
+ * line count, so a reload shows the lines that are still exactly as measured, where they were.
+ */
 export interface SavedAttribution {
-  /** `textHash` of the text the blocks are in. */
-  hash: string;
-  blocks: readonly AgentBlock[];
+  lines: number;
+  blocks: readonly (AgentBlock & { hash: string })[];
 }
 
 export interface AttributionMemory {
@@ -68,14 +75,18 @@ export interface AttributionMemory {
   write(key: string, saved: SavedAttribution | undefined): void;
 }
 
-/** A short fingerprint of a text (FNV-1a over its UTF-16 units, and its length). */
-export function textHash(text: string): string {
+/** A short fingerprint of lines `start..end` (FNV-1a over their UTF-16 units and breaks). */
+function linesHash(line: (index: number) => string, start: number, end: number): string {
   let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
+  for (let at = start; at < end; at++) {
+    const text = line(at);
+    for (let index = 0; index < text.length; index++) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    hash = Math.imul(hash ^ 10, 0x01000193);
   }
-  return `${text.length}:${(hash >>> 0).toString(36)}`;
+  return (hash >>> 0).toString(36);
 }
 
 const empty: GutterState = { hunks: [], marks: undefined, agent: [] };
@@ -113,7 +124,7 @@ export class LiveGutter {
   /** The device's copy was looked at for this document (once per document). */
   #recalled: object | undefined;
   /** What is kept on the device for this file: its text's hash and the lines, if anything. */
-  #kept: { hash: string; blocks: readonly AgentBlock[] } | undefined;
+  #kept: { doc: object; version: number; blocks: readonly AgentBlock[] } | undefined;
   #cancel: (() => void) | undefined;
   /** Every change to the marks runs in order. */
   #chain: Promise<void> = Promise.resolve();
@@ -203,7 +214,7 @@ export class LiveGutter {
     this.#layers = kept.length && text !== undefined ? [{ text, blocks: kept }] : [];
     this.#shown = kept;
     this.#publish({ ...this.#state, agent: kept });
-    this.#remember(text);
+    this.#remember();
   }
 
   /** Settles once the scheduled and queued work has run (tests, and a review's first look). */
@@ -261,40 +272,62 @@ export class LiveGutter {
     const moved = projectBlocks(this.#shown, changes);
     this.#shown = who ? overlay([landBlocks([], changes, who, at), moved]) : moved;
     this.#publish({ ...this.#state, agent: this.#shown });
-    this.#remember(after);
+    this.#remember();
   }
 
-  /** The key the device keeps this file's attribution under. */
-  #key(): string {
-    return `${this.#buffer.key.root}\u0000${this.#buffer.key.path}`;
+  /** The key the device keeps this file's attribution under; undefined until known. */
+  #key(): string | undefined {
+    const key = this.#deps.key;
+    return key ? key() : `${this.#buffer.key.root}\u0000${this.#buffer.key.path}`;
   }
 
-  /** Keeps the shown lines for `text` on the device, or forgets them when there are none. */
-  #remember(text: string | undefined): void {
+  /**
+   * Keeps the shown lines on the device, each block with a fingerprint of its own lines (work in
+   * the agent's lines, never the file), or forgets them when there are none. Once per document
+   * version and set of lines.
+   */
+  #remember(): void {
     const memory = this.#deps.memory;
-    if (!memory) return;
-    if (this.#shown.length && text !== undefined) {
-      const hash = textHash(text);
-      if (this.#kept?.hash === hash && this.#kept.blocks === this.#shown) return;
-      this.#kept = { hash, blocks: this.#shown };
-      memory.write(this.#key(), this.#kept);
-    } else if (this.#kept) {
-      memory.write(this.#key(), undefined);
-      this.#kept = undefined;
-    }
+    const key = this.#key();
+    const doc = this.#buffer.document();
+    if (!memory || key === undefined || !doc) return;
+    const version = doc.version();
+    const kept = this.#kept;
+    if (kept?.doc === doc && kept.version === version && kept.blocks === this.#shown) return;
+    if (this.#shown.length) {
+      const line = (index: number) => doc.line(index);
+      memory.write(key, {
+        lines: doc.lenLines(),
+        blocks: this.#shown.map((block) => ({
+          ...block,
+          hash: linesHash(line, block.start, block.end),
+        })),
+      });
+    } else if (kept?.blocks.length) memory.write(key, undefined);
+    this.#kept = { doc, version, blocks: this.#shown };
   }
 
-  /** A document read afresh (a reload): the device's lines, if they were kept for this text. */
-  #recall(doc: object, text: string): void {
-    if (this.#recalled === doc) return;
+  /**
+   * A document read afresh (a reload): the device's lines, those still exactly as measured where
+   * they were. Looked at once per document, as soon as the file's key is known.
+   */
+  #recall(doc: EditorDocument, text: string): void {
+    if (this.#recalled === doc || this.#layers.length) return;
+    const key = this.#key();
+    if (key === undefined) return;
     this.#recalled = doc;
-    if (this.#layers.length) return;
-    const saved = this.#deps.memory?.read(this.#key());
-    if (!saved) return;
-    this.#kept = saved;
-    if (saved.hash !== textHash(text)) return;
-    this.#layers = [{ text, blocks: [...saved.blocks] }];
-    this.#shown = this.#layers[0]?.blocks ?? [];
+    const saved = this.#deps.memory?.read(key);
+    if (!saved || saved.lines !== doc.lenLines()) return;
+    const line = (index: number) => doc.line(index);
+    const blocks = saved.blocks
+      .filter(
+        (block) =>
+          block.end <= saved.lines && linesHash(line, block.start, block.end) === block.hash,
+      )
+      .map(({ hash: _, ...block }) => block);
+    if (!blocks.length) return;
+    this.#layers = [{ text, blocks }];
+    this.#shown = blocks;
   }
 
   async #recompute(): Promise<void> {
@@ -319,10 +352,11 @@ export class LiveGutter {
       layers.map((layer, index) => projectBlocks(layer.blocks, moved[index] ?? [])).toReversed(),
     );
     if (!sameBlocks(shown, this.#shown)) this.#shown = shown;
-    this.#remember(text);
     // The text moved while the diff ran: the next pause works the hunks out again.
     if (this.#buffer.document() !== doc || doc.version() !== version)
       return this.#publish({ ...this.#state, agent: this.#shown });
+    // Kept on the device only for the text the lines were worked out on.
+    this.#remember();
     const hunks = hunksFromChanges(changes, (line) => doc.line(line), doc.lenLines());
     const marks = hunkMarks(hunks);
     this.#publish({

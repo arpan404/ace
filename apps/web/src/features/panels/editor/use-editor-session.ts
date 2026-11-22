@@ -20,7 +20,8 @@ import {
   type TreeMark,
 } from "./agent-changes.ts";
 import { openPaths } from "./editor-layout.ts";
-import { liveGutterFor } from "./gutter-store.ts";
+import { liveGutterFor, setGutterScope } from "./gutter-store.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
 import { authorOf, setEditCalls } from "./editor-registry.ts";
 
 /*
@@ -141,6 +142,12 @@ export function useEditorSession(
     setCalls(reported);
   }, [turns, checkout, provider, threadId]);
   useEffect(() => () => setEditCalls(threadId, undefined), [threadId]);
+  // Kept agent lines are keyed by the machine and the checkout, not only the thread.
+  const host = useHostIdentity()?.hostId;
+  useEffect(() => {
+    setGutterScope(threadId, host && checkout ? { host, checkout } : undefined);
+    return () => setGutterScope(threadId, undefined);
+  }, [threadId, host, checkout]);
 
   // A new edit on an open file is a disk change too, should the watcher be slow to say so.
   const counts = useMemo(() => editCounts(turns), [turns]);

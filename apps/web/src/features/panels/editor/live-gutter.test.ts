@@ -69,9 +69,10 @@ async function opened(disk = "one\ntwo\nthree\nfour\n", kept = memory()) {
   };
   await pause();
   /** The app reloads: a fresh gutter on the same buffer, reading what the device kept. */
-  const reopened = async () => {
+  const reopened = async (key?: string) => {
     gutter.dispose();
     const again = new LiveGutter(buffer, {
+      ...(key === undefined ? {} : { key: () => key }),
       diff: { lineChanges: async (before, after) => lineChanges(before, after) },
       schedule: time.schedule,
       now: time.now,
@@ -286,10 +287,23 @@ test("the agent's lines come back after a reload while the text is the same, and
   expect(agentOf(again)).toEqual([[1, 2, 2]]);
   expect(again.state().agent[0]?.who).toEqual(claude);
 
-  // Text that changed while nobody watched carries no stale marks.
+  // Another line changing while nobody watched doesn't matter: the agent's line is as it was.
+  type(buffer, 3, "four, edited elsewhere");
+  expect(agentOf(await reopened())).toEqual([[1, 2, 2]]);
+  // The agent's own line rewritten while nobody watched: no stale mark.
   type(buffer, 1, "rewritten elsewhere");
-  const third = await reopened();
-  expect(agentOf(third)).toEqual([]);
+  expect(agentOf(await reopened())).toEqual([]);
+});
+
+test("the same file on another machine or in another checkout gets none of the kept lines", async () => {
+  const { checkout, registry, gutter, pause, reopened } = await opened();
+  checkout.write("places.ts", "one\nagent a\nthree\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+  expect(agentOf(gutter)).toEqual([[1, 2, 2]]);
+
+  expect(agentOf(await reopened("other-machine\u0000/repo\u0000places.ts"))).toEqual([]);
 });
 
 test("while git's diff of this version is still being read, Revert does nothing", async () => {
