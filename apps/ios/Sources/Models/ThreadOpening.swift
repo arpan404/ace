@@ -96,5 +96,11 @@ enum ThreadOpenRetry: Equatable, Sendable {
         if loaded && hasRows { return .nothing }
         return asked ? .nothing : .open
     }
+
+    /// The connection just came up: a thread with no rows yet asks for itself again, since what
+    /// it sent while there was none may never have reached the machine. One with rows keeps them.
+    static func reopensOnReady(loaded: Bool, hasRows: Bool) -> Bool {
+        !(loaded && hasRows)
+    }
 }
 

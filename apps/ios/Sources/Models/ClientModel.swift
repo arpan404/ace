@@ -521,6 +521,7 @@ import QuartzCore
             readingWillMove?()
         }
         var activityChanged = false
+        var becameReady = false
         for patch in patches {
             patchCount += 1
             if readingHold != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
@@ -578,6 +579,7 @@ import QuartzCore
             case .connection(let state, let generation, let socket):
                 let changed = state != connection
                 if changed { LaunchTrace.mark("connection", state) }
+                if changed, state == "ready" { becameReady = true }
                 connection = state
                 self.socket = state == "ready" ? socket : nil
                 // An admitted connection needs no code, whatever an earlier attempt was asked.
@@ -842,6 +844,12 @@ import QuartzCore
         if let thread = thread?.refresh ?? thread {
             if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }
         }
+        // The open thread has nothing to show yet as the connection comes up: whatever it asked
+        // for on the way may never have arrived, so it asks again (`ThreadOpenRetry.reopensOnReady`).
+        if becameReady, let shown = thread,
+           ThreadOpenRetry.reopensOnReady(loaded: shown.loaded, hasRows: !shown.order.isEmpty) {
+            open(shown.id, isSnapshotRetry: true)
+        }
     }
     /// A new list keeps the rows it names until each fresh copy lands, so the inbox never blanks
     /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
@@ -881,7 +889,9 @@ import QuartzCore
         ThreadOpenTrace.shared.open(id, warm: warm)
         ThreadOpenTrace.shared.showing(true)
         thread = opened
-        let sent = action(["type": "open", "threadId": id, "warm": warm])
+        // The bridge's visit takes this generation, so an open lost on the way never leaves it
+        // behind native's (`thread-visit.ts`).
+        let sent = action(["type": "open", "threadId": id, "warm": warm, "epoch": generation])
         openAsked = sent ? OpenAsked(threadId: id, connection: connectionEpoch) : nil
         intake.opened(id, epoch: generation)
     }
@@ -899,7 +909,7 @@ import QuartzCore
     }
     func back() {
         fenceFrames()
-        generation += 1; action(["type": "back"])
+        generation += 1; action(["type": "back", "epoch": generation])
         if let thread {
             shelf.keep(thread)
             snapshotRetries[thread.id] = nil

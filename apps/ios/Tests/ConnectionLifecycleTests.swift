@@ -518,19 +518,62 @@ import Testing
         model.retryOpening("thread")
         #expect(runtime.actions.last?["type"] as? String == "retry")
 
-        // Connected, the first open is still answering: Retry racing it sends nothing.
+        // Connected with nothing on screen: the open is sent once more, under the generation the
+        // page now draws, in case the first never reached the machine.
         runtime.emit("ready")
         await settle { model.connection == "ready" }
+        #expect(opens() == 2)
+        let resent = try #require(runtime.actions.last { $0["type"] as? String == "open" })
+        #expect(resent["threadId"] as? String == "thread")
+        #expect(resent["epoch"] as? Int == model.thread?.epoch)
+        #expect(model.thread === page, "the page keeps its model while it asks again")
+        // That open is still answering: Retry racing it sends nothing.
         model.retryOpening("thread")
-        #expect(opens() == 1)
+        #expect(opens() == 2)
 
         // Its fence lands with rows: the open succeeded, and Retry leaves it.
         let epoch = try #require(model.thread?.epoch)
         model.receive(try frame([reset(epoch), item("kept", epoch: epoch), ready(epoch)]))
         #expect(page.loaded)
         model.retryOpening("thread")
-        #expect(opens() == 1)
+        #expect(opens() == 2)
         #expect(model.thread === page)
+        model.disconnect()
+    }
+
+    @Test func aThreadWithRowsKeepsThemWhenTheConnectionComesBackWithoutAskingAgain() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let runtime = try #require(sessions.values.first)
+        runtime.emit("ready")
+        await settle { model.connection == "ready" }
+        model.open("thread")
+        let epoch = try #require(model.thread?.epoch)
+        model.receive(try frame([reset(epoch), item("kept", epoch: epoch), ready(epoch)]))
+        let opens = { runtime.actions.filter { $0["type"] as? String == "open" }.count }
+        #expect(opens() == 1)
+        runtime.emit("reconnecting")
+        await settle { model.connection == "reconnecting" }
+        runtime.emit("ready")
+        await settle { model.connection == "ready" }
+        #expect(opens() == 1, "the SDK resumes the thread; its rows stay without a new open")
+        model.disconnect()
+    }
+
+    @Test func openAndBackCarryTheGenerationThePageDraws() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let runtime = try #require(sessions.values.first)
+        model.open("thread")
+        let opened = try #require(runtime.actions.last)
+        #expect(opened["type"] as? String == "open")
+        #expect(opened["epoch"] as? Int == model.thread?.epoch)
+        model.back()
+        let back = try #require(runtime.actions.last)
+        #expect(back["type"] as? String == "back")
+        #expect(back["epoch"] as? Int == 2, "the generation after the open's")
         model.disconnect()
     }
 

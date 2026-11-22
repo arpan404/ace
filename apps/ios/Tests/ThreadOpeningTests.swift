@@ -111,4 +111,10 @@ import Testing
         #expect(ThreadOpenRetry.decide(connected: true, loaded: true, hasRows: false, asked: false) == .open)
         #expect(ThreadOpenRetry.decide(connected: true, loaded: false, hasRows: false, asked: false) == .open)
     }
+
+    @Test func aThreadWithNoRowsAsksForItselfAgainWhenTheConnectionComesUp() {
+        #expect(ThreadOpenRetry.reopensOnReady(loaded: false, hasRows: false))
+        #expect(ThreadOpenRetry.reopensOnReady(loaded: true, hasRows: false), "an empty first screen may be all that came")
+        #expect(!ThreadOpenRetry.reopensOnReady(loaded: true, hasRows: true), "rows on screen stay, synced in place")
+    }
 }
