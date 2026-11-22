@@ -98,6 +98,8 @@ function TurnHead(props: {
   ) : (
     <div role={props.live ? "status" : undefined} className={shape}>
       {words}
+      {/* The same mark on every run's row, so none reads as the odd one out. */}
+      <CaretRightIcon aria-hidden size={12} className="text-faint-foreground" />
     </div>
   );
 }
