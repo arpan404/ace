@@ -3,7 +3,9 @@ import { fakeFileRevision } from "@ace/fake-daemon";
 import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { editorText, replaceEditorText } from "@/test/editor-text.ts";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { openSource } from "@/test/spade-files.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -20,21 +22,17 @@ function seed(spade: FakeSpadeApi) {
   spade.files.set("scout", { "plan.md": "# Plan\n" });
 }
 
+/** The person opens plan.md's source and types `text` over it. */
 async function editing(text: string) {
-  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
-  fireEvent.change(editor, { target: { value: text } });
-  return editor;
+  const { region, box } = await openSource("plan.md", "# Plan\n");
+  await replaceEditorText(userEvent.setup(), box, text);
+  await waitFor(() => expect(editorText(region)).toBe(text.replaceAll("{Enter}", "\n")));
+  return region;
 }
 
 test("a save over a file the bot changed since it was opened shows the conflict, and Reload reads it again", async () => {
-  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
-    seed(api);
-    api.files.set("scout", { "plan.md": "# Plan\n" });
-  });
-  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
-  fireEvent.change(editor, { target: { value: "# Plan\nMine" } });
+  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", seed);
+  const editor = await editing("# Plan{Enter}Mine");
   // Meanwhile the bot wrote it.
   const scoutFiles = spade.files.get("scout");
   if (scoutFiles) scoutFiles["plan.md"] = "# Plan\nScout's";
@@ -43,21 +41,20 @@ test("a save over a file the bot changed since it was opened shows the conflict,
   expect(conflict.textContent).toContain("Changed since you opened it");
   // Nothing was written over the bot's words.
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nScout's");
-  expect(editor.value).toBe("# Plan\nMine");
+  expect(editorText(editor)).toBe("# Plan\nMine");
 
   await userEvent.click(within(conflict).getByRole("button", { name: "Reload" }));
-  await waitFor(() => expect(editor.value).toBe("# Plan\nScout's"));
+  await waitFor(() =>
+    expect(editorText(screen.getByRole("region", { name: "Source of plan.md" }))).toBe(
+      "# Plan\nScout's",
+    ),
+  );
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
 test("Overwrite saves the person's draft over the file as it is now", async () => {
-  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
-    seed(api);
-    api.files.set("scout", { "plan.md": "# Plan\n" });
-  });
-  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
-  fireEvent.change(editor, { target: { value: "# Plan\nMine" } });
+  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", seed);
+  await editing("# Plan{Enter}Mine");
   const scoutFiles = spade.files.get("scout");
   if (scoutFiles) scoutFiles["plan.md"] = "# Plan\nScout's";
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -69,7 +66,7 @@ test("Overwrite saves the person's draft over the file as it is now", async () =
 
 test("a save after the bot's change was read in meanwhile still names what the person began from", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", seed);
-  const editor = await editing("# Plan\nMine");
+  const editor = await editing("# Plan{Enter}Mine");
   // The bot writes the file; its stream says so, and the editor reads the file again.
   const reads = () =>
     spade.requests.filter((request) => request.path.includes("/workspace/file?path=plan.md"))
@@ -78,7 +75,7 @@ test("a save after the bot's change was read in meanwhile still names what the p
   spade.computer.botWrites("scout", "plan.md", "# Plan\nScout's");
   await waitFor(() => expect(reads()).toBeGreaterThan(before));
   // The draft stays on show, and the save is refused rather than written over the bot's words.
-  expect(editor.value).toBe("# Plan\nMine");
+  expect(editorText(editor)).toBe("# Plan\nMine");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Changed since you opened it");
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nScout's");
@@ -87,9 +84,20 @@ test("a save after the bot's change was read in meanwhile still names what the p
   ]);
 });
 
+test("with no draft, a change the bot makes to the open file shows as it lands", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", seed);
+  await openSource("plan.md", "# Plan\n");
+  spade.computer.botWrites("scout", "plan.md", "# Plan\nScout's");
+  await waitFor(() =>
+    expect(editorText(screen.getByRole("region", { name: "Source of plan.md" }))).toBe(
+      "# Plan\nScout's",
+    ),
+  );
+});
+
 test("Overwrite writes the draft with no base, even over a file the bot deleted", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", seed);
-  await editing("# Plan\nMine");
+  await editing("# Plan{Enter}Mine");
   const scoutFiles = spade.files.get("scout");
   if (scoutFiles) delete scoutFiles["plan.md"];
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -104,15 +112,28 @@ test("Overwrite writes the draft with no base, even over a file the bot deleted"
 
 test("a refused Overwrite keeps the person's draft", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", seed);
-  const editor = await editing("# Plan\nMine");
+  const editor = await editing("# Plan{Enter}Mine");
   spade.computer.botWrites("scout", "plan.md", "# Plan\nScout's");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   const conflict = await screen.findByRole("alert");
   spade.computer.failSaves = "disk full";
   await userEvent.click(within(conflict).getByRole("button", { name: "Overwrite" }));
   await screen.findAllByText(/Couldn't save plan\.md/);
-  expect(editor.value).toBe("# Plan\nMine");
+  expect(editorText(editor)).toBe("# Plan\nMine");
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nScout's");
+});
+
+test("a Markdown file opens rendered, and Source shows its text to edit", async () => {
+  await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
+    seed(api);
+    api.files.set("scout", { "plan.md": "# Plan\n\n- Day 1: Sintra\n" });
+  });
+  const preview = await screen.findByRole("button", { name: "Preview", pressed: true });
+  await screen.findByRole("heading", { name: "Plan" });
+  expect(screen.getByText("Day 1: Sintra").tagName).toBe("LI");
+  expect(screen.queryByRole("region", { name: "Source of plan.md" })).toBeNull();
+  await openSource("plan.md", "# Plan\n\n- Day 1: Sintra\n");
+  expect(preview.getAttribute("aria-pressed")).toBe("false");
 });
 
 test("delete, move and replacing upload name the revision the person saw, and are refused once it moved on", async () => {

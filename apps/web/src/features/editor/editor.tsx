@@ -13,7 +13,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useElementSize } from "@/lib/element-size.ts";
+import { useElementSize, useInnerWidth } from "@/lib/element-size.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { ChangeBars } from "./change-bars.tsx";
 import { Decorations } from "./decorations.tsx";
@@ -170,6 +170,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     return () => clearTimeout(timer);
   }, [held]);
   const viewport = useElementSize(scroller);
+  // What a wrapped row may fill: the scroller less its vertical scrollbar, never past its edge.
+  const textWidth = useInnerWidth(scroller);
   const input = useEditorInput(state, readOnly, field);
 
   const name = pathParts(props.path).name;
@@ -177,10 +179,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const height = Math.max(120, viewport.height);
   const gutter = gutterWidth(lineCount) + (props.layer?.margin ?? 0);
   const cell = useCellWidth(scroller, `${fontSize ?? ""}/${fontFamily ?? ""}`);
-  const columns = Math.max(
-    leastRowCells,
-    Math.floor((viewport.width - gutter - paddingRight) / cell),
-  );
+  const columns = Math.max(leastRowCells, Math.floor((textWidth - gutter - paddingRight) / cell));
   // Beside the chat the editor is narrow: long lines wrap there even with the setting off.
   const narrow = !wrapSetting && columns < narrowColumns;
   const wrap = wrapSetting || (narrow && !narrowUnwrapped);

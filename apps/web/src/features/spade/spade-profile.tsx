@@ -103,7 +103,8 @@ export function SpadeProfile(props: {
           <ProfileStripActions bot={bot} onClose={props.onClose} round />
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+      {/* Never sideways: what is wider than the panel wraps or scrolls in its own frame. */}
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
         <ProfileHead key={`${bot.machine.key}/${bot.id}`} bot={bot} />
         <div
           ref={tabs}

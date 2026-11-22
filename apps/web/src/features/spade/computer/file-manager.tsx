@@ -211,6 +211,8 @@ export function FileManager(props: {
     void makeFolder(client, bot.id, inFolder(name)).then(refresh, failed(`Couldn't make ${name}`));
   };
   const reason = props.writable ? undefined : notNowToChange;
+  const open = listing.data?.entries.find((entry) => entry.path === props.file);
+  const openSize = open?.kind === "file" ? open.size : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -220,6 +222,11 @@ export function FileManager(props: {
           file={props.file}
           onFolder={(path) => props.onOpen({ folder: path })}
         />
+        {openSize !== undefined && (
+          <span className="ml-auto shrink-0 text-meta text-muted-foreground tabular-nums">
+            {formatBytes(openSize)}
+          </span>
+        )}
         {!props.file && (
           <span className="ml-auto flex shrink-0 items-center gap-1">
             <DisabledReason reason={reason}>

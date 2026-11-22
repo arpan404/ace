@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { beforeEach, expect, test } from "vitest";
 import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { openSource } from "@/test/spade-files.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -139,8 +140,7 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
   await userEvent.click(files.getByRole("button", { name: /^notes/ }));
   const inner = within(await screen.findByRole("list", { name: "Files" }));
   await userEvent.click(await inner.findByRole("button", { name: /^plan\.md/ }));
-  const opened = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "notes/plan.md" });
-  await waitFor(() => expect(opened.value).toBe("# Plan\nShip it."));
+  await openSource("notes/plan.md", "# Plan\nShip it.");
 
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "Folder" })).getByText("Files"),
@@ -186,11 +186,11 @@ test("moving to another folder closes the open file, and Delete names the file's
   await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
 
   await userEvent.click(within(plan).getByRole("button", { name: /^plan\.md/ }));
-  await screen.findByLabelText("notes/plan.md");
+  await screen.findByRole("region", { name: "Preview of notes/plan.md" });
   history.push("/spade/writer?profile=computer&computer=files&files=.");
   const top = within(await screen.findByRole("list", { name: "Files" }));
   await top.findByRole("button", { name: /^todo\.txt/ });
-  expect(screen.queryByLabelText("notes/plan.md")).toBeNull();
+  expect(screen.queryByRole("region", { name: "Preview of notes/plan.md" })).toBeNull();
 });
 
 test("a proposal answered meanwhile shows as answered after Save is refused", async () => {
