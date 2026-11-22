@@ -61,10 +61,31 @@ export interface SpadeListRow {
 
 /**
  * How the machine's Spade answers now: it does; its machine answers but Spade doesn't (stopped,
- * off, restarting); or the machine is out of reach. Either of the last two lists the bots from
- * their last answer, and nothing they were doing shows as still going.
+ * off, restarting); the machine is out of reach; or it is back but its bots haven't been read
+ * on this connection yet, `unconfirmed` saying so in a line. All but the first list the bots
+ * from their last answer, and nothing they were doing shows as still going or done.
  */
-export type SpadeReach = "answering" | "unavailable" | "away";
+export type SpadeReach = "answering" | "unavailable" | "away" | { unconfirmed: string };
+
+/** How the bots' and the groups' last lists stand: each is read, and confirmed, on its own. */
+export interface SpadeListReach {
+  bots: SpadeReach;
+  groups: SpadeReach;
+}
+
+/** The facts a row's rules read for one reach, and the line an unconfirmed one shows instead. */
+function placeOf(reach: SpadeReach, machine: string) {
+  const unconfirmed = typeof reach === "object" ? reach.unconfirmed : undefined;
+  return {
+    answering: reach === "answering",
+    unconfirmed,
+    place: {
+      machine: { primary: false, name: machine },
+      away: reach === "away",
+      unavailable: reach === "unavailable" || unconfirmed !== undefined,
+    },
+  };
+}
 
 /**
  * The machine's bots and groups in the list's order: Spade first, then the rest by state, newest
@@ -76,19 +97,14 @@ export function spadeListRows(
   agents: readonly SpadeAgent[],
   groups: readonly SpadeGroup[],
   machine: string,
-  reach: SpadeReach,
+  reach: SpadeListReach,
   hostId?: string,
   sharedIn: (agent: string) => string | null = () => null,
 ): SpadeListRow[] {
-  const answering = reach === "answering";
-  const away = reach === "away";
-  const place = {
-    machine: { primary: false, name: machine },
-    away,
-    unavailable: reach === "unavailable",
-  };
-  const dim = (face: SpadeFaceRow): SpadeFaceRow => (away ? { ...face, away } : face);
+  const dim = (face: SpadeFaceRow): SpadeFaceRow =>
+    reach.bots === "away" ? { ...face, away: true } : face;
   const still = { state: "idle" as const, status: undefined };
+  const { answering, unconfirmed, place } = placeOf(reach.bots, machine);
   const bots = agents.map((agent) => {
     const shown = answering ? agent : { ...agent, ...still };
     const row = spadeBotRow({ ...shown, ...place });
@@ -101,7 +117,7 @@ export function spadeListRows(
       group: null,
       faces: [dim(botFace(agent))],
       state: row.state,
-      line: workerWaitLine(shown, row.line),
+      line: unconfirmed ?? workerWaitLine(shown, row.line),
       pinned: agent.pinnedAt !== undefined,
       shared: agent.kind === "main" ? null : sharedIn(agent.id),
       at: agent.lastActivity,
@@ -111,8 +127,9 @@ export function spadeListRows(
     return { listed, at: agent.lastActivity };
   });
   const clubs = groups.map((group) => {
-    const shown = answering ? group : { ...group, ...still };
-    const row = spadeGroupRow({ ...shown, ...place });
+    const club = placeOf(reach.groups, machine);
+    const shown = club.answering ? group : { ...group, ...still };
+    const row = spadeGroupRow({ ...shown, ...club.place });
     const listed: SpadeListRow = {
       id: `group:${group.id}`,
       conversation: group.conversation,
@@ -122,7 +139,7 @@ export function spadeListRows(
       group: group.id,
       faces: groupFaces(group, agents, hostId).map(dim),
       state: row.state,
-      line: row.line,
+      line: club.unconfirmed ?? row.line,
       pinned: group.pinnedAt !== undefined,
       shared: null,
       at: group.lastActivity,
