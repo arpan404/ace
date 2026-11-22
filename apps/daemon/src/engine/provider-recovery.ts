@@ -272,14 +272,20 @@ export class ProviderRecovery {
       ? undefined
       : { commandId: record.commandId, admitted: record.admitted };
   }
+  /**
+   * The latest attempt's record, or, once a fresh-session handoff retired it (`reset`), the
+   * newest retired one: a send held in doubt keeps its evidence across the handoff.
+   */
+  private latest(threadId: ThreadId): AttemptRecord | undefined {
+    return this.current(threadId) ?? this.retired(threadId).at(-1);
+  }
   /** True when an earlier build's send can't be ruled out, but which one is unknown. */
   unknownAttempt(threadId: ThreadId): boolean {
-    return this.current(threadId)?.older === true;
+    return this.latest(threadId)?.older === true;
   }
   /** The command of the latest send the host attempted, if one is on record. */
   attemptedCommand(threadId: ThreadId): string | undefined {
-    const record = this.current(threadId);
-    return record?.commandId || undefined;
+    return this.latest(threadId)?.commandId || undefined;
   }
   /** True when anything of `commandId`'s send beyond the attempt itself was recorded. */
   admissionRecorded(threadId: ThreadId, commandId: string): boolean {

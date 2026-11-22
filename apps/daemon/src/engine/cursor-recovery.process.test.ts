@@ -9,7 +9,7 @@ import { CursorTranslator, cursorCapabilities, type CursorEnvelope } from "@ace/
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Command, ThreadId } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
-import { sessionStoreBusy } from "@ace/provider-kit/open-error";
+import { sessionStoreBusy, sessionStoreUnusable } from "@ace/provider-kit/open-error";
 import { isDiskFull } from "../sqlite-failure.ts";
 
 const deliver = (context: SessionContext, value: CursorEnvelope, seq: number) => {
@@ -59,6 +59,8 @@ async function crashAt(
      * past the attempted send, more than the reopen's window reads.
      */
     legacyFrames?: number;
+    /** The saved session can never open again: the reconcile hands off to a fresh one. */
+    unusable?: boolean;
     /** This many more sends held as uncertain beside the attempted one. */
     moreHeld?: number;
     /** The host reopens without reading back the attempt (a legacy search gave up). */
@@ -194,6 +196,10 @@ async function crashAt(
         opened.push(context.resume);
         holdMore();
         if (openFails) throw new Error("Cursor SDK host could not start");
+        if (host.unusable)
+          throw Object.assign(new Error("Cursor's saved session can't be opened again"), {
+            code: sessionStoreUnusable,
+          });
         if (busy-- > 0) {
           if (host.failAfterBusy && whileBusy.length === (host.retryMs?.length ?? 0)) diskFull();
           if (host.closeWhileBusy && !closing) {
@@ -641,6 +647,20 @@ it("every send held as uncertain on an earlier build's thread is said unconfirme
   expect(unconfirmed).toHaveLength(71);
   expect(said(crash).join(" | ")).not.toMatch(/not sent/i);
   expect(crash.statusAfter()).toBe("waiting");
+});
+
+it("an earlier build's send in doubt is said unconfirmed when its reconcile hands off to a fresh session", async () => {
+  await using crash = await crashAt("attempted", {
+    resume: false,
+    legacyFrames: 4100,
+    unusable: true,
+  });
+  expect(crash.sent).toEqual([]);
+  expect(said(crash)).toContain(
+    "Delivery unconfirmed: ace couldn't confirm whether Cursor received this message. It is held in the queue: check the conversation before sending it again",
+  );
+  expect(said(crash).join(" | ")).not.toMatch(/not sent/i);
+  expect(crash.statusAfter()).not.toBe("working");
 });
 
 it("a send stays held as uncertain only when Cursor's store can't be read", async () => {
