@@ -1,6 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { policyDraft, policyFromDraft, readAuditLines, readPolicy } from "./index.ts";
 
+const sample = readFileSync(
+  new URL("../../../../spade/spec/org-audit-export.jsonl", import.meta.url),
+  "utf8",
+);
 const hash = `sha256:${"a".repeat(64)}`;
 
 describe("an organization's policy as lines of text", () => {
@@ -45,33 +50,9 @@ describe("an organization's policy as lines of text", () => {
 });
 
 describe("a host's audit export", () => {
-  const text = [
-    { kind: "header", org: "org_acme", host: "host_1", key: "key-1" },
-    {
-      kind: "entry",
-      seq: 1,
-      hash: "h1",
-      action: "bot.effect",
-      occurred_at: 1000,
-      actor: { type: "bot", id: "bot_1", name: "Triage" },
-      targets: [{ type: "repo", id: "acme/web" }],
-      metadata: { allowed_by_account: "acct_dana" },
-    },
-    { kind: "checkpoint", count: 1, at: 1001 },
-    { kind: "something-new", detail: 1 },
-    {
-      kind: "entry",
-      seq: 2,
-      hash: "h2",
-      action: "custom.thing",
-      occurred_at: 2000,
-      actor: { type: "account", id: "acct_dana" },
-      targets: [],
-    },
-  ]
-    .map((line) => JSON.stringify(line))
-    .concat(["{broken"])
-    .join("\n");
+  // Spade's own export, as its serializer writes it (pinned by a test in `spade-core`), then
+  // lines it never writes.
+  const text = `${sample}{"kind":"something-new","detail":1}\n{broken`;
 
   test("entries read in words, lines this build doesn't know are left out", () => {
     const read = readAuditLines(text);

@@ -25,7 +25,7 @@ const entry = (seq: number, action: string, actor: string, at = seq * 1000) => (
   seq,
   hash: `h${seq}`,
   action,
-  occurred_at: at,
+  occurredAt: at,
   actor: { type: "account", id: actor.toLowerCase(), name: actor },
   targets: [{ type: "bot", id: "bot_1", name: "Triage" }],
 });
