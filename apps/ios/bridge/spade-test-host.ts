@@ -60,8 +60,12 @@ export class Patches {
 export async function setUp(
   seed: (spade: FakeSpadeApi, daemon: FakeDaemon) => void = () => {},
   wait: typeof later = later,
-  /** The phone's snapshot store, which outlives one runtime (`memoryKeep`). */
-  keep?: SpadeKeep,
+  phone: {
+    /** The phone's snapshot store, which outlives one runtime (`memoryKeep`). */
+    keep?: SpadeKeep;
+    /** Where the runtime keeps what the next launch draws first. */
+    checkpoint?: (json: string) => void;
+  } = {},
 ) {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   daemon.services.settings.write("beta.spade", true);
@@ -88,7 +92,7 @@ export async function setUp(
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     later: wait,
-    ...(keep ? { keep } : {}),
+    ...phone,
   });
   stops.push(() => spade.stop());
   spade.start();

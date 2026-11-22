@@ -263,7 +263,10 @@ import QuartzCore
         hostId = target.scope.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
-        browser.forgetSaves(); computerAccess.reset(); outside.reset(); spade.reset()
+        browser.forgetSaves(); computerAccess.reset(); outside.reset()
+        // Another route to the same machine keeps the Spade tab: it goes only when the machine
+        // says Spade is gone, never for a reconnect.
+        if sameMachine { spade.resetKeepingTab() } else { spade.reset() }
         // Another machine's pages never carry over. Another route to the same machine keeps the
         // device tabs and their pages: the new runtime takes them (`restoreDeviceTabs`).
         if !sameMachine { deviceTabs.reset() }

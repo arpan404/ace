@@ -18,6 +18,8 @@ import {
   type SpadeReach,
 } from "./spade-rows.ts";
 import { SpadePeople, SpadeSharing } from "./spade-sharing.ts";
+import { followCheckpoint } from "./inbox-checkpoint.ts";
+import { spadeCheckpoint, spadeKeepable, type SpadeKnown } from "./spade-checkpoint.ts";
 import type { SpadeKeep } from "./spade-kept-events.ts";
 import { SpadeOpenChat } from "./spade-open.ts";
 import { spadeText } from "./spade-text.ts";
@@ -35,6 +37,8 @@ export interface SpadeDeps {
   later(delay: number, callback: () => void): () => void;
   /** Where opened conversations' events are kept between launches (`spade-kept-events.ts`). */
   keep?: SpadeKeep;
+  /** Keeps what the next launch draws first, before its runtime starts (`spade-checkpoint.ts`). */
+  checkpoint?(json: string): void;
 }
 
 export const NativeSpadeAction = z.discriminatedUnion("type", [
@@ -101,6 +105,8 @@ export class NativeSpade {
   private asked = 0;
   /** The one conversation open on the phone, live. */
   private readonly chat: SpadeOpenChat;
+  /** The Spade tab as the next launch draws it first, written a while after it last changed. */
+  private readonly checkpoint: ReturnType<typeof followCheckpoint>;
   /** Which bots an organization shares, on an org host (ADR 0206 §2.3). */
   private readonly sharing: SpadeSharing;
   /** Where this machine's Spade says Spade lives, for the list across machines. */
@@ -117,6 +123,12 @@ export class NativeSpade {
     this.owner = owner;
     this.sink = sink;
     this.deps = deps;
+    this.checkpoint = followCheckpoint(
+      { now: deps.now, set: deps.later },
+      () => spadeKeepable(this.known),
+      () => spadeCheckpoint(this.known),
+      (json) => deps.checkpoint?.(json),
+    );
     this.chat = new SpadeOpenChat({
       owner,
       sink,
@@ -220,6 +232,7 @@ export class NativeSpade {
     this.stopped = true;
     this.watching = false;
     this.stopList();
+    this.checkpoint.stop();
     this.chat.show(null);
   }
 
@@ -382,7 +395,23 @@ export class NativeSpade {
     };
   }
 
+  /** What this runtime knows of Spade, for the next launch's checkpoint. */
+  private get known(): SpadeKnown {
+    return {
+      status: this.status,
+      confirmed: this.confirmed,
+      agents: this.agents,
+      groups: this.groups,
+      machine: this.machine ?? "its machine",
+      hostId: this.hostId,
+      host: this.hosting.here ?? this.hostId ?? null,
+      main: this.hosting.wire,
+      sharedIn: (agent) => this.sharing.sharedIn(agent),
+    };
+  }
+
   private put() {
+    if (this.deps.checkpoint && !this.stopped) this.checkpoint.touch();
     const status = this.status;
     this.sink.put("spade:state", () => ({
       type: "spade.state",

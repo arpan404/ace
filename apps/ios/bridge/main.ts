@@ -377,6 +377,8 @@ async function start(json: string): Promise<void> {
     later: (delay, callback) => scheduler.set(delay, callback),
     // Opened conversations' events, so the next open shows at once and reads only the tail.
     ...(snapshots ? { keep: snapshots } : {}),
+    // The Spade tab as the next launch draws it first, before this runtime starts.
+    checkpoint: (kept) => void call("spade.checkpoint", null, kept).catch(() => {}),
   });
   spade.start();
 

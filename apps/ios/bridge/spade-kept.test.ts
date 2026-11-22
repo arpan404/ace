@@ -37,7 +37,7 @@ async function launch(keep: SpadeKeep, history: (api: FakeSpadeApi, bot: FakeSpa
       };
     },
     quick,
-    keep,
+    { keep },
   );
   if (!bot) throw new Error("no bot");
   const reads = () => host.api.sentPaths("GET", /\/events\?/);

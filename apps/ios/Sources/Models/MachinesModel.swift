@@ -288,7 +288,7 @@ import Observation
         grants.set(nil, for: entry)
         saveGrants()
         let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
-        for suffix in ["", "-wal", "-shm", InboxCheckpoint.suffix] + ["", "-wal", "-shm"].map({ SnapshotStore.suffix + $0 }) { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
+        for suffix in ["", "-wal", "-shm", InboxCheckpoint.suffix, InboxCheckpoint.spadeSuffix] + ["", "-wal", "-shm"].map({ SnapshotStore.suffix + $0 }) { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
     }
     /// Take a machine off the ace account's list (from Profile). One reached through the account
     /// stops and loses its local data; a paired one stays paired.

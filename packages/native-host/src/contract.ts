@@ -85,6 +85,8 @@ export interface HostOperations {
   "storage.workspace.save": { input: null; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
+  /** What the Spade tab draws first at the next launch, beside the inbox's. */
+  "spade.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */
   "snapshot.get": { input: string; body: never };
   "snapshot.set": { input: { key: string }; body: string };
