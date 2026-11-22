@@ -70,12 +70,14 @@ type SpadeBubbleOf =
        * offers Keep as a test (ADR 0204).
        */
       keep?: string;
+      /** The turn it is part of, whose work lines Show work brings back (`spadeWorkTurn`). */
+      turn?: string;
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
    * quiet line under the reply that opens to them and where each came from.
    */
-  | { kind: "recalled"; key: string; notes: readonly string[] }
+  | { kind: "recalled"; key: string; notes: readonly string[]; turn?: string }
   /**
    * The steps a reply took, as one quiet line under it that opens to each (`spadeReplySteps`);
    * the ones the person must see stand under it unopened.
@@ -87,15 +89,16 @@ type SpadeBubbleOf =
       steps: readonly SpadeStep[];
       /** Undoing the whole turn's file changes, when any step can be undone (ADR 0167). */
       undo: SpadeTurnUndo | undefined;
+      turn?: string;
     }
   /** Files a tool kept with no reply after them yet: chips on the bot's side. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
-  | { kind: "remembered"; key: string; note: SpadeRememberedNote }
+  | { kind: "remembered"; key: string; note: SpadeRememberedNote; turn?: string }
   /** Web search had nothing set up: a quiet line that opens Settings › Spade › Web search. */
   | { kind: "search-setup"; key: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet }
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string }
   /** "Updated its task: …", with the change behind See change and Undo. */
   | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
   /** "Made a new bot: Research · …", with Open and Undo. */
@@ -373,7 +376,12 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     else if (!quiet) replyBubbles(entry, bubbles, held, ask);
     // What it had in mind, under the reply that answered the message, once it finished.
     if (!quiet && !grouped && entry.end && recalled.length) {
-      bubbles.push({ kind: "recalled", key: `${entry.key}:recalled`, notes: recalled });
+      bubbles.push({
+        kind: "recalled",
+        key: `${entry.key}:recalled`,
+        notes: recalled,
+        turn: entry.key,
+      });
       recalled = [];
     } else
       for (const part of entry.parts) if (part.kind === "files") hold(held, part.key, part.paths);
@@ -446,6 +454,7 @@ function replyBubbles(
   const say = (text: string, live: boolean) => {
     pushBot(bubbles, held, {
       key: count++ ? `${entry.key}:${count}` : entry.key,
+      turn: entry.key,
       text,
       live,
       end: undefined,
@@ -480,7 +489,12 @@ function replyBubbles(
       documents.push(...part.documents);
       attach();
     } else if (part.kind === "remembered") {
-      bubbles.push({ kind: "remembered", key: `${entry.key}:${part.key}`, note: part.note });
+      bubbles.push({
+        kind: "remembered",
+        key: `${entry.key}:${part.key}`,
+        note: part.note,
+        turn: entry.key,
+      });
     } else if (part.kind === "question") {
       bubbles.push({ ...part, key: `${entry.key}:${part.key}`, ...at });
     } else if (part.kind === "files") {
@@ -533,10 +547,11 @@ function replyBubbles(
       kind: "quiet",
       key: `${entry.key}:served:${line}`,
       quiet: { kind: "served", line },
+      turn: entry.key,
     });
   // What it did, under what it said.
   const steps = spadeReplySteps(entry);
-  if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps });
+  if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps, turn: entry.key });
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
   if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
