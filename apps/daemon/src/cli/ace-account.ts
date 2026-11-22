@@ -58,6 +58,15 @@ async function readCode(args: Args): Promise<string> {
   }
 }
 
+/** The organization `ace login --org` selected on this machine, if the daemon has one. */
+export async function selectedOrg(home: string): Promise<string | undefined> {
+  const { origin, token } = await reachLocalDaemon(home);
+  const status = MachineAccountStatus.parse(
+    await accessRequest(origin, "/v1/ace-account", { method: "GET", token }),
+  );
+  return status.space?.org;
+}
+
 export type AceAccountVerb = "status" | "login" | "logout" | "code-set" | "code-clear";
 
 /**
@@ -88,11 +97,13 @@ export async function aceAccountCommand(
     return show(args, status, "Machine code set. Devices on your account enter it once.");
   }
   const accountOrigin = option(args, "origin");
-  let status = await call(
-    "/v1/ace-account/login",
-    "POST",
-    accountOrigin ? { origin: accountOrigin } : {},
-  );
+  const org = option(args, "org");
+  if (org !== undefined && !/^org_[A-Za-z0-9]{1,64}$/.test(org))
+    throw usageFailure("--org takes an organization's id (org_…).", { argument: "--org" });
+  let status = await call("/v1/ace-account/login", "POST", {
+    ...(accountOrigin ? { origin: accountOrigin } : {}),
+    ...(org ? { org } : {}),
+  });
   const login = status.login;
   if (!login)
     throw new CliFailure("uncertain", "ace sign-in didn't start.", undefined, {
@@ -102,7 +113,16 @@ export async function aceAccountCommand(
   (machine(args) ? process.stderr : process.stdout).write(
     `Open this address to sign in to ace:\n${login.url}\n`,
   );
-  while (!status.signedIn || status.login) {
+  // Signed in already (another account, or another space): wait for this sign-in itself.
+  const before = status.sessionId;
+  const finished = (current: MachineAccountStatus) =>
+    current.signedIn && !current.login && (org === undefined || current.sessionId !== before);
+  while (!finished(status)) {
+    if (org !== undefined && status.loginRefused?.org === org)
+      throw new CliFailure("refused", `This account isn't a member of ${org}.`, undefined, {
+        code: "forbidden",
+        hint: "Ask an admin of the organization to invite you, then run ace login --org again.",
+      });
     if (!status.login || Date.now() >= login.expiresAt)
       throw new CliFailure("timeout", "ace sign-in expired.", undefined, {
         hint: "Run ace login again.",
@@ -110,5 +130,11 @@ export async function aceAccountCommand(
     await new Promise((resolve) => setTimeout(resolve, pollMs));
     status = await call("/v1/ace-account", "GET");
   }
+  if (org !== undefined)
+    return show(
+      args,
+      status,
+      `Signed in to ace. ace's org commands on this machine now act in ${org}.`,
+    );
   return show(args, status);
 }

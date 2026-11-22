@@ -657,3 +657,129 @@ Behaviour tests through public surfaces, at the right tier:
 ## Verification
 
 None yet: this is a design. Each phase's done line (§9) is its verification.
+
+## Amendment 1 (2026-11-21): directory sync deliveries and `ace login --org`
+
+Details the ADR left open, decided while building them. Each is the simplest safe choice.
+
+**Webhook alongside the Events API.** The minute's Events API run stays the mirror's source of
+record (§1.1). WorkOS's webhook deliveries are added so a directory's deprovisioning lands in
+seconds: `POST /v1/workos/webhook` on the account backend.
+
+- A delivery counts only with a `WorkOS-Signature` of `t=<ms>, v1=<hex>`, the HMAC-SHA256 of
+  `<t>.<body>` under the endpoint's secret (`WORKOS_WEBHOOK_SECRET`), and `t` within five
+  minutes of the backend's clock either way. Anything else is 401 and changes nothing. Without
+  the secret the route answers 404.
+- A membership, user or organization event is applied at once by the same code as the Events
+  API feed, without moving its cursor. Mirror rows keep the WorkOS time of the state they hold,
+  so a repeat, a late delivery, or the feed bringing the same event again changes nothing twice.
+- A `dsync.*` delivery has the feed caught up now. With Directory Provisioning, WorkOS itself
+  turns a directory's user deactivation, deletion and group changes into membership events
+  (`organization_membership.updated` with `inactive`, a new role from a group mapping), so
+  those are what ace applies; the `dsync` event is only the signal to look.
+- `user.deleted` marks every membership of that account `removed` (the row is kept for history)
+  and drops its org checks. It deletes nothing else: sessions, machines and personal data are
+  untouched, as §6 has it.
+
+**Audit entries for the directory's changes.** The feed writes `org.member.joined`,
+`role_changed` and `removed` for a directory-managed membership, and `deprovisioned` and
+`reactivated` for any membership (ace never deactivates). The actor is `{type: "idp", id:
+"directory"}` for a directory-managed membership, `{type: "workos", id: "workos"}` otherwise;
+the target is the member's account; the metadata is role slugs, statuses and the WorkOS event
+id, never an email or name. The idempotency key is derived from the WorkOS event, and only an
+event newer than the row writes an entry, so a replay writes none. ace's own Remove and role
+change keep writing their entries with the member who acted.
+
+**A live member grant stops at the relay at once.** Relay admission of a member grant now also
+needs the mirror to show the member `active`, so a grant minted before a deprovisioning can't
+open a new connection to the host for the rest of its five minutes. Sockets already open still
+close when their grant runs out (§6's table, unchanged): the relay can't tell which encrypted
+stream a member's is, and the daemon's own bound stands.
+
+**`ace login --org <org>`.** A daemon's sign-in may name an organization. The backend passes it
+to WorkOS as `organization_id`, so the organization's sign-in policy applies, and the claimed
+session says it entered the organization (`org`) only when WorkOS put the session in it and the
+mirror, refreshed from WorkOS, shows the membership active. The daemon keeps that sign-in with
+the organization as its **space**, stored with the sign-in and shown in its account status; `ace
+org registry key|sign` act in it when given no `--org`. When the session didn't enter the
+organization, the daemon ends the new session at once and keeps whatever sign-in it had, and
+`ace login --org` exits 4 (`forbidden`) saying the account isn't a member. A plain `ace login`
+selects no space. Selecting a space never enrolls the machine: giving it to the organization is
+still §2.1's step, with the owner's consent and `hosts:manage`.
+
+**Not built here.** A host learning that a bot's approver left, to flag "<bot> has no approver"
+to admins (§6), needs a membership read for org hosts and Spade's side of it; until then such
+requests keep waiting, since a former member can't get the member standing to answer them.
+
+## Amendment 2 (2026-11-21): the feed decides on committed state; grants are rechecked
+
+From a security review of amendment 1.
+
+**The feed decides on what it read, and commits only if that held.** Each Events API page and
+webhook delivery reads the rows, deleted users and deleted memberships it decides on, follows
+them event by event through the run, and opens its batch with guards on every one of them (the
+`workos_event_guard` pattern of migration 0007). A batch whose reads changed fails whole and is
+decided again from fresh reads, up to four times. Only an accepted change drops org checks,
+queues an Admin Portal revocation or queues an audit entry.
+
+- **Version order.** Only a strictly newer WorkOS time moves a row; a repeat changes nothing,
+  `seq` included. At the same time a removal wins over anything else.
+- **Tombstones** (migration 0010). `org_deleted_users` keeps when WorkOS deleted a user;
+  `org_deleted_memberships` keeps each deleted membership id. The membership upsert refuses any
+  event at or before a user's deletion and any event of a deleted membership. A deletion that
+  arrives before its creation leaves a `removed` row, so the late creation finds it. A
+  `user.deleted` removes the rows made earlier in the same run as well as those in D1.
+- **Audit outbox.** The feed's audit entries are queued in `org_audit_outbox` in the same batch
+  as the change they record and sent after it, with the event-derived idempotency key, until
+  WorkOS takes them: at each drain for the first five tries, then backing off to an hour, dropped
+  with a warning after forty. An entry exists exactly for a change that committed.
+
+**Webhook signatures.** The header must hold exactly one canonical `t` and well-formed `v1`
+fields, each `name=value` with a single `=`. The body is read up to 256 KiB and no further,
+and the HMAC is verified with `crypto.subtle.verify` over `<t>.` and the bytes as sent, before
+decoding.
+
+**`ace login --org`.** The org claim needs WorkOS's own lookup of the exact membership, active,
+to succeed now, and the committed mirror row to still be that membership, active.
+
+**Grants are rechecked where they act.** `POST /v1/grants/standing` takes a member grant or an
+org market grant as its own proof and answers `current` only when the mirror has the member
+active with the grant's role and WorkOS, asked now, names that membership active with that role;
+503 when WorkOS can't answer. It is limited per member account (`STANDING_REQUESTS`), not per
+caller address.
+
+- An org host stamps a member's answer on a standing proven more than 60 seconds earlier only
+  after the backend confirms it (§8.1); a no, or no answer, ends the standing and refuses the
+  answer.
+- The market asks before every org grant read or write of a private registry: a member who
+  left reads nothing (404, as any non-member), a grant whose role changed can't publish (403
+  `org_grant_stale`), and a backend that can't be asked refuses (404 reads, 503 writes).
+
+**Still not built.** Telling admins that a bot lost its only approver (§6) needs Spade to learn
+membership changes for accounts that hold no live grant; it is tracked separately.
+
+## Amendment 3 (2026-11-21): second review
+
+- **Freshness of a member's standing.** The minute after which an org host checks a member's
+  answer with the backend starts when the grant was minted (its `iat`, on a fresh org check) or
+  when the backend last confirmed that very grant. Proving the same grant again keeps that
+  time, also after a failed recheck.
+- **The standing route is no public oracle.** It answers only the market, by a shared token
+  (`ACE_MARKET_STANDING_TOKEN` in the backend, `ACE_ORG_STANDING_TOKEN` in the market), and an
+  org host's organization credential about its own organization's grants. Anyone else is refused
+  before the body is read and limited by address. Bodies are read up to 16 KiB. WorkOS lookups are
+  limited per caller and member (`STANDING_REQUESTS`), overall (`STANDING_WORKOS`) and to four at
+  once per isolate. After WorkOS answers, the mirror row is read again and must be unchanged. The
+  market never follows a redirect from it.
+- **The overall cap is per Cloudflare location, not global.** Workers rate limits count where
+  the request lands, so `STANDING_WORKOS` bounds each location, and the true total can be a
+  multiple of it. That is acceptable without a Durable Object: going over WorkOS's own limit only
+  brings 429s, and the route takes a WorkOS 429 as `busy` (503, `Retry-After`), never a yes, so
+  the market refuses the read (404) and the host refuses the answer.
+- **Deletions are facts apart from rows.** A membership's deletion always leaves its tombstone,
+  even when it arrives older than the row. A removal at the same time as the row wins only over
+  the row's own membership, in the planner as in SQL.
+- **A deleted user, however long their history,** is removed by set-based statements over
+  their rows at or before the deletion, with their audit entries and portal revocations queued
+  from the same rows in the same batch.
+- **Organizations:** an update needs a strictly newer time, so a deletion wins a tie.

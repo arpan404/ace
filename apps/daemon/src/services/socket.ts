@@ -96,6 +96,11 @@ export interface SocketContext {
    * while that standing lasts; undefined otherwise.
    */
   memberStanding?(): { org: string; role: string; account: string } | undefined;
+  /**
+   * The member, for stamping an answer: as `memberStanding`, but a standing older than a minute
+   * is confirmed with the account backend first (ADR 0206 §8.1). Undefined fails closed.
+   */
+  memberStandingChecked?(): Promise<{ org: string; role: string; account: string } | undefined>;
   /** Whether this machine is an organization's host (ADR 0206 §2.1). */
   orgHost?(): boolean;
   /**

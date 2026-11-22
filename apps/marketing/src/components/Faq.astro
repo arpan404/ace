@@ -31,7 +31,7 @@ const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
   <div class="card list reveal">
     {
       items.map((entry) => (
-        <details>
+        <details data-question>
           <summary>
             <h3>{entry.question}</h3>
             <span class="sign" aria-hidden="true" />
