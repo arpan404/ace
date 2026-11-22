@@ -5,7 +5,8 @@ import { threadAttention } from "./thread-attention.ts";
  * person (a question or an approval), while it waits: settled or not, it is never out of sight
  * then. It stays settled, so it returns to Settled once answered. A queue needing recovery
  * resurfaces an automatically settled thread; a thread the person settled by hand comes back
- * only when their own message may not have gone (not sent, or not known to have arrived). A
+ * only when their own message may not have gone (not sent, or not known to have arrived) after
+ * they settled it: settling over that very hold was their answer to it (`settledOverQueue`). A
  * failure after the thread was settled brings it back until the person reads it; one from before
  * stays, since settling it was their answer to that.
  */
@@ -15,7 +16,9 @@ export function sidebarSettled(entry: ThreadListEntry): boolean {
   if (failedSinceSettled(entry, entry.settledAt)) return false;
   const attention = threadAttention(entry);
   if (entry.settledReason !== "manual") return !attention;
-  return attention !== "not_sent" && attention !== "uncertain";
+  if (attention !== "not_sent" && attention !== "uncertain") return true;
+  // Settled over this very hold: the person's answer to it. A later send that fails comes back.
+  return entry.settledOverQueue !== undefined && entry.settledOverQueue === entry.queue?.revision;
 }
 
 /**

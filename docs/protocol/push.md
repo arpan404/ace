@@ -4096,84 +4096,13 @@ Example:
 
 ```json
 {
-  "seq": 8,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "entitiesBefore": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "kind": "thread",
-    "partial": {
-      "previews": []
-    },
-    "runs": {},
-    "seq": 8,
-    "thread": {
-      "createdAt": 4,
-      "deletedAt": 6,
-      "effectiveCapabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "codex",
-          "maxInlineBytes": 6
-        },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "partial",
-        "childControls": "read-only",
-        "fork": true,
-        "forkMode": "native",
-        "forkTranscript": true,
-        "goals": false,
-        "imageInput": false,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "planMode": true,
-        "resume": true,
-        "rewindFiles": false,
-        "steer": true,
-        "steerTiming": "after_tool",
-        "subagentTranscripts": false,
-        "tokenUsage": false
-      },
-      "goal": {
-        "checks": 3,
-        "lastReason": "example",
-        "objective": "example",
-        "setAt": 5,
-        "status": "usage_limited"
-      },
-      "id": "example",
-      "listOrder": 2,
-      "pinOrder": 9,
-      "prSettled": 9,
-      "prSettledKey": "example",
-      "provider": "antigravity",
-      "settledReason": "inactivity",
-      "snoozeWoke": {
-        "at": 8,
-        "on": "needs_you",
-        "outcome": "finished"
-      },
-      "status": {
-        "state": "moved",
-        "to": {
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        }
-      },
-      "title": "example",
-      "unread": false,
-      "updatedAt": 0,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "kind": "threads",
+    "seq": 0,
+    "threads": {}
   }
 }
 ```

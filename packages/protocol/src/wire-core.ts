@@ -648,6 +648,11 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       .regex(/^[A-Z2-7]{52}$/)
       .optional(),
     /**
+     * This socket came tagged by the desktop app's main process (ADR 0190, amendment 1), so main
+     * can prove it with the device key. Absent otherwise.
+     */
+    standingAppSocket: z.literal(true).optional(),
+    /**
      * On a relay `machine` stream (ADR 0192): this machine takes `machine.transfer` frames, so a
      * paired machine may move projects and threads here through the relay. Absent from older
      * daemons, which end the stream on a frame they don't know: nothing is sent to them.

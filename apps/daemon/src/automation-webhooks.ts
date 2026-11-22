@@ -162,6 +162,8 @@ export async function startAutomationWebhooks(
     const path = new URL(request.url).pathname;
     const start = prefix + hooksPath;
     if (!on[via] || !path.startsWith(start)) return answer(404, { error: "not_found" });
+    // A webhook starts a run, a new tree: closed on an organization's host (ADR 0209 §4.2).
+    if (context.orgHost?.org() !== undefined) return answer(404, { error: "not_found" });
     // The ADR's order: the method before anything about the hook.
     if (request.method !== "POST") return answer(405, { error: "method_not_allowed" });
     const hookId = path.slice(start.length);

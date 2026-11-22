@@ -6,6 +6,7 @@ import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { writeSupportBundle, recentThreadEvents } from "@ace/diagnostics";
 import { collectDoctorReport } from "./diagnostics-report.ts";
 import type { Config } from "./config.ts";
+import { orgProbe } from "./org-access/org-probe.ts";
 export async function diagnosticsCli(
   args: string[],
   config: Config,
@@ -21,6 +22,9 @@ export async function diagnosticsCli(
   const path = args[1];
   if (!path || path.startsWith("--") || args.slice(2).some((arg) => arg !== "--include-threads"))
     throw new Error("Usage: ace support-bundle PATH [--include-threads]");
+  // ace's own surfaces hand an organization's host's operator no member content (ADR 0209 §3).
+  if (args.includes("--include-threads") && orgProbe(config.dataDir).org() !== undefined)
+    throw new Error("An organization's host doesn't export conversations.");
   const output = createWriteStream(path, { flags: "wx", mode: 0o600 });
   let created = false;
   output.once("open", () => {

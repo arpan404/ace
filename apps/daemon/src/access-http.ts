@@ -113,6 +113,8 @@ export interface AccessHttpOptions {
   providerProcesses?: () => readonly import("./engine/provider-release.ts").ProviderProcess[];
   /** This machine's ace account and machine code (ADR 0111). */
   account?: () => import("./account-access/machine-account.ts").MachineAccount | undefined;
+  /** The desktop app's main process proving its own sockets (ADR 0190, amendment 1). */
+  appStanding?: import("./account-access/app-standing.ts").AppStandingDesk;
 }
 export function accessHttp({
   shutdown,
@@ -133,6 +135,7 @@ export function accessHttp({
   remoteStatus,
   providerProcesses,
   account,
+  appStanding,
 }: AccessHttpOptions) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -262,6 +265,8 @@ export function accessHttp({
           account
         )
           result = await accountRoute(path, request, account(), auth.local(token));
+        else if (path.startsWith("/v1/standing/app/") && appStanding)
+          result = await appStandingRoute(path, request, appStanding, auth.local(token));
         else if (path === "/v1/devices" && request.method === "GET") result = auth.list();
         else if (path.startsWith("/v1/devices/") && request.method === "DELETE") {
           if (!auth.revoke(path.slice("/v1/devices/".length)))
@@ -277,6 +282,38 @@ export function accessHttp({
       );
     });
   };
+}
+
+/**
+ * The desktop app's main process and its daemon (ADR 0190, amendment 1): a challenge, a
+ * statement proving the app's own tagged sockets, enrolling the key and revoking it. The host
+ * token only; the statement's signature is what proves anything, and revoking only takes away.
+ */
+async function appStandingRoute(
+  path: string,
+  request: IncomingMessage,
+  desk: import("./account-access/app-standing.ts").AppStandingDesk,
+  host: boolean,
+): Promise<unknown> {
+  if (!host) throw new AccessError(403, "Host token required");
+  if (path === "/v1/standing/app/challenge" && request.method === "POST") {
+    const challenge = await desk.challenge(await body(request));
+    if (!challenge) throw new AccessError(503, "ace account is unavailable");
+    return challenge;
+  }
+  if (path === "/v1/standing/app/prove" && request.method === "POST")
+    return { proven: await desk.prove(await body(request)) };
+  if (path === "/v1/standing/app/key" && request.method === "POST") {
+    if (!(await desk.enroll(await body(request))))
+      throw new AccessError(403, "Confirm it's you in a browser first.");
+    return { proven: 0 };
+  }
+  if (path === "/v1/standing/app/key" && request.method === "DELETE") {
+    const receipt = await desk.revoke(await body(request));
+    if (!receipt) throw new AccessError(400, "Name the key to revoke, with an ephemeral key");
+    return receipt;
+  }
+  throw new AccessError(404, "Unknown endpoint");
 }
 
 /**

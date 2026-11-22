@@ -107,6 +107,11 @@ export type ToolFailureReporter = (failure: {
  * An extra abort signal the host gives one call, for work it can end on its own (an outside
  * client's screen work when the person presses Stop). Undefined: the call has none.
  */
+/**
+ * The host's access policy for one call (ADR 0209 §4.2): false refuses it before its slot is
+ * taken or anything runs. It sees the tool, its arguments and the lease's caller.
+ */
+export type CallAdmission = (tool: string, input: unknown, caller: McpAttribution) => boolean;
 export type CallSignal = (
   tool: string,
   capability: McpCapability | null,
@@ -216,6 +221,7 @@ export class ToolRegistry {
   private reportFailure: ToolFailureReporter | undefined;
   private callSignal: CallSignal | undefined;
   private actAs: CallActor | undefined;
+  private admit: CallAdmission | undefined;
   constructor(options: {
     scheduler: Scheduler;
     maxTools?: number;
@@ -225,8 +231,10 @@ export class ToolRegistry {
     reportFailure?: ToolFailureReporter;
     callSignal?: CallSignal;
     actAs?: CallActor;
+    admit?: CallAdmission;
   }) {
     this.scheduler = options.scheduler;
+    this.admit = options.admit;
     this.callSignal = options.callSignal;
     this.actAs = options.actAs;
     this.observeCall = options.observeCall;
@@ -513,6 +521,8 @@ export class ToolRegistry {
     };
     if (!entry || !this.allowed(entry, principal))
       return finish(toolFailure(new PublicToolError("tool_unavailable")));
+    if (this.admit && !this.admit(entry.name, input, context.caller))
+      return finish(toolFailure(new PublicToolError("host_policy_refused")));
     if (
       this.active >= this.maxCalls ||
       (this.activeThreads.get(threadId) ?? 0) >= this.maxCallsPerThread

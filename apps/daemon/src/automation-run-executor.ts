@@ -85,6 +85,10 @@ export function automationRunExecutor(
           records.admit(commandId, target.deviceId, input.automationId, receipt.threadId);
           return receipt.threadId;
         }
+        // Decided again as it runs: a run admitted before the machine became an organization's
+        // host starts nothing there (ADR 0209 §4.2).
+        if (context.orgHost?.org() !== undefined)
+          throw new Error("An organization's host runs no automations yet.");
         const { payload, threadId } = target.admission(input);
         const command = Command.parse({ id: commandId, deviceId: target.deviceId, payload });
         const result = store.recordCommand(command.id, command.deviceId, () =>

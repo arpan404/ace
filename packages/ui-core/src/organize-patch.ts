@@ -1,4 +1,4 @@
-import { snoozeWakeFor } from "@ace/projection";
+import { snoozeWakeFor, unsentQueueRevision } from "@ace/projection";
 import type { ThreadListEntry, WorkspaceId } from "@ace/protocol";
 import { activityOf } from "./thread-state.ts";
 
@@ -59,16 +59,22 @@ export function patchEntry(
   if (patch.undoSettle) {
     delete next.settledAt;
     delete next.settledReason;
+    delete next.settledOverQueue;
   }
   if (patch.settled === true) {
     next.settledAt = at;
     next.settledReason = "manual";
+    // Over a message not sent, as the daemon records it, so the row leaves the Inbox at once.
+    const over = unsentQueueRevision(entry);
+    if (over === null) delete next.settledOverQueue;
+    else next.settledOverQueue = over;
     // Settling clears a snooze, as the daemon does.
     delete next.snoozedUntil;
     delete next.snoozeWake;
   } else if (patch.settled === false) {
     delete next.settledAt;
     delete next.settledReason;
+    delete next.settledOverQueue;
     next.activityAt = latest;
   }
   if (patch.autoSettle === true) delete next.autoSettle;
