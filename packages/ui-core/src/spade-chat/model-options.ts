@@ -84,7 +84,7 @@ export function spadeModelGroups(
       options: [{ value: "", name: none, source: undefined, facts: noneFacts }],
     });
   const endpoints = spadeLocalFirst(sources.endpoints, (each) => each.endpoint.local);
-  // Two accounts of one name are told apart by their ids (ADR 0213).
+  // Two accounts of one name are told apart by their ids (ADR 0214).
   const labels = spadeAccountLabels(endpoints.map((each) => each.endpoint));
   for (const { endpoint, models } of endpoints) {
     const label = labels.get(endpoint.id) ?? endpoint.name;

@@ -1,4 +1,4 @@
-//! What calls on a ChatGPT sign-in account (ADR 0213) need beyond an OpenAI Responses endpoint:
+//! What calls on a ChatGPT sign-in account (ADR 0214) need beyond an OpenAI Responses endpoint:
 //! the backend's address, the headers that name the account, and how its usage refusals read.
 //! Learned from OpenAI's own Codex client (Apache-2.0); written fresh here.
 

@@ -133,7 +133,7 @@ fn endpoint_json(state: &AppState, view: &EndpointView, in_keychain: Option<bool
         "needs_key": e.needs_key,
         "key_set": key_set,
         "key_source": source,
-        // ADR 0213: the provider it is an account of, how it signs in, and who uses it.
+        // ADR 0214: the provider it is an account of, how it signs in, and who uses it.
         "provider": crate::engine::Engine::provider_of(e),
         "auth": match &e.sign_in {
             Some(sign_in) => sign_in.kind.as_str(),

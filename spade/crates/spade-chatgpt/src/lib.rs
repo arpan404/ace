@@ -1,4 +1,4 @@
-//! Spade signs in to OpenAI with a ChatGPT account itself (ADR 0213): a browser sign-in with
+//! Spade signs in to OpenAI with a ChatGPT account itself (ADR 0214): a browser sign-in with
 //! PKCE back to a loopback address, or a device code; the tokens kept in the OS keychain only,
 //! refreshed in Spade, never logged, synced or returned. Calls on the account are
 //! `spade-models`' (`chatgpt` there); this crate only signs in and hands out access tokens.

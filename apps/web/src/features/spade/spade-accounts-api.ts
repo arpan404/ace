@@ -8,7 +8,7 @@ import {
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
 /*
- * Spade's provider-account routes (ADR 0213): adding an account of a preset, ChatGPT sign-ins
+ * Spade's provider-account routes (ADR 0214): adding an account of a preset, ChatGPT sign-ins
  * and signing out. Renaming and removing an account are the endpoint routes' (`spade-api.ts`).
  */
 

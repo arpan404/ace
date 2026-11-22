@@ -1,4 +1,4 @@
-# 0213: Spade holds several accounts per provider and signs in to OpenAI itself
+# 0214: Spade holds several accounts per provider and signs in to OpenAI itself
 
 Status: accepted. Date: 2026-11-22. Decided by: the owner (2026-11-22: "Spade signs in to
 OpenAI", chosen over running bots through the installed Codex CLI; accounts cover "several per

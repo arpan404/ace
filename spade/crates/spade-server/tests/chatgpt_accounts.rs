@@ -1,4 +1,4 @@
-//! ChatGPT accounts through the API (ADR 0213): a sign-in becomes an account of the OpenAI
+//! ChatGPT accounts through the API (ADR 0214): a sign-in becomes an account of the OpenAI
 //! provider that a bot runs on, a second sign-in with the same ChatGPT account renews it, signing
 //! out keeps the account, and removing it takes its tokens. A fake OpenAI sign-in server and the
 //! fake model endpoint stand in for OpenAI; the keychain is the mock store.

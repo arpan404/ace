@@ -3,7 +3,7 @@ import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeEndpointValue, type SpadeEndpoint, type SpadePreset } from "./endpoints.ts";
 
 /*
- * Providers and their accounts (ADR 0213): every endpoint is an account of a provider, the preset
+ * Providers and their accounts (ADR 0214): every endpoint is an account of a provider, the preset
  * it was made from or its own address. A ChatGPT sign-in is an account of OpenAI that Spade signs
  * in to itself, through a flow the client starts and reads until it ends.
  */
@@ -131,7 +131,7 @@ export interface SpadeSignInFlow {
   error: string | undefined;
 }
 
-/** The one plain sentence shown before a ChatGPT sign-in starts (ADR 0213 §5). */
+/** The one plain sentence shown before a ChatGPT sign-in starts (ADR 0214 §5). */
 export const spadeChatgptTerms =
   "Using a ChatGPT sign-in outside OpenAI's own Codex apps may go against OpenAI's terms; you " +
   "sign in knowing that.";

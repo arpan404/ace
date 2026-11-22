@@ -53,7 +53,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly org = new FakeSpadeOrg();
   endpoints: Json[] = [];
   presets: Json[] = [];
-  /** Providers' accounts and ChatGPT sign-ins (ADR 0213). */
+  /** Providers' accounts and ChatGPT sign-ins (ADR 0214). */
   readonly accounts = new FakeSpadeAccounts();
   fastModel: string | null = null;
   /** `new_bot_model`: the model new bots start on; null, the first usable one. */

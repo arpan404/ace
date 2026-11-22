@@ -577,7 +577,7 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
-    // ChatGPT sign-ins (ADR 0213): tokens in the keychain only; none without one.
+    // ChatGPT sign-ins (ADR 0214): tokens in the keychain only; none without one.
     match spade_chatgpt::Accounts::new(
         keychain.clone(),
         spade_chatgpt::Config::openai(),

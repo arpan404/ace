@@ -1,5 +1,5 @@
 //! The signed-in accounts' tokens: in the OS keychain (`oauth:<account>:access` and `:refresh`,
-//! ADR 0213), held in memory while in use, refreshed when the access token nears its end. One
+//! ADR 0214), held in memory while in use, refreshed when the access token nears its end. One
 //! refresh per account at a time, so a refresh token is never sent twice.
 
 use std::collections::HashMap;

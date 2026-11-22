@@ -18,7 +18,7 @@ pub enum ModelError {
         var: Option<String>,
     },
 
-    /// A sign-in account (ADR 0213) has no usable token: signed out, or its refresh failed.
+    /// A sign-in account (ADR 0214) has no usable token: signed out, or its refresh failed.
     /// One plain line.
     #[error("{message}")]
     SignIn { endpoint: String, message: String },

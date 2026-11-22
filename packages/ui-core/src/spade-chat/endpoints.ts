@@ -60,7 +60,7 @@ export interface SpadeEndpoint {
   /** The models the person saved or the preset knows. */
   models: SpadeModelInfo[];
   /**
-   * The provider it is an account of (ADR 0213): the preset id it was made from, `openai` for a
+   * The provider it is an account of (ADR 0214): the preset id it was made from, `openai` for a
    * ChatGPT sign-in; undefined for one added by its address (its own provider).
    */
   provider: string | undefined;
@@ -205,7 +205,7 @@ export function parseSpadeEndpointValue(raw: unknown): SpadeEndpoint | undefined
         : undefined,
     models: modelsOf(endpoint.models),
     provider: endpoint.provider || undefined,
-    // A Spade predating accounts (ADR 0213) says only whether it needs a key.
+    // A Spade predating accounts (ADR 0214) says only whether it needs a key.
     auth: endpoint.auth ?? (endpoint.needs_key ? "key" : "none"),
     account:
       endpoint.auth === "chatgpt"

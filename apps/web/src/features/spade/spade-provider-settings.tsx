@@ -26,7 +26,7 @@ import { fault } from "./spade-settings-rows.tsx";
 import { modelsKey } from "./use-spade-models.ts";
 
 /**
- * One provider (ADR 0213): its name, each of its accounts on its own surface, then Add an
+ * One provider (ADR 0214): its name, each of its accounts on its own surface, then Add an
  * account. OpenAI's offers a ChatGPT sign-in or an API key; another preset's adds a keyed
  * account by name. An account added by its address is its own provider, with no Add.
  */

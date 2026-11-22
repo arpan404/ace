@@ -10,7 +10,7 @@ import { CouldNotRead, SpadeNotRunning, useSpadeRunning } from "./spade-settings
 import { useSpadeModels } from "./use-spade-models.ts";
 
 /**
- * Settings › Spade › Models, in the order setup goes (ADR 0213): each provider with its accounts
+ * Settings › Spade › Models, in the order setup goes (ADR 0214): each provider with its accounts
  * (how each signs in, the bots on it, its models), then Add a provider, from a preset or by
  * address, and Sign in with ChatGPT while no OpenAI account is there to add it from, then the
  * models for every bot's other work, which pick from those accounts.

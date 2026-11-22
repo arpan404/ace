@@ -1,7 +1,7 @@
 import type { FakeSpadeAnswer } from "./spade.ts";
 
 /*
- * Providers and accounts (ADR 0213) for the fake API, in Spade's JSON: what `GET /v1/models`
+ * Providers and accounts (ADR 0214) for the fake API, in Spade's JSON: what `GET /v1/models`
  * adds to each endpoint (its provider, how it signs in, the ChatGPT account, the bots on it),
  * adding an account from a preset or an address, and ChatGPT sign-ins that end after a read or
  * two. No real sign-in happens and no token exists here.

@@ -1,4 +1,4 @@
-//! `/v1/accounts/chatgpt` and `/v1/endpoints/{id}/sign-out` (ADR 0213; docs/agents.md,
+//! `/v1/accounts/chatgpt` and `/v1/endpoints/{id}/sign-out` (ADR 0214; docs/agents.md,
 //! "Providers and accounts"). No route returns a token.
 
 use axum::Json;

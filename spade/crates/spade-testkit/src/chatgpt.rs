@@ -1,4 +1,4 @@
-//! A stand-in for OpenAI's sign-in server (ADR 0213): the token endpoint (codes by form,
+//! A stand-in for OpenAI's sign-in server (ADR 0214): the token endpoint (codes by form,
 //! refreshes by JSON) and the device-code routes. Its tokens are unsigned JSON Web Tokens naming
 //! one ChatGPT account. It records what it was asked, and can refuse a refresh token.
 

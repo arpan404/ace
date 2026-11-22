@@ -26,7 +26,7 @@ pub const ACE_GRANT: &str = "ace:grant";
 /// The longest key accepted. Sign-in tokens are JSON Web Tokens, which run to a few kilobytes.
 const LONGEST: usize = 16_384;
 
-/// The kinds of sign-in token kept per account (ADR 0213).
+/// The kinds of sign-in token kept per account (ADR 0214).
 pub const SIGN_IN_KINDS: [&str; 2] = ["access", "refresh"];
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -119,7 +119,7 @@ impl KeyStore {
     }
 
     /// A sign-in token of `kind` (`access`, `refresh`) for account `endpoint`, if stored
-    /// (ADR 0213). Account `oauth:<endpoint>:<kind>`.
+    /// (ADR 0214). Account `oauth:<endpoint>:<kind>`.
     pub fn sign_in_secret(&self, endpoint: &str, kind: &str) -> Result<Option<String>, KeyError> {
         self.read(&self.sign_in_entry(endpoint, kind)?)
     }

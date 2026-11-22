@@ -1,4 +1,4 @@
-//! Accounts that sign in instead of using a key (ADR 0213): a ChatGPT account Spade signs in to
+//! Accounts that sign in instead of using a key (ADR 0214): a ChatGPT account Spade signs in to
 //! itself. A finished sign-in becomes an account (an endpoint on the ChatGPT backend, id
 //! `chatgpt`, `chatgpt-2`, …) or renews the one already added for that ChatGPT account. Tokens are
 //! `spade_chatgpt`'s, in the keychain only; the database keeps the account's email, plan and id.

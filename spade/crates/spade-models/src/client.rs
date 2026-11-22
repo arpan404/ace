@@ -34,7 +34,7 @@ pub struct Models {
     user_agent: String,
     http: reqwest::Client,
     listing: ListBounds,
-    /// Access tokens for accounts that sign in (ADR 0213), set by the server.
+    /// Access tokens for accounts that sign in (ADR 0214), set by the server.
     bearers: Arc<RwLock<Option<Bearers>>>,
 }
 
@@ -105,7 +105,7 @@ impl Models {
         self
     }
 
-    /// Where signed-in accounts' tokens come from (ADR 0213).
+    /// Where signed-in accounts' tokens come from (ADR 0214).
     pub fn set_bearers(&self, bearers: Bearers) {
         *self.bearers.write().unwrap_or_else(|p| p.into_inner()) = Some(bearers);
     }

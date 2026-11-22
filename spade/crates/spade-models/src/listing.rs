@@ -169,7 +169,7 @@ pub fn parse(body: &[u8], max_models: usize) -> Result<Vec<Listed>, String> {
 }
 
 fn item(raw: &Value) -> Option<Listed> {
-    // The ChatGPT backend's list (ADR 0213) names a model by `slug`, and hides some.
+    // The ChatGPT backend's list (ADR 0214) names a model by `slug`, and hides some.
     let slug = raw.get("id").is_none() && raw.get("slug").is_some();
     if slug && raw.get("visibility").and_then(Value::as_str) == Some("hide") {
         return None;

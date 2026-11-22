@@ -1,4 +1,4 @@
-//! Calls on a ChatGPT sign-in account (ADR 0213), against a local fake Responses server: the
+//! Calls on a ChatGPT sign-in account (ADR 0214), against a local fake Responses server: the
 //! account's token and id go with every call, the backend is only ever asked to stream, and a
 //! signed-out account fails with one plain line before anything is sent.
 

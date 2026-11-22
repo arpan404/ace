@@ -210,7 +210,7 @@ const MIGRATIONS: &[Migration] = &[
         backfill: None,
     },
     Migration {
-        // ADR 0213: how an account signs in when not with a key (a ChatGPT sign-in), with the
+        // ADR 0214: how an account signs in when not with a key (a ChatGPT sign-in), with the
         // facts that are not secrets. One nullable column: nothing is rewritten.
         sql: "ALTER TABLE endpoints ADD COLUMN sign_in TEXT;",
         backfill: None,

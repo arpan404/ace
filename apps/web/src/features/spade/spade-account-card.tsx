@@ -21,7 +21,7 @@ import { SpadeModelChoice } from "./spade-model-picker.tsx";
 import { fault, Refusal } from "./spade-settings-rows.tsx";
 
 /**
- * One account of a provider (ADR 0213), on its own surface: its name, the bots on it, Rename and
+ * One account of a provider (ADR 0214), on its own surface: its name, the bots on it, Rename and
  * Remove; where it is when it was added by its address; how it signs in (its key, saved or not
  * and never shown, or its ChatGPT sign-in); the models saved on it (the person's own can go) and
  * Add a model.

@@ -327,7 +327,7 @@ carries the key.
 
 ### Providers and accounts
 
-[ADR 0213](../../docs/adr/0213-spade-provider-accounts-and-openai-sign-in.md). Every endpoint is an
+[ADR 0214](../../docs/adr/0214-spade-provider-accounts-and-openai-sign-in.md). Every endpoint is an
 *account* of a *provider*. In `GET /v1/models` each endpoint also has:
 
 - `provider`: the preset id it was made from (`openai`, `anthropic`, `opencode-go`, …), `openai`

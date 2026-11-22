@@ -1,7 +1,7 @@
 [package]
 name = "spade-chatgpt"
 version = "0.1.0"
-description = "Spade signs in to OpenAI with a ChatGPT account and keeps its tokens in the keychain (ADR 0213)"
+description = "Spade signs in to OpenAI with a ChatGPT account and keeps its tokens in the keychain (ADR 0214)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

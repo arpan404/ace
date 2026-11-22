@@ -29,7 +29,7 @@ import { modelsKey } from "./use-spade-models.ts";
 const signInPoll = 1_000;
 
 /**
- * Sign in with ChatGPT (ADR 0213): the person picks a browser on Spade's machine or a code for
+ * Sign in with ChatGPT (ADR 0214): the person picks a browser on Spade's machine or a code for
  * any device, reads the one sentence on OpenAI's terms, and only then does the sign-in start.
  * Then the link (and code) to use, read again until Spade says it ended. `account` signs a
  * signed-out account back in.

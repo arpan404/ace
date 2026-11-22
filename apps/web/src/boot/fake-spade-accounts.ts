@@ -1,7 +1,7 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 
 /*
- * Providers and their accounts in the fake world (ADR 0213): OpenAI twice, once by an API key and
+ * Providers and their accounts in the fake world (ADR 0214): OpenAI twice, once by an API key and
  * once by a ChatGPT sign-in that Flights thinks with, and an OpenCode Go account with no key yet.
  * The presets OpenAI and Anthropic are there to add more accounts from.
  */

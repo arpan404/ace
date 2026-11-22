@@ -22,12 +22,12 @@ pub struct StoredEndpoint {
     /// binary at read time, so shipped corrections reach it.
     pub preset: Option<String>,
     pub created_ms: i64,
-    /// How it signs in when not with a key (ADR 0213); never a token.
+    /// How it signs in when not with a key (ADR 0214); never a token.
     pub sign_in: Option<StoredSignIn>,
     pub models: Vec<StoredModel>,
 }
 
-/// A sign-in account's facts that are not secrets (ADR 0213). Its tokens are in the keychain.
+/// A sign-in account's facts that are not secrets (ADR 0214). Its tokens are in the keychain.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StoredSignIn {
     /// `chatgpt`.
