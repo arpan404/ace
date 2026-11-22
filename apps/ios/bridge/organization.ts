@@ -174,9 +174,11 @@ function formOf(policy: AceOrgPolicy): PolicyForm {
   };
 }
 
+/** A form word as the policy holds it: "unset" leaves the host's own rule. */
+const unset = <T extends string>(word: T | "unset") => (word === "unset" ? undefined : word);
+
 /** The form over the stored policy, as web's page saves it: "unset" leaves the host's own rule. */
 function policyOf(stored: AceOrgPolicy, form: PolicyForm): AceOrgPolicy {
-  const unset = <T extends string>(word: T | "unset") => (word === "unset" ? undefined : word);
   const effects = Object.fromEntries(
     effectKeys.flatMap((key) => {
       const rule = unset(form.effects[key]);
