@@ -67,3 +67,22 @@ test("an error that carries a daemon token never shows it", () => {
   expect(document.body.textContent).not.toContain(token);
   expect(screen.getByText(/Rejected http:\/\/127\.0\.0\.1:4242\/#token=\[hidden\]/)).toBeTruthy();
 });
+
+test("the copy icon copies the error text", async () => {
+  const written: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        written.push(text);
+      },
+    },
+  });
+  render(
+    <AppFrame environment={{}}>
+      <BootFailure error={new Error("The editor's worker never answered.")} />
+    </AppFrame>,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Copy error" }));
+  expect(written).toEqual(["The editor's worker never answered."]);
+});

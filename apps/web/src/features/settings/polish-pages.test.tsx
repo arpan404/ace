@@ -50,7 +50,7 @@ test("pair opens pairing instead of a thread and creates a code only when reques
 test("prompt errors have a short label and clicking the title opens the editor", async () => {
   await harness().open("/settings/prompts");
   const files = await screen.findByRole("list", { name: "Prompt files" });
-  expect(await within(files).findByText("Invalid frontmatter")).toBeTruthy();
+  expect(await within(files).findByText("This skill's header couldn't be read")).toBeTruthy();
   const title = within(files).getAllByRole("button")[0];
   if (!title) throw new Error("No prompt title");
   title.focus();

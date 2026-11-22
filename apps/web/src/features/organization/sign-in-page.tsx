@@ -29,8 +29,9 @@ const tasks: readonly { intent: AceOrgPortalIntent; title: string; description: 
 
 /**
  * Settings › Organization › Sign-in (ADR 0206 §1.3, §2.7): the organization's domain, single
- * sign-on and directory, each set up in the WorkOS Admin Portal. ace adds no sign-in rules of its
- * own. A link lasts five minutes and is tied to the admin who opened it, so removing them ends it.
+ * sign-on and directory, each set up in your sign-in provider's admin portal. ace adds no sign-in
+ * rules of its own. A link lasts five minutes and is tied to the admin who opened it, so removing
+ * them ends it.
  */
 export function SignInPage(props: { org: AceOrgSpace }) {
   const portal = usePortalLink(props.org.id);
@@ -39,7 +40,7 @@ export function SignInPage(props: { org: AceOrgSpace }) {
     <SettingSection
       label="Sign-in"
       anchor="org.signIn"
-      note="Each opens WorkOS's setup page in your browser for a few minutes."
+      note="Each opens your sign-in provider's setup page in your browser for a few minutes."
     >
       {tasks.map((task) => (
         <SettingRow key={task.intent} title={task.title} description={task.description} inline>

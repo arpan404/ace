@@ -152,7 +152,7 @@ test("the Projects panel and History leave chats out", async () => {
   // The panel has no History row: History is its own page (and the palette's).
   await visit("/history");
   const main = screen.getByRole("main");
-  await within(main).findByRole("heading", { level: 2, name: "History" });
+  await screen.findByRole("heading", { level: 1, name: "History" });
   expect(within(main).queryByRole("link", { name: /^How TLS/ })).toBeNull();
 });
 

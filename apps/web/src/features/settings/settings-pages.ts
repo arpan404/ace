@@ -97,7 +97,7 @@ function spadePages(): SettingsPage[] {
       title: "Spade",
       icon: SpadeIcon,
       group: "machine",
-      section: spade("General"),
+      section: spade("Spade"),
     },
     {
       to: "/settings/spade/models",
