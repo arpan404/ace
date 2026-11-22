@@ -65,7 +65,7 @@ const table = spaceCases as SpaceCase[];
 
 test.each(table.map((entry) => [entry.case, entry] as const))("%s", (_name, entry) => {
   const spaces = entry.spaces ?? undefined;
-  const hostsOf = new Map(Object.entries(entry.hostsOf).map(([org, ids]) => [org, new Set(ids)]));
+  const hostsOf = new Map(Object.entries(entry.hostsOf).map(([orgId, ids]) => [orgId, new Set(ids)]));
   const shown = shownSpace(entry.chosen, spaces);
   const indices = entry.machines.map((_machine, index) => index);
   const inSpace = machinesInSpace(
