@@ -96,7 +96,8 @@ import XCTest
         capture("settings")
     }
 
-    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() {
+    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
         let app = launch()
         app.openSearch()
         // No pull-down: the field is there as the tab opens.
@@ -107,9 +108,9 @@ import XCTest
         // The first tap shows Search without the keyboard; tapping its tab again focuses the field.
         let tab = app.homeTab("search")
         XCTAssertTrue(tab.isHittable, "Search's tab stays in the bar while Search shows")
-        XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
+        XCTAssertFalse(field.focused, "the first tap shows Search without focusing its field")
         tab.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
+        XCTAssertTrue(field.waitFor({ $0.focused }, timeout: 5), "a second tap on Search focuses its field")
     }
 
     func testTappingProjectsAgainOnAScrolledListGoesBackToTheTop() {
