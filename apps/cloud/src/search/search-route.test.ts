@@ -87,6 +87,7 @@ function world(
     repeats: repeatGuard({ now: () => clock, salt: new Uint8Array(32).fill(1) }),
     now: () => clock,
     addressOf: (request) => request.headers.get("CF-Connecting-IP") ?? "unknown",
+    addressSalt: "salt",
     burst: { address: over("address", 30), account: over("account", options.burst ?? 10) },
     log: (entry) => logs.push(JSON.stringify(entry)),
   });
@@ -472,6 +473,8 @@ describe("privacy", () => {
     const everything = [...stored, ...w.logs, ...lines].join("\n");
     expect(everything).not.toContain("patient-4417");
     expect(everything).not.toContain("lab results");
+    // Nor the caller's address: its counter is a salted digest.
+    expect(everything).not.toContain("203.0.113.7");
     expect(w.logs.length).toBeGreaterThan(0);
   });
 });

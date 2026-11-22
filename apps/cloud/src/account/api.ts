@@ -186,6 +186,7 @@ export function accountApi(
     ...deps.search,
     keys,
     principals,
+    addressSalt: config.encryptionKey,
     counters: searchCounts,
     repeats: repeatGuard({ now, salt: random(32) }),
     now,

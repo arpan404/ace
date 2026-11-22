@@ -105,8 +105,8 @@ Why these numbers:
   reached, every account gets "ace search is resting today" until midnight UTC.
 
 The rate-limit bindings count per Cloudflare location, which is fine for bursts. Every count that
-must hold globally lives in D1, in one table (`search_counts`: scope, window, count, expiry) with
-no query text. A search takes all its counters in one D1 batch of conditional upserts, each of
+must hold globally lives in D1, in one table (`search_counts`: scope, period, count, expiry) with
+no query text. An address's counter is keyed by a salted digest of the address, never the address. A search takes all its counters in one D1 batch of conditional upserts, each of
 which only adds while under its cap, so concurrent searches can't overshoot. If any counter is
 full, those taken are given back and the search is refused. A search Ceramic fails is given back
 too. Expired rows are swept hourly in bounded batches (ADR 0170). An account's rows go with the

@@ -143,6 +143,26 @@ storage; [ADR 0115](../adr/0115-one-device-one-machine.md)).
 For iOS, set the Xcode build setting `ACE_ACCOUNT_URL`. No API key belongs in any
 client build.
 
+### ace search
+
+ace search ([ADR 0210](../adr/0210-spade-searches-the-web-through-ace-cloud.md)) serves Spade's
+`web_search` from Ceramic through an AI Gateway on the same Cloudflare account. Before the first
+deploy that carries it (a release deploys it too):
+
+1. In the Cloudflare dashboard, AI › AI Gateway, create a gateway named `ace-search` (the
+   `ACE_SEARCH_GATEWAY` var in `env.production`). In its settings, turn **log collection off**:
+   zero data retention doesn't cover the gateway's own logs, and they would keep queries.
+2. Add AI Gateway credits to the account. Searches bill them at Ceramic's list price ($0.25 per
+   1,000); credits carry a 5% fee on purchase.
+3. Migration `0011_search_counts.sql` applies with the others.
+
+The `ai` binding exists only in `env.production`. Local runs and tests have none, and the route
+answers `503 search_unavailable` there. Until the gateway exists, a deployed route answers
+`502 search_failed`, which counts nothing, and Spade falls back to the model's own search. The
+limits are the `ACE_SEARCH_*` vars in `env.production`, with the bursts in the
+`SEARCH_ACCOUNT_BURST` (1009) and `SEARCH_ADDRESS_BURST` (1010) rate limits; ADR 0210 §4 lists
+them. To stop ace search at once, set `ACE_SEARCH_DAILY_DOLLARS` to `0` and deploy.
+
 ## What the database holds
 
 No column holds a usable credential. Session tokens, login ids, claim tickets,
@@ -152,6 +172,9 @@ retried until the sign-in expires) are AES-256-GCM sealed to their row's digest.
 Machines are host id, account id, name, platform, first and last seen. Machine credentials (ADR 0190) are a digest, the digest of the session they live on, the host id and account they speak
 for, and whether the daemon was that session's only holder. Each session keeps its `standing`:
 `person`, `legacy` or `exposed`.
+ace search's counters (`search_counts`) are a scope (`global`, `account:<id>`,
+`machine:<host id>` or `address:<salted digest of the address>`), a UTC day or month, a count and when the period
+ends: never a query or a result.
 
 ## Account API
 

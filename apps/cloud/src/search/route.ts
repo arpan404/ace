@@ -42,12 +42,21 @@ export type SearchDeps = {
   now: () => number;
   /** The caller's address as a counter key (an IPv6 /64 or an IPv4 address). */
   addressOf: (request: Request) => string;
+  /** Salts the address's digest, so no counter row holds an address. */
+  addressSalt: string;
   /** The per-minute bursts, from rate-limit bindings: true when over. */
   burst: { address(key: string): Promise<boolean>; account(id: string): Promise<boolean> };
   log: (entry: SearchLog) => void;
 };
 
 const opaque = /^[A-Za-z0-9_-]{43}$/;
+
+/** The caller's address as its counter knows it: a salted SHA-256, never the address. */
+async function addressDigest(salt: string, address: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`${salt}\n${address}`);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function refuse(code: Refusal, retryAfter: number): Response {
   const response = json(429, { error: code, reason: REASONS[code], retryAfter });
@@ -62,7 +71,7 @@ export function searchRoutes(deps: SearchDeps) {
   async function searcher(request: Request): Promise<Searcher | Response> {
     const token = /^Bearer (\S+)$/.exec(request.headers.get("Authorization") ?? "")?.[1];
     if (!token) return fail(401, "unauthenticated");
-    const address = deps.addressOf(request);
+    const address = await addressDigest(deps.addressSalt, deps.addressOf(request));
     if (opaque.test(token)) {
       const principal = await deps.principals.read(token);
       if (!principal) return fail(401, "unauthenticated");
