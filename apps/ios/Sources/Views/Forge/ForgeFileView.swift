@@ -258,9 +258,9 @@ extension ForgeFileView {
                 return false
             }
             await client.checkoutKey(thread.id)
-            guard let id = client.addDiffNote(thread.id, path: path, first: first, texts: texts, comment: comment),
-                  let number = client.codeNotes.number(thread.id, id: id) else {
-                desk.report(client.codeNotes.full(thread.id) ? "That thread's next message already has \(CodeNotes.limit) notes." : "Couldn't leave the note.")
+            let added = client.addDiffNote(thread.id, path: path, first: first, texts: texts, comment: comment)
+            guard case .success(let id) = added, let number = client.codeNotes.number(thread.id, id: id) else {
+                if case .failure(let refusal) = added { desk.report(refusal.message) }
                 return false
             }
             withAnimation { noted = ForgeNoted(thread: thread.id, title: thread.title, number: number) }

@@ -276,8 +276,9 @@ import QuartzCore
         if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true; sheets.routeChanged() } else { shelf.clear(); sheets.reset() }
         scope = target.scope
         hostId = target.scope.hostId
-        // Another route to the same machine keeps the notes in hand; another machine's are its own.
-        if !sameMachine { restoreCodeNotes(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory) }
+        // Another route to the same machine, as the same principal, keeps the notes in hand;
+        // another machine's or account's are its own (`keptScope` is still the last connection's).
+        if !sameMachine || keptScope != target.keptScope { restoreCodeNotes(keptScope: target.keptScope, in: directory) }
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
@@ -846,7 +847,7 @@ import QuartzCore
                 if case .codeSent(let ids) = screen {
                     // Kept by thread, not by visit: a message saved after the person left its
                     // thread still took these notes, so they never go a second time.
-                    codeNotes.sent(id, ids: ids)
+                    codeNotesSent(id, ids: ids)
                 } else if let target = scoped(id, epoch) { target.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .deviceTabs(let patch): if let opened = deviceTabs.apply(patch) { showDeviceTab(opened) }

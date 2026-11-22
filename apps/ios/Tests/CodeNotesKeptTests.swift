@@ -16,7 +16,7 @@ import Testing
         let sent = notes.wire("t")
         #expect(sent.first?["excerpt"] as? String == "  let sum = 0;\n  return sum;")
         #expect((sent.first?["start"] as? [String: Int]) == ["line": 11, "column": 0])
-        #expect((sent.first?["end"] as? [String: Int]) == ["line": 12, "column": 14])
+        #expect((sent.first?["end"] as? [String: Int]) == ["line": 12, "column": 13])
         #expect(notes["t"].first?.lines == 12...13)
         // Blank lines hold no code to comment on.
         notes.add("t", path: "src/cart.ts", first: 3, texts: ["  ", ""], comment: "x", id: "b")
@@ -40,8 +40,11 @@ import Testing
         #expect(byId["moved"]?.span == span((5, 0), (5, 11)))
         #expect(byId["gone"]?.outdated == true)
         #expect(byId["gone"]?.excerpt == "total()")
-        #expect(byId["unseen"]?.outdated == false)
+        // Not on a shown line, and not found on any: its place can't be told from this diff, so
+        // the agent is told so rather than sent line 40 as where the code is now.
+        #expect(byId["unseen"]?.unverified == true)
         #expect(byId["unseen"]?.span == span((39, 0), (39, 5)))
+        #expect(notes.wire("t").first { $0["id"] as? String == "unseen" }?["outdated"] as? Bool == true)
         #expect(byId["other"]?.outdated == false)
     }
 
@@ -52,33 +55,93 @@ import Testing
         #expect(notes["t"].first?.outdated == true)
     }
 
-    @Test func notesComeBackForTheSameMachineAfterARelaunchAndNotForAnother() {
+    @Test func aHunkMovedPastTheLinesTheDiffShowsIsFoundWhereItIsNow() {
+        var notes = CodeNotes()
+        notes.add("t", path: "a.ts", first: 40, texts: ["total(items)", "  .round()"], comment: "", id: "a")
+        // A hundred lines went in above: line 40 isn't in the new diff, the hunk is at 140.
+        notes.shown("t", path: "a.ts", lines: [1: "// new", 2: "// new", 139: "", 140: "total(items)", 141: "  .round()", 142: ""])
+        #expect(notes["t"].first?.span == span((139, 0), (140, 10)))
+        #expect(notes["t"].first?.outdated == false)
+        #expect(notes["t"].first?.unverified == false)
+    }
+
+    @Test func anUnverifiedNoteIsConfirmedOnceTheEditorFindsItsCode() {
+        var notes = CodeNotes()
+        notes.add("t", path: "a.ts", first: 3, texts: ["call()"], comment: "", id: "a")
+        notes.shown("t", path: "a.ts", lines: [10: "other()"])
+        #expect(notes["t"].first?.unverified == true)
+        notes.reloaded("t", path: "a.ts", before: nil, after: ["", "", "", "", "call()"])
+        #expect(notes["t"].first?.unverified == false)
+        #expect(notes["t"].first?.outdated == false)
+        #expect(notes["t"].first?.span == span((4, 0), (4, 6)))
+        #expect(notes.wire("t").first?["outdated"] == nil)
+    }
+
+    @Test func aNoteIsOnDiskOnceTheAppSaysItWasAddedAndComesBackOnRelaunch() {
         let root = directory()
         let model = ClientModel(now: { 0 })
-        model.restoreCodeNotes(hostId: "mac", deviceId: "phone", in: root)
-        model.codeNotes.add("t", path: "a.ts", span: span((0, 0), (0, 5)), lines: ["hello"], comment: "Greet", id: "n1", checkout: "mac\u{0}/w")
-        model.codeNotes.add("t", path: "a.ts", first: 3, texts: ["bye"], comment: "Part", id: "n2")
-        model.codeNotes.reloaded("t", path: "a.ts", before: nil, after: ["hi", "", "bye"])
-        model.codeNotesKept?.flush()
-
+        model.restoreCodeNotes(keptScope: "alice", in: root)
+        let added = model.addDiffNote("t", path: "a.ts", first: 3, texts: ["bye"], comment: "Part")
+        guard case .success(let id) = added else { Issue.record("Expected the note to be added"); return }
+        // The app is killed straight after: no flush, no wait.
         let relaunched = ClientModel(now: { 0 })
-        relaunched.restoreCodeNotes(hostId: "mac", deviceId: "phone", in: root)
-        #expect(relaunched.codeNotes == model.codeNotes)
-        #expect(relaunched.codeNotes["t"].map(\.outdated) == [true, false])
-        #expect(relaunched.codeNotes["t"].first?.checkout == "mac\u{0}/w")
-        #expect(relaunched.codeNotes.number("t", id: "n2") == 2)
-
-        relaunched.restoreCodeNotes(hostId: "other", deviceId: "phone", in: root)
-        #expect(relaunched.codeNotes["t"].isEmpty)
-        // A message that took the notes leaves nothing to come back.
-        model.codeNotes.sent("t", ids: ["n1", "n2"])
-        model.codeNotesKept?.flush()
+        relaunched.restoreCodeNotes(keptScope: "alice", in: root)
+        #expect(relaunched.codeNotes["t"].map(\.id) == [id])
+        #expect(relaunched.codeNotes["t"].first?.comment == "Part")
+        // A message that took it, then a kill: it doesn't come back to be sent twice.
+        relaunched.codeNotesSent("t", ids: [id])
         let again = ClientModel(now: { 0 })
-        again.restoreCodeNotes(hostId: "mac", deviceId: "phone", in: root)
+        again.restoreCodeNotes(keptScope: "alice", in: root)
         #expect(again.codeNotes["t"].isEmpty)
     }
 
-    @Test func aBurstOfChangesIsWrittenOnceItSettles() async throws {
+    @Test func anotherAccountOnTheSameMachineAndPhoneNeverSeesTheNotes() {
+        let root = directory()
+        let model = ClientModel(now: { 0 })
+        model.restoreCodeNotes(keptScope: KeptScope.of(principal: "account:a", hostId: "mac"), in: root)
+        _ = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: "A's")
+        model.restoreCodeNotes(keptScope: KeptScope.of(principal: "account:b", hostId: "mac"), in: root)
+        #expect(model.codeNotes["t"].isEmpty)
+        // Signed out: none shown, and none kept.
+        model.restoreCodeNotes(keptScope: nil, in: root)
+        #expect(model.codeNotes["t"].isEmpty)
+        model.restoreCodeNotes(keptScope: KeptScope.of(principal: "account:a", hostId: "mac"), in: root)
+        #expect(model.codeNotes["t"].map(\.comment) == ["A's"])
+    }
+
+    @Test func aNoteThatCantBeWrittenIsRefusedAndOtherChangesAreWrittenOnceTheyCanBe() async throws {
+        let root = directory()
+        let kept = root.appendingPathComponent("notes.json")
+        let model = ClientModel(now: { 0 })
+        model.codeNotesKept = CodeNotesKept(url: kept, delay: .milliseconds(10))
+        guard case .success(let first) = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: "First") else {
+            Issue.record("Expected the first note to be added"); return
+        }
+        // The phone can't write there any more: a file stands where the notes' folder was.
+        try FileManager.default.removeItem(at: root)
+        try Data().write(to: root)
+        // A new note isn't confirmed when it can't be kept, so the person still has their words.
+        #expect(model.addDiffNote("t", path: "a.ts", first: 2, texts: ["y"], comment: "Second") == .failure(.notSaved))
+        #expect(model.codeNotes["t"].map(\.id) == [first])
+        // An edit that can't be written yet waits, and is written once the phone can.
+        model.commentCodeNote("t", id: first, "First, edited")
+        try FileManager.default.removeItem(at: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for _ in 0..<300 where !FileManager.default.fileExists(atPath: kept.path) { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(CodeNotesKept(url: kept).load()["t"].map(\.comment) == ["First, edited"])
+    }
+
+    @Test func aCommentLongerThanTheAgentTakesIsRefusedBeforeItIsConfirmed() {
+        let model = ClientModel(now: { 0 })
+        // 2,000 emoji are 4,000 UTF-16 units: the most a note's words can be.
+        #expect(model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: String(repeating: "😀", count: 2000)).isSuccess)
+        let long = String(repeating: "a", count: CodeNotes.commentLimit + 1)
+        #expect(model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: long) == .failure(.tooLong))
+        #expect(CodeNoteRefusal.tooLong.message.contains(CodeNotes.commentLimit.formatted()))
+        #expect(model.codeNotes["t"].count == 1)
+    }
+
+    @Test func aBurstOfEditsIsWrittenOnceItSettles() async throws {
         let url = directory().appendingPathComponent("notes.json")
         let kept = CodeNotesKept(url: url, delay: .milliseconds(20))
         var notes = CodeNotes()
@@ -87,7 +150,7 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: url.path))
         notes.comment("t", id: "1", "later")
         kept.changed(notes)
-        try await Task.sleep(for: .milliseconds(200))
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: url.path) { try await Task.sleep(for: .milliseconds(10)) }
         #expect(CodeNotesKept(url: url).load()["t"].first?.comment == "later")
     }
 
@@ -101,4 +164,8 @@ import Testing
         #expect(notes["t0"].count == 2)
         #expect(notes["new"].count == 1)
     }
+}
+
+private extension Result {
+    var isSuccess: Bool { if case .success = self { true } else { false } }
 }

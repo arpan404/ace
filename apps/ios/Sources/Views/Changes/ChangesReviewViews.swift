@@ -159,6 +159,8 @@ struct ReviewComposer: View {
     /// Where the words can go as a note instead; nil when they can't.
     var note: Note? = nil
     @State private var noteRefused: String?
+    /// A note is being left: a second tap can't leave another.
+    @State private var noting = false
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var suggesting = false
@@ -194,7 +196,7 @@ struct ReviewComposer: View {
                 if let note, editing == nil {
                     Section {
                         Button("Note for the agent") { leave(note) }
-                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || !model.canOperate)
+                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || noting || !model.canOperate)
                             .accessibilityHint("Puts it on the thread's next message instead of the review")
                             .accessibilityIdentifier("review.note")
                     } footer: {
@@ -230,14 +232,18 @@ struct ReviewComposer: View {
     }
 
     private func leave(_ note: Note) {
+        guard !noting else { return }
+        noting = true
         let comment = text
         Task {
             await model.checkoutKey(note.thread)
-            if model.addDiffNote(note.thread, path: path, first: start, texts: note.lines, comment: comment) != nil {
+            switch model.addDiffNote(note.thread, path: path, first: start, texts: note.lines, comment: comment) {
+            case .success:
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 dismiss()
-            } else {
-                noteRefused = model.codeNotes.full(note.thread) ? "The next message already has \(CodeNotes.limit) notes." : "These lines hold no code to note."
+            case .failure(let refusal):
+                noteRefused = refusal.message
+                noting = false
             }
         }
     }
