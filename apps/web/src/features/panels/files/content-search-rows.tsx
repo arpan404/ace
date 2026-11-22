@@ -5,7 +5,7 @@ import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { countedWords, matchCount, previewParts } from "@ace/ui-core";
-import { FolderLabel, MiddleName } from "./middle-name.tsx";
+import { FolderLabel, MiddleName } from "@/components/path/middle-name.tsx";
 
 const count = (value: number) => value.toLocaleString();
 const noPositions: readonly number[] = [];
