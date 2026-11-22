@@ -1,4 +1,4 @@
-import type { SubagentDetailKind, SubagentState } from "@ace/ui-core";
+import { shortForgeLinks, type SubagentDetailKind, type SubagentState } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { Live } from "@/lib/live-connection.ts";
@@ -135,7 +135,7 @@ export function AgentRowContents(props: AgentRowParts) {
             !props.detail && "hidden",
           )}
         >
-          {props.detail}
+          {typeof props.detail === "string" ? shortForgeLinks(props.detail) : props.detail}
         </span>
       </span>
       <span data-tone={status.tone} className={agentRowStyles.state}>
