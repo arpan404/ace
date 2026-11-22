@@ -10,7 +10,7 @@ await vi.hoisted(async () => {
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, ThreadListEntry } from "@ace/protocol";
 import type { SidebarReader } from "@ace/client";
-import { followInbox, type InboxClock } from "./inbox.ts";
+import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
 import { checkpointDelayMs, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -234,5 +234,51 @@ describe("inbox checkpoint tabs", () => {
     const layout = patches.at(-1) as Patch;
     // Unconfirmed, the Inbox's live bands read Syncing; Snoozed and Settled stay where they were.
     expect(layout.tabs).toEqual({ inbox: ["open"], snoozed: ["nap"], settled: ["rest"] });
+  });
+});
+
+describe("inbox freshness for opening another machine's thread", () => {
+  test("an empty live list is confirmed and complete, and losing the daemon unconfirms it", async () => {
+    const { client } = sheetFixture();
+    closers.push(() => client.close());
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    await client.start();
+    await until(
+      () => (sink.read("inbox-fresh") as Patch | undefined)?.confirmed === true,
+      "empty list confirmed",
+    );
+    expect(sink.read("inbox-fresh")).toEqual({
+      type: "inbox.fresh",
+      confirmed: true,
+      complete: true,
+    });
+  });
+
+  test("a thread outside the loaded list is found by its id, and one that is gone is not", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    finished(daemon, "old", "Old thread");
+    daemon.command({
+      id: CommandId.parse("archive-old"),
+      deviceId: DeviceId.parse("seed"),
+      payload: { type: "thread.archive", threadId: ThreadId.parse("old") },
+    });
+    await client.start();
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    await until(() => sink.read("inbox:reset") !== undefined, "list");
+    inboxAction(client, { kind: "locate", threadId: "old" }, "r1", sink);
+    inboxAction(client, { kind: "locate", threadId: "never-was" }, "r2", sink);
+    await until(
+      () => sink.read("located:old") !== undefined && sink.read("located:never-was") !== undefined,
+      "both located",
+    );
+    expect(sink.read("located:old")).toEqual({ type: "inbox.located", id: "old", found: true });
+    expect(sink.read("located:never-was")).toEqual({
+      type: "inbox.located",
+      id: "never-was",
+      found: false,
+    });
   });
 });

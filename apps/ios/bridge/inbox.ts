@@ -323,7 +323,22 @@ export function followInbox(
       if (flipped) for (const id of store.ids) row(id);
       else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
     }
+    putFresh(keys === "all");
     sections();
+  };
+  /**
+   * Whether the list is the daemon's own current one, and whole: the phone settles an Open that
+   * waits on it, and a thread a loaded, whole list lacks is gone. Sent when either changes.
+   */
+  let sentFresh = "";
+  const putFresh = (force: boolean) => {
+    const confirmed = isConfirmed(store, online());
+    // No window means a daemon that sends the whole list; a window with a cursor has pages left.
+    const complete = store.window?.before === null || store.window === undefined;
+    const key = `${confirmed}:${complete}`;
+    if (!force && key === sentFresh) return;
+    sentFresh = key;
+    pump.put("inbox-fresh", () => ({ type: "inbox.fresh", confirmed, complete }));
   };
   const stops = [
     accounts.stop,
@@ -412,6 +427,34 @@ function pendingRow(send: PendingSend, connection: string) {
   };
 }
 
+/** Reads a thread by its id, for one the paginated list doesn't hold; settles with what it found. */
+async function locate(owner: ClientCore, id: ThreadId, pump: PatchSink): Promise<void> {
+  const answer = (found: boolean) =>
+    pump.put(`located:${id}`, () => ({ type: "inbox.located", id, found }));
+  let lease: ReturnType<ClientCore["thread"]>;
+  try {
+    lease = owner.thread(id, { optional: true });
+  } catch {
+    return answer(false);
+  }
+  const { store } = lease;
+  const settled = () => !store.syncing && !store.unconfirmed;
+  let stop = () => {};
+  const found = await new Promise<boolean | undefined>((resolve) => {
+    const read = () => {
+      // Only the daemon's own refusal says the thread is gone; no room, a dropped connection or a
+      // timeout say nothing about it, and the phone keeps waiting.
+      if (store.error) return resolve(store.error.code === "daemon" ? false : undefined);
+      if (settled() && store.thread) return resolve(true);
+    };
+    stop = store.observe(read);
+    read();
+  });
+  stop();
+  lease.release();
+  if (found !== undefined) answer(found);
+}
+
 const InboxAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("archive"), threadId: ThreadId }),
   z.object({ kind: z.literal("unarchive"), threadId: ThreadId }),
@@ -429,6 +472,8 @@ const InboxAction = z.discriminatedUnion("kind", [
   /** Named again from its opening request, as a new thread is. */
   z.object({ kind: z.literal("retitle"), threadId: ThreadId }),
   z.object({ kind: z.literal("more") }),
+  /** Whether a thread outside the loaded window exists on this machine: read by its id. */
+  z.object({ kind: z.literal("locate"), threadId: ThreadId }),
   /** The Chats tab's search: chats whose title matches, or every chat when empty. */
   z.object({ kind: z.literal("chatsQuery"), query: z.string().max(1024) }),
   /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
@@ -530,6 +575,10 @@ export function inboxAction(
   }
   if (action.kind === "chatsQuery") {
     inbox?.chatQuery?.(action.query);
+    return;
+  }
+  if (action.kind === "locate") {
+    void locate(owner, action.threadId, pump);
     return;
   }
   if (action.kind === "more") {
