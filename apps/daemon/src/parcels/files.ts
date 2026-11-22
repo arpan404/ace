@@ -126,14 +126,19 @@ export class ParcelFiles {
       return 0;
     }
   }
-  /** Writes `bytes` at `offset`, dropping anything past it first (a crash's partial write). */
-  /** `guard` is asked right before the bytes are written; a throw writes nothing. */
+  /**
+   * Writes `bytes` at `offset`, dropping anything past it first (a crash's partial write).
+   * `guard` is asked before the file opens, again before it is cut and again before the bytes
+   * are written, since enrollment can land while any of those waits; a throw stops there.
+   */
   async append(parcelId: string, offset: number, bytes: Buffer, guard?: () => void): Promise<void> {
     await this.dir("in");
     guard?.();
     const file = await open(this.part(parcelId), constants.O_WRONLY | constants.O_CREAT, 0o600);
     try {
+      guard?.();
       await file.truncate(offset);
+      guard?.();
       await file.write(bytes, 0, bytes.length, offset);
     } finally {
       await file.close();
@@ -148,11 +153,15 @@ export class ParcelFiles {
     name: string,
     size: number,
     sha256: string,
-    /** Asked right before the parcel is placed under its name; a throw places nothing. */
+    /**
+     * Asked before the arriving file is opened (an empty parcel's is made then) and right before
+     * the parcel is placed under its name; a throw places nothing.
+     */
     guard?: () => void,
   ): Promise<string> {
     const part = this.part(parcelId);
     await this.dir("in");
+    guard?.();
     // An empty parcel never had a chunk written: its file is made here.
     const file = await open(part, constants.O_RDWR | constants.O_CREAT, 0o600);
     const hash = createHash("sha256");
