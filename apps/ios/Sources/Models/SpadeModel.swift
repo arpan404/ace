@@ -123,11 +123,19 @@ import Observation
         let title: String
         let workers: [Worker]
     }
+    /// A voice message's recording, read by its hash (`spade.audio`) to play.
+    struct Voice: Decodable, Equatable, Sendable {
+        let ref: String
+        let mimeType: String
+        let bytes: Int
+    }
     /// One bubble of the conversation.
     enum Bubble: Decodable, Equatable, Sendable {
-        /// `attached` names what isn't drawn as a picture; `images` are drawn as a thread's are.
-        case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine])
-        case bot(text: String, live: Bool, end: End?)
+        /// `attached` names what isn't drawn; `images` and `files` are drawn as a thread's are,
+        /// and `voice` is a recording to play (its words are `text`).
+        case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine], files: [AttachmentLine], voice: Voice?)
+        /// `images` and `files`: what the reply's tools showed the person, after its words.
+        case bot(text: String, live: Bool, end: End?, images: [AttachmentLine], files: [AttachmentLine])
         /// `approvers`: on a shared bot's request, who may answer it.
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool, approvers: String?)
         case question(SpadeQuestionCard)
@@ -137,7 +145,7 @@ import Observation
         case note(text: String)
 
         private enum Keys: String, CodingKey {
-            case kind, text, sending, attached, images, live, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
+            case kind, text, sending, attached, images, files, voice, live, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
         }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
@@ -146,10 +154,14 @@ import Observation
             case "person":
                 self = .person(text: text, sending: try box.decodeIfPresent(Bool.self, forKey: .sending) ?? false,
                                attached: try box.decodeIfPresent(String.self, forKey: .attached),
-                               images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [])
+                               images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [],
+                               files: try box.decodeIfPresent([AttachmentLine].self, forKey: .files) ?? [],
+                               voice: try box.decodeIfPresent(Voice.self, forKey: .voice))
             case "bot":
                 self = .bot(text: text, live: try box.decodeIfPresent(Bool.self, forKey: .live) ?? false,
-                            end: try box.decodeIfPresent(End.self, forKey: .end))
+                            end: try box.decodeIfPresent(End.self, forKey: .end),
+                            images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [],
+                            files: try box.decodeIfPresent([AttachmentLine].self, forKey: .files) ?? [])
             case "ask":
                 self = .ask(callId: try box.decode(String.self, forKey: .callId), sentence: try box.decode(String.self, forKey: .sentence),
                             detail: try box.decodeIfPresent(String.self, forKey: .detail),
