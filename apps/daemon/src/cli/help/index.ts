@@ -22,11 +22,15 @@ export function helpFor(table: CommandTable, words: readonly string[]): HelpAnsw
       text: topics.map((topic) => `  ${topic.name.padEnd(18)} ${topic.summary}`).join("\n"),
     };
   if (key === "flags") return { text: globalFlagsPage() };
-  const topic = topics.find((item) => item.name === key);
+  const topicName = key === "market-maintainer" ? "store-maintainer" : key;
+  const topic = topics.find((item) => item.name === topicName);
   if (topic) return { text: topic.name === "exit-codes" ? exitCodesPage() : topic.text };
   const route = table.routes.get(key);
-  // A noun, or a prefix like `market maintainer`, lists what's under it.
-  if (table.next.has(key)) return { text: nounPage(table, words) };
+  // A noun, or a prefix like `store maintainer`, lists what's under it.
+  if (table.next.has(key)) {
+    const canonical = words[0] === "market" ? ["store", ...words.slice(1)] : words;
+    return { text: nounPage(table, canonical) };
+  }
   if (route) return { text: commandPage(route.command), command: route.command };
   const candidates = [...table.routes.keys(), ...topics.map((item) => item.name)].filter(
     (candidate) => candidate.split(" ").length === words.length,

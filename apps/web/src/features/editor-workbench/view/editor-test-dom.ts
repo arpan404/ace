@@ -24,7 +24,7 @@ export function transfer(): DataTransfer {
 }
 
 export function region(number: number): HTMLElement {
-  return screen.getByRole("region", { name: `Group ${number}` });
+  return screen.getByRole("region", { name: `Pane ${number}` });
 }
 
 export function strip(number: number): HTMLElement {

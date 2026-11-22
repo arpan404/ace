@@ -1003,6 +1003,18 @@ export class FakeDaemon implements Host {
     const now = this.at(agoMs);
     this.append(this.thread(id), [{ type: "thread.updated", ...changes }], now);
   }
+  /**
+   * Scripted: the thread is deleted whatever it is doing, as the delete command records it, for a
+   * fixture that drops work it seeded (a machine that holds only an organization's threads).
+   */
+  deleteThread(id: string, agoMs = 0): void {
+    const at = this.at(agoMs);
+    this.append(
+      this.thread(id),
+      [{ type: "thread.client.updated", changes: { deletedAt: at, autoSettleAt: null } }],
+      at,
+    );
+  }
   /** Push to every signed-in connection. */
   private broadcast(message: ServerMessage): void {
     for (const connection of this.connections)

@@ -29,6 +29,7 @@
     "./terminal-keys": "./src/terminal-keys.ts",
     "./ace-account": "./src/ace-account.ts",
     "./ace-org": "./src/ace-org.ts",
+    "./ace-spaces": "./src/ace-spaces.ts",
     "./ace-client": "./src/ace-client.ts",
     "./install-id": "./src/install-id.ts",
     "./link-proof": "./src/link-proof.ts",

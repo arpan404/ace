@@ -12,14 +12,12 @@ import { FileRowItems } from "./file-row-items.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 import type { TreeDrag } from "./use-tree-drag.ts";
-import { MiddleName } from "./middle-name.tsx";
+import { EndName } from "@/components/path/middle-name.tsx";
 import type { LineCounts } from "./use-line-counts.ts";
 import { RenameField, type RowField } from "./file-tree-rename.tsx";
 
 const rowClass =
   "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset aria-selected:bg-active";
-
-const noPositions: readonly number[] = [];
 
 /** The marker before a status row's words, sized like a row's caret and icon. */
 function RowIndent() {
@@ -237,7 +235,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           size={16}
           className="shrink-0 text-subtle-foreground"
         />
-        <MiddleName text={row.name} offset={0} positions={noPositions} />
+        <EndName text={row.name} kind={folder ? "folder" : "file"} />
         {props.counts && !folder && (
           <span aria-hidden data-part="line-counts" className="ml-auto shrink-0 pl-1.5">
             <DiffStat {...props.counts} />

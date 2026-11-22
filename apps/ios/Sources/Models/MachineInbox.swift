@@ -14,7 +14,24 @@ final class MachineSession: Identifiable {
 /// when this phone last saw it. A row, an action and an opened thread always route to the
 /// runtime of the machine the row came from; one machine's trouble never touches another's rows.
 @MainActor @Observable final class MachineInbox {
-    private(set) var sessions: [MachineSession] = []
+    /// Every machine's runtime, whatever space shows: connections stay open across a switch, and
+    /// notices from every space arrive (ADR 0206 §1.5).
+    private(set) var all: [MachineSession] = []
+    /// The machines in the space shown, for every list (threads, projects, search, Spade, the
+    /// machine list); all of them while the phone has no spaces. It reads the space's observable
+    /// state, so a view drawing it redraws on a switch. While a space loads it holds none, so
+    /// nothing of another space is drawn meanwhile.
+    var sessions: [MachineSession] {
+        guard let inSpace else { return all }
+        return all.filter { inSpace($0.hostId) }
+    }
+    /// Whether a machine (by its inbox host id) is in the space shown; nil shows every machine.
+    @ObservationIgnored var inSpace: ((String) -> Bool)?
+    /// Switches to the space a machine (by its inbox host id) belongs to, before a notice or link
+    /// opens something on it.
+    @ObservationIgnored var enterSpace: ((String) -> Void)?
+    /// Why New thread can't start in the space shown (`Spaces.startBlock`), or nil.
+    @ObservationIgnored var spaceBlock: (() -> String?)?
     private(set) var names: [String: String] = [:]
     /// The worktree start whose card is asked to show (its machine and command id): New thread's
     /// wait sets it after Send, and a start's Unsent row sets it again to reopen the card.
@@ -84,7 +101,8 @@ final class MachineSession: Identifiable {
 
     /// Machine names show on rows only when there is more than one machine to tell apart.
     var showsMachineNames: Bool { sessions.count > 1 }
-    func client(_ hostId: String) -> ClientModel? { sessions.first { $0.hostId == hostId }?.client }
+    /// The runtime for `hostId` in any space: what a row, a notice or an action names routes there.
+    func client(_ hostId: String) -> ClientModel? { all.first { $0.hostId == hostId }?.client }
     func name(_ hostId: String) -> String { names[hostId] ?? hostId }
     /// A row's machine mark: only when there is more than one machine to tell apart.
     func mark(_ hostId: String) -> MachineMark? {
@@ -145,13 +163,13 @@ final class MachineSession: Identifiable {
 
     func attach(_ hostId: String, name: String, client: ClientModel) {
         names[hostId] = name
-        if let index = sessions.firstIndex(where: { $0.hostId == hostId }) { sessions[index] = MachineSession(hostId: hostId, client: client) }
-        else { sessions.append(MachineSession(hostId: hostId, client: client)) }
+        if let index = all.firstIndex(where: { $0.hostId == hostId }) { all[index] = MachineSession(hostId: hostId, client: client) }
+        else { all.append(MachineSession(hostId: hostId, client: client)) }
     }
     @discardableResult func detach(_ hostId: String) -> ClientModel? {
-        guard let index = sessions.firstIndex(where: { $0.hostId == hostId }) else { return nil }
+        guard let index = all.firstIndex(where: { $0.hostId == hostId }) else { return nil }
         names[hostId] = nil
-        return sessions.remove(at: index).client
+        return all.remove(at: index).client
     }
     func rename(_ hostId: String, to name: String) { names[hostId] = name }
 
@@ -164,7 +182,7 @@ final class MachineSession: Identifiable {
     }
     /// Persist last-seen times and machine marks, such as when the app leaves the foreground.
     func recordSeen() {
-        for session in sessions {
+        for session in all {
             if let value = lastSeen(session.hostId) { seen[session.hostId] = value }
             if let glyph = session.client.machineGlyph { glyphs[session.hostId] = glyph.rawValue }
         }

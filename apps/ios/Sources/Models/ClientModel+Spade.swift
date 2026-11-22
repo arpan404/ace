@@ -28,8 +28,15 @@ extension ClientModel {
     func spadeRetry() { action(["type": "spade.retry"]) }
     /// Read Spade's state and the bots again now.
     func spadeRefresh() { action(["type": "spade.refresh"]) }
+    /// Who the person is and their organizations' members, for who may answer a shared bot.
+    func spadePeople(_ people: SpadePeople) {
+        guard spade.people != people else { return }
+        spade.people = people
+        action(people.action)
+    }
     /// A new runtime knows nothing of what shows: tell it again.
     func spadeResume() {
+        if let people = spade.people { action(people.action) }
         if !spade.active { action(["type": "spade.active", "active": false]) }
         if spade.watching { action(["type": "spade.watch", "on": true]) }
         if let id = spade.opened { action(Self.spadeOpening(id, group: spade.openedGroup)) }
@@ -97,5 +104,24 @@ extension MachineInbox {
     /// A Spade bot works on a machine that shows Spade: the tab's face moves its eyes.
     var spadeWorking: Bool {
         spadeSessions.contains { $0.client.spade.bots?.contains { $0.state == "working" } == true }
+    }
+}
+
+/// The person's account id and their organizations' members' names by account (ADR 0206 §2.3).
+struct SpadePeople: Equatable, Sendable {
+    let me: String?
+    let names: [String: String]
+
+    @MainActor init(spaces: SpacesModel) {
+        me = spaces.accountId
+        var names: [String: String] = [:]
+        for member in spaces.members.values.joined() {
+            let name = [member.name, member.email].compactMap { $0 }.first { !$0.isEmpty }
+            if let name { names[member.account] = name }
+        }
+        self.names = names
+    }
+    var action: [String: Any] {
+        ["type": "spade.people", "people": ["self": me.map { $0 as Any } ?? NSNull(), "names": names]]
     }
 }

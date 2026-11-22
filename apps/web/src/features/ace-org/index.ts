@@ -28,5 +28,5 @@ export {
   readPolicy,
   type PolicyEffect,
 } from "./policy-words.ts";
-export { approverLine } from "./approvers.ts";
+export { approverLine } from "@ace/ui-core/spade-chat";
 export { readAuditLines, type AuditRow } from "./audit-lines.ts";

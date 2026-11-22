@@ -42,9 +42,9 @@ export function reviewAction(review: MarketReview): "Get" | "Update" | "Roll bac
 export const reviewHeading = (review: MarketReview): string =>
   `${reviewAction(review)} ${review.title}`;
 
-/** "From market.acehq.dev, reviewed by ace." */
+/** "From store.acehq.dev, reviewed by ace." */
 export function reviewFromLine(review: MarketReview): string {
-  const from = review.from ? review.from.replace(/^https:\/\//, "") : "market.acehq.dev";
+  const from = review.from ? review.from.replace(/^https:\/\//, "") : "store.acehq.dev";
   return `From ${from}${review.reviewed || review.byAce ? ", reviewed by ace" : ""}.`;
 }
 

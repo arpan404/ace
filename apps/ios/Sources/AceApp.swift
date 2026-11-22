@@ -11,6 +11,8 @@ import QuartzCore
     @State private var production = ProductionApp.make()
     /// The person's ace account, for the header's avatar and Settings › Profile alike.
     @State private var account = AceAccountModel()
+    /// The person's spaces (ADR 0206 §1.4): Personal and each organization, one shown at a time.
+    @State private var spaces = SpacesModel()
     /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
     @State private var drafts = AceApp.makeDrafts()
     /// The app's drafts. A `--spike-unpaired` launch keeps its own in scratch storage and runs no
@@ -32,14 +34,19 @@ import QuartzCore
                 else if SpikeConfiguration.renderFixtureEnabled { renderFixture }
                 else if SpikeConfiguration.enabled { spike }
                 else if let production {
-                    production.root(notifications: notificationDelegate.coordinator)
+                    production.root(notifications: notificationDelegate.coordinator, spaces: spaces)
                         .environment(notificationDelegate.coordinator)
                         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
                 } else { storageUnavailable }
             }
             .environment(\.threadDrafts, drafts)
             .environment(account)
+            .environment(spaces)
             .task { await account.restore() }
+            // Signing in, out or to another account reads that account's spaces.
+            .task(id: "\(account.sessionToken ?? "")|\(account.account?.id ?? "")") {
+                await spaces.follow(origin: account.backend, token: account.sessionToken, account: account.account?.id)
+            }
             .modifier(PhoneAppearance())
             .overlay(alignment: .topLeading) { LaunchProbeView() }
         }
@@ -75,6 +82,7 @@ import QuartzCore
         .environment(notificationDelegate.coordinator)
         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
         .task {
+            spaces.bind(spikeInbox, machines: nil, desk: notificationDelegate.coordinator.desk)
             await signInToSpikeAccount()
             if SpikeConfiguration.unpaired { await startUnpaired(); return }
             let targets = SpikeConfiguration.targets()
@@ -172,10 +180,11 @@ import QuartzCore
         return machines
     }
 
-    func root(notifications: NotificationCoordinator) -> some View {
+    func root(notifications: NotificationCoordinator, spaces: SpacesModel) -> some View {
         let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications, warmup: warmup)
         if self.machines == nil {
             self.machines = machines
+            spaces.bind(machines.inbox, machines: machines, desk: notifications.desk)
             network.start({ change in
                 Task { @MainActor in machines.network(online: change.online, interfaceChanged: change.interfaceChanged) }
             }, roomy: { [readAhead] roomy in

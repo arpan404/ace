@@ -6,7 +6,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { useOpenMarket } from "@/lib/open-market.ts";
-import { PlusIcon, StorefrontIcon } from "@ace/icons";
+import { PlusIcon, StoreIcon } from "@ace/icons";
 import { BotFace } from "@/components/bot-face.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
 import {
@@ -160,9 +160,9 @@ export function StartFrom(props: {
               aria-hidden
               className="grid size-11 place-items-center rounded-full bg-hover text-muted-foreground"
             >
-              <StorefrontIcon size={20} />
+              <StoreIcon size={20} />
             </span>
-            Marketplace
+            Store
           </button>
         </li>
       )}

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AgentNotice } from "./agent-notice.tsx";
+import { ConflictBlocks } from "./conflict-blocks.tsx";
 import { Breadcrumbs } from "./breadcrumbs.tsx";
 import { noticeClash, useSnapshot } from "./editor-buffers.ts";
 import { BufferEditor } from "./buffer-editor.tsx";
@@ -17,11 +18,12 @@ const MarkdownPreview = lazy(() =>
 );
 import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 /**
- * One group: its strip, breadcrumbs, the agent notice when the shown file's disk version moved
- * under unsaved edits, and the shown editor (only the active tab renders: spec 56). A tab dragged
- * over the editor washes the third it would take.
+ * One group: its strip, breadcrumbs, the shown editor (only the active tab renders: spec 56),
+ * and at its foot the agent notice when the shown file's disk version moved under unsaved edits.
+ * A tab dragged over the editor washes the third it would take.
  */
 export function GroupView(props: {
   group: GroupNode;
@@ -33,6 +35,8 @@ export function GroupView(props: {
   host: EditorHost;
   actions: GroupActions;
   stripLead?: ReactNode;
+  /** Folded to its strip in a stacked accordion (`collapsedPanes`). */
+  folded?: boolean;
 }) {
   const { group, host, actions } = props;
   const path = group.active;
@@ -54,6 +58,8 @@ export function GroupView(props: {
     host.renderCompare
       ? host.renderCompare
       : undefined;
+  // Overlapping blocks are answered in place of the editor until each has an answer.
+  const conflict = snapshot?.clash?.kind === "conflict" ? snapshot.clash : undefined;
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
   const onStatus = useCallback(
@@ -63,10 +69,13 @@ export function GroupView(props: {
   );
   return (
     <section
-      aria-label={`Group ${props.number}`}
+      aria-label={`Pane ${props.number}`}
       data-group-id={group.id}
       data-focused={props.focused ? "" : undefined}
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+      data-folded={props.folded ? "" : undefined}
+      // Its wrapper in the split sets its height (a folded pane's is its strip's); across, it
+      // always fills.
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-background", sceneThrough)}
       onFocusCapture={actions.focus}
       onPointerDownCapture={actions.focus}
     >
@@ -79,94 +88,117 @@ export function GroupView(props: {
         tabMenuItems={host.tabMenuItems}
         threadId={host.threadId}
       />
-      <Breadcrumbs
-        path={path}
-        textStart={textStart}
-        end={
-          path !== undefined &&
-          markdown &&
-          load?.kind === "ready" && (
-            <MarkdownChoice
-              value={markdown}
-              onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
-            />
-          )
-        }
-      />
-      {path !== undefined && (
-        <AgentNotice
-          snapshot={snapshot}
-          buffers={host.buffers}
-          comparing={compare !== undefined}
-          onMerge={() => (host.onMerge ? host.onMerge(path) : void buffer?.merge())}
-          onCompare={
-            host.renderCompare &&
-            (() => setComparing((was) => (was === path && compare ? undefined : path)))
-          }
-          onKeepMine={() => void buffer?.keepMine()}
-          onTakeTheirs={() => void buffer?.takeTheirs()}
-        />
-      )}
-      <div
-        ref={setArea}
-        data-part="buffer-editor"
-        // The code editor dims its own caret without focus and clears its scrollbar corner.
-        className="relative flex min-h-0 flex-1 flex-col"
-        // Captured, so a tab or file dropped on the code reaches the drop zones and never the
-        // text input under the pointer, which would paste its path.
-        onDragOverCapture={(event) => {
-          if (!carriesGroupDrag(event.dataTransfer)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
-          const box = event.currentTarget.getBoundingClientRect();
-          const next = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
-          if (next !== zone) setZone(next);
-        }}
-        onDragLeave={(event) => {
-          const into = event.relatedTarget;
-          if (!(into instanceof Node && event.currentTarget.contains(into))) setZone(undefined);
-        }}
-        onDropCapture={(event) => {
-          if (!carriesGroupDrag(event.dataTransfer)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          const drag = readGroupDrag(event.dataTransfer, host.threadId);
-          const at = zone ?? "center";
-          setZone(undefined);
-          if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
-        }}
-      >
-        {path === undefined ? (
-          props.last ? (
-            <NoFileOpen onQuickOpen={host.onQuickOpen} />
-          ) : null
-        ) : compare && buffer ? (
-          compare({ path, buffer })
-        ) : buffer && load?.kind === "ready" ? (
-          markdown === "preview" ? (
-            <Suspense fallback={<LoadingLines />}>
-              <MarkdownPreview buffer={buffer} path={path} onStatus={onStatus} />
-            </Suspense>
-          ) : (
-            showEditor(host, { path, buffer, group: group.id, focused: props.focused, onStatus })
-          )
-        ) : load?.kind === "unreadable" && host.renderViewer ? (
-          host.renderViewer({ path, group: group.id, reason: load.reason })
-        ) : load &&
-          (load.kind === "missing" || load.kind === "unreadable" || load.kind === "failed") ? (
-          <FileProblem
+      {/* Folded in a stacked accordion: the strip alone, a click away from opening. */}
+      {!props.folded && (
+        <>
+          <Breadcrumbs
             path={path}
-            status={load}
-            onClose={() => actions.close([path])}
-            onRetry={() => void buffer?.reload()}
+            textStart={textStart}
+            end={
+              path !== undefined &&
+              markdown &&
+              load?.kind === "ready" && (
+                <MarkdownChoice
+                  value={markdown}
+                  onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
+                />
+              )
+            }
           />
-        ) : (
-          // Loading, or freed under the memory cap and reading again now it is shown.
-          <LoadingLines />
-        )}
-        {zone && <DropWash zone={zone} />}
-      </div>
+          <div
+            ref={setArea}
+            data-part="buffer-editor"
+            // The code editor dims its own caret without focus and clears its scrollbar corner.
+            className="relative flex min-h-0 flex-1 flex-col"
+            // Captured, so a tab or file dropped on the code reaches the drop zones and never the
+            // text input under the pointer, which would paste its path.
+            onDragOverCapture={(event) => {
+              if (!carriesGroupDrag(event.dataTransfer)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = copiesOnDrop(event) ? "copy" : "move";
+              const box = event.currentTarget.getBoundingClientRect();
+              const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
+              // The wash shows what a drop would do: an edge that stacks washes the stacked half,
+              // and past the pane cap an edge takes nothing and washes nothing.
+              const next = at === "center" ? at : actions.edge(at);
+              if (next !== zone) setZone(next);
+            }}
+            onDragLeave={(event) => {
+              const into = event.relatedTarget;
+              if (!(into instanceof Node && event.currentTarget.contains(into))) setZone(undefined);
+            }}
+            onDropCapture={(event) => {
+              if (!carriesGroupDrag(event.dataTransfer)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const drag = readGroupDrag(event.dataTransfer, host.threadId);
+              const box = event.currentTarget.getBoundingClientRect();
+              const at = dropZone({ x: event.clientX - box.left, y: event.clientY - box.top }, box);
+              setZone(undefined);
+              if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
+            }}
+          >
+            {path === undefined ? (
+              props.last ? (
+                <NoFileOpen onQuickOpen={host.onQuickOpen} />
+              ) : null
+            ) : compare && buffer ? (
+              compare({ path, buffer })
+            ) : conflict && buffer ? (
+              <ConflictBlocks
+                clash={conflict}
+                buffer={buffer}
+                theirName={host.buffers.changer(conflict.by)?.name}
+              />
+            ) : buffer && load?.kind === "ready" ? (
+              markdown === "preview" ? (
+                <Suspense fallback={<LoadingLines />}>
+                  <MarkdownPreview buffer={buffer} path={path} onStatus={onStatus} />
+                </Suspense>
+              ) : (
+                showEditor(host, {
+                  path,
+                  buffer,
+                  group: group.id,
+                  focused: props.focused,
+                  onStatus,
+                })
+              )
+            ) : load?.kind === "unreadable" && host.renderViewer ? (
+              host.renderViewer({ path, group: group.id, reason: load.reason })
+            ) : load &&
+              (load.kind === "missing" || load.kind === "unreadable" || load.kind === "failed") ? (
+              <FileProblem
+                path={path}
+                status={load}
+                onClose={() => actions.close([path])}
+                onRetry={() => void buffer?.reload()}
+              />
+            ) : (
+              // Loading, or freed under the memory cap and reading again now it is shown.
+              <LoadingLines />
+            )}
+            {zone && <DropWash zone={zone} />}
+          </div>
+          {/* Spec 46, at the editor's foot: who changed what while the person was editing. */}
+          {path !== undefined && (
+            <AgentNotice
+              snapshot={snapshot}
+              buffer={buffer}
+              buffers={host.buffers}
+              comparing={compare !== undefined}
+              onMerge={() => (host.onMerge ? host.onMerge(path) : void buffer?.merge())}
+              onCompare={
+                host.renderCompare &&
+                (() => setComparing((was) => (was === path && compare ? undefined : path)))
+              }
+              onKeepMine={() => void buffer?.keepMine()}
+              onTakeTheirs={() => void buffer?.takeTheirs()}
+            />
+          )}
+        </>
+      )}
     </section>
   );
 }

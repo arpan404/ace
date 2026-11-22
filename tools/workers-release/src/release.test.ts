@@ -61,7 +61,7 @@ describe("reading wrangler's output", () => {
   });
 
   it("tells a Worker never deployed from a failure to ask", () => {
-    expect(neverDeployed("✘ [ERROR] The Worker ace-cloud-staging has no deployments.")).toBe(true);
+    expect(neverDeployed("✘ [ERROR] The Worker ace-relay has no deployments.")).toBe(true);
     expect(neverDeployed("This Worker does not exist on your account. [code: 10007]")).toBe(true);
     expect(neverDeployed("Authentication error [code: 10000]")).toBe(false);
   });

@@ -62,6 +62,9 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     private var token: String?
     @ObservationIgnored private var work: Task<Void, Never>?
     var configured: Bool { origin != nil }
+    /// The account backend and the session, for the person's spaces (`SpacesModel`).
+    var backend: URL? { origin }
+    var sessionToken: String? { token }
     private var key: String { origin?.absoluteString ?? "" }
 
     init(settings: Bundle = .main, secrets: any SecretStore = KeychainSecrets(service: "app.ace.ios.account"),

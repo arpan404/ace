@@ -104,6 +104,7 @@ struct InboxView: View {
                 if let key = InboxRoute.threads(chatsPath).first, deleted.contains(key) { chatsPath = [] }
             }
             .aceNotifications(inbox: inbox) { key in openThread(key) }
+            .modifier(SpadePeopleSync(inbox: inbox))
             .task(id: scenePhase) {
                 // Spade's bots are read only while the app is on screen (`spadeActive`).
                 for session in inbox.sessions { session.client.spadeActive(scenePhase == .active) }
@@ -640,5 +641,19 @@ struct InboxView: View {
         if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil; openTab = nil }
         // Back from a child thread reopens its parent on that machine, under a new generation.
         else if new.count < old.count, let parent = new.last { current?.open(parent.id) }
+    }
+}
+
+/// Tells every machine's Spade who the person is and their organizations' members, so a shared
+/// bot's request can say who may answer it; again when a machine joins or the members change.
+private struct SpadePeopleSync: ViewModifier {
+    let inbox: MachineInbox
+    @Environment(SpacesModel.self) private var spaces: SpacesModel?
+    func body(content: Content) -> some View {
+        let people = spaces.map(SpadePeople.init(spaces:))
+        content.task(id: [people.map { "\($0.me ?? "")|\($0.names.count)" } ?? ""] + inbox.all.map(\.hostId)) {
+            guard let people else { return }
+            for session in inbox.all { session.client.spadePeople(people) }
+        }
     }
 }

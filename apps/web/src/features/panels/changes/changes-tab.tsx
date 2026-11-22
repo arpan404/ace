@@ -32,6 +32,7 @@ export function ChangesTab(props: {
       files={files}
       versions={working ? uncommitted.versions : turn.versions}
       commentable={working}
+      turn={working ? undefined : turn.turnId}
       body={working ? uncommitted.body : undefined}
       renderToolbar={({ layout, prefs, views, refreshReview }) => (
         <ChangesToolbar
