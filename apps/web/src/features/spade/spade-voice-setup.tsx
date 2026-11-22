@@ -1,3 +1,9 @@
+import {
+  voiceEndpoints,
+  voiceModelChoices,
+  type VoiceModelChoice,
+  type VoiceRole,
+} from "@ace/ui-core/spade-chat";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -7,12 +13,6 @@ import { StripSurface } from "@/features/thread/index.ts";
 import { readLiveModels, setSpeechModel, setTranscriptionModel } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { fault } from "./spade-settings-rows.tsx";
-import {
-  voiceEndpoints,
-  voiceModelChoices,
-  type VoiceModelChoice,
-  type VoiceRole,
-} from "./spade-voice-models.ts";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 
 /**

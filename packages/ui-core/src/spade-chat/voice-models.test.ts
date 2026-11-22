@@ -1,6 +1,6 @@
-import type { SpadeEndpoint, SpadeModelInfo } from "@ace/ui-core/spade-chat";
+import type { SpadeEndpoint, SpadeModelInfo } from "./endpoints.ts";
 import { expect, test } from "vitest";
-import { voiceModelChoices } from "./spade-voice-models.ts";
+import { voiceModelChoices } from "./voice-models.ts";
 
 const model = (id: string, capabilities: string[] = []): SpadeModelInfo => ({
   id,
