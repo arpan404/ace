@@ -238,8 +238,8 @@ struct ReviewReadySheet: View {
     private var actions: some View {
         VStack(spacing: AceDesign.Space.related) {
             if let line = statusLine {
-                Text(line.0).aceFont(AceDesign.TextRole.meta)
-                    .foregroundStyle(line.1).lineLimit(2).multilineTextAlignment(.center)
+                ExpandableText(line.0, id: "review.ready.status").aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(line.1).multilineTextAlignment(.center)
                     .accessibilityIdentifier("review.outcome")
             }
             if outcome?.ok == false, let lastAction {

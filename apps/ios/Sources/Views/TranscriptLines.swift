@@ -248,7 +248,7 @@ struct VisualizationRow: View {
     var body: some View {
         QuietRow(icon: .chartBarHorizontal) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.text).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
+                ExpandableText(row.text, id: row.id).foregroundStyle(AceTheme.Colours.foreground)
                 if let detail = row.detail, !detail.isEmpty { Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote) }
             }
             Spacer(minLength: AceTheme.Spacing.none)

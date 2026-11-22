@@ -39,6 +39,7 @@ const ComposeAction = z.discriminatedUnion("kind", [
   /** A file picked for the first message, uploaded into the project's draft scope. */
   z.object({ kind: z.literal("attach"), workspaceId: id, file: Picked }),
   z.object({ kind: z.literal("detach"), localId: z.string().min(1).max(64) }),
+  z.object({ kind: z.literal("attach.retry"), localId: z.string().min(1).max(64) }),
   /** A worktree start's card action: Cancel, Don't use worktree, Retry, Continue. */
   z.object({
     kind: z.literal("worktree"),
@@ -122,6 +123,9 @@ export class ComposeActions {
         break;
       case "detach":
         this.#tray?.tray.detach(action.localId);
+        break;
+      case "attach.retry":
+        this.#tray?.tray.retry(action.localId);
         break;
       case "worktree":
         this.newThread.worktrees.act(action.commandId, action.action);

@@ -6,6 +6,8 @@ import SwiftUI
 /// the work it holds (each linked pull request with its repository and title, lines changed).
 /// Read from the row alone: no history is fetched. Tapping the row stays the way in.
 struct ThreadPreview: View {
+    /// The long-press preview is where a row's cut title and detail are read whole.
+    static let readLines = 8
     let row: ThreadRow
     let machine: MachineMark?
     let project: ProjectMarkLook?
@@ -20,7 +22,7 @@ struct ThreadPreview: View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.title).aceFont(InboxRowType.title, relativeTo: .callout).fontWeight(AceDesign.Typeface.strong)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(3)
+                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(Self.readLines)
                 status(look)
                 ForEach([row.browsing, row.computerUse].compactMap { $0 }, id: \.self) { use in
                     HStack(spacing: AceDesign.Space.tight) {
@@ -116,7 +118,7 @@ struct ThreadPreview: View {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     Text(sentence).foregroundStyle(ink)
                     if let detail = row.hover?.detail {
-                        Text(detail).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                        Text(detail).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(Self.readLines)
                             .monospaced(row.hover?.code == true)
                     }
                 }

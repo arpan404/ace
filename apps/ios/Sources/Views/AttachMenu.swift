@@ -181,52 +181,6 @@ private struct AttachmentMenuButton: UIViewRepresentable {
     }
 }
 
-/// A file on a message: its name with upload progress, its size, or why it can't go.
-struct AttachmentChip: View {
-    let file: AttachmentFile
-    let remove: () -> Void
-    /// Puts a pasted file's words back in the message instead; nil where that can't happen.
-    var asText: (() -> Void)? = nil
-    /// Why a paste can't go back as text (it is too long); shown where Paste as Text would be.
-    var staysAttached: String? = nil
-    var body: some View {
-        HStack(spacing: AceDesign.Space.tight) {
-            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
-                .foregroundStyle(file.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.decoration)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(file.name).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
-                if file.state == "failed" { Text(file.error).lineLimit(2).foregroundStyle(AceTheme.StatusText.failed) }
-                else if file.state == "uploading" { ProgressView(value: file.progress).progressViewStyle(.linear) }
-                else { Text(ByteCountFormatter.string(fromByteCount: Int64(file.bytes), countStyle: .file)).monospacedDigit() }
-            }
-            Button(action: remove) {
-                AceIcon(.xCircle, size: AceDesign.Size.icon, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration)
-                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle())
-            }
-                .buttonStyle(.plain).accessibilityLabel("Remove \(file.name)")
-        }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-        .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceDesign.Space.tight)
-        .background(AceTheme.Colours.fill, in: AceShape.capsule)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("composer.attachment")
-        .contextMenu {
-            if let asText {
-                Button("Paste as Text", ace: .textAlignLeft, action: asText)
-            } else if let staysAttached {
-                Text(staysAttached)
-            }
-            if asText != nil || staysAttached != nil {
-                Button("Remove", ace: .x, role: .destructive, action: remove)
-            }
-        }
-        .accessibilityHint(staysAttached ?? "")
-        .accessibilityActions {
-            if let asText { Button("Paste as Text", action: asText) }
-        }
-    }
-}
-
 /// The camera, for a photo taken now.
 private struct CameraPicker: UIViewControllerRepresentable {
     let picked: (UIImage) -> Void
