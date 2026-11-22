@@ -18,12 +18,25 @@ interface PatchHunk {
   /** 1-based first line of the new side; for an empty new side, the line it follows. */
   newStart: number;
   newCount: number;
+  oldCount: number;
   lines: PatchLine[];
 }
 
-const header = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+const header = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
-function hunksOf(diff: string): PatchHunk[] {
+/** A hunk has exactly the lines its header counts on each side: a diff cut short has fewer. */
+function whole(hunk: PatchHunk): boolean {
+  let old = 0;
+  let next = 0;
+  for (const line of hunk.lines) {
+    if (line.tag !== "+") old++;
+    if (line.tag !== "-") next++;
+  }
+  return old === hunk.oldCount && next === hunk.newCount;
+}
+
+/** The diff's hunks, or undefined when any of them is cut short (a capped reply). */
+function hunksOf(diff: string): PatchHunk[] | undefined {
   const hunks: PatchHunk[] = [];
   let hunk: PatchHunk | undefined;
   const lines = diff.split("\n");
@@ -33,8 +46,9 @@ function hunksOf(diff: string): PatchHunk[] {
     const opened = header.exec(raw);
     if (opened) {
       hunk = {
-        newStart: Number(opened[1]),
-        newCount: opened[2] === undefined ? 1 : Number(opened[2]),
+        oldCount: opened[1] === undefined ? 1 : Number(opened[1]),
+        newStart: Number(opened[2]),
+        newCount: opened[3] === undefined ? 1 : Number(opened[3]),
         lines: [],
       };
       hunks.push(hunk);
@@ -54,7 +68,7 @@ function hunksOf(diff: string): PatchHunk[] {
       hunk.lines.push({ tag, text: `${raw.slice(1)}\n` });
     else hunk = undefined;
   }
-  return hunks;
+  return hunks.every(whole) ? hunks : undefined;
 }
 
 /** A text's lines, each with its own terminator. */
@@ -73,13 +87,16 @@ const bare = (line: string) => line.replace(/\r?\n$/, "");
 
 /**
  * The committed text of a file from its text on disk and its part of `git diff`, exact to the
- * byte; undefined when the diff doesn't fit the text (it was read for another version).
+ * byte; undefined when the diff doesn't fit the text (it was read for another version) or a hunk
+ * of it was cut short.
  */
 export function committedFromPatch(disk: string, diff: string): string | undefined {
+  const hunks = hunksOf(diff);
+  if (!hunks) return undefined;
   const lines = withEndings(disk);
   const out: string[] = [];
   let at = 0;
-  for (const hunk of hunksOf(diff)) {
+  for (const hunk of hunks) {
     const from = hunk.newCount === 0 ? hunk.newStart : hunk.newStart - 1;
     if (from < at || from > lines.length) return undefined;
     for (; at < from; at++) out.push(lines[at] ?? "");
@@ -98,7 +115,7 @@ export function committedFromPatch(disk: string, diff: string): string | undefin
  */
 export function exactPatchHunks(diff: string): ChangeHunk[] {
   const hunks: ChangeHunk[] = [];
-  for (const hunk of hunksOf(diff)) {
+  for (const hunk of hunksOf(diff) ?? []) {
     let line = hunk.newCount === 0 ? hunk.newStart + 1 : hunk.newStart;
     let above: string | undefined;
     let run: { start: number; added: string[]; removed: string[]; text: string } | undefined;

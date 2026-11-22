@@ -68,7 +68,7 @@ export function useChangeGutter(input: {
 
   // The committed text: the file on disk with git's hunks put back. Hunks read for an older
   // version don't fit and are skipped, so a save or an agent's write keeps the last one.
-  const { patch, settled, head: commit } = useChangeMarks(threadId, path, version);
+  const { patch, settled, truncated, head: commit } = useChangeMarks(threadId, path, version);
   useEffect(() => {
     const base = buffer.baseText();
     // Only the read of git's diff for this commit and this disk version sets the committed text;
@@ -76,10 +76,12 @@ export function useChangeGutter(input: {
     // undo newly committed work).
     if (base === undefined || version === undefined || !settled) return gutter.unsettle();
     // Rebuilt from git's own patch, byte for byte: line endings and final newlines as committed.
-    const head = patch ? committedFromPatch(base, patch) : base;
+    // A file missing from a diff the daemon cut short is unknown, not as committed, and a patch
+    // with a hunk cut short gives nothing: Revert stays off either way.
+    const head = patch ? committedFromPatch(base, patch) : truncated ? undefined : base;
     if (head === undefined) return gutter.unsettle();
     gutter.setHead(head, `${commit ?? ""}\u0000${version}`);
-  }, [buffer, gutter, version, patch, settled, commit]);
+  }, [buffer, gutter, version, patch, settled, truncated, commit]);
 
   const agentMarks = useMemo(
     () =>

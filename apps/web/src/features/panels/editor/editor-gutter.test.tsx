@@ -108,3 +108,43 @@ test("Revert puts back the committed text byte for byte: no newline where the co
   await userEvent.keyboard("{Control>}s{/Control}");
   await waitFor(async () => expect(await bytes(app, "src/eol.ts")).toBe("one\ntwo"));
 });
+
+test("a git diff cut off by the daemon's size cap marks nothing from the cut hunk and arms no Revert", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-2");
+  app.daemon.checkouts.seed(thread, "src/cut.ts", "one\nTWO\nthree\n");
+  const filler = [
+    "diff --git a/big.txt b/big.txt",
+    "--- a/big.txt",
+    "+++ b/big.txt",
+    "@@ -0,0 +1 @@",
+    "+",
+  ].join("\n");
+  const cut = [
+    "diff --git a/src/cut.ts b/src/cut.ts",
+    "--- a/src/cut.ts",
+    "+++ b/src/cut.ts",
+    "@@ -1,3 +1,3 @@",
+    " one",
+    "-two",
+    "",
+  ].join("\n");
+  // The daemon's 256 KiB cap falls just after "-two": the rest of the hunk never arrives.
+  const room = 262_144 - filler.length - 1 - cut.length;
+  const patch = `${filler}${"x".repeat(room)}\n${cut}+TWO\n three\n`;
+  app.daemon.workspace.setGitDiff(thread, patch);
+  await app.open(`/t/${thread}`);
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await userEvent.keyboard("{Control>}p{/Control}");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Search files" }), "cut.ts");
+  await screen.findByRole("option", { name: /cut\.ts/ });
+  await userEvent.keyboard("{Enter}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const view = await within(panel).findByRole("region", { name: "Source of src/cut.ts" });
+  await waitFor(() => expect(view.textContent).toContain("TWO"));
+  await new Promise((resolve) => setTimeout(resolve, 800));
+
+  // Nothing is marked from half a hunk, so nothing can be reverted from it.
+  expect(marks(view)).toEqual([]);
+  expect(await bytes(app, "src/cut.ts")).toBe("one\nTWO\nthree\n");
+});

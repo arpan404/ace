@@ -64,3 +64,9 @@ test("a patch's hunks carry the exact committed text of each change", () => {
     },
   ]);
 });
+
+test("a hunk cut short (fewer lines than its header counts) gives no committed text and no hunks", () => {
+  const cut = section("@@ -1,3 +1,3 @@", " one", "-two");
+  expect(committedFromPatch("one\nTWO\nthree\n", cut)).toBeUndefined();
+  expect(exactPatchHunks(cut)).toEqual([]);
+});

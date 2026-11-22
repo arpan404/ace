@@ -31,6 +31,11 @@ export function useChangeMarks(
   head: string | undefined;
   /** The file's part of `git diff`, exactly as read (its line endings and final newlines). */
   patch: string | undefined;
+  /**
+   * The daemon cut the diff at its size cap: a file not in it may still differ from the commit,
+   * and the last file in it may be cut short.
+   */
+  truncated: boolean;
 } {
   const details = useThreadMeta(threadId)?.details;
   const changed = details?.diff?.files;
@@ -48,11 +53,19 @@ export function useChangeMarks(
     [raw, path],
   );
   const settled = changed === 0 || (query.isSuccess && !query.isPlaceholderData);
+  const truncated = query.data?.truncated === true;
   return useMemo(
     () =>
       file?.rows.length
-        ? { marks: lineMarks(file.rows), hunks: changeHunks(file.rows), settled, head, patch }
-        : { marks: undefined, hunks: undefined, settled, head, patch },
-    [file, settled, head, patch],
+        ? {
+            marks: lineMarks(file.rows),
+            hunks: changeHunks(file.rows),
+            settled,
+            head,
+            patch,
+            truncated,
+          }
+        : { marks: undefined, hunks: undefined, settled, head, patch, truncated },
+    [file, settled, head, patch, truncated],
   );
 }
