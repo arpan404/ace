@@ -212,16 +212,13 @@ function HistoryProjectFilter(props: {
     ids.push(props.project);
   }
   ids.sort((a, b) => name(a).localeCompare(name(b)) || a.localeCompare(b));
-  const total = counts.reduce((sum, each) => sum + each.threads, 0);
-  const chatThreads = chats.reduce((sum, each) => sum + each.threads, 0);
   const options = [
-    { value: allProjects, label: "All projects", count: total },
-    ...(chatThreads > 0 || props.project === chatsProject
+    { value: allProjects, label: "All projects" },
+    ...(chats.length > 0 || props.project === chatsProject
       ? [
           {
             value: chatsProject,
             label: "Chats",
-            count: chatThreads,
             icon: <ChatCircleIcon aria-hidden size={16} className="text-muted-foreground" />,
           },
         ]
@@ -229,7 +226,6 @@ function HistoryProjectFilter(props: {
     ...ids.map((id) => ({
       value: id,
       label: name(id),
-      count: counts.find((each) => each.id === id)?.threads ?? 0,
       icon: <ProjectMark id={id} badge={projectBadge({ id, name: name(id) })} />,
     })),
   ];

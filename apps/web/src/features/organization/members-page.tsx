@@ -108,50 +108,53 @@ export function MembersPage(props: { org: AceOrgSpace }) {
                       </span>
                     )}
                   </span>
-                  {you ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={remove.isPending}
-                      onClick={() =>
-                        setConfirming({
-                          title: `Leave ${org.name}?`,
-                          body: `Its hosts and shared bots stay ${org.name}'s. Your own account, machines and everything on them stay as they are.`,
-                          confirm: "Leave",
-                          run: () => {
-                            setError("");
-                            remove.mutate(member.account, {
-                              onError: failed,
-                              onSuccess: () => void refresh(),
-                            });
-                          },
-                        })
-                      }
-                    >
-                      Leave
-                    </Button>
-                  ) : (
-                    canChange && (
+                  {/* One action column after the role, so every role starts on one edge. */}
+                  <span className="flex w-20 shrink-0 justify-end">
+                    {you ? (
                       <Button
                         size="sm"
                         variant="ghost"
                         disabled={remove.isPending}
                         onClick={() =>
                           setConfirming({
-                            title: `Remove ${name}?`,
-                            body: `They lose ${org.name}'s hosts and shared bots. Their own account, machines and data stay theirs, untouched.`,
-                            confirm: "Remove",
+                            title: `Leave ${org.name}?`,
+                            body: `Its hosts and shared bots stay ${org.name}'s. Your own account, machines and everything on them stay as they are.`,
+                            confirm: "Leave",
                             run: () => {
                               setError("");
-                              remove.mutate(member.account, { onError: failed });
+                              remove.mutate(member.account, {
+                                onError: failed,
+                                onSuccess: () => void refresh(),
+                              });
                             },
                           })
                         }
                       >
-                        Remove
+                        Leave
                       </Button>
-                    )
-                  )}
+                    ) : (
+                      canChange && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={remove.isPending}
+                          onClick={() =>
+                            setConfirming({
+                              title: `Remove ${name}?`,
+                              body: `They lose ${org.name}'s hosts and shared bots. Their own account, machines and data stay theirs, untouched.`,
+                              confirm: "Remove",
+                              run: () => {
+                                setError("");
+                                remove.mutate(member.account, { onError: failed });
+                              },
+                            })
+                          }
+                        >
+                          Remove
+                        </Button>
+                      )
+                    )}
+                  </span>
                 </SettingListItem>
               );
             })}
