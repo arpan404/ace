@@ -192,6 +192,9 @@ function fakeSdk(order: Order): RuntimeSdkBoundary {
 
 /** The transcript a translator shows for `frames`: messages, reasoning and tool calls. */
 function shown(frames: CursorEnvelope[]) {
+  return transcript(frames).shown;
+}
+function transcript(frames: CursorEnvelope[]) {
   const threadId = ThreadId.parse("seam");
   const translator = new CursorTranslator({ threadId, rootKey: "root" });
   const state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } });
@@ -209,7 +212,10 @@ function shown(frames: CursorEnvelope[]) {
     ))
       apply(state, fact, { now: index + 1, ids: { next: (kind) => `${kind}-${++id}` } });
   });
-  return Object.values(state.items).flatMap((item) => {
+  const notices = Object.values(state.items).flatMap((item) =>
+    item.type === "notice" ? [item.text ?? ""] : [],
+  );
+  const shownItems = Object.values(state.items).flatMap((item) => {
     if (item.type === "message")
       return [`${item.role}: ${item.parts.map((p) => (p.type === "text" ? p.text : "")).join("")}`];
     if (item.type === "reasoning") return [`thinking: ${item.text}`];
@@ -219,6 +225,7 @@ function shown(frames: CursorEnvelope[]) {
       ];
     return [];
   });
+  return { shown: shownItems, notices };
 }
 
 const limits = CursorLimitsSchema.parse({});
@@ -308,3 +315,43 @@ it.each(["callback-first", "write-first"] as const)(
   },
   60_000,
 );
+
+it("a turn an earlier ace build was running shows nothing twice once the new build reopens it", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-legacy-")));
+  try {
+    const boundary = fakeSdk("callback-first");
+    const frames = await host(boundary, home, "live", async (runtime, stored) => {
+      await runtime.open({
+        threadId: "seam",
+        cwd: home,
+        generation: "live",
+        policy: "full-access",
+        limits,
+      });
+      await runtime.send({
+        operationId: "op",
+        commandId: "op",
+        segment: 0,
+        input: [{ type: "text", text: "go" }],
+      });
+      await expect.poll(() => stored().some((frame) => frame.kind === "result")).toBe(true);
+    });
+    // What an earlier build stored: the same frames, with nothing about the SDK's events.
+    const old = frames
+      .filter((frame) => frame.kind !== "result")
+      .map(({ eventSeq: _seq, pendingEvents: _pending, ...frame }) => frame);
+    const cut = old.findIndex(
+      (frame) => frame.kind === "delta" && JSON.stringify(frame.body).includes("thinking-delta"),
+    );
+    const committed = old.slice(0, cut);
+    const before = shown(committed);
+    expect(before).toContain("assistant: Let me check.");
+    const after = transcript([...committed, ...(await reopen(boundary, home, committed, 1))]);
+    expect(after.shown).toEqual(before);
+    expect(
+      after.notices.filter((text) => text.includes("began before ace was updated")),
+    ).toHaveLength(1);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

@@ -488,6 +488,16 @@ export class CursorTranslator implements Translator {
         "cursor.recovered",
       ),
       ...[...this.gaps].map((gap) => this.notice(gap, event, "info", "cursor.recovered")),
+      ...(body.tailOmitted === true
+        ? [
+            this.notice(
+              "This turn began before ace was updated, so what Cursor did after the restart can't be lined up with what is shown here; it isn't repeated.",
+              event,
+              "info",
+              "cursor.recovered",
+            ),
+          ]
+        : []),
     ];
     this.gaps.clear();
     if (!this.active || !this.operation) return facts;

@@ -164,8 +164,12 @@ export async function recoverCursorCheckpoint(
   if (agent.agentId !== agentId || agent.cwd !== options.cwd)
     throw new Error("SDK checkpoint belongs to another workspace/agent");
   const recover = options.recover ?? { runs: [] };
-  const through = new Map<string, { through: number; pending?: string[] | undefined }>(
-    recover.runs.map((run) => [run.runId, { through: run.through, pending: run.pending }]),
+  type Seen = { through: number; pending?: string[] | undefined; legacy?: boolean | undefined };
+  const through = new Map<string, Seen>(
+    recover.runs.map((run) => [
+      run.runId,
+      { through: run.through, pending: run.pending, legacy: run.legacy },
+    ]),
   );
   // Unreadable, the agent counts as touched since any attempt: the catalog decides.
   const agentRuns = AgentRuns.catch({ updatedAt: Number.POSITIVE_INFINITY }).parse(document);
@@ -203,9 +207,12 @@ export async function recoverCursorCheckpoint(
     // Stopped first, so the tail read after it is the whole of what the run will ever write.
     if (interrupted)
       await sdk.Agent.cancelRun(run.runId, { runtime: "local", store, cwd: options.cwd });
-    await tail(store, run.runId, seen, options.limits, (message, seq) =>
-      push({ kind: "recovered", body: message, runId: run.runId, seq }),
-    );
+    // An earlier build's frames say nothing of the SDK's events: replaying any would show
+    // again what ace already has, so the run's outcome comes back without its content.
+    if (!seen.legacy)
+      await tail(store, run.runId, seen, options.limits, (message, seq) =>
+        push({ kind: "recovered", body: message, runId: run.runId, seq }),
+      );
     push({
       kind: "recovery",
       runId: run.runId,
@@ -215,6 +222,7 @@ export async function recoverCursorCheckpoint(
         outcome: interrupted ? "interrupted_by_daemon_restart" : run.status,
         ...(run.status === "finished" && run.result ? { result: run.result } : {}),
         ...(run.status === "error" && run.error ? { error: run.error } : {}),
+        ...(seen.legacy ? { tailOmitted: true } : {}),
       },
     });
   }

@@ -31,6 +31,8 @@ export type Unsettled = NonNullable<NonNullable<SessionContext["resume"]>["unset
 interface Seam {
   through: number;
   pending: string[];
+  /** Seen only in frames an earlier build stored, which say nothing of the SDK's events. */
+  legacy: boolean;
 }
 /** Folds committed frames, in order, into what the open turn's record lacks. Pure. */
 export class UnsettledRuns {
@@ -46,12 +48,16 @@ export class UnsettledRuns {
     eventSeq: number | undefined,
     pending: string[] | undefined,
   ): void {
-    const seam = this.runs.get(runId) ?? { through: 0, pending: [] };
+    const seam = this.runs.get(runId) ?? {
+      through: 0,
+      pending: [],
+      legacy: eventSeq === undefined,
+    };
     if (eventSeq === undefined || eventSeq < seam.through) {
       this.runs.set(runId, seam);
       return;
     }
-    this.runs.set(runId, { through: eventSeq, pending: pending ?? [] });
+    this.runs.set(runId, { through: eventSeq, pending: pending ?? [], legacy: false });
   }
   add(data: unknown): void {
     const frame = Progress.safeParse(data);
@@ -93,7 +99,7 @@ export class UnsettledRuns {
       if (id === this.current) this.current = undefined;
       return;
     }
-    if (!runId || eventSeq === undefined) return;
+    if (!runId) return;
     // Output of the attempted send names its run: Cursor had it.
     if (this.attempt?.operationId === frame.data.operationId) {
       this.attempt = undefined;
@@ -105,6 +111,7 @@ export class UnsettledRuns {
     const runs = [...this.runs].slice(-64).map(([runId, seam]) => {
       const run: Unsettled["runs"][number] = { runId, through: seam.through };
       if (seam.pending.length) run.pending = seam.pending;
+      if (seam.legacy) run.legacy = true;
       return run;
     });
     return { runs, ...(this.attempt ? { attempt: this.attempt } : {}) };

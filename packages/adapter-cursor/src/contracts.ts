@@ -70,6 +70,8 @@ export const Open = z.strictObject({
               .array(z.string().regex(/^[a-f0-9]{64}$/))
               .max(64)
               .optional(),
+            /** Known only from an earlier build's frames: its content can't be lined up. */
+            legacy: z.boolean().optional(),
           }),
         )
         .max(64)

@@ -178,7 +178,7 @@ export interface SessionContext {
      * attempted with no admission evidence yet.
      */
     unsettled?: {
-      runs: { runId: string; through: number; pending?: string[] }[];
+      runs: { runId: string; through: number; pending?: string[]; legacy?: boolean }[];
       attempt?: { operationId: string; commandId?: string; segment: number; at: number };
     };
   };
