@@ -94,6 +94,7 @@ import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import { NativeOrganization, NativeOrganizationRequest } from "./organization.ts";
 import { combineFleetMap, FleetMapCombineRequest } from "./fleet-map.ts";
 import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
@@ -193,6 +194,7 @@ export class NativeServices {
   readonly plugins: NativeSkillPlugins;
   /** The marketplace through this machine's daemon (`market.ts`). */
   readonly market: NativeMarket;
+  readonly organization: NativeOrganization;
   readonly automations: NativeAutomations | undefined;
   readonly now: () => number;
   constructor(
@@ -221,6 +223,7 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
+    this.organization = new NativeOrganization(owner, { id: () => host.uuid(), now });
     this.market = new NativeMarket(
       owner,
       now,
@@ -326,6 +329,12 @@ export class NativeServices {
           await this.projects.answer(project.data.request, controller.signal),
           "",
         );
+        return;
+      }
+      const organization = NativeOrganizationRequest.safeParse(raw);
+      if (organization.success) {
+        const answer = await this.organization.answer(organization.data, controller.signal);
+        this.#reply(id, true, answer, "");
         return;
       }
       const fleet = NativeFleetRequest.safeParse(raw);
