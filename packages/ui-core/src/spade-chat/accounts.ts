@@ -86,10 +86,15 @@ export function spadeAccountWords(endpoint: SpadeEndpoint, keychain: boolean): s
   return endpoint.keySet ? "Saved in the keychain" : "Not saved";
 }
 
-/** Which bots think with an account: "Used by Inbox and Ledger"; undefined for none. */
+/**
+ * Which bots think with an account: "Used by Inbox and Ledger", past three names "Used by Audit,
+ * Inbox, Ledger and 4 more"; undefined for none.
+ */
 export function spadeUsedByWords(usedBy: readonly string[]): string | undefined {
   if (!usedBy.length) return undefined;
   if (usedBy.length === 1) return `Used by ${usedBy[0]}`;
+  if (usedBy.length > 4)
+    return `Used by ${usedBy.slice(0, 3).join(", ")} and ${usedBy.length - 3} more`;
   return `Used by ${usedBy.slice(0, -1).join(", ")} and ${usedBy.at(-1)}`;
 }
 

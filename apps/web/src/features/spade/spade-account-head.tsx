@@ -17,7 +17,8 @@ const goesWith = (endpoint: SpadeEndpoint) => {
 };
 
 /**
- * An account's first row: its name, which bots use it, and Rename and Remove. Renaming changes
+ * An account's first row: its name (for an account of a preset), which bots use it, and Rename
+ * and Remove. Renaming changes
  * only the name people see: the account's id, and so every model reference on it, stays.
  * Remove asks once; Spade refuses while bots use it, and the reason shows here.
  */
@@ -49,14 +50,16 @@ export function AccountHead(props: { endpoint: SpadeEndpoint }) {
     if (!name || name === endpoint.name) return setMode(undefined);
     void act(() => editEndpoint(client, endpoint.id, { name }));
   };
-  const used = spadeUsedByWords(endpoint.usedBy);
+  const used = spadeUsedByWords(endpoint.usedBy) ?? "No bot uses it";
+  // One added by its address is its provider's only account: the group's title names it already.
+  const named = endpoint.provider !== undefined;
   const description = refusal ? (
     <Refusal>{refusal}</Refusal>
   ) : mode === "remove" ? (
     `Remove ${endpoint.name}${goesWith(endpoint)}?`
-  ) : (
-    (used ?? "No bot uses it")
-  );
+  ) : named ? (
+    used
+  ) : undefined;
   if (mode === "rename")
     return (
       <SettingRow title="Name" htmlFor={field} description={description} density="compact">
@@ -90,7 +93,7 @@ export function AccountHead(props: { endpoint: SpadeEndpoint }) {
     );
   return (
     <SettingRow
-      title={<span className="font-medium">{endpoint.name}</span>}
+      title={named ? <span className="font-medium">{endpoint.name}</span> : used}
       description={description}
       density="compact"
       inline

@@ -121,6 +121,12 @@ describe("accounts of a provider", () => {
   });
 });
 
+test("a long list of bots on an account names three and counts the rest", () => {
+  expect(spadeUsedByWords(["A", "B", "C", "D"])).toBe("Used by A, B, C and D");
+  expect(spadeUsedByWords(["A", "B", "C", "D", "E", "F"])).toBe("Used by A, B, C and 3 more");
+  expect(spadeUsedByWords([])).toBeUndefined();
+});
+
 describe("signing in to ChatGPT", () => {
   test("a device sign-in reads its link and code while it waits", () => {
     expect(
