@@ -101,13 +101,19 @@ it("concurrent checks share one reading, so an older answer can't land after a n
 });
 
 it("once seen keeping logs, stays refused while the settings can't be read, whatever the owner said", async () => {
-  let answer: () => Response = () => settings({ ...keepsNothing, collect_logs: true });
-  const c = check({ answer: () => answer(), verifiedByHand: true });
+  let gateway: "keeps logs" | "down" | "keeps nothing" = "keeps logs";
+  const c = check({
+    answer: () =>
+      gateway === "down"
+        ? new Response("unavailable", { status: 503 })
+        : settings({ ...keepsNothing, collect_logs: gateway === "keeps logs" }),
+    verifiedByHand: true,
+  });
   expect(await c.gateway.safe()).toBe(false);
-  answer = () => new Response("unavailable", { status: 503 });
+  gateway = "down";
   c.advance(2 * 60_000);
   expect(await c.gateway.safe()).toBe(false);
-  answer = () => settings(keepsNothing);
+  gateway = "keeps nothing";
   c.advance(2 * 60_000);
   expect(await c.gateway.safe()).toBe(true);
 });

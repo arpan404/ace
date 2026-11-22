@@ -79,11 +79,11 @@ describe("who may search", () => {
   });
 
   it("a sign-out after authentication but before admission stops the search at admission", async () => {
-    let signOut = () => {};
+    let signOut: (() => void) | undefined;
     const w = world({
       // The gateway's check runs between authentication and the reservation.
       gatewaySafe: async () => {
-        signOut();
+        signOut?.();
         return true;
       },
     });
