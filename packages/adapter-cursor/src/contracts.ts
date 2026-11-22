@@ -16,9 +16,9 @@ export const Limits = z.strictObject({
   maxCallbacks: z.number().int().positive().max(256).default(32),
   maxIdentities: z.number().int().positive().max(8192).default(2048),
   maxInputBytes: z.number().int().positive().max(524288).default(262144),
-  maxCheckpointBytes: z.number().int().positive().max(268_435_456).default(134_217_728),
+  maxCheckpointBytes: z.number().int().positive().max(68_719_476_736).default(8_589_934_592),
   historyPageSize: z.number().int().positive().max(200).default(100),
-  heapMb: z.number().int().min(64).max(1024).default(256),
+  heapMb: z.number().int().min(64).max(8192).default(2048),
   timeoutMs: z.number().int().positive().max(300000).default(30000),
   sendTimeoutMs: z.number().int().positive().max(600000).default(300000),
   /** How long the host waits for ace to store one frame before fencing the turn. */

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 /** Per-thread store bounds the SDK's full-conversation materialization before pagination.
  * The byte budget is adjustable per thread via `Limits.maxCheckpointBytes`
- * (`DaemonOptions.engine.cursor.limits`, default 128 MiB, max 256 MiB).
+ * (`DaemonOptions.engine.cursor.limits`, default 8 GiB, max 64 GiB).
  * Entry (2048) and depth (10) counts are fixed abuse guards, not per-thread settings. */
 export function checkpointDirectory(home: string, threadId: string): string {
   return join(home, ".cursor", "sdk", "ace", createHash("sha256").update(threadId).digest("hex"));

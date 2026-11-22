@@ -88,7 +88,7 @@ export type RowChange = { ok: true; change: (row: Row) => Row } | { ok: false; p
 export const binaryPathProblem =
   "Enter the full path to the executable, or clear it to find the CLI automatically.";
 export const checkpointProblem =
-  "Enter a whole number of megabytes from 1 to 256, or clear it for the default.";
+  "Enter a whole number of megabytes from 1 to 65536, or clear it for the default.";
 
 /** The CLI path as typed: an absolute path, or empty to find the CLI automatically. */
 export function binaryPathChange(typed: string): RowChange {
