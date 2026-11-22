@@ -58,12 +58,32 @@ test("when a provider itself throws, the window still says ace couldn't start", 
   quiet.mockRestore();
 });
 
-test("an error that carries a daemon token never shows it", () => {
+test("an error that carries a daemon token never shows it", async () => {
   render(
     <AppFrame environment={{}}>
       <BootFailure error={new Error(`Rejected http://127.0.0.1:4242/#token=${token} (${token})`)} />
     </AppFrame>,
   );
   expect(document.body.textContent).not.toContain(token);
+  await userEvent.click(screen.getByRole("button", { name: "Details" }));
   expect(screen.getByText(/Rejected http:\/\/127\.0\.0\.1:4242\/#token=\[hidden\]/)).toBeTruthy();
+});
+
+test("Copy details copies the error text", async () => {
+  const written: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        written.push(text);
+      },
+    },
+  });
+  render(
+    <AppFrame environment={{}}>
+      <BootFailure error={new Error("The editor's worker never answered.")} />
+    </AppFrame>,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Copy details" }));
+  expect(written).toEqual(["The editor's worker never answered."]);
 });

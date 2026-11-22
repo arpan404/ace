@@ -1,19 +1,20 @@
-import { CheckIcon, CopyIcon, WarningCircleIcon } from "@ace/icons";
-import type { ReactNode } from "react";
-import { IconButton } from "./ui/icon-button.tsx";
+import { useState, type ReactNode } from "react";
+import { Button } from "./ui/button.tsx";
 import { useToast } from "./ui/toast.tsx";
 import { useCopy } from "./use-copy.ts";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * The one "ace couldn't start" anatomy: the failed glyph, what happened, the actions, and the
- * raw error behind Details. The startup screen, the boot error boundary and the bare fallback
- * (which draws its own plain version) all say it this way.
+ * The one "ace couldn't start" card: the screen's ace mark sits above it (the boot screen's
+ * wordmark, the startup screen's mark), then the title, one plain sentence, the raw error behind
+ * Details, and the actions in one row. A boot failure is not a choice between two designs any
+ * more: both the boot error boundary and the startup screen draw this.
  */
 export function StartFailure(props: {
   description: ReactNode;
   /** The raw error, for support; shown only when someone opens Details. */
   details?: string | undefined;
+  /** The screen's own actions (Reload, Connection settings…); a plain Reload without any. */
   actions?: ReactNode;
   /** Labels the screen that draws it (`ConnectCard`'s `labelledBy`). */
   titleId?: string | undefined;
@@ -21,43 +22,56 @@ export function StartFailure(props: {
   className?: string | undefined;
 }) {
   const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const text = props.details ?? (typeof props.description === "string" ? props.description : "");
   const { copied, copy } = useCopy(() =>
     toast.error({ title: "Couldn't copy. Select the message and copy it yourself." }),
   );
   return (
     <div
       role={props.role}
-      className={cn("flex max-w-[420px] flex-col items-center gap-2 text-center", props.className)}
+      className={cn(
+        "flex w-full flex-col rounded-lg bg-surface-1 p-6 text-left",
+        props.className,
+        "max-w-[440px]",
+      )}
     >
-      <WarningCircleIcon aria-hidden size={20} weight="fill" className="text-status-failed" />
-      <h1 id={props.titleId} className="text-ui font-medium text-foreground">
+      <h1 id={props.titleId} className="text-xl font-semibold tracking-title text-foreground">
         ace couldn't start
       </h1>
-      <p className="max-w-[44ch] text-sm leading-normal text-muted-foreground">
-        {props.description}
-      </p>
+      <p className="mt-2 text-ui leading-normal text-muted-foreground">{props.description}</p>
       {props.details && (
-        <details className="mt-1 w-full text-left">
-          <summary className="mx-auto w-fit cursor-default text-xs text-subtle-foreground focus-ring hover:text-foreground">
-            Details
-          </summary>
-          <div className="relative mt-2 rounded-md bg-secondary">
-            <pre className="max-h-48 overflow-auto py-2.5 pr-9 pl-3 font-mono text-sm break-words whitespace-pre-wrap text-foreground">
+        <>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((shown) => !shown)}
+            className="mt-3 w-fit rounded-sm text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:text-foreground"
+          >
+            {open ? "Hide details" : "Details"}
+          </button>
+          {open && (
+            <pre className="mt-2 max-h-[200px] overflow-auto rounded-md bg-code p-3 font-mono text-sm leading-normal break-words whitespace-pre-wrap text-foreground shadow-[inset_0_0_0_1px_var(--border)]">
               {props.details}
             </pre>
-            <IconButton
-              icon={copied ? CheckIcon : CopyIcon}
-              label={copied ? "Copied" : "Copy error"}
-              size="sm"
-              onClick={() => copy(props.details ?? "")}
-              className="absolute top-1.5 right-1.5"
-            />
-          </div>
-        </details>
+          )}
+        </>
       )}
-      {props.actions && (
-        <div className="mt-2 flex flex-wrap justify-center gap-2">{props.actions}</div>
-      )}
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        {props.actions ?? (
+          <Button variant="primary" onClick={() => location.reload()}>
+            Reload
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          disabled={!text}
+          onClick={() => copy(text)}
+          aria-label="Copy details"
+        >
+          {copied ? "Copied" : "Copy details"}
+        </Button>
+      </div>
     </div>
   );
 }
