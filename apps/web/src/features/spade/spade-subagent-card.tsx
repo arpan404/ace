@@ -92,10 +92,11 @@ export function SpadeSubagentCard(props: {
     <section
       {...part("card", needYou ? "waiting" : undefined, "spade-subagents")}
       aria-label={header}
-      // The question card's shape: its radius, its 20px padding (16 under a finger), its width.
-      className="@container/card flex w-full max-w-150 min-w-0 flex-col gap-3 rounded-(--chat-bubble-radius) bg-chat-bubble p-5 pointer-coarse:p-4"
+      // The question card's shape: its radius, its 20px padding (16 under a finger), its 16px
+      // between parts, its width; its first line's face, gap and type.
+      className="@container/card flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-bubble p-5 pointer-coarse:p-4"
     >
-      <header className="flex min-w-0 items-start gap-3 font-prose text-prose leading-[1.5]">
+      <header className="flex min-w-0 items-start gap-2.5 font-prose text-prose leading-[1.5]">
         {props.face && <SpadeFace avatar={props.face} size={24} className="mt-px" />}
         <h3 className="min-w-0 flex-1 font-medium text-foreground">{header}</h3>
         <span className="mt-0.5 flex shrink-0 items-baseline gap-2 text-ui tabular-nums">
@@ -113,8 +114,8 @@ export function SpadeSubagentCard(props: {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          // On the rows' text edge: the face's 24px and the 12px gap, less its own padding.
-          className={cn(quietWord, "-mt-1 ml-7 w-fit")}
+          // On the rows' text edge: the face's 24px and its 10px gap, less its own padding.
+          className={cn(quietWord, "-mt-2 ml-[26px] w-fit")}
         >
           {open ? "Show fewer" : `and ${hidden} more`}
         </button>
@@ -123,9 +124,13 @@ export function SpadeSubagentCard(props: {
   );
 }
 
-/** The hairline above every row but the first, starting at the text (the mark's 24px and gap). */
+/**
+ * The hairline above every row but the first, starting at the text (the mark's 24px, its 10px
+ * gap): ace's `border` on the light bubble, `border-strong` on the dark one, where the softer
+ * borders are darker than the bubble and vanish.
+ */
 const hairline =
-  "not-first:before:absolute not-first:before:top-0 not-first:before:right-0 not-first:before:left-9 not-first:before:h-px not-first:before:bg-border-strong";
+  "not-first:before:absolute not-first:before:top-0 not-first:before:right-0 not-first:before:left-[34px] not-first:before:h-px not-first:before:bg-border dark:not-first:before:bg-border-strong";
 
 export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
   const { row } = props;
@@ -138,7 +143,7 @@ export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
       data-subagent-state={row.state}
       className={cn("group/row relative min-w-0", hairline)}
     >
-      <div className="relative -mx-2 flex min-h-11 min-w-0 items-center gap-3 rounded-lg px-2 py-1 transition-colors duration-(--motion-fast) group-hover/row:bg-hover">
+      <div className="relative -mx-2 flex min-h-11 min-w-0 items-center gap-2.5 rounded-lg px-2 py-1 transition-colors duration-(--motion-fast) group-hover/row:bg-hover">
         {row.open?.kind === "link" ? (
           <Link {...row.open.to} aria-label={label} className={opener} />
         ) : row.open ? (

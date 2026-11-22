@@ -4,9 +4,9 @@ import type { ProviderKind } from "@ace/protocol";
 /*
  * `?fakeWorld=spade`: bots that started ace agents with one `delegate`, each drawn as one
  * subagent card in its chat.
- *   Research: four agents researching competitors, started 9 minutes ago. One waits on the person
- *   to approve its plan (at the chat's end too), two work, one finished after 6 minutes; the bot
- *   list says it needs the person.
+ *   Research: four agents researching competitors, started 9 minutes ago, and a bot it made to
+ *   write the brief. One agent waits on the person to approve its plan (at the chat's end too),
+ *   two work, one finished after 6 minutes; the bot list says it needs the person.
  *   Survey: seven agents that all finished, the card folded past five rows.
  *   Audit: three agents, one of which failed when it lost its provider session.
  */
@@ -192,7 +192,7 @@ function seedScene(
   minutes: (n: number) => number,
   scene: Scene,
   waiting: boolean,
-) {
+): { id: string; name: string; conversation: string } {
   const bot = here.addAgent({
     ...scene.bot,
     ...(waiting
@@ -264,6 +264,7 @@ function seedScene(
   });
   here.store(c, { type: "step_finished", reply, text: scene.said });
   here.store(c, { type: "reply_finished", reply, text: scene.said });
+  return { id: scene.bot.id, name: scene.bot.name, conversation: c };
 }
 
 export function seedFakeDelegation(
@@ -271,7 +272,28 @@ export function seedFakeDelegation(
   here: FakeSpadeApi,
   minutes: (n: number) => number,
 ) {
-  seedScene(daemon, here, minutes, research, true);
+  const bot = seedScene(daemon, here, minutes, research, true);
+  // A bot Research made to write the brief: its live step comes from its own status.
+  here.addAgent({
+    id: "research-brief",
+    name: "Research-brief",
+    task: "Write the competitor brief from the research notes.",
+    state: "working",
+    status: "Drafting the competitor brief from the support notes",
+    parent: { id: bot.id, name: bot.name },
+    last_activity: minutes(1),
+  });
+  here.store(
+    bot.conversation,
+    {
+      type: "worker_started",
+      worker: "research-brief",
+      kind: "bot",
+      name: "Research-brief",
+      call: "d-research",
+    },
+    minutes(research.startedMin),
+  );
 }
 
 export function seedFakeSurvey(

@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import type { AgentStatus } from "@ace/protocol";
 import { useThread } from "@ace/client-react";
-import { messageText, subagentRunning } from "@ace/ui-core";
+import { formatSpan, messageText, subagentRunning } from "@ace/ui-core";
 import {
   spadeSubagentLine,
   spadeSubagentName,
@@ -106,7 +106,7 @@ function Card(props: {
         elapsed={
           fresh &&
           span && (
-            <SubagentElapsed
+            <AgentTime
               startedAt={span.startedAt}
               endedAt={span.endedAt}
               running={entries.some((entry) => subagentRunning(entry.state))}
@@ -224,7 +224,7 @@ function WorkerRow(props: {
         machine: entry.machine,
         // Its time: running, or how long it took once it ended.
         elapsed: live.current && (
-          <SubagentElapsed
+          <AgentTime
             startedAt={entry.startedAt}
             endedAt={entry.endedAt}
             running={subagentRunning(entry.state)}
@@ -243,4 +243,19 @@ function WorkerRow(props: {
       }}
     />
   );
+}
+
+/**
+ * How long an agent has run, ticking to the second while it runs (as ace's child rows do), or
+ * how long it took once it ended, to the minute ("22m"): a settled time needs no seconds.
+ */
+function AgentTime(props: {
+  startedAt: number;
+  endedAt: number | undefined;
+  running: boolean;
+  fresh: boolean;
+}) {
+  if (props.running || props.endedAt === undefined) return <SubagentElapsed {...props} />;
+  if (props.endedAt - props.startedAt < 1000) return null;
+  return <span aria-label="Elapsed time">{formatSpan(props.startedAt, props.endedAt)}</span>;
 }

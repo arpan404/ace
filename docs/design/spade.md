@@ -120,7 +120,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   and Open as a text button: the agent's thread on its machine, or the bot's chat. States come
   live from ace's thread list on the bot's machine, else the bot's tree; the card never says
   worked while any agent works or waits on the person, or while what it reads isn't current. One
-  that waits on the person stays a flat row (rows are flat, a `border-strong` hairline between them (the softer ones vanish on the dark bubble), as ace lists are) and says in the needs-you text colour what for
+  that waits on the person stays a flat row (rows are flat, a hairline between them that starts at the text: `border` on the light bubble, `border-strong` on the dark one, where the softer borders vanish, as ace lists are) and says in the needs-you text colour what for
   ("Waiting for you to approve its plan"), with Review as a text button beside Open; there is no line for it outside
   the card. Its request waits at the end of the chat as ace's own card (Approve plan, an answer),
   answered there for the agent through its machine, and Review goes to it; with nothing to
