@@ -147,7 +147,9 @@ function fakeSdk(order: Order, dropAppend?: number): RuntimeSdkBoundary {
         }
         const run = await store!.runs.get({ agentId: "agent", runId });
         if (run)
-          await store!.runs.update({ run: { ...run, status: "finished", result: "All good." } });
+          await store!.runs.update({
+            run: { ...run, status: "finished", result: "All good good here." },
+          });
         const ended = await store!.agents.get({ agentId: "agent" });
         if (ended)
           await store!.agents.update({
@@ -324,9 +326,14 @@ it.each([
         drop !== lostAppend
           ? -1
           : live.findIndex((frame) => JSON.stringify(frame.body).includes("good "));
+      // Those cuts miss it as the answer streamed, and then show the whole answer from Cursor's
+      // saved result: the turn never ends on a fragment.
       const expected = (cut: number) =>
         drop === lostAppend && cut <= lostFrame
-          ? whole.map((line) => line.replace("All good good here.", "All good here."))
+          ? [
+              ...whole.map((line) => line.replace("All good good here.", "All good here.")),
+              "assistant: All good good here.",
+            ]
           : whole;
       for (let cut = first; cut <= live.length; cut++) {
         const committed = live.slice(0, cut);
@@ -384,7 +391,8 @@ it("a turn an earlier ace build was running shows nothing twice once the new bui
     const before = shown(committed);
     expect(before).toContain("assistant: Let me check.");
     const after = transcript([...committed, ...(await reopen(boundary, home, committed, 1))]);
-    expect(after.shown).toEqual(before);
+    // Nothing replayed: only the turn's final answer, from Cursor's saved result.
+    expect(after.shown).toEqual([...before, "assistant: All good good here."]);
     expect(
       after.notices.filter((text) => text.includes("began before ace was updated")),
     ).toHaveLength(1);

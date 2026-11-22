@@ -130,3 +130,55 @@ test("a cut-off run's missing tail is recovered and marked as recovered, and the
   expect(t.runs().map((run) => run.state)).toEqual(["failed"]);
   expect(t.status()).not.toBe("done");
 });
+
+test("a finished turn whose last words never reached ace shows its whole answer from Cursor's result", () => {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  t.frame("delta", { type: "text-delta", text: "The fix is " }, { runId: "run", eventSeq: 1 });
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  // The SDK lost the rest of the stream's writes; its stored result has the whole answer.
+  t.frame(
+    "recovery",
+    { nativeStatus: "finished", interrupted: false, result: "The fix is in parser.ts." },
+    { generation: "host2", operationId: "open", runId: "run" },
+  );
+  expect(t.text("assistant")).toEqual(["The fix is in parser.ts."]);
+  expect(t.notices().join(" ")).toContain("Cursor's saved result");
+  expect(t.status()).toBe("done");
+});
+
+test("a finished turn whose shown answer and stored result differ shows the result whole, said once", () => {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  t.frame("delta", { type: "text-delta", text: "Draft" }, { runId: "run", eventSeq: 1 });
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  t.frame(
+    "recovery",
+    { nativeStatus: "finished", interrupted: false, result: "Final answer." },
+    { generation: "host2", operationId: "open", runId: "run" },
+  );
+  expect(t.text("assistant")).toEqual(["Draft", "Final answer."]);
+  expect(t.notices().filter((text) => text.includes("Cursor's saved result"))).toHaveLength(1);
+  expect(t.status()).toBe("done");
+});
+
+test("a finished turn whose answer ace showed whole repeats nothing from Cursor's result", () => {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  t.frame("delta", { type: "text-delta", text: "All done." }, { runId: "run", eventSeq: 1 });
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  t.frame(
+    "recovery",
+    { nativeStatus: "finished", interrupted: false, result: "All done." },
+    { generation: "host2", operationId: "open", runId: "run" },
+  );
+  expect(t.text("assistant")).toEqual(["All done."]);
+  expect(t.notices().join(" ")).not.toContain("Cursor's saved result");
+  expect(t.status()).toBe("done");
+});

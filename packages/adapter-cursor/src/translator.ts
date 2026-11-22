@@ -49,6 +49,8 @@ export class CursorTranslator implements Translator {
   private turnNamespace = "";
   /** Whether the open turn showed any answer text, live or recovered. */
   private sawText = false;
+  /** The text of the turn's last answer so far: root text since its last tool call. */
+  private answer = "";
   /** Whether anything of the open turn came back from Cursor's store, and what never can. */
   private recoveredAny = false;
   private gaps = new Set<string>();
@@ -449,6 +451,7 @@ export class CursorTranslator implements Translator {
     this.transcript = new Transcript(namespace, this.max);
     this.turnNamespace = namespace;
     this.sawText = false;
+    this.answer = "";
     this.recoveredAny = false;
     this.gaps.clear();
     return facts;
@@ -461,10 +464,38 @@ export class CursorTranslator implements Translator {
   private recover(event: CursorEnvelope, body: Record<string, unknown>): Fact[] {
     const status = string(body.nativeStatus) ?? "unknown";
     const result = string(body.result);
-    // The stored result stands in for an answer only when none was shown, live or recovered.
-    const answer =
-      status === "finished" && result && !this.sawText && this.active
-        ? this.delta({ type: "text-delta", text: result }, this.root, this.turnNamespace, 0)
+    // The stored result is the turn's final answer: whatever of it was never shown is shown,
+    // so a finished turn never ends on a fragment.
+    const shown = this.answer;
+    const missing =
+      status === "finished" && result && this.active && result !== shown
+        ? result.startsWith(shown)
+          ? { text: result.slice(shown.length), apart: false }
+          : { text: result, apart: true }
+        : undefined;
+    const answer = missing
+      ? [
+          ...(missing.apart ? this.transcript.end() : []),
+          ...this.delta(
+            { type: "text-delta", text: missing.text },
+            this.root,
+            this.turnNamespace,
+            0,
+          ),
+        ]
+      : [];
+    const fromResult =
+      missing && this.sawText
+        ? [
+            this.notice(
+              missing.apart
+                ? "The answer above is Cursor's saved result for this turn; what ace showed of it as it streamed differs."
+                : "The end of this answer is from Cursor's saved result for this turn.",
+              event,
+              "info",
+              "cursor.recovered",
+            ),
+          ]
         : [];
     const what =
       status === "finished"
@@ -487,6 +518,7 @@ export class CursorTranslator implements Translator {
         body.interrupted ? "warning" : "info",
         "cursor.recovered",
       ),
+      ...fromResult,
       ...[...this.gaps].map((gap) => this.notice(gap, event, "info", "cursor.recovered")),
       ...(body.tailOmitted === true
         ? [
@@ -558,7 +590,13 @@ export class CursorTranslator implements Translator {
     namespace: string,
     depth: number,
   ): Fact[] {
-    if (depth === 0 && agent === this.root && body.type === "text-delta") this.sawText = true;
+    if (depth === 0 && agent === this.root) {
+      if (body.type === "text-delta") {
+        this.sawText = true;
+        if (this.answer.length < 1_048_576) this.answer += string(body.text) ?? "";
+      } else if (typeof body.type === "string" && body.type.startsWith("tool-call"))
+        this.answer = "";
+    }
     return translateDelta(
       body,
       agent,
