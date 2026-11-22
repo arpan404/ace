@@ -7,6 +7,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Envelope, object, string, nativeIdentity, type CursorEnvelope } from "./contracts.ts";
 import { Children } from "./children.ts";
 import { Transcript } from "./transcript.ts";
+import { StreamedAnswer } from "./streamed-answer.ts";
 import { ToolEvents } from "./tool-events.ts";
 import { translateDelta } from "./delta-events.ts";
 import { cursorFailure } from "./failure-kind.ts";
@@ -49,8 +50,8 @@ export class CursorTranslator implements Translator {
   private turnNamespace = "";
   /** Whether the open turn showed any answer text, live or recovered. */
   private sawText = false;
-  /** The text of the turn's last answer so far: root text since its last tool call. */
-  private answer = "";
+  /** The turn's last answer so far: root text since its last tool call. */
+  private answer = new StreamedAnswer();
   /** A recovered run's saved answer, as its parts arrive (recovery.ts). */
   private saved = "";
   /** Whether anything of the open turn came back from Cursor's store, and what never can. */
@@ -454,7 +455,7 @@ export class CursorTranslator implements Translator {
     this.transcript = new Transcript(namespace, this.max);
     this.turnNamespace = namespace;
     this.sawText = false;
-    this.answer = "";
+    this.answer.reset();
     this.recoveredAny = false;
     this.gaps.clear();
     return facts;
@@ -471,12 +472,9 @@ export class CursorTranslator implements Translator {
     this.saved = "";
     // The stored result is the turn's final answer: whatever of it was never shown is shown,
     // so a finished turn never ends on a fragment.
-    const shown = this.answer;
     const missing =
-      status === "finished" && result && this.active && result !== shown
-        ? result.startsWith(shown)
-          ? { text: result.slice(shown.length), apart: false }
-          : { text: result, apart: true }
+      status === "finished" && result && this.active
+        ? this.answer.missing(result, body.resultCut === true)
         : undefined;
     const answer = missing
       ? [
@@ -608,9 +606,9 @@ export class CursorTranslator implements Translator {
     if (depth === 0 && agent === this.root) {
       if (body.type === "text-delta") {
         this.sawText = true;
-        if (this.answer.length < 1_048_576) this.answer += string(body.text) ?? "";
+        this.answer.add(string(body.text) ?? "");
       } else if (typeof body.type === "string" && body.type.startsWith("tool-call"))
-        this.answer = "";
+        this.answer.reset();
     }
     return translateDelta(
       body,

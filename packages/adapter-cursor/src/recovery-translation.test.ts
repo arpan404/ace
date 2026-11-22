@@ -202,3 +202,28 @@ test("a saved answer past the cap says once that it is cut, and the turn still e
   expect(t.notices().filter((text) => text.includes("it is cut"))).toHaveLength(1);
   expect(t.status()).toBe("done");
 });
+
+test("a 3 MiB saved answer after 2 MiB of it streamed adds only the rest, never the streamed part again", () => {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  // Committed before the crash: 2 MiB in 64 KiB deltas, some of it multibyte.
+  const chunk = `${"é".repeat(16 * 1024)}${"x".repeat(32 * 1024)}`;
+  const streamed = chunk.repeat(32);
+  for (let at = 0; at < streamed.length; at += chunk.length)
+    t.frame("delta", { type: "text-delta", text: streamed.slice(at, at + chunk.length) });
+  const rest = "y".repeat(1024 * 1024);
+  const saved = streamed + rest;
+  const after = { generation: "host2", operationId: "open", runId: "run" };
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  let parts = 0;
+  for (let at = 0; at < saved.length; at += 8_000, parts++)
+    t.frame("recovered-result", { text: saved.slice(at, at + 8_000) }, after);
+  t.frame("recovery", { nativeStatus: "finished", interrupted: false, resultParts: parts }, after);
+  const shown = t.text("assistant").join("");
+  expect(shown.length).toBe(saved.length);
+  expect(shown).toBe(saved);
+  expect(t.notices().join(" ")).toContain("The end of this answer is from Cursor's saved result");
+  expect(t.status()).toBe("done");
+});
