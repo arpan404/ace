@@ -94,8 +94,12 @@ async function answers(client: Client, requestId: string) {
     encoding: "text",
   });
   for (;;) {
-    const message = await answer(client, "spade.http.result");
-    if (message.requestId === requestId) return message.result;
+    const message: ServerMessage = await client.next();
+    // Refused by the host's access policy before it reached Spade (ADR 0209 §4).
+    if (message.type === "error" && message.requestId === requestId)
+      return { kind: "error", code: message.code };
+    if (message.type === "spade.http.result" && message.requestId === requestId)
+      return message.result;
   }
 }
 

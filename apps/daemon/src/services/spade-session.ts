@@ -24,6 +24,8 @@ type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> &
       | "memberStandingChecked"
       | "orgHost"
       | "spadeAuthorize"
+      | "bindHandle"
+      | "holder"
     >
   > & {
     options: {
@@ -76,6 +78,8 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     context.spadeAuthorize ? context.spadeAuthorize(scope) : context.authorize(scope);
   const http = createSpadeHttp({
     host,
+    ...(context.bindHandle ? { bindHandle: context.bindHandle } : {}),
+    ...(context.holder ? { holder: context.holder } : {}),
     previews: host()?.previews,
     authorize: allowed,
     connected: () => context.connected(),
@@ -152,11 +156,19 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     watch(spade);
     const stream: Stream = { controller: new AbortController(), generation: ready.generation };
     streams.set(requestId, stream);
+    // Bound to who opened it: it ends once they may no longer read Spade (ADR 0209 §4.2).
+    const holder = context.holder?.();
+    const release = context.bindHandle?.({
+      operation: "spade",
+      resource: { kind: "host" },
+      close: () => stopStream(requestId, "forbidden"),
+    });
+    stream.controller.signal.addEventListener("abort", () => release?.(), { once: true });
     void spadeLive(ready.connection, path, {
       signal: stream.controller.signal,
       maxEventChars: maxSpadeResponseBytes,
       onEvent(event) {
-        if (!context.connected() || !allowed("read")) {
+        if (!context.connected() || !allowed("read") || context.holder?.() !== holder) {
           stopStream(requestId, "forbidden");
           return;
         }
@@ -179,7 +191,8 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
         if (streams.get(requestId) === stream) streams.delete(requestId);
         if (stream.reason) return end(requestId, stream.reason);
         end(requestId, "closed");
-      });
+      })
+      .finally(() => release?.());
   }
 
   return {

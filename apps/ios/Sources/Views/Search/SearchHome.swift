@@ -56,12 +56,16 @@ private struct SearchStart: View {
     let actions: SearchActions
     @Binding var query: String
     @State private var recent = RecentSearches.read(.standard)
+    /// The machine the Marketplace tile opens on, as the home's places choose it.
+    private var marketMachine: ClientModel? {
+        (inbox.sessions.first { $0.client.canOperate } ?? inbox.sessions.first)?.client
+    }
 
     var body: some View {
         List {
             Section {
                 SearchPlaceGrid(places: SearchPlace.offered(paired: !inbox.sessions.isEmpty), openPulls: openPulls,
-                                open: actions.place)
+                                marketUpdates: marketMachine?.keptMarketHome?.updatesText, open: actions.place)
                     .listRowInsets(EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin,
                                               bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin))
                     .listRowBackground(AceTheme.Colours.background)

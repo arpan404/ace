@@ -109,6 +109,7 @@ export function WorkingLine(props: {
   onWatch: (() => void) | undefined;
 }) {
   const now = useSeconds(props.since !== undefined);
+  const moving = props.state === "working" || props.state === "thinking";
   return (
     <div
       role="status"
@@ -116,8 +117,12 @@ export function WorkingLine(props: {
     >
       <SpadeFace avatar={props.avatar} size={32} state={props.state} />
       <span
+        // While it works, each new phrase sweeps once in the step's light (`.step-shimmer`:
+        // three passes, then still; still under reduced motion). Plain text, never markup.
+        key={moving ? props.label : undefined}
         className={cn(
           "min-w-0 truncate text-ui text-muted-foreground",
+          moving && "step-shimmer",
           props.detail && "max-w-1/2 shrink-0",
         )}
       >

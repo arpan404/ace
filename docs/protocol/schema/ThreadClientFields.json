@@ -74,6 +74,11 @@
     "settledAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "settledOverQueue": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "settledReason": {
       "enum": [
         "manual",

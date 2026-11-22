@@ -10,6 +10,7 @@ use crate::event::{Event, Known, Verdict};
 use crate::redact;
 use crate::tools::{CALL_TOOL, TOOL_SEARCH, unwrap_call_tool};
 
+pub mod doing;
 mod plain;
 pub mod words;
 

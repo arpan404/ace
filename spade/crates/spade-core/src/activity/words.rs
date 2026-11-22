@@ -258,6 +258,14 @@ const TOOLS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+/// Whether this table has its own words for the tool, under its name or its server's.
+pub fn known(name: &str) -> bool {
+    let last = name.rsplit("__").next().unwrap_or(name);
+    TOOLS
+        .iter()
+        .any(|(tool, ..)| *tool == name || *tool == last)
+}
+
 /// A tool's words; ace's tools may arrive under its server's name (`ace__screen_act`), and one
 /// this table doesn't know reads by its name in words.
 pub fn tool_words(name: &str) -> ToolWords {

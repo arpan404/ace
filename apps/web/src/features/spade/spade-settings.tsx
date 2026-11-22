@@ -17,6 +17,7 @@ import {
 import { VoiceRows } from "./spade-voice-settings.tsx";
 import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
 import { ReachSection } from "./spade-reach-settings.tsx";
+import { SearchUsageLine } from "./spade-search-usage.tsx";
 import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
 import { setShowWork, useShowWork } from "./spade-show-work.ts";
 import { CouldNotRead, ModelSettingRow, useSpadeRunning } from "./spade-settings-rows.tsx";
@@ -27,7 +28,7 @@ import { useSpadeClient } from "./spade-machine.tsx";
  * Settings › Spade › General: Spade on or off on this machine; the models it starts new bots
  * on and uses for small jobs, transcription and speech, and how replies sound; whether every
  * bot's writes are reviewed (ADR 0135); how Spade reaches the person (ADR 0195); then what every
- * bot spent. While the setting or Spade's state is
+ * bot spent, and this month's ace searches (ADR 0210). While the setting or Spade's state is
  * still being read, the rows hold their place, and the switch shows neither on nor off.
  */
 export function SpadeSettings() {
@@ -87,6 +88,7 @@ export function SpadeSettings() {
       <ChatSection />
       {line.ready && <ReachSection ready={line.ready} />}
       {(line.ready || reading) && <SpendingSection settings={oversight} />}
+      <SearchUsageLine ready={line.ready} />
     </>
   );
 }

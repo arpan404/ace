@@ -87,6 +87,12 @@ export const ThreadOrganization = z.object({
   readAt: Timestamp.optional(),
   settledAt: Timestamp.optional(),
   settledReason: z.enum(["manual", "inactivity", "pr_merged", "pr_closed"]).optional(),
+  /**
+   * The queue revision whose message, not sent or not known to have arrived, the person settled
+   * the thread over by hand. While the queue stays at it the thread stays settled; a later send
+   * that fails brings it back.
+   */
+  settledOverQueue: z.number().int().nonnegative().optional(),
   snoozedUntil: Timestamp.optional(),
   /** The event that ends the snooze before `snoozedUntil`; absent for a snooze to a time. */
   snoozeWake: SnoozeWake.optional(),
@@ -346,6 +352,7 @@ export const ThreadClientUpdated = z.object({
     pinOrder: PinOrder.nullable().optional(),
     settledAt: Timestamp.nullable().optional(),
     settledReason: ThreadOrganization.shape.settledReason.unwrap().nullable().optional(),
+    settledOverQueue: z.number().int().nonnegative().nullable().optional(),
     snoozedUntil: Timestamp.nullable().optional(),
     snoozeWake: SnoozeWake.nullable().optional(),
     snoozeWoke: SnoozeWoke.nullable().optional(),

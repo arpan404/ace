@@ -1,6 +1,6 @@
-//! The ace account credential Spade shows Spade Cloud (ADR 0140): a machine grant from the
-//! daemon, kept in memory until a minute before it runs out so polling a sign-in doesn't ask the
-//! daemon every few seconds. Never written anywhere.
+//! The ace account credential Spade shows ace cloud, for the sign-in broker (ADR 0140) and web
+//! search (ADR 0210): a machine grant from the daemon, kept in memory until a minute before it
+//! runs out so polling a sign-in doesn't ask the daemon every few seconds. Never written anywhere.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -49,6 +49,20 @@ impl AccountCredential for CloudAccount {
                     Some((grant.token.clone(), Instant::now() + keep));
             }
             Ok(grant.token.expose().to_owned())
+        })
+    }
+}
+
+/// ace cloud search is shown the same grant, from the same cache.
+impl spade_search::Credential for CloudAccount {
+    fn grant(&self) -> spade_search::GrantFuture<'_> {
+        Box::pin(async move {
+            AccountCredential::grant(self)
+                .await
+                .map_err(|problem| match problem {
+                    AccountProblem::SignedOut => spade_search::NoGrant::SignedOut,
+                    AccountProblem::Unreachable(why) => spade_search::NoGrant::Unreachable(why),
+                })
         })
     }
 }

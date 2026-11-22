@@ -21,6 +21,7 @@ import {
   spadeQuietLine,
   spadeRestLine,
   spadeRunningDetail,
+  spadeWorkingPhrase,
   type SpadeEntry,
   withSpadeDigests,
   type SpadeDigest,
@@ -33,6 +34,7 @@ import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
+import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
@@ -84,8 +86,7 @@ export interface ChatBot {
  * (`SpadeStepsLine`). Jobs, compaction and the notes it saves don't show (ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
- * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set up shows nothing (Settings ›
- * Spade › Web search is where it is set up); and a skill the bot offers as a
+ * (`SpadeQuestionBubble`, ADR 0154); and a skill the bot offers as a
  * bubble with Save and Discard (ADR 0130), after the reply that made it. While the bot works, one line under its last bubble: its face
  * working, its few words and how long it has been at it, with Watch while it uses its computer
  * and the right panel is closed. A bot carrying on with its task by itself keeps that line between replies ("Flights is
@@ -198,6 +199,8 @@ export function SpadeChat(props: {
   const working = busy && !waiting;
   // The open reply's step running now: the working line names what it touches.
   const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
+  // What it does now, in its own words or its tool's, held a moment so it never flickers.
+  const phrase = useHeldPhrase(spadeWorkingPhrase(view.status));
   const task = props.task;
   const lined = working || task !== undefined;
   // The finished reply being kept as a test (ADR 0204): its review is open.
@@ -303,7 +306,7 @@ export function SpadeChat(props: {
               label={
                 task && task.tone !== "waiting"
                   ? [task.sentence, task.step].filter(Boolean).join(" · ")
-                  : (view.status ?? "Working")
+                  : phrase
               }
               detail={working ? running : undefined}
               since={working ? view.working?.since : undefined}

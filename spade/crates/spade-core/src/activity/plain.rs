@@ -14,16 +14,25 @@ const VERBS: &[(&str, &str, &str)] = &[
     ("find", "Found", "Finding"),
     ("get", "Got", "Getting"),
     ("list", "Listed", "Listing"),
+    ("load", "Loaded", "Loading"),
+    ("lookup", "Looked up", "Looking up"),
     ("move", "Moved", "Moving"),
     ("post", "Posted", "Posting"),
     ("query", "Queried", "Querying"),
     ("read", "Read", "Reading"),
     ("remove", "Removed", "Removing"),
+    ("retrieve", "Retrieved", "Retrieving"),
     ("search", "Searched", "Searching"),
     ("send", "Sent", "Sending"),
     ("update", "Updated", "Updating"),
     ("upload", "Uploaded", "Uploading"),
+    ("view", "Viewed", "Viewing"),
 ];
+
+/// Verbs that look something up in an app: on the Working line, "Searching Notion".
+const SEARCHES: &[&str] = &["search", "find", "query", "lookup"];
+/// Verbs that read from an app: "Reading your Notion pages".
+const READS: &[&str] = &["get", "read", "fetch", "list", "retrieve", "view", "load"];
 
 /// A tool's name as words, without its server (`notion__notion-create-pages` → "create pages"):
 /// an app's tools often repeat the app's name, which the sentence already says.
@@ -74,17 +83,56 @@ pub fn tool(name: &str) -> (String, String, String) {
     }
 }
 
-/// The app a connector call belongs to, as the sentence names it ("Notion"); none for ace's own
-/// tools or a call with no server.
+/// The app a connector call belongs to, as the sentence names it ("Notion", "Google Calendar");
+/// none for ace's own tools or a call with no server.
 pub fn app_of(name: &str) -> Option<String> {
     let (app, _) = name.split_once("__")?;
     if app.is_empty() || app == "ace" {
         return None;
     }
-    let mut chars = app.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().chain(chars).collect())
+    let words: Vec<String> = app
+        .split(['_', '-'])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut chars = w.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        })
+        .collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// What an app's tool is doing, for the Working line, from the same verbs as the log's
+/// sentences: "Searching Notion", "Reading your Notion pages", "Creating page in Notion", else
+/// "Working in Notion". `None` for a tool that isn't an app's.
+pub fn app_doing(name: &str) -> Option<String> {
+    let app = app_of(name)?;
+    let words = words_of(name);
+    let (verb, rest) = words
+        .split_first()
+        .map_or(("", String::new()), |(v, r)| (v.as_str(), r.join(" ")));
+    let tail = |head: &str| {
+        if rest.is_empty() {
+            format!("{head} in {app}")
+        } else {
+            format!("{head} {rest} in {app}")
+        }
+    };
+    Some(if SEARCHES.contains(&verb) {
+        format!("Searching {app}")
+    } else if READS.contains(&verb) {
+        if rest.is_empty() {
+            format!("Reading from {app}")
+        } else {
+            format!("Reading your {app} {rest}")
+        }
+    } else if let Some((_, _, doing)) = VERBS.iter().find(|(v, ..)| *v == verb) {
+        tail(doing)
+    } else {
+        format!("Working in {app}")
+    })
 }
 
 /// An id, not words: a field named for one, or a value shaped like one (a UUID, a long hex or
@@ -177,6 +225,20 @@ mod tests {
             Some("Notion")
         );
         assert_eq!(app_of("ace__screen_act"), None);
+    }
+
+    #[test]
+    fn the_working_line_and_the_log_read_an_apps_tool_from_one_set_of_verbs() {
+        let doing = |name: &str| app_doing(name).unwrap_or_default();
+        assert_eq!(
+            doing("notion__notion-create-pages"),
+            "Creating pages in Notion"
+        );
+        assert_eq!(tool("notion__notion-create-pages").2, "Created pages");
+        assert_eq!(doing("notion__search"), "Searching Notion");
+        assert_eq!(doing("notion__get_pages"), "Reading your Notion pages");
+        assert_eq!(doing("linear__triage_board"), "Working in Linear");
+        assert_eq!(app_doing("ace__screen_act"), None);
     }
 
     #[test]
