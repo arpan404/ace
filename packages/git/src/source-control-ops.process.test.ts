@@ -412,6 +412,31 @@ describe("source control git operations", () => {
     }
   });
 
+  it("never commits ace's Recently deleted entries, from commit-all or a staged folder", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await mkdir(join(repo, "docs", ".ace-upload-trash-7"), { recursive: true });
+      await writeFile(join(repo, "docs", ".ace-upload-trash-7", "old.md"), "deleted\n");
+      await writeFile(join(repo, "docs", "guide.md"), "guide\n");
+      await git.stage({ worktree: repo, paths: ["docs"] });
+      expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("docs/guide.md");
+      await git.unstage({ worktree: repo });
+
+      await mkdir(join(repo, ".ace-upload-trash-8"), { recursive: true });
+      await writeFile(join(repo, ".ace-upload-trash-8", "gone.txt"), "deleted\n");
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      // No paths and nothing staged: the commit takes every change in the checkout.
+      await git.commit({ worktree: repo, message: "everything", expectedHead: head });
+      expect(runGit(repo, ["show", "--name-only", "--format=", "HEAD"])).toBe("docs/guide.md");
+      // A terminal `git add -A` skips them too: the repository's local exclude names them.
+      runGit(repo, ["add", "-A"]);
+      expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("");
+    } finally {
+      await git.close();
+    }
+  });
+
   it("pushes, lists, and pops stashes including untracked files", async () => {
     const repo = await createRepo();
     const git = new GitService();
@@ -467,7 +492,8 @@ describe("source control git operations", () => {
       expect(await readFile(join(repo, ".ace-upload-trash-1", "gone.txt"), "utf8")).toBe(
         "deleted\n",
       );
-      expect(runGit(repo, ["status", "--porcelain"])).toBe("?? .ace-upload-trash-1/");
+      // Still there, and ignored through the repository's local exclude.
+      expect(runGit(repo, ["status", "--porcelain", "--ignored"])).toBe("!! .ace-upload-trash-1/");
     } finally {
       await git.close();
     }

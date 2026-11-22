@@ -4,6 +4,7 @@ import { z } from "zod";
 import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
+import { excludeAcePrivate, personPathspecs } from "./ace-private.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -76,14 +77,20 @@ export async function commitChanges(
       // name, a staged deletion) is in no worktree and `git add` would refuse it.
       const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
       const staging = paths ? named.filter((path) => changed.has(path)) : named;
+      // Commit-all stages `.`: ace's own `.ace-upload-*` entries (Recently deleted) stay out.
+      await excludeAcePrivate(repository, root);
       if (staging.length)
-        await repository.cli.call(root, ["add", "--all", "--", ...staging], {
-          write: true,
-          beforeSpawn: options.beforeCommit,
-          timeoutMs: longWriteTimeoutMs,
-          captureBytes: 65536,
-          env: literal,
-        });
+        await repository.cli.call(
+          root,
+          ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
+          {
+            write: true,
+            beforeSpawn: options.beforeCommit,
+            timeoutMs: longWriteTimeoutMs,
+            captureBytes: 65536,
+            input: `${personPathspecs(staging).join("\0")}\0`,
+          },
+        );
     }
     const named = paths ? [...new Set(paths.data)] : [];
     await repository.cli.call(

@@ -5,6 +5,7 @@ import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage } from "./failure-text.ts";
 import { remoteNames } from "./remote-branches.ts";
 import type { Repository } from "./repository.ts";
+import { excludeAcePrivate, personPathspecs } from "./ace-private.ts";
 import { fileFingerprint } from "./file-fingerprint.ts";
 import { GitError, type GitStash, type ReviewedFile } from "./types.ts";
 
@@ -96,20 +97,9 @@ export async function stagePaths(
   const root = await repository.root(options.worktree);
   const paths = options.paths ? validateRepoPaths(root, options.paths) : undefined;
   await repository.serial(root, async () => {
-    // Stage all names the changed files rather than `.`, so ace's own `.ace-upload-*` entries
-    // (uploads, Recently deleted) never enter the index.
-    let staging = paths;
-    if (!staging) {
-      const status = await repository.status(root);
-      staging = [
-        ...new Set([
-          ...status.unstaged.map((entry) => entry.path),
-          ...status.untracked,
-          ...status.conflicted.map((entry) => entry.path),
-        ]),
-      ];
-    }
-    if (staging.length === 0) return;
+    await excludeAcePrivate(repository, root);
+    // A folder or Stage all never takes ace's own `.ace-upload-*` entries (uploads, Recently
+    // deleted), even inside the folder.
     await repository.cli.call(
       root,
       ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
@@ -117,8 +107,7 @@ export async function stagePaths(
         write: true,
         timeoutMs: longWriteTimeoutMs,
         captureBytes: 65_536,
-        env: literalEnv,
-        input: `${staging.join("\0")}\0`,
+        input: `${personPathspecs(paths ?? ["."]).join("\0")}\0`,
       },
     );
   });
@@ -470,6 +459,7 @@ export async function stashPush(
   if (options.message !== undefined && options.message.includes("\0"))
     throw new GitError("invalid_argument", "Stash message cannot contain NUL bytes");
   await repository.serial(root, async () => {
+    await excludeAcePrivate(repository, root);
     const status = await repository.status(root);
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve conflicts before stashing");
