@@ -12,7 +12,10 @@ import type { SpadeWorkerFacts } from "./spade-worker-rows.ts";
  * thread changes, or the list as a whole does, so the chat's rows follow without reopening it.
  * A worker the daemon's list doesn't hold (an older chat's, past the loaded window, or archived)
  * is read from its own thread instead, through a lease that yields to the views that need room,
- * so it never reads as running forever.
+ * so it never reads as running forever. A worker waiting on the person names the threads of its
+ * tree that do: those the list holds, and those the daemon's `askingThreads` hints lead to, each
+ * read from its own thread when the list lacks it (archived, or past the loaded window), so its
+ * request is found even below a thread the list doesn't hold.
  */
 
 const listWide = new Set(["ids", "unconfirmed", "sync", "error"]);
@@ -21,6 +24,10 @@ const threadWide = new Set(["thread", "unconfirmed", "sync", "error"]);
 type Owner = Pick<ClientCore, "threads" | "thread" | "threadRoom">;
 type Lease = ReturnType<ClientCore["thread"]>;
 type Listed = ReturnType<SpadeWorkerFacts["listed"]>;
+type Live = ThreadListEntry["live"];
+
+/** At most this many threads below a worker are followed, whatever the hints say. */
+const followsMost = 16;
 
 export class SpadeWorkerWatch {
   private lease: ReturnType<ClientCore["threads"]> | undefined;
@@ -32,6 +39,8 @@ export class SpadeWorkerWatch {
   /** Workers the list doesn't hold, each read from its own thread. */
   private readonly direct = new Map<string, { lease: Lease; stop: () => void }>();
   private stopped = false;
+  /** The threads below each worker last read from their own thread, kept while it shows. */
+  private readonly below = new Map<string, ReadonlySet<string>>();
   private readonly owner: Owner;
   private readonly changed: () => void;
 
@@ -66,7 +75,10 @@ export class SpadeWorkerWatch {
         const store = this.store();
         if (!store) return [thread];
         children ??= childrenOf(store);
-        return [thread, ...waitingBelow(thread, store, children)];
+        const found = new Set(waitingBelow(thread, store, children));
+        for (const id of this.hinted(thread, store)) found.add(id);
+        found.delete(thread);
+        return [thread, ...found];
       },
       bot: (id) => agents()?.find((agent) => agent.id === id),
       node,
@@ -85,7 +97,11 @@ export class SpadeWorkerWatch {
       }
     }
     this.shown = shown;
-    for (const thread of this.direct.keys()) if (!workers.has(thread)) this.forget(thread);
+    const kept = new Set(workers);
+    for (const worker of this.below.keys())
+      if (workers.has(worker)) for (const thread of this.below.get(worker) ?? []) kept.add(thread);
+      else this.below.delete(worker);
+    for (const thread of this.direct.keys()) if (!kept.has(thread)) this.forget(thread);
   }
 
   stop(): void {
@@ -97,6 +113,7 @@ export class SpadeWorkerWatch {
     this.stopRoom?.();
     this.stopRoom = undefined;
     for (const thread of this.direct.keys()) this.forget(thread);
+    this.below.clear();
     this.shown = new Set();
   }
 
@@ -126,8 +143,48 @@ export class SpadeWorkerWatch {
     };
   }
 
+  /**
+   * The threads below `worker` that the daemon's `askingThreads` hints say wait on the person,
+   * nearest first, each one the list lacks read from its own thread.
+   */
+  private hinted(worker: string, list: Listing & Settled): string[] {
+    const found: string[] = [];
+    const read = new Set<string>();
+    const seen = new Set([worker]);
+    const queue = [worker];
+    for (const id of queue) {
+      if (found.length >= followsMost) break;
+      for (const child of this.live(id, list, read)?.askingThreads ?? []) {
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        found.push(child.id);
+        queue.push(child.id);
+      }
+    }
+    this.below.set(worker, read);
+    return found;
+  }
+
+  /** A thread's live hints: the list's, else its own thread's once that says. */
+  private live(thread: string, list: Listing & Settled, read: Set<string>): Live {
+    const entry = list.thread(thread);
+    if (entry) return entry.live;
+    // Only the daemon's own list says a thread is missing from it.
+    if (!list.loaded || list.unconfirmed || list.syncing || list.error) return undefined;
+    read.add(thread);
+    return this.settled(thread)?.live;
+  }
+
   /** A worker the list doesn't hold, from its own thread; undefined until that says. */
   private read(thread: string): Listed {
+    const read = this.settled(thread);
+    const status = read?.status;
+    if (!status || status.state === "new") return undefined;
+    return { state: delegatedState(status), asking: read?.live?.asking?.[0]?.kind };
+  }
+
+  /** A thread the list doesn't hold, from its own thread; undefined until that says. */
+  private settled(thread: string) {
     let held = this.direct.get(thread);
     if (!held) {
       let lease: Lease;
@@ -157,9 +214,7 @@ export class SpadeWorkerWatch {
       return undefined;
     }
     if (store.error || store.syncing || store.unconfirmed) return undefined;
-    const status = store.thread?.status;
-    if (!status || status.state === "new") return undefined;
-    return { state: delegatedState(status), asking: store.thread?.live?.asking?.[0]?.kind };
+    return store.thread;
   }
 
   private forget(thread: string) {
@@ -191,6 +246,7 @@ export class SpadeWorkerWatch {
 }
 
 type Listing = { ids: readonly string[]; thread(id: string): ThreadListEntry | undefined };
+type Settled = { loaded: boolean; unconfirmed: boolean; syncing: boolean; error: unknown };
 
 /** Each listed thread's delegated children, by the thread that delegated them. */
 function childrenOf(list: Listing): Map<string, string[]> {
