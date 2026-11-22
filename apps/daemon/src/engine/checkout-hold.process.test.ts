@@ -120,7 +120,7 @@ test("a thread created in the worktree, or in a folder inside it, starts only af
     frames,
   );
   try {
-    const id = await h.create("first");
+    await h.create("first");
     await mkdir(join(h.home, "packages", "app"), { recursive: true });
     const nested = h.store.createWorkspace(join(h.home, "packages", "app"), "App");
     const held = gate();
