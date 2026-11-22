@@ -343,7 +343,7 @@ struct InboxView: View {
     private var otherMachines: OtherMachines {
         OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key, opened in
             let client = inbox.client(key.machineId)
-            let result = OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxLoaded == true)
+            let result = OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxConfirmed == true)
             switch result {
             case .opened: openThread(key); opened()
             case .waiting: awaitedOpen = AwaitedOpen(key: key, opened: opened)
