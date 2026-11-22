@@ -66,7 +66,7 @@ function pagedCommit(index: number, subject: string) {
 }
 
 describe("EditorTimeline and EditorCommitCompare", () => {
-  test("lists file history, pages through commits, copies commit id, and opens a read-only commit diff on click", async () => {
+  test("lists file history, copies commit id, and opens a read-only commit diff on click", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitLog(threadId, "src/app.ts", [
       {
@@ -224,23 +224,16 @@ describe("EditorTimeline and EditorCommitCompare", () => {
     expect(diffRegion.textContent).not.toContain("export const model");
   });
 
-  test("pages commits with Load more when history exceeds a page", async () => {
+  test("a long history lists the newest 200 commits and says older ones are in git log", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
-    const entries = Array.from({ length: 30 }, (_, index) => ({
-      sha: index.toString(16).padStart(40, "0"),
-      shortSha: index.toString(16).padStart(7, "0"),
-      subject: `Commit #${index + 1}`,
-      authorName: "Arpan",
-      authorEmail: "arpan@example.invalid",
-      authoredAt: nowMs - (index + 1) * 3600_000,
-      path: "src/paged.ts",
-    }));
-    daemon.workspace.setGitLog(threadId, "src/paged.ts", entries);
-
+    daemon.workspace.setGitLog(
+      threadId,
+      "src/paged.ts",
+      Array.from({ length: 250 }, (_, index) => pagedCommit(index, `Commit #${index + 1}`)),
+    );
     const client = fakeClient(daemon);
     await client.start();
     await waitFor(() => expect(client.state).toBe("ready"));
-
     render(
       <ClientProvider client={client}>
         <EditorTimeline
@@ -255,19 +248,19 @@ describe("EditorTimeline and EditorCommitCompare", () => {
     );
 
     await screen.findByText("Commit #1");
-    expect(screen.queryByText("Commit #30")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-    await screen.findByText("Commit #30");
+    expect(screen.getByText("Commit #200")).toBeTruthy();
+    expect(screen.queryByText("Commit #201")).toBeNull();
+    expect(screen.getByText("Older history is in git log.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
-  test("a history rewritten between pages says so and reloads from the start", async () => {
+  test("a walk that ran out of time says it stopped early", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitLog(
       threadId,
       "src/paged.ts",
-      Array.from({ length: 30 }, (_, index) => pagedCommit(index, `Old #${index + 1}`)),
+      [pagedCommit(0, "Only one in time")],
+      "budget",
     );
     const client = fakeClient(daemon);
     await client.start();
@@ -284,18 +277,9 @@ describe("EditorTimeline and EditorCommitCompare", () => {
         />
       </ClientProvider>,
     );
-    await screen.findByText("Old #1");
-
-    // The branch was rewritten: the page the cursor continues is gone.
-    daemon.workspace.setGitLog(threadId, "src/paged.ts", [pagedCommit(100, "Rewritten")]);
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-    expect(await screen.findByText("This file's history changed.")).toBeTruthy();
-    // Nothing from another history is mixed in.
-    expect(screen.queryByText("Rewritten")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
-    expect(await screen.findByText("Rewritten")).toBeTruthy();
-    expect(screen.queryByText("Old #1")).toBeNull();
+    await screen.findByText("Only one in time");
+    expect(screen.getByText("Stopped early: history is very long.")).toBeTruthy();
+    expect(screen.queryByText("Older history is in git log.")).toBeNull();
   });
 });
 

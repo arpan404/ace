@@ -448,18 +448,12 @@
         },
         {
           "properties": {
-            "capped": {
-              "type": "boolean"
-            },
             "entries": {
               "items": {
                 "$ref": "https://ace.local/protocol/v1/GitLogEntry.json"
               },
-              "maxItems": 100,
+              "maxItems": 200,
               "type": "array"
-            },
-            "hasMore": {
-              "type": "boolean"
             },
             "head": {
               "anyOf": [
@@ -475,15 +469,17 @@
               "const": "gitLog",
               "type": "string"
             },
-            "next": {
-              "$ref": "https://ace.local/protocol/v1/GitLogCursor.json"
+            "stopped": {
+              "enum": [
+                "limit",
+                "budget"
+              ],
+              "type": "string"
             }
           },
           "required": [
             "kind",
             "entries",
-            "hasMore",
-            "capped",
             "head"
           ],
           "type": "object"

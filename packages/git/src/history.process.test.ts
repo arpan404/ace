@@ -8,131 +8,39 @@ import { git, put, repository, scratch } from "./test-repo.ts";
 
 const service = new GitService();
 
-test("fileLog follows renames, pages through commits, and reports when output hits the byte cap", async () => {
+test("fileLog lists a file's newest commits following renames, in one walk", async () => {
   const repo = await repository({ "old.ts": "export const a = 1;\n" });
   const firstSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
-
-  await put(repo, "old.ts", "export const a = 2;\nexport const b = 3;\n");
+  await put(repo, "old.ts", "export const a = 2;\n");
   await git(repo, "add", "old.ts");
   await git(repo, "commit", "-m", "Update old file");
   const secondSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
-
   await rename(join(repo, "old.ts"), join(repo, "renamed.ts"));
   await git(repo, "add", "-A");
   await git(repo, "commit", "-m", "Rename old.ts to renamed.ts");
   const thirdSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
 
-  await put(repo, "renamed.ts", "export const a = 2;\nexport const b = 4;\n");
-  await git(repo, "add", "renamed.ts");
-  await git(repo, "commit", "-m", "Touch renamed file");
-  const fourthSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
-
-  const page1 = await service.fileLog({ worktree: repo, path: "renamed.ts", limit: 2 });
-  expect(page1.head).toBe(fourthSha);
-  expect(page1.capped).toBe(false);
-  expect(page1.hasMore).toBe(true);
-  // The next page resumes the same walk: from the same tip, after the rows already shown.
-  expect(page1.next).toEqual({ tip: fourthSha, path: "renamed.ts", shown: 2 });
-  expect(page1.entries.map((entry) => entry.sha)).toEqual([fourthSha, thirdSha]);
-  expect(page1.entries[0]?.path).toBe("renamed.ts");
-  expect(page1.entries[1]).toMatchObject({
-    sha: thirdSha,
+  const all = await service.fileLog({ worktree: repo, path: "renamed.ts" });
+  expect(all.head).toBe(thirdSha);
+  expect(all.stopped).toBeUndefined();
+  expect(all.entries.map((entry) => entry.sha)).toEqual([thirdSha, secondSha, firstSha]);
+  expect(all.entries[0]).toMatchObject({
     subject: "Rename old.ts to renamed.ts",
     path: "renamed.ts",
     previousPath: "old.ts",
   });
+  expect(all.entries[1]?.path).toBe("old.ts");
 
-  // A commit made after the first page does not shift the next one: the cursor is pinned.
-  await put(repo, "renamed.ts", "export const a = 3;\nexport const b = 4;\n");
-  await git(repo, "add", "renamed.ts");
-  await git(repo, "commit", "-m", "Later commit");
-
-  const page2 = await service.fileLog({
-    worktree: repo,
-    path: "renamed.ts",
-    limit: 2,
-    cursor: page1.next,
-  });
-  expect(page2.capped).toBe(false);
-  expect(page2.hasMore).toBe(false);
-  expect(page2.next).toBeUndefined();
-  expect(page2.entries.map((entry) => entry.sha)).toEqual([secondSha, firstSha]);
-  expect(page2.entries[0]?.path).toBe("old.ts");
-  expect(page2.entries[1]?.path).toBe("old.ts");
-
-  const capped = await service.fileLog({
-    worktree: repo,
-    path: "renamed.ts",
-    limit: 10,
-    maxBytes: 150,
-  });
-  expect(capped.capped).toBe(true);
-  expect(capped.entries.length).toBeLessThan(4);
+  // More commits than the limit: the newest ones, and the list says it stopped at the limit.
+  const limited = await service.fileLog({ worktree: repo, path: "renamed.ts", limit: 2 });
+  expect(limited.entries.map((entry) => entry.sha)).toEqual([thirdSha, secondSha]);
+  expect(limited.stopped).toBe("limit");
 });
 
-test("a long subject before the page does not hide older commits", async () => {
+test("a walk stopped by its work budget says so, apart from one stopped at the limit", async () => {
   const repo = await repository({ "a.ts": "1\n" });
-  const long = "x".repeat(3000);
-  for (const n of [2, 3, 4]) {
-    await put(repo, "a.ts", `${n}\n`);
-    await git(repo, "add", "a.ts");
-    await git(repo, "commit", "-m", n === 4 ? long : `Commit ${n}`);
-  }
-  const seen: string[] = [];
-  let cursor: { tip: string; path: string; shown: number } | undefined;
-  for (let page = 0; page < 6; page++) {
-    const read = await service.fileLog({
-      worktree: repo,
-      path: "a.ts",
-      limit: 1,
-      maxBytes: 3500,
-      cursor,
-    });
-    seen.push(...read.entries.map((entry) => entry.subject.slice(0, 10)));
-    if (!read.next) break;
-    cursor = read.next;
-  }
-  expect(seen).toEqual([long.slice(0, 10), "Commit 3", "Commit 2", "Initial"]);
-});
-
-test("paging through a history with a merge shows every commit the full walk shows", async () => {
-  const repo = await repository({ "a.ts": "1\n2\n3\n" });
-  await git(repo, "checkout", "-q", "-b", "side");
-  await put(repo, "a.ts", "1\n2\n3 side\n");
-  await git(repo, "commit", "-qam", "Side change");
-  await git(repo, "checkout", "-q", "-");
-  await put(repo, "a.ts", "1 main\n2\n3\n");
-  await git(repo, "commit", "-qam", "Main change");
-  await git(repo, "merge", "-q", "--no-edit", "side");
-  await put(repo, "a.ts", "1 main\n2 after\n3 side\n");
-  await git(repo, "commit", "-qam", "After merge");
-
-  const full = (await git(repo, "log", "--follow", "--format=%H", "--", "a.ts"))
-    .toString()
-    .trim()
-    .split("\n");
-  const seen: string[] = [];
-  let cursor: { tip: string; path: string; shown: number } | undefined;
-  for (let page = 0; page < 10; page++) {
-    const read = await service.fileLog({ worktree: repo, path: "a.ts", limit: 1, cursor });
-    seen.push(...read.entries.map((entry) => entry.sha));
-    if (!read.next) break;
-    cursor = read.next;
-  }
-  expect(seen).toEqual(full);
-  expect(seen.length).toBeGreaterThanOrEqual(4);
-});
-
-test("a cursor whose tip is gone says the history changed", async () => {
-  const repo = await repository({ "a.ts": "1\n" });
-  await expect(
-    service.fileLog({
-      worktree: repo,
-      path: "a.ts",
-      limit: 1,
-      cursor: { tip: "e".repeat(40), path: "a.ts", shown: 1 },
-    }),
-  ).rejects.toMatchObject({ code: "history_changed" });
+  const read = await service.fileLog({ worktree: repo, path: "a.ts", budgetMs: 0 });
+  expect(read.stopped).toBe("budget");
 });
 
 test("fileLog returns an empty history on an unborn repository or untracked file", async () => {
@@ -141,14 +49,13 @@ test("fileLog returns an empty history on an unborn repository or untracked file
   await put(emptyRepo, "draft.ts", "export const x = 1;\n");
 
   const unborn = await service.fileLog({ worktree: emptyRepo, path: "draft.ts" });
-  expect(unborn).toEqual({ entries: [], hasMore: false, capped: false, head: null });
+  expect(unborn).toEqual({ entries: [], head: null });
 
   const trackedRepo = await repository({ "tracked.ts": "one\n" });
   await put(trackedRepo, "untracked.ts", "two\n");
   const untracked = await service.fileLog({ worktree: trackedRepo, path: "untracked.ts" });
   expect(untracked.entries).toEqual([]);
-  expect(untracked.hasMore).toBe(false);
-  expect(untracked.capped).toBe(false);
+  expect(untracked.stopped).toBeUndefined();
   expect(untracked.head).toMatch(/^[0-9a-f]{40,64}$/);
 });
 

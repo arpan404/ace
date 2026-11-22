@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import { CommitSha, ReviewPath, ThreadId, type GitLogCursor } from "@ace/protocol";
+import { CommitSha, ReviewPath, ThreadId } from "@ace/protocol";
 import { CommandRefused } from "./daemon-command.ts";
 
 /** One commit opened in the read-only commit diff viewer (from Timeline or Inline Blame). */
@@ -15,12 +15,12 @@ export interface CommitDiffTarget {
   authoredAt: number;
 }
 
-/** Reads a file's commit history via `git.log` (renames followed, paged). */
+/** Reads a file's newest commits via `git.log` (renames followed, one bounded walk). */
 export async function readGitLog(
   client: ClientApi,
   threadId: string,
   path: string,
-  options?: { cursor?: GitLogCursor | undefined; limit?: number; signal?: AbortSignal },
+  signal?: AbortSignal,
 ) {
   const reply = await client.request(
     {
@@ -29,11 +29,9 @@ export async function readGitLog(
         op: "git.log",
         threadId: ThreadId.parse(threadId),
         path: ReviewPath.parse(path),
-        ...(options?.cursor ? { cursor: options.cursor } : {}),
-        limit: options?.limit ?? 25,
       },
     },
-    options?.signal ? { signal: options.signal } : {},
+    signal ? { signal } : {},
   );
   if (reply.result.kind === "error") throw new CommandRefused(reply.result.code);
   if (reply.result.kind !== "gitLog") throw new CommandRefused("git_log_unavailable");

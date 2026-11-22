@@ -6,10 +6,10 @@ import { ReviewPath } from "./review.ts";
 export const CommitSha = z.string().regex(/^[0-9a-f]{40,64}$/);
 export type CommitSha = z.infer<typeof CommitSha>;
 
-/** Maximum commits returned by a single `git.log` page. */
-export const gitLogMaxLimit = 100;
+/** The most commits `git.log` lists: a file's newest ones; older history is for `git log`. */
+export const gitLogMaxLimit = 200;
 /** Byte cap for one `git.log` read from Git. */
-export const gitLogMaxBytes = 256 * 1024;
+export const gitLogMaxBytes = 1024 * 1024;
 /** Maximum lines returned by a single `git.blame` range read. */
 export const gitBlameMaxLines = 500;
 /** Byte cap for one `git.blame` read from Git. */
@@ -49,30 +49,15 @@ export const GitBlameLine = z.object({
 });
 export type GitBlameLine = z.infer<typeof GitBlameLine>;
 
-/**
- * Where a file's next page of history resumes: the same walk from `tip` for `path` as named
- * there, after the `shown` rows already shown. A page whose tip is gone is refused
- * (`git_history_changed`).
- */
-export const GitLogCursor = z.object({
-  tip: CommitSha,
-  path: ReviewPath,
-  shown: z.number().int().min(1).max(10_000),
-});
-export type GitLogCursor = z.infer<typeof GitLogCursor>;
-
 export const GitHistoryOperations = [
   /**
-   * File-scoped commit history in the thread's checkout, following renames (`git log --follow`).
-   * The first page walks from HEAD; a later one resumes that walk at the `next` cursor.
-   * Bounded by `gitLogMaxLimit` entries, `gitLogMaxBytes` bytes and a work budget.
+   * A file's newest commits in the thread's checkout, following renames (`git log --follow`):
+   * at most `gitLogMaxLimit`, in one walk bounded by `gitLogMaxBytes` and a work budget.
    */
   z.object({
     op: z.literal("git.log"),
     threadId: ThreadId,
     path: ReviewPath,
-    cursor: GitLogCursor.optional(),
-    limit: z.number().int().min(1).max(gitLogMaxLimit).default(50),
   }),
   /**
    * File-scoped blame of a bounded 1-based inclusive line range at `commit` (HEAD when left
@@ -101,10 +86,11 @@ export const GitHistoryResults = [
   z.object({
     kind: z.literal("gitLog"),
     entries: z.array(GitLogEntry).max(gitLogMaxLimit),
-    hasMore: z.boolean(),
-    next: GitLogCursor.optional(),
-    /** Output stopped at the daemon's byte or entry cap before the requested page finished. */
-    capped: z.boolean(),
+    /**
+     * Why the list ends before the file's first commit: `limit` (the newest commits, or the
+     * byte cap), `budget` (the walk ran out of time). Absent when it is the whole history.
+     */
+    stopped: z.enum(["limit", "budget"]).optional(),
     head: CommitSha.nullable(),
   }),
   z.object({

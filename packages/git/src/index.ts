@@ -109,7 +109,6 @@ export type {
   CommitDiffOptions,
   FileBlameOptions,
   FileBlameResult,
-  FileLogCursor,
   FileLogOptions,
   FileLogResult,
 } from "./history.ts";
@@ -555,7 +554,7 @@ export class GitService {
     );
   }
 
-  /** A file's commits following renames, a page at a time (see `FileLogCursor`). */
+  /** A file's newest commits following renames, in one bounded walk. */
   async fileLog(options: FileLogOptions): Promise<FileLogResult> {
     const root = await this.repository.root(options.worktree, options.signal);
     return this.historyReads.run(() => fileLog(this.repository, root, options), options.signal);

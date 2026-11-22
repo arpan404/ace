@@ -860,8 +860,6 @@ export class WorkspaceRuntime {
       const log = await this.git.fileLog({
         worktree: root,
         path: op.path,
-        cursor: op.cursor,
-        limit: op.limit,
         signal,
       });
       if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");

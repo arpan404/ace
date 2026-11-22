@@ -7,6 +7,7 @@ import {
   ForgeBrowserResult,
   ForgeIssueSearch,
   type ForgeBrowserOperation,
+  gitLogMaxLimit,
   gitStatusLimit,
   ServerMessage,
   InstalledEditor,
@@ -325,8 +326,17 @@ export class FakeWorkspaceWire {
     this.gitCommitPatches.set(`${threadId}:${commit}`, patch);
   }
   private gitLogs = new Map<string, readonly GitLogEntry[]>();
-  setGitLog(threadId: string, path: string, entries: readonly GitLogEntry[]): void {
+  private gitLogStops = new Map<string, "limit" | "budget">();
+  /** The file's commits, newest first; `stopped` says the walk ended early (else the limit). */
+  setGitLog(
+    threadId: string,
+    path: string,
+    entries: readonly GitLogEntry[],
+    stopped?: "limit" | "budget",
+  ): void {
     this.gitLogs.set(`${threadId}:${path}`, entries);
+    if (stopped) this.gitLogStops.set(`${threadId}:${path}`, stopped);
+    else this.gitLogStops.delete(`${threadId}:${path}`);
   }
   private gitBlames = new Map<
     string,
@@ -632,28 +642,16 @@ export class FakeWorkspaceWire {
     }
     if (op.op === "git.log") {
       const all = this.gitLogs.get(`${op.threadId}:${op.path}`) ?? [];
-      // The walk's tip is the newest commit; a cursor from a tip no longer there is refused.
-      const tip = all[0]?.sha;
-      if (op.cursor && op.cursor.tip !== tip)
-        return ServerMessage.parse({
-          type: "workspace.result",
-          requestId: request.requestId,
-          result: { kind: "error", code: "git_history_changed" },
-        });
-      const from = op.cursor?.shown ?? 0;
-      const entries = all.slice(from, from + op.limit);
-      const hasMore = from + entries.length < all.length;
+      const stopped =
+        this.gitLogStops.get(`${op.threadId}:${op.path}`) ??
+        (all.length > gitLogMaxLimit ? "limit" : undefined);
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
         result: {
           kind: "gitLog",
-          entries,
-          hasMore,
-          ...(hasMore && tip
-            ? { next: { tip, path: op.cursor?.path ?? op.path, shown: from + entries.length } }
-            : {}),
-          capped: false,
+          entries: all.slice(0, gitLogMaxLimit),
+          ...(stopped ? { stopped } : {}),
           head: this.head(op.threadId) ?? null,
         },
       });

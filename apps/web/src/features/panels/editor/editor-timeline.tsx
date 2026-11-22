@@ -1,6 +1,6 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
 import { CaretDownIcon, CaretRightIcon, CheckIcon, CopyIcon, GitCommitIcon } from "@ace/icons";
-import type { GitLogCursor, GitLogEntry } from "@ace/protocol";
+import type { GitLogEntry } from "@ace/protocol";
 import { useEffect, useState } from "react";
 import {
   ContextMenu,
@@ -9,28 +9,26 @@ import {
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { CommandRefused } from "@/lib/daemon-command.ts";
 import { formatRelativeWords, readGitLog, type CommitDiffTarget } from "@/lib/git-history.ts";
-
-const pageSize = 25;
 
 interface TimelineData {
   key: string;
   entries: readonly GitLogEntry[];
-  hasMore: boolean;
-  next: GitLogCursor | undefined;
-  capped: boolean;
+  /** Why the list ends before the file's first commit (see `git.log`). */
+  stopped: "limit" | "budget" | undefined;
   error: string | undefined;
-  /** The history the next page continued is gone (rewritten): only a reload is shown. */
-  changed: boolean;
-  loadingMore: boolean;
 }
+
+/** The quiet last line of a list that does not reach the file's first commit. */
+const stoppedWords = {
+  limit: "Older history is in git log.",
+  budget: "Stopped early: history is very long.",
+} as const;
 
 /**
  * Collapsible "Timeline" section under Outline at the bottom of the Files view.
- * Lists the active file's git history from `git.log` (subject, author, relative time), paged,
+ * Lists the active file's newest commits from `git.log` (subject, author, relative time),
  * opens a read-only commit diff on click, and offers "Copy commit id".
  */
 export function EditorTimeline(props: {
@@ -46,30 +44,21 @@ export function EditorTimeline(props: {
   const client = useClient();
   // A new commit moves HEAD: the history is read again.
   const head = useThreadMeta(threadId)?.details?.head ?? "";
-  const [reloads, setReloads] = useState(0);
-  const requestKey =
-    open && path !== undefined ? `${threadId}:${path}:${head}:${reloads}` : undefined;
+  const requestKey = open && path !== undefined ? `${threadId}:${path}:${head}` : undefined;
   const [data, setData] = useState<TimelineData | undefined>(undefined);
   const [copiedSha, setCopiedSha] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!requestKey || path === undefined) return;
     const controller = new AbortController();
-    void readGitLog(client, threadId, path, {
-      limit: pageSize,
-      signal: controller.signal,
-    }).then(
+    void readGitLog(client, threadId, path, controller.signal).then(
       (result) => {
         if (controller.signal.aborted) return;
         setData({
           key: requestKey,
           entries: result.entries,
-          hasMore: result.hasMore,
-          next: result.next,
-          capped: result.capped,
+          stopped: result.stopped,
           error: undefined,
-          changed: false,
-          loadingMore: false,
         });
       },
       () => {
@@ -77,12 +66,8 @@ export function EditorTimeline(props: {
         setData({
           key: requestKey,
           entries: [],
-          hasMore: false,
-          next: undefined,
-          capped: false,
+          stopped: undefined,
           error: "Couldn't read this file's history.",
-          changed: false,
-          loadingMore: false,
         });
       },
     );
@@ -91,48 +76,6 @@ export function EditorTimeline(props: {
 
   const active = requestKey !== undefined && data?.key === requestKey ? data : undefined;
   const Caret = open ? CaretDownIcon : CaretRightIcon;
-
-  const loadMore = () => {
-    if (
-      !active ||
-      !path ||
-      !requestKey ||
-      !active.hasMore ||
-      active.next === undefined ||
-      active.loadingMore
-    )
-      return;
-    setData({ ...active, loadingMore: true });
-    void readGitLog(client, threadId, path, { cursor: active.next, limit: pageSize }).then(
-      (result) => {
-        setData((prev) =>
-          prev && prev.key === requestKey
-            ? {
-                ...prev,
-                entries: [...prev.entries, ...result.entries],
-                hasMore: result.hasMore,
-                next: result.next,
-                capped: prev.capped || result.capped,
-                loadingMore: false,
-              }
-            : prev,
-        );
-      },
-      (error: unknown) => {
-        const changed = error instanceof CommandRefused && error.code === "git_history_changed";
-        setData((prev) =>
-          prev && prev.key === requestKey
-            ? {
-                ...prev,
-                error: changed ? undefined : "Couldn't read older commits.",
-                changed,
-                loadingMore: false,
-              }
-            : prev,
-        );
-      },
-    );
-  };
 
   const copyCommitId = (sha: string) => {
     void navigator.clipboard?.writeText(sha).catch(() => undefined);
@@ -178,13 +121,6 @@ export function EditorTimeline(props: {
             <div className="flex items-center gap-2 px-3 py-2 text-xs text-subtle-foreground">
               <Spinner />
               Loading history…
-            </div>
-          ) : active.changed ? (
-            <div className="flex items-center gap-2 px-3 py-2 text-xs text-subtle-foreground">
-              <span className="min-w-0 flex-1">This file&apos;s history changed.</span>
-              <Button size="sm" variant="secondary" onClick={() => setReloads((n) => n + 1)}>
-                Reload
-              </Button>
             </div>
           ) : active.error ? (
             <p className="px-3 py-2 text-xs text-subtle-foreground">{active.error}</p>
@@ -274,22 +210,10 @@ export function EditorTimeline(props: {
                   );
                 })}
               </ul>
-              {active.capped && !active.hasMore && (
+              {active.stopped && (
                 <p className="px-3 pt-1 text-[11px] text-subtle-foreground">
-                  Older commits are too long to list here.
+                  {stoppedWords[active.stopped]}
                 </p>
-              )}
-              {active.hasMore && (
-                <div className="px-2 pt-1">
-                  <button
-                    type="button"
-                    disabled={active.loadingMore}
-                    onClick={loadMore}
-                    className="flex h-6 w-full items-center justify-center rounded-sm text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:opacity-50"
-                  >
-                    {active.loadingMore ? "Loading…" : "Load more"}
-                  </button>
-                </div>
               )}
             </>
           )}

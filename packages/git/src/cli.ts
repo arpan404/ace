@@ -87,6 +87,8 @@ export interface Output {
   stderr: string;
   exitCode: number;
   truncated: boolean;
+  /** Why ace stopped Git (`stopAtCapture`, `stopAfterMs`); absent when Git ended by itself. */
+  stopped?: "capture" | "budget";
 }
 
 export class GitCli {
@@ -760,12 +762,13 @@ export class GitCli {
       let stopped = false;
       let settled = false;
       // The caller has all it asked for (`stopAtCapture`, `stopAfterMs`): stop Git, keep output.
-      let enough = false;
-      const enoughOutput = (): Output => ({
+      let enough: "capture" | "budget" | undefined;
+      const enoughOutput = (reason: "capture" | "budget"): Output => ({
         stdout: Buffer.concat(chunks),
         stderr: Buffer.concat(errors).toString("utf8"),
         exitCode: 0,
         truncated: true,
+        stopped: reason,
       });
       // Windows: the call's job holds Git and everything it started. Once it is empty the
       // receipt is confirmed, and its leases retire as a POSIX call's do once its group is gone.
@@ -801,7 +804,7 @@ export class GitCli {
         settled = true;
         if (enough && !failure) {
           // Held until the group is gone, so whoever limits these reads counts it until then.
-          const output = enoughOutput();
+          const output = enoughOutput(enough);
           void groupGone(this.runtime, pid).then(() => resolve(output));
         } else reject(failure);
       };
@@ -861,7 +864,7 @@ export class GitCli {
         settled = true;
         if (enough && !failure) {
           // Held until the group is gone, so whoever limits these reads counts it until then.
-          const output = enoughOutput();
+          const output = enoughOutput(enough);
           void groupGone(this.runtime, pid).then(() => resolve(output));
         } else reject(failure);
       };
@@ -885,7 +888,7 @@ export class GitCli {
           ? undefined
           : this.runtime.scheduleTimeout(() => {
               if (failure || settled) return;
-              enough = true;
+              enough = "budget";
               kill();
             }, options.stopAfterMs);
       const deadline = options.timeoutMs ?? this.timeoutMs;
@@ -922,7 +925,7 @@ export class GitCli {
         // At the cap itself: nothing past it is wanted, and Git may go quiet rather than end.
         if (options.stopAtCapture && captured >= limit && !failure && !enough) {
           truncated = true;
-          enough = true;
+          enough = "capture";
           kill();
         }
       };
