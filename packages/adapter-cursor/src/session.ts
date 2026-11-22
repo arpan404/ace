@@ -186,6 +186,7 @@ export async function openCursorSession(
         cwd: context.cwd,
         threadId: context.threadId,
         generation: host.generation,
+        ...(context.storeGeneration ? { checkpointGeneration: context.storeGeneration } : {}),
         ...(context.model ? { model: context.model } : {}),
         modelParams: readCursorModelParams(context.options),
         ...(context.resume

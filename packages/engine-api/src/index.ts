@@ -161,6 +161,12 @@ export interface SessionContext {
   /** Required by the engine; omitted only by legacy direct callers. */
   permissionMode?: PermissionMode;
   runtimePolicy?: "restricted" | "full-access";
+  /**
+   * Daemon-owned, never from wire data (ADR 0211): which generation of the thread's
+   * provider-private session store to use. Absent is the first. ace moves a thread to the next
+   * one when its saved session can't be opened again; earlier generations are kept, not deleted.
+   */
+  storeGeneration?: number;
   resume?: {
     nativeSessionId: string;
     backend?: ProviderBackend;

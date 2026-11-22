@@ -6,8 +6,11 @@ import { createHash } from "node:crypto";
  * The byte budget is adjustable per thread via `Limits.maxCheckpointBytes`
  * (`DaemonOptions.engine.cursor.limits`, default 8 GiB, max 64 GiB).
  * Entry (2048) and depth (10) counts are fixed abuse guards, not per-thread settings. */
-export function checkpointDirectory(home: string, threadId: string): string {
-  return join(home, ".cursor", "sdk", "ace", createHash("sha256").update(threadId).digest("hex"));
+export function checkpointDirectory(home: string, threadId: string, generation = 0): string {
+  const key = createHash("sha256").update(threadId).digest("hex");
+  // A later generation is a fresh session after the earlier store became unusable (ADR 0211);
+  // the earlier folders stay where they are, untouched.
+  return join(home, ".cursor", "sdk", "ace", generation > 0 ? `${key}-g${generation}` : key);
 }
 /** Shared SDK home/checkpoint ancestor gate; does not read credentials or create files. */
 export async function validatePrivateDirectory(root: string): Promise<void> {

@@ -263,7 +263,7 @@ export class HostRuntime {
         throw new Error(
           "Cursor SDK requires separate SDK sign-in or launch-environment authentication",
         );
-      this.root = checkpointDirectory(this.home(), options.threadId);
+      this.root = checkpointDirectory(this.home(), options.threadId, options.checkpointGeneration);
       const checkpoint = await checkCheckpointBudget(this.root, options.limits.maxCheckpointBytes);
       if (checkpoint.bytes > options.limits.maxCheckpointBytes)
         throw new Error("SDK checkpoint exceeds budget");

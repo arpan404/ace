@@ -53,6 +53,8 @@ export const Open = z.strictObject({
   modelParams: CursorModelParams.optional(),
   nativeSessionId: identity.optional(),
   afterFrameOffset: z.number().int().nonnegative().max(10000000).default(0),
+  /** The thread's checkpoint generation (ADR 0211); 0 is the thread's first store. */
+  checkpointGeneration: z.number().int().nonnegative().max(1024).default(0),
   policy: z.enum(["restricted", "full-access"]).optional(),
   permissionMode: z.string().min(1).max(4096).optional(),
   limits: Limits,

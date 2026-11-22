@@ -13,6 +13,7 @@ export const SnapshotRequest = z.strictObject({
   agentId: z.string().min(1).max(512),
   offset: z.number().int().nonnegative().max(32768).default(0),
   cwd: z.string().min(1).max(4096).optional(),
+  checkpointGeneration: z.number().int().nonnegative().max(1024).default(0),
   limits: Limits,
 });
 const Revision = z.string().min(1).max(256);
@@ -45,7 +46,7 @@ export type SnapshotSdkBoundary = {
 export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, home = homedir()) {
   const request = SnapshotRequest.parse(input);
   if (request.agentId.startsWith("bc-")) throw new Error("Cloud snapshots are forbidden");
-  const root = checkpointDirectory(home, request.threadId);
+  const root = checkpointDirectory(home, request.threadId, request.checkpointGeneration);
   await checkCheckpointBudget(root, request.limits.maxCheckpointBytes);
   const owned = await openSdkCheckpointStore(
     sdk,
@@ -99,7 +100,13 @@ export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, h
 }
 export async function readCursorSnapshot(
   options: HostOptions,
-  input: { threadId: string; agentId: string; offset?: number; cwd?: string },
+  input: {
+    threadId: string;
+    agentId: string;
+    offset?: number;
+    cwd?: string;
+    checkpointGeneration?: number;
+  },
   signal: AbortSignal,
 ) {
   signal.throwIfAborted();
