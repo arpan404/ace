@@ -1,4 +1,4 @@
-import { committedText, hunkAt, type ChangeHunk, type LineMark } from "@ace/ui-core";
+import { committedFromPatch, hunkAt, type ChangeHunk, type LineMark } from "@ace/ui-core";
 import {
   useCallback,
   useEffect,
@@ -68,17 +68,18 @@ export function useChangeGutter(input: {
 
   // The committed text: the file on disk with git's hunks put back. Hunks read for an older
   // version don't fit and are skipped, so a save or an agent's write keeps the last one.
-  const { hunks: committed, settled, head: commit } = useChangeMarks(threadId, path, version);
+  const { patch, settled, head: commit } = useChangeMarks(threadId, path, version);
   useEffect(() => {
     const base = buffer.baseText();
     // Only the read of git's diff for this commit and this disk version sets the committed text;
     // until it is in, the marks keep the last one and Revert waits (an older read's hunks would
     // undo newly committed work).
     if (base === undefined || version === undefined || !settled) return gutter.unsettle();
-    const head = committed ? committedText(base, committed) : base;
+    // Rebuilt from git's own patch, byte for byte: line endings and final newlines as committed.
+    const head = patch ? committedFromPatch(base, patch) : base;
     if (head === undefined) return gutter.unsettle();
     gutter.setHead(head, `${commit ?? ""}\u0000${version}`);
-  }, [buffer, gutter, version, committed, settled, commit]);
+  }, [buffer, gutter, version, patch, settled, commit]);
 
   const agentMarks = useMemo(
     () =>

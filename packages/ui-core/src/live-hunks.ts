@@ -4,8 +4,8 @@ import type { LineMark } from "./line-marks.ts";
 /*
  * The editor's change marks while the person types (docs/editor/workbench.md 44): the buffer's
  * text against the committed one, from the whole-line changes the editor core finds between
- * them, and the committed text itself, rebuilt from the file on disk and its git hunks. Pure,
- * and linear in the changes (or, for `committedText`, in the file once per disk version).
+ * them (the committed text itself is rebuilt exactly from git's patch: `exact-patch.ts`). Pure,
+ * and linear in the changes.
  */
 
 /** One whole-line change, 0-based, `end` exclusive, `text` with its line endings: the core's. */
@@ -73,31 +73,3 @@ export function hunkMarks(hunks: readonly ChangeHunk[]): Map<number, LineMark> {
   }
   return marks;
 }
-
-/**
- * The committed text of a file, from its text on disk and the git hunks between them; undefined
- * when the hunks don't fit the text (they were read for another version of it). Lines keep the
- * disk text's own ending.
- */
-export function committedText(disk: string, hunks: readonly ChangeHunk[]): string | undefined {
-  if (hunks.length === 0) return disk;
-  const lines = linesOf(disk);
-  const ending = disk.includes("\r\n") ? "\r\n" : "\n";
-  const out: string[] = [];
-  let at = 0;
-  for (const hunk of hunks) {
-    const start = hunk.start - 1;
-    if (start < at || start + hunk.added.length > lines.length) return undefined;
-    for (; at < start; at++) out.push(lines[at] ?? "");
-    for (const [index, text] of hunk.added.entries())
-      if (lines[start + index] !== stripCr(text)) return undefined;
-    for (const text of hunk.removed) out.push(stripCr(text));
-    at = start + hunk.added.length;
-  }
-  for (; at < lines.length; at++) out.push(lines[at] ?? "");
-  const endsOpen = disk !== "" && !disk.endsWith("\n");
-  const text = out.join(ending);
-  return out.length === 0 ? "" : endsOpen ? text : text + ending;
-}
-
-const stripCr = (line: string) => (line.endsWith("\r") ? line.slice(0, -1) : line);

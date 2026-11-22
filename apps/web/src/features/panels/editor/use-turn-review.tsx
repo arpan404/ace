@@ -1,6 +1,9 @@
 import { useThreadField } from "@ace/client-react/thread-field";
 import {
   groupFileChanges,
+  exactPatchHunks,
+  hunksFromChanges,
+  linesOf,
   locateHunk,
   mapHunk,
   providerDisplayName,
@@ -84,10 +87,42 @@ export function useTurnReview(input: {
   );
   const own = useMemo(() => files.filter((file) => file.path === path), [files, path]);
   const diff = useFileChanges(own).files[0];
-  const hunks = useMemo(() => (diff ? turnHunks(diff.rows) : []), [diff]);
+  // The turn's hunks, exact to the byte where the turn says enough: from its before and after
+  // text (diffed by the editor core), or its one patch. Otherwise they can be read but not
+  // reverted (the diff rows carry no line endings).
+  const texts = useMemo(() => turnTexts(own[0]?.changes ?? []), [own]);
+  const patch = useMemo(() => singlePatch(own[0]?.changes ?? []), [own]);
+  const [exact, setExact] = useState<{ after: string; hunks: readonly TurnHunk[] }>();
+  useEffect(() => {
+    if (!texts) return;
+    let live = true;
+    void sharedDiff()
+      .lineChanges(texts.after, texts.before)
+      .then(
+        (changes) => {
+          const lines = linesOf(texts.after);
+          const found = hunksFromChanges(changes, (line) => lines[line] ?? "", lines.length);
+          if (live) setExact({ after: texts.after, hunks: found });
+        },
+        () => undefined,
+      );
+    return () => {
+      live = false;
+    };
+  }, [texts]);
+  const exactHunks = texts
+    ? exact?.after === texts.after
+      ? exact.hunks
+      : undefined
+    : patch !== undefined
+      ? exactPatchHunks(patch)
+      : undefined;
+  const rowHunks = useMemo(() => (diff ? turnHunks(diff.rows) : []), [diff]);
+  const hunks = texts ? (exactHunks ?? []) : (exactHunks ?? rowHunks);
+  const exactKnown = exactHunks !== undefined;
   // The file as the turn left it, when the turn recorded its text: the hunks are then carried to
   // the text now by the exact changes between the two, never matched by their words.
-  const turnText = useMemo(() => textAfter(own[0]?.changes ?? []), [own]);
+  const turnText = texts?.after;
 
   // Found again whenever the text has moved (the gutter settles after each pause in typing).
   const subscribe = useCallback((changed: () => void) => gutter.subscribe(changed), [gutter]);
@@ -183,11 +218,11 @@ export function useTurnReview(input: {
   // own Save; gone, edited, moved or duplicated lines revert nothing.
   const turnHunk = hunks[index];
   const provenNow = turnHunk && find(turnHunk, true);
-  const canRevert = provenNow?.proven === true;
+  const canRevert = exactKnown && provenNow?.proven === true;
   const revert = () => {
     const doc = buffer.document();
     const found = turnHunk && find(turnHunk, true);
-    if (!doc || !found?.proven) return;
+    if (!doc || !exactKnown || !found?.proven) return;
     const now = found.at;
     const change = revertChange(now, (line) => doc.line(line), doc.lenLines(), doc.lineEnding());
     if (!change || !buffer.editLines([change], { manualSave: true })) return;
@@ -254,16 +289,28 @@ interface Mapping {
   changes: readonly WholeLineChange[];
 }
 
-/** The file's text after the turn, when every change of it recorded its whole text in order. */
-function textAfter(changes: readonly FileChange[]): string | undefined {
-  if (changes.length === 0) return undefined;
+/**
+ * The file's text before and after the turn, when every change of it recorded its whole text in
+ * order.
+ */
+function turnTexts(changes: readonly FileChange[]): { before: string; after: string } | undefined {
+  const first = changes[0];
+  if (!first) return undefined;
   let text: string | undefined;
   for (const change of changes) {
     if (change.kind === "delete" || change.newText === undefined) return undefined;
     if (text !== undefined && change.oldText !== text) return undefined;
     text = change.newText;
   }
-  return text;
+  return text === undefined ? undefined : { before: first.oldText ?? "", after: text };
+}
+
+/** The turn's one patch of the file, when that is all it recorded. */
+function singlePatch(changes: readonly FileChange[]): string | undefined {
+  const [only, ...rest] = changes;
+  return only && rest.length === 0 && only.newText === undefined
+    ? (only.diff ?? undefined)
+    : undefined;
 }
 
 /** Where a file's review is: the change shown, and those kept or reverted. */

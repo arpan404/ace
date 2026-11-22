@@ -1,46 +1,6 @@
 import { expect, test } from "vitest";
-import { changeHunks, revertChange } from "./change-hunks.ts";
-import { gitPatchFiles } from "./git-patch.ts";
-import { committedText, hunkMarks, hunksFromChanges, linesOf } from "./live-hunks.ts";
-
-function rowsOf(...hunk: string[]) {
-  const patch = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", ...hunk, ""].join("\n");
-  return gitPatchFiles(patch)[0]?.rows ?? [];
-}
-
-const committed = "one\ntwo\nthree\ngone\nfour\nsix\nlast\n";
-const disk = "one\nTWO\nthree\nfour\nadded\nsix\n";
-const rows = rowsOf(
-  "@@ -1,7 +1,6 @@",
-  " one",
-  "-two",
-  "+TWO",
-  " three",
-  "-gone",
-  " four",
-  "+added",
-  " six",
-  "-last",
-);
-
-test("the committed text comes back from the file on disk and its git hunks", () => {
-  expect(committedText(disk, changeHunks(rows))).toBe(committed);
-});
-
-test("a file with no hunks is its own committed text", () => {
-  expect(committedText(disk, [])).toBe(disk);
-});
-
-test("hunks read for another version of the file give no committed text", () => {
-  expect(committedText("one\nTwo typed\nthree\nfour\nadded\nsix\n", changeHunks(rows))).toBe(
-    undefined,
-  );
-});
-
-test("CRLF files keep their endings in the committed text", () => {
-  const crlf = disk.replaceAll("\n", "\r\n");
-  expect(committedText(crlf, changeHunks(rows))).toBe(committed.replaceAll("\n", "\r\n"));
-});
+import { revertChange } from "./change-hunks.ts";
+import { hunkMarks, hunksFromChanges, linesOf } from "./live-hunks.ts";
 
 const lines = linesOf("one\nTWO\nthree\nfour\nadded\nsix\nnew\n");
 const lineAt = (line: number) => lines[line] ?? "";

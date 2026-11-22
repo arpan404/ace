@@ -1,5 +1,11 @@
 import { useThreadMeta } from "@ace/client-react";
-import { changeHunks, lineMarks, type ChangeHunk, type LineMark } from "@ace/ui-core";
+import {
+  changeHunks,
+  lineMarks,
+  patchSections,
+  type ChangeHunk,
+  type LineMark,
+} from "@ace/ui-core";
 import { useMemo } from "react";
 import { useWorkingTreeDiff } from "@/lib/diffs/use-working-tree.ts";
 
@@ -23,6 +29,8 @@ export function useChangeMarks(
   settled: boolean;
   /** The commit the diff is read against. */
   head: string | undefined;
+  /** The file's part of `git diff`, exactly as read (its line endings and final newlines). */
+  patch: string | undefined;
 } {
   const details = useThreadMeta(threadId)?.details;
   const changed = details?.diff?.files;
@@ -34,12 +42,17 @@ export function useChangeMarks(
     gcTime: 30_000,
   });
   const file = useMemo(() => files.find((each) => each.path === path), [files, path]);
+  const raw = query.data?.patch;
+  const patch = useMemo(
+    () => (raw ? patchSections(raw).find((section) => section.path === path)?.text : undefined),
+    [raw, path],
+  );
   const settled = changed === 0 || (query.isSuccess && !query.isPlaceholderData);
   return useMemo(
     () =>
       file?.rows.length
-        ? { marks: lineMarks(file.rows), hunks: changeHunks(file.rows), settled, head }
-        : { marks: undefined, hunks: undefined, settled, head },
-    [file, settled, head],
+        ? { marks: lineMarks(file.rows), hunks: changeHunks(file.rows), settled, head, patch }
+        : { marks: undefined, hunks: undefined, settled, head, patch },
+    [file, settled, head, patch],
   );
 }

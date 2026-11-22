@@ -1,8 +1,9 @@
 import { coldStartReplay } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { bytes } from "../files/tree-test-queries.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -63,4 +64,47 @@ test("marks against the last commit stay while the person types, and typed lines
       ["5", "added"],
     ]),
   );
+});
+
+test("Revert puts back the committed text byte for byte: no newline where the commit had none", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-2");
+  app.daemon.checkouts.seed(thread, "src/eol.ts", "one\nTWO\n");
+  app.daemon.workspace.setGitDiff(
+    thread,
+    [
+      "diff --git a/src/eol.ts b/src/eol.ts",
+      "--- a/src/eol.ts",
+      "+++ b/src/eol.ts",
+      "@@ -1,2 +1,2 @@",
+      " one",
+      "-two",
+      "\\ No newline at end of file",
+      "+TWO",
+      "",
+    ].join("\n"),
+  );
+  await app.open(`/t/${thread}`);
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await userEvent.keyboard("{Control>}p{/Control}");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Search files" }), "eol.ts");
+  await screen.findByRole("option", { name: /eol\.ts/ });
+  await userEvent.keyboard("{Enter}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const view = await within(panel).findByRole("region", { name: "Source of src/eol.ts" });
+  await waitFor(() => expect(marks(view)).toEqual([["2", "modified"]]));
+
+  const number = view.querySelector<HTMLElement>('[data-line="1"] [data-line-number]');
+  const scroller = view.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!number || !scroller) throw new Error("no gutter");
+  fireEvent.pointerDown(scroller, {
+    button: 0,
+    clientX: Number.parseFloat(number.style.width) - 2,
+    clientY: 22 + 5,
+  });
+  const peek = await within(view).findByRole("group", { name: "Change at line 2" });
+  await userEvent.click(within(peek).getByRole("button", { name: "Revert" }));
+  await userEvent.click(within(panel).getByRole("textbox", { name: "eol.ts" }));
+  await userEvent.keyboard("{Control>}s{/Control}");
+  await waitFor(async () => expect(await bytes(app, "src/eol.ts")).toBe("one\ntwo"));
 });

@@ -87,6 +87,7 @@ export * from "./line-marks.ts";
 export * from "./change-hunks.ts";
 export * from "./live-hunks.ts";
 export * from "./turn-hunks.ts";
+export * from "./exact-patch.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
