@@ -263,7 +263,7 @@ export class ThreadSession {
       () => host.uuid(),
       preview,
     );
-    this.#code = new ThreadCodeNotes((patch) => put("codeSent", () => patch));
+    this.#code = new ThreadCodeNotes((key, patch) => put(`codeSent:${key}`, () => patch));
     this.#whole = new WholeRequests(client, store, this.#threadId, signal, (id) =>
       this.#interaction(id),
     );

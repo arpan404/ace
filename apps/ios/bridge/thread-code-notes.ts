@@ -18,8 +18,9 @@ export interface CodeNotesHandOff {
 
 export class ThreadCodeNotes {
   #notes: CodeAnnotation[] = [];
-  readonly #emit: (patch: Record<string, unknown>) => void;
-  constructor(emit: (patch: Record<string, unknown>) => void) {
+  /** `key` names the send, so each one's word reaches the phone, even after another visit's. */
+  readonly #emit: (key: string, patch: Record<string, unknown>) => void;
+  constructor(emit: (key: string, patch: Record<string, unknown>) => void) {
     this.#emit = emit;
   }
   get count(): number {
@@ -46,7 +47,7 @@ export class ThreadCodeNotes {
   sent(handOff: CodeNotesHandOff): void {
     const gone = new Set(handOff.ids);
     this.#notes = this.#notes.filter((note) => !gone.has(note.id));
-    this.#emit({ type: "thread.codeSent", ids: handOff.ids });
+    this.#emit(handOff.ids[0] ?? "", { type: "thread.codeSent", ids: handOff.ids });
   }
 }
 
