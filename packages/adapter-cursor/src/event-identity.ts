@@ -11,19 +11,26 @@ import { object, string } from "./contracts.ts";
  */
 
 const digest = (key: string) => createHash("sha256").update(key).digest("hex");
+/** How much of each field a shortened copy is trusted to keep, to tell its update apart. */
+const kept = 256;
 /**
- * A tool call's state as one update carries it, `exact:loose`: exact by its phase and what it
- * holds, so a start and every partial differ, and loose by its call and phase alone, for a copy
- * the SDK shortened.
+ * A tool call's state as one update carries it, `exact:fingerprint`: exact by its phase and all
+ * it holds, so a start and every partial differ; fingerprinted by its call, phase and the first
+ * part of each field, which a copy the SDK shortened still shares with the update it came from.
  */
+const fingerprint = (callId: string, phase: string, args: unknown, result: unknown) =>
+  digest(
+    `tool_call\0${callId}\0${phase}\0${JSON.stringify(args ?? null).slice(0, kept)}\0${JSON.stringify(result ?? null).slice(0, kept)}`,
+  );
 const toolIdentity = (callId: string, phase: string, args: unknown, result: unknown) =>
-  `${digest(`tool_call\0${callId}\0${phase}\0${JSON.stringify(args ?? null)}\0${JSON.stringify(result ?? null)}`)}:${digest(`tool_call\0${callId}\0${phase}`)}`;
-/** A stored copy the SDK shortened: only its call and phase are known. */
-const shortened = (callId: string, phase: string) =>
-  `~:${digest(`tool_call\0${callId}\0${phase}`)}`;
+  `${digest(`tool_call\0${callId}\0${phase}\0${JSON.stringify(args ?? null)}\0${JSON.stringify(result ?? null)}`)}:${fingerprint(callId, phase, args, result)}`;
+/** A stored copy the SDK shortened: only its fingerprint can match. */
+const shortened = (callId: string, phase: string, args: unknown, result: unknown) =>
+  `~:${fingerprint(callId, phase, args, result)}`;
 /**
  * Whether stored event `stored` is the one update `framed` became: the same exact identity, or,
- * for a copy the SDK shortened, the same call and phase.
+ * for a copy the SDK shortened, the same call, phase and leading content: a different update of
+ * the same call (another partial) never matches it.
  */
 export function sameUpdate(stored: string, framed: string): boolean {
   if (!stored.startsWith("~:")) return stored === framed;
@@ -76,7 +83,7 @@ export function storedIdentity(message: unknown): string | undefined {
     case "tool_call": {
       const phase = body.status === "running" ? "running" : "ended";
       if (object(body.truncated).args === true || object(body.truncated).result === true)
-        return shortened(string(body.call_id) ?? "", phase);
+        return shortened(string(body.call_id) ?? "", phase, body.args, body.result);
       return toolIdentity(string(body.call_id) ?? "", phase, body.args, body.result);
     }
     case "user": {

@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 import type { LocalAgentStore } from "@cursor/sdk";
 import { recoverCursorCheckpoint, CursorLimitsSchema, openSdkCheckpointStore } from "./index.ts";
 import type { Recovered } from "./recovery.ts";
+import { updateIdentity } from "./event-identity.ts";
 
 it("retains native SQLite checkpoints and run identity when the thread store closes and reopens", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-sqlite-checkpoint-")));
@@ -151,7 +152,7 @@ async function recover(
   root: string,
   store: LocalAgentStore,
   recoverOptions: {
-    runs: { runId: string; through: number; afterOffset?: string }[];
+    runs: { runId: string; through: number; afterOffset?: string; pending?: string[] }[];
     attempt?: {
       operationId: string;
       segment: number;
@@ -288,6 +289,49 @@ it("opening a long Cursor thread with a send in doubt does not read its run hist
       { kind: "admission", body: { operationId: "op", segment: 0, admitted: false } },
     ]);
     expect(reads).toEqual({ runLists: 0, eventLists: 0 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("a shortened stored copy is matched only to the committed update it shortens", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-shortened-")));
+  try {
+    const store = await storeWith(root, [{ runId: "run", status: "finished" }]);
+    const long = `a.ts${"x".repeat(600)}`;
+    const partial = (path: string) => ({
+      type: "partial-tool-call",
+      callId: "rd",
+      toolCall: { type: "read", args: { path } },
+    });
+    // Cursor's store holds a shortened copy of partial B; ace committed partial A, or B.
+    await store.runEvents.append({
+      runId: "run",
+      eventType: "run_stream_event",
+      payload: {
+        schemaVersion: 1,
+        type: "sdk_message",
+        message: {
+          type: "tool_call",
+          call_id: "rd",
+          name: "read",
+          status: "running",
+          args: { path: long.slice(0, 300) },
+          truncated: { args: true },
+        },
+      },
+    });
+    const shortened = (found: Recovered[]) => found.filter((item) => item.kind === "recovered");
+    const afterA = await recover(root, store, {
+      runs: [{ runId: "run", through: 0, pending: [updateIdentity(partial("a")) ?? ""] }],
+    });
+    // A's write was lost: B is not A, so it comes back.
+    expect(shortened(afterA.found)).toHaveLength(1);
+    const afterB = await recover(root, store, {
+      runs: [{ runId: "run", through: 0, pending: [updateIdentity(partial(long)) ?? ""] }],
+    });
+    // Ace has B itself: its shortened copy is not shown again.
+    expect(shortened(afterB.found)).toEqual([]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
