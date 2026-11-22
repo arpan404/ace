@@ -160,13 +160,14 @@ function BlameProbe(props: {
   gutter: BlameGutter;
   statusStore: ReturnType<typeof createStatusStore>;
   first?: number;
+  group?: string;
   onOpenCommit?: (target: { sha: string; path: string }) => void;
 }) {
   const { onVisibleRange, caretAnnotation } = useInlineBlame({
     enabled: props.enabled,
     threadId,
     path,
-    group: "g1",
+    group: props.group ?? "g1",
     buffer: props.buffer,
     commit: props.commit,
     gutter: props.gutter,
@@ -369,6 +370,86 @@ describe("Inline git blame", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open changes" }));
     expect(onOpenCommit).toHaveBeenCalledWith(expect.objectContaining({ sha: nextHeadSha, path }));
   });
+
+  test("a partial answer is asked again a bounded number of times and never shown as uncommitted", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitBlame(threadId, path, { commits: [], lines: [], capped: true });
+    const { client, blameRequests } = await connected(daemon);
+    const { typing, gutter, statusStore } = setup();
+    const probe = (first: number) => (
+      <ClientProvider client={client}>
+        <BlameProbe
+          enabled
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
+          statusStore={statusStore}
+          first={first}
+        />
+      </ClientProvider>
+    );
+    const view = render(probe(1));
+    for (let first = 2; first < 12; first++) {
+      await waitFor(() => expect(blameRequests().length).toBeGreaterThan(0));
+      await act(async () => {});
+      view.rerender(probe(first));
+    }
+    await act(async () => {});
+    expect(blameRequests().length).toBe(3);
+    expect(screen.queryByText("You · not committed yet")).toBeNull();
+  }, 15_000);
+
+  test("a pane that closes does not strand another pane waiting on the same blame", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitBlame(threadId, path, {
+      commits: [author(headSha, "Sam", "Shared")],
+      lines: [{ line: 1, sha: headSha }],
+    });
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    // Git's answer is held until the test lets it through; a request whose signal aborts fails.
+    const original = client.request.bind(client);
+    const gate = Promise.withResolvers<void>();
+    let asked = 0;
+    vi.spyOn(client, "request").mockImplementation(async (request, options) => {
+      if (request.type === "workspace.request" && request.operation.op === "git.blame") {
+        asked++;
+        const signal = options?.signal;
+        await Promise.race([
+          gate.promise,
+          new Promise((_, reject) =>
+            signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+          ),
+        ]);
+      }
+      return original(request, options);
+    });
+    const { typing, gutter, statusStore } = setup();
+    const pane = (group: string) => (
+      <BlameProbe
+        key={group}
+        enabled
+        buffer={typing.buffer}
+        commit={headSha}
+        gutter={gutter.gutter}
+        statusStore={statusStore}
+        group={group}
+      />
+    );
+    statusStore.report("g2", statusAt(1));
+    const view = render(
+      <ClientProvider client={client}>
+        {pane("g1")}
+        {pane("g2")}
+      </ClientProvider>,
+    );
+    await waitFor(() => expect(asked).toBeGreaterThan(0));
+    // The first pane closes while git is still answering.
+    view.rerender(<ClientProvider client={client}>{pane("g2")}</ClientProvider>);
+    gate.resolve();
+    expect(await screen.findByRole("button", { name: "Sam, 3 days ago · Shared" })).toBeTruthy();
+  }, 15_000);
 
   test("scrolling through a long file keeps a bounded number of blamed lines", async () => {
     const { client } = await connected(new FakeDaemon({ clock: () => nowMs }));

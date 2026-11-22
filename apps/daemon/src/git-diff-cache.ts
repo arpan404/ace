@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { gitDiffFileLimit } from "@ace/protocol";
-import { SharedWork } from "./shared-work.ts";
+import { SharedWork } from "@ace/core/shared-work";
 
 /*
  * One file's whole working-tree patch, held briefly so its pages slice one read of git instead

@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./background-hold": "./src/background-hold.ts",
     "./human": "./src/human.ts",
+    "./shared-work": "./src/shared-work.ts",
     "./switch-route": "./src/switch-route.ts"
   },
   "scripts": {

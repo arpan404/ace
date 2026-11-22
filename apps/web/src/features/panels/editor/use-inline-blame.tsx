@@ -22,6 +22,7 @@ import {
   type StatusStore,
   type TextBuffer,
 } from "@/features/editor-workbench/index.ts";
+import { SharedWork } from "@ace/core/shared-work";
 import { readGitBlame, type CommitDiffTarget } from "@/lib/git-history.ts";
 import {
   blameChunkSize,
@@ -49,12 +50,17 @@ interface BlameFileCache {
   commits: Map<string, GitBlameCommit>;
   lines: Map<number, string | null>;
   fetchedChunks: Set<number>;
-  inflightChunks: Set<number>;
+  /** Reads of a chunk that ended without a complete answer (failed or capped). */
+  attempts: Map<number, number>;
   /** Fetched chunks, oldest first: past `maxChunksPerFile` the oldest is let go. */
   chunkOrder: number[];
 }
 
 const maxCachedFiles = 24;
+/** Reads of one chunk that may end without a complete answer before it is left unblamed. */
+export const maxChunkAttempts = 3;
+/** One read per chunk, shared by every pane showing it; each pane waits on its own signal. */
+const chunkReads = new SharedWork<void>();
 /** Committed lines kept per file: `maxChunksPerFile` × `blameChunkSize`. */
 export const maxChunksPerFile = 24;
 const blameCache = new Map<string, BlameFileCache>();
@@ -80,7 +86,7 @@ function getOrCreateCache(key: string): BlameFileCache {
     commits: new Map(),
     lines: new Map(),
     fetchedChunks: new Set(),
-    inflightChunks: new Set(),
+    attempts: new Map(),
     chunkOrder: [],
   };
   blameCache.set(key, entry);
@@ -231,9 +237,11 @@ export function useInlineBlame(input: {
       : "";
   });
 
-  // One abort scope per file and commit: scrolling never cancels a read still on screen, while
-  // a new commit, another file or turning blame off drops what is in flight.
-  const scope = useRef<{ key: string; controller: AbortController } | undefined>(undefined);
+  // Each pane waits on its own signal: closing one pane, another file, a new commit or turning
+  // blame off leaves the reads it waited on, which stop only when no pane waits for them.
+  const scope = useRef<{ key: string; controller: AbortController; joined: Set<number> }>(
+    undefined,
+  );
   useEffect(
     () => () => {
       scope.current?.controller.abort();
@@ -248,42 +256,51 @@ export function useInlineBlame(input: {
     const range = committedRange(hunks, visible.firstLine, visible.lastLine);
     if (!range) return;
     const entry = getOrCreateCache(cacheKey);
-    const missing = missingBlameChunks(entry.fetchedChunks, range.first, range.last).filter(
-      (chunk) => !entry.inflightChunks.has(chunk.index),
-    );
-    if (missing.length === 0) return;
     if (scope.current?.key !== cacheKey) {
       scope.current?.controller.abort();
-      scope.current = { key: cacheKey, controller: new AbortController() };
+      scope.current = { key: cacheKey, controller: new AbortController(), joined: new Set() };
     }
-    const { signal } = scope.current.controller;
+    const own = scope.current;
+    const missing = missingBlameChunks(entry.fetchedChunks, range.first, range.last).filter(
+      (chunk) =>
+        !own.joined.has(chunk.index) && (entry.attempts.get(chunk.index) ?? 0) < maxChunkAttempts,
+    );
     for (const chunk of missing) {
-      entry.inflightChunks.add(chunk.index);
-      const settle = () => {
-        entry.inflightChunks.delete(chunk.index);
-        if (signal.aborted) return false;
-        // A failed read is not asked again for this commit: no request storm on scroll.
-        keepChunk(entry, chunk);
-        return true;
-      };
+      own.joined.add(chunk.index);
       const asked = { commit, startLine: chunk.startLine, endLine: chunk.endLine };
-      void readGitBlame(client, threadId, path, asked, signal).then(
-        (result) => {
-          for (const commitInfo of result.commits) entry.commits.set(commitInfo.sha, commitInfo);
-          for (const item of result.lines) entry.lines.set(item.line, item.sha);
-          // A line git has no history for at the commit (an untracked file) is not committed
-          // yet; a capped read proves nothing about the lines it left out.
-          if (!result.capped)
-            for (let line = chunk.startLine; line <= chunk.endLine; line++)
-              if (!entry.lines.has(line)) entry.lines.set(line, null);
-          if (settle()) notifyCache();
-        },
+      // Runs once per read, whichever panes wait: only a complete answer marks the chunk.
+      const read = (signal: AbortSignal) =>
+        readGitBlame(client, threadId, path, asked, signal).then(
+          (result) => {
+            for (const info of result.commits) entry.commits.set(info.sha, info);
+            for (const item of result.lines) entry.lines.set(item.line, item.sha);
+            if (result.capped) {
+              entry.attempts.set(chunk.index, (entry.attempts.get(chunk.index) ?? 0) + 1);
+            } else {
+              // A line git has no history for at the commit (an untracked file) is not
+              // committed yet; only a complete answer can say so.
+              for (let line = chunk.startLine; line <= chunk.endLine; line++)
+                if (!entry.lines.has(line)) entry.lines.set(line, null);
+              keepChunk(entry, chunk);
+            }
+            notifyCache();
+          },
+          (error: unknown) => {
+            if (!signal.aborted)
+              entry.attempts.set(chunk.index, (entry.attempts.get(chunk.index) ?? 0) + 1);
+            throw error;
+          },
+        );
+      void chunkReads.join(`${cacheKey}\u0000${chunk.index}`, read, own.controller.signal).then(
+        () => own.joined.delete(chunk.index),
         () => {
-          if (settle()) notifyCache();
+          own.joined.delete(chunk.index);
+          // Another try, while tries remain, the next time this pane looks.
+          if (!own.controller.signal.aborted) notifyCache();
         },
       );
     }
-  }, [enabled, client, threadId, path, commit, cacheKey, visible, hunks]);
+  }, [enabled, client, threadId, path, commit, cacheKey, visible, hunks, cacheTick]);
 
   const [now] = useState(() => (input.now ?? Date.now)());
 

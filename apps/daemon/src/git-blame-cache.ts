@@ -1,5 +1,5 @@
 import type { FileBlameResult } from "@ace/git";
-import { SharedWork } from "./shared-work.ts";
+import { SharedWork } from "@ace/core/shared-work";
 
 /*
  * Bounded cache for `git.blame` range reads, keyed by checkout root, the commit blamed at,
