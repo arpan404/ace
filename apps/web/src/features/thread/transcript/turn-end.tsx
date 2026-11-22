@@ -7,6 +7,7 @@ import { SystemRow } from "../items/system-row.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
 import type { Failure } from "./failure.ts";
+import { useInteractions } from "@ace/client-react";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
 const FailedTurn = DeferredFailedTurn.Component;
@@ -83,7 +84,11 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
   );
   const read = useCallback((reader: ThreadReader) => readEnding(reader, block), [block]);
   const ending = useWatched(props.threadId, keys, read, sameEnding);
+  // One status per turn, the latest true one: while the person is asked for something, that is
+  // the status, not a stale "Turn failed" above it.
+  const asking = (useInteractions(props.threadId)?.length ?? 0) > 0;
   if (!ending) return null;
+  if (asking && block.latest && block.ending !== "interrupted") return null;
   if (block.ending === "interrupted" && !block.automatic)
     // The person's Stop: a thin break, and their next message starts a new turn below it.
     return (

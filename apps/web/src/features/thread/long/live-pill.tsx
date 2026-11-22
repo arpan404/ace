@@ -15,9 +15,9 @@ function focusComposer(): void {
 }
 
 /**
- * Back to the live end: a pill centred over the composer, clear of it and of the strip on its
- * top edge (`--composer-clearance` is the dock's measured height). It says how many items
- * arrived since the reader left.
+ * Back to the live end: a pill centred on the composer's top edge (`--composer-clearance` is the
+ * dock's measured height), mostly over the composer's own padding, so it sits clear of transcript
+ * rows. It fades in only once the reader has scrolled up, and says how many items arrived since.
  */
 export function LivePill(props: {
   newItems: number;
@@ -58,7 +58,7 @@ export function LivePill(props: {
         floatingMotion(props.phase ?? "enter"),
         floatingHover,
         // Centred on the composer, which a pinned summary insets on the right.
-        "absolute bottom-[min(calc(var(--composer-clearance,0px)+0.75rem),calc(100%-2.75rem))] left-[calc(50%-var(--summary-inset,0px)/2)] z-20 -translate-x-1/2 pr-3.5 pl-3 font-medium whitespace-nowrap text-foreground",
+        "absolute bottom-[min(calc(var(--composer-clearance,0px)-1.25rem),calc(100%-2.75rem))] left-[calc(50%-var(--summary-inset,0px)/2)] z-20 -translate-x-1/2 pr-3.5 pl-3 font-medium whitespace-nowrap text-foreground",
         "transition-[background-color,box-shadow] duration-(--motion-fast) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         "touch-hit pointer-coarse:h-9",
       )}
