@@ -335,7 +335,7 @@ default:
 | Role                         | Default                                                                                                                                         |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `helper`, `compact`, `title` | the fast model (`fast_model`), else the bot's                                                                                                   |
-| `review`                     | the review model (oversight `review_model`, the global override), else the fast model, else the bot's                                           |
+| `review`                     | the review model (oversight `review_model`, the global override), else the model `verify` defaults to, else the bot's                           |
 | `verify`                     | the most expensive model the person already uses (bots', review, fast, new-bot) listing at least the bot's price, not the bot's; else the bot's |
 
 Strength is the listed input plus output price; unpriced models never win a default. An override

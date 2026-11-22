@@ -81,6 +81,31 @@ pub fn person_words(events: &[Event]) -> Vec<String> {
     words
 }
 
+/// The most of the bot's own earlier steps the reviewer reads.
+const RECENT_STEPS: usize = 12;
+/// The most of one earlier step's arguments the reviewer reads.
+const STEP_CHARS: usize = 300;
+
+/// The bot's own latest calls before `call_id`, oldest first, each as its tool and arguments cut
+/// short: what the reviewer reads to tell the bot's own work (a page it made, an id it found) from
+/// what untrusted content put in front of it. Calls are the bot's, never a tool's output.
+pub fn recent_steps(events: &[Event], call_id: &str) -> Vec<String> {
+    let mut steps: Vec<String> = events
+        .iter()
+        .rev()
+        .filter_map(|event| match event {
+            Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
+            _ => None,
+        })
+        .flat_map(|calls| calls.iter().rev())
+        .filter(|call| call.id != call_id)
+        .take(RECENT_STEPS)
+        .map(|call| format!("{} {}", call.name, cut(&call.arguments.to_string(), STEP_CHARS)))
+        .collect();
+    steps.reverse();
+    steps
+}
+
 /// The person's latest messages across a worker's tree (ADR 0161): `conversations` are the
 /// root's events first, then each worker down to the one under review. Only the person's own
 /// messages count, never a maker bot's brief or message; the latest ones are kept, oldest first.
@@ -210,6 +235,47 @@ mod tests {
         assert!(!reviewed(Risk::Destructive, Decision::Ask));
         assert!(!reviewed(Risk::Read, Decision::Run));
         assert!(!reviewed(Risk::Memory, Decision::Run));
+    }
+
+    #[test]
+    fn the_reviewer_reads_the_bots_latest_own_steps_before_the_call_oldest_first() {
+        let step = |calls: &[(&str, &str, serde_json::Value)]| {
+            Event::Known(Known::StepFinished {
+                reply: "r".into(),
+                text: String::new(),
+                calls: calls
+                    .iter()
+                    .map(|(id, name, arguments)| crate::event::Call {
+                        id: (*id).into(),
+                        name: (*name).into(),
+                        arguments: arguments.clone(),
+                    })
+                    .collect(),
+                thoughts: Vec::new(),
+                usage: Default::default(),
+                cost_micros: 0,
+                seen: None,
+            })
+        };
+        let mut events = vec![Event::user_message("Put the plan in Notion")];
+        for at in 0..20 {
+            events.push(step(&[(
+                &format!("c{at}"),
+                "notion-fetch",
+                serde_json::json!({ "id": format!("page-{at}") }),
+            )]));
+        }
+        events.push(step(&[
+            ("made", "notion-create-pages", serde_json::json!({ "title": "x".repeat(900) })),
+            ("now", "notion-update-page", serde_json::json!({ "page_id": "page-19" })),
+        ]));
+        let steps = recent_steps(&events, "now");
+        assert_eq!(steps.len(), RECENT_STEPS);
+        assert_eq!(steps[0], r#"notion-fetch {"id":"page-9"}"#);
+        let made = steps.last().map(String::as_str).unwrap_or_default();
+        assert!(made.starts_with("notion-create-pages "), "{made}");
+        assert!(made.chars().count() < 400, "{made}");
+        assert!(!steps.iter().any(|s| s.contains("notion-update-page")));
     }
 
     #[test]

@@ -171,9 +171,12 @@ effect is read in this order; the first row that applies wins:
 | An entry marked `trusted_annotations`, any other annotation                           | `network`: reviewed, unless a grant or the person's Always allow covers it                                                   |
 | Any other server (added by URL, or an entry without the flag), whatever its hints say | Undeclared: the person decides (once for a bot, kept for that tool; each call under a package, which must declare `network`) |
 
-`destructiveHint: true` on a tool with no catalogue declaration asks the person every call, from
-any server and in every mode: no Always allow, kept answer or grant skips it ("Its app says it may
-delete or overwrite something, so you decide each time."). `readOnlyHint` together with
+`destructiveHint: true` on a tool with no catalogue declaration is checked every call, in every
+mode, and no Always allow, kept answer or grant skips that check. On a connected app's tool whose
+own name isn't a delete (`update_page`), the reviewer judges each call, told the app says it may
+delete or overwrite ([ADR 0202, amendment 6](../../docs/adr/0202-spade-bridges-to-shared-agent-standards.md)).
+Anything it won't approve, a delete the name makes, and any other server's marked tool ask the
+person ("It may delete or overwrite something, so you decide each time."). `readOnlyHint` together with
 `destructiveHint` is never a read. `idempotentHint` and `openWorldHint` change no effect: all
 connector output is already untrusted. A tool's `_meta` never declares an effect by itself.
 

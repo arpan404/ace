@@ -161,6 +161,7 @@ pub(super) async fn review(
         bot,
         task,
         person: engine.person_words(id, events),
+        steps: review::recent_steps(events, &under.call.id),
         untrusted: untrusted.clone(),
         folder: &folder,
         tool: under.name,

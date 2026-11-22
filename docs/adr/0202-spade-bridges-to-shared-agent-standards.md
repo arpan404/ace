@@ -656,3 +656,61 @@ then pinned; Full access with the reviewer down asks the person; an allowed call
 changed meanwhile doesn't run); and ace's `spade-app-requests.test.tsx` and
 `app-request-words.test.ts` (one card per gate kind; nested recipients and full arguments shown;
 `list_and_delete` never read as a read; the grant names the tools shown).
+
+## Amendment 6: the reviewer, not the person, judges an app's ordinary work under untrusted content
+
+Accepted 2026-11-22, on the owner's word after a bot building a fundraising hub in Notion asked
+about 60 times in one task. Every one of those asks came from the rules, before any model saw
+the call: Notion's `fetch` and `query-data-sources` (reads) were asked as writes, every
+`create-pages` under untrusted content went to the person, and every `update-page` and
+`move-pages` asked because Notion marks them destructive. This amendment changes point 1's
+description rule, point 7, and §2's destructive-hint row for connected apps. It also makes the
+reviewer run on the strongest model the person uses (ADR 0205).
+
+1. **Only a description's first sentence vetoes a read** (`effect::named::lead`). Every app's tool
+   description leads with what the tool does; what follows is usage that names other tools
+   ("use it with update_data_source") or says what it never does ("Reading never authorizes a
+   write"). A change word counts only in the first sentence of the first paragraph, with code
+   spans and identifiers (anything holding `_`, `:`, `/`, `=`, `(` or `.`) taken out. The name
+   rules are unchanged, and a description still never makes a name read.
+2. **Under untrusted content, a connected app's plain work goes to the reviewer.** A connected
+   app's tool that declares nothing, with plain arguments (point 2) and the definition Spade
+   pinned, goes to the reviewer while untrusted content is in view. The reviewer is told it acts
+   in the person's app with that content in view, and to approve only the app's ordinary work the
+   person or the task calls for, whose targets came from the person or the bot's own earlier
+   steps. Payments, sends, access changes and deletes are already the person's by name (point 4),
+   so what is left is the work the person connected the app for. A call whose arguments reach a
+   destination or run text, or whose definition changed, still asks the person ("It may change
+   something in the app…"), and so does any tool that isn't a connected app's (ADR 0130). The
+   person's "no" for the bot still refuses it.
+3. **A destructive hint on a tool its name doesn't make a delete is reviewed each call.** For a
+   connected app with no trusted declaration, `destructiveHint` on `update_page` or `move_pages`
+   no longer asks the person each call. The reviewer judges every call instead, in both modes,
+   told the app says it may delete or overwrite: approve a targeted change of content the bot
+   made or was asked to change, and refuse one that replaces or empties what the person may want
+   or that it can't tell. Under untrusted content it is told to check the targets came from the
+   person or the bot's own work, and arguments that aren't plain go to the person. No earlier yes
+   and no Always allow skips that review. A delete the tool's own name makes (`delete_pages`)
+   still asks the person every call, and a plugin's or a URL server's destructive hint still asks
+   as §2 says.
+4. **The reviewer sees the bot's own recent steps** (`review::recent_steps`). These are its last
+   twelve calls, each cut to 300 characters, so a page id it found or a page it made reads as its
+   own work and not as something a page put in front of it. Calls only, never a tool's output.
+   They are quoted like every other tag.
+5. **The reviewer's prompt decides in order:** what the step really does, whether it serves the
+   job, whether it needs the person's own say, and whether untrusted text steered it. It says
+   plainly that doing the work the person asked for is routine even when it changes things.
+6. **The reviewer is never weaker than the bot.** With no review model set, the review role uses
+   the strongest model the person already uses whose listed price is at least the bot's own, as
+   the verifier does (ADR 0205), and the bot's own model when none is. It used to be the fast
+   model, which let a reviewer far weaker than the bot judge it.
+
+Tests: `effect::named_tests` (Notion's own `fetch` and `memory-search` descriptions read; code in
+the first sentence doesn't count; a change the first sentence names still does);
+`effect::app_tests` (tainted `create-pages` and `duplicate_page` are reviewed in both modes, a
+remembered yes too; a grant's call is reviewed; a declined tool is refused; a comment still asks;
+`update-page`, `move-pages` and a marked `get_page` are reviewed with the overwrite concern, never
+skipped by a yes or a grant; `delete-pages` still asks; `fetch_url` to an attacker's host under
+untrusted content still asks); `review::tests` (the latest twelve own steps, oldest first, cut
+short, the call under review left out); `autonomy::tests` (an earlier step can't close its tag);
+`routing::tests` (the reviewer and verifier pick the strongest model in use, never a weaker one).
