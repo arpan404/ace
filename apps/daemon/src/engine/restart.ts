@@ -321,6 +321,12 @@ export function recoverEngine(
             if (repo.backend(intent.threadId) === "cursor-sdk" && !processesUnverified)
               reconcile?.(intent.threadId);
           }
+          // The provider had taken it: it was sent, whatever became of its turn, which the
+          // thread shows on its own. Failing it would say "not sent" for a message that ran.
+          if (intent.acknowledged) {
+            repo.mark(intent, "done");
+            return;
+          }
           fail(
             intent,
             "Delivery interrupted by daemon restart; execution is uncertain. Review before resending.",

@@ -101,6 +101,12 @@ async function twoCrashes(
       .map((line) => JSON.stringify(JSON.parse(line)));
   const result = {
     sent,
+    /** The notices the thread shows, and its state. */
+    notices: () =>
+      store
+        .readItems(threadId, store.headSeq() + 1, 200)
+        .items.flatMap((item) => (item.type === "notice" ? [item.title ?? item.text ?? ""] : [])),
+    status: () => store.getThread(threadId)?.status.state,
     /** What the thread shows of a fresh Cursor session taking over (ADR 0211). */
     freshSessions: () =>
       store
@@ -159,9 +165,12 @@ it("a completed turn's restart hold goes with it, so after a crash right then Re
   expect(run.sent).toEqual([]);
   expect(run.queue.messages.map((message) => message.id)).toEqual(["follow-up"]);
   expect(run.answers[0]).toBe("before and after");
+  // The first message ran: nothing says it was not sent.
+  expect(run.notices().join(" | ")).not.toMatch(/not sent/i);
   await run.resume();
   expect(run.sent).toHaveLength(1);
   expect(run.sent[0]).toContain("follow-up");
+  expect(run.status()).toBe("done");
 }, 60_000);
 
 it("a send Cursor had is settled on the next start when the reopen that read its run was killed first", async () => {
