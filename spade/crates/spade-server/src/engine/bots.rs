@@ -172,6 +172,7 @@ impl Engine {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         });
         // Subscribed first, so the reply cannot slip by between delivering and listening.
         let frames = self.live(&target.conversation).frames.subscribe();
@@ -183,7 +184,10 @@ impl Engine {
         };
         let name = &target.name;
         match self.wait_reply(&target, sent, frames).await {
-            Outcome::Answered(text) => ToolOutput::ok(format!("{name} answered:\n{text}")),
+            Outcome::Answered(text) => ToolOutput::ok(format!(
+                "{name} answered:\n{}",
+                spade_core::chat_markup::plain(&text)
+            )),
             other => ToolOutput::error(other.text().to_owned()),
         }
     }
@@ -296,9 +300,11 @@ impl Engine {
             return ToolOutput::error(format!("The message was not stored: {error}"));
         }
         match self.wait_remote(&ask, |_| {}).await {
-            Outcome::Answered(text) => {
-                ToolOutput::ok(format!("{bot} on {} answered:\n{text}", target.name))
-            }
+            Outcome::Answered(text) => ToolOutput::ok(format!(
+                "{bot} on {} answered:\n{}",
+                target.name,
+                spade_core::chat_markup::plain(&text)
+            )),
             other => ToolOutput::error(other.text().to_owned()),
         }
     }
@@ -348,7 +354,8 @@ impl Engine {
                 Some(Outcome::Answered(text.clone()))
             }
             Event::Known(Known::ReplyStopped { text, .. }) => Some(Outcome::Stopped(format!(
-                "{name} was stopped before it finished. What it had said: {text}"
+                "{name} was stopped before it finished. What it had said: {}",
+                spade_core::chat_markup::plain(text)
             ))),
             Event::Known(Known::ReplyFailed { error, .. }) => {
                 Some(Outcome::Failed(format!("{name} could not answer: {error}")))

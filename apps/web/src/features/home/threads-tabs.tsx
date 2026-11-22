@@ -1,26 +1,24 @@
-import { CheckCircleIcon, ClockIcon, TrayIcon } from "@ace/icons";
 import { tabThreads, threadsTabs, type ThreadsPanel, type ThreadsTab } from "@ace/ui-core";
-import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn.ts";
-import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
-import "./threads-tabs.css";
+
+const shortcuts: Record<ThreadsTab, KeymapId> = {
+  inbox: "showInbox",
+  snoozed: "showSnoozed",
+  settled: "showSettled",
+};
 
 /**
- * The Threads panel's three places as a floating pill in its bottom-right: Inbox, Snoozed and
- * Settled as icon-only tabs over the scrolling rows. The pill is the shared floating material
- * (translucent over the list, opaque under Solid or reduced transparency); one selection thumb
- * slides behind the buttons, the open icon in foreground ink, the rest muted. Counts live in
- * the tooltips and accessible names, never as visible text. ← and → move between them, as 1,
- * 2 and 3 do from anywhere in the panel, and ⌃1–3 (the keymap's Threads shortcuts) from
- * anywhere in the app.
+ * The Threads panel's three places as text tabs under its title row: Inbox, Snoozed and Settled,
+ * the open one on the `--active` fill in foreground ink, the others subtle. Inbox and Snoozed
+ * carry a quiet count after the word (none at zero); Settled has none. ← and → move between
+ * them, as 1, 2 and 3 do from anywhere in the panel, and ⌃1–3 (the keymap's Threads shortcuts)
+ * from anywhere in the app.
  */
 export function ThreadsTabs(props: {
   tab: ThreadsTab;
   panel: ThreadsPanel;
-  /** Threads in the Inbox that need the person, for the Inbox dot (`useHomeList`). */
-  needsYou: readonly string[];
   onTab(tab: ThreadsTab): void;
 }) {
   const step = (by: number) => {
@@ -28,39 +26,17 @@ export function ThreadsTabs(props: {
     const next = threadsTabs[(at + by + threadsTabs.length) % threadsTabs.length];
     if (next) props.onTab(next.id);
   };
-  const index = Math.max(
-    0,
-    threadsTabs.findIndex((each) => each.id === props.tab),
-  );
-  const inboxCount = tabThreads(props.panel, "inbox").length;
-  const snoozedCount = tabThreads(props.panel, "snoozed").length;
-  const settledCount = tabThreads(props.panel, "settled").length;
-  const icons = {
-    inbox: TrayIcon,
-    snoozed: ClockIcon,
-    settled: CheckCircleIcon,
-  } as const;
-  const tips: Record<ThreadsTab, string> = {
-    inbox: `Inbox · ${inboxCount}`,
-    snoozed: "Snoozed",
-    settled: "Settled",
-  };
-  const shortcuts: Record<ThreadsTab, KeymapId> = {
-    inbox: "showInbox",
-    snoozed: "showSnoozed",
-    settled: "showSettled",
-  };
-  const labels: Record<ThreadsTab, string> = {
-    inbox: `Inbox, ${inboxCount}`,
-    snoozed: `Snoozed, ${snoozedCount}`,
-    settled: `Settled, ${settledCount}`,
+  const counts: Record<ThreadsTab, number> = {
+    inbox: tabThreads(props.panel, "inbox").length,
+    snoozed: tabThreads(props.panel, "snoozed").length,
+    settled: 0,
   };
   return (
     <div
       role="tablist"
       aria-label="Projects"
       data-part="sidebar-tabs"
-      className="ace-floating threads-tabs-mount absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-full p-1"
+      className="flex h-9 shrink-0 items-center gap-0.5 px-2"
       onKeyDown={(event) => {
         const by = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
         if (!by) return;
@@ -74,25 +50,11 @@ export function ThreadsTabs(props: {
         );
       }}
     >
-      {/*
-       * The one selection indicator. A solid-feeling foreground wash (`--pill-thumb`,
-       * living with the theme in theme/tokens.ts): the rail's `--active` is tuned for
-       * the opaque rail and almost vanishes on the translucent pill, so the thumb takes
-       * 8% foreground in light, 14% in dark. A circle, concentric with the round pill
-       * around it, never a ring. It sits under the open tab and slides
-       * on transform only; see threads-tabs.css.
-       */}
-      <span
-        aria-hidden
-        data-selected-index={index}
-        style={{ "--i": index } as CSSProperties}
-        className="threads-tabs-thumb absolute top-1 left-1 size-7 rounded-full bg-(--pill-thumb)"
-      />
-      {threadsTabs.map(({ id }) => {
+      {threadsTabs.map(({ id, label }) => {
         const current = id === props.tab;
-        const showDot = id === "inbox" && !current && props.needsYou.length > 0;
+        const count = counts[id];
         return (
-          <Tip key={id} label={tips[id]} shortcut={shortcuts[id]} side="top">
+          <Tip key={id} label={label} shortcut={shortcuts[id]} side="bottom">
             <button
               type="button"
               role="tab"
@@ -100,22 +62,20 @@ export function ThreadsTabs(props: {
               data-part="tab"
               data-state={current ? "selected" : undefined}
               tabIndex={current ? 0 : -1}
-              aria-label={labels[id]}
+              aria-label={count ? `${label}, ${count}` : label}
               onClick={() => props.onTab(id)}
               className={cn(
-                "threads-tabs-tab relative grid size-7 cursor-pointer place-items-center rounded-full focus-ring-inset active:scale-[0.96]",
+                "flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-meta font-medium transition-colors duration-(--motion-fast) focus-ring-inset",
                 current
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                  ? "bg-active text-foreground"
+                  : "text-subtle-foreground hover:text-foreground",
               )}
             >
-              <Icon icon={icons[id]} size={16} active={current} />
-              {showDot && (
-                <span
-                  aria-hidden
-                  data-tone="needs-you"
-                  className="absolute top-[3px] right-[3px] size-1.5 rounded-full bg-(--tone) ring-1 ring-popover"
-                />
+              {label}
+              {count > 0 && (
+                <span className="text-xs font-normal text-subtle-foreground tabular-nums">
+                  {count}
+                </span>
               )}
             </button>
           </Tip>

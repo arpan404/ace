@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { roleTitle } from "@ace/ui-core/thread-title";
 import { delegationWorkspace } from "./host-delegation.ts";
 import type { ModelLoadBudget } from "./model-load-budget.ts";
 import {
@@ -90,7 +91,7 @@ export function createWorkspaceDelegations(
           threadId: reservation.record.childId,
           workspaceId,
           provider: request.provider,
-          title: request.role.slice(0, 256),
+          title: roleTitle(request.role).slice(0, 256),
           mode: "worktree",
           ...(request.workspace?.kind === "new_worktree" ? { base: request.workspace.base } : {}),
         },

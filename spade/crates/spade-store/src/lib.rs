@@ -350,6 +350,21 @@ impl Store {
         Ok((events, bytes))
     }
 
+    /// The conversation's event numbered `seq`, if it has one.
+    pub fn event_at(&self, conversation: &str, seq: i64) -> Result<Option<Event>> {
+        let connection = self.lock()?;
+        let body: Option<String> = connection
+            .query_row(
+                "SELECT body FROM events WHERE conversation_id = ?1 AND seq = ?2",
+                params![conversation, seq],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(body.map(|body| {
+            Event::from_json(serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)))
+        }))
+    }
+
     /// Records what a reply cost.
     pub fn record_spend(
         &self,

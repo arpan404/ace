@@ -23,8 +23,8 @@ test("a set value converts MiB to per-session maxCheckpointBytes", () => {
   });
 });
 
-test("out-of-range values clamp to the 1-256 MiB budget", () => {
-  expect(cursorCheckpointLimitOverride({ maxCheckpointMb: 1000 })).toEqual({
+test("out-of-range values clamp to the 1-65536 MiB budget", () => {
+  expect(cursorCheckpointLimitOverride({ maxCheckpointMb: 100000 })).toEqual({
     maxCheckpointBytes: MAX_CHECKPOINT_MB * 1048576,
   });
   expect(cursorCheckpointLimitOverride({ maxCheckpointMb: -4 })).toEqual({

@@ -177,6 +177,7 @@ impl Engine {
             from_routine: None,
             from_group: None,
             from_thread: Some(Box::new(from)),
+            reply_to: None,
         });
         let entry = InboxEntry {
             from_host: asked.host.to_owned(),
@@ -224,7 +225,7 @@ impl Engine {
             since_ms: now - 24 * 60 * 60_000,
             most: MOST_PER_DAY,
         };
-        match self.post_group_as(id, text, Some(thread), Some(delivery)) {
+        match self.post_group_as(id, text, Some(thread), Some(delivery), None) {
             Ok(Some(_)) => (200, json!({ "status": "accepted" })),
             Ok(None) => (200, json!({ "status": "duplicate" })),
             Err(GroupError::NotFound) => refuse(404, "That club isn't on this machine's Spade."),
@@ -283,6 +284,7 @@ impl Engine {
         let named = json!({ "id": agent.id, "name": agent.name });
         match self.reply_after(agent, seq) {
             Some(Outcome::Answered(text)) => {
+                let text = spade_core::chat_markup::plain(&text);
                 json!({ "status": "answered", "replies": [{ "bot": me, "text": text }] })
             }
             Some(Outcome::Stopped(text)) => {

@@ -55,6 +55,10 @@ struct Message {
     /// Devices the person named with `@` (ADR 0198); one that can't be read is left out.
     #[serde(default)]
     devices: Vec<Value>,
+    /// The id of an earlier message the person replied to (ADR 0212); one that isn't a string
+    /// is ignored and the message still goes.
+    #[serde(default)]
+    reply_to: Value,
 }
 
 #[derive(Deserialize)]
@@ -145,6 +149,7 @@ async fn message(
         documents,
         voice,
         devices,
+        reply_to: body.reply_to.as_str().map(str::to_owned),
     };
     match state.engine.send_message(&id, outgoing) {
         Ok(()) => StatusCode::ACCEPTED.into_response(),

@@ -270,6 +270,8 @@ export function ThreadActionItems(props: {
           "pin",
           "move",
           "continue-on",
+          "settle",
+          "unsettle",
           "auto-settle",
           "archive",
           "restore",

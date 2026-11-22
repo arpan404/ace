@@ -373,6 +373,7 @@ mod tests {
             helper: None,
             launch: None,
             stopped: None,
+            effect: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -388,6 +389,7 @@ mod tests {
             helper: None,
             launch: None,
             stopped: None,
+            effect: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {
             reply: "r1".into(),

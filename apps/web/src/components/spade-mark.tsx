@@ -8,6 +8,7 @@
  * Decorative: the place around it carries the name.
  */
 
+import type { CSSProperties } from "react";
 import {
   spadeEggPath as egg,
   spadeEye,
@@ -23,6 +24,9 @@ const paper = "#f6f6f7";
 const ink = "#141416";
 
 const round = (value: number) => Number(value.toFixed(2));
+
+/** How far a blink closes an eye's outline (`fx-spade-blink` reads it; the rest close to 0.12). */
+const lidDepth = { "--blink-to": "0.34" } as CSSProperties;
 
 export function SpadeMark(props: {
   size?: number;
@@ -51,30 +55,39 @@ export function SpadeMark(props: {
         {spadeEyes.map((centre, index) => {
           const at = spadePupilAt(centre, pupil, pad, props.look);
           return (
-            <g key={centre.x} className={props.moving ? "fx-spade-blink" : undefined}>
+            <g key={centre.x}>
+              {/*
+               * A blink closes the white and the pupil to a line, but the outline only to a
+               * third: on dark's light head the closed eye is a dark lid, never a hairline that
+               * leaves a blank disc; on light's dark head it is the same blink as before.
+               */}
               <path
                 d={egg(centre.x, centre.y, spadeEye.rx + ring, spadeEye.ry + ring)}
                 fill={ink}
+                className={props.moving ? "fx-spade-blink" : undefined}
+                style={props.moving ? lidDepth : undefined}
               />
-              <path d={egg(centre.x, centre.y, spadeEye.rx, spadeEye.ry)} fill={paper} />
-              <g className={props.moving ? "fx-spade-look" : undefined}>
-                <ellipse
-                  cx={round(at.x)}
-                  cy={round(at.y)}
-                  rx={pupil.rx}
-                  ry={pupil.ry}
-                  fill={ink}
-                  data-spade-pupil={index}
-                />
-                {!small && (
-                  <circle
-                    cx={round(at.x + pupil.rx * 0.38)}
-                    cy={round(at.y - pupil.ry * 0.42)}
-                    r={round(pupil.rx * 0.3)}
-                    fill={paper}
-                    data-spade-glint={index}
+              <g className={props.moving ? "fx-spade-blink" : undefined}>
+                <path d={egg(centre.x, centre.y, spadeEye.rx, spadeEye.ry)} fill={paper} />
+                <g className={props.moving ? "fx-spade-look" : undefined}>
+                  <ellipse
+                    cx={round(at.x)}
+                    cy={round(at.y)}
+                    rx={pupil.rx}
+                    ry={pupil.ry}
+                    fill={ink}
+                    data-spade-pupil={index}
                   />
-                )}
+                  {!small && (
+                    <circle
+                      cx={round(at.x + pupil.rx * 0.38)}
+                      cy={round(at.y - pupil.ry * 0.42)}
+                      r={round(pupil.rx * 0.3)}
+                      fill={paper}
+                      data-spade-glint={index}
+                    />
+                  )}
+                </g>
               </g>
             </g>
           );

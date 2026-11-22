@@ -74,6 +74,12 @@ export class WorkspaceReservations {
     const root = session?.cwd ?? project?.root;
     return typeof root === "string" && this.reserved(root);
   }
+  /** Project folders the daemon knows (their canonical roots), for idle per-checkout upkeep. */
+  knownRoots(limit = 1000): string[] {
+    return this.statement("SELECT DISTINCT root FROM workspace_canonical_roots LIMIT ?")
+      .all(limit)
+      .map((row) => z.string().parse(row.root));
+  }
   /** The roots a change fences: the ones asked for, plus any its earlier changes still hold. */
   roots(owner: ThreadId, input: readonly string[]): string[] {
     const roots = [...new Set([...input.map(canonicalRoot), ...this.threadRoots(owner)])];

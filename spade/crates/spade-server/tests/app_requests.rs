@@ -434,3 +434,52 @@ async fn a_coming_soon_apps_card_says_it_isnt_available_yet() -> Result {
     assert_eq!(waiting_for(&spade, &bot).await?, Value::Null);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_read_held_for_a_reconnect_is_checked_afresh_not_sent_on_a_stale_approval() -> Result {
+    // A clean read runs on the rules alone: no verdict records the definition it ran as.
+    let app = FakeConnector::start(vec![tool("list_pages", None, None)]).await;
+    let list = Script::reply("").call(
+        "c1",
+        "call_tool",
+        json!({ "name": "fake__list_pages", "arguments": { "say": "all" } }),
+    );
+    let spade = spade_with(&app, vec![list, Script::reply("Will try again."), title()]).await?;
+    let id = sign_in(
+        &spade,
+        &app,
+        "/v1/connectors",
+        json!({ "catalogue": "fake" }),
+    )
+    .await?;
+    app.expire_access_tokens();
+    app.revoke_refresh_tokens();
+    let (_, agents) = spade.get("/v1/agents").await?;
+    let conversation = agents["agents"]
+        .as_array()
+        .and_then(|a| a.iter().find(|a| a["kind"] == "main"))
+        .and_then(|a| a["conversation"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "List my pages").await?;
+    spade.wait_for(&conversation, "question_asked").await?;
+    let runs = app.tool_runs();
+    sign_in(
+        &spade,
+        &app,
+        &format!("/v1/connectors/{id}/connect"),
+        json!({}),
+    )
+    .await?;
+    connected(&spade, &conversation, "c1", &id).await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    // Not sent again on an approval no record ties to a definition: the bot is told to call it
+    // again, and that call is routed afresh.
+    assert_eq!(app.tool_runs(), runs, "sent on a stale approval");
+    assert!(
+        result(&events, "c1").contains("Call it again"),
+        "{}",
+        result(&events, "c1")
+    );
+    Ok(())
+}

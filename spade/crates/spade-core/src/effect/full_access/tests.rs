@@ -2,8 +2,7 @@ use super::NO_CLASSIFIER;
 use crate::autonomy::{CREDENTIALS_REFUSED, Class, Mode, Sensitive};
 use crate::effect::{
     Ask, CHANGES_ACCESS, Call, DECLINED_TOOL, Drive, Effect, GIT_PUSH, Granted, OUTSIDE, PUSHES,
-    Place, Route, SENDS_AS_YOU, SPENDS, TAINTED_OUTWARD, UNDECLARED, UNDECLARED_TAINTED, UNKNOWN,
-    route,
+    Place, Route, SENDS_AS_YOU, SPENDS, TAINTED_OUTWARD, UNDECLARED_TAINTED, UNKNOWN, route,
 };
 use crate::gate::Decision;
 use crate::tools::Risk;
@@ -35,6 +34,7 @@ fn full(tool: &str, effect: Option<Effect>) -> Call<'_> {
         org: None,
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     }
 }
 
@@ -253,48 +253,30 @@ fn in_full_access_the_sandbox_is_never_widened() {
 }
 
 #[test]
-fn in_full_access_an_app_tool_that_declares_nothing_asks_on_its_first_call_even_with_the_classifier_off()
- {
-    // An app's sending tool with no trusted declaration: Spade can't know it sends.
-    let send = app_tool("mail__send_email", None);
-    for call in [
-        send,
-        Call {
-            classifier: false,
-            ..send
-        },
-        Call {
-            tainted: true,
-            classifier: false,
-            ..send
-        },
-    ] {
-        assert_eq!(
-            route(call),
-            Route::Ask {
-                line: UNDECLARED.to_owned(),
-                ask: Some(Ask::Undeclared)
-            },
-            "{call:?}"
-        );
+fn in_full_access_an_app_tool_that_declares_nothing_is_reviewed_as_on_the_auto_review() {
+    // An app's tool with no trusted declaration and a name Spade can't read (ADR 0202,
+    // amendment 5): the reviewer judges it, the classifier on or off; it never runs on the
+    // classifier's say alone.
+    let sync = app_tool("crm__sync", None);
+    for classifier in [true, false] {
+        let call = Call { classifier, ..sync };
+        assert!(is_review(&route(call)), "{:?}", route(call));
     }
-    // The person's "yes" for the bot lets it run, still past the classifier and never under
-    // untrusted content.
-    let allowed = Call {
-        remembered: Some(true),
-        ..send
+    // Untrusted content in view: the person, whatever they answered before.
+    for remembered in [None, Some(true)] {
+        let steered = Call {
+            tainted: true,
+            remembered,
+            ..sync
+        };
+        assert_eq!(route(steered), asks(UNDECLARED_TAINTED));
+    }
+    // Their "no" for the bot still refuses it.
+    let declined = Call {
+        remembered: Some(false),
+        ..sync
     };
-    assert_eq!(route(allowed), Route::Run);
-    let blind = Call {
-        classifier: false,
-        ..allowed
-    };
-    assert!(is_review(&route(blind)), "{:?}", route(blind));
-    let steered = Call {
-        tainted: true,
-        ..allowed
-    };
-    assert_eq!(route(steered), asks(UNDECLARED_TAINTED));
+    assert_eq!(route(declined), Route::Refuse(DECLINED_TOOL.to_owned()));
 }
 
 #[test]
@@ -348,13 +330,12 @@ fn in_full_access_a_sandbox_that_holds_an_app_tools_files_doesnt_hold_its_sends(
         place: Place::Sandbox,
         ..app_tool("mailer__send_email", effect)
     };
-    assert_eq!(
-        route(contained(None)),
-        Route::Ask {
-            line: UNDECLARED.to_owned(),
-            ask: Some(Ask::Undeclared)
-        }
-    );
+    assert!(is_review(&route(contained(None))), "never run unreviewed");
+    let unscreened = Call {
+        classifier: false,
+        ..contained(None)
+    };
+    assert!(is_review(&route(unscreened)));
     let off = Call {
         classifier: false,
         ..contained(Some(Effect::Network))

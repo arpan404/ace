@@ -294,6 +294,7 @@ pub fn route(call: CodeCall<'_>) -> crate::effect::Route {
         org: call.org,
         permits: call.permits,
         connected: false,
+        guessed: false,
     };
     match effect::route(gate) {
         Route::Review(concern) => Route::Ask {
@@ -355,6 +356,7 @@ pub fn http_route(call: HttpCall<'_>) -> crate::effect::Route {
         // A request from code is a network step: no switch of the bot's covers it.
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     };
     match effect::route(gate) {
         Route::Review(concern) => Route::Ask {

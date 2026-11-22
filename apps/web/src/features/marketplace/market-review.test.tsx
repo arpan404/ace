@@ -105,7 +105,7 @@ test("an install that wants a fresh sign-in says so and offers to sign in, never
   const market = await findMarket();
   await userEvent.click(await within(market).findByRole("button", { name: "Get" }));
 
-  const page = await screen.findByRole("region", { name: "Store" });
+  const page = await screen.findByRole("region", { name: "Marketplace" });
   const said = await within(page).findByRole("status");
   expect(said.textContent).toContain("Installing needs a recent sign-in to your ace account.");
   // A build without an ace account sends the person to sign in under Profile.

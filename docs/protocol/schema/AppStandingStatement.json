@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppStandingStatement.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "key": {
+      "pattern": "^[A-Za-z0-9_-]{87}$",
+      "type": "string"
+    },
+    "proof": {
+      "pattern": "^[A-Za-z0-9_-]{86}$",
+      "type": "string"
+    },
+    "signIn": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "sockets": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AppSocket.json"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array"
+    },
+    "statement": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "statement",
+    "proof",
+    "key",
+    "sockets"
+  ],
+  "type": "object"
+}

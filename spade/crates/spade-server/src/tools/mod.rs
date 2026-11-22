@@ -245,12 +245,42 @@ pub trait Tool: Send + Sync {
     fn connected_app(&self) -> bool {
         false
     }
+    /// For a connected app's tool, the connection's id and the app's name, which its Always
+    /// allow is kept under and the reviewer is told (ADR 0202, amendment 5).
+    fn app(&self) -> Option<(String, String)> {
+        None
+    }
+    /// For a connected app's tool, what Spade reads it as doing with these `arguments`, given
+    /// whether its definition changed since it was pinned (`spade_core::effect::app_tool`).
+    fn app_reading(
+        &self,
+        _arguments: &Value,
+        _changed: bool,
+    ) -> Option<spade_core::effect::AppReading> {
+        None
+    }
+    /// For a connected app's tool, a digest of its definition as its server lists it now: its
+    /// own name, description and input schema. Pinned per connection when first used, so a
+    /// tool renamed or redescribed since loses its read and any Always allow until reviewed.
+    fn definition(&self) -> Option<String> {
+        None
+    }
+    /// For a connected app's tool, the generation of its connection's session now: a call is
+    /// sent only on the session it was approved on.
+    fn app_session(&self) -> Option<u64> {
+        None
+    }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the
     /// server and its version, the tool's own name and its schema, so an answer kept for it never
     /// carries over to another tool offered under the same name (ADR 0171, amendment 1).
     fn identity(&self) -> String {
         let def = self.def();
         format!("{}#{}", def.spec.name, schema_hash(&def.spec.schema))
+    }
+    /// The identity an older build kept answers under, when it differs: only a "no" kept under
+    /// it still counts.
+    fn legacy_identity(&self) -> Option<String> {
+        None
     }
 }
 
@@ -357,7 +387,7 @@ impl Toolbox {
     }
 
     /// The sources' tools `conversation` may use now, those sharing a name left out.
-    fn sourced_for(&self, conversation: &str) -> Vec<Arc<dyn Tool>> {
+    pub(crate) fn sourced_for(&self, conversation: &str) -> Vec<Arc<dyn Tool>> {
         unambiguous(
             self.sources
                 .iter()

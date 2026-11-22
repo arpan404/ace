@@ -165,7 +165,7 @@ function reviewView(review: MarketReview) {
       .join(" · "),
     publisher: review.publisher?.name ?? null,
     signed: review.signed,
-    signedText: review.signed ? "Signed by the Store" : "Not signed",
+    signedText: review.signed ? "Signed by the Marketplace" : "Not signed",
     reviewed: review.reviewed,
     reviewMark: marked ? "Reviewed by ace" : "Not reviewed by ace",
     reviewNote: marked ? null : "Read what it does before you install it.",

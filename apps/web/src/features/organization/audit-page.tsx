@@ -12,6 +12,7 @@ import {
 } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { useSpaceMachines } from "@/features/ace-account/index.ts";
 import {
   orgFailure,
@@ -48,7 +49,9 @@ export function AuditPage(props: { org: AceOrgSpace }) {
   });
   const read = log.data === undefined ? undefined : readAuditLines(log.data);
   const rows = read ? read.rows.slice(-shownEntries).toReversed() : [];
+  const auditKey = read?.header?.key;
   const [error, setError] = useState("");
+  const keyCopy = useCopy(() => setError("Couldn't copy the key. Try again."));
   return (
     <>
       <SettingSection
@@ -127,13 +130,20 @@ export function AuditPage(props: { org: AceOrgSpace }) {
               <>
                 On any machine with ace, run{" "}
                 <code className="font-mono break-all">
-                  ace org audit verify {"<file>"} --key {read.header.key || "<key>"}
+                  ace org audit verify {"<file>"} --key {"<key>"}
                 </code>
                 . It checks every entry's chain and each checkpoint's signature, offline. Use the
                 key {props.org.name} registered for the host, not one the file names.
               </>
             }
-          />
+            inline
+          >
+            {auditKey && (
+              <Button size="sm" variant="ghost" onClick={() => keyCopy.copy(auditKey)}>
+                {keyCopy.copied ? "Copied" : "Copy key"}
+              </Button>
+            )}
+          </SettingRow>
         )}
         {error && (
           <SettingNote role="alert" className="text-destructive">

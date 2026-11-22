@@ -1,5 +1,4 @@
 import { useRef, type KeyboardEvent } from "react";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { paletteScopes, type PaletteScope } from "./arrange.ts";
@@ -12,7 +11,7 @@ export function stepScope(scope: PaletteScope, by: number): PaletteScope {
 }
 
 /**
- * The palette's tabs over its field: All, Actions, Threads, Chats and Messages as words, the
+ * The palette's tabs under its field: All, Actions, Threads, Chats and Messages as words, the
  * open one on a soft fill. In the field, Tab moves to the next tab and ⇧Tab steps up onto the
  * open tab. On them: ← and → move along, Home and End to the ends; ↓, Enter or Tab go back to
  * the field, and typing goes to the field too; Esc closes the palette, as anywhere in it. A click
@@ -62,7 +61,7 @@ export function ScopeTabs(props: {
   return (
     <div
       ref={list}
-      className="flex shrink-0 items-center gap-0.5 px-2 pt-2"
+      className="flex shrink-0 items-center gap-0.5 px-2 pb-1 pt-1"
       role="tablist"
       aria-label="Search in"
       {...part("tabs", undefined, "search-scope")}
@@ -92,7 +91,6 @@ export function ScopeTabs(props: {
           </button>
         );
       })}
-      <Kbd className="ml-1.5 pointer-coarse:hidden">Tab</Kbd>
     </div>
   );
 }

@@ -12,6 +12,7 @@ export {
 } from "./checkout-files.ts";
 export { deviceDrafts } from "./device-drafts.ts";
 export { workerMerge } from "./merge-port.ts";
+export { outlinePort, type OutlinePort } from "./outline-port.ts";
 export {
   createBufferRegistry,
   defaultCapBytes,

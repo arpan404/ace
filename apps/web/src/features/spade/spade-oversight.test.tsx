@@ -32,12 +32,12 @@ const activityReads = (spade: FakeSpadeApi) =>
     .filter((request) => request.path.startsWith("/v1/agents/scout/activity"))
     .map((request) => request.path.split("?")[1] ?? "");
 
-/** Scout's activity: its profile, on Computer's Activity. */
+/** Scout's activity: its profile, on Work, where the whole log is. */
 async function openActivity() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Computer" }));
+  await userEvent.click(profile.getByRole("tab", { name: "Work" }));
 }
 
 /** Scout's profile, on Details, and its Spending section. */

@@ -47,8 +47,23 @@ Your job:
 - When the conversation opens with the person's first message and it sets your job, answer like a capable new hire. In one short paragraph, say the job back as you understood it, how you will go about it and when you will report. Ask only what you truly need before starting: at most three short questions in one ask_user card, with options where they fit and wait false, so the person can skip them while you start. Name the apps the job needs, if any, in one line. If the job recurs (every morning, each week, whenever something arrives), offer a schedule in that card as one confirm question (\"Every morning at 8?\") and save it with routine_save once they agree. Then, if any part can be done now, do the first piece of work in that same reply.
 
 How you answer:
-- Lead with the answer or the outcome, then only the detail the person needs. Keep it short.
-- Use Markdown when it helps: lists, tables and fenced code.
+- Write like you are texting a capable colleague. Lead with the answer or the outcome in a \
+sentence or two, then only the detail the person needs.
+- Send several short messages rather than one wall of text: wrap each in <msg>…</msg>. No \
+headings or long bullet lists in chat. Ask one question at a time.
+- Anything long (a report, a plan, a draft, a table, more than about eight lines) goes in a \
+document, <doc title=\"…\">…</doc>, with a line or two about it in chat. Markdown and fenced code \
+are fine inside a document.
+- Messages carry ids: the person's read [m12] before their words, and your own earlier ones \
+id=\"m30\". To answer an older message, quote it with reply=\"<its id>\"; most messages need no \
+reply.
+- For example, a few messages:
+<msg>Found 3 flights under €100.</msg>
+<msg>The cheapest leaves Tuesday at 9:10.</msg>
+<msg>Want me to hold it?</msg>
+- Or a reply to an older message, then a document:
+<msg reply=\"m7\">Yes, Tuesday works. Here's the plan.</msg>
+<doc title=\"Lisbon trip plan\">…the full plan…</doc>
 - Say so when you are unsure. Never claim to have done something you did not do, and never \
 present a guess as a fact.
 
@@ -206,6 +221,73 @@ pub fn person_text(
         text = crate::group::framed(from, &text);
     }
     text
+}
+
+/// A `user_message` as the model reads it, before its attachments: the person's own carries its
+/// id (`[m14]`) and the message it replies to; one through a club carries the club message it
+/// replies to, without an id, since club ids aren't this conversation's (ADR 0212 §3, §4).
+/// `None` for any other event.
+pub fn message_text(event: &Known, seq: u64) -> Option<String> {
+    let Known::UserMessage {
+        text,
+        context,
+        voice,
+        from_agent,
+        from_routine,
+        from_group,
+        from_thread,
+        reply_to,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    let mut words = match voice {
+        Some(_) => format!("{SPOKEN} {text}"),
+        None => text.clone(),
+    };
+    let typed = from_agent.is_none() && from_routine.is_none() && from_group.is_none();
+    if typed {
+        let quote = reply_to.as_deref().map(|to| {
+            let whose = match (&to.name, to.mine) {
+                (_, true) => "their own".to_owned(),
+                (Some(name), false) => format!("{name}'s"),
+                (None, false) => "your".to_owned(),
+            };
+            format!(
+                "(replying to {whose} message {}: {})\n",
+                to.id,
+                quoted(&to.text)
+            )
+        });
+        words = format!(
+            "[{}] {}{words}",
+            crate::chat_markup::id(seq, 0),
+            quote.unwrap_or_default()
+        );
+    } else if let (Some(_), Some(to)) = (from_group, reply_to.as_deref()) {
+        let whose = match (&to.name, to.mine) {
+            (_, true) | (None, false) => "the person's own".to_owned(),
+            (Some(name), false) => format!("{name}'s"),
+        };
+        words = format!(
+            "(replying to {whose} message: {})\n{words}",
+            quoted(&to.text)
+        );
+    }
+    Some(person_text(
+        &words,
+        context.as_deref(),
+        from_agent.as_ref(),
+        from_routine.as_deref(),
+        from_group.as_deref(),
+        from_thread.as_deref(),
+    ))
+}
+
+/// Quoted words on one line, as a JSON string, so a quote can't break out of its brackets.
+fn quoted(text: &str) -> String {
+    serde_json::to_string(text).unwrap_or_default()
 }
 
 /// What the model reads before a spoken message's transcript.
@@ -552,32 +634,19 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
     let mut returned = Returned::default();
     // Calls that started running, so a missing result is "unknown", not "not run".
     let mut started: Vec<String> = Vec::new();
-    for event in events {
+    // The last message the bot's words went in, by its index in `out`, and those words as plain
+    // text, so a reply's end that repeats them isn't read twice.
+    let mut last_words: Option<(usize, String)> = None;
+    for (at, event) in events {
         let Event::Known(event) = event else { continue };
+        let seq = at as u64 + 1;
         match event {
             Known::UserMessage {
-                text,
-                context,
                 images: attached,
                 documents,
-                voice,
-                from_agent,
-                from_routine,
-                from_group,
-                from_thread,
+                ..
             } => {
-                let spoken = match voice {
-                    Some(_) => format!("{SPOKEN} {text}"),
-                    None => text.clone(),
-                };
-                let mut text = person_text(
-                    &spoken,
-                    context.as_deref(),
-                    from_agent.as_ref(),
-                    from_routine.as_deref(),
-                    from_group.as_deref(),
-                    from_thread.as_deref(),
-                );
+                let mut text = message_text(event, seq).unwrap_or_default();
                 let mut shown = Vec::new();
                 for document in documents {
                     let native = images.document(document);
@@ -701,8 +770,11 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     })
                     .collect();
                 pending = calls.clone();
+                if calls.is_empty() {
+                    last_words = Some((out.len(), crate::chat_markup::plain(text)));
+                }
                 out.push(Message::Spade {
-                    text: text.clone(),
+                    text: crate::chat_markup::for_model(text, seq),
                     calls,
                     thoughts: thoughts.clone(),
                 });
@@ -739,9 +811,14 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 // reads (docs/chat-core.md, Try again).
                 let retried = matches!(event, Known::ReplyFailed { reply, .. } if tried_again.contains(reply.as_str()));
                 // Text that arrived before the turn ended, not yet part of a finished step.
-                if !retried && !text.is_empty() && !ends_with_spade_text(&out, text) {
+                let words = crate::chat_markup::for_model(text, seq);
+                let said = last_words.as_ref().is_some_and(|(at, said)| {
+                    *at + 1 == out.len() && *said == crate::chat_markup::plain(text)
+                });
+                if !retried && !words.is_empty() && !said {
+                    last_words = Some((out.len(), crate::chat_markup::plain(text)));
                     out.push(Message::Spade {
-                        text: text.clone(),
+                        text: words,
                         calls: Vec::new(),
                         thoughts: Vec::new(),
                     });
@@ -773,13 +850,13 @@ pub(crate) fn arrives(event: &Known) -> bool {
 /// The events from `from` on, in the order the model read them: a message or job result that
 /// arrived while a step was being answered (at or after the step's `seen`) comes after that step,
 /// since the step never saw it.
-fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
+fn reading_order(events: &[Event], from: usize) -> Vec<(usize, &Event)> {
     let arrives = |event: &Event| match event {
         Event::Known(known) => arrives(known),
         Event::Unknown(_) => false,
     };
     let mut out = Vec::with_capacity(events.len().saturating_sub(from));
-    let mut late: Vec<&Event> = Vec::new();
+    let mut late: Vec<(usize, &Event)> = Vec::new();
     for (at, event) in events.iter().enumerate().skip(from) {
         if arrives(event) {
             // Late if the next step's prompt was built before this arrived.
@@ -791,11 +868,11 @@ fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
             if let Some(Some(seen)) = next_step_seen
                 && seen <= at
             {
-                late.push(event);
+                late.push((at, event));
                 continue;
             }
         }
-        out.push(event);
+        out.push((at, event));
         if matches!(event, Event::Known(Known::StepFinished { .. })) {
             out.append(&mut late);
         }
@@ -894,10 +971,6 @@ fn push_person(out: &mut Vec<Message>, text: String, shown: Vec<Image>) {
             images: shown,
         });
     }
-}
-
-fn ends_with_spade_text(out: &[Message], text: &str) -> bool {
-    matches!(out.last(), Some(Message::Spade { text: last, calls, .. }) if calls.is_empty() && last == text)
 }
 
 /// Where the open turn's events start: after the reply before it ended. A step Spade started by
@@ -1204,5 +1277,7 @@ fn ends_reply(event: &Event) -> bool {
 mod media_tests;
 #[cfg(test)]
 mod plugin_tests;
+#[cfg(test)]
+mod reply_tests;
 #[cfg(test)]
 mod tests;

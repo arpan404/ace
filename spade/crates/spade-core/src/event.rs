@@ -39,6 +39,13 @@ pub enum Known {
         /// came with it, is untrusted.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_thread: Option<Box<FromThread>>,
+        /// The earlier message the person replied to, as it read when they sent this (ADR 0212).
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_reply_to"
+        )]
+        reply_to: Option<Box<ReplyTo>>,
     },
     /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
     /// takes the task in effect when its reply started, and `reply_started` names its model.
@@ -269,6 +276,16 @@ pub enum Known {
             deserialize_with = "crate::autonomy::escalate::lenient"
         )]
         stopped: Option<crate::autonomy::escalate::Stopped>,
+        /// What the gate read the call as doing when it asked (ADR 0202, amendment 5), for the
+        /// request's words: a client heads a request by it, never by the tool's name. Absent for
+        /// older events and a call that declares nothing; a word this build doesn't know reads
+        /// as `unknown`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::effect::lenient_effect"
+        )]
+        effect: Option<crate::effect::Effect>,
     },
     ApprovalAnswered {
         reply: String,
@@ -652,6 +669,13 @@ pub enum Known {
         /// The person wrote it in an ace thread (ADR 0198).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<FromThread>,
+        /// The club message the person replied to (ADR 0212).
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_reply_to"
+        )]
+        reply_to: Option<Box<ReplyTo>>,
     },
     /// A group message was handed to a bot: by the person's post (`by` is `None`) or by a bot's
     /// `group_ask`.
@@ -1139,6 +1163,30 @@ impl DocumentRef {
     }
 }
 
+/// The message a message replies to (ADR 0212 §4), stored as it read when the reply was sent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplyTo {
+    /// Its id in the conversation: `m<seq>` or `m<seq>.<n>`.
+    pub id: String,
+    /// Its words, cut to 280 characters.
+    pub text: String,
+    /// The person wrote it.
+    #[serde(default)]
+    pub mine: bool,
+    /// The bot that wrote it, in a club.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// A stored `reply_to`, or none when it can't be read: the message itself still reads.
+fn lenient_reply_to<'de, D>(deserializer: D) -> Result<Option<Box<ReplyTo>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok().map(Box::new))
+}
+
 /// A spoken message's recording: its SHA-256 (hex), media type and size.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoiceRef {
@@ -1208,6 +1256,7 @@ impl Event {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         })
     }
 
@@ -1291,6 +1340,36 @@ mod tests {
         let raw = json!({ "type": "tool_called", "tool": "web_search" });
         assert_eq!(Event::from_json(raw.clone()), Event::Unknown(raw.clone()));
         assert_eq!(Event::from_json(raw.clone()).to_json(), raw);
+    }
+
+    #[test]
+    fn a_reply_to_round_trips_and_one_that_cant_be_read_leaves_the_message_readable() {
+        let raw = json!({ "type": "user_message", "text": "That one",
+                          "reply_to": { "id": "m12", "text": "Tuesday?", "mine": false } });
+        let Event::Known(Known::UserMessage { reply_to, .. }) = Event::from_json(raw.clone())
+        else {
+            panic!("a reply is a message");
+        };
+        let to = reply_to.unwrap_or_else(|| panic!("its quote"));
+        assert_eq!(
+            (to.id.as_str(), to.text.as_str(), to.mine),
+            ("m12", "Tuesday?", false)
+        );
+        assert_eq!(Event::from_json(raw.clone()).to_json(), raw);
+        for broken in [json!("m12"), json!({ "id": 12 }), json!(null)] {
+            let raw = json!({ "type": "group_message", "run": "r", "text": "Hi",
+                              "reply_to": broken });
+            assert!(matches!(
+                Event::from_json(raw),
+                Event::Known(Known::GroupMessage { reply_to: None, .. })
+            ));
+        }
+        assert!(
+            Event::user_message("Hi")
+                .to_json()
+                .get("reply_to")
+                .is_none()
+        );
     }
 
     fn failed_kind(raw: Value) -> Option<FailureKind> {

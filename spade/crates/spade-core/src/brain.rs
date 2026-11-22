@@ -104,7 +104,8 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
     }
     let parts: Vec<String> = events[since..]
         .iter()
-        .filter_map(|event| {
+        .enumerate()
+        .filter_map(|(at, event)| {
             let was = asking;
             asking = still_asking(asking, event);
             match event {
@@ -117,7 +118,7 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
                 Event::Known(known) if crate::question::is_late(known) => {
                     crate::question::late_text(events, known)
                 }
-                other => turn_part(other),
+                other => turn_part(other, (since + at) as u64 + 1),
             }
         })
         .collect();
@@ -162,31 +163,14 @@ fn still_asking(asking: bool, event: &Event) -> bool {
 }
 
 /// What one event that arrived for the CLI says, if it says anything.
-fn turn_part(event: &Event) -> Option<String> {
+fn turn_part(event: &Event, seq: u64) -> Option<String> {
     match event {
-        Event::Known(Known::UserMessage {
-            text,
-            context,
-            images,
-            documents,
-            voice,
-            from_agent,
-            from_routine,
-            from_group,
-            from_thread,
-        }) => {
-            let spoken = match voice {
-                Some(_) => format!("{} {text}", context::SPOKEN),
-                None => text.clone(),
-            };
-            let mut text = context::person_text(
-                &spoken,
-                context.as_deref(),
-                from_agent.as_ref(),
-                from_routine.as_deref(),
-                from_group.as_deref(),
-                from_thread.as_deref(),
-            );
+        Event::Known(
+            known @ Known::UserMessage {
+                images, documents, ..
+            },
+        ) => {
+            let mut text = context::message_text(known, seq).unwrap_or_default();
             // The extracted text, with how to read on (`document_read` through spade_call).
             for document in documents {
                 text.push_str("\n\n");
@@ -387,7 +371,7 @@ mod tests {
         assert_eq!(next_turn(&events), None);
         events.push(Event::user_message("Again"));
         let next = next_turn(&events).map(|turn| turn.message);
-        assert_eq!(next, Some(format!("{ENDED_EARLY}\n\nAgain")));
+        assert_eq!(next, Some(format!("{ENDED_EARLY}\n\n[m7] Again")));
     }
 
     #[test]
@@ -441,13 +425,13 @@ mod tests {
                 .contains("Write your answer to the person as your reply")
         );
         assert!(!first.changed);
-        assert_eq!(first.message, "Hello");
+        assert_eq!(first.message, "[m2] Hello");
         events.push(step(first.seen));
         assert_eq!(next_turn(&events), None, "nothing new arrived");
 
         events.push(Event::user_message("And then?"));
         let second = next_turn(&events).ok_or("a second turn")?;
-        assert_eq!(second.message, "And then?");
+        assert_eq!(second.message, "[m5] And then?");
         assert!(!second.changed);
         events.push(step(second.seen));
 

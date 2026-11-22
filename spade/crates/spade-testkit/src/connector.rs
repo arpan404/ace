@@ -369,6 +369,28 @@ impl FakeConnector {
         lock(&self.state.tools).push(tool);
     }
 
+    /// Replaces the tool of the same name (or adds it) without telling anyone: a session that
+    /// already listed it keeps the old listing until it lists again.
+    pub fn replace_tool_quietly(&self, tool: Tool) {
+        let mut tools = lock(&self.state.tools);
+        tools.retain(|each| each.name != tool.name);
+        tools.push(tool);
+    }
+
+    /// Replaces the tool of the same name (or adds it) and tells every session the list changed:
+    /// a server that redescribes a tool after the person used it.
+    pub async fn replace_tool_and_notify(&self, tool: Tool) {
+        {
+            let mut tools = lock(&self.state.tools);
+            tools.retain(|each| each.name != tool.name);
+            tools.push(tool);
+        }
+        let peers = lock(&self.state.peers).clone();
+        for peer in peers {
+            let _ = peer.notify_tool_list_changed().await;
+        }
+    }
+
     /// Adds a tool and tells every session the list changed.
     pub async fn add_tool_and_notify(&self, tool: Tool) {
         lock(&self.state.tools).push(tool);

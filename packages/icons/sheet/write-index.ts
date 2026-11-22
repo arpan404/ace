@@ -19,7 +19,7 @@ writeFileSync(
   join(root, "index.ts"),
   `/** ace's icons, one module each so a page loads only the ones it draws. Written by sheet/write-index.ts. */\n` +
     `export { glyph, type Icon, type IconProps, type IconWeight } from "./glyph.ts";\n` +
-    `export { circle, detail, dot, line, plussed, shape, slashed, spot, type Part } from "./parts.ts";\n` +
+    `export {\n  accented,\n  circle,\n  detail,\n  dot,\n  line,\n  plussed,\n  shape,\n  slashed,\n  spot,\n  type Part,\n} from "./parts.ts";\n` +
     exports.map(({ name, file }) => `export { ${name} } from "./glyphs/${file}";\n`).join(""),
 );
 console.log(`${exports.length} icons in src/index.ts`);

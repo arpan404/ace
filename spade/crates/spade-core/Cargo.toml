@@ -17,6 +17,7 @@ sha2.workspace = true
 spade-models = { path = "../spade-models" }
 regex = "1"
 url = "2"
+unicode-normalization = "0.1.26"
 wasmparser = { version = "0.254", default-features = false, features = [
   "std",
   "validate",

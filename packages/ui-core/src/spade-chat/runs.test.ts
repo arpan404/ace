@@ -48,6 +48,7 @@ const helper = (key: string): SpadeChatItem => ({
   job: key,
   text: "Helper found: 7 open pull requests",
   open: false,
+  state: "done",
 });
 
 const routine = (key: string, name: string, when?: string): SpadeChatItem => ({
@@ -72,7 +73,7 @@ const read = (rows: SpadeChatRow[]) =>
   );
 
 describe("the chat's rows", () => {
-  test("the bot's bubbles in a row are one run; a helper line ends a run", () => {
+  test("a sender's bubbles in a row are one run; a helper line ends a run", () => {
     const rows = spadeChatRows(
       [
         person("ask", "2026-11-15T09:00:00Z"),
@@ -83,26 +84,44 @@ describe("the chat's rows", () => {
       ],
       { now, ...zone },
     );
-    expect(read(rows)).toEqual(["time Today 9:00 AM", "item ask", "run a b", "item h", "run c"]);
+    expect(read(rows)).toEqual(["time Today 9:00 AM", "run ask", "run a b", "item h", "run c"]);
   });
 
-  test("a time line shows only after a 30-minute gap or on a new day", () => {
+  test("the person's messages one after another are one run, apart from the bot's", () => {
+    const rows = spadeChatRows(
+      [
+        person("one", "2026-11-15T09:00:00Z"),
+        person("two", "2026-11-15T09:00:20Z"),
+        bot("answer", "2026-11-15T09:01:00Z"),
+        person("three", "2026-11-15T09:02:00Z"),
+      ],
+      { now, ...zone },
+    );
+    expect(read(rows)).toEqual(["time Today 9:00 AM", "run one two", "run answer", "run three"]);
+    expect(rows.flatMap((row) => (row.kind === "run" ? [row.sender.kind] : []))).toEqual([
+      "person",
+      "bot",
+      "person",
+    ]);
+  });
+
+  test("a time line shows only after a five-minute gap or on a new day", () => {
     const rows = spadeChatRows(
       [
         person("first", "2026-11-14T23:10:00Z"),
-        bot("soon", "2026-11-14T23:39:00Z"),
+        bot("soon", "2026-11-14T23:14:00Z"),
         person("midnight", "2026-11-15T00:01:00Z"),
-        bot("later", "2026-11-15T00:31:00Z"),
+        bot("later", "2026-11-15T00:07:00Z"),
       ],
       { now, ...zone },
     );
     expect(read(rows)).toEqual([
       "time Yesterday 11:10 PM",
-      "item first",
+      "run first",
       "run soon",
       "time Today 12:01 AM",
-      "item midnight",
-      "time Today 12:31 AM",
+      "run midnight",
+      "time Today 12:07 AM",
       "run later",
     ]);
   });
@@ -125,7 +144,7 @@ describe("the chat's rows", () => {
     );
     expect(read(rows)).toEqual([
       "time Today 8:59 AM",
-      "item ask",
+      "run ask",
       "time Morning check · Today 9:00 AM",
       "run brief",
     ]);
@@ -133,11 +152,11 @@ describe("the chat's rows", () => {
 
   test("every bubble keeps its exact time for hover, though only the line shows one", () => {
     const rows = spadeChatRows(
-      [bot("a", "2026-11-15T09:01:00Z"), bot("b", "2026-11-15T09:12:00Z"), bot("live")],
+      [bot("a", "2026-11-15T09:01:00Z"), bot("b", "2026-11-15T09:04:00Z"), bot("live")],
       { now, ...zone },
     );
     const run = rows.find((row) => row.kind === "run");
-    expect(run?.kind === "run" && run.whens).toEqual(["Today 9:01 AM", "Today 9:12 AM", undefined]);
+    expect(run?.kind === "run" && run.whens).toEqual(["Today 9:01 AM", "Today 9:04 AM", undefined]);
   });
 
   test("days follow the reader's time zone", () => {
@@ -161,12 +180,12 @@ describe("the chat's rows", () => {
     );
     expect(read(rows)).toEqual([
       "time Today 9:04 AM",
-      "item steer",
+      "run steer",
       "run went-on",
-      "item sending",
+      "run sending",
       "run live",
     ]);
-    const run = rows.find((row) => row.kind === "run");
+    const run = rows.find((row) => row.kind === "run" && row.items[0]?.key === "went-on");
     expect(run?.kind === "run" && run.whens).toEqual(["Today 9:04 AM"]);
   });
 
@@ -200,10 +219,10 @@ describe("a conversation's times", () => {
     const rows = spadeChatRows(spadeBubbles(spadeView(state)), { now, ...zone });
     expect(read(rows)).toEqual([
       "time Yesterday 6:12 PM",
-      "item s1",
+      "run s1",
       "run r1",
       "time Today 9:00 AM",
-      "item s4",
+      "run s4",
     ]);
   });
 });

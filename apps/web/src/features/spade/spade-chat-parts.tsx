@@ -2,10 +2,18 @@ import {
   spadeFailureSentence,
   type SpadeAvatar,
   type SpadeBubbleFailure,
+  type SpadeQuote,
 } from "@ace/ui-core/spade-chat";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import { formatElapsed } from "@ace/ui-core/time";
-import { CheckIcon, CopyIcon, DotsThreeIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
+import {
+  ArrowBendUpLeftIcon,
+  CheckIcon,
+  CopyIcon,
+  DotsThreeIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
+} from "@ace/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -23,6 +31,7 @@ import {
   type SpeechVoice,
 } from "./spade-speech.ts";
 import { useBotVoiceContext } from "./use-spoken-replies.ts";
+import { messageAttribute, QuoteLine, useSpadeReplies } from "./spade-chat-replies.tsx";
 
 /** Where no bot sets one (a club, a digest): the system's own default voice. */
 const systemVoice: SpeechVoice = { engine: "system", voice: undefined };
@@ -117,22 +126,31 @@ export function WorkingLine(props: {
     >
       <SpadeFace avatar={props.avatar} size={32} state={props.state} />
       <span
-        // While it works, each new phrase sweeps once in the step's light (`.step-shimmer`:
-        // three passes, then still; still under reduced motion). Plain text, never markup.
-        key={moving ? props.label : undefined}
+        // While it works, what it does sits in a small bubble of its own, where its next
+        // message will be: the other side typing (ADR 0212 §7).
         className={cn(
-          "min-w-0 truncate text-ui text-muted-foreground",
-          moving && "step-shimmer",
-          props.detail && "max-w-1/2 shrink-0",
+          "flex min-w-0 items-center gap-2.5",
+          moving && "rounded-(--chat-bubble-radius) bg-chat-bubble px-3.5 py-1.5",
         )}
       >
-        {props.label}
+        <span
+          // Each new phrase sweeps once in the step's light (`.step-shimmer`: three passes, then
+          // still; still under reduced motion). Plain text, never markup.
+          key={moving ? props.label : undefined}
+          className={cn(
+            "min-w-0 truncate text-ui text-muted-foreground",
+            moving && "step-shimmer",
+            props.detail && "max-w-1/2 shrink-0",
+          )}
+        >
+          {props.label}
+        </span>
+        {props.detail && (
+          <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
+            {props.detail}
+          </code>
+        )}
       </span>
-      {props.detail && (
-        <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
-          {props.detail}
-        </code>
-      )}
       {props.since !== undefined && (
         <span className="shrink-0 text-ui text-subtle-foreground tabular-nums">
           {formatElapsed(now - props.since)}
@@ -162,7 +180,8 @@ const holdFor = 450;
 
 /**
  * A bubble with its actions: the exact time, Copy and (for the bot's words, where the system can
- * speak) Read aloud, in a small pill at its foot. They come up on hover and on focus, and on a
+ * speak) Read aloud, in a small pill at its foot, in room the frame keeps for it, so it never
+ * covers what is under the bubble. They come up on hover and on focus, and on a
  * long press on touch, which a tap elsewhere puts away. Read aloud becomes Stop reading while it
  * speaks, in the bot's own voice, and leaving the chat stops it: the reading belongs to this
  * bubble.
@@ -176,6 +195,12 @@ export function BubbleFrame(props: {
   when: string | undefined;
   /** The More menu's Keep as a test, on a finished reply's last words (ADR 0204). */
   onKeep?: (() => void) | undefined;
+  /** The More menu's Show work (or Hide work, once shown): that turn's steps, under it. */
+  work?: { shown: boolean; toggle(): void } | undefined;
+  /** The message as Reply quotes it, once stored (ADR 0212 §4); undefined offers no Reply. */
+  reply?: SpadeQuote | undefined;
+  /** The message it replies to: a quoted line above it. */
+  quote?: SpadeQuote | undefined;
   side: "bot" | "mine";
   children: ReactNode;
 }) {
@@ -196,21 +221,30 @@ export function BubbleFrame(props: {
     return () => document.removeEventListener("pointerdown", away);
   }, [held]);
   const voice = useBotVoiceContext() ?? systemVoice;
+  const replies = useSpadeReplies();
+  const reply = replies && props.reply;
   const speak = props.speak !== undefined && canSpeakWith(voice) ? props.speak : undefined;
   const copy = props.copy;
   const onKeep = props.onKeep;
+  const work = props.work;
   const [menu, setMenu] = useState(false);
+  const more = onKeep !== undefined || work !== undefined;
   const any =
-    copy !== undefined || speak !== undefined || props.when !== undefined || onKeep !== undefined;
+    copy !== undefined || speak !== undefined || props.when !== undefined || more || !!reply;
+  const lit = props.reply !== undefined && replies?.lit === props.reply.id;
   const release = () => clearTimeout(timer.current);
   return (
     <div
       ref={frame}
+      {...(props.reply ? { [messageAttribute]: props.reply.id } : {})}
+      data-lit={lit || undefined}
       className={cn(
         // The frame takes the side's width limit; the bubble inside fills it (`framed`).
-        "group/bubble relative flex min-w-0 flex-col",
+        "group/bubble relative flex min-w-0 scroll-my-24 flex-col gap-1",
         props.side === "bot" ? "items-start" : "items-end",
         bubbleWidth[props.side],
+        // Gone to from a quote: lit a moment, then back (`--motion-slow` out).
+        "rounded-(--chat-bubble-radius) outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-(--motion-slow) data-lit:outline-ring",
         held && "select-none",
       )}
       onPointerDown={(event) => {
@@ -226,12 +260,15 @@ export function BubbleFrame(props: {
         if (held) event.preventDefault();
       }}
     >
+      {props.quote && <QuoteLine quote={props.quote} side={props.side} />}
       {props.children}
       {any && (
         <div
           data-held={held || reading || menu || undefined}
           className={cn(
-            "absolute -bottom-4.5 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
+            // Floating over the bubble's top edge, so a run's bubbles sit 4px apart with no
+            // room kept for them (ADR 0212 §7).
+            "absolute -top-4 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
             props.side === "bot" ? "right-2.5" : "left-2.5",
             "pointer-events-none opacity-0 group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 data-held:pointer-events-auto data-held:opacity-100",
           )}
@@ -240,6 +277,18 @@ export function BubbleFrame(props: {
             <span className="px-2 text-xs leading-4 text-subtle-foreground tabular-nums">
               {props.when}
             </span>
+          )}
+          {reply && (
+            <IconButton
+              icon={ArrowBendUpLeftIcon}
+              label="Reply"
+              size="sm"
+              className="rounded-full"
+              onClick={() => {
+                setHeld(false);
+                replies.reply(reply);
+              }}
+            />
           )}
           {copy !== undefined && (
             <IconButton
@@ -264,7 +313,7 @@ export function BubbleFrame(props: {
               onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}
             />
           )}
-          {onKeep && (
+          {more && (
             <Menu open={menu} onOpenChange={setMenu}>
               <MenuTrigger
                 render={
@@ -277,7 +326,12 @@ export function BubbleFrame(props: {
                 }
               />
               <MenuContent align="end">
-                <MenuItem onClick={onKeep}>Keep as a test</MenuItem>
+                {work && (
+                  <MenuItem onClick={work.toggle}>
+                    {work.shown ? "Hide work" : "Show work"}
+                  </MenuItem>
+                )}
+                {onKeep && <MenuItem onClick={onKeep}>Keep as a test</MenuItem>}
               </MenuContent>
             </Menu>
           )}

@@ -35,8 +35,9 @@ export function seedFakeGroup(here: FakeSpadeApi, now: number) {
   asked("a1", null, spade);
   say("Flights will check fares; Inbox will look for a booking you already have.", spade);
   asked("a2", spade, flights);
+  // Flights texts its answer in short messages (ADR 0212).
   say(
-    "Cheapest return from OPO:\n\n1. **TAP TP1351**, 07:40, €212\n2. **Ryanair FR8342**, 13:05, €188 plus €46 for a bag\n\nTAP is cheaper once you carry a bag.",
+    "<msg>TAP TP1351 at 07:40 is €212 return.</msg>\n<msg>Ryanair FR8342 is €188, but €234 once you add a bag.</msg>\n<msg>So TAP is cheaper with a bag.</msg>",
     flights,
   );
   say("Fares are in `fares-history.csv` if you want the last week.", flights);
@@ -50,4 +51,18 @@ export function seedFakeGroup(here: FakeSpadeApi, now: number) {
       to: ask === "a1" ? spade : ask === "a2" ? flights : inbox,
       outcome: "answered",
     });
+  // seq 12: the person replies to one of Flights' messages, and Flights quotes them back.
+  here.store(c, {
+    type: "group_message",
+    run: "u2",
+    text: "Skip Ryanair then. Can you get me an aisle seat on TAP?",
+    from: null,
+    reply_to: {
+      id: "m5.2",
+      text: "Ryanair FR8342 is €188, but €234 once you add a bag.",
+      mine: false,
+      name: "Flights",
+    },
+  });
+  say('<msg reply="m12">Done: 14C on TAP, aisle.</msg>\n<msg>No extra charge.</msg>', flights);
 }

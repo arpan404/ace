@@ -54,9 +54,25 @@ export function useGroupConversation(group: { id: string; conversation: string }
       const refused = groupRefusal(message);
       if (refused) throw new Error(refused);
       const key = `local-${crypto.randomUUID()}`;
-      follow.apply({ kind: "sent", key, text: message.text });
+      const quote = message.replyTo;
+      follow.apply({
+        kind: "sent",
+        key,
+        text: message.text,
+        // Until Spade stores what it quoted, the bubble quotes what the person picked.
+        ...(quote
+          ? {
+              replyTo: {
+                id: quote.id,
+                text: quote.text,
+                mine: quote.who.kind === "person",
+                ...(quote.who.kind === "member" ? { name: quote.who.name } : {}),
+              },
+            }
+          : {}),
+      });
       try {
-        await postGroupMessage(client, group.id, message.text);
+        await postGroupMessage(client, group.id, message.text, quote?.id);
         listChanged();
       } catch (error) {
         // No answer came back: Spade may have it. Only a message it never stored comes back.

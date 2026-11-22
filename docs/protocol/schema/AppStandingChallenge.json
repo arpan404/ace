@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppStandingChallenge.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "host": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "nonce": {
+      "pattern": "^[A-Za-z0-9_-]{16,128}$",
+      "type": "string"
+    },
+    "owner": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "possession": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    },
+    "sockets": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AppSocket.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    }
+  },
+  "required": [
+    "nonce",
+    "host",
+    "owner",
+    "sockets",
+    "possession"
+  ],
+  "type": "object"
+}

@@ -42,13 +42,47 @@ export function spawnGitProcess(
   return child;
 }
 
+/**
+ * Resolves once the process group `pid` led has no live members, or after `ms` (bounded:
+ * a member that cannot be killed must not hold its caller forever). On Windows it returns at
+ * once: there is no process group to watch, and the tree is ended by the call's job or by
+ * `taskkill /T` (which cannot prove an escaped descendant gone).
+ */
+export async function groupGone(
+  runtime: GitProcessRuntime,
+  pid: number | undefined,
+  ms = 3_000,
+): Promise<void> {
+  if (!pid || runtime.platform === "win32") return;
+  const step = 15;
+  for (let waited = 0; waited < ms; waited += step) {
+    try {
+      if (!runtime.groupAlive(pid)) return;
+    } catch {
+      return;
+    }
+    await new Promise<void>((resolve) => runtime.scheduleTimeout(resolve, step));
+  }
+}
+
 export function killTree(
   runtime: GitProcessRuntime,
   child: ChildProcessWithoutNullStreams,
 ): Promise<void> {
-  // An exited leader PID may have been reused. Without containment we cannot
-  // safely signal that identity again; its escaped descendants remain unconfirmed.
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  if (child.exitCode !== null || child.signalCode !== null) {
+    // The leader exited, but a member it started (a helper holding Git's pipes) can live on in
+    // its group. A PID is not reused while it still names a live group, so the group is
+    // signalled while it is alive. An exited leader on Windows has no group to name; a member
+    // that left the group (setsid) is outside what any of this can reach.
+    if (child.pid && runtime.platform !== "win32" && runtime.groupAlive(child.pid)) {
+      try {
+        runtime.signalGroup(child.pid, "SIGKILL");
+      } catch {
+        // Gone between the check and the signal.
+      }
+    }
+    return Promise.resolve();
+  }
   if (child.pid && runtime.platform === "win32") {
     // Windows has no POSIX process groups. Request descendant termination;
     // taskkill cannot prove containment of escaped writers.

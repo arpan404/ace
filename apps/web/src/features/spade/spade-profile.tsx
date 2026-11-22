@@ -67,9 +67,8 @@ export function SpadeProfile(props: {
 }) {
   const { bot } = props;
   const work = useSpadeWork(bot, props.work.decisions);
-  // Work is there while there is work; on it while its reads are out, it stays rather than jump.
-  const hasWork = work.shown || (props.tab === "work" && work.pending);
-  const shownTabs = hasWork ? profileTabs : profileTabs.filter((each) => each !== "work");
+  // Work is always there: it holds the bot's whole activity log, beside its goal and workers.
+  const shownTabs = profileTabs;
   const tab = shownTabs.includes(props.tab) ? props.tab : "details";
   const tabs = useRef<HTMLDivElement>(null);
   const ids = { tab: (each: ProfileTab) => `profile-tab-${each}`, panel: "profile-panel" };
@@ -129,7 +128,7 @@ export function SpadeProfile(props: {
                 tabIndex={selected ? 0 : -1}
                 onClick={() => props.onTab(each)}
                 className={cn(
-                  "h-8 flex-1 rounded-full text-ui font-medium transition-colors duration-(--motion-fast) focus-ring",
+                  "h-8 flex-auto rounded-full px-1 text-ui font-medium whitespace-nowrap transition-colors duration-(--motion-fast) focus-ring",
                   selected
                     ? "bg-background text-foreground shadow-[0_0_0_1px_var(--border)]"
                     : "text-muted-foreground hover:text-foreground",

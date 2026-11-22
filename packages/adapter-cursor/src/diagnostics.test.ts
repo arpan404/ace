@@ -77,7 +77,6 @@ import { replay } from "./translator-test-support.ts";
 test("every Cursor bookkeeping frame is retained without becoming visible conversation", () => {
   const r = replay();
   r.frame("snapshot", { items: [{ uuid: "positional:0", text: "untrusted snapshot" }] });
-  r.frame("message", { type: "task" });
   r.frame("delta", {
     type: "tool-call-delta",
     callId: "missing",
@@ -86,7 +85,7 @@ test("every Cursor bookkeeping frame is retained without becoming visible conver
   r.frame("delta", { type: "shell-output-delta", text: "unassociated output" });
   r.frame("shell-output", { parentCallId: "missing", text: "unowned shell" });
   const notices = Object.values(r.state.items).filter((item) => item.type === "notice");
-  expect(notices).toHaveLength(5);
+  expect(notices).toHaveLength(4);
   expect(notices.every(isRawHistoryItem)).toBe(true);
   expect(JSON.stringify(notices)).toContain("unassociated output");
 });

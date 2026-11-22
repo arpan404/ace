@@ -50,7 +50,6 @@ test("a Cursor batch whose commit fails on a full disk is written whole once spa
               agentId: "pinned-agent",
               kind,
               body,
-              boundaryOffset: seq,
             }),
           );
           await context.onFrame({
@@ -75,6 +74,7 @@ test("a Cursor batch whose commit fails on a full disk is written whole once spa
               setTimeout(lift, 400);
             }
             await emit("send", { input });
+            await emit("segment", { nativeRunId: "run" });
             await emit("delta", { type: "text-delta", text: turns === 1 ? big : "second" });
             await emit("result", { status: "finished" });
           },

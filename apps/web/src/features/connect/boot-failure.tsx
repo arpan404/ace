@@ -1,12 +1,8 @@
-import { CheckIcon, CopyIcon } from "@ace/icons";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { StartFailure } from "@/components/start-failure.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { useCopy } from "@/components/use-copy.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
-import { part } from "@/lib/suit-part.ts";
 
 /** The words of a thrown value, for the person to read and copy; never a daemon token. */
 export function errorText(error: unknown): string {
@@ -40,45 +36,27 @@ export function BootFailure(props: {
   onConnectionSettings?: (() => void) | undefined;
 }) {
   useDismissBootSplash();
-  const toast = useToast();
   const message = errorText(props.error);
-  const { copied, copy } = useCopy(() =>
-    toast.error({ title: "Couldn't copy. Select the message and copy it yourself." }),
-  );
   return (
     <ConnectCard page="connect" variant="boot-failure" labelledBy="boot-failure-title">
-      <h1
-        id="boot-failure-title"
-        {...part("page-title")}
-        className="mt-4 text-xl font-semibold tracking-title"
-      >
-        ace couldn't start
-      </h1>
-      <p className="mt-1.5 text-ui leading-normal text-muted-foreground">
-        Something went wrong before ace could open. Reloading usually fixes it.
-      </p>
-      <div className="relative mt-4 mb-6 rounded-md bg-secondary">
-        <pre className="max-h-48 overflow-auto py-2.5 pr-9 pl-3 font-mono text-sm break-words whitespace-pre-wrap text-foreground">
-          {message}
-        </pre>
-        <IconButton
-          icon={copied ? CheckIcon : CopyIcon}
-          label={copied ? "Copied" : "Copy error"}
-          size="sm"
-          onClick={() => copy(message)}
-          className="absolute top-1.5 right-1.5"
-        />
-      </div>
-      <div className="flex gap-2">
-        <Button variant="primary" className="h-9 flex-1" onClick={() => location.reload()}>
-          Reload
-        </Button>
-        {props.onConnectionSettings && (
-          <Button className="h-9 flex-1" onClick={props.onConnectionSettings}>
-            Connection settings…
-          </Button>
-        )}
-      </div>
+      <StartFailure
+        titleId="boot-failure-title"
+        className="mt-6 mb-2"
+        description="Something went wrong before ace could open. Reloading usually fixes it."
+        details={message}
+        actions={
+          <>
+            <Button variant="primary" className="h-9" onClick={() => location.reload()}>
+              Reload
+            </Button>
+            {props.onConnectionSettings && (
+              <Button className="h-9" onClick={props.onConnectionSettings}>
+                Connection settings…
+              </Button>
+            )}
+          </>
+        }
+      />
     </ConnectCard>
   );
 }

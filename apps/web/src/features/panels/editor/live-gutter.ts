@@ -388,6 +388,7 @@ export class LiveGutter {
     const text = doc.text();
     this.#recall(doc, text);
     const head = this.#head ?? this.#buffer.baseText();
+    const generation = this.#generation;
     const layers = this.#layers;
     const [changes, ...moved] = await Promise.all([
       head === undefined ? [] : this.#deps.diff.lineChanges(text, head),
@@ -405,6 +406,10 @@ export class LiveGutter {
     // The text moved while the diff ran: the next pause works the hunks out again.
     if (this.#buffer.document() !== doc || doc.version() !== version)
       return this.#publish({ ...this.#state, agent: this.#shown });
+    // A newer read of the committed text arrived meanwhile: these hunks are of the old one and
+    // are never published under the new read's name; its own recompute is already queued.
+    if (this.#generation !== generation || (this.#head ?? this.#buffer.baseText()) !== head)
+      return this.#publish({ ...this.#state, agent: this.#shown });
     // Kept on the device only for the text the lines were worked out on.
     this.#remember();
     const hunks = hunksFromChanges(changes, (line) => doc.line(line), doc.lenLines());
@@ -413,7 +418,7 @@ export class LiveGutter {
       hunks,
       marks: marks.size ? marks : undefined,
       agent: this.#shown,
-      basis: head === undefined ? undefined : { doc, version, head, generation: this.#generation },
+      basis: head === undefined ? undefined : { doc, version, head, generation },
     });
   }
 

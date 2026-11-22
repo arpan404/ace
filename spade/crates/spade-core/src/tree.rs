@@ -533,7 +533,7 @@ pub fn last_words(events: &[Event]) -> Option<String> {
             Known::ReplyFinished { text, .. }
             | Known::ReplyStopped { text, .. }
             | Known::ReplyFailed { text, .. },
-        ) if !text.trim().is_empty() => Some(cut(text.trim(), WORDS_CHARS)),
+        ) if !text.trim().is_empty() => Some(cut(&crate::chat_markup::plain(text), WORDS_CHARS)),
         _ => None,
     })
 }

@@ -44,6 +44,8 @@ pub(super) async fn call(
     arguments: &Value,
     def: &ToolDef,
     launch: spade_core::event::Authorized,
+    // What the verdict holds for: a connected app's tool's definition (ADR 0202, amendment 5).
+    bound: Option<String>,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
     if let Some((verdict, reason)) = review::stored(events, &call.id, launch) {
@@ -101,7 +103,7 @@ pub(super) async fn call(
         reason: reason.clone(),
         model,
         cost_micros: cost,
-        bound: None,
+        bound,
         acts_in: None,
         launch: Some(launch),
         raised: None,

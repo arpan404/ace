@@ -4,6 +4,7 @@ import {
   FilePlusIcon,
   FilesIcon,
   FolderPlusIcon,
+  GitBranchIcon,
   MagnifyingGlassIcon,
 } from "@ace/icons";
 import { useRef, type ReactNode } from "react";
@@ -60,10 +61,15 @@ function HeaderButton(props: {
   );
 }
 
-export type ExplorerSide = "files" | "search";
+export type ExplorerSide = "files" | "search" | "source-control";
 
-/** Files or Search, as two icons: the one showing on the active fill in full ink. */
-export function ExplorerSwitch(props: { side: ExplorerSide; onSide(side: ExplorerSide): void }) {
+/** Files, Search or Source control, as bare icons: the one showing on the active fill in full ink. */
+export function ExplorerSwitch(props: {
+  side: ExplorerSide;
+  onSide(side: ExplorerSide): void;
+  sourceControlCount?: number | undefined;
+}) {
+  const count = props.sourceControlCount ?? 0;
   return (
     <div role="group" aria-label="Explorer" className="flex items-center gap-0.5">
       <HeaderButton
@@ -79,6 +85,23 @@ export function ExplorerSwitch(props: { side: ExplorerSide; onSide(side: Explore
         pressed={props.side === "search"}
         onClick={() => props.onSide("search")}
       />
+      <span className="relative inline-flex">
+        <HeaderButton
+          icon={GitBranchIcon}
+          label="Source control"
+          shortcut="editor.sourceControl"
+          pressed={props.side === "source-control"}
+          onClick={() => props.onSide("source-control")}
+        />
+        {count > 0 && (
+          <span
+            aria-label={`${count} changed ${count === 1 ? "file" : "files"}`}
+            className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-muted px-1 font-mono text-[9px] leading-none font-medium tabular-nums text-muted-foreground ring-1 ring-sidebar"
+          >
+            {count > 99 ? "99+" : count}
+          </span>
+        )}
+      </span>
     </div>
   );
 }
