@@ -7,6 +7,7 @@ import { processIdentity } from "@ace/provider-kit/process-identity";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { invoke } from "./cli-test-support.ts";
+import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { startDaemonCli, temporaryHome, type Cleanups } from "./daemon-launch-test-support.ts";
 
 /** A detached group whose leader has exited while a child in it runs on: its leader's pid. */
@@ -88,6 +89,14 @@ test.skipIf(process.platform === "win32")(
 
     // Not provably the run's: left alone, never a reason to refuse startup.
     expect(alive(group.child)).toBe(true);
+    // But said: the log counts what could not be resolved.
+    expect(await daemonLogRecords(home)).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        message: "Previous run's processes could not all be resolved",
+        data: expect.objectContaining({ unresolved: 1 }),
+      }),
+    );
   },
   120_000,
 );

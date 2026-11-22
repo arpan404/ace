@@ -319,7 +319,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   try {
-    inventory.recover();
+    const recovered = inventory.recover();
+    // A group whose leader is gone can't be proven the last run's: left alone, but said.
+    if (recovered.unresolved > 0 && process.platform !== "win32")
+      log.log(
+        "warn",
+        "Previous run's processes could not all be resolved",
+        logFields([["unresolved", recovered.unresolved]]),
+      );
     if (process.platform === "win32") {
       // The engine decides what the previous run left running only once ended processes are
       // verifiably gone; anything unproven is reported as such, never as stopped.
