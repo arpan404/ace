@@ -73,3 +73,4 @@ export * from "./panels.ts";
 export * from "./notices.ts";
 export * from "./approvers.ts";
 export * from "./sharing.ts";
+export * from "./working-phrase.ts";
