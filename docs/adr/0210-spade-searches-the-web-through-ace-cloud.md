@@ -59,8 +59,7 @@ second provider.
   `spade-cloud` machine grant Spade already shows the sign-in broker, ADR 0140/0141), or a machine
   credential (ADR 0190). The existing grant and principal code reads both; there is no new scheme.
   A browser session is refused (`403 spade_only`), as is any request carrying an `Origin` header,
-  so raw results never reach a browser page as a list. An organization's host credential (ADR
-  0206) is refused too: it is not a person. A cloud Spade later calls with the same credential
+  so raw results never reach a browser page as a list. An organization's host credential (ADR 0206) is refused too: it is not a person. A cloud Spade later calls with the same credential
   for the account it acts for.
 - **What it answers.** `{results: [{url, title, snippet, site}], provider: "ceramic", usage}`, at
   most 10 results. Every result keeps its source link, as Cloudflare's crawler standards require:
@@ -75,18 +74,18 @@ second provider.
 
 Every limit is checked by the Worker; nothing the client sends changes one. In order:
 
-| Limit | Default | Where it is counted | Var |
-| --- | --- | --- | --- |
-| Burst per caller address | 30 a minute | rate-limit binding `SEARCH_ADDRESS_BURST` (namespace 1010) | binding config |
-| Burst per account | 10 a minute | rate-limit binding `SEARCH_ACCOUNT_BURST` (namespace 1009) | binding config |
-| Same query again | the 3rd identical query from an account within 60 s is refused | isolate memory, a salted digest only | none |
-| Global daily spend | $5 a day, so 20,000 searches at $0.25 per 1,000 | D1 | `ACE_SEARCH_DAILY_DOLLARS` |
-| Per account, monthly | 1,000 | D1 | `ACE_SEARCH_MONTHLY` |
-| Per new account, monthly | 100 for its first 7 days | D1 | `ACE_SEARCH_NEW_ACCOUNT_MONTHLY`, `ACE_SEARCH_NEW_ACCOUNT_DAYS` |
-| Per account, daily | 100 | D1 | `ACE_SEARCH_DAILY` |
-| Per machine, monthly | 500 | D1 | `ACE_SEARCH_MACHINE_MONTHLY` |
-| Per machine, daily | 60 | D1 | `ACE_SEARCH_MACHINE_DAILY` |
-| Per caller address, daily, across accounts | 300 | D1 | `ACE_SEARCH_ADDRESS_DAILY` |
+| Limit                                      | Default                                                        | Where it is counted                                        | Var                                                             |
+| ------------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------- |
+| Burst per caller address                   | 30 a minute                                                    | rate-limit binding `SEARCH_ADDRESS_BURST` (namespace 1010) | binding config                                                  |
+| Burst per account                          | 10 a minute                                                    | rate-limit binding `SEARCH_ACCOUNT_BURST` (namespace 1009) | binding config                                                  |
+| Same query again                           | the 3rd identical query from an account within 60 s is refused | isolate memory, a salted digest only                       | none                                                            |
+| Global daily spend                         | $5 a day, so 20,000 searches at $0.25 per 1,000                | D1                                                         | `ACE_SEARCH_DAILY_DOLLARS`                                      |
+| Per account, monthly                       | 1,000                                                          | D1                                                         | `ACE_SEARCH_MONTHLY`                                            |
+| Per new account, monthly                   | 100 for its first 7 days                                       | D1                                                         | `ACE_SEARCH_NEW_ACCOUNT_MONTHLY`, `ACE_SEARCH_NEW_ACCOUNT_DAYS` |
+| Per account, daily                         | 100                                                            | D1                                                         | `ACE_SEARCH_DAILY`                                              |
+| Per machine, monthly                       | 500                                                            | D1                                                         | `ACE_SEARCH_MACHINE_MONTHLY`                                    |
+| Per machine, daily                         | 60                                                             | D1                                                         | `ACE_SEARCH_MACHINE_DAILY`                                      |
+| Per caller address, daily, across accounts | 300                                                            | D1                                                         | `ACE_SEARCH_ADDRESS_DAILY`                                      |
 
 Why these numbers:
 
@@ -118,15 +117,15 @@ normalized query, for 60 seconds, in memory only. It never reaches storage or lo
 Every refusal is `429` with `Retry-After` and `{error, reason, retryAfter}`, where `reason` is
 one plain sentence Spade can show:
 
-| `error` | `reason` | Retry-After |
-| --- | --- | --- |
-| `search_busy` | Too many searches this minute. | 60 s |
-| `repeated_query` | That search was just asked several times. | 60 s |
-| `resting` | ace search is resting today. | to midnight UTC |
-| `monthly_spent` | You've used this month's ace searches. They come back on the 1st. | to the 1st, UTC |
-| `daily_spent` | You've used today's ace searches. They come back tomorrow. | to midnight UTC |
-| `machine_spent` | This machine has used its ace searches for now. | to the window's end |
-| `address_spent` | Too many ace searches from this network today. | to midnight UTC |
+| `error`          | `reason`                                                          | Retry-After         |
+| ---------------- | ----------------------------------------------------------------- | ------------------- |
+| `search_busy`    | Too many searches this minute.                                    | 60 s                |
+| `repeated_query` | That search was just asked several times.                         | 60 s                |
+| `resting`        | ace search is resting today.                                      | to midnight UTC     |
+| `monthly_spent`  | You've used this month's ace searches. They come back on the 1st. | to the 1st, UTC     |
+| `daily_spent`    | You've used today's ace searches. They come back tomorrow.        | to midnight UTC     |
+| `machine_spent`  | This machine has used its ace searches for now.                   | to the window's end |
+| `address_spent`  | Too many ace searches from this network today.                    | to midnight UTC     |
 
 Other answers: `401 unauthenticated`, `403 spade_only`, `400 invalid_request`,
 `502 search_failed` (Ceramic failed), and `503 search_unavailable` (no AI binding or gateway
