@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The review before an install or an update (spec items 9 to 14), as a sheet titled "Get
 /// <title>" at a medium detent that grows to large. It is prepared on the machine; the scan's
-/// findings and what it may do come first, then its switches and its pages. Each page is fetched
-/// when the person scrolls to the end of the one before, and Install stays off until they have
+/// findings and what it may do come first, then its switches and its pages. The first page is
+/// fetched at once and each later one when the end of the one before is in view (at once again
+/// when a short page leaves it in view); loading rows show only while one is being read. Install stays off until they have
 /// scrolled to the end of the last. Dismissed without installing, the review is cancelled on
 /// the machine, even one whose prepare was still under way. `done` gets what landed.
 struct MarketReviewSheet: View {
@@ -20,7 +21,8 @@ struct MarketReviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var state = MarketReviewState()
     @State private var preparing = false
-    @State private var reading = false
+    /// The end of the content is in view above the foot, as the scroll last reported it.
+    @State private var endInView = false
     /// Outlives the sheet: a prepare that lands after dismissal is cancelled at once.
     @State private var lease = MarketReviewLease()
 
@@ -38,8 +40,8 @@ struct MarketReviewSheet: View {
                         if let bot = review.bot { MarketBotSection(bot: bot, state: $state, disabled: state.installing) }
                         if review.plugin?.asksBots == true { MarketPluginBots(model: model, state: $state, disabled: state.installing) }
                         MarketReviewRows(rows: state.rows)
-                        if state.nextOffset != nil {
-                            SkeletonRows(count: 2, label: "Scroll to read more of the review")
+                        if state.loadingMore {
+                            SkeletonRows(count: 2, label: "Reading more of the review")
                         }
                     } else if preparing {
                         SkeletonRows(count: 4, label: "Reading the review")
@@ -57,7 +59,10 @@ struct MarketReviewSheet: View {
                                                          insetBottom: geometry.contentInsets.bottom,
                                                          contentHeight: geometry.contentSize.height),
                           height: geometry.contentSize.height)
-            } action: { _, end in if end.atEnd { reachedEnd() } }
+            } action: { _, end in
+                endInView = end.atEnd
+                if end.atEnd { reachedEnd() }
+            }
             .navigationTitle(state.review?.heading ?? "Review")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -97,7 +102,13 @@ struct MarketReviewSheet: View {
     private func reachedEnd() {
         guard let review = state.review else { return }
         state.reachedEnd(of: review.id, shown: state.rows.count)
-        if state.nextOffset != nil, !reading { Task { await readPage(review) } }
+        readNext(endInView: true)
+    }
+
+    /// Reads the next page if one is due (`MarketReviewState.beginRead`).
+    private func readNext(endInView: Bool) {
+        guard let review = state.review, let offset = state.beginRead(endInView: endInView) else { return }
+        Task { await readPage(review, from: offset) }
     }
 
     /// Install, what stops it, or what went wrong, always in view at the sheet's foot.
@@ -145,7 +156,7 @@ struct MarketReviewSheet: View {
             // Whatever failed runs again: the prepare, the page, or Install.
             guard let review = state.review else { return { Task { await prepare() } } }
             if state.complete { return { install(review) } }
-            return { Task { await readPage(review) } }
+            return { readNext(endInView: true) }
         default: return nil
         }
     }
@@ -163,20 +174,23 @@ struct MarketReviewSheet: View {
             // Closed while it was being prepared: the machine shouldn't hold it until it expires.
             guard lease.hold(review, model) else { return }
             state.opened(review)
+            readNext(endInView: endInView)
         } catch let refusal as MarketRefusal {
             state.refused(refusal)
         } catch {}
     }
 
-    private func readPage(_ review: MarketReview) async {
-        guard let offset = state.nextOffset, !reading else { return }
-        reading = true
-        defer { reading = false }
+    private func readPage(_ review: MarketReview, from offset: Int) async {
         do {
             state.read(try await model.marketReviewPage(review.id, offset: offset), from: offset)
         } catch let refusal as MarketRefusal {
             state.refused(refusal)
+            return
         } catch {}
+        state.readEnded()
+        // A page that landed and left the end in view: the scroll won't move to say so, so the
+        // next one is read now. Only after a page landed, so a failing read never repeats itself.
+        if state.nextOffset != offset { readNext(endInView: endInView) }
     }
 
     private func install(_ review: MarketReview) {

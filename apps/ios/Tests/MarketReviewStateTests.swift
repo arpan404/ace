@@ -78,6 +78,50 @@ import Testing
         #expect(state.canInstall)
     }
 
+    @Test func loadingRowsShowOnlyWhileAPageIsBeingRead() throws {
+        var state = MarketReviewState()
+        let review = try Self.review()
+        state.opened(review)
+        // Nothing is shown yet, so the first page is read at once, with the end in view or not.
+        let first = state.beginRead(endInView: false)
+        #expect(first == 0)
+        #expect(state.loadingMore)
+        // One read at a time.
+        #expect(state.beginRead(endInView: true) == nil)
+        state.read(try Self.page(review, rows: 2, next: 2), from: 0)
+        // A page landed and nothing is being read: no loading rows, though more pages are left.
+        #expect(!state.loadingMore)
+        // The next page waits for the end to come into view, then is read.
+        #expect(state.beginRead(endInView: false) == nil)
+        #expect(!state.loadingMore)
+        #expect(state.beginRead(endInView: true) == 2)
+        #expect(state.loadingMore)
+        state.read(try Self.page(review, rows: 1, next: nil), from: 2)
+        #expect(!state.loadingMore)
+        // Every page is read: nothing more to read, wherever the scroll is.
+        #expect(state.beginRead(endInView: true) == nil)
+        #expect(!state.loadingMore)
+    }
+
+    @Test func aPageThatFailsStopsLoadingAndClearsOnceItIsReadAgain() throws {
+        var state = MarketReviewState()
+        let review = try Self.review()
+        state.opened(review)
+        _ = state.beginRead(endInView: true)
+        state.refused(Self.busy)
+        #expect(!state.loadingMore)
+        #expect(state.refusal == Self.busy)
+        // Try again reads the same page; once it lands the problem is gone.
+        #expect(state.beginRead(endInView: true) == 0)
+        state.read(try Self.page(review, rows: 1, next: nil), from: 0)
+        #expect(state.refusal == nil)
+        // A read that fails for no stated reason stops loading too.
+        state.opened(review)
+        _ = state.beginRead(endInView: true)
+        state.readEnded()
+        #expect(!state.loadingMore)
+    }
+
     @Test func theEndIsInViewOnlyWhenTheContentsLastPointIsAboveTheFoot() {
         // 1000 points of content in a 600-point sheet whose foot covers 120.
         #expect(!MarketReviewState.atEnd(offsetY: 0, containerHeight: 600, insetBottom: 120, contentHeight: 1000))

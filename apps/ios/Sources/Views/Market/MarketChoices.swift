@@ -46,6 +46,8 @@ struct MarketReviewState: Equatable {
     var choices = MarketChoices.none
     private(set) var refusal: MarketRefusal?
     private(set) var installing = false
+    /// A page is being read: the only time the sheet shows loading rows under the review.
+    private(set) var loadingMore = false
     /// The switches from a review that was dropped, kept for the one read in its place.
     private var dropped: MarketChoices?
 
@@ -59,11 +61,28 @@ struct MarketReviewState: Equatable {
         choices = dropped?.carried(onto: fresh.choices) ?? fresh.choices
         dropped = nil
         refusal = nil
+        loadingMore = false
     }
+
+    /// Starts reading the next page when one is due, giving the offset to read from: the first
+    /// page at once, each later one when the end of what's shown is in view. Nil while a page is
+    /// being read or once every page is.
+    mutating func beginRead(endInView: Bool) -> Int? {
+        guard review != nil, let offset = nextOffset, !loadingMore, endInView || rows.isEmpty else { return nil }
+        loadingMore = true
+        return offset
+    }
+
+    /// The read came back without a page that landed (it failed with nothing to say, or the page
+    /// was stale): it stops, and the next time the end comes into view it is tried again.
+    mutating func readEnded() { loadingMore = false }
 
     /// One page read, in order; a page of another review, or out of order, is ignored.
     mutating func read(_ page: MarketReviewPage, from offset: Int) {
         guard page.review.id == review?.id, offset == nextOffset else { return }
+        loadingMore = false
+        // A page read again after a refusal: the problem is gone.
+        refusal = nil
         rows += page.rows
         nextOffset = page.complete ? nil : page.nextOffset
         complete = page.complete
@@ -94,6 +113,7 @@ struct MarketReviewState: Equatable {
     /// anything else keeps it, read as it was.
     mutating func refused(_ refusal: MarketRefusal) {
         installing = false
+        loadingMore = false
         self.refusal = refusal
         guard refusal.way == .reread, review != nil else { return }
         dropped = choices
