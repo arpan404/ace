@@ -13,6 +13,8 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { lastThread } from "./last-thread.ts";
 import { topThread, useHomeList } from "./use-home-threads.ts";
+import { useEmptyOrgSpace } from "./org-space-empty.ts";
+import { usePrimaryInSpace } from "@/lib/machines.ts";
 
 /**
  * Home never rests on an empty pane: it reopens the last thread if the list still shows it, else
@@ -27,6 +29,10 @@ export function HomeEmptyScreen() {
   const list = useHomeList();
   const directory = useProjectDirectory();
   const projects = useProjectDialogs();
+  // In an organization's space this machine's threads aren't listed (ADR 0206 §2.4): the pane
+  // says what the space holds instead of offering this machine's.
+  const ownShown = usePrimaryInSpace();
+  const emptyOrg = useEmptyOrgSpace();
   // The last thread only while Home still lists it (not archived, inside the project filter).
   const listed =
     last !== null &&
@@ -54,13 +60,19 @@ export function HomeEmptyScreen() {
     );
   // A chat needs no project (ADR 0099), so no project yet is just an empty list with a way to
   // add one for work in a folder.
-  const noProjects = loaded && directory.loaded && directory.projects.length === 0;
+  const noProjects = ownShown && loaded && directory.loaded && directory.projects.length === 0;
   return (
     <Screen page="thread" title="Home">
       <EmptyState
         icon={ChatsIcon}
         heading
-        title="No threads yet"
+        title={
+          emptyOrg
+            ? `No projects in ${emptyOrg} yet`
+            : ownShown
+              ? "No threads yet"
+              : "No thread open"
+        }
         description={
           <>
             Start one with <Kbd shortcut="newThread" />, or search with <Kbd shortcut="palette" />.

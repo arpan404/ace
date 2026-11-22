@@ -17,6 +17,7 @@ import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useIsChatThread } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { usePrimaryInSpace } from "@/lib/machines.ts";
 
 const keys: readonly SidebarKey[] = ["ids", "threads", "homeWindow", "unconfirmed"];
 const quiet: PlaceSignal = { tone: undefined, needsYou: 0 };
@@ -48,11 +49,15 @@ export function usePlaceSignals(): PlaceSignals {
   );
   const isChat = useIsChatThread();
   const others = useOverlaidMachineEntries(useMachineEntries(useHostIdentity()?.hostId));
+  // The dots follow the window's space, as the lists they lead to do (ADR 0206 §2.4); notices
+  // and the tab's count still come from every space.
+  const ownShown = usePrimaryInSpace();
   const select = useCallback(
     (reader: SidebarReader): PlaceSignals => {
       if (reader.unconfirmed) return none;
       const of = (entries: Iterable<ThreadListEntry>) =>
         placeAttention({ entries, isChat, place, standing });
+      if (!ownShown) return others.length ? placeSignals(of(others)) : none;
       const own =
         reader.homeWindow?.attention ??
         of(
@@ -63,7 +68,7 @@ export function usePlaceSignals(): PlaceSignals {
         );
       return placeSignals(others.length ? addAttention(own, of(others)) : own);
     },
-    [isChat, standing, place, others],
+    [isChat, standing, place, others, ownShown],
   );
   return useSidebar(keys, select, signalsEqual) ?? none;
 }

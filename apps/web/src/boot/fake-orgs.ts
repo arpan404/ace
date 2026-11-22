@@ -163,10 +163,13 @@ export function fakeOrgRoutes(options: {
   now: () => number;
   personal: () => AceMachine[];
   world: string | null;
+  /** More hosts for an organization, by its id (tests that need several). */
+  hosts?: Readonly<Record<string, readonly AceMachine[]>>;
 }) {
   const { person, now } = options;
   let made = 0;
   const orgs: FakeOrg[] = options.world === "org" ? seeded(person, now) : [];
+  for (const org of orgs) org.hosts.push(...(options.hosts?.[org.space.id] ?? []));
   const find = (id: string) => orgs.find((org) => org.space.id === id);
   const admin = (org: FakeOrg) => org.space.role === "owner" || org.space.role === "admin";
   return async (url: URL, init: RequestInit | undefined): Promise<Response | undefined> => {

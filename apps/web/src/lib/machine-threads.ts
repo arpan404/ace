@@ -3,6 +3,7 @@ import { arrayEqual, useSelection } from "@ace/client-react";
 import { ThreadId, type ThreadListEntry } from "@ace/protocol";
 import { useMemo } from "react";
 import { useMachinePool } from "./machine-pool.ts";
+import { inSpace, useSpaceScope } from "./space-scope.ts";
 
 /*
  * Other machines' threads in this window's list (ADR 0102). Each is listed under a row id that
@@ -47,12 +48,14 @@ const none: readonly MachineThread[] = [];
 const noEntries: readonly ThreadListEntry[] = [];
 
 /**
- * Every other machine's threads as list entries under their machine row ids, from the pool's
- * merged store: live while a machine is online, its last facts while it isn't. `own` (this
- * window's host id) is left out, should the directory list it too.
+ * Every other machine's threads in the window's space (ADR 0206 §2.4) as list entries under
+ * their machine row ids, from the pool's merged store: live while a machine is online, its last
+ * facts while it isn't. `own` (this window's host id) is left out, should the directory list it
+ * too.
  */
 export function useMachineEntries(own: string | undefined): readonly ThreadListEntry[] {
   const pool = useMachinePool();
+  const scope = useSpaceScope();
   const selection = useMemo(
     () =>
       pool?.threads.select(
@@ -69,10 +72,12 @@ export function useMachineEntries(own: string | undefined): readonly ThreadListE
   const rows = useSelection(selection) ?? none;
   return useMemo(() => {
     const entries = rows.flatMap((row) =>
-      row.hostId === own ? [] : [{ ...row.thread, id: machineRowId(row) }],
+      row.hostId === own || !inSpace(scope, row.hostId)
+        ? []
+        : [{ ...row.thread, id: machineRowId(row) }],
     );
     return entries.length ? entries : noEntries;
-  }, [rows, own]);
+  }, [rows, own, scope]);
 }
 
 /** One other machine's thread as the pool last heard it, for a row while it is offline. */

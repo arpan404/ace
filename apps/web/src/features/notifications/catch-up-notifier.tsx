@@ -5,6 +5,8 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { notifyInBrowser } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
+import { useOwnNoticeSpace } from "@/features/ace-account/index.ts";
+import { inSpaceWords } from "./notice-words.ts";
 
 /**
  * The daemon's one alert after this device was away: how many threads still need the person.
@@ -16,9 +18,10 @@ export function CatchUpNotifier() {
   const [prefs] = useNotificationPrefs();
   const toast = useToast();
   const navigate = useNavigate();
-  const latest = useRef({ prefs, toast, navigate });
+  const space = useOwnNoticeSpace();
+  const latest = useRef({ prefs, toast, navigate, space });
   useEffect(() => {
-    latest.current = { prefs, toast, navigate };
+    latest.current = { prefs, toast, navigate, space };
   });
   useEffect(() => {
     const seen = new Set<string>();
@@ -29,13 +32,17 @@ export function CatchUpNotifier() {
       if (!current.prefs.needsYou || seen.has(notice.id)) return;
       seen.add(notice.id);
       if (seen.size > 100) seen.delete(seen.values().next().value ?? "");
-      const open = () =>
+      // A notice from another space opens there (ADR 0206 §1.5).
+      const open = () => {
+        current.space.enter();
         void current.navigate({ to: "/t/$threadId", params: { threadId: notice.threadId } });
+      };
+      const body = inSpaceWords(current.space.label, notice.message);
       if (!documentVisibility.visible()) {
         if (current.prefs.browser)
           notifyInBrowser({
             title: notice.title,
-            body: notice.message ?? "",
+            body: body ?? "",
             tag: notice.id,
             open,
           });
@@ -45,7 +52,7 @@ export function CatchUpNotifier() {
         id: notice.id,
         eventId: notice.id,
         title: notice.title,
-        description: notice.message,
+        description: body,
         timeout: 10_000,
         actionProps: { children: "Open", onClick: open },
       });

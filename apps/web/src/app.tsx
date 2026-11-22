@@ -21,7 +21,7 @@ import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
 import { disposePanelServices, loadAuthTerminal } from "@/features/panels/index.ts";
 import { organizerFor } from "@/features/organize/index.ts";
 import { AuthTerminalProvider } from "@/features/sign-in/index.ts";
-import { AceAccountProvider } from "@/features/ace-account/index.ts";
+import { AceAccountProvider, SpaceScopeHost } from "@/features/ace-account/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { createAppRouter } from "./router.ts";
 import { SuitLibraryProvider, suitTransportFor } from "@/theme/suits/suit-library.tsx";
@@ -116,11 +116,14 @@ export function App(props: {
           <MachinePoolFactoryProvider value={props.ensureMachines}>
             <MachinePoolProvider value={props.machines}>
               <AceAccountProvider>
-                <SuitLibraryProvider transport={suitTransport}>
-                  <AuthTerminalProvider value={AuthTerminal.Component}>
-                    <RouterProvider router={router} />
-                  </AuthTerminalProvider>
-                </SuitLibraryProvider>
+                {/* Projects and threads follow the window's space (ADR 0206 §2.4). */}
+                <SpaceScopeHost>
+                  <SuitLibraryProvider transport={suitTransport}>
+                    <AuthTerminalProvider value={AuthTerminal.Component}>
+                      <RouterProvider router={router} />
+                    </AuthTerminalProvider>
+                  </SuitLibraryProvider>
+                </SpaceScopeHost>
               </AceAccountProvider>
             </MachinePoolProvider>
           </MachinePoolFactoryProvider>

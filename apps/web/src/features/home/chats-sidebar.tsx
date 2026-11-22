@@ -17,6 +17,7 @@ import { scopeNames, useScopeMachines } from "./device-filter.tsx";
 import { DraftRows } from "./new-thread/draft-rows.tsx";
 import { useSettledPaging } from "./settled-paging.ts";
 import { ThreadList } from "./thread-list.tsx";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 import { useChatList } from "./use-chat-list.ts";
 import { useNewChat } from "./use-new-chat.ts";
 
@@ -35,6 +36,7 @@ export function ChatsSidebar() {
   const host = useHostIdentity()?.hostId;
   const others = useOverlaidMachineEntries(useMachineEntries(host));
   const device = useChatsDevice();
+  const space = useSpaceScope();
   const deviceName = scopeNames(useScopeMachines(device));
   const organizer = useOrganizer();
   const chats = useChatList(query, others, device);
@@ -93,6 +95,8 @@ export function ChatsSidebar() {
         ) : (
           <FoundHits value={chats.hits}>
             <ThreadList
+              // A new space draws its own list at once: no row of the last one fades out here.
+              key={spaceKey(space)}
               label="Chats"
               rows={chats.rows}
               needsYou={chats.needsYou}
