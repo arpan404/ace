@@ -21,6 +21,12 @@ export interface OverviewTick {
   height: number;
 }
 
+/** What the ruler reads of the row layout: where a line starts and its known row count. */
+export interface RulerLayout {
+  startOf(line: number): number;
+  rowCount(line: number): number;
+}
+
 export interface OverviewInput {
   /** The file's visual rows, and how many fit the view. */
   rows: number;
@@ -28,8 +34,11 @@ export interface OverviewInput {
   /** The ruler's height in pixels. */
   height: number;
   /** A line's first visual row, and how many rows it takes. */
-  rowOf(line: number): number;
-  rowsOf(line: number): number;
+  /**
+   * The rows as known now, read-only: placing ticks during a render must never measure a line
+   * (that would move rows the layout's revision doesn't see).
+   */
+  layout: RulerLayout;
   marks: ReadonlyMap<number, LineMark> | undefined;
   agent: readonly AgentMark[] | undefined;
   hits: readonly Range[];
@@ -75,12 +84,12 @@ export function laneTicks(
   const ticks: OverviewTick[] = [];
   const taken = new Map<TickLane, Set<number>>();
   const add = (lane: TickLane, kind: OverviewTick["kind"], line: number, last = line) => {
-    const top = Math.floor(input.rowOf(line) * scale);
+    const top = Math.floor(input.layout.startOf(line) * scale);
     let used = taken.get(lane);
     if (!used) taken.set(lane, (used = new Set()));
     if (used.has(top)) return;
     used.add(top);
-    const bottom = Math.ceil((input.rowOf(last) + input.rowsOf(last)) * scale);
+    const bottom = Math.ceil((input.layout.startOf(last) + input.layout.rowCount(last)) * scale);
     ticks.push({ lane, kind, line, top, height: Math.max(least, bottom - top) });
   };
   // Agents' lines first: a line both an agent and the commit marked reads as the agent's.
@@ -93,10 +102,10 @@ export function laneTicks(
 
 /** The caret's tick: its own lane, worked out on its own as the caret moves. */
 export function caretTick(
-  input: Pick<OverviewInput, "rows" | "viewRows" | "height" | "rowOf" | "caretLine">,
+  input: Pick<OverviewInput, "rows" | "viewRows" | "height" | "layout" | "caretLine">,
 ): OverviewTick | undefined {
   if (input.caretLine === undefined) return undefined;
-  const top = Math.floor(input.rowOf(input.caretLine) * scaleOf(input));
+  const top = Math.floor(input.layout.startOf(input.caretLine) * scaleOf(input));
   return { lane: "caret", kind: "caret", line: input.caretLine, top, height: least };
 }
 

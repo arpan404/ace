@@ -51,7 +51,7 @@ export function OverviewRuler(
   const runs = useMemo(() => markRuns(marks), [marks]);
   const lanes = useMemo(
     () => laneTicks({ ...props, runs }),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- rowOf and rowsOf read the layout, which `revision` stands for.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the layout mutates in place; `revision` stands for it.
     [runs, agent, hits, rows, viewRows, height, revision],
   );
   const caret = caretTick(props);

@@ -16,17 +16,26 @@ const marks = new Map<number, LineMark>(
 const noHits: never[] = [];
 
 function ruler(props: { revision: number; rowOf(line: number): number; caretLine: number }) {
+  const { rowOf, ...rest } = props;
+  // Measuring during a render moves rows unseen: the ruler must never call `rowsOf`.
+  const layout = {
+    startOf: rowOf,
+    rowCount: () => 1,
+    rowsOf: () => {
+      throw new Error("the ruler measured a line");
+    },
+  };
   return (
     <OverviewRuler
       rows={10_000}
       viewRows={40}
       height={1_000}
-      rowsOf={() => 1}
+      layout={layout}
       marks={marks}
       agent={undefined}
       hits={noHits}
       onJump={() => {}}
-      {...props}
+      {...rest}
     />
   );
 }
