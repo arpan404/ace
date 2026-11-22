@@ -4,6 +4,7 @@ import {
   blockWords,
   landBlocks,
   mapBlocks,
+  overlay,
   projectBlocks,
   withoutLines,
   type AgentBlock,
@@ -125,4 +126,14 @@ describe("the agent's lines as the text is now", () => {
     const [first, second] = projectBlocks(blocks, [{ start: 3, end: 4, text: "edited\n" }]);
     expect([first?.who, second?.who]).toEqual([claude, claude]);
   });
+});
+
+test("a line two changes claim is the newer change's, and the older keeps its other lines", () => {
+  const newer = { ...block(2, 3), at: 9, who: { ...claude, turn: 3 } };
+  const shown = overlay([[newer], [block(1, 4)]]);
+  expect(shown.map((each) => [each.start, each.end, each.who.turn])).toEqual([
+    [1, 2, 2],
+    [2, 3, 3],
+    [3, 4, 2],
+  ]);
 });

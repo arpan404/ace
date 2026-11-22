@@ -10,7 +10,7 @@ import {
 import type { BufferEvent, TextBuffer } from "@/features/editor-workbench/index.ts";
 import {
   landBlocks,
-  mapBlocks,
+  overlay,
   projectBlocks,
   sameBlocks,
   withoutLines,
@@ -80,6 +80,15 @@ export function textHash(text: string): string {
 
 const empty: GutterState = { hunks: [], marks: undefined, agent: [] };
 
+/** One agent change: the text right after it, and the lines it wrote there. */
+interface Layer {
+  text: string;
+  blocks: readonly AgentBlock[];
+}
+
+/** The most agent changes a file keeps apart (each costs one diff per pause); older ones go. */
+const maxLayers = 8;
+
 export class LiveGutter {
   readonly #buffer: TextBuffer;
   readonly #deps: LiveGutterDeps;
@@ -93,13 +102,14 @@ export class LiveGutter {
   #settled = true;
   #state: GutterState = empty;
   /**
-   * The text as the agent last left it, and its lines in that text. What is shown is these lines
-   * as they read now: a line the person edited is not the agent's until an undo puts it back.
+   * One layer per agent change that landed (oldest first): the text right after it, and the
+   * lines it wrote there. What is shown is each layer's lines that still read as written, the
+   * newer layer's where two claim a line: a line the person edited, or the agent rewrote, is
+   * hidden, not lost, and an undo that puts it back shows it again.
    */
-  #agentText: string | undefined;
-  #agent: AgentBlock[] = [];
+  #layers: Layer[] = [];
   /** The agent's lines as the text is now. */
-  #shown: AgentBlock[] = [];
+  #shown: readonly AgentBlock[] = [];
   /** The device's copy was looked at for this document (once per document). */
   #recalled: object | undefined;
   /** What is kept on the device for this file: its text's hash and the lines, if anything. */
@@ -188,11 +198,12 @@ export class LiveGutter {
   keep(start: number, end: number): void {
     const kept = withoutLines(this.#shown, start, end);
     if (kept.length === this.#shown.length) return;
-    this.#agent = kept;
+    // Kept lines end their layers' claim: what is left becomes one layer of the text now.
+    const text = this.#buffer.document()?.text();
+    this.#layers = kept.length && text !== undefined ? [{ text, blocks: kept }] : [];
     this.#shown = kept;
-    this.#agentText = kept.length ? this.#buffer.document()?.text() : undefined;
     this.#publish({ ...this.#state, agent: kept });
-    this.#remember(this.#agentText);
+    this.#remember(text);
   }
 
   /** Settles once the scheduled and queued work has run (tests, and a review's first look). */
@@ -213,14 +224,13 @@ export class LiveGutter {
       const who = this.#deps.who(event.reason);
       const after = this.#buffer.document()?.text();
       const at = this.#deps.now();
-      this.#enqueue(() => this.#landed(event.before, event.changes, after, who, at));
+      this.#enqueue(() => this.#landed(event.changes, after, who, at));
       this.edited();
     } else if (event.type === "document") {
       if (!this.#buffer.document()) {
         // Freed: the device's copy brings the lines back when the text is read again.
-        this.#agent = [];
+        this.#layers = [];
         this.#shown = [];
-        this.#agentText = undefined;
         this.#publish(empty);
       }
       this.edited();
@@ -235,23 +245,23 @@ export class LiveGutter {
   }
 
   async #landed(
-    before: string,
     changes: readonly WholeLineChange[],
     after: string | undefined,
     who: AgentWho | undefined,
     at: number,
   ): Promise<void> {
     if (this.#disposed || after === undefined) return;
-    // The agent's earlier lines as they read just before this change, then through it.
-    let blocks = this.#agent;
-    if (blocks.length && this.#agentText !== undefined && this.#agentText !== before)
-      blocks = projectBlocks(blocks, await this.#deps.diff.lineChanges(this.#agentText, before));
-    blocks = who ? landBlocks(blocks, changes, who, at) : mapBlocks(blocks, changes);
-    this.#agent = blocks;
-    this.#shown = blocks;
-    this.#agentText = blocks.length ? after : undefined;
-    this.#publish({ ...this.#state, agent: blocks });
-    this.#remember(this.#agentText);
+    // A change nobody can be named for adds no layer: the earlier layers simply see it as an
+    // edit at the next pause. A named one adds the lines it wrote, in the text it left.
+    if (who) {
+      const blocks = landBlocks([], changes, who, at);
+      this.#layers = [...this.#layers, { text: after, blocks }].slice(-maxLayers);
+    }
+    // Until the next pause works every layer out, the lines shown move through this change.
+    const moved = projectBlocks(this.#shown, changes);
+    this.#shown = who ? overlay([landBlocks([], changes, who, at), moved]) : moved;
+    this.#publish({ ...this.#state, agent: this.#shown });
+    this.#remember(after);
   }
 
   /** The key the device keeps this file's attribution under. */
@@ -278,14 +288,13 @@ export class LiveGutter {
   #recall(doc: object, text: string): void {
     if (this.#recalled === doc) return;
     this.#recalled = doc;
-    if (this.#agent.length) return;
+    if (this.#layers.length) return;
     const saved = this.#deps.memory?.read(this.#key());
     if (!saved) return;
     this.#kept = saved;
     if (saved.hash !== textHash(text)) return;
-    this.#agent = [...saved.blocks];
-    this.#shown = this.#agent;
-    this.#agentText = text;
+    this.#layers = [{ text, blocks: [...saved.blocks] }];
+    this.#shown = this.#layers[0]?.blocks ?? [];
   }
 
   async #recompute(): Promise<void> {
@@ -296,16 +305,19 @@ export class LiveGutter {
     const text = doc.text();
     this.#recall(doc, text);
     const head = this.#head ?? this.#buffer.baseText();
-    const from = this.#agentText;
-    const [changes, moved] = await Promise.all([
+    const layers = this.#layers;
+    const [changes, ...moved] = await Promise.all([
       head === undefined ? [] : this.#deps.diff.lineChanges(text, head),
-      this.#agent.length && from !== undefined && from !== text
-        ? this.#deps.diff.lineChanges(from, text)
-        : undefined,
+      ...layers.map((layer) =>
+        layer.text === text ? [] : this.#deps.diff.lineChanges(layer.text, text),
+      ),
     ]);
     if (this.#disposed) return;
-    // Measured against the text the agent left, never rebased: an undo brings a line back.
-    const shown = moved ? projectBlocks(this.#agent, moved) : this.#agent;
+    // Each layer measured against the text its change left, never rebased: an undo brings a
+    // line back. Newest first, so a line the agent rewrote is the newer change's.
+    const shown = overlay(
+      layers.map((layer, index) => projectBlocks(layer.blocks, moved[index] ?? [])).toReversed(),
+    );
     if (!sameBlocks(shown, this.#shown)) this.#shown = shown;
     this.#remember(text);
     // The text moved while the diff ran: the next pause works the hunks out again.

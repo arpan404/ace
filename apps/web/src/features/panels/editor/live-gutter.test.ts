@@ -309,3 +309,58 @@ test("while git's diff of this version is still being read, Revert does nothing"
   expect(now?.removed).toEqual(["four, committed"]);
   if (now) expect(gutter.revert(now)).toBe(true);
 });
+
+/** The 0-based lines shown as an agent's, each once. */
+const agentLines = (gutter: LiveGutter) =>
+  gutter
+    .state()
+    .agent.flatMap((block) =>
+      Array.from({ length: block.end - block.start }, (_, index) => block.start + index),
+    )
+    .toSorted((a, b) => a - b);
+
+test("a later agent change to one line of an earlier block leaves the rest of it the agent's", async () => {
+  const { checkout, registry, gutter, pause } = await opened();
+  checkout.write("places.ts", "one\nagent a\nagent b\nagent c\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+  expect(agentLines(gutter)).toEqual([1, 2, 3]);
+
+  checkout.write("places.ts", "one\nagent a\nagent B, again\nagent c\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+  expect(agentLines(gutter)).toEqual([1, 2, 3]);
+});
+
+test("a line the person edited stays theirs to undo back across an unrelated agent change", async () => {
+  const { checkout, registry, buffer, gutter, pause } = await opened();
+  checkout.write("places.ts", "one\nagent a\nagent b\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+
+  type(buffer, 1, "mine");
+  gutter.edited();
+  await pause();
+  expect(agentLines(gutter)).toEqual([2]);
+
+  // The agent changes an unrelated line; Merge lands it beside the person's edit.
+  checkout.write("places.ts", "one\nagent a\nagent b\nfour, agent\n");
+  registry.diskChanged(file);
+  await settle();
+  await buffer.merge();
+  await settle();
+  await pause();
+  expect(agentLines(gutter)).toEqual([2, 3]);
+
+  // Undo the merge, then the person's edit: the agent's first line is back, and the agent's again.
+  buffer.document()?.undo();
+  buffer.document()?.undo();
+  buffer.edited();
+  gutter.edited();
+  await pause();
+  expect(buffer.document()?.text()).toBe("one\nagent a\nagent b\nfour\n");
+  expect(agentLines(gutter)).toEqual([1, 2]);
+});

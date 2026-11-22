@@ -116,7 +116,8 @@ export function landBlocks(
   who: AgentWho,
   at: number,
 ): AgentBlock[] {
-  const kept = mapBlocks(blocks, changes);
+  // Earlier lines it didn't write over stay, each at its place: only the rewritten lines go.
+  const kept = projectBlocks(blocks, changes);
   let delta = 0;
   for (const change of changes) {
     const start = change.start + delta;
@@ -163,4 +164,41 @@ export function sameBlocks(a: readonly AgentBlock[], b: readonly AgentBlock[]): 
       return other?.start === block.start && other.end === block.end && other.who === block.who;
     })
   );
+}
+
+/**
+ * Lines claimed by several sets of blocks, the first set winning each line it claims: one set of
+ * blocks with no line in two of them. Linear in the lines claimed.
+ */
+export function overlay(sets: readonly (readonly AgentBlock[])[]): AgentBlock[] {
+  const claimed = new Set<number>();
+  const gaps = new Set<number>();
+  const out: AgentBlock[] = [];
+  for (const blocks of sets) {
+    const mine: number[] = [];
+    for (const block of blocks) {
+      if (block.start === block.end) {
+        if (!gaps.has(block.start)) out.push(block);
+        continue;
+      }
+      let run: AgentBlock | undefined;
+      for (let line = block.start; line < block.end; line++) {
+        if (claimed.has(line)) {
+          if (run) out.push(run);
+          run = undefined;
+          continue;
+        }
+        mine.push(line);
+        if (run && run.end === line) run.end = line + 1;
+        else {
+          if (run) out.push(run);
+          run = { ...block, start: line, end: line + 1 };
+        }
+      }
+      if (run) out.push(run);
+    }
+    for (const line of mine) claimed.add(line);
+    for (const block of blocks) if (block.start === block.end) gaps.add(block.start);
+  }
+  return out.toSorted((a, b) => a.start - b.start || a.end - b.end);
 }
