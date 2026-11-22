@@ -691,6 +691,37 @@ describe("source control git operations", () => {
     }
   });
 
+  it("a cancelled change runs no further Git and moves nothing aside", async () => {
+    const repo = await createRepo();
+    const trashDir = await mkdtemp(join(tmpdir(), "ace-sc-trash-"));
+    tempDirs.push(trashDir);
+    const git = new GitService();
+    try {
+      await writeFile(join(repo, "a.txt"), "edit\n");
+      const status = await git.sourceControlStatus(repo);
+      const stop = new AbortController();
+      stop.abort();
+      await expectGitError(
+        git.cancellable(stop.signal, () => git.stage({ worktree: repo, paths: ["a.txt"] })),
+        "git_cancelled",
+      );
+      expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("");
+      await expectGitError(
+        git.cancellable(stop.signal, () =>
+          git.discard({
+            worktree: repo,
+            files: [reviewed(status, "a.txt")],
+            trash: trashInto(trashDir),
+          }),
+        ),
+        "git_cancelled",
+      );
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("edit\n");
+    } finally {
+      await git.close();
+    }
+  });
+
   it("pushes, lists, and pops stashes including untracked files", async () => {
     const repo = await createRepo();
     const git = new GitService();

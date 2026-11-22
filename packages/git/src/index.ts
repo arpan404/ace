@@ -161,6 +161,10 @@ export class GitService {
   asPerson<T>(operation: () => Promise<T>): Promise<T> {
     return this.repository.cli.asPerson(operation);
   }
+  /** Run `operation` so its Git calls (and discard's file moves) stop once `signal` aborts. */
+  cancellable<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
+    return this.repository.cli.cancellable(signal, operation);
+  }
   /** `asPerson` in a checkout of someone else's code: hooks inside that checkout never run. */
   asReviewer<T>(operation: () => Promise<T>): Promise<T> {
     return this.repository.cli.asReviewer(operation);

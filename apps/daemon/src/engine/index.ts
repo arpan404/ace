@@ -980,13 +980,14 @@ export class Engine {
     return change;
   }
   /** Hold the Git worktree at `top` while a source control change rewrites its files. */
-  holdCheckout<T>(commandId: string, top: string, effect: () => Promise<T>) {
+  holdCheckout<T>(commandId: string, top: string, effect: (signal: AbortSignal) => Promise<T>) {
     if (this.closing) return Promise.reject(new Error("engine_closing"));
     return this.holds.hold({
       commandId,
       top,
       live: [...this.actors.keys()],
       opening: (owner) => this.repo.sessionOpening(owner),
+      setTimer: (callback, delay) => this.clock.setTimer(callback, delay),
       released: () => {
         this.wakeQueued();
         for (const owner of this.actors.keys()) this.wake(owner);

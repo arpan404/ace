@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
+import { checkoutHoldDeadlineMs } from "./checkout-hold.ts";
 import { harness, scriptFrames, start, end, task } from "./test-support.ts";
 
 // A source control change (discard, switch, pull, stash) rewrites files in one Git worktree. It
@@ -98,6 +99,8 @@ test("a message sent during the hold is accepted, waits, and reaches the provide
     ).toMatchObject({ ok: true });
     await h.engine.flush();
     expect(sent(h)).toEqual(["first"]);
+    // Waiting on the queue: never done, never shown as running.
+    expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
 
     held.release();
     expect(await hold).toBe("done");
@@ -161,6 +164,45 @@ test("a failed Git effect releases the hold and what waited runs", async () => {
     await expect(hold).rejects.toThrow("git_failed");
     await h.engine.flush();
     expect(sent(h)).toEqual(["first", "next"]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a hold past its deadline cancels the Git work, waits for it to stop, then releases", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ],
+    frames,
+  );
+  try {
+    const id = await h.create("first");
+    let cancelled = false;
+    const hold = h.engine.holdCheckout(
+      "pull",
+      h.home,
+      (signal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            cancelled = true;
+            reject(new Error("git_cancelled"));
+          });
+        }),
+    );
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "later" }] });
+    const startedAt = h.clock.time;
+    h.clock.advance(startedAt + checkoutHoldDeadlineMs - 1);
+    await h.engine.flush();
+    expect(cancelled).toBe(false);
+    expect(sent(h)).toEqual(["first"]);
+    h.clock.advance(startedAt + checkoutHoldDeadlineMs);
+    await expect(hold).rejects.toThrow("git_cancelled");
+    expect(cancelled).toBe(true);
+    await h.engine.flush();
+    expect(sent(h)).toEqual(["first", "later"]);
   } finally {
     await h.close();
   }

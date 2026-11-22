@@ -30,7 +30,11 @@ async function setupFixture(
   options: {
     runsProviderWork?: (id: ThreadId) => boolean;
     trashFile?: (id: ThreadId, root: string, path: string, fingerprint: string) => Promise<void>;
-    holdCheckout?: <T>(commandId: string, top: string, effect: () => Promise<T>) => Promise<T>;
+    holdCheckout?: <T>(
+      commandId: string,
+      top: string,
+      effect: (signal: AbortSignal) => Promise<T>,
+    ) => Promise<T>;
     threadState?: "new" | "working";
   } = {},
 ) {
@@ -235,7 +239,7 @@ describe("daemon source control handlers", () => {
     const fixture = await setupFixture({
       holdCheckout: async (_commandId, _top, effect) => {
         if (refuse) throw new Error("agent_working");
-        return effect();
+        return effect(new AbortController().signal);
       },
       trashFile: async (_id, root, path) => {
         await rename(join(root, path), join(trashDir, path));

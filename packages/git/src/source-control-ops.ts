@@ -212,9 +212,11 @@ export async function discardPaths(
     // The `.ace-upload-*` entries the moves create must never read as the person's changes.
     if (present.length > 0) await excludeAcePrivate(repository, root);
     for (const path of present) {
+      repository.cli.checkCancelled();
       await unchanged(path, expected.get(path));
       await options.trash?.(root, path, expected.get(path) ?? "");
     }
+    repository.cli.checkCancelled();
     // Last look before Git writes: every path it restores is still empty.
     for (const path of [...restoreFromIndex, ...restoreFromHead, ...freed])
       await unchanged(path, "missing");

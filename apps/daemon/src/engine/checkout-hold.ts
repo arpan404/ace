@@ -3,6 +3,13 @@ import { resolve, sep } from "node:path";
 import type { ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 
+/**
+ * How long one held source control change may take end to end (waiting for the Git lock, moving
+ * files to Recently deleted, Git itself). Past it the change is cancelled; the hold lifts only
+ * once the work has actually stopped.
+ */
+export const checkoutHoldDeadlineMs = 10 * 60_000;
+
 /** A path as the filesystem resolves it, or as written when it is gone. */
 function canonical(path: string): string {
   try {
@@ -60,7 +67,8 @@ export class CheckoutHolds {
     live: Iterable<ThreadId>;
     opening: (id: ThreadId) => boolean;
     released: (top: string) => void;
-    effect: () => Promise<T>;
+    setTimer: (callback: () => void, delay: number) => () => void;
+    effect: (signal: AbortSignal) => Promise<T>;
   }): Promise<T> {
     const top = canonical(input.top);
     const reservations = this.#repo.store.workspaceReservations;
@@ -77,9 +85,13 @@ export class CheckoutHolds {
         throw new Error("agent_working");
     }
     this.#held.set(top, input.commandId);
+    const deadline = new AbortController();
+    const cancelTimer = input.setTimer(() => deadline.abort(), checkoutHoldDeadlineMs);
     try {
-      return await input.effect();
+      // Released only once the effect settles: cancelled Git is waited for, never abandoned.
+      return await input.effect(deadline.signal);
     } finally {
+      cancelTimer();
       this.#held.delete(top);
       input.released(top);
     }

@@ -79,7 +79,11 @@ export interface WorkspaceRuntimeOptions {
   /** Move an untracked file, relative to the checkout `root` Git holds, into Recently deleted. */
   trashFile?(id: ThreadId, root: string, path: string, fingerprint: string): Promise<void>;
   /** Hold every thread bound to `root` quiet while a source control change runs (engine). */
-  holdCheckout?<T>(commandId: string, top: string, effect: () => Promise<T>): Promise<T>;
+  holdCheckout?<T>(
+    commandId: string,
+    top: string,
+    effect: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T>;
   changeWorkspace?(
     id: ThreadId,
     commandId: string,
