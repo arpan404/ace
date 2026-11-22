@@ -324,7 +324,7 @@ export class LiveGutter {
         (block) =>
           block.end <= saved.lines && linesHash(line, block.start, block.end) === block.hash,
       )
-      .map(({ hash: _, ...block }) => block);
+      .map((block) => ({ start: block.start, end: block.end, who: block.who, at: block.at }));
     if (!blocks.length) return;
     this.#layers = [{ text, blocks }];
     this.#shown = blocks;
