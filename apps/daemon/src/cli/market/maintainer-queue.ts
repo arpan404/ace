@@ -133,7 +133,9 @@ async function reviewCommand(args: Args): Promise<void> {
     succeeded(await io.put(`/v1/signer/holds/${pathOf(target)}`, { decision: "approve" }));
     return print(
       args,
-      args.flags.json ? { ok: true } : `Released ${args.words[2]}; ace market sign signs it next.`,
+      args.flags.json
+        ? { ok: true }
+        : `Released ${args.words[2]}; ace store maintainer sign signs it next.`,
     );
   }
   const block = option(args, "block");
@@ -219,7 +221,7 @@ async function collectionCommand(args: Args): Promise<void> {
     if (!current.some((item) => item.id === id))
       throw new CliFailure("refused", `There's no collection ${id}`);
     next = current.filter((item) => item.id !== id);
-  } else throw new CliFailure("refused", "Use ace market collection list, put or remove");
+  } else throw new CliFailure("refused", "Use ace store maintainer collection list, put or remove");
   succeeded(await io.put("/v1/signer/collections", { collections: next }));
   return print(
     args,
@@ -337,7 +339,7 @@ async function officialCommand(args: Args): Promise<void> {
   validateArgs(args, ["url", "dev-market", "key"], 4, 4);
   const action = args.words[2];
   if (action !== "add" && action !== "remove")
-    throw new CliFailure("refused", "Use ace market official add|remove ACCOUNT");
+    throw new CliFailure("refused", "Use ace store maintainer official add|remove ACCOUNT");
   const account = args.words[3] ?? "";
   const key = await readKey(option(args, "key"));
   succeeded(
@@ -369,7 +371,7 @@ async function noticeCommand(args: Args): Promise<void> {
   if (!notice.success)
     throw new CliFailure(
       "refused",
-      "Use ace market maintainer notice PROVIDER allowed|unclear|refused --note TEXT (at most 500 characters)",
+      "Use ace store maintainer notice PROVIDER allowed|unclear|refused --note TEXT (at most 500 characters)",
     );
   const key = await readKey(option(args, "key"));
   succeeded(
@@ -411,7 +413,7 @@ export async function maintainerWork(verb: string | undefined, args: Args): Prom
     default:
       throw new CliFailure(
         "refused",
-        "Use ace market maintainer keygen, sign, review, feature, revoke, reports, collection, publisher, block, appeals, appeal, verify, official or notice. See ace help market-maintainer.",
+        "Use ace store maintainer keygen, sign, review, feature, revoke, reports, collection, publisher, block, appeals, appeal, verify, official or notice. See ace help store-maintainer.",
       );
   }
 }

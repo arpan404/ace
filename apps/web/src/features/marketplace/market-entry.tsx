@@ -267,7 +267,7 @@ function Information(props: { detail: MarketEntryDetail; recipe: Recipe | undefi
   if (latest) rows.push(["Size", sizeText(latest.size)]);
   rows.push(["Downloads", summary.downloads.toLocaleString("en-US")]);
   if (props.recipe) rows.push(["Model", `Your ${props.recipe.model} model`]);
-  rows.push(["Source", summary.from?.replace(/^https:\/\//, "") ?? "market.acehq.dev"]);
+  rows.push(["Source", summary.from?.replace(/^https:\/\//, "") ?? "store.acehq.dev"]);
   return (
     <dl className="st-info">
       {rows.map(([name, value]) => (

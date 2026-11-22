@@ -1,27 +1,26 @@
-# Releasing ace cloud and the market
+# Releasing ace cloud and the Store
 
 ace runs two Cloudflare Workers:
 
-| Worker     | Script       | Production                           | Staging                    |
-| ---------- | ------------ | ------------------------------------ | -------------------------- |
-| ace cloud  | `ace-relay`  | `cloud.acehq.dev`, `relay.acehq.dev` | `staging.cloud.acehq.dev`  |
-| The market | `ace-market` | `market.acehq.dev`                   | `staging.market.acehq.dev` |
+| Worker    | Script       | Production                            |
+| --------- | ------------ | ------------------------------------- |
+| ace cloud | `ace-relay`  | `cloud.acehq.dev`, `relay.acehq.dev`  |
+| The Store | `ace-market` | `store.acehq.dev`, `market.acehq.dev` |
 
-Both are configured in their `wrangler.jsonc`: `env.production`, `env.staging`, and a top level
-used only for local development and tests. Production's script keeps the name `ace-relay`: its
-Durable Objects belong to that name ([ADR 0141](../adr/0141-ace-cloud.md)). Staging is a separate
-script (`ace-cloud-staging`, `ace-market-staging`) with its own D1 databases, R2 bucket, Durable
-Objects and rate-limit namespaces, so nothing done on staging reaches production.
+Both are configured in their `wrangler.jsonc`: `env.production`, and a top level used only for
+local development and tests. Production's script keeps the name `ace-relay`: its Durable Objects
+belong to that name ([ADR 0141](../adr/0141-ace-cloud.md)).
 
 ## The deploy command
 
 ```sh
-bun run deploy:workers <staging|production> [--version <tag>] [--skip-staging-check]
+bun run deploy:workers production [--version <tag>]
 ```
 
 This deploys ace cloud, then the market: the market checks publishing grants against ace cloud's
 keys, so ace cloud goes first. Each Worker also has its own entry point:
-`bun run --cwd apps/cloud deploy:release <env> …` and `bun run --cwd apps/market deploy:release <env> …`.
+`bun run --cwd apps/cloud deploy:release production …` and
+`bun run --cwd apps/market deploy:release production …`.
 The code is in `tools/workers-release`.
 
 It needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment, and a checkout
@@ -36,15 +35,13 @@ For each Worker, in order:
 3. **Skip if it is already out.** When this release's version already serves 100% of traffic,
    with the same tag and the same commit, nothing is deployed: the command only smokes it, and
    exits 0 if it passes (3 if it doesn't). Re-running a release is safe.
-4. **Wait for staging** (production only). Production deploys only once the staging Worker
-   serves this same release. `--skip-staging-check` turns this off for an emergency.
-5. **Apply D1 migrations** to every database the environment binds
+4. **Apply D1 migrations** to every database the environment binds
    (`wrangler d1 migrations apply <binding> --remote`).
-6. **Deploy** the new version to 100% of traffic (`wrangler deploy --tag <tag> --message
+5. **Deploy** the new version to 100% of traffic (`wrangler deploy --tag <tag> --message
 "ace <tag> (<commit>)"`).
-7. **Smoke every custom domain** of the environment, 20 seconds after the deploy, up to three
+6. **Smoke every custom domain** of the environment, 20 seconds after the deploy, up to three
    times 15 seconds apart while the new version propagates.
-8. **Roll back** if the smoke still fails: `wrangler rollback <previous version>`, then the same
+7. **Roll back** if the smoke still fails: `wrangler rollback <previous version>`, then the same
    smoke against the previous version.
 
 If traffic is already split between two versions (a gradual deployment someone started by
@@ -72,7 +69,6 @@ Worker's output is `RESULT <code> <summary>`.
 On a release tag:
 
 ```sh
-bun run deploy:workers staging --version "$TAG"
 bun run deploy:workers production --version "$TAG"
 ```
 
@@ -87,21 +83,21 @@ Run one deploy at a time (a concurrency group that is never cancelled mid-run) a
   cancelling the sign-in writes and deletes a row in that environment's `ace-accounts` D1
   database, and starting a sign-in also sweeps expired sign-ins and sessions there, as any real
   sign-in does.
-- **The market** (`apps/market/scripts/smoke.ts`): the Worker answers, unknown paths are JSON
+- **The Store** (`apps/market/scripts/smoke.ts`): the Worker answers, unknown paths are JSON
   404s, the index parses as devices read it and revalidates to a 304, categories and featured
   answer, the withdrawn list is signed if there is one, publishing without a grant is refused,
   and one listed entry's install path works: its entry page, its signed version manifest (which
   must verify) and a `HEAD` of its archive. `HEAD` counts no download, so the smoke writes
-  nothing. Against `market.acehq.dev`, the manifest is verified with the keys this build ships,
-  and an empty catalog fails. Anywhere else, set `ACE_MARKET_KEYS` to that market's public keys
-  (the `MARKET_PUBLIC_KEYS` JSON) to verify signatures; an empty catalog only skips the install
-  path.
+  nothing. Against `store.acehq.dev` (and legacy `market.acehq.dev`), the manifest is verified
+  with the keys this build ships, and an empty catalog fails. Anywhere else, set
+  `ACE_MARKET_KEYS` to that Store's public keys (the `MARKET_PUBLIC_KEYS` JSON) to verify
+  signatures; an empty catalog only skips the install path.
 
 Each request and WebSocket handshake in the cloud smoke has its own deadline
 (`ACE_SMOKE_TIMEOUT_MS`, 15 seconds by default), and the deploy kills any smoke still running
 after 3 minutes. A hung smoke counts as a failed one, so the release rolls back.
 
-Run either one by hand: `bun run --cwd apps/market smoke https://staging.market.acehq.dev`.
+Run either one by hand: `bun run --cwd apps/market smoke https://store.acehq.dev`.
 
 ## Migrations: expand, then contract
 
@@ -149,8 +145,8 @@ Cloudflare versions them:
 
 - **Ship a class change alone.** Adding, renaming or deleting a Durable Object class (a new entry
   in `migrations`) can't be rolled back: Cloudflare refuses a rollback to any version before the
-  change. Put the class change in a release with no other changes and smoke it on staging first.
-  If its production smoke fails, the command exits 3.
+  change. Put the class change in a release with no other changes. If its production smoke fails,
+  the command exits 3.
 - **Stay compatible both ways.** On a deploy, each active object keeps its old code until it
   hibernates, for at most 300 seconds (the default deferred code update), so a new Worker can
   talk to an old object and the reverse. The relay's and sign-in objects' messages and storage
@@ -171,68 +167,6 @@ bun run smoke https://cloud.acehq.dev                  # or the market's host
 A rollback changes code only: secrets, D1 data and R2 objects stay as they are. The next release
 tag deploys forward again. Re-running the same tag on the same commit redeploys it, because what
 serves is no longer that release.
-
-## Setting up staging (owner, once)
-
-Run these with your own `bunx wrangler login`, not the CI token. Each `create` prints an id: put it
-in that Worker's `wrangler.jsonc`, in `env.staging`, in place of the matching
-`REPLACE-WITH-…-ID`, then commit. The deploy command refuses staging while a placeholder is left.
-
-1. **ace cloud's database**, from `apps/cloud`:
-
-   ```sh
-   bunx wrangler d1 create ace-accounts-staging
-   ```
-
-2. **The market's databases and bucket**, from `apps/market`:
-
-   ```sh
-   for name in suits skills plugins bots publishers counts moderation lists; do
-     bunx wrangler d1 create "ace-market-$name-staging"
-   done
-   bunx wrangler r2 bucket create ace-market-objects-staging
-   ```
-
-3. **WorkOS.** Use a separate WorkOS environment (Staging) and register
-   `https://staging.cloud.acehq.dev/v1/account/callback` as a redirect of its AuthKit application.
-
-4. **Secrets.** The first `secret put` for each Worker asks to create it (an empty Worker); answer
-   yes. From `apps/cloud`:
-
-   ```sh
-   bunx wrangler secret put WORKOS_CLIENT_ID --env staging
-   bunx wrangler secret put WORKOS_API_KEY --env staging
-   openssl rand -hex 32 | bunx wrangler secret put ACE_ACCOUNT_ENCRYPTION_KEY --env staging
-   printf 'k%s:%s' "$(date +%Y%m%d)" "$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')" \
-     | bunx wrangler secret put ACE_GRANT_KEY --env staging
-   ```
-
-   From `apps/market`, with a staging key pair from `ace market keygen` (never production's):
-
-   ```sh
-   openssl rand -base64 48 | bunx wrangler secret put MARKET_SIGNER_TOKEN --env staging
-   bunx wrangler secret put MARKET_PUBLIC_KEYS --env staging
-   ```
-
-   Spade's connector secrets are optional on staging; without them those connectors' sign-ins
-   are unavailable there.
-
-5. **First deploy**, from the repository root, with the ids committed:
-
-   ```sh
-   bun run deploy:workers staging
-   ```
-
-   The Durable Object classes (`v1`, `v2`) and the custom domains are created on this deploy; a
-   new domain's certificate can take a few minutes, so if the smoke fails at first (exit 2 or
-   3), wait and run the same command again.
-
-6. **CI.** Give the release workflow the same `CLOUDFLARE_API_TOKEN` it uses for production
-   (below), and `ACE_MARKET_KEYS` (the staging `MARKET_PUBLIC_KEYS` JSON) if staging smokes
-   should verify signatures.
-
-Staging's `ACE_ACCOUNT_ALLOWED_ORIGINS` is `app://ace` only: add a staging web origin there when
-one exists.
 
 ## The Cloudflare API token
 

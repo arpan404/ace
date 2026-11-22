@@ -377,7 +377,7 @@ export async function publishAction(
   action: MarketPublishAction,
 ): Promise<MarketResult> {
   const http = ports.http;
-  if (!http) return failure("unavailable", "market.acehq.dev is turned off");
+  if (!http) return failure("unavailable", "store.acehq.dev is turned off");
   let calls: Call[];
   try {
     // Files are read first, so a folder that can't be published asks for no grant.

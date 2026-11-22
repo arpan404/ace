@@ -885,7 +885,7 @@ Turn a client's sign-in away.
     ace mcp request deny r_3f1a
     # Deny a sign-in
 
-## Spade and the market
+## Spade and the Store
 
 ### `ace spade skill import FROM [flags]`
 
@@ -1116,9 +1116,9 @@ It installs once, linked to the local package of its name (local/<name>), its ro
 
 ### `ace bot publish [PATH] [flags]`
 
-Check and test the package, then publish it free: ace market publish spade-bot PATH.
+Check and test the package, then publish it free: ace store publish spade-bot PATH.
 
-Before uploading it reads the latest version published in the market (ACE_MARKET_URL for a development one) and refuses a change to a contract that would break the bots calling it; a breaking change takes a new name. The market's signer refuses the same change.
+Before uploading it reads the latest version published in the Store (ACE_MARKET_URL for a development one) and refuses a change to a contract that would break the bots calling it; a breaking change takes a new name. The Store's signer refuses the same change.
 
 - `PATH`: The package's folder; this one when omitted
 
@@ -1130,15 +1130,15 @@ Before uploading it reads the latest version published in the market (ACE_MARKET
 - `--unlisted`: Reached by its link, not by search
 - `--wait`: Watch until it is live or blocked
 
-### `ace market discover`
+### `ace store discover`
 
 What's featured, new and trending, and how to find more.
 
-Every market command goes through this machine's daemon, so its sources, signature checks and ace account are used. Maintainer tools: ace help market-maintainer
+Every Store command goes through this machine's daemon, so its sources, signature checks and ace account are used. Maintainer tools: ace help store-maintainer
 
-### `ace market search [QUERY…] [flags]`
+### `ace store search [QUERY…] [flags]`
 
-Search the market.
+Search the Store.
 
 - `QUERY`: Words to look for; everything when omitted
 
@@ -1147,10 +1147,10 @@ Search the market.
 - `--source SOURCE`: market or git:ID
 - `--limit N`: At most N entries (50)
 
-    ace market search linear --type spade-plugin
+    ace store search linear --type spade-plugin
     # Plugins
 
-### `ace market show REF [flags]`
+### `ace store show REF [flags]`
 
 An entry: what it is, who publishes it, its versions; or a publisher's page.
 
@@ -1158,7 +1158,7 @@ An entry: what it is, who publishes it, its versions; or a publisher's page.
 
 - `--source SOURCE`: market or git:ID
 
-### `ace market install REF [flags]`
+### `ace store install REF [flags]`
 
 Read an entry's review, then install it.
 
@@ -1169,7 +1169,7 @@ The review prints first: what it is, who published it, what it can run and reach
 - `--version VERSION`: This version, not the newest
 - `--source SOURCE`: market or git:ID
 
-### `ace market update [REF…] [flags]`
+### `ace store update [REF…] [flags]`
 
 Read what changed, then update installed entries.
 
@@ -1177,59 +1177,59 @@ Read what changed, then update installed entries.
 
 - `--all`: Every entry with an update
 
-### `ace market remove REF`
+### `ace store remove REF`
 
 Remove an installed entry.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 
-### `ace market restore REF`
+### `ace store restore REF`
 
 Turn a withdrawn or turned-off entry back on, from its pinned files.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 
-### `ace market installed [flags]`
+### `ace store installed [flags]`
 
-What's installed from the market.
+What's installed from the Store.
 
 - `--updates`: Only entries with an update
 
-### `ace market source list`
+### `ace store source list`
 
 Where entries come from.
 
-### `ace market source add ADDRESS`
+### `ace store source add ADDRESS`
 
 Add a git catalog as a source.
 
 - `ADDRESS`: The catalog's https address
 
-### `ace market source remove SOURCE`
+### `ace store source remove SOURCE`
 
 Remove a source.
 
 - `SOURCE`: The source's id: market or git:ID
 
-### `ace market source on SOURCE`
+### `ace store source on SOURCE`
 
 Turn a source on.
 
 - `SOURCE`: The source's id: market or git:ID
 
-### `ace market source off SOURCE`
+### `ace store source off SOURCE`
 
 Turn a source off.
 
 - `SOURCE`: The source's id: market or git:ID
 
-### `ace market source refresh [SOURCE]`
+### `ace store source refresh [SOURCE]`
 
 Read sources again now.
 
 - `SOURCE`: One source; every source when omitted
 
-### `ace market report REF [flags]`
+### `ace store report REF [flags]`
 
 Report an entry to ace's maintainers.
 
@@ -1238,9 +1238,9 @@ Report an entry to ace's maintainers.
 - `--reason REASON`: What's wrong
 - `--note TEXT`: What you saw
 
-### `ace market check [PATH] [flags]`
+### `ace store check [PATH] [flags]`
 
-The market's checks on a folder, before publishing.
+The Store's checks on a folder, before publishing.
 
 Runs here, with no account and no daemon.
 
@@ -1249,7 +1249,7 @@ Runs here, with no account and no daemon.
 - `--type TYPE`: suit, spade-skill, spade-plugin or spade-bot
 - `--name NAME`: The entry's name; the folder's otherwise
 
-### `ace market publish TYPE PATH [flags]`
+### `ace store publish TYPE PATH [flags]`
 
 Upload a version as a draft, read its scan, then publish it.
 
@@ -1263,20 +1263,20 @@ Upload a version as a draft, read its scan, then publish it.
 - `--unlisted`: Reached by its link, not by search
 - `--wait`: Watch until it is live, or blocked
 
-    ace market publish suit ./dusk-harbor --version 1.2.0 --draft
+    ace store publish suit ./dusk-harbor --version 1.2.0 --draft
     # A draft and its scan
 
-### `ace market draft list`
+### `ace store draft list`
 
 Your drafts.
 
-### `ace market draft show DRAFT`
+### `ace store draft show DRAFT`
 
 One draft and its scan.
 
 - `DRAFT`: The draft's id (drf_…)
 
-### `ace market draft update DRAFT [flags]`
+### `ace store draft update DRAFT [flags]`
 
 Change a draft's version, changelog or files.
 
@@ -1286,7 +1286,7 @@ Change a draft's version, changelog or files.
 - `--changelog TEXT`: What changed: the text, - for stdin, or @FILE
 - `--from PATH`: New files from this folder
 
-### `ace market draft publish DRAFT [flags]`
+### `ace store draft publish DRAFT [flags]`
 
 Publish a draft.
 
@@ -1294,25 +1294,25 @@ Publish a draft.
 
 - `--wait`: Watch until it is live, or blocked
 
-### `ace market draft delete DRAFT`
+### `ace store draft delete DRAFT`
 
 Delete a draft.
 
 - `DRAFT`: The draft's id (drf_…)
 
-### `ace market status [REF]`
+### `ace store status [REF]`
 
 Your entries, and where each version is.
 
 - `REF`: One entry: TYPE/NAME
 
-### `ace market versions REF`
+### `ace store versions REF`
 
 One entry's versions with status, changelog and deprecation.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 
-### `ace market describe REF [flags]`
+### `ace store describe REF [flags]`
 
 Change an entry's listing words.
 
@@ -1325,14 +1325,14 @@ Change an entry's listing words.
 - `--keyword WORD`: A keyword (up to 16)
 - `--link LABEL=URL`: A link (up to 5)
 
-### `ace market changelog REF [TEXT|-]`
+### `ace store changelog REF [TEXT|-]`
 
 Set one version's changelog.
 
 - `REF`: TYPE/NAME@VERSION
 - `TEXT`: The text, - for stdin, or @FILE
 
-### `ace market latest REF [VERSION] [flags]`
+### `ace store latest REF [VERSION] [flags]`
 
 Which version the listing shows.
 
@@ -1341,7 +1341,7 @@ Which version the listing shows.
 
 - `--newest`: Follow the newest live version
 
-### `ace market deprecate REF [flags]`
+### `ace store deprecate REF [flags]`
 
 Deprecate a version, with a note installs show.
 
@@ -1350,26 +1350,26 @@ Deprecate a version, with a note installs show.
 - `--note TEXT`: Why, and what to use instead
 - `--clear`: Clear the deprecation
 
-### `ace market visibility REF VISIBILITY`
+### `ace store visibility REF VISIBILITY`
 
 Listed in search, or reached by its link only.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 - `VISIBILITY`: listed or unlisted
 
-### `ace market archive REF`
+### `ace store archive REF`
 
 Hide an entry from search; installs keep working.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 
-### `ace market unarchive REF`
+### `ace store unarchive REF`
 
 List an archived entry again.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 
-### `ace market withdraw REF [flags]`
+### `ace store withdraw REF [flags]`
 
 Withdraw a version, or every version, from everyone's devices.
 
@@ -1377,7 +1377,7 @@ Withdraw a version, or every version, from everyone's devices.
 
 - `--reason TEXT`: Why; devices show it
 
-### `ace market transfer REF [flags]`
+### `ace store transfer REF [flags]`
 
 Offer an entry to another publisher.
 
@@ -1385,31 +1385,31 @@ Offer an entry to another publisher.
 
 - `--to @HANDLE`: Who receives it
 
-### `ace market transfer accept TRANSFER`
+### `ace store transfer accept TRANSFER`
 
 Accept a transfer offered to you.
 
 - `TRANSFER`: The transfer's id (trf_…)
 
-### `ace market transfer decline TRANSFER`
+### `ace store transfer decline TRANSFER`
 
 Decline a transfer offered to you.
 
 - `TRANSFER`: The transfer's id (trf_…)
 
-### `ace market delete REF`
+### `ace store delete REF`
 
 Delete an entry that only ever had drafts or was never listed.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 
-### `ace market signals REF`
+### `ace store signals REF`
 
 Downloads, installs and reports for one entry.
 
 - `REF`: TYPE/NAME, such as suit/dusk-harbor
 
-### `ace market appeal REF [flags]`
+### `ace store appeal REF [flags]`
 
 Ask ace's maintainers to look again at a held or blocked version.
 
@@ -1418,11 +1418,11 @@ Ask ace's maintainers to look again at a held or blocked version.
 - `--note TEXT`: What you changed, or why it's fine
 - `--replacement VERSION`: A newer version that answers it
 
-### `ace market profile show`
+### `ace store profile show`
 
 Your publisher profile.
 
-### `ace market profile create [flags]`
+### `ace store profile create [flags]`
 
 Make your publisher profile.
 
@@ -1430,43 +1430,43 @@ Make your publisher profile.
 - `--name NAME`: The name people see
 - `--bio TEXT`: A line about you
 
-### `ace market profile edit [flags]`
+### `ace store profile edit [flags]`
 
 Change your profile's name or bio.
 
 - `--name NAME`: The name people see
 - `--bio TEXT`: A line about you
 
-### `ace market profile handle HANDLE`
+### `ace store profile handle HANDLE`
 
 Change your handle.
 
 - `HANDLE`: The new handle
 
-### `ace market profile avatar FILE`
+### `ace store profile avatar FILE`
 
 Set your profile picture.
 
 - `FILE`: A PNG, JPEG or WebP, at most 1 MB
 
-### `ace market profile pins [REF…]`
+### `ace store profile pins [REF…]`
 
 Pin up to six of your entries on your page.
 
 - `REF`: TYPE/NAME, in order
 
-### `ace market verification show`
+### `ace store verification show`
 
 Your verification and its proofs.
 
-### `ace market verification apply [flags]`
+### `ace store verification apply [flags]`
 
 Apply for ace's verified mark.
 
 - `--domain DOMAIN`: A domain you own
 - `--github LOGIN`: Your GitHub login
 
-### `ace market verification check`
+### `ace store verification check`
 
 Check your proofs again now.
 
@@ -1508,7 +1508,7 @@ The registry key signs what the organization's private registry offers (ADR 0206
 - `--org ORG`: The organization's id (org_…); without it, the one ace login --org selected
 - `--owner ACCOUNT`: The owner's account id who will publish it
 - `--rotate`: Make the next key, signed by the current one
-- `--dev-market URL`: A development market instead of market.acehq.dev
+- `--dev-market URL`: A development Store instead of store.acehq.dev
 
     ace org registry key --org org_01ACME --owner user_01OWNER
     # The first key, for an owner to publish
@@ -1520,7 +1520,7 @@ Sign what waits in an organization's registry with this machine's key.
 Pulls the registry's versions that passed ace's scan, checks them again on the stored bytes (format, scan, contracts, a bot package's own tests) and signs each with registry: ORG and the key the market's chain ends with (ADR 0206 §5.2). A version that fails is held or blocked, never signed. An org host whose keychain holds the key runs this on its own every ten minutes.
 
 - `--org ORG`: The organization's id (org_…); without it, the one ace login --org selected
-- `--dev-market URL`: A development market instead of market.acehq.dev
+- `--dev-market URL`: A development Store instead of store.acehq.dev
 
     ace org registry sign --org org_01ACME
     # Sign what waits
@@ -1782,22 +1782,22 @@ Each prints a notice on a terminal for two releases after the one it was replace
 | `ace mcp enroll` | `ace mcp add` | 0.0.24 |
 | `ace features on` | `ace feature on` | 0.0.24 |
 | `ace features off` | `ace feature off` | 0.0.24 |
-| `ace marketplace check` | `ace market check` | 0.0.24 |
-| `ace market keygen` | `ace market maintainer keygen` | 0.0.24 |
-| `ace market sign` | `ace market maintainer sign` | 0.0.24 |
-| `ace market review` | `ace market maintainer review` | 0.0.24 |
-| `ace market feature` | `ace market maintainer feature` | 0.0.24 |
-| `ace market revoke` | `ace market maintainer revoke` | 0.0.24 |
-| `ace market reports` | `ace market maintainer reports` | 0.0.24 |
-| `ace market collection` | `ace market maintainer collection` | 0.0.24 |
-| `ace market publisher` | `ace market maintainer publisher` | 0.0.24 |
-| `ace market block` | `ace market maintainer block` | 0.0.24 |
-| `ace market block-file` | `ace market maintainer block-file` | 0.0.24 |
-| `ace market block-pattern` | `ace market maintainer block-pattern` | 0.0.24 |
-| `ace market appeals` | `ace market maintainer appeals` | 0.0.24 |
-| `ace market verify` | `ace market maintainer verify` | 0.0.24 |
-| `ace market unverify` | `ace market maintainer unverify` | 0.0.24 |
-| `ace market official` | `ace market maintainer official` | 0.0.24 |
+| `ace marketplace check` | `ace store check` | 0.0.24 |
+| `ace market keygen` | `ace store maintainer keygen` | 0.0.24 |
+| `ace market sign` | `ace store maintainer sign` | 0.0.24 |
+| `ace market review` | `ace store maintainer review` | 0.0.24 |
+| `ace market feature` | `ace store maintainer feature` | 0.0.24 |
+| `ace market revoke` | `ace store maintainer revoke` | 0.0.24 |
+| `ace market reports` | `ace store maintainer reports` | 0.0.24 |
+| `ace market collection` | `ace store maintainer collection` | 0.0.24 |
+| `ace market publisher` | `ace store maintainer publisher` | 0.0.24 |
+| `ace market block` | `ace store maintainer block` | 0.0.24 |
+| `ace market block-file` | `ace store maintainer block-file` | 0.0.24 |
+| `ace market block-pattern` | `ace store maintainer block-pattern` | 0.0.24 |
+| `ace market appeals` | `ace store maintainer appeals` | 0.0.24 |
+| `ace market verify` | `ace store maintainer verify` | 0.0.24 |
+| `ace market unverify` | `ace store maintainer unverify` | 0.0.24 |
+| `ace market official` | `ace store maintainer official` | 0.0.24 |
 | `ace browser shot` | `ace browser screenshot` | 0.0.24 |
 
 ## Topics
@@ -1838,7 +1838,7 @@ nothing ever waits for input and tools like ace sim and ace browser know your th
     permissions are the person's: ace request allow|deny|answer, ace config set|unset and
     ace feature|spade on|off exit 2 (code person_only) from your shell. Hand back to the
     person instead; they answer in the app, on a paired device or in their own terminal.
-  - In the market you may read, search, check, make and publish drafts, and read your
+  - In the Store you may read, search, check, make and publish drafts, and read your
     status and versions. Everything else (installing, removing, withdrawing, transfers,
     sources, listings, visibility) is the person's and becomes a request in your thread
     (ace help publishing).
@@ -1857,15 +1857,15 @@ Pair another machine with ace device pair there, then here:
 On a remote, --project takes a project id from ace project list; paths are refused.
 ```
 
-### Publishing Suits, skills and bots to the market
+### Publishing Suits, skills and bots to the Store
 
 ```
-  ace market check ./my-suit --type suit                 the market's checks, here
-  ace market publish suit ./my-suit --version 1.2.0 --draft
+  ace store check ./my-suit --type suit                  the Store's checks, here
+  ace store publish suit ./my-suit --version 1.2.0 --draft
                                                          a draft and its scan
-  ace market draft publish DRAFT                         publish it
-  ace market status                                      your entries and their versions
-  ace market describe suit/my-suit --title "My Suit"     the listing's words
+  ace store draft publish DRAFT                          publish it
+  ace store status                                       your entries and their versions
+  ace store describe suit/my-suit --title "My Suit"      the listing's words
 
 Publishing needs this machine signed in to your ace account (ace login). Withdrawing,
 transferring, handle changes, editing a verified profile and verification ask you to sign
@@ -1879,13 +1879,13 @@ that. Settings › Beta › Ask me before agents publish makes every agent publi
 request too.
 ```
 
-### The market's maintainer tools
+### The Store's maintainer tools
 
 ```
 Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.
 
-ace market maintainer COMMAND talks to market.acehq.dev directly, never through the daemon
-or an ace account, and sends the signer token there only. A development market must be
+ace store maintainer COMMAND talks to store.acehq.dev directly, never through the daemon
+or an ace account, and sends the signer token there only. A development Store must be
 named with --dev-market URL (https, or http on this machine). --json and --jq work as
 everywhere.
 
