@@ -1,6 +1,5 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { configure, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
