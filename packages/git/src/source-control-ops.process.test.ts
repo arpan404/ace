@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { fileFingerprint } from "./file-fingerprint.ts";
 import { GitError, GitService } from "./index.ts";
 
 const tempDirs: string[] = [];
@@ -80,6 +81,16 @@ function reviewed(
 }
 type Entry = { path: string; fingerprint: string };
 
+/** A Recently deleted stand-in: moves the reviewed file into `dir`, as the daemon would. */
+function trashInto(dir: string) {
+  return async (root: string, path: string, fingerprint: string) => {
+    if ((await fileFingerprint(root, path)) !== fingerprint)
+      throw new GitError("changed_since_review", "Changed since review");
+    await mkdir(dirname(join(dir, path)), { recursive: true });
+    await rename(join(root, path), join(dir, path));
+  };
+}
+
 afterEach(async () => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -150,7 +161,7 @@ describe("source control git operations", () => {
     }
   });
 
-  it("restores tracked files on discard and sends untracked files to trash (refusing without trash)", async () => {
+  it("restores tracked files and keeps what they held in Recently deleted; refuses without it", async () => {
     const repo = await createRepo();
     const trashDir = await mkdtemp(join(tmpdir(), "ace-sc-trash-"));
     tempDirs.push(trashDir);
@@ -162,32 +173,80 @@ describe("source control git operations", () => {
       await writeFile(join(repo, "draft.txt"), "untracked note\n");
       let status = await git.sourceControlStatus(repo);
 
-      // Discarding unstaged change restores working tree to staged index version.
-      await git.discard({ worktree: repo, files: [reviewed(status, "a.txt")] });
-      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("staged version\n");
-
-      // Discarding untracked without a trash handler refuses and leaves the file intact.
-      status = await git.sourceControlStatus(repo);
+      // Without Recently deleted nothing is discarded: the bytes it would replace have no home.
       await expectGitError(
-        git.discard({ worktree: repo, files: [reviewed(status, "draft.txt")] }),
+        git.discard({ worktree: repo, files: [reviewed(status, "a.txt")] }),
         "trash_unavailable",
       );
-      expect(await readFile(join(repo, "draft.txt"), "utf8")).toBe("untracked note\n");
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("working tree noise\n");
 
-      // With a trash handler, the untracked file is moved into trash instead of deleted.
-      const trashed: string[] = [];
+      // Discarding an unstaged change restores the staged version; the edit is recoverable.
+      await git.discard({
+        worktree: repo,
+        files: [reviewed(status, "a.txt")],
+        trash: trashInto(trashDir),
+      });
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("staged version\n");
+      expect(await readFile(join(trashDir, "a.txt"), "utf8")).toBe("working tree noise\n");
+
+      status = await git.sourceControlStatus(repo);
       await git.discard({
         worktree: repo,
         files: [reviewed(status, "draft.txt")],
-        trash: async (root, rel) => {
-          trashed.push(rel);
-          await rename(join(root, rel), join(trashDir, rel));
-        },
+        trash: trashInto(trashDir),
       });
-      expect(trashed).toEqual(["draft.txt"]);
       expect(await readFile(join(trashDir, "draft.txt"), "utf8")).toBe("untracked note\n");
-      status = await git.sourceControlStatus(repo);
-      expect(status.untracked).toEqual([]);
+      expect((await git.sourceControlStatus(repo)).untracked).toEqual([]);
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("a save that lands while the discard runs is never overwritten", async () => {
+    const repo = await createRepo();
+    const trashDir = await mkdtemp(join(tmpdir(), "ace-sc-trash-"));
+    tempDirs.push(trashDir);
+    const git = new GitService();
+    try {
+      runGit(repo, ["add", "a.txt"]);
+      await writeFile(join(repo, "b.txt"), "b\n");
+      runGit(repo, ["add", "b.txt"]);
+      runGit(repo, ["commit", "-m", "b"]);
+      await writeFile(join(repo, "a.txt"), "a edit\n");
+      await writeFile(join(repo, "b.txt"), "b edit\n");
+      const status = await git.sourceControlStatus(repo);
+      const move = trashInto(trashDir);
+
+      // An editor saves b.txt after the discard checked it, while a.txt is being moved aside.
+      await expectGitError(
+        git.discard({
+          worktree: repo,
+          files: [reviewed(status, "a.txt"), reviewed(status, "b.txt")],
+          trash: async (root, path, fingerprint) => {
+            if (path === "a.txt") await writeFile(join(root, "b.txt"), "b saved later\n");
+            await move(root, path, fingerprint);
+          },
+        }),
+        "changed_since_review",
+      );
+      expect(await readFile(join(repo, "b.txt"), "utf8")).toBe("b saved later\n");
+      // What already moved aside is recoverable, and Git restored nothing over a newer save.
+      expect(await readFile(join(trashDir, "a.txt"), "utf8")).toBe("a edit\n");
+
+      // A save that lands at the path after its file moved aside is kept too.
+      const again = await git.sourceControlStatus(repo);
+      await expectGitError(
+        git.discard({
+          worktree: repo,
+          files: [reviewed(again, "b.txt")],
+          trash: async (root, path, fingerprint) => {
+            await move(root, path, fingerprint);
+            await writeFile(join(root, path), "saved into the gap\n");
+          },
+        }),
+        "changed_since_review",
+      );
+      expect(await readFile(join(repo, "b.txt"), "utf8")).toBe("saved into the gap\n");
     } finally {
       await git.close();
     }
@@ -316,6 +375,7 @@ describe("source control git operations", () => {
       await git.discard({
         worktree: repo,
         files: [reviewed(await git.sourceControlStatus(repo), "a.txt")],
+        trash: trashInto(await mkdtemp(join(tmpdir(), "ace-sc-trash-"))),
       });
       await git.switchBranch({ worktree: repo, branch: "main", allowUncommitted: true });
       const status = await git.sourceControlStatus(repo);

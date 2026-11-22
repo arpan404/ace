@@ -1,3 +1,4 @@
+import { fileFingerprint } from "@ace/git";
 import { commandNotDispatched } from "../command-not-dispatched.ts";
 import { isSpadeProject } from "../project-storage.ts";
 import { createWritingCli } from "../source-control-cli.ts";
@@ -73,12 +74,19 @@ export async function startWorkspaceActions({
     ...(services.threadFiles
       ? {
           forgeMediaGrants: services.threadFiles.forgeMedia.grants,
-          trashFile: async (threadId, root, path) => {
+          trashFile: async (threadId, root, path, fingerprint) => {
             const threadFiles = services.threadFiles;
             if (!threadFiles) throw new Error("git_trash_unavailable");
             // The checkout Git holds, never one re-resolved from the thread meanwhile.
             const acquired = await threadFiles.acquireAt(threadId, root);
             try {
+              // The version the trash moves must be the bytes the person reviewed: check the
+              // file before and after reading its version, so a save in between is refused.
+              const reviewed = async () => {
+                if ((await fileFingerprint(root, path)) !== fingerprint)
+                  throw new Error("git_changed_since_review");
+              };
+              await reviewed();
               const stat = await acquired.service.request("local", { op: "stat", path });
               const version =
                 typeof stat === "object" &&
@@ -89,11 +97,8 @@ export async function startWorkspaceActions({
                   : null;
               // Without a version the delete can't be proven to trash this file: refuse.
               if (!version) throw new Error("git_trash_unavailable");
-              await acquired.service.request("local", {
-                op: "delete",
-                path,
-                expected: version,
-              });
+              await reviewed();
+              await acquired.service.request("local", { op: "delete", path, expected: version });
             } finally {
               acquired.release();
             }

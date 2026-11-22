@@ -99,6 +99,7 @@ export type { RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, gitFailureCodes, isMutationUnavailable } from "./types.ts";
+export { fileFingerprint } from "./file-fingerprint.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
@@ -334,7 +335,7 @@ export class GitService {
   discard(options: {
     worktree: string;
     files: readonly ReviewedFile[];
-    trash?: ((root: string, path: string) => Promise<void>) | undefined;
+    trash?: ((root: string, path: string, fingerprint: string) => Promise<void>) | undefined;
   }): Promise<void> {
     return discardPaths(this.repository, options);
   }

@@ -144,21 +144,25 @@ export async function unstagePaths(
   });
 }
 
+/** Moves a reviewed file into Recently deleted, refusing if it no longer has `fingerprint`. */
+export type TrashMove = (root: string, path: string, fingerprint: string) => Promise<void>;
+
 /**
- * Discard exactly the files the person reviewed. Every file must still match the fingerprint the
- * person saw, or nothing happens. A staged rename is undone only when its old name is free.
- * Untracked and added files go to `trash` (Recently deleted) first, before Git touches the index
- * or the tree: a failed move stops the discard with the checkout's Git state unchanged (files
- * already moved stay recoverable in Recently deleted). Without `trash`, refuses with
- * `trash_unavailable`; nothing is ever deleted directly.
+ * Discard exactly the files the person reviewed, never bytes they didn't see:
+ *
+ * 1. Every file must still have the fingerprint the person saw, or nothing happens. A staged
+ *    rename is undone only when its old name is free.
+ * 2. Each file present on disk moves into Recently deleted first (tracked edits too), the trash
+ *    re-checking its fingerprint at the move: what the discard displaces stays recoverable.
+ * 3. Right before Git restores anything, every path it will write must still be empty. A save
+ *    that landed in between stops the discard with that save untouched.
+ * 4. Git restores the index or HEAD versions.
+ *
+ * Without `trash`, refuses with `trash_unavailable`; nothing is ever deleted directly.
  */
 export async function discardPaths(
   repository: Repository,
-  options: {
-    worktree: string;
-    files: readonly ReviewedFile[];
-    trash?: ((root: string, path: string) => Promise<void>) | undefined;
-  },
+  options: { worktree: string; files: readonly ReviewedFile[]; trash?: TrashMove | undefined },
 ): Promise<void> {
   const root = await repository.root(options.worktree);
   const requested = validateRepoPaths(
@@ -166,46 +170,54 @@ export async function discardPaths(
     options.files.map((file) => file.path),
   );
   const expected = new Map(options.files.map((file) => [file.path, file.fingerprint]));
+  const unchanged = async (path: string, fingerprint: string | undefined) => {
+    if ((await fileFingerprint(root, path)) !== fingerprint)
+      throw new GitError("changed_since_review", failureMessage("changed_since_review"));
+  };
   await repository.serial(root, async () => {
     const { status, branch } = await repository.state(root);
-    for (const path of requested)
-      if ((await fileFingerprint(root, path)) !== expected.get(path))
-        throw new GitError("changed_since_review", failureMessage("changed_since_review"));
+    for (const path of requested) await unchanged(path, expected.get(path));
     const untrackedSet = new Set(status.untracked);
     const unstagedSet = new Set(status.unstaged.map((entry) => entry.path));
     const stagedByPath = new Map(status.staged.map((entry) => [entry.path, entry]));
     const restoreFromIndex: string[] = [];
     const restoreFromHead: string[] = [];
     const unstage: string[] = [];
-    const toTrash: string[] = [];
+    /** Old names a rename's undo writes: they must stay free throughout. */
+    const freed: string[] = [];
 
     for (const path of requested) {
-      if (untrackedSet.has(path)) {
-        toTrash.push(path);
-      } else if (unstagedSet.has(path)) {
+      if (untrackedSet.has(path)) continue;
+      if (unstagedSet.has(path)) {
         restoreFromIndex.push(path);
+        continue;
+      }
+      const staged = stagedByPath.get(path);
+      if (!staged) continue;
+      if (staged.indexStatus === "A" || branch.head === null) {
+        unstage.push(path);
+      } else if (staged.indexStatus === "R" && staged.oldPath) {
+        if ((await fileFingerprint(root, staged.oldPath)) !== "missing")
+          throw new GitError("path_occupied", `${staged.oldPath} already exists; move it first`);
+        unstage.push(path, staged.oldPath);
+        restoreFromHead.push(staged.oldPath);
+        freed.push(staged.oldPath);
       } else {
-        const staged = stagedByPath.get(path);
-        if (!staged) continue;
-        if (staged.indexStatus === "A" || branch.head === null) {
-          unstage.push(path);
-          toTrash.push(path);
-        } else if (staged.indexStatus === "R" && staged.oldPath) {
-          // Restoring the old name must not overwrite whatever now sits there.
-          if ((await fileFingerprint(root, staged.oldPath)) !== "missing")
-            throw new GitError("path_occupied", `${staged.oldPath} already exists; move it first`);
-          unstage.push(path, staged.oldPath);
-          restoreFromHead.push(staged.oldPath);
-          toTrash.push(path);
-        } else {
-          restoreFromHead.push(path);
-        }
+        restoreFromHead.push(path);
       }
     }
-
-    if (toTrash.length > 0 && !options.trash)
+    const present = requested.filter((path) => expected.get(path) !== "missing");
+    if (present.length > 0 && !options.trash)
       throw new GitError("trash_unavailable", failureMessage("trash_unavailable"));
-    if (options.trash) for (const path of toTrash) await options.trash(root, path);
+    // The `.ace-upload-*` entries the moves create must never read as the person's changes.
+    if (present.length > 0) await excludeAcePrivate(repository, root);
+    for (const path of present) {
+      await unchanged(path, expected.get(path));
+      await options.trash?.(root, path, expected.get(path) ?? "");
+    }
+    // Last look before Git writes: every path it restores is still empty.
+    for (const path of [...restoreFromIndex, ...restoreFromHead, ...freed])
+      await unchanged(path, "missing");
     const write = {
       write: true,
       timeoutMs: longWriteTimeoutMs,

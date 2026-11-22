@@ -29,7 +29,7 @@ function runGit(cwd: string, args: string[]): string {
 async function setupFixture(
   options: {
     runsProviderWork?: (id: ThreadId) => boolean;
-    trashFile?: (id: ThreadId, root: string, path: string) => Promise<void>;
+    trashFile?: (id: ThreadId, root: string, path: string, fingerprint: string) => Promise<void>;
     holdCheckout?: <T>(commandId: string, top: string, effect: () => Promise<T>) => Promise<T>;
     threadState?: "new" | "working";
   } = {},
@@ -230,10 +230,15 @@ describe("daemon source control handlers", () => {
 
   it("discards nothing while the checkout hold refuses, and nothing that changed since review", async () => {
     let refuse = true;
+    const trashDir = await mkdtemp(join(tmpdir(), "ace-daemon-trash-"));
+    tempDirs.push(trashDir);
     const fixture = await setupFixture({
       holdCheckout: async (_commandId, _top, effect) => {
         if (refuse) throw new Error("agent_working");
         return effect();
+      },
+      trashFile: async (_id, root, path) => {
+        await rename(join(root, path), join(trashDir, path));
       },
     });
     const { runtime, store, thread, repo, cmd } = fixture;
@@ -259,6 +264,10 @@ describe("daemon source control handlers", () => {
         await runtime.execute(cmd({ type: "git.discard", threadId: thread.id, files: fresh })),
       ).toMatchObject({ ok: true });
       expect(await readFile(join(repo, "file.txt"), "utf8")).toBe("one\n");
+      // What the discard replaced is in Recently deleted.
+      expect(await readFile(join(trashDir, "file.txt"), "utf8")).toBe(
+        "my edit, then the agent's line\n",
+      );
     } finally {
       await runtime.close();
       await store.close();

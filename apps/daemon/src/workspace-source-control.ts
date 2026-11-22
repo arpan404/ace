@@ -78,7 +78,9 @@ export interface SourceControlCommandContext {
   commandId: string;
   cwd: string;
   runsProviderWork: (id: ThreadId) => boolean;
-  trashFile?: ((threadId: ThreadId, root: string, path: string) => Promise<void>) | undefined;
+  trashFile?:
+    | ((threadId: ThreadId, root: string, path: string, fingerprint: string) => Promise<void>)
+    | undefined;
   /**
    * The engine's checkout hold: every thread bound to the checkout must be quiet and none may
    * start until the change finishes. Without an engine only this thread's busy check applies.
@@ -131,7 +133,9 @@ async function apply(
       return git.discard({
         worktree: cwd,
         files: payload.files,
-        ...(trashFile ? { trash: (root, path) => trashFile(threadId, root, path) } : {}),
+        ...(trashFile
+          ? { trash: (root, path, fingerprint) => trashFile(threadId, root, path, fingerprint) }
+          : {}),
       });
     case "git.branch.switch":
       return git.switchBranch({

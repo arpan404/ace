@@ -61,7 +61,7 @@ export function DiscardDialog(props: {
     if (single) {
       return single.untracked
         ? `${single.path} is untracked and will be moved to Recently deleted.`
-        : `Your unstaged edits to ${single.path} will be reverted. This can't be undone.`;
+        : `Your unstaged edits to ${single.path} will be reverted. The edited file goes to Recently deleted.`;
     }
     if (untrackedCount > 0 && trackedCount > 0) {
       return `${trackedCount} tracked ${trackedCount === 1 ? "file" : "files"} will be reverted and ${untrackedCount} untracked ${untrackedCount === 1 ? "file" : "files"} will be moved to Recently deleted.`;
@@ -69,7 +69,7 @@ export function DiscardDialog(props: {
     if (untrackedCount > 0) {
       return `${untrackedCount} untracked ${untrackedCount === 1 ? "file" : "files"} will be moved to Recently deleted.`;
     }
-    return `Unstaged edits to ${count} files will be reverted. This can't be undone.`;
+    return `Unstaged edits to ${count} files will be reverted. The edited files go to Recently deleted.`;
   })();
 
   const handlePrimary = () => {
