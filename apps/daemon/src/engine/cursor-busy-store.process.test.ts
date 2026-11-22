@@ -14,6 +14,7 @@ import {
   CursorTranslator,
   cursorCapabilities,
   checkpointDirectory,
+  agentStorePath,
   openCursorSession,
   openSdkCheckpointStore,
 } from "@ace/adapter-cursor";
@@ -33,7 +34,15 @@ const agent = { agentId: "native-agent", async [Symbol.asyncDispose]() {}, async
 const boundary = {
   ...sdk,
   Cursor: { ...sdk.Cursor, auth: { ...sdk.Cursor.auth, async status() { return { status: "logged-in" }; } } },
-  Agent: { async create() { return agent; }, async resume() { return agent; }, async cancelRun() {} },
+  Agent: {
+    async create() { return agent; },
+    // As SDK 1.0.35 does on resume: it writes the agent's own store.
+    async resume(_id, options) {
+      await options.local.store.checkpoints.create({ agentId: "native-agent", blobId: "cd".repeat(32), data: new Uint8Array([2]) });
+      return agent;
+    },
+    async cancelRun() {},
+  },
   async sandboxSupport() { return { supported: true, async release() {} }; },
 };
 let runtime;
@@ -101,85 +110,95 @@ async function seedStore(home: string, cwd: string) {
 // The store is SQLite, so the JSONL constructor is never used.
 const sdkStub = { JsonlLocalAgentStore: Object } as never;
 
-it("a Cursor store another process holds at reconcile keeps the turn working until it reads, then ends as Cursor's store says", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-busy-store-")));
-  const path = join(root, "state.sqlite");
-  const child = fork(
-    new URL("./cursor-recovery-child.ts", import.meta.url),
-    [path, root, "admitted"],
-    {
-      stdio: ["ignore", "ignore", "inherit", "ipc"],
-    },
-  );
-  const exit = once(child, "exit");
-  try {
-    await once(child, "message");
-  } finally {
-    child.kill("SIGKILL");
-    await exit;
-  }
-  const home = join(root, "home");
-  await seedStore(home, root);
-  const entry = join(root, "host.ts");
-  await writeFile(entry, hostEntry);
-  // Another process's writer holds the store.
-  const holder = new DatabaseSync(join(checkpointDirectory(home, threadId), "index.db"));
-  holder.exec("BEGIN IMMEDIATE");
-  let held = true;
-  const release = () => {
-    if (!held) return;
-    held = false;
-    holder.exec("ROLLBACK");
-    holder.close();
-  };
-  const store = new Store(path);
-  const registry = new AdapterRegistry();
-  const attempts: string[] = [];
-  registry.register(
-    {
-      provider: "cursor",
-      backend: "cursor-sdk",
-      capabilities: () => cursorCapabilities,
-      createTranslator: (init) => new CursorTranslator(init),
-      openSession: (context) =>
-        openCursorSession(context, {
-          instanceId: "account-a",
-          entry,
-          env: { HOME: home },
-          policy: "full-access",
-        }).catch((error: unknown) => {
-          // What the thread shows while the store is held, then the holder lets go.
-          attempts.push(store.getThread(threadId)?.status.state ?? "missing");
-          release();
-          throw markStoreUnusable(error);
-        }),
-    },
-    { installed: true, auth: "logged_in", loginHint: "offline" },
-  );
-  const engine = new Engine(store, {
-    registry,
-    selectInstance: () => "account-a",
-    cursorReconcileRetryMs: [100, 200, 400],
-  });
-  try {
-    await engine.flush();
-    expect(attempts).toEqual(["working"]);
-    const runs = store
-      .readEvents({ afterSeq: 0, limit: 1000 })
-      .flatMap((event) => (event.payload.type === "run.ended" ? [event.payload.state] : []));
-    expect(runs).toEqual(["completed"]);
-    const answers = store
-      .readItems(threadId, store.headSeq() + 1, 200)
-      .items.flatMap((item) =>
-        item.type === "message" && item.role === "assistant"
-          ? [item.parts.map((part) => (part.type === "text" ? part.text : "")).join("")]
-          : [],
-      );
-    expect(answers).toEqual(["before and after"]);
-  } finally {
-    release();
-    await engine.close();
-    store.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
+it.each(["index.db", "store.db"] as const)(
+  "a Cursor %s another process holds at reconcile keeps the turn working until it reads, then ends as Cursor's store says",
+  async (locked) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-busy-store-")));
+    const path = join(root, "state.sqlite");
+    const child = fork(
+      new URL("./cursor-recovery-child.ts", import.meta.url),
+      [path, root, "admitted"],
+      {
+        stdio: ["ignore", "ignore", "inherit", "ipc"],
+      },
+    );
+    const exit = once(child, "exit");
+    try {
+      await once(child, "message");
+    } finally {
+      child.kill("SIGKILL");
+      await exit;
+    }
+    const home = join(root, "home");
+    await seedStore(home, root);
+    const entry = join(root, "host.ts");
+    await writeFile(entry, hostEntry);
+    // Another process's writer holds the store.
+    // The SDK's index, or the agent's own store, which it opens and writes on resume.
+    const folder = checkpointDirectory(home, threadId);
+    const holder = new DatabaseSync(
+      locked === "index.db" ? join(folder, "index.db") : agentStorePath(folder, "native-agent"),
+    );
+    holder.exec("BEGIN IMMEDIATE");
+    let held = true;
+    const release = () => {
+      if (!held) return;
+      held = false;
+      holder.exec("ROLLBACK");
+      holder.close();
+    };
+    const store = new Store(path);
+    const registry = new AdapterRegistry();
+    const attempts: string[] = [];
+    registry.register(
+      {
+        provider: "cursor",
+        backend: "cursor-sdk",
+        capabilities: () => cursorCapabilities,
+        createTranslator: (init) => new CursorTranslator(init),
+        openSession: (context) =>
+          openCursorSession(context, {
+            instanceId: "account-a",
+            entry,
+            env: { HOME: home },
+            policy: "full-access",
+            // A store write the probe missed would wait on the lock: fail fast instead.
+            limits: { timeoutMs: 4000 },
+          }).catch((error: unknown) => {
+            // What the thread shows while the store is held, then the holder lets go.
+            attempts.push(store.getThread(threadId)?.status.state ?? "missing");
+            release();
+            throw markStoreUnusable(error);
+          }),
+      },
+      { installed: true, auth: "logged_in", loginHint: "offline" },
+    );
+    const engine = new Engine(store, {
+      registry,
+      selectInstance: () => "account-a",
+      cursorReconcileRetryMs: [100, 200, 400],
+    });
+    try {
+      await engine.flush();
+      expect(attempts).toEqual(["working"]);
+      const runs = store
+        .readEvents({ afterSeq: 0, limit: 1000 })
+        .flatMap((event) => (event.payload.type === "run.ended" ? [event.payload.state] : []));
+      expect(runs).toEqual(["completed"]);
+      const answers = store
+        .readItems(threadId, store.headSeq() + 1, 200)
+        .items.flatMap((item) =>
+          item.type === "message" && item.role === "assistant"
+            ? [item.parts.map((part) => (part.type === "text" ? part.text : "")).join("")]
+            : [],
+        );
+      expect(answers).toEqual(["before and after"]);
+    } finally {
+      release();
+      await engine.close();
+      store.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);

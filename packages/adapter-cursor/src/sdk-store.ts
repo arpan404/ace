@@ -1,6 +1,7 @@
 import { validateLegacyCheckpoint } from "./legacy-checkpoints.ts";
 import { access } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import { agentStorePath } from "./checkpoints.ts";
 import { z } from "zod";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { createHash } from "node:crypto";
@@ -99,12 +100,17 @@ export function observeRunEvents(
   };
 }
 /**
- * Throws, saying SQLITE_BUSY, when another process holds the SDK's SQLite store for writing.
+ * Throws, saying SQLITE_BUSY, when another process holds one of the SDK's SQLite stores for
+ * writing.
  * The SDK itself waits on a held store (busy_timeout, then retries), so a reconcile would only
  * time out; this asks once, without waiting, before recovery or resume write to it.
  */
-export async function assertStoreFree(root: string): Promise<void> {
-  const index = join(root, "index.db");
+export async function assertStoreFree(root: string, agentId?: string): Promise<void> {
+  // The index, and the agent's own store, which the SDK opens and writes on resume.
+  await assertFree(join(root, "index.db"));
+  if (agentId) await assertFree(agentStorePath(root, agentId));
+}
+async function assertFree(index: string): Promise<void> {
   if (!(await exists(index))) return;
   let db: DatabaseSync | undefined;
   try {

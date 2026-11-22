@@ -34,6 +34,11 @@ export async function prepareCheckpointDirectory(root: string): Promise<void> {
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
     throw new Error("Unsafe SDK checkpoint directory");
 }
+/** The SDK's own SQLite store for one agent's checkpoints (1.0.35 layout). */
+export function agentStorePath(root: string, agentId: string): string {
+  const agent = `agent-${createHash("sha256").update(agentId).digest("hex")}`;
+  return join(root, "agents", agent, "store.db");
+}
 /** The files that hold a store's weight: the SDK index, its legacy JSONL, an agent's store.db. */
 function storeFiles(root: string, agentId: string | undefined): string[] {
   const files = [
@@ -43,10 +48,7 @@ function storeFiles(root: string, agentId: string | undefined): string[] {
     "checkpoints.ndjson",
     "run_events.ndjson",
   ].map((name) => join(root, name));
-  if (agentId) {
-    const agent = `agent-${createHash("sha256").update(agentId).digest("hex")}`;
-    files.push(join(root, "agents", agent, "store.db"));
-  }
+  if (agentId) files.push(agentStorePath(root, agentId));
   return files.flatMap((file) => (file.endsWith(".db") ? [file, `${file}-wal`] : [file]));
 }
 /**

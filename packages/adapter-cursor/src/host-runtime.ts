@@ -324,7 +324,7 @@ export class HostRuntime {
         options.nativeSessionId,
       );
       // Held by another writer, the store is busy, not broken: the engine tries again.
-      await assertStoreFree(this.root);
+      await assertStoreFree(this.root, options.nativeSessionId);
       this.storeOwner = await openSdkCheckpointStore(
         this.sdk,
         this.root,
