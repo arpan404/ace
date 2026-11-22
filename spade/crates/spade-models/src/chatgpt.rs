@@ -4,14 +4,11 @@
 
 use serde_json::Value;
 
-/// The ChatGPT backend's Codex routes: `responses` and `models` under it.
-pub const BACKEND_URL: &str = "https://chatgpt.com/backend-api/codex/";
-
 /// The header naming the ChatGPT account (workspace) a call is for.
 pub const ACCOUNT_HEADER: &str = "chatgpt-account-id";
 
-/// Who is calling, sent as `originator` on every call and in the sign-in. Spade says it is
-/// Spade; it never claims to be another client.
+/// Who is calling, sent as `originator` on every call (`spade_chatgpt::Config::originator` says
+/// the same in the sign-in). Spade says it is Spade; it never claims to be another client.
 pub const ORIGINATOR: &str = "spade";
 
 /// The client version the model list is asked for (`?client_version=`): the backend lists the

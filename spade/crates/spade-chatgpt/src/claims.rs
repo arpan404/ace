@@ -60,20 +60,20 @@ pub fn account(id_token: Option<&str>, access_token: &str) -> Option<Account> {
     })
 }
 
-/// A token whose payload is `claims`, unsigned: for tests and the fake sign-in server.
-pub fn unsigned(claims: &Value) -> String {
-    let encode = |value: &Value| URL_SAFE_NO_PAD.encode(value.to_string());
-    format!(
-        "{}.{}.unsigned",
-        encode(&serde_json::json!({"alg": "none"})),
-        encode(claims)
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A token whose payload is `claims`, unsigned: for tests and the fake sign-in server.
+    fn unsigned(claims: &Value) -> String {
+        let encode = |value: &Value| URL_SAFE_NO_PAD.encode(value.to_string());
+        format!(
+            "{}.{}.unsigned",
+            encode(&serde_json::json!({"alg": "none"})),
+            encode(claims)
+        )
+    }
 
     #[test]
     fn the_id_token_names_the_account_its_email_and_plan() {
