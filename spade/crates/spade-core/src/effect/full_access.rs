@@ -7,8 +7,9 @@
 //! - a command outside the sandbox the shell classifier reads as a payment, a send or an access
 //!   change;
 //! - a command asking to leave the sandbox this once: Full access never widens the sandbox;
-//! - a tool that declares nothing, outside the sandbox or able to reach the network: the person
-//!   decides once for the bot, as on the auto-review (its "yes" lets it run, never a send or payment the classifier raises);
+//! - a tool that declares nothing, outside the sandbox or able to reach the network, while
+//!   untrusted content is in view (ADR 0202, amendment 2). Without that content an app's such
+//!   tool is decided like its declared writes, below, and any other goes to the reviewer;
 //!
 //! And what still goes to the reviewer: a connector's or plugin's tool that writes and can reach
 //! the network (it acts on a server, often with the person's sign-in or a token; a sandbox that
@@ -45,12 +46,15 @@ pub(super) fn route(call: Call<'_>) -> Route {
         }
         _ => {}
     }
-    // A tool that declares nothing asks once, as on the auto-review; the person's "yes" lets it
-    // run below like a declared write, never past the classifier.
+    // A tool that declares nothing goes as on the auto-review (ADR 0202, amendment 2): the
+    // person's "no" refuses it and untrusted content in view brings it to them. An app's tool the
+    // auto-review would hand the reviewer is decided below like a declared write of an app, never
+    // past the classifier; any other one still goes to the reviewer.
     if call.effect.is_none() {
-        let route = super::undeclared(call);
-        if route != Route::Run {
-            return route;
+        match super::undeclared(call) {
+            Route::Run => {}
+            Route::Review(_) if call.remote => {}
+            route => return route,
         }
     }
     // An app's tool that writes runs on a server outside any sandbox, often as the person.

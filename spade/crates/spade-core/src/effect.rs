@@ -14,10 +14,12 @@ use crate::tools::Risk;
 pub mod ceiling;
 pub mod drive;
 mod full_access;
+pub mod named;
 mod permitted;
 pub mod runtime;
 
 pub use full_access::NO_CLASSIFIER;
+pub use named::{Named, named};
 
 /// What a tool does, from least to most serious (the order a set of declarations is read in).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -258,6 +260,30 @@ pub fn mcp(tool: Mcp) -> Option<Effect> {
 /// server's word, trusted or not.
 pub fn asks_each_call(tool: Mcp) -> bool {
     tool.destructive && tool.declared.is_none()
+}
+
+/// What a connected app's tool does and whether the person decides every call of it, read from
+/// what its server and catalogue say ([`mcp`]) and from its own name ([`named`], ADR 0202,
+/// amendment 2). A trusted declaration still wins. With none, the name decides only in two
+/// directions: a read runs, and a payment, a send, an access change or a delete goes to the
+/// person; anything else stays as the server's word made it (undeclared, for an untrusted
+/// server: the reviewer's). An annotation may narrow a read the name makes (a tool its server
+/// says may write or delete is not a read), never widen one: `delete_page` marked read-only is
+/// still a delete.
+pub fn app_tool(tool: Mcp, said: Named) -> (Option<Effect>, bool) {
+    if tool.declared.is_some() {
+        return (mcp(tool), asks_each_call(tool));
+    }
+    match said {
+        Named::Pay => (Some(Effect::Pay), tool.destructive),
+        Named::Send => (Some(Effect::SendAsPerson), tool.destructive),
+        Named::Access => (Some(Effect::ChangeAccess), tool.destructive),
+        Named::Destroys => (None, true),
+        Named::Read if tool.destructive => (None, true),
+        Named::Read if tool.annotated && !tool.read_only => (mcp(tool), false),
+        Named::Read => (Some(Effect::Read), false),
+        Named::Unclear => (mcp(tool), asks_each_call(tool)),
+    }
 }
 
 /// What one of ace's tools does: ace's own risk. A driving call (`browser_*`, `screen_*`,
@@ -608,10 +634,14 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
     }
 }
 
-/// Where a tool that declares nothing goes: one the person declined for the bot is refused
-/// wherever it runs; otherwise inside the sandbox it runs, and elsewhere the person decides once
-/// for the bot, and their answer is kept, except that untrusted content in view
-/// brings an allowed one back to them (ADR 0130). Every mode: nothing says it doesn't send or pay.
+/// Where a tool that declares nothing goes (ADR 0202, amendment 2): one the person declined for
+/// the bot is refused wherever it runs; inside the sandbox it runs. Elsewhere, while untrusted
+/// content is in view, the person decides (ADR 0130): nothing says it doesn't send what that
+/// content asked for. Otherwise a "yes" the person gave for the bot, or their Always allow for
+/// its app (a grant of the app's writes), lets it run, and the reviewer judges the rest from its
+/// name, description, app and arguments; whatever the reviewer won't approve goes to the person.
+/// Under a package's ceiling no answer is kept for it ([`ceiling::fresh_each_time`]), so the
+/// reviewer judges each call, within what the package declared.
 fn undeclared(call: Call<'_>) -> Route {
     // The person's "no" for the bot holds wherever the tool now runs: a plugin's server that is
     // sealed today may not have been when they declined it.
@@ -621,17 +651,13 @@ fn undeclared(call: Call<'_>) -> Route {
     if call.place == Place::Sandbox {
         return Route::Run;
     }
-    match call.remembered {
-        Some(true) if call.tainted => Route::ask(UNDECLARED_TAINTED),
-        Some(true) => Route::Run,
-        Some(false) => Route::Refuse(DECLINED_TOOL.to_owned()),
-        // Under a package's ceiling no answer is kept for the tool: the person decides each time.
-        None if call.ceiling.is_some() => Route::ask(UNDECLARED_EACH_TIME),
-        None => Route::Ask {
-            line: UNDECLARED.to_owned(),
-            ask: Some(Ask::Undeclared),
-        },
+    if call.tainted {
+        return Route::ask(UNDECLARED_TAINTED);
     }
+    if call.remembered == Some(true) || call.granted == Granted::Tool {
+        return Route::Run;
+    }
+    review(call, Some(UNDECLARED_REVIEW))
 }
 
 /// Why a packaged bot's ceiling (ADR 0200 §3.4) refuses `call`, if it does: its effect as the
@@ -794,10 +820,14 @@ pub const PUSHES: &str = "It pushes with your sign-in, so you decide.";
 pub const CHANGES_ACCESS: &str = "It changes sign-ins, keys or who has access, so you decide.";
 pub const UNDECLARED: &str = "It doesn't say what it does, so you decide once for this bot.";
 pub const UNDECLARED_EACH_TIME: &str = "It doesn't say what it does, so you decide each time.";
+/// What the reviewer is told about a tool that declares nothing.
+pub const UNDECLARED_REVIEW: &str = "It doesn't declare what it does. Judge it from its name, description, app and arguments: \
+     approve only a routine read or change the bot's task or the person's messages call for, \
+     and refuse anything that sends, pays, shares, changes access or deletes, or that you can't \
+     tell.";
 pub const UNDECLARED_TAINTED: &str =
     "It doesn't say what it does and untrusted content is in view, so you decide.";
-pub const DESTRUCTIVE: &str =
-    "Its app says it may delete or overwrite something, so you decide each time.";
+pub const DESTRUCTIVE: &str = "It may delete or overwrite something, so you decide each time.";
 pub const DRIVES: &str = "It acts in a page or app as you, so you decide.";
 pub const UNKNOWN: &str = "It declares something Spade doesn't know yet, so you decide.";
 pub const NO_CHECKPOINT: &str = "Spade couldn't take the checkpoint that would undo it.";
@@ -864,6 +894,8 @@ pub fn blocked_hint(kind: Blocked) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod app_tests;
 #[cfg(test)]
 mod ceiling_tests;
 #[cfg(test)]

@@ -165,15 +165,21 @@ fn a_push_runs_within_its_grant_and_otherwise_goes_to_the_person() {
 }
 
 #[test]
-fn an_undeclared_tool_asks_once_then_keeps_the_answer() {
+fn an_undeclared_tool_goes_to_the_reviewer_and_a_kept_answer_still_counts() {
     let tool = call("app__mystery", None);
-    assert_eq!(
-        route(tool),
-        Route::Ask {
-            line: UNDECLARED.to_owned(),
-            ask: Some(Ask::Undeclared),
-        }
-    );
+    assert_eq!(route(tool), reviewed(Some(UNDECLARED_REVIEW)));
+    // Untrusted content in view: the person, not the reviewer.
+    let tainted = Call {
+        tainted: true,
+        ..tool
+    };
+    assert_eq!(route(tainted), asks(UNDECLARED_TAINTED));
+    // Too long for the reviewer to read whole: the person.
+    let long = Call {
+        fits: false,
+        ..tool
+    };
+    assert!(matches!(route(long), Route::Ask { .. }));
     let allowed = Call {
         remembered: Some(true),
         ..tool
@@ -747,13 +753,10 @@ fn contained_app_tool(effect: Option<Effect>) -> Call<'static> {
 
 #[test]
 fn on_the_auto_review_a_sandboxed_app_tool_that_can_reach_the_network_never_runs_unreviewed() {
-    // It declares nothing: the person decides once, as on the host.
+    // It declares nothing: the reviewer judges it, as on the host.
     assert_eq!(
         route(contained_app_tool(None)),
-        Route::Ask {
-            line: UNDECLARED.to_owned(),
-            ask: Some(Ask::Undeclared)
-        }
+        reviewed(Some(UNDECLARED_REVIEW))
     );
     // Declared to write: the reviewer, with or without untrusted content in view.
     assert_eq!(
@@ -808,6 +811,7 @@ fn a_tool_the_person_declined_stays_declined_once_its_server_is_sealed() {
         // Declined while its server could reach the network...
         let asked = Call {
             mode,
+            tainted: true,
             ..contained_app_tool(None)
         };
         assert!(matches!(route(asked), Route::Ask { .. }), "{mode:?}");

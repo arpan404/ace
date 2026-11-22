@@ -1027,10 +1027,13 @@ impl Reader<'_> {
         };
         if matches!(
             scope,
-            Scope::GitPush { .. } | Scope::PrComment { .. } | Scope::Folder { .. }
+            Scope::GitPush { .. }
+                | Scope::PrComment { .. }
+                | Scope::Folder { .. }
+                | Scope::App { .. }
         ) {
             self.problem(rule::PERSON_ONLY, format!(
-                "{at}: a package can't ask for a push, a comment or a folder; those are yours to give"
+                "{at}: a package can't ask for a push, a comment, a folder or an app's Always allow; those are yours to give"
             ));
             return None;
         }

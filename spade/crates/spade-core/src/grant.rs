@@ -40,6 +40,17 @@ pub enum Scope {
     /// Driving pages of one site, by its host as a browser reads it (`github.com`). Never a
     /// sensitive one, and never a page whose path is.
     DriveSite { host: String },
+    /// One connected app's tools of one class (ADR 0202, amendment 2): the person's "Always allow
+    /// for Notion". `app` is the connection's id; `writes` covers its tools that change something
+    /// (undeclared ones and declared writes outside the bot), else its reads. Never a payment, a
+    /// send in the person's name, an access change, a delete or what Spade can't name: those go
+    /// to the person each time whatever this says, and untrusted content in view still brings a
+    /// write back to them.
+    App {
+        app: String,
+        #[serde(default)]
+        writes: bool,
+    },
 }
 
 /// A grant as stored.
@@ -93,6 +104,11 @@ pub enum Action<'a> {
     DriveSite {
         host: &'a str,
     },
+    /// A connected app's tool, by the connection's id, and whether it changes anything.
+    App {
+        app: &'a str,
+        writes: bool,
+    },
 }
 
 /// Whether `scope` allows `action`.
@@ -130,6 +146,7 @@ pub fn covers(scope: &Scope, action: &Action<'_>) -> bool {
         (Scope::DriveSite { host }, Action::DriveSite { host: step }) => {
             crate::effect::drive::grantable_site(host).is_ok() && same_place(host, step)
         }
+        (Scope::App { app, writes }, Action::App { app: a, writes: w }) => app == a && writes == w,
         _ => false,
     }
 }
@@ -185,6 +202,13 @@ pub fn within(child: &Scope, parent: &Scope) -> bool {
         }
         (Scope::DriveApp { app }, Scope::DriveApp { app: pa }) => same_place(app, pa),
         (Scope::DriveSite { host }, Scope::DriveSite { host: ph }) => same_place(host, ph),
+        (
+            Scope::App { app, writes },
+            Scope::App {
+                app: pa,
+                writes: pw,
+            },
+        ) => app == pa && writes == pw,
         _ => false,
     }
 }
@@ -253,6 +277,7 @@ pub fn check(scope: &Scope, never: &dyn Fn(&str) -> Option<&'static str>) -> Res
             pattern("host", host)?;
             crate::effect::drive::grantable_site(host).map_err(|why| refused_place(host, why))
         }
+        Scope::App { app, .. } => pattern("app", app),
     }
 }
 
