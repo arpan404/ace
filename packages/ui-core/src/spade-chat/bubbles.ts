@@ -92,8 +92,6 @@ type SpadeBubbleOf =
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
-  /** Web search had nothing set up: a quiet line that opens Settings › Spade › Web search. */
-  | { kind: "search-setup"; key: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
   | { kind: "quiet"; key: string; quiet: SpadeQuiet }
   /** "Updated its task: …", with the change behind See change and Undo. */
@@ -537,9 +535,6 @@ function replyBubbles(
   // What it did, under what it said.
   const steps = spadeReplySteps(entry);
   if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps });
-  // Under the finished reply, so it sits below the bot's own words about it.
-  const setup = entry.parts.find((part) => part.kind === "search-setup");
-  if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
 }
 
 /** A group's reply in the bot's own chat: only its cards, where the person answers them. */

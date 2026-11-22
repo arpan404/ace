@@ -309,8 +309,6 @@ export function spadeBubbleRow(
       return { kind: "note", text: bubble.paths.join(", ") };
     case "question":
       return spadeQuestionCardRow(bubble, who);
-    case "search-setup":
-      return { kind: "note", text: "Web search isn't set up yet." };
   }
 }
 

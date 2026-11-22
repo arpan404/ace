@@ -31,6 +31,7 @@ struct ThreadSummaryPage: View {
             .animation(.default, value: summary)
         }
         .background(AceDesign.Surface.background)
+        .remembersExpansion()
         .onAppear { model.sheet(["kind": "summary", "open": true]) }
         .onDisappear { model.sheet(["kind": "summary", "open": false]) }
         .accessibilityIdentifier("summary.page")
@@ -58,8 +59,8 @@ struct ThreadSummaryPage: View {
         QuietSection("Since you looked") {
             ForEach(lines) { line in
                 QuietSectionRow {
-                    Text(line.text).aceFont(AceDesign.TextRole.rowTitle)
-                        .foregroundStyle(Self.ink(line.tone, rest: AceDesign.Ink.muted)).lineLimit(2)
+                    ExpandableText(line.text, id: "catchUp:\(line.id)").aceFont(AceDesign.TextRole.rowTitle)
+                        .foregroundStyle(Self.ink(line.tone, rest: AceDesign.Ink.muted))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -209,8 +210,8 @@ private struct SummaryNowHeader: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("summary.now")
             if !now.sub.isEmpty {
-                Text(now.sub).aceFont(AceDesign.TextRole.meta)
-                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(2).monospacedDigit()
+                ExpandableText(now.sub, id: "summary.now").aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
                     .accessibilityIdentifier("summary.now.sub")
             }
             if !now.model.isEmpty || now.progress != nil { SummaryRunLine(now: now) }

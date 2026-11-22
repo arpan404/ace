@@ -72,7 +72,8 @@ struct StepRow: View {
                 if !step.verb.isEmpty {
                     Text(step.verb).layoutPriority(1).stepShimmer(StepInFlight(step: step).shimmers(reduceMotion: reduceMotion))
                 }
-                if !step.target.isEmpty { TargetChip(target: step.target) }
+                // A command nothing else shows in full opens in place; a step with details shows it there.
+                if !step.target.isEmpty { TargetChip(target: step.target, id: expandable || step.opens?.isEmpty == false ? nil : key) }
             }
         } meta: {
             HStack(spacing: AceDesign.Space.tight) {
@@ -100,6 +101,8 @@ struct StepRow: View {
 /// folders when space runs short; a command or query truncates at its end.
 struct TargetChip: View {
     let target: String
+    /// Where a cut command is opened in place (`ExpandableText`); nil keeps it on one line.
+    var id: String? = nil
     var body: some View {
         let slash = target.lastIndex(of: "/")
         let path = slash.map { $0 > target.startIndex && target.index(after: $0) < target.endIndex } == true && !target.contains(" ")
@@ -109,6 +112,8 @@ struct TargetChip: View {
                     Text(target[...slash]).truncationMode(.tail)
                     Text(target[target.index(after: slash)...]).layoutPriority(1)
                 }
+            } else if let id {
+                ExpandableText(target, id: id, lines: 1)
             } else {
                 Text(target).truncationMode(.tail)
             }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings › Spade (web's Settings › Spade): General, Models and keys, Web search and Apps for
+/// Settings › Spade (web's Settings › Spade): General, Models and keys, and Apps for
 /// one machine's Spade, each its own page read afresh as it opens and again on a pull. It pushes
 /// inside whichever stack shows it: Settings' own, or the sheet the Spade tab opens.
 struct SpadeSettingsView: View {
@@ -29,7 +29,6 @@ struct SpadeSettingsView: View {
         switch page {
         case .general: SpadeGeneralPage(client: client)
         case .models: SpadeModelsPage(client: client)
-        case .search: SpadeSearchPage(client: client)
         case .apps: SpadeAppsPage(client: client)
         }
     }

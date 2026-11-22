@@ -431,6 +431,7 @@ async fn model_step(
     let system = engine.system_for(id);
     let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
     let live = engine.live(id);
+    engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
@@ -489,6 +490,8 @@ async fn model_step(
         }))
     });
     let mut text = String::new();
+    // The newest of the step's reasoning, for its headline on the Working line.
+    let mut reasoning = String::new();
     let mut calls: Vec<ToolCall> = Vec::new();
     let mut checkpoints = Checkpoints::new(engine.now_ms());
     loop {
@@ -522,7 +525,9 @@ async fn model_step(
                         let _ = engine.record(id, &Event::reply_progress(reply, text.clone()));
                     }
                 }
-                Some(Ok(Delta::Reasoning(_))) => {}
+                Some(Ok(Delta::Reasoning(piece))) => {
+                    reasoned(engine, id, &mut reasoning, &piece);
+                }
                 Some(Ok(Delta::Call(call))) => calls.push(call),
                 Some(Ok(Delta::Done { usage, thoughts })) => {
                     let cost = spending::cost_micros(engine.models.price(&model), &usage);
@@ -671,6 +676,29 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {
         tracing::error!(%error, "could not store a title");
+    }
+}
+
+/// The longest tail of a step's reasoning kept to find its headline in: each piece costs what it
+/// adds, never the whole of what the model thought.
+const REASONING_KEPT: usize = 4096;
+
+/// A piece of the step's reasoning came: its newest headline, once one has closed, is the line.
+fn reasoned(engine: &Engine, id: &str, reasoning: &mut String, piece: &str) {
+    reasoning.push_str(piece);
+    if reasoning.len() > REASONING_KEPT {
+        let mut cut = reasoning.len() - REASONING_KEPT;
+        while !reasoning.is_char_boundary(cut) {
+            cut += 1;
+        }
+        reasoning.drain(..cut);
+    }
+    // Only a piece that can close a headline looks again.
+    if !(piece.contains('*') || piece.contains('\n')) {
+        return;
+    }
+    if let Some(headline) = spade_core::activity::doing::headline(reasoning) {
+        engine.reasoned(id, headline);
     }
 }
 
