@@ -1,4 +1,5 @@
 import "@/styles/model-control.css";
+import type { ProviderKind } from "@ace/protocol";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { effortLabel, effortShortLabel, providerAccount, speedLabel } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
@@ -52,20 +53,8 @@ export function ModelControl(props: {
     }
   };
   const switching = view.switching;
-  const accounts = useAccountViews();
-  // Named in words, and only where the account is not the default one.
-  const accountName = view.provider
-    ? (() => {
-        const { account, bubble } = providerAccount(accounts.data, {
-          provider: view.provider,
-          instance: view.instance ?? view.account,
-        });
-        return bubble ? account?.label : undefined;
-      })()
-    : undefined;
   const tip = [
     view.tip,
-    accountName && `${accountName} account`,
     view.offline,
     switching?.from && `Previously ${switching.from}`,
     switching?.description,
@@ -113,8 +102,8 @@ export function ModelControl(props: {
           <span data-slot="model-name" className="min-w-0 flex-1 truncate text-foreground">
             {view.label ?? view.placeholder}
           </span>
-          {accountName && !props.compact && (
-            <span className="min-w-0 shrink truncate text-muted-foreground">{accountName}</span>
+          {view.provider && !props.compact && (
+            <AccountName provider={view.provider} instance={view.instance ?? view.account} />
           )}
           {view.unavailable && (
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
@@ -213,4 +202,12 @@ function ModelTip(props: { label: string; disabled: boolean; children: ReactElem
       <TooltipContent side="top">{props.label}</TooltipContent>
     </Tooltip>
   );
+}
+
+/** The account in words beside the model's name: only where it is not the default one. */
+function AccountName(props: { provider: ProviderKind; instance: string | undefined }) {
+  const accounts = useAccountViews();
+  const { account, bubble } = providerAccount(accounts.data, props);
+  if (!bubble || !account) return null;
+  return <span className="min-w-0 shrink truncate text-muted-foreground">{account.label}</span>;
 }
