@@ -166,6 +166,8 @@ export class SpadeOpenChat {
       recorder.stop();
     };
     this.open = { kind: "bot", id: conversationId, follow, stop };
+    // The list says how far its history goes, so a first open reads its pages at once.
+    follow.expect(this.botOf(conversationId)?.lastMessage?.seq ?? 0);
     if (kept) {
       follow.seed(kept);
       begin(follow);

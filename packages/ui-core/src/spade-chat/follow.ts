@@ -68,6 +68,8 @@ export interface SpadeFollowSnapshot<V = SpadeView> {
 
 /** Events per page when a conversation first opens. */
 const pageSize = 200;
+/** At most this many pages are asked for at once, ahead of the one being folded. */
+const pagesAhead = 8;
 
 /** Ends after which a new stream picks up where the last left off, after a pause. */
 const resumable = new Set<SpadeFollowEnd>(["restarted", "closed", "unavailable", "limit"]);
@@ -120,6 +122,8 @@ export class SpadeLiveConversation<S, V> {
   private framePending = false;
   /** The first open reads the history in pages before it follows live. */
   private paged = false;
+  /** How many events Spade is known to hold (`expect`), for the pages read at once. */
+  private expected = 0;
   /** The state began from events kept on this device (`seed`). */
   private seeded = false;
   /** ...and Spade hasn't answered since, so the view may be out of date. */
@@ -186,6 +190,14 @@ export class SpadeLiveConversation<S, V> {
     this.seeded = true;
     this.kept = true;
     this.publish();
+  }
+
+  /**
+   * Spade holds at least `seq` events (a bot's last message, as its list says): the first read
+   * asks for every page up to there at once.
+   */
+  expect(seq: number): void {
+    this.expected = Math.max(this.expected, seq);
   }
 
   /**
@@ -306,29 +318,59 @@ export class SpadeLiveConversation<S, V> {
   }
 
   private async pages() {
+    // Spade numbers a conversation's events from 1 with no gaps, so the pages up to how many it
+    // holds (`expect`) are asked for at once rather than one after another. Each is folded only
+    // if the page before ended right where it begins; otherwise the rest are read in turn.
+    let first: Promise<SpadeStored[] | undefined> | undefined = this.readPage(this.lastSeq);
+    const ahead: { after: number; page: Promise<SpadeStored[] | undefined> }[] = [];
+    for (
+      let after = this.lastSeq + pageSize;
+      after < this.expected && ahead.length < pagesAhead;
+      after += pageSize
+    )
+      ahead.push({ after, page: this.readPage(after).catch(() => undefined) });
     for (;;) {
       const after = this.lastSeq;
-      let body: string;
+      let page: SpadeStored[] | undefined;
       try {
-        body = await this.link.read(
-          `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
-        );
+        page = await (first ?? this.readPage(after));
+        first = undefined;
       } catch (error) {
         if (this.stopped) return;
         if (error instanceof SpadeRequestError && error.status === 404)
           this.setProblem("This conversation isn't in Spade any more.");
         return;
       }
-      if (this.stopped) return;
-      const page = parseSpadeEvents(body);
-      if (!page) return;
+      if (this.stopped || !page) return;
       // Spade went on from where the kept events end: they are its, and the view is current.
       // An empty page proves nothing (its history may end before them): the live stream's
       // caught-up decides then.
       if (page[0]?.seq === after + 1) this.kept = false;
-      for (const stored of page) this.folder.fold(this.state, { kind: "stored", stored });
-      if (page.length < pageSize || this.lastSeq === after) return;
+      if (!this.foldPage(page, after)) return;
+      for (let next = ahead.shift(); next; next = ahead.shift()) {
+        if (next.after !== this.lastSeq) break;
+        const early = await next.page;
+        if (this.stopped) return;
+        if (!early) break;
+        if (!this.foldPage(early, next.after)) return;
+      }
+      // Any left didn't line up: what follows is read in turn.
+      ahead.length = 0;
     }
+  }
+
+  /** One page of history after `after`; undefined when the answer isn't a list. */
+  private async readPage(after: number): Promise<SpadeStored[] | undefined> {
+    const body = await this.link.read(
+      `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
+    );
+    return parseSpadeEvents(body);
+  }
+
+  /** Folds a page read after `after`; whether more history may follow it. */
+  private foldPage(page: readonly SpadeStored[], after: number): boolean {
+    for (const stored of page) this.folder.fold(this.state, { kind: "stored", stored });
+    return page.length >= pageSize && this.lastSeq !== after;
   }
 
   private close() {

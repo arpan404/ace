@@ -10,6 +10,8 @@ import { parseSpadeEvents, type SpadeStored } from "./wire.ts";
 /** A Spade the test plays: `history` answers reads in pages, and a stream sends its backlog. */
 function spade(history: unknown[]) {
   const reads: string[] = [];
+  /** While set, reads wait until `release`. */
+  const held = { on: false, waiting: [] as (() => void)[] };
   const streams: string[] = [];
   const link: SpadeFollowLink = {
     canOpen: () => true,
@@ -26,12 +28,17 @@ function spade(history: unknown[]) {
     },
     async read(path) {
       reads.push(path);
+      if (held.on) await new Promise<void>((resolve) => held.waiting.push(resolve));
       const after = Number(/after=(\d+)/.exec(path)?.[1] ?? 0);
       const limit = Number(/limit=(\d+)/.exec(path)?.[1] ?? Infinity);
       return JSON.stringify(history.filter((each) => seqOf(each) > after).slice(0, limit));
     },
   };
-  return { link, reads, streams };
+  const release = () => {
+    held.on = false;
+    for (const go of held.waiting.splice(0)) go();
+  };
+  return { link, reads, streams, held, release };
 }
 
 const seqOf = (stored: unknown) => (stored as { seq: number }).seq;
@@ -116,4 +123,44 @@ test("kept events Spade's history doesn't reach are dropped, and it is read from
   expect(reads.at(-1)).toBe("/v1/conversations/c1/events?after=0&limit=200");
   expect(texts(follow)).toEqual(["Q1", "Fresh."]);
   expect(follow.get().kept).toBe(false);
+});
+
+/** A person's message stored at each of `seqs`. */
+const messages = (seqs: number[]) =>
+  seqs.map((seq) => ({ seq, at: seq, event: { type: "user_message", text: `M${seq}` } }));
+const range = (from: number, to: number) =>
+  Array.from({ length: to - from + 1 }, (_, index) => from + index);
+
+test("told how many events Spade holds, a long history's pages are asked for at once", async () => {
+  const { link, reads, held, release } = spade(messages(range(1, 1000)));
+  const follow = new SpadeConversationFollow(link, "c1", deps);
+  follow.expect(990);
+  held.on = true;
+
+  follow.start();
+  follow.setReady(true);
+  await settle();
+
+  expect(reads).toEqual(
+    [0, 200, 400, 600, 800].map((after) => `/v1/conversations/c1/events?after=${after}&limit=200`),
+  );
+  release();
+  await settle();
+  await settle();
+  expect(texts(follow)).toEqual(range(1, 1000).map((seq) => `M${seq}`));
+  expect(reads.at(-1)).toBe("/v1/conversations/c1/events?after=1000&limit=200");
+});
+
+test("pages read at once that don't line up are read again in turn, no event lost or repeated", async () => {
+  // A history with a hole: the page after 200 starts past where the first page ends.
+  const seqs = [...range(1, 150), ...range(300, 650)];
+  const { link } = spade(messages(seqs));
+  const follow = new SpadeConversationFollow(link, "c1", deps);
+  follow.expect(650);
+
+  follow.start();
+  follow.setReady(true);
+  for (let turn = 0; turn < 6; turn++) await settle();
+
+  expect(texts(follow)).toEqual(seqs.map((seq) => `M${seq}`));
 });
