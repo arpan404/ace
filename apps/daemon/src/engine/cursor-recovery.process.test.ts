@@ -744,9 +744,19 @@ it("a failed turn that can't be written while the disk stays full is tried again
   expect(crash.runsAfter()).toEqual([]);
   // Well past 60 s of waits, every try fails and the next is scheduled, never more than 60 s on.
   const waits: number[] = [];
-  for (let tries = 0; tries < 12; tries++) waits.push(crash.nextFailureTry());
+  // Each failed try is reported once, as a full disk, through the engine's error report.
+  const reports: number[] = [];
+  const failedTry = () => {
+    const before = crash.errors.length;
+    waits.push(crash.nextFailureTry());
+    const added = crash.errors.slice(before);
+    reports.push(added.filter((error) => isDiskFull(error)).length);
+    expect(added).toHaveLength(1);
+  };
+  for (let tries = 0; tries < 12; tries++) failedTry();
   expect(waits).toEqual([10, 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240]);
-  for (let tries = 0; tries < 6; tries++) waits.push(crash.nextFailureTry());
+  for (let tries = 0; tries < 6; tries++) failedTry();
+  expect(reports).toEqual(Array.from({ length: 18 }, () => 1));
   expect(waits.slice(-4)).toEqual([60_000, 60_000, 60_000, 60_000]);
   expect(crash.runsAfter()).toEqual([]);
   expect(crash.queueAfter()).toMatchObject({ paused: true, reason: "restart" });
