@@ -176,7 +176,8 @@ export function SpadeRequestGroup(props: {
 function CallLine(props: { line: SpadeAppCallLine; arguments: unknown; showReason: boolean }) {
   const { line } = props;
   const [open, setOpen] = useState(false);
-  const label = line.target ? `${line.text} · ${line.target}` : line.text;
+  const named = line.subject ? `${line.text} “${line.subject}”` : line.text;
+  const label = line.target ? `${named} · ${line.target}` : named;
   return (
     <li className="flex flex-col gap-0.5">
       <div className="flex items-baseline gap-2">

@@ -61,8 +61,8 @@ test("an app's card is headed by the gate's effect, each call with its target an
   ]);
   expect(changes.sentence).toBe("Quill wants to make 2 changes in Notion.");
   expect(changes.lines).toEqual([
-    { text: "Create a Notion page", target: "Trips", reason: undefined },
-    { text: "Create a Notion page", target: "Notes", reason: "Checked." },
+    { text: "Create a Notion page", subject: "Plan", target: "Trips", reason: undefined },
+    { text: "Create a Notion page", subject: undefined, target: "Notes", reason: "Checked." },
   ]);
   // Recipients nested deep in the arguments still show.
   const sends = spadeAppRequestGroup("Quill", "Notion", [

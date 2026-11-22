@@ -150,8 +150,17 @@ export function spadeAppCallTarget(args: unknown, depth = 0): string | undefined
 /** One call on an app's card: what it does in words, where it goes, and why the gate asked. */
 export interface SpadeAppCallLine {
   text: string;
+  /** What it makes or changes, by its title or name, when that isn't its target. */
+  subject: string | undefined;
   target: string | undefined;
   reason: string | undefined;
+}
+
+/** A call's title or name, as given. */
+function subjectOf(args: unknown): string | undefined {
+  const fields = spadeRecord(args);
+  const said = fields?.title ?? fields?.name;
+  return typeof said === "string" && said.trim() ? said.trim() : undefined;
 }
 
 export interface SpadeAppRequestGroupWords {
@@ -176,11 +185,16 @@ export function spadeAppRequestGroup(
     reason?: string | undefined;
   }[],
 ): SpadeAppRequestGroupWords {
-  const lines = calls.map((call) => ({
-    text: capital(spadeAppToolPhrase(call.tool, app, call.effect)),
-    target: spadeAppCallTarget(call.arguments),
-    reason: call.reason,
-  }));
+  const lines = calls.map((call) => {
+    const target = spadeAppCallTarget(call.arguments);
+    const subject = subjectOf(call.arguments);
+    return {
+      text: capital(spadeAppToolPhrase(call.tool, app, call.effect)),
+      subject: subject === target ? undefined : subject,
+      target,
+      reason: call.reason,
+    };
+  });
   const n = calls.length;
   const kind = calls[0] ? spadeGateKind(calls[0].effect, calls[0].ask) : "unknown";
   const sentence = {
