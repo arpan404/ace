@@ -114,9 +114,11 @@ export function startAgentControl(context: ServiceContext): void {
           ? services.machines.caller.list(caller)
           : { ok: false, code: "unsupported" },
       delegate: async (caller, request, signal) => {
-        // A member's tree delegates to another host only while its owner may run work here.
+        // A member's tree delegates to another host only while its owner may run work here, and
+        // the start is recorded before it is sent, so a stop of the tree waits for its answer.
+        let start: import("../member-work/member-work.ts").RemoteStart | undefined;
         try {
-          services.ownerGate?.delegate(caller.threadId);
+          start = services.ownerGate?.delegate(caller.threadId);
         } catch (error) {
           if (error instanceof OwnerRefused)
             throw new AgentControlError(
@@ -127,9 +129,16 @@ export function startAgentControl(context: ServiceContext): void {
             );
           throw error;
         }
-        const machines = services.machines;
-        if (!machines) throw new AgentControlError("machine_unavailable", "machines_not_ready");
-        return machines.caller.delegate(caller, request, signal);
+        let child: import("@ace/protocol").ThreadId | undefined;
+        try {
+          const machines = services.machines;
+          if (!machines) throw new AgentControlError("machine_unavailable", "machines_not_ready");
+          child = await machines.caller.delegate(caller, request, signal);
+          return child;
+        } finally {
+          // It landed after its tree was stopped: the cross-machine stop reaches it too.
+          if (start?.settle(child) && child) await services.machines?.caller.cancel(child);
+        }
       },
       owns: (caller, child) => services.machines?.children.owns(caller, child) ?? false,
       status: (child) => services.machines?.children.watched(child)?.view,

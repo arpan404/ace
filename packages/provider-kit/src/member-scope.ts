@@ -1,6 +1,6 @@
 /*
  * Starting a member's provider process inside their containment on an org host (ADR 0209 §7.3).
- * The daemon names the member's systemd slice in the session's environment; every owned spawn
+ * The daemon names the member tree's systemd slice in the session's environment; every owned spawn
  * then starts through `systemd-run --user --scope` under that slice, which execs the command only
  * once the scope exists, so the process and all it starts are inside before any of its code runs.
  * When the scope can't be made, systemd-run exits without running the command: the spawn fails
@@ -10,7 +10,7 @@
 
 /** The environment entry naming the slice; never passed on to the process itself. */
 export const MEMBER_SLICE_ENV = "ACE_MEMBER_SLICE";
-const slicePattern = /^ace-member-[0-9a-f]{24}\.slice$/;
+const slicePattern = /^ace-member-[0-9a-f]{24}-[0-9a-f]{24}\.slice$/;
 
 /**
  * The command to spawn for `command` under `env`: unchanged without a slice; through

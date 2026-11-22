@@ -295,6 +295,22 @@ export class MachineChildren implements RemoteChildren {
   under(thread: ThreadId): ThreadId[] {
     return this.ledger.unsettledOfParents([thread, ...this.deps.descendants(thread)]);
   }
+  /**
+   * Whether each child delegated from this thread or below it has ended at its machine (ADR 0209
+   * §7): `running` while unsettled; `ended` once its machine reported it settled or confirmed its
+   * stop; `unconfirmed` when stopped here without its machine's word yet, or for good.
+   */
+  endings(thread: ThreadId): { id: ThreadId; state: "running" | "ended" | "unconfirmed" }[] {
+    return this.ledger.ofParents([thread, ...this.deps.descendants(thread)]).map((row) => ({
+      id: row.id,
+      state:
+        row.settled === 0
+          ? "running"
+          : row.stopped_unconfirmed === 1 || row.stopped_unconfirmed === 3
+            ? "unconfirmed"
+            : "ended",
+    }));
+  }
   owns(caller: McpAttribution, id: ThreadId): boolean {
     const row = this.ledger.row(id);
     return (

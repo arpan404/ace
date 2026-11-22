@@ -747,41 +747,65 @@ None yet: this is a design. Each phase's done line is its verification.
 
 ## Amendment 1 (2026-11-21): §7 as built in phase 1
 
-Decided while building §7 (#2527) and after its security review. Each is the simplest safe choice.
+Decided while building §7 (#2527) and after its two security reviews. Each is the simplest safe
+choice.
 
 - **Containment is under the user's systemd manager, so it stops accidental escapes, not a hostile
   member.** §7.3 asks for a scope made by the system manager. An unprivileged daemon can't make
   one: the system manager needs root or polkit's `manage-units`, which is the administrator's by
-  default. So each member's provider processes start inside a transient scope under a slice of
-  their own (`systemd-run --user --scope`, no delegation), in it before any of their code runs; a
-  scope that can't be made starts nothing. A stop kills the slice's cgroup. The slice is in the
-  host user's own systemd tree, which that user can write, so a process set on leaving it can.
-  That matches §1: against a hostile trusted member nothing on the host holds in phase 1. It
-  contains dev servers, daemonizing tools and `setsid`. Needs systemd 254 or later.
+  default. So each member tree's provider processes start inside a transient scope under a slice
+  of the tree's own, nested in the member's (`systemd-run --user --scope`, no delegation), in it
+  before any of their code runs; a scope that can't be made starts nothing. A stop kills the
+  tree's slice and counts only once its cgroup reads empty; a cgroup that can't be read stays
+  unconfirmed. The slice is in the host user's own systemd tree, which that user can write, so a
+  process set on leaving it can. That matches §1: against a hostile trusted member nothing on
+  the host holds in phase 1. It contains dev servers, daemonizing tools and `setsid`. Needs
+  systemd 254 or later.
 - **macOS, phase 1:** a member's processes are their sessions' process groups, which a stop
   kills. Best effort, as §7.3 says.
 - **The roster carries an epoch and, per member, when WorkOS made their state.** The epoch is the
-  backend's restore generation (`ACE_ROSTER_EPOCH`, raised after any restore of its database):
-  a host refuses a lower epoch, and versions compare within one. The same version is taken again
-  only with the same body. A revocation is lifted only by a roster showing the member active in
-  a state WorkOS made after the revoking one, so a backend restored from a backup that predates
-  a removal can't bring the member back.
-- **The backend versions one committed snapshot.** A roster's members, hosts and last version are
-  read in one transaction, and its next version is taken only while the members are still at
-  that snapshot's revision.
-- **The offline allowance is for an unreachable backend only.** A backend that answers and refuses
-  (401, 403, a bad signature, another host's roster, a stale one) gives no allowance beyond the
-  two minutes. Leases run on a clock that never goes back and never runs slower than the
-  monotonic clock. A host whose clock starts behind the last time it recorded renews nothing on a
-  roster from before the restart. A lease that ran out is stopped, never renewed.
-- **A stop is pending until confirmed.** It is recorded before anything is torn down and retried
-  each pass, after a restart too, until the tree's sessions are closed and the member's
-  contained processes are gone.
+  backend's restore generation, `ACE_ROSTER_EPOCH`, a Worker secret kept outside D1 so a restore
+  can't lower it. It is never assumed: unset or malformed, no roster is served
+  (`roster_epoch_unset`). The database records the epoch of each roster it versioned; a Worker
+  whose epoch is behind that serves none (`roster_epoch_behind`), and a higher one starts a new
+  series. **A restore of the accounts database must raise the epoch** before the Worker serves
+  again (runbook: `docs/release/workers.md`). A host refuses a lower epoch, versions compare
+  within one, the same version is taken again only with the same body, and a revocation is
+  lifted only by a roster showing the member active in a state WorkOS made after the revoking
+  one, so even a restore without the bump can't bring a removed member back.
+- **The backend versions and dates one committed snapshot.** A roster's members, hosts and last
+  version are read in one transaction. Serving the same version again, or taking the next, both
+  happen only while the members are still at that snapshot's revision; the roster is dated with
+  the snapshot's read time, never the time of signing.
+- **The offline allowance is for transport failure only.** No TCP or TLS answer, or no complete
+  answer in time. Every HTTP answer is the backend's word and earns only the two-minute window:
+  a refusal, the origin's own contention (503 `busy`), an unset or behind epoch, a proxy's or the
+  edge's 5xx, a redirect (never followed). Someone on the path who drops the backend's replies
+  gets the bounded outage behaviour (allowance plus a lease) by design; one who forges an answer
+  gets less. Leases run on a clock that never goes back and never runs slower than the monotonic
+  clock; a host whose clock starts behind the last time it recorded renews nothing on a roster
+  from before the restart. A lease that ran out is stopped, never renewed.
+- **Every call that makes work holds the lease.** A session open (before spawn, also a resume),
+  every input, every answer to a provider's request and every goal takes or renews the owner's
+  lease first, and is refused past an expired one, while a stop is under way, or on a tree a stop
+  ended. Nothing on that path clears a stop: not an engine continuation, a retry, an automation
+  or a send whose origin is unknown. Only the owner's own proven input does, which the access
+  policy passes on (`MemberWork.resume`) when it admits a command from a socket that proved that
+  member's standing.
+- **A stop is pending until confirmed, tree by tree.** It is recorded before anything is torn
+  down. Every affected tree is fenced at once, then each tree's teardown runs on its own within a
+  bound, so one that hangs holds back neither the others nor the next pass. It counts only once
+  the tree's sessions are closed (retained ones too), its slice is confirmed empty and every child
+  it delegated to another host is confirmed ended by that machine. A delegation is recorded
+  before it is sent, so a stop waits for its answer, and a child that lands after the stop gets
+  the cross-machine stop at once. A child whose machine never confirms (unreachable, unpaired),
+  or a delegation whose answer never came, counts as ended once its destination's own lease of
+  it must have run out: the offline allowance plus a lease after the stop began.
 - **A member stop reads failed, with why.** Thread status has no interrupted state, and a
   deliberate stop reads done. So what was unsettled ends as failed with "Stopped · its owner is
   no longer in this organization" (or "…couldn't confirm…"), recorded for the whole tree before
-  anything is awaited. Children on other hosts get the cross-machine stop (ADR 0052).
-- **The gate.** Before a provider process is spawned, before any input reaches a provider and
-  before work is delegated to another host, an owned thread's owner must be able to run work here.
-  Who owns a thread is a resolver that answers none on personal machines and for the host's own
-  threads; the access policy fills it in from `thread_access`.
+  anything is awaited.
+- **The gate.** Before a provider process is spawned, before anything that makes it run work
+  reaches it, and before work is delegated to another host, an owned thread's owner must be able
+  to run work here. Who owns a thread is a resolver that answers none on personal machines and
+  for the host's own threads; the access policy fills it in from `thread_access`.

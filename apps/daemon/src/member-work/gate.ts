@@ -1,6 +1,6 @@
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
-import type { MemberWork } from "./member-work.ts";
+import type { MemberWork, RemoteStart } from "./member-work.ts";
 
 /*
  * The member gate (ADR 0209 §4.2, §7): on an org host, no work of a member's tree starts unless
@@ -30,17 +30,21 @@ export class OwnerRefused extends Error {
 }
 
 export interface OwnerGate {
-  /** Before a provider process starts for `thread`: the environment that contains it. */
+  /**
+   * Before a provider process starts for `thread`, or a session resumes: the owner's lease is
+   * taken or renewed, and the environment that contains the tree's processes is answered.
+   */
   spawn(thread: ThreadId): Record<string, string> | undefined;
-  /** Before input reaches the provider: the person's own (`person`), or anything else. */
-  dispatch(thread: ThreadId, origin: "person" | "other"): void;
-  /** Before `thread` delegates work to another host. */
-  delegate(thread: ThreadId): void;
+  /** Before anything reaches the provider that makes it run work: input, answers, goals. */
+  work(thread: ThreadId): void;
+  /** Before `thread` delegates to another host: the start, recorded until its answer comes. */
+  delegate(thread: ThreadId): RemoteStart | undefined;
 }
 
 /**
  * The gate over `ownerOf` and the host's member work. An owned thread with no member work to
- * vouch for its owner (not wired yet, or no organization) is refused: it fails closed.
+ * vouch for its owner (not wired yet, or no organization) is refused: it fails closed. No call
+ * through it clears a stop: only the owner's proven input does, through `MemberWork.resume`.
  */
 export function ownerGate(deps: {
   ownerOf: OwnerOf;
@@ -53,32 +57,35 @@ export function ownerGate(deps: {
     if (!work) throw new OwnerRefused();
     return { owner, work };
   };
+  const admitted = (thread: ThreadId) => {
+    const found = owned(thread);
+    if (found && !found.work.admit(found.owner.account, found.owner.root)) throw new OwnerRefused();
+    return found;
+  };
   return {
     spawn(thread) {
-      const found = owned(thread);
-      if (!found) return undefined;
-      const { owner, work } = found;
-      if (!work.active(owner.account) || work.pendingStops().includes(owner.root))
-        throw new OwnerRefused();
-      return work.launchEnv(owner.account);
+      const found = admitted(thread);
+      return found?.work.launchEnv(found.owner.account, found.owner.root);
     },
-    dispatch(thread, origin) {
-      const found = owned(thread);
-      if (found && !found.work.admit(found.owner.account, found.owner.root, origin))
-        throw new OwnerRefused();
+    work(thread) {
+      admitted(thread);
     },
     delegate(thread) {
       const found = owned(thread);
-      if (found && !found.work.admit(found.owner.account, found.owner.root, "other"))
-        throw new OwnerRefused();
+      if (!found) return undefined;
+      const start = found.work.remoteStart(found.owner.account, found.owner.root);
+      if (!start) throw new OwnerRefused();
+      return start;
     },
   };
 }
 
 /**
- * `adapter` behind the gate: a session opens only for a thread whose owner may run work, with
- * the owner's containment in its environment, and each input is checked again right before it
- * is sent. `gate` is read at each call: the host's member work starts after the engine.
+ * `adapter` behind the gate: a session opens only for a thread whose owner may run work, taking
+ * their lease, with the tree's containment in its environment; and every call that makes the
+ * provider run work (input, answers to its requests, goals) is checked again right before it is
+ * made. Stopping calls (interrupt, task stop, close) always pass. `gate` is read at each call:
+ * the host's member work starts after the engine.
  */
 export function withOwnerGate(
   gate: () => OwnerGate | undefined,
@@ -91,11 +98,23 @@ export function withOwnerGate(
       const opened = await adapter.openSession(
         contained ? { ...session, env: { ...session.env, ...contained } } : session,
       );
+      const check = () => gate()?.work(session.threadId);
       const send = opened.send.bind(opened);
       opened.send = (input, delivery, commandId, origin, fence) => {
-        gate()?.dispatch(session.threadId, origin === undefined ? "person" : "other");
+        check();
         return send(input, delivery, commandId, origin, fence);
       };
+      const resolve = opened.resolve.bind(opened);
+      opened.resolve = (interaction, resolution) => {
+        check();
+        return resolve(interaction, resolution);
+      };
+      const setGoal = opened.setGoal?.bind(opened);
+      if (setGoal)
+        opened.setGoal = (change) => {
+          check();
+          return setGoal(change);
+        };
       return opened;
     },
   };

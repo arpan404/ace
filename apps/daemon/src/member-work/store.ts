@@ -26,6 +26,10 @@ const schema = [
     stop_pending INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS member_policy (
     org TEXT PRIMARY KEY, version INTEGER NOT NULL, offline_minutes INTEGER)`,
+  // A delegation to another host recorded before it is sent: until its answer names the child,
+  // a stop of the tree can't know whether work started there.
+  `CREATE TABLE IF NOT EXISTS member_remote_starts (
+    id TEXT PRIMARY KEY, org TEXT NOT NULL, root_id TEXT NOT NULL, at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS member_clock (
     id INTEGER PRIMARY KEY CHECK (id = 1), high_water INTEGER NOT NULL)`,
 ];
@@ -44,7 +48,13 @@ const RevocationRow = z.object({ account: z.string(), changed: z.number() });
 const PolicyRow = z.object({ version: z.number(), offline_minutes: z.number().nullable() });
 const Reason = z.enum(["revoked", "lease_expired", "stopped"]);
 const Ended = z.object({ ended_reason: Reason });
-const Pending = z.object({ root_id: z.string(), account: z.string(), ended_reason: Reason });
+const Pending = z.object({
+  root_id: z.string(),
+  account: z.string(),
+  ended_reason: Reason,
+  ended_at: z.number(),
+});
+const Start = z.object({ at: z.number() });
 const HighWater = z.object({ high_water: z.number() });
 
 /** The members of a roster body, by account, with WorkOS's time for each one's state. */
@@ -233,17 +243,42 @@ export function memberWorkStore(store: { atomic<T>(run: (db: DatabaseSync) => T)
       });
     },
     /** Stops of `org` not yet confirmed: their trees or processes may still run. */
-    pendingStops(org: string): { root: string; account: string; reason: StopReason }[] {
+    pendingStops(
+      org: string,
+    ): { root: string; account: string; reason: StopReason; endedAt: number }[] {
       return read((db) =>
         db
           .prepare(
-            "SELECT root_id, account, ended_reason FROM member_leases WHERE org = ? AND stop_pending = 1",
+            "SELECT root_id, account, ended_reason, ended_at FROM member_leases WHERE org = ? AND stop_pending = 1",
           )
           .all(org),
       ).map((raw) => {
         const row = Pending.parse(raw);
-        return { root: row.root_id, account: row.account, reason: row.ended_reason };
+        return {
+          root: row.root_id,
+          account: row.account,
+          reason: row.ended_reason,
+          endedAt: row.ended_at,
+        };
       });
+    },
+    /** A delegation from `root` to another host is about to be sent. */
+    addRemoteStart(id: string, org: string, root: string, at: number) {
+      store.atomic((db) =>
+        db
+          .prepare("INSERT INTO member_remote_starts (id, org, root_id, at) VALUES (?, ?, ?, ?)")
+          .run(id, org, root, at),
+      );
+    },
+    /** Its answer came, naming the child or none: the children's ledger has it from here. */
+    removeRemoteStart(id: string) {
+      store.atomic((db) => db.prepare("DELETE FROM member_remote_starts WHERE id = ?").run(id));
+    },
+    /** When each delegation from `root` still without an answer was sent. */
+    remoteStarts(root: string): number[] {
+      return read((db) =>
+        db.prepare("SELECT at FROM member_remote_starts WHERE root_id = ?").all(root),
+      ).map((raw) => Start.parse(raw).at);
     },
     /** The tree's sessions and its owner's processes are confirmed gone. */
     confirmStop(root: string) {

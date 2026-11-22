@@ -8,11 +8,12 @@ import { MEMBER_SLICE_ENV } from "@ace/provider-kit/member-scope";
  * Containment of a member's processes on an org host (ADR 0209 §7.3), so stopping their work
  * reaches every descendant, also one that left its process group (`setsid`, a double fork).
  *
- * Linux: a member's provider processes are started inside a systemd scope under the member's
- * own slice (`systemd-run --user --scope`, no delegation), so they are in it before any provider
- * code runs and everything they start is too. A scope that can't be made starts nothing
- * (provider-kit's `member-scope.ts`). Stopping kills the slice's cgroup at once (`cgroup.kill`)
- * and waits until it holds no process.
+ * Linux: a member tree's provider processes are started inside a systemd scope under that tree's
+ * own slice, nested in the member's (`systemd-run --user --scope`, no delegation), so they are in
+ * it before any provider code runs and everything they start is too. A scope that can't be made
+ * starts nothing (provider-kit's `member-scope.ts`). Stopping a tree kills its slice's cgroup at
+ * once (`cgroup.kill`) and counts only once the cgroup reads empty; a cgroup it can't read
+ * stays unconfirmed. Sibling trees of the same member are untouched.
  *
  * The slice lives in the host user's own systemd tree, which that user can write. Making a
  * scope under the system manager without delegation would need root or a polkit grant for
@@ -26,10 +27,13 @@ import { MEMBER_SLICE_ENV } from "@ace/provider-kit/member-scope";
 
 export interface Containment {
   readonly kind: "cgroup" | "session";
-  /** Environment that starts a member's provider process inside their containment. */
-  launchEnv(account: string): Record<string, string> | undefined;
-  /** Kills everything in `account`'s containment: true once nothing in it runs. */
-  kill(account: string): Promise<boolean>;
+  /** Environment that starts a process of `account`'s tree `root` inside that tree's containment. */
+  launchEnv(account: string, root: string): Record<string, string> | undefined;
+  /**
+   * Kills everything in tree `root`'s containment: true only once nothing in it is positively
+   * known to run. Anything it can't read stays unconfirmed.
+   */
+  kill(account: string, root: string): Promise<boolean>;
 }
 
 /** Runs a command; its exit code and output. Injected so a test can stand in for systemd. */
@@ -59,57 +63,83 @@ export const sessionContainment: Containment = {
   kill: async () => true,
 };
 
-/** The slice a member's processes run under, distinct per daemon home so hosts never share one. */
-export function memberSlice(instance: string, account: string): string {
-  const tag = createHash("sha256").update(instance).update("\0").update(account).digest("hex");
-  return `ace-member-${tag.slice(0, 24)}.slice`;
+const tag = (...parts: string[]) =>
+  createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 24);
+
+/**
+ * The slice one member tree's processes run under: inside its member's slice (systemd nests
+ * slices by their dashes), distinct per daemon home so hosts never share one.
+ */
+export function treeSlice(instance: string, account: string, root: string): string {
+  return `ace-member-${tag(instance, account)}-${tag(instance, account, root)}.slice`;
 }
 
-/** A systemd slice per member, through the user's manager. `instance` names this daemon's home. */
+/** `systemctl show` output, as `Name=value` lines. */
+function properties(text: string): Map<string, string> {
+  return new Map(
+    text
+      .split("\n")
+      .filter((line) => line.includes("="))
+      .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1).trim()]),
+  );
+}
+
+/** A systemd slice per member tree, through the user's manager. `instance` names this home. */
 export function systemdSliceContainment(options: {
   instance: string;
   run?: CommandRunner;
   /** Where cgroup v2 is mounted. */
   cgroupRoot?: string;
+  /** How long a kill waits for the cgroup to empty. */
+  settleMs?: number;
 }): Containment {
   const run = options.run ?? commandRunner();
   const root = options.cgroupRoot ?? "/sys/fs/cgroup";
+  const settle = options.settleMs ?? settleMs;
 
-  async function populated(path: string): Promise<boolean> {
+  /** Whether the cgroup holds a process: undefined when it can't be read. */
+  async function populated(path: string): Promise<boolean | undefined> {
     const events = await readFile(`${root}${path}/cgroup.events`, "utf8").catch(() => undefined);
-    // Gone, or no process anywhere beneath it.
-    return events !== undefined && /^populated 1$/m.test(events);
+    const line = events?.match(/^populated ([01])$/m)?.[1];
+    return line === undefined ? undefined : line === "1";
   }
 
   return {
     kind: "cgroup",
-    launchEnv: (account) => ({ [MEMBER_SLICE_ENV]: memberSlice(options.instance, account) }),
-    async kill(account) {
-      const unit = memberSlice(options.instance, account);
+    launchEnv: (account, tree) => ({
+      [MEMBER_SLICE_ENV]: treeSlice(options.instance, account, tree),
+    }),
+    async kill(account, tree) {
+      const unit = treeSlice(options.instance, account, tree);
       const shown = await run("systemctl", [
         "--user",
         "show",
-        "--property=ControlGroup",
-        "--value",
+        "--property=LoadState,ActiveState,ControlGroup",
         unit,
       ]);
       if (shown.code !== 0) return false;
-      const path = shown.stdout.trim();
-      // Never loaded, or collected: nothing of the member's runs in it.
-      if (!path.startsWith("/")) return true;
-      if (!(await populated(path))) return true;
+      const unitState = properties(shown.stdout);
+      const path = unitState.get("ControlGroup") ?? "";
+      // systemd itself says nothing of it runs: never made, or gone and collected.
+      if (!path.startsWith("/"))
+        return (
+          unitState.get("LoadState") === "not-found" || unitState.get("ActiveState") === "inactive"
+        );
+      const before = await populated(path);
+      if (before === undefined) return false;
+      if (!before) return true;
       // One write kills every process beneath the slice, a fork racing it included.
       const killed = await writeFile(`${root}${path}/cgroup.kill`, "1").then(
         () => true,
         () => false,
       );
       if (!killed) await run("systemctl", ["--user", "kill", "--signal=SIGKILL", unit]);
-      const deadline = Date.now() + settleMs;
-      while (Date.now() < deadline) {
-        if (!(await populated(path))) return true;
+      const deadline = Date.now() + settle;
+      for (;;) {
+        if ((await populated(path)) === false) return true;
+        if (Date.now() >= deadline) return false;
         await delay(pollMs);
       }
-      return false;
     },
   };
 }

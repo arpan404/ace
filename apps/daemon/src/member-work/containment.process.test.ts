@@ -62,8 +62,17 @@ it.skipIf(!userManager)(
       instance: dir,
       run: commandRunner({ ...process.env, ...bus }),
     });
-    const env = containment.launchEnv("user_mia");
-    if (!env) throw new Error("No containment");
+    const env = containment.launchEnv("user_mia", "t_one");
+    const sibling = containment.launchEnv("user_mia", "t_two");
+    if (!env || !sibling) throw new Error("No containment");
+    // Another of Mia's trees, running beside it in a slice of its own.
+    const other = spawnRawSupervised({
+      command: "sleep",
+      args: ["300"],
+      env: { ...bus, ...sibling },
+      name: "member work",
+      childPriority: false,
+    });
     // At once, before anything could move it: a new session that forks a long sleep, as a dev
     // server or a daemonizing tool does.
     const child = spawnRawSupervised({
@@ -89,13 +98,17 @@ it.skipIf(!userManager)(
       // The slice's name never reaches the process itself.
       expect(readFileSync(`/proc/${pid}/environ`, "utf8")).not.toContain("ACE_MEMBER_SLICE");
 
-      expect(await containment.kill("user_mia")).toBe(true);
+      expect(await containment.kill("user_mia", "t_one")).toBe(true);
 
       await child.exited;
       expect([alive(innerPid), alive(sleeperPid)]).toEqual([false, false]);
+      // The sibling tree is untouched.
+      expect(other.pid !== undefined && alive(other.pid)).toBe(true);
     } finally {
-      await containment.kill("user_mia");
+      await containment.kill("user_mia", "t_one");
+      await containment.kill("user_mia", "t_two");
       await child.stop({ graceMs: 0 });
+      await other.stop({ graceMs: 0 });
     }
   },
 );
@@ -106,7 +119,7 @@ it.skipIf(process.platform !== "linux")(
     const dir = mkdtempSync(join(tmpdir(), "ace-member-slice-"));
     dirs.push(dir);
     const ran = join(dir, "ran");
-    const env = systemdSliceContainment({ instance: dir }).launchEnv("user_mia");
+    const env = systemdSliceContainment({ instance: dir }).launchEnv("user_mia", "t_one");
     const child = spawnRawSupervised({
       command: "sh",
       args: ["-c", `echo yes > "${ran}"`],

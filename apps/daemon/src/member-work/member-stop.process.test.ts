@@ -80,6 +80,7 @@ function miasWork(stopper: TreeStopDeps, store: Parameters<typeof memberWorkStor
     wall: () => clock.wall,
     monotonic: () => clock.wall,
     delay: () => () => {},
+    id: () => "start",
   });
   return { work, clock };
 }
@@ -89,19 +90,24 @@ it("a revoked member's running tree stops, says why and never reads done", async
   try {
     const cancelled: ThreadId[] = [];
     const remoteChild = ThreadId.parse("t_on_another_host");
+    // Its machine reports the child running, then, once told to stop, not yet confirmed ended.
+    let there: "running" | "ended" | "unconfirmed" = "running";
     const { work, clock } = miasWork(
       {
         engine,
         delegations: f.controls.delegations,
         remote: {
-          under: (tree) => (tree === root ? [remoteChild] : []),
-          cancel: async (id) => cancelled.push(id),
+          endings: (tree) => (tree === root ? [{ id: remoteChild, state: there }] : []),
+          cancel: async (id) => {
+            cancelled.push(id);
+            there = "unconfirmed";
+          },
         },
       },
       f.daemon.store,
     );
     expect(work.takeRoster(roster(1, clock.wall, { user_mia: "active" }))).toBe("taken");
-    expect(work.admit("user_mia", root, "person")).toBe(true);
+    expect(work.admit("user_mia", root)).toBe(true);
     await work.pass();
     expect([state(root), state(child)]).toEqual(["working", "working"]);
 
@@ -113,9 +119,13 @@ it("a revoked member's running tree stops, says why and never reads done", async
     expect(f.daemon.store.getThread(root)?.queue?.lastFailure).toEqual(memberStopFailures.revoked);
     expect(engine.hasUnfinishedWork(root)).toBe(false);
     expect(work.stopReason(root)).toBe("revoked");
-    expect(work.pendingStops()).toEqual([]);
-    // The child on another host was sent the cross-machine stop.
+    // The child on another host was sent the cross-machine stop; until its machine confirms it
+    // ended, the stop isn't done.
     expect(cancelled).toEqual([remoteChild]);
+    expect(work.pendingStops()).toEqual([root]);
+    there = "ended";
+    await work.pass();
+    expect(work.pendingStops()).toEqual([]);
     await work.close();
   } finally {
     await f.daemon.close();
@@ -133,7 +143,7 @@ it("a child that finishes while its tree is being stopped still reads failed, no
         engine,
         delegations: f.controls.delegations,
         remote: {
-          under: () => [ThreadId.parse("t_on_another_host")],
+          endings: () => [{ id: ThreadId.parse("t_on_another_host"), state: "running" }],
           cancel: async () => {
             raced = true;
             f.h.contexts.get(child)?.onFrame(f.h.frames.frame(end));
@@ -144,12 +154,39 @@ it("a child that finishes while its tree is being stopped still reads failed, no
       f.daemon.store,
     );
     work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
-    work.admit("user_mia", root, "person");
+    work.admit("user_mia", root);
     work.takeRoster(roster(2, clock.wall + 1, {}));
     await work.pass();
     expect(raced).toBe(true);
     await engine.flush();
     expect([state(root), state(child)]).toEqual(["failed", "failed"]);
+    await work.close();
+  } finally {
+    await f.daemon.close();
+  }
+});
+
+it("stopping a tree that settled still closes the session it kept open", async () => {
+  const f = await daemonFixture();
+  try {
+    const engine = f.daemon.engine;
+    if (!engine) throw new Error("No engine");
+    const root = f.caller.threadId;
+    // The root's first turn ran and ended: nothing works, but its provider session stays open.
+    expect(f.daemon.store.getThread(root)?.status.state).toBe("done");
+    const session = f.h.contexts.get(root);
+    if (!session) throw new Error("No session");
+    expect(session.signal.aborted).toBe(false);
+    const { work, clock } = miasWork(
+      { engine, delegations: f.controls.delegations },
+      f.daemon.store,
+    );
+    work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+    work.admit("user_mia", root);
+    work.takeRoster(roster(2, clock.wall + 1, {}));
+    await work.pass();
+    expect(session.signal.aborted).toBe(true);
+    expect(work.pendingStops()).toEqual([]);
     await work.close();
   } finally {
     await f.daemon.close();

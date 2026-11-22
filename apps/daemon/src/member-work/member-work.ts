@@ -27,11 +27,27 @@ import { rosterMembers, type MemberWorkStore } from "./store.ts";
  * `stop` (stop this member's work). `gate.ts` applies them at every execution entry point.
  */
 
-/** The backend gave no answer at all: the network, a timeout, its edge failing. */
+/** The backend gave no answer at all: no TCP or TLS answer, or a timeout. */
 export class BackendUnreachable extends Error {}
 
-/** What stopping one member tree came to. */
-export type TreeStop = "idle" | "stopped" | "unconfirmed";
+/**
+ * What stopping one member tree came to: `stopped` (or `idle`, nothing in it ran) once every
+ * local session is closed; `unconfirmed` when one may still be open; `remote_pending` when its
+ * local part is down but a child on another host hasn't been confirmed ended there.
+ */
+export type TreeStop = "idle" | "stopped" | "unconfirmed" | "remote_pending";
+
+/** How long one tree's stop may take in a pass before the pass moves on, leaving it pending. */
+export const STOP_BOUND_MS = 30_000;
+
+/** A delegation to another host, recorded before it is sent. */
+export interface RemoteStart {
+  /**
+   * Its answer came (`child`, or none when it failed). True when the tree was stopped while it
+   * was on the way: the caller stops that child at once.
+   */
+  settle(child: string | undefined): boolean;
+}
 
 export interface MemberWorkOptions {
   store: MemberWorkStore;
@@ -61,6 +77,10 @@ export interface MemberWorkOptions {
   delay(callback: () => void, ms: number): () => void;
   /** The host's own ceiling on the offline allowance, in minutes; only narrows the policy's. */
   hostOfflineMinutes?(): number | undefined;
+  /** Names each remote start. */
+  id(): string;
+  /** How long one tree's stop may take in a pass; `STOP_BOUND_MS` unless set. */
+  stopBoundMs?: number;
   log?(error: Error): void;
 }
 
@@ -70,11 +90,19 @@ export interface MemberWork {
   /** Whether a roster revoked `account` and no later one lifted it (§7.2). */
   revoked(account: string): boolean;
   /**
-   * Whether `account`'s tree `root` may run new work now, holding its lease if so. A tree a stop
-   * ended takes new work again only from its owner (`person`), and not while the stop is still
-   * under way; queued, automated and agent work (`other`) waits for that.
+   * Whether `account`'s tree `root` may run work now (open a session, take input, answer a
+   * request, delegate), holding its lease if so. Never past a lease that ran out, never while a
+   * stop is under way, and never on a tree a stop ended: only `resume` clears that.
    */
-  admit(account: string, root: string, origin: "person" | "other"): boolean;
+  admit(account: string, root: string): boolean;
+  /**
+   * The owner's own proven input (the access policy's principal at command admission) resumes
+   * tree `root` a stop ended, if they may run work and the stop is done. Nothing else clears a
+   * stop: no engine continuation, retry, automation or agent input.
+   */
+  resume(account: string, root: string): boolean;
+  /** Records a delegation from tree `root` to another host before it is sent; none if refused. */
+  remoteStart(account: string, root: string): RemoteStart | undefined;
   /** A member tree settled on its own: its lease goes. */
   release(root: string): void;
   /** Why a member tree was stopped, until its owner resumes it. */
@@ -82,10 +110,10 @@ export interface MemberWork {
   /** Member trees whose stop isn't confirmed yet. */
   pendingStops(): string[];
   /**
-   * Environment that makes a member's provider process start inside their containment (§7.3);
-   * undefined where there is none beyond the session's own process group.
+   * Environment that makes a process of tree `root` start inside that tree's containment
+   * (§7.3); undefined where there is none beyond the session's own process group.
    */
-  launchEnv(account: string): Record<string, string> | undefined;
+  launchEnv(account: string, root: string): Record<string, string> | undefined;
   /** Stops all of `account`'s work: their trees, then their contained processes. */
   stop(account: string, reason?: StopReason): Promise<void>;
   /** Hears each account a roster newly revoked, after it is stored. */
@@ -133,6 +161,8 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
   let chain: Promise<void> = Promise.resolve();
   let cancel: (() => void) | undefined;
   let closed = false;
+  /** Trees whose stop is being settled now: a later pass doesn't start another for them. */
+  const settling = new Set<string>();
   const log = (error: unknown) =>
     options.log?.(error instanceof Error ? error : new Error(String(error)));
 
@@ -153,16 +183,17 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
     return undefined;
   }
 
+  function offlineMs(org: string) {
+    return offlineAllowanceMs(store.policy(org)?.offlineMinutes, options.hostOfflineMinutes?.());
+  }
+
   function mayRunNow(org: string, account: string) {
     return mayRun({
       account,
       roster: renewingRoster(org),
       revoked: held(org).revoked.has(account),
       now: now(),
-      offlineMs: offlineAllowanceMs(
-        store.policy(org)?.offlineMinutes,
-        options.hostOfflineMinutes?.(),
-      ),
+      offlineMs: offlineMs(org),
       reachability,
     });
   }
@@ -175,38 +206,58 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
   }
 
   /**
-   * Finishes every stop of `org` still pending, the ones a pass just began and any an earlier
-   * pass or run left: each tree torn down, then its owner's contained processes killed when
-   * the owner is revoked or has no live tree left. A stop counts only once both are confirmed;
-   * otherwise it stays pending for the next pass.
+   * Settles one pending stop: the tree torn down, its containment killed, its children on other
+   * hosts confirmed ended there. Calling it fences the tree at once (`stopTree`'s synchronous
+   * part); the rest is awaited. It counts only once all of that is positively confirmed. A child
+   * on another host that is never confirmed (unreachable, unpaired), or a delegation whose answer
+   * never came, counts as ended once the destination's own lease of it must have run out: the
+   * offline allowance and a lease after the stop began.
+   */
+  async function settleOne(
+    org: string,
+    stop: { root: string; account: string; reason: StopReason; endedAt: number },
+  ) {
+    const tree = options.stopTree(stop.root, stop.reason).catch((error: unknown): TreeStop => {
+      log(error);
+      return "unconfirmed";
+    });
+    const result = await tree;
+    const killed = await options.containment.kill(stop.account, stop.root).catch((error) => {
+      log(error);
+      return false;
+    });
+    const destinationDone = now() >= stop.endedAt + offlineMs(org) + memberWorkTimes.leaseMs;
+    const remote =
+      (result !== "remote_pending" && store.remoteStarts(stop.root).length === 0) ||
+      destinationDone;
+    if (result !== "unconfirmed" && killed && remote) store.confirmStop(stop.root);
+  }
+
+  /**
+   * Settles every stop of `org` still pending, the ones a pass just began and any an earlier
+   * pass or run left. Every tree is fenced first, all at once; then each one's teardown runs on
+   * its own, bounded, so one that hangs never holds back another or the next pass. One that
+   * doesn't finish in time stays pending.
    */
   async function settleStops(org: string) {
-    const byOwner = new Map<string, { root: string; reason: StopReason }[]>();
-    for (const stop of store.pendingStops(org))
-      byOwner.set(stop.account, [...(byOwner.get(stop.account) ?? []), stop]);
-    for (const [account, stops] of byOwner) {
-      const results = new Map<string, TreeStop>();
-      for (const stop of stops)
-        results.set(
-          stop.root,
-          await options.stopTree(stop.root, stop.reason).catch((error: unknown): TreeStop => {
-            log(error);
-            return "unconfirmed";
-          }),
-        );
-      const kill =
-        stops.some((stop) => stop.reason === "revoked") || store.leases(org, account).length === 0;
-      const killed = kill
-        ? await options.containment.kill(account).catch((error: unknown) => {
-            log(error);
-            return false;
-          })
-        : true;
-      if (!killed) continue;
-      // Idle counts as torn down: nothing of the tree runs, whether it settled before or a
-      // previous try already stopped it.
-      for (const [root, result] of results) if (result !== "unconfirmed") store.confirmStop(root);
-    }
+    const bound = options.stopBoundMs ?? STOP_BOUND_MS;
+    const running = store
+      .pendingStops(org)
+      .filter((stop) => !settling.has(stop.root))
+      .map((stop) => {
+        settling.add(stop.root);
+        const done = settleOne(org, stop)
+          .catch(log)
+          .finally(() => settling.delete(stop.root));
+        return new Promise<void>((resolve) => {
+          const cancelTimer = options.delay(resolve, bound);
+          void done.finally(() => {
+            cancelTimer();
+            resolve();
+          });
+        });
+      });
+    await Promise.all(running);
   }
 
   async function runPass() {
@@ -290,6 +341,21 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
     await runPass();
   }
 
+  function admit(account: string, root: string): boolean {
+    const org = options.org();
+    // An owned tree on a machine no organization holds: nothing vouches for its owner.
+    if (org === undefined || !mayRunNow(org, account)) return false;
+    if (store.pendingStops(org).some((stop) => stop.root === root)) return false;
+    const at = now();
+    const lease = store.lease(root);
+    // A lease that ran out is never renewed: the next pass stops its tree.
+    if (lease && lease.expiresAt <= at) return false;
+    // A tree a stop ended waits for its owner's own input.
+    if (!lease && store.stopReason(root) !== undefined) return false;
+    store.hold(org, account, root, at, at + memberWorkTimes.leaseMs);
+    return true;
+  }
+
   function schedule() {
     cancel?.();
     if (closed) return;
@@ -307,18 +373,29 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
       const org = options.org();
       return org !== undefined && held(org).revoked.has(account);
     },
-    admit(account, root, origin) {
+    admit,
+    resume(account, root) {
       const org = options.org();
-      // An owned tree on a machine no organization holds: nothing vouches for its owner.
       if (org === undefined || !mayRunNow(org, account)) return false;
       if (store.pendingStops(org).some((stop) => stop.root === root)) return false;
       const at = now();
       const lease = store.lease(root);
-      // A lease that ran out is never renewed: the next pass stops its tree.
       if (lease && lease.expiresAt <= at) return false;
-      if (!lease && store.stopReason(root) !== undefined && origin !== "person") return false;
       store.hold(org, account, root, at, at + memberWorkTimes.leaseMs);
       return true;
+    },
+    remoteStart(account, root) {
+      const org = options.org();
+      if (org === undefined || !admit(account, root)) return undefined;
+      const id = options.id();
+      store.addRemoteStart(id, org, root, now());
+      return {
+        settle: () => {
+          store.removeRemoteStart(id);
+          // Stopped while it was on the way: what it started must be stopped too.
+          return store.stopReason(root) !== undefined || store.lease(root) === undefined;
+        },
+      };
     },
     release: (root) => store.release(root),
     stopReason: (root) => store.stopReason(root),
@@ -326,7 +403,7 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
       const org = options.org();
       return org === undefined ? [] : store.pendingStops(org).map((stop) => stop.root);
     },
-    launchEnv: (account) => options.containment.launchEnv(account),
+    launchEnv: (account, root) => options.containment.launchEnv(account, root),
     stop(account, reason = "stopped") {
       return serial(async () => {
         const org = options.org();

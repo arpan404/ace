@@ -15,8 +15,12 @@ lease is held and nothing is stopped.
   at that snapshot's revision (migration `0011_org_rosters.sql`). A request that read before a
   removal can never take a version after it.
 - The statement is signed with the grant key over the body's SHA-256 (`signOrgRoster` in
-  `@ace/account-grant`). It carries `epoch`, the backend's restore generation: raise
-  `ACE_ROSTER_EPOCH` by one after any restore of the accounts database.
+  `@ace/account-grant`), dated with the snapshot's read time. It carries `epoch`, the backend's
+  restore generation (`ACE_ROSTER_EPOCH`, a secret outside D1): never assumed (unset, no roster:
+  `roster_epoch_unset`), never behind what the database recorded (`roster_epoch_behind`), and
+  raised by one after any restore of the accounts database (`docs/release/workers.md`).
+- Serving the same version again is guarded like taking the next: only while the members are
+  still at the snapshot's revision.
 
 The host fetches it every 60 seconds and refuses a roster for another org or host, one not
 signed by the pinned keys, a lower epoch, a lower version in the same epoch, and the same version
@@ -30,20 +34,36 @@ with another body or no later signing time.
   WorkOS state lifts it, so a restored backend can't.
 - A member tree's lease (`member_leases`) lasts 15 minutes. A pass renews it while the member may
   run work: not revoked, active on the held roster, and that roster at most two minutes old. The
-  offline allowance (`threads.offline_minutes`, default 60, at most 1,440) applies only while the
-  backend can't be reached at all (no answer, a timeout, a 5xx). An answer that refuses (401,
-  403, a bad signature, a stale roster) gives none.
+  offline allowance (`threads.offline_minutes`, default 60, at most 1,440) applies only to
+  transport failure: no TCP or TLS answer, or none in time (`roster-fetch.ts`). Every HTTP answer
+  gives none: a refusal, the origin's contention or epoch errors, a proxy's 5xx, a redirect.
+  Someone on the path who drops replies gets the bounded outage behaviour, by design.
 - A lease that ran out is stopped, never renewed.
 - Times are on a lease clock that never goes back and never runs slower than the monotonic clock.
   After a restart whose wall clock is behind the last recorded time (`member_clock`), the roster
   from before renews nothing.
 - A pass runs at start, before the first fetch, after each roster and every 60 seconds.
 
+## Admitting work
+
+`admit(account, root)` takes or renews the lease, and refuses past an expired lease, while a stop
+is under way, or on a tree a stop ended. Every session open, input, answer to a provider's
+request and goal goes through it. It never clears a stop: only `resume(account, root)` does, which
+the access policy calls when it admits the owner's own proven input. Engine continuations,
+retries, automations and sends of unknown origin can't.
+
 ## Stopping
 
 - A stop is recorded as pending before anything is torn down (`stop_pending`). It stays pending,
-  and is retried each pass and after a restart, until the tree's sessions are closed and the
-  member's contained processes are gone.
+  and is retried each pass and after a restart, until the tree's sessions are closed (retained
+  ones too), its slice is confirmed empty, and each child it delegated to another host is
+  confirmed ended by that machine (`MachineChildren.endings`). A delegation is recorded before it
+  is sent (`member_remote_starts`), so a stop waits for its answer; a child that lands after the
+  stop gets the cross-machine stop at once. A child whose machine never confirms, or an answer
+  that never comes, counts as ended once the destination's own lease of it must have run out:
+  the offline allowance plus a lease after the stop began.
+- Every affected tree is fenced at once; then each tree's teardown runs on its own within
+  `STOP_BOUND_MS` (30 s), so one that hangs holds back neither the others nor the next pass.
 - `stopMemberTree`, before anything is awaited:
   - fences every unfinished thread from delegation and result delivery;
   - fences it from new work through `Engine.stopForOwner`: intents retired, queue stopped;
@@ -72,11 +92,13 @@ and for the host's own threads, which pass unchanged. The access policy fills it
 
 ## Containment
 
-- **Linux:** each member's provider processes start inside a transient scope under their own
-  slice, `systemd-run --user --scope --slice=ace-member-<hash>.slice`, with no delegation and
+- **Linux:** each member tree's provider processes start inside a transient scope under the
+  tree's own slice, nested in the member's,
+  `systemd-run --user --scope --slice=ace-member-<member>-<tree>.slice`, with no delegation and
   `--expand-environment=no`. They are inside before any provider code runs. A scope that can't be
-  made (no user manager, systemd older than 254) starts nothing. A stop writes `1` to the slice's
-  `cgroup.kill` and waits for `cgroup.events` to read unpopulated.
+  made (no user manager, systemd older than 254) starts nothing. A stop writes `1` to the tree's
+  slice's `cgroup.kill` and counts only once `cgroup.events` reads unpopulated, or systemd says
+  the slice doesn't exist. A cgroup it can't read stays unconfirmed. Sibling trees are untouched.
 - **The boundary:** the slice lives in the host user's own systemd tree, which that user can write.
   An unprivileged daemon can't make a system-manager scope (that needs root or polkit's
   `manage-units`). So this stops accidental escapes, not a hostile member: phase 1's
@@ -91,9 +113,11 @@ and for the host's own threads, which pass unchanged. The access policy fills it
 | ---------------------------- | --------------------------------------------------------------- |
 | `active(account)`            | Whether the member may run work here now                        |
 | `revoked(account)`           | Whether a roster revoked them and nothing since lifted it       |
-| `admit(account, root, from)` | Whether the tree may take new work now; holds its lease         |
+| `admit(account, root)`       | Whether the tree may run work now; holds its lease              |
+| `resume(account, root)`      | The owner's proven input resumes a tree a stop ended            |
+| `remoteStart(account, root)` | Records a delegation to another host before it is sent          |
 | `release(root)`              | The tree settled on its own                                     |
-| `launchEnv(account)`         | Environment that starts a member's process in their containment |
+| `launchEnv(account, root)`   | Environment that starts a tree's process in its containment     |
 | `stop(account, reason?)`     | Stops all of the member's work: trees, then contained processes |
 | `stopReason(root)`           | Why a tree was stopped, until its owner resumes it              |
 | `pendingStops()`             | Trees whose stop isn't confirmed yet                            |

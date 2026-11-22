@@ -12,6 +12,7 @@ import {
   type MemberWorkOptions,
   type TreeStop,
 } from "./member-work.ts";
+import { memberWorkTimes, offlineAllowanceMs } from "./rules.ts";
 import { memberWorkStore } from "./store.ts";
 
 /*
@@ -98,17 +99,22 @@ function roster(
 /** Running trees and contained processes, as the daemon's engine and containment hold them. */
 function world() {
   const trees = new Map<string, "working" | "failed" | "done">();
+  /** Each tree's contained processes, by root. */
   const processes = new Set<string>();
-  const faults = { stop: 0, kill: 0 };
+  const faults = { stop: 0, kill: 0, unkillable: new Set<string>() };
+  /** What stopping a tree comes to beyond its local sessions, by root. */
+  const remote = new Map<string, TreeStop>();
+  const hanging = new Set<string>();
   const containment: Containment = {
     kind: "cgroup",
-    launchEnv: (account) => ({ slice: account }),
-    async kill(account) {
+    launchEnv: (account, root) => ({ slice: `${account}/${root}` }),
+    async kill(_account, root) {
+      if (faults.unkillable.has(root)) return false;
       if (faults.kill > 0) {
         faults.kill--;
         return false;
       }
-      processes.delete(account);
+      processes.delete(root);
       return true;
     },
   };
@@ -116,15 +122,18 @@ function world() {
     trees,
     processes,
     faults,
+    remote,
+    hanging,
     containment,
     stopTree: async (root: string): Promise<TreeStop> => {
       if (faults.stop > 0) {
         faults.stop--;
         throw new Error("The engine didn't stop it");
       }
-      if (trees.get(root) !== "working") return "idle";
-      trees.set(root, "failed");
-      return "stopped";
+      if (hanging.has(root)) return new Promise<TreeStop>(() => {});
+      const was = trees.get(root);
+      if (was === "working") trees.set(root, "failed");
+      return remote.get(root) ?? (was === "working" ? "stopped" : "idle");
     },
   };
 }
@@ -158,6 +167,10 @@ function onHost(
     wall: () => clock.wall,
     monotonic: () => clock.mono,
     delay: () => () => {},
+    id: (() => {
+      let next = 0;
+      return () => `start-${++next}`;
+    })(),
     ...overrides,
   });
   return { work, clock, fetched };
@@ -165,9 +178,9 @@ function onHost(
 
 /** Mia's tree, running with its lease held. */
 function running(w: ReturnType<typeof world>, work: ReturnType<typeof memberWork>, root = "t_mia") {
-  expect(work.admit("user_mia", root, "person")).toBe(true);
+  expect(work.admit("user_mia", root)).toBe(true);
   w.trees.set(root, "working");
-  w.processes.add("user_mia");
+  w.processes.add(root);
 }
 
 it("a lower roster version is refused, so a removed member stays revoked and stopped", async () => {
@@ -180,7 +193,7 @@ it("a lower roster version is refused, so a removed member stays revoked and sto
   expect(work.takeRoster(roster(3, clock.wall, {}))).toBe("taken");
   await work.pass();
   expect(w.trees.get("t_mia")).toBe("failed");
-  expect(w.processes.has("user_mia")).toBe(false);
+  expect(w.processes.has("t_mia")).toBe(false);
   expect(work.stopReason("t_mia")).toBe("revoked");
 
   // The old roster that still listed Mia active, even signed again later, brings nobody back.
@@ -188,7 +201,8 @@ it("a lower roster version is refused, so a removed member stays revoked and sto
   expect(work.takeRoster(roster(2, clock.wall, { user_mia: "active" }))).toBe("refused");
   expect(work.revoked("user_mia")).toBe(true);
   expect(work.active("user_mia")).toBe(false);
-  expect(work.admit("user_mia", "t_mia", "person")).toBe(false);
+  expect(work.admit("user_mia", "t_mia")).toBe(false);
+  expect(work.resume("user_mia", "t_mia")).toBe(false);
   // The same version signed later only refreshes it; signed earlier, it is refused.
   expect(work.takeRoster(roster(3, clock.wall, {}))).toBe("refreshed");
   expect(work.takeRoster(roster(3, clock.wall - 5 * minute, {}))).toBe("refused");
@@ -269,11 +283,13 @@ it("an unreachable backend leaves a member's work running for the allowance plus
   await work.sync();
   expect(w.trees.get("t_mia")).toBe("failed");
   expect(work.stopReason("t_mia")).toBe("lease_expired");
-  // Back with Mia still active: queued and automated work waits for her to resume it herself.
+  // Back with Mia still active: no engine continuation, retry, automation or unproven send
+  // takes the tree back; only her own proven input resumes it.
   expect(work.takeRoster(roster(1, clock.wall, { user_mia: "active" }))).toBe("refreshed");
-  expect(work.admit("user_mia", "t_mia", "other")).toBe(false);
-  expect(work.admit("user_mia", "t_mia", "person")).toBe(true);
+  expect(work.admit("user_mia", "t_mia")).toBe(false);
+  expect(work.resume("user_mia", "t_mia")).toBe(true);
   expect(work.stopReason("t_mia")).toBeUndefined();
+  expect(work.admit("user_mia", "t_mia")).toBe(true);
 });
 
 it("without a policy the allowance is sixty minutes", async () => {
@@ -370,7 +386,7 @@ it("a lease that ran out is stopped, never renewed, even by a fresh roster", asy
   // The host slept through every pass; it wakes to a fresh roster with Mia active.
   advance(clock, 20 * minute);
   fresh.current = roster(1, clock.wall, { user_mia: "active" });
-  expect(work.admit("user_mia", "t_mia", "other")).toBe(false);
+  expect(work.admit("user_mia", "t_mia")).toBe(false);
   await work.sync();
   expect(w.trees.get("t_mia")).toBe("failed");
   expect(work.stopReason("t_mia")).toBe("lease_expired");
@@ -389,21 +405,21 @@ it("a stop that fails is retried, after a restart too, until its tree and proces
   w.faults.kill = 1;
   await first.work.pass();
   expect(w.trees.get("t_mia")).toBe("working");
-  expect(w.processes.has("user_mia")).toBe(true);
+  expect(w.processes.has("t_mia")).toBe(true);
   expect(first.work.pendingStops()).toEqual(["t_mia"]);
-  expect(first.work.admit("user_mia", "t_mia", "person")).toBe(false);
+  expect(first.work.resume("user_mia", "t_mia")).toBe(false);
   // The next pass stops the tree, but the processes outlive the kill: still pending.
   w.faults.kill = 1;
   await first.work.pass();
   expect(w.trees.get("t_mia")).toBe("failed");
-  expect(w.processes.has("user_mia")).toBe(true);
+  expect(w.processes.has("t_mia")).toBe(true);
   expect(first.work.pendingStops()).toEqual(["t_mia"]);
   await first.work.close();
 
   // After a restart, offline, the first pass finishes it.
   const restarted = onHost(open, w, { clock: { wall: first.clock.wall, mono: 0 } });
   await restarted.work.start();
-  expect(w.processes.has("user_mia")).toBe(false);
+  expect(w.processes.has("t_mia")).toBe(false);
   expect(restarted.work.pendingStops()).toEqual([]);
   expect(restarted.work.stopReason("t_mia")).toBe("revoked");
 });
@@ -412,8 +428,8 @@ it("a revocation seen before a restart stops the member's work at the restarted 
   const open = database();
   const first = onHost(open, world());
   first.work.takeRoster(roster(1, start, { user_mia: "active", user_ben: "active" }));
-  first.work.admit("user_mia", "t_mia", "person");
-  first.work.admit("user_ben", "t_ben", "person");
+  first.work.admit("user_mia", "t_mia");
+  first.work.admit("user_ben", "t_ben");
   // The roster that removes Mia lands, and the daemon dies before any pass runs.
   first.work.takeRoster(roster(2, start, { user_ben: "active" }));
 
@@ -438,9 +454,9 @@ it("stopping a member's work stops each of their trees and kills their contained
     ["user_mia", "t_mia_2"],
     ["user_ben", "t_ben"],
   ] as const) {
-    work.admit(account, root, "person");
+    work.admit(account, root);
     w.trees.set(root, "working");
-    w.processes.add(account);
+    w.processes.add(root);
   }
   await work.stop("user_mia");
   expect(Object.fromEntries(w.trees)).toEqual({
@@ -448,22 +464,111 @@ it("stopping a member's work stops each of their trees and kills their contained
     t_mia_2: "failed",
     t_ben: "working",
   });
-  expect([...w.processes]).toEqual(["user_ben"]);
+  expect([...w.processes]).toEqual(["t_ben"]);
 });
 
 it("on a personal machine no roster is asked for and no work is admitted, contained or stopped", async () => {
   const w = world();
   const { work, clock, fetched } = onHost(database(), w, { org: () => undefined });
   w.trees.set("t_mine", "working");
-  w.processes.add("user_pat");
+  w.processes.add("t_mine");
   await work.start();
-  expect(work.admit("user_pat", "t_mine", "person")).toBe(false);
+  expect(work.admit("user_pat", "t_mine")).toBe(false);
+  expect(work.remoteStart("user_pat", "t_mine")).toBeUndefined();
   advance(clock, 24 * 60 * minute);
   await work.sync();
   await work.stop("user_pat");
   expect(fetched).toEqual([]);
   expect(w.trees.get("t_mine")).toBe("working");
-  expect(w.processes.has("user_pat")).toBe(true);
+  expect(w.processes.has("t_mine")).toBe(true);
   expect(work.active("user_pat")).toBe(false);
   await work.close();
+});
+
+it("a stop stays pending until every child on another host is confirmed ended, or its lease there must have run out", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w);
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+  running(w, work);
+  w.remote.set("t_mia", "remote_pending");
+  advance(clock, minute);
+  work.takeRoster(roster(2, clock.wall, {}));
+  await work.pass();
+  expect(w.trees.get("t_mia")).toBe("failed");
+  expect(work.pendingStops()).toEqual(["t_mia"]);
+  // The destination confirms: the stop is done.
+  w.remote.set("t_mia", "stopped");
+  await work.pass();
+  expect(work.pendingStops()).toEqual([]);
+});
+
+it("a remote child whose end is never confirmed holds the stop until its own lease must have ended it", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w);
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+  running(w, work);
+  w.remote.set("t_mia", "remote_pending");
+  work.takeRoster(roster(2, clock.wall, {}));
+  await work.pass();
+  advance(clock, offlineAllowanceMs(undefined) + memberWorkTimes.leaseMs - minute);
+  await work.pass();
+  expect(work.pendingStops()).toEqual(["t_mia"]);
+  advance(clock, minute);
+  await work.pass();
+  expect(work.pendingStops()).toEqual([]);
+});
+
+it("a delegation still on its way holds the stop, and the child it lands is to be stopped", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w);
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+  running(w, work);
+  const flight = work.remoteStart("user_mia", "t_mia");
+  if (!flight) throw new Error("Refused");
+  work.takeRoster(roster(2, clock.wall, {}));
+  await work.pass();
+  expect(work.pendingStops()).toEqual(["t_mia"]);
+  // Its answer lands after the stop: the caller is told to stop the child there.
+  expect(flight.settle("t_remote_child")).toBe(true);
+  await work.pass();
+  expect(work.pendingStops()).toEqual([]);
+  // A delegation of a stopped tree isn't even recorded.
+  expect(work.remoteStart("user_mia", "t_mia")).toBeUndefined();
+});
+
+it("each tree's containment is killed and confirmed on its own", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w);
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+  running(w, work, "t_one");
+  running(w, work, "t_two");
+  // The first tree's cgroup can't be confirmed empty; the second's can.
+  w.faults.unkillable.add("t_one");
+  work.takeRoster(roster(2, clock.wall, {}));
+  await work.pass();
+  expect(work.pendingStops()).toEqual(["t_one"]);
+  expect([...w.processes]).toEqual(["t_one"]);
+  w.faults.unkillable.clear();
+  await work.pass();
+  expect(work.pendingStops()).toEqual([]);
+  expect(w.processes.size).toBe(0);
+});
+
+it("one tree whose teardown hangs holds back neither the others nor the pass", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w, {
+    stopBoundMs: 20,
+    delay: (callback, ms) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+  });
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+  running(w, work, "t_stuck");
+  running(w, work, "t_free");
+  w.hanging.add("t_stuck");
+  work.takeRoster(roster(2, clock.wall, {}));
+  await work.pass();
+  expect(w.trees.get("t_free")).toBe("failed");
+  expect(work.pendingStops()).toEqual(["t_stuck"]);
 });

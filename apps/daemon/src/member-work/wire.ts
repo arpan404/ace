@@ -1,15 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { ThreadId } from "@ace/protocol";
-import { AceOrgRoster } from "@ace/protocol/ace-org";
 import type { GrantKeySet } from "@ace/account-grant";
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Engine } from "../engine/index.ts";
 import type { Services } from "../services/types.ts";
 import { memberContainment, type Containment } from "./containment.ts";
-import { BackendUnreachable, memberWork, type MemberWork, type TreeStop } from "./member-work.ts";
+import { memberWork, type MemberWork, type TreeStop } from "./member-work.ts";
+import { fetchRoster } from "./roster-fetch.ts";
 import type { StopReason } from "./rules.ts";
 import { memberWorkStore } from "./store.ts";
-
-const requestMs = 15_000;
 
 /** What stopping a member tree needs of the daemon. */
 export type TreeStopDeps = {
@@ -17,7 +16,7 @@ export type TreeStopDeps = {
   delegations: Pick<NonNullable<Services["agentControl"]>["delegations"], "cancelMember">;
   /** The tree's children on other hosts, and the cross-machine stop (ADR 0052, ADR 0191). */
   remote?: {
-    under(root: ThreadId): ThreadId[];
+    endings(root: ThreadId): { id: ThreadId; state: "running" | "ended" | "unconfirmed" }[];
     cancel(child: ThreadId): Promise<unknown>;
   };
 };
@@ -38,9 +37,10 @@ export const memberStopFailures: Record<StopReason, { code: string; title: strin
 /**
  * Stops one member tree (AGENTS.md priority 1: no part of it reads done). Before anything is
  * awaited, every unfinished thread is fenced from delegation and result delivery and, through
- * `Engine.stopForOwner`, from new work, with what was unsettled recorded as failed. Its children
- * on other hosts get the cross-machine stop, which the children's ledger repeats until each
- * machine confirms. Then the local sessions close and drain.
+ * `Engine.stopForOwner`, from new work, with what was unsettled recorded as failed; settled ones
+ * lose any session they kept open. Its children on other hosts get the cross-machine stop, which
+ * the children's ledger repeats until each machine confirms. `remote_pending` until every one of
+ * them is known to have ended there.
  */
 export async function stopMemberTree(
   deps: TreeStopDeps,
@@ -50,15 +50,19 @@ export async function stopMemberTree(
   const rootId = ThreadId.parse(root);
   const tree = deps.engine.cleanupThreads(rootId);
   const unfinished = tree.filter((id) => deps.engine.hasUnfinishedWork(id));
-  const remote = deps.remote?.under(rootId) ?? [];
-  if (unfinished.length === 0 && remote.length === 0) return "idle";
+  const children = deps.remote?.endings(rootId) ?? [];
   for (const id of unfinished) deps.delegations.cancelMember(id);
-  // Fenced synchronously when called; awaited only once the remote stops are sent.
+  // Fenced synchronously when called, retained sessions of idle threads included; awaited only
+  // once the remote stops are sent.
   const stopping = deps.engine.stopForOwner(tree, memberStopFailures[reason]);
-  for (const child of remote) await deps.remote?.cancel(child);
+  for (const child of children)
+    if (child.state === "running") await deps.remote?.cancel(child.id).catch(() => undefined);
   const closed = await stopping;
   await deps.engine.flush();
-  return closed ? "stopped" : "unconfirmed";
+  if (!closed) return "unconfirmed";
+  if ((deps.remote?.endings(rootId) ?? []).some((child) => child.state !== "ended"))
+    return "remote_pending";
+  return unfinished.length === 0 && children.length === 0 ? "idle" : "stopped";
 }
 
 /** How the running daemon stops a member tree: its engine, agent control and machine links. */
@@ -76,7 +80,7 @@ export function memberTreeStopper(services: {
     ...(machines
       ? {
           remote: {
-            under: (root: ThreadId) => machines.children.under(root),
+            endings: (root: ThreadId) => machines.children.endings(root),
             cancel: (child: ThreadId) => machines.caller.cancel(child),
           },
         }
@@ -118,27 +122,7 @@ export function startMemberWork(deps: {
     async fetchRoster(org, host) {
       const session = account.orgHostSession();
       if (!session) throw new Error("This org host isn't signed in as its organization.");
-      let response: Response;
-      try {
-        response = await fetcher(
-          `${session.origin}/v1/orgs/${encodeURIComponent(org)}/hosts/${encodeURIComponent(host)}/roster`,
-          {
-            headers: { Authorization: `Bearer ${session.token}` },
-            signal: AbortSignal.timeout(requestMs),
-            redirect: "error",
-            cache: "no-store",
-            credentials: "omit",
-          },
-        );
-      } catch (error) {
-        throw new BackendUnreachable(error instanceof Error ? error.message : String(error));
-      }
-      // The backend's edge failing is no answer; anything else it says is its answer.
-      if (response.status >= 500)
-        throw new BackendUnreachable(`The backend failed (${response.status}).`);
-      if (response.status !== 200)
-        throw new Error(`The organization's roster was refused (${response.status}).`);
-      return AceOrgRoster.parse(await response.json());
+      return fetchRoster(fetcher, session, org, host);
     },
     keys: () => account.grantKeys(),
     stopTree: async (root, reason) => {
@@ -147,6 +131,7 @@ export function startMemberWork(deps: {
       return stopMemberTree(stopper, root, reason);
     },
     containment: deps.containment ?? memberContainment(process.platform, deps.instance),
+    id: randomUUID,
     wall: Date.now,
     monotonic: () => performance.now(),
     delay: (callback, ms) => {
