@@ -14,6 +14,7 @@
     "measure:memory": "node scripts/measure-memory.ts"
   },
   "dependencies": {
+    "@ace/account-grant": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/design-tokens": "workspace:*",

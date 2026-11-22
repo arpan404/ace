@@ -3,7 +3,14 @@ import { logFields } from "@ace/diagnostics";
 import { createTextRedactor } from "@ace/redaction";
 import { spadeRequest } from "@ace/service/spade";
 import { sharesWords } from "@ace/ui-core/mention-shares";
-import { AgentId, Command, type CommandResult, type DeviceId, type Thread } from "@ace/protocol";
+import {
+  AgentId,
+  Command,
+  type CommandResult,
+  type DeviceId,
+  type Thread,
+  type ThreadId,
+} from "@ace/protocol";
 import { commandContext } from "../commands.ts";
 import { readLocalToken } from "../local-token.ts";
 import { inboxProof } from "../machines/target-spade.ts";
@@ -107,7 +114,11 @@ export function createThreadAddressSession({
   options,
   send,
   canReadThread,
+  canWriteThread,
+  holder,
 }: SocketContext): SocketService {
+  /** Steering an agent writes into its tree: its owner's alone (ADR 0209 §5.2, §6.1). */
+  const writes = (thread: ThreadId) => canWriteThread?.(thread) ?? true;
   return {
     command: {
       types: ["thread.address"],
@@ -120,6 +131,9 @@ export function createThreadAddressSession({
           send({ type: "commandResult", ...receipt });
           return;
         }
+        // Who sent it: every write it makes, however late, is decided for them (ADR 0209 §4.2).
+        const sender = holder?.();
+        const stillWrites = (thread: ThreadId) => holder?.() === sender && writes(thread);
         const asks = options.threadAsks;
         const engine = options.engine;
         const thread = options.store.getThread(p.threadId);
@@ -133,7 +147,7 @@ export function createThreadAddressSession({
           if (p.followUp && p.to.some((to) => to.kind === "agent"))
             return refuse(command, "invalid_command");
           const agents = p.to.flatMap((to) => (to.kind === "agent" ? [to.threadId] : []));
-          if (agents.some((id) => id === p.threadId || !canReadThread(id)))
+          if (agents.some((id) => id === p.threadId || !canReadThread(id) || !writes(id)))
             return refuse(command, "forbidden");
           const { pack, shares } = packFor(options.store, thread, p.share, p.files);
           return options.store.recordCommand(command.id, device, () => {
@@ -199,7 +213,10 @@ export function createThreadAddressSession({
                 : {}),
             },
           });
-          const outcome = await deliverToAgent(options, sent, device);
+          // Decided again as it goes: the access it was sent under may have ended meanwhile.
+          const outcome = stillWrites(to.threadId)
+            ? await deliverToAgent(options, sent, device, () => stillWrites(to.threadId))
+            : ({ ok: false, error: "forbidden" } as const);
           asks.settleAgent(askKey(command.id, index), outcome);
         }
       },
@@ -212,9 +229,12 @@ async function deliverToAgent(
   options: SocketContext["options"],
   command: Command,
   device: DeviceId,
+  /** Asked again right before it is recorded: preparing it took time. */
+  allowed: () => boolean,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await options.engine?.prepareCommand(command);
+    if (!allowed()) return { ok: false, error: "forbidden" };
     const result = options.store.recordCommand(command.id, device, () =>
       options.handler.handle(command, commandContext(options.store)),
     );

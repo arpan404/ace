@@ -13,8 +13,9 @@ export const sidebarCounted =
 // Queue attention and settled membership exactly match projection.sidebarSettled.
 const attention =
   "COALESCE(json_extract(provider_metadata, '$.queue.paused'), 0) = 1 AND json_extract(provider_metadata, '$.queue.resumeAt') IS NULL AND json_extract(provider_metadata, '$.queue.reason') IS NOT NULL AND json_extract(provider_metadata, '$.queue.reason') NOT IN ('limit', 'snooze') AND NOT (json_extract(provider_metadata, '$.queue.reason') = 'manual' AND COALESCE(json_extract(provider_metadata, '$.queue.pendingCount'), 0) = 0)";
-// The person's own message may not have gone: brings back even a thread settled by hand.
-const unsent = `(${attention}) AND json_extract(provider_metadata, '$.queue.reason') IN ('not_sent', 'uncertain')`;
+// The person's own message may not have gone: brings back even a thread settled by hand, unless
+// they settled it over this very hold (`settledOverQueue`).
+const unsent = `(${attention}) AND json_extract(provider_metadata, '$.queue.reason') IN ('not_sent', 'uncertain') AND json_extract(client, '$.settledOverQueue') IS NOT json_extract(provider_metadata, '$.queue.revision')`;
 // Failed since it was settled, and not read since: by when it last worked, never `updated_at`,
 // which organizing changes move.
 const failedSinceSettled =

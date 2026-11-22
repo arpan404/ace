@@ -161,7 +161,8 @@ pub(super) async fn run_tools(
                 .then(|| arguments.get("bot").and_then(Value::as_str))
                 .flatten()
                 .and_then(|reference| engine.bot_name(id, reference));
-            engine.set_status(id, Some(roster::tool_status(&name, bot.as_deref())));
+            let phrase = roster::tool_status(&name, &arguments, bot.as_deref());
+            engine.tool_started_status(id, &name, &arguments, phrase);
             if background {
                 match jobs::start(engine, id, reply, &call.id, &name, arguments, stop) {
                     Ok(jobs::Started::Running) => {}

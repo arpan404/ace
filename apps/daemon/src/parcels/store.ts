@@ -192,6 +192,15 @@ export class ParcelRows {
       .all(limit)
       .map(outRow);
   }
+  /** Parcels still on their way to another machine, pushed or waiting to be pulled. */
+  openToMachines(limit = 64): OutRow[] {
+    return this.store
+      .statement(
+        "SELECT * FROM parcel_out WHERE route IN ('push','outbox') AND state IN ('sending','waiting') LIMIT ?",
+      )
+      .all(limit)
+      .map(outRow);
+  }
   /** Settled outgoing parcels whose thread hasn't been told yet. */
   undeliveredOut(limit = 64): OutRow[] {
     return this.store

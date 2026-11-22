@@ -46,7 +46,7 @@ struct ForgeNotificationsList: View {
                        refresh: { await load() }, more: { screens += 1 }) {
             if let unconfirmed {
                 HStack {
-                    Text(unconfirmed.message).meta().lineLimit(2)
+                    ExpandableText(unconfirmed.message, id: "forge.unconfirmed").meta()
                     Spacer(minLength: AceTheme.Spacing.sm)
                     Button("Send again") { unconfirmed.again() }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)

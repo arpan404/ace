@@ -266,6 +266,8 @@ export const extra = [
   "play-circle",
   // Account badges, the web's curated set (`account-badge-icons.ts`).
   "briefcase",
+  // The Store place, in Search's Places and Settings' tools.
+  "store",
 ];
 
 /**

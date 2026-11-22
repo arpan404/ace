@@ -1012,6 +1012,7 @@ export class RemoteClient implements ClientApi {
           nonce: message.standing.nonce,
           binding: message.standing.binding,
           device: message.standing.device,
+          ...(message.standing.appSocket ? { appSocket: true } : {}),
         };
         this.notifications.emit(["connection"]);
         return;

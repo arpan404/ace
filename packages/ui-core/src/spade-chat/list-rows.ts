@@ -5,6 +5,7 @@ import { spadeGroupLine, type SpadeGroup } from "./groups.ts";
 import { spadeForLaterWords } from "./questions.ts";
 import { spadeProblemStep } from "./request-words.ts";
 import { spadeMoveLine } from "./moves.ts";
+import { spadeWorkingPhrase } from "./working-phrase.ts";
 
 /*
  * What Spade's list says about each conversation (docs/design/spade.md §2): its state, which
@@ -93,8 +94,14 @@ export function spadeBotRow(bot: SpadeRowBot, notYet?: string): SpadeRow {
   // Waiting on a job, another bot or its next step's time: nothing for the person to do.
   if (task?.tone === "waiting")
     return { state: "rest", line: ["Waiting", task.step].filter(Boolean).join(" · ") };
-  if (task) return { state: "working", line: task.step ?? bot.status ?? "Working on it" };
-  if (bot.state === "working") return { state: "working", line: bot.status ?? "Working" };
+  // What it does now, as its chat's Working line says it (`spadeWorkingPhrase`).
+  if (task)
+    return {
+      state: "working",
+      line:
+        task.step ?? (bot.status === undefined ? "Working on it" : spadeWorkingPhrase(bot.status)),
+    };
+  if (bot.state === "working") return { state: "working", line: spadeWorkingPhrase(bot.status) };
   // A subscription that couldn't run (signed out, out of quota): its next step in a few words.
   if (bot.problem) return { state: "failed", line: spadeProblemStep(bot.problem) };
   const state = bot.unseen ? "unseen" : "rest";

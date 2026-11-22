@@ -71,8 +71,8 @@ export async function fixture(
   const handler: CommandHandler = options.handler ?? stubHandler({ development: true });
   const server = await startServer({ port: 0, token, hostId: "host", store, handler, ...options });
   const clients: Client[] = [];
-  const open = async () => {
-    const client = new Client(server.url);
+  const open = async (socketOptions: import("ws").ClientOptions = {}) => {
+    const client = new Client(server.url, socketOptions);
     clients.push(client);
     await once(client.socket, "open");
     return client;
@@ -84,8 +84,8 @@ export async function fixture(
     workspace,
     server,
     open,
-    async connect(auth = token) {
-      const client = await open();
+    async connect(auth = token, socketOptions: import("ws").ClientOptions = {}) {
+      const client = await open(socketOptions);
       client.send({
         type: "hello",
         protocolVersion: 1,

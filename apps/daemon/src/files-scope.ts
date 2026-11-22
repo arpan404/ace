@@ -5,6 +5,7 @@ import { projectFilesBinding } from "./project-files-binding.ts";
 import type { FilesWorkspaces } from "./files-workspaces.ts";
 import type { FilesNative } from "./files-tool/wiring.ts";
 import type { Store } from "./store.ts";
+import { conversationBundle } from "./support-bundle-id.ts";
 
 /** One request's service, the checkout it reads, and who may read or write it. */
 export type FilesBinding = {
@@ -23,6 +24,12 @@ export type FilesScopePorts = {
   /** The thread exists, is readable by this device and is still live. */
   threadAccess(threadId: ThreadId): boolean;
   connected(): boolean;
+  /**
+   * Whether conversation bundles may flow here now: false on an organization's host (ADR 0209
+   * §3). Asked on every chunk, so a download opened before enrollment stops at its next one.
+   * Omitted: they may.
+   */
+  conversations?(): boolean;
   options: {
     threadFiles?: FilesWorkspaces | undefined;
     supportFiles?: FilesService | undefined;
@@ -64,9 +71,15 @@ export function filesScope(ports: FilesScopePorts): FilesScope {
     if (scope === "support") {
       const service = ports.options.supportFiles;
       if (!service) throw new Error("Support export unavailable");
+      const conversation =
+        (operation?.op === "artifact.support" && operation.includeThreads === true) ||
+        (operation?.op === "artifact.download" && conversationBundle(operation.artifactId));
       return {
         service,
-        allowed: (access) => ports.connected() && ports.authorize(access),
+        allowed: (access) =>
+          ports.connected() &&
+          ports.authorize(access) &&
+          (!conversation || ports.conversations?.() !== false),
       };
     }
     if (!threadId || !files || !ports.threadAccess(threadId))

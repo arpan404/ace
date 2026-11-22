@@ -118,34 +118,53 @@ impl Models {
         for (name, value) in &endpoint.headers {
             request = request.header(name.as_str(), value.as_str());
         }
+        // Every failure is said in fixed words and the HTTP status: an endpoint's own words, or a
+        // request error's, can carry the query, and this reason reaches the logs (ADR 0210 §6).
         let response = request
             .send()
             .await
-            .map_err(|e| fail(e.to_string(), key.as_deref()))?;
+            .map_err(|e| fail(transport(&e).to_owned(), key.as_deref()))?;
         let status = response.status();
         let bytes = response
             .bytes()
             .await
-            .map_err(|e| fail(e.to_string(), key.as_deref()))?;
+            .map_err(|e| fail(transport(&e).to_owned(), key.as_deref()))?;
         if bytes.len() > MOST_ANSWER {
             return Err(fail(
                 "the search answer is too large".to_owned(),
                 key.as_deref(),
             ));
         }
-        let answer: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         if !status.is_success() {
-            let why = answer["error"]["message"]
-                .as_str()
-                .map_or_else(|| status.to_string(), |m| format!("{status}: {m}"));
-            return Err(fail(why, key.as_deref()));
+            // Refused with an HTTP error: the status is kept, for the log line, and never the
+            // endpoint's words.
+            let code = status.as_u16();
+            return Err(ModelError::Unanswered {
+                model: reference.to_owned(),
+                message: format!("the endpoint's search answered HTTP {code}"),
+                transient: code == 408 || code == 429 || code >= 500,
+                retry_after: None,
+                status: Some(code),
+            });
         }
+        let answer: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         let mut found = match endpoint.format {
             Format::Anthropic => read_messages(&answer),
             _ => read_responses(&answer),
         };
         found.hits.truncate(count.max(1));
         Ok(found)
+    }
+}
+
+/// A request error in fixed words, without its URL or anything the endpoint said.
+fn transport(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "the endpoint's search timed out"
+    } else if error.is_connect() {
+        "the endpoint's search could not connect"
+    } else {
+        "the endpoint's search request failed"
     }
 }
 

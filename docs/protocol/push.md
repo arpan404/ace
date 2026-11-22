@@ -4046,6 +4046,7 @@ Example:
 | releaseLine | no | string | {"minLength":1,"maxLength":32} |
 | standingNonce | no | string | {"pattern":"^[A-Za-z0-9_-]{22,64}$"} |
 | standingHost | no | string | {"pattern":"^[A-Z2-7]{52}$"} |
+| standingAppSocket | no | `true` |  |
 | machineTransfers | no | `true` |  |
 
 Example:
@@ -4057,6 +4058,7 @@ Example:
   "hostId": "example",
   "machineTransfers": true,
   "protocolVersion": 1,
+  "standingAppSocket": true,
   "standingHost": "GRGQJG524Z6AMLJQ7AW7EC643HT5MDTC6ZF5454SG5MTLUWVDHSJ",
   "ticket": {
     "ticket": "907774e6b24c98fec0dda4de2e0f2003a5b5d58ebc026c92fd4a563872b7c1f1",
@@ -4096,84 +4098,13 @@ Example:
 
 ```json
 {
-  "seq": 8,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "entitiesBefore": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "kind": "thread",
-    "partial": {
-      "previews": []
-    },
-    "runs": {},
-    "seq": 8,
-    "thread": {
-      "createdAt": 4,
-      "deletedAt": 6,
-      "effectiveCapabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "codex",
-          "maxInlineBytes": 6
-        },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "partial",
-        "childControls": "read-only",
-        "fork": true,
-        "forkMode": "native",
-        "forkTranscript": true,
-        "goals": false,
-        "imageInput": false,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "planMode": true,
-        "resume": true,
-        "rewindFiles": false,
-        "steer": true,
-        "steerTiming": "after_tool",
-        "subagentTranscripts": false,
-        "tokenUsage": false
-      },
-      "goal": {
-        "checks": 3,
-        "lastReason": "example",
-        "objective": "example",
-        "setAt": 5,
-        "status": "usage_limited"
-      },
-      "id": "example",
-      "listOrder": 2,
-      "pinOrder": 9,
-      "prSettled": 9,
-      "prSettledKey": "example",
-      "provider": "antigravity",
-      "settledReason": "inactivity",
-      "snoozeWoke": {
-        "at": 8,
-        "on": "needs_you",
-        "outcome": "finished"
-      },
-      "status": {
-        "state": "moved",
-        "to": {
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        }
-      },
-      "title": "example",
-      "unread": false,
-      "updatedAt": 0,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "kind": "threads",
+    "seq": 0,
+    "threads": {}
   }
 }
 ```

@@ -199,7 +199,8 @@ struct ItemRowView: View {
             if let openMedia { PublishedMediaRow(row: row) { openMedia(row) } }
             else { VisualizationRow(row: row) }
         default:
-            if let step = row.step { StepRow(step: step) }
+            // Its own id keys what it opens, apart from every other standalone step.
+            if let step = row.step { StepRow(step: step, id: row.id) }
             else { Text(row.text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }
     }

@@ -27,8 +27,16 @@ struct PhoneKeymap: Equatable {
         guard let data = try? JSONEncoder().encode(overrides) else { return "" }
         return String(decoding: data, as: UTF8.self)
     }
+    /// `id`'s keys: its rebinding, else its default, unless a rebinding already took the default
+    /// where both work (a shortcut that shipped after it was saved), which leaves it "".
     func keys(_ id: String) -> String {
-        overrides[id] ?? PhoneKeymapTable.entries.first { $0.id == id }?.keys ?? ""
+        if let own = overrides[id] { return own }
+        guard let entry = PhoneKeymapTable.entries.first(where: { $0.id == id }) else { return "" }
+        guard let keys = Self.normalize(entry.keys) else { return entry.keys }
+        let taken = PhoneKeymapTable.entries.contains { other in
+            overrides[other.id] == keys && (entry.scope == "global" || other.scope == "global" || entry.scope == other.scope)
+        }
+        return taken ? "" : entry.keys
     }
     func isChanged(_ id: String) -> Bool { overrides[id] != nil }
     func binding(_ id: String, to keys: String?) -> PhoneKeymap {
