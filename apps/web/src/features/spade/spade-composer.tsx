@@ -263,7 +263,7 @@ export function SpadeComposer(props: {
                 </div>
               )}
               {replying && (
-                <div className="mb-2 px-1">
+                <div className="mb-2 flex px-1">
                   <ReplyStrip
                     quote={replying.quote}
                     botName={props.name}

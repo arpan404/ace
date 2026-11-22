@@ -79,7 +79,8 @@ export function ReplyStrip(props: { quote: SpadeQuote; botName: string; onClear(
     <div
       role="status"
       aria-label={`Replying to ${name}`}
-      className="flex min-w-0 items-center gap-2 border-l-2 border-border-strong py-0.5 pr-1 pl-3"
+      // It floats over the transcript, on the surface the bubbles' actions float on.
+      className="flex h-8 max-w-full min-w-0 items-center gap-1 rounded-full bg-popover pr-1 pl-3 text-popover-foreground shadow-glass"
     >
       <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
         <span className="font-medium text-foreground">Replying to {name}</span>

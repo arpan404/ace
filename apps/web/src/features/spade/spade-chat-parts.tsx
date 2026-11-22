@@ -126,24 +126,31 @@ export function WorkingLine(props: {
     >
       <SpadeFace avatar={props.avatar} size={32} state={props.state} />
       <span
-        // While it works, the phrase sits in a small bubble of its own, where its next message
-        // will be: the other side typing (ADR 0212 §7). Each new phrase sweeps once in the
-        // step's light (`.step-shimmer`: three passes, then still; still under reduced motion).
-        // Plain text, never markup.
-        key={moving ? props.label : undefined}
+        // While it works, what it does sits in a small bubble of its own, where its next
+        // message will be: the other side typing (ADR 0212 §7).
         className={cn(
-          "min-w-0 truncate text-ui text-muted-foreground",
-          moving && "step-shimmer rounded-(--chat-bubble-radius) bg-chat-bubble px-3.5 py-1.5",
-          props.detail && "max-w-1/2 shrink-0",
+          "flex min-w-0 items-center gap-2.5",
+          moving && "rounded-(--chat-bubble-radius) bg-chat-bubble px-3.5 py-1.5",
         )}
       >
-        {props.label}
+        <span
+          // Each new phrase sweeps once in the step's light (`.step-shimmer`: three passes, then
+          // still; still under reduced motion). Plain text, never markup.
+          key={moving ? props.label : undefined}
+          className={cn(
+            "min-w-0 truncate text-ui text-muted-foreground",
+            moving && "step-shimmer",
+            props.detail && "max-w-1/2 shrink-0",
+          )}
+        >
+          {props.label}
+        </span>
+        {props.detail && (
+          <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
+            {props.detail}
+          </code>
+        )}
       </span>
-      {props.detail && (
-        <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
-          {props.detail}
-        </code>
-      )}
       {props.since !== undefined && (
         <span className="shrink-0 text-ui text-subtle-foreground tabular-nums">
           {formatElapsed(now - props.since)}

@@ -25,15 +25,39 @@ const headingLine = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
 const tableRule = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
 const notProse = /^\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|\||```|~~~|>)/;
 const fenceLine = /^\s{0,3}(```|~~~)/;
+const tableRow = /^\s*\|.*\|\s*$/;
 
 /** A document's card. */
 export function spadeDocCard(title: string | undefined, text: string): SpadeDocCard {
-  const plain = spadePlainText(text)
+  return { title: title || "Document", preview: cut(previewOf(text), mostPreviewChars), text };
+}
+
+/**
+ * The words a card's two lines show: headings, a table's head and rule left out, a row's cells
+ * joined by a dot, every line run together.
+ */
+function previewOf(text: string): string {
+  const lines = text.split("\n");
+  const kept = lines
+    .filter(
+      (line, at) =>
+        !headingLine.test(line) && !tableRule.test(line) && !tableRule.test(lines[at + 1] ?? ""),
+    )
+    .map((line) =>
+      tableRow.test(line)
+        ? line
+            .trim()
+            .replace(/^\||\|$/g, "")
+            .split("|")
+            .map((cell) => cell.trim())
+            .join(" · ")
+        : line,
+    );
+  return spadePlainText(kept.join("\n"))
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .join(" ");
-  return { title: title || "Document", preview: cut(plain, mostPreviewChars), text };
 }
 
 /**

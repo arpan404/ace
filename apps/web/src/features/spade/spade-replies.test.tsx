@@ -32,7 +32,9 @@ test("a turn of several messages shows each as its own bubble, with no tag drawn
   await chat.findByText("Want a reminder?");
   const run = chat.getByRole("article", { name: "Garden" });
   expect(
-    [...run.querySelectorAll("[data-part=spade-message]")].map((bubble) => bubble.textContent?.trim()),
+    [...run.querySelectorAll("[data-part=spade-message]")].map((bubble) =>
+      bubble.textContent?.trim(),
+    ),
   ).toEqual(["October.", "Mulch it after.", "Want a reminder?"]);
   expect(chat.queryByText(/<\/?msg/)).toBeNull();
 });
