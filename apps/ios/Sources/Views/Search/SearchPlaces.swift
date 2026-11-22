@@ -71,18 +71,31 @@ struct SearchPlaceGrid: View {
     let open: (SearchPlace) -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: AceDesign.Space.related, alignment: .top),
-              count: typeSize.isAccessibilitySize ? 2 : 3)
+    private var columns: Int { typeSize.isAccessibilitySize ? 2 : 3 }
+
+    /// The places in rows of `columns`, in order; the last row may be short.
+    private var rows: [[SearchPlace]] {
+        stride(from: 0, to: places.count, by: columns).map { Array(places[$0..<min($0 + columns, places.count)]) }
     }
 
+    /// A plain `Grid`, not a lazy one: this sits in a List row, and a lazy grid's height changing
+    /// while UIKit sizes the row's cell sent the List into an endless self-sizing loop. Every
+    /// tile is laid out at once, so the row's height is known before the List asks for it.
     var body: some View {
-        LazyVGrid(columns: columns, spacing: AceDesign.Space.related) {
-            ForEach(places) { place in
-                Button { open(place) } label: { tile(place) }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(label(place))
-                    .accessibilityIdentifier("search.place.\(place.rawValue)")
+        Grid(horizontalSpacing: AceDesign.Space.related, verticalSpacing: AceDesign.Space.related) {
+            ForEach(rows, id: \.self) { row in
+                GridRow(alignment: .top) {
+                    ForEach(row) { place in
+                        Button { open(place) } label: { tile(place) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(label(place))
+                            .accessibilityIdentifier("search.place.\(place.rawValue)")
+                    }
+                    // A short last row keeps the columns as wide as the full rows above it.
+                    ForEach(row.count..<columns, id: \.self) { _ in
+                        Color.clear.gridCellUnsizedAxes(.vertical).accessibilityHidden(true)
+                    }
+                }
             }
         }
     }
