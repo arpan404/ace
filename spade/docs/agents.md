@@ -374,9 +374,12 @@ deleted.
   models that take it, else `thinking.budget_tokens` (1,024 / 8,000 / 24,000). A call with an
   answer limit gets room for the thinking on top (`Effort::room`: 2,048 low, 9,216 medium, 25,600
   high and max), so a reviewer's 4,000 tokens stay the answer's. An endpoint that refuses a
-  request carrying the setting (`400`, `422`) is sent it once more without; when that answers,
-  the model is sent none until Spade restarts. A `cli:` subscription runs its own sessions and
-  is sent nothing.
+  request carrying the setting (`400`, `422`) is asked again without the room, then without the
+  effort; what answers is what that endpoint (format and address), model and effort word are sent
+  until Spade restarts. When no try answers, or one fails otherwise (a `429`, a `5xx`), the call
+  fails with the first refusal. A model id that names its own effort (`o3-high`) keeps it over the
+  role's. A stored effort word this build doesn't know is skipped, never the rest of the record. A
+  `cli:` subscription runs its own sessions and is sent nothing.
 
 - **Routes** ([ADR 0205](../../docs/adr/0205-spade-bots-think-with-models-the-person-controls.md)
   §2). Each role is an ordered list of up to four models; a single model reads as a list of one.

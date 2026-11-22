@@ -488,3 +488,16 @@ fn efforts_stored_by_name_read_back_and_older_overrides_read_with_none()
     assert!(older.efforts.is_empty());
     Ok(())
 }
+
+#[test]
+fn an_effort_word_this_build_doesnt_know_is_skipped_and_the_rest_of_the_overrides_still_read()
+-> Result<(), serde_json::Error> {
+    let stored = r#"{"roles":{"verify":["b/stronger"]},"allowed":["a/fast"],"escalate":true,
+        "efforts":{"review":"extreme","title":"low","advisor":"high"}}"#;
+    let read: Overrides = serde_json::from_str(stored)?;
+    assert_eq!(read.roles[&Role::Verify], Route::one("b/stronger"));
+    assert_eq!(read.allowed, Some(vec!["a/fast".to_owned()]));
+    assert_eq!(read.escalate, Some(true));
+    assert_eq!(read.efforts, [(Role::Title, Effort::Low)].into());
+    Ok(())
+}

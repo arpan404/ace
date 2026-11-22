@@ -13,7 +13,8 @@ fn models(fake: &FakeProvider) -> Result<Models> {
         "roles": { "main": "chat/kimi", "fast": "chat/kimi", "deep": "chat/kimi" },
         "endpoints": [
             { "id": "chat", "name": "Chat", "format": "openai-chat", "base_url": fake.root,
-              "key": { "env": "K" }, "models": [ { "id": "kimi", "name": "Kimi" } ] },
+              "key": { "env": "K" }, "models": [ { "id": "kimi", "name": "Kimi" },
+                                                  { "id": "o3-high", "name": "O3 high" } ] },
             { "id": "resp", "name": "Responses", "format": "openai-responses", "base_url": fake.root,
               "key": { "env": "K" }, "models": [ { "id": "gpt", "name": "GPT" } ] },
             { "id": "msgs", "name": "Messages", "format": "anthropic", "base_url": fake.root,
@@ -162,5 +163,86 @@ async fn a_request_refused_for_another_reason_fails_and_keeps_the_effort_for_nex
     let seen = bodies(&fake);
     assert_eq!(seen.len(), 3);
     assert_eq!(seen[2]["reasoning_effort"], "medium");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refusal_over_the_thinkings_room_keeps_the_effort_within_the_answer_limit() -> Result {
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(400), Script::reply("fine")]).await?;
+    let models = models(&fake)?;
+    let prompt = Prompt::ask("hi").max_tokens(4_000).effort(Effort::Medium);
+    models.chat("chat/kimi", &prompt).await?;
+    models.chat("chat/kimi", &prompt).await?;
+    let seen = bodies(&fake);
+    assert_eq!(seen.len(), 3, "one refusal, then one call each");
+    assert!(seen[0]["max_tokens"].as_u64() > Some(4_000));
+    for body in &seen[1..] {
+        assert_eq!(body["reasoning_effort"], "medium", "{body}");
+        assert_eq!(body["max_tokens"].as_u64(), Some(4_000), "{body}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_try_without_the_effort_that_fails_otherwise_answers_with_the_first_refusal() -> Result {
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(400), Script::failing(429)]).await?;
+    let models = models(&fake)?;
+    let failed = models
+        .chat("chat/kimi", &Prompt::ask("hi").effort(Effort::High))
+        .await;
+    assert_eq!(failed.err().and_then(|e| e.status()), Some(400));
+    assert_eq!(fake.seen().len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refused_effort_word_never_holds_back_another_on_the_same_model() -> Result {
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(400), Script::reply("fine")]).await?;
+    let models = models(&fake)?;
+    models
+        .chat("chat/kimi", &Prompt::ask("hi").effort(Effort::Off))
+        .await?;
+    models
+        .chat("chat/kimi", &Prompt::ask("hi").effort(Effort::Medium))
+        .await?;
+    let seen = bodies(&fake);
+    assert!(seen[1].get("reasoning_effort").is_none());
+    assert_eq!(seen[2]["reasoning_effort"], "medium");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_endpoint_pointed_somewhere_else_is_sent_the_effort_again() -> Result {
+    let first =
+        FakeProvider::start_sequence(vec![Script::failing(400), Script::reply("fine")]).await?;
+    let second = FakeProvider::start("fine").await?;
+    let models = models(&first)?;
+    let prompt = Prompt::ask("hi").effort(Effort::High);
+    models.chat("chat/kimi", &prompt).await?;
+    let mut endpoints = models.endpoints().as_ref().clone();
+    for endpoint in &mut endpoints {
+        if endpoint.id == "chat" {
+            endpoint.base_url.clone_from(&second.root);
+        }
+    }
+    models.set_endpoints(endpoints);
+    models.chat("chat/kimi", &prompt).await?;
+    assert_eq!(bodies(&second)[0]["reasoning_effort"], "high");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_model_id_that_names_its_effort_keeps_it_over_the_roles() -> Result {
+    let fake = FakeProvider::start("ok").await?;
+    let models = models(&fake)?;
+    models
+        .chat("chat/o3-high", &Prompt::ask("hi").effort(Effort::Low))
+        .await?;
+    let body = &bodies(&fake)[0];
+    assert_eq!(body["model"], "o3");
+    assert_eq!(body["reasoning_effort"], "high");
     Ok(())
 }

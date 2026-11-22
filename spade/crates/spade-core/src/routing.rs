@@ -118,9 +118,25 @@ pub struct Overrides {
     /// Whether failed helper-level work reruns once on the bot's own model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escalate: Option<bool>,
-    /// How hard each role's model thinks (ADR 0213), `main` included.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    /// How hard each role's model thinks (ADR 0213), `main` included. Read entry by entry: a
+    /// role or effort word this build doesn't know is skipped, never the whole record.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "known_efforts"
+    )]
     pub efforts: BTreeMap<Role, Effort>,
+}
+
+/// The stored efforts this build knows; the rest (a newer build's word) are left out.
+fn known_efforts<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<Role, Effort>, D::Error> {
+    let stored = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    Ok(stored
+        .iter()
+        .filter_map(|(role, effort)| Some((Role::parse(role)?, Effort::parse(effort.as_str()?)?)))
+        .collect())
 }
 
 /// What the server knows about the person's models.

@@ -1,7 +1,7 @@
 //! How hard a model thinks before answering (ADR 0213): one word per call, turned into each wire
 //! format's own reasoning setting.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use genai::chat::ReasoningEffort;
@@ -76,24 +76,55 @@ impl Effort {
     }
 }
 
-/// The models whose endpoint refused a reasoning setting and then answered without one: sent
-/// none from then on, until Spade restarts. Shared by every clone of [`crate::Models`].
+/// How much of a prompt's effort a call sends: the effort with room for its thinking on top of
+/// the answer limit, the effort alone, or nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Sent {
+    Full,
+    NoRoom,
+    Nothing,
+}
+
+impl Sent {
+    /// What to try after an endpoint refused this send: the room goes first (a limit above the
+    /// model's output ceiling), then the effort. `None` once nothing was sent.
+    pub(crate) fn after_refusal(self, room: bool) -> Option<Self> {
+        match self {
+            Self::Full if room => Some(Self::NoRoom),
+            Self::Full | Self::NoRoom => Some(Self::Nothing),
+            Self::Nothing => None,
+        }
+    }
+}
+
+/// What a call sends: the endpoint's format and address, the model id and the effort word, so a
+/// refusal of one effort (`none`, `xhigh`) never holds back another, and an endpoint edited to
+/// point elsewhere starts fresh.
+pub(crate) fn refusal_key(format: Format, base_url: &str, model: &str, effort: Effort) -> String {
+    format!("{format}\n{base_url}\n{model}\n{}", effort.name())
+}
+
+/// The most each call shape answered with after the endpoint refused more (ADR 0213): sent that
+/// from then on, until Spade restarts. Shared by every clone of [`crate::Models`].
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Refusals(Arc<RwLock<HashSet<String>>>);
+pub(crate) struct Refusals(Arc<RwLock<HashMap<String, Sent>>>);
 
 impl Refusals {
-    pub(crate) fn refuses(&self, reference: &str) -> bool {
+    /// What a call with `key` sends first.
+    pub(crate) fn start(&self, key: &str) -> Sent {
         self.0
             .read()
             .unwrap_or_else(|p| p.into_inner())
-            .contains(reference)
+            .get(key)
+            .copied()
+            .unwrap_or(Sent::Full)
     }
 
-    pub(crate) fn remember(&self, reference: &str) {
+    pub(crate) fn remember(&self, key: &str, answered: Sent) {
         self.0
             .write()
             .unwrap_or_else(|p| p.into_inner())
-            .insert(reference.to_owned());
+            .insert(key.to_owned(), answered);
     }
 }
 

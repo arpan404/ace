@@ -38,10 +38,16 @@ never carries it), so the facts can't decide where to send it.
    thinking budget for the effort, which must stay under `max_tokens`. The reviewer's 4,000
    tokens stay the answer's.
 4. **Never fatal.** An endpoint that refuses a request carrying the setting (`400` or `422`,
-   before any answer) is sent the same request once more without it. When that answers, the
-   model is sent no effort again until Spade restarts. A request refused for another reason
-   fails as before, and the effort is kept for the next call. A refused request is never
-   billed, so the second try costs nothing.
+   before any answer) is asked again on the same resolved endpoint: first without the room (a
+   limit above the model's output ceiling), then without the effort. What answers is remembered
+   per endpoint format and address, model id and effort word, so refusing `none` never holds
+   back `medium`, and an endpoint pointed elsewhere starts fresh. When no try answers, or one
+   fails for another reason (a rate limit, an outage), the call fails with the first refusal and
+   nothing is remembered. A refused request is never billed, so the tries cost nothing. Spade's
+   model facts list no output ceiling, so the room is not clamped; a refusal over it is what
+   drops it. A model id that names its own effort (`o3-high`) keeps it: the SDK reads the suffix
+   only when no effort is set. Stored efforts are read entry by entry, so a word from a newer
+   build is skipped without losing the record's routes, allowed list or escalation.
 5. **In the app.** Settings › Spade › Models for other work puts a thinking choice beside each
    role's model, plus a row for the bots' own turns; a bot's Details does the same under its
    models, each following Settings until set.
