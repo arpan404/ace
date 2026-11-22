@@ -54,6 +54,8 @@ import Observation
         let state: String
         let line: String
         let pinned: Bool
+        /// "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3).
+        var shared: String? = nil
     }
     struct State: Decodable, Equatable, Sendable {
         struct List: Decodable, Equatable, Sendable {
@@ -126,7 +128,8 @@ import Observation
         /// `attached` names what isn't drawn as a picture; `images` are drawn as a thread's are.
         case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine])
         case bot(text: String, live: Bool, end: End?)
-        case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool)
+        /// `approvers`: on a shared bot's request, who may answer it.
+        case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool, approvers: String?)
         case question(SpadeQuestionCard)
         /// A member's message in a group: its name above the first of a run, its face by the last.
         case member(name: String, text: String, face: Face, first: Bool, last: Bool)
@@ -134,7 +137,7 @@ import Observation
         case note(text: String)
 
         private enum Keys: String, CodingKey {
-            case kind, text, sending, attached, images, live, end, callId, sentence, detail, reason, always, name, face, first, last
+            case kind, text, sending, attached, images, live, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
         }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
@@ -151,7 +154,8 @@ import Observation
                 self = .ask(callId: try box.decode(String.self, forKey: .callId), sentence: try box.decode(String.self, forKey: .sentence),
                             detail: try box.decodeIfPresent(String.self, forKey: .detail),
                             reason: try box.decodeIfPresent(String.self, forKey: .reason),
-                            always: try box.decodeIfPresent(Bool.self, forKey: .always) ?? false)
+                            always: try box.decodeIfPresent(Bool.self, forKey: .always) ?? false,
+                            approvers: try box.decodeIfPresent(String.self, forKey: .approvers))
             case "question":
                 self = .question(try SpadeQuestionCard(from: decoder))
             case "workers":

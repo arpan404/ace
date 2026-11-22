@@ -48,6 +48,8 @@ export interface SpadeListRow {
   state: SpadeRowState;
   line: string;
   pinned: boolean;
+  /** "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3); null otherwise. */
+  shared: string | null;
 }
 
 /**
@@ -62,6 +64,7 @@ export function spadeListRows(
   machine: string,
   answering: boolean,
   hostId?: string,
+  sharedIn: (agent: string) => string | null = () => null,
 ): SpadeListRow[] {
   const place = {
     machine: { primary: false, name: machine },
@@ -83,6 +86,7 @@ export function spadeListRows(
       state: row.state,
       line: workerWaitLine(shown, row.line),
       pinned: agent.pinnedAt !== undefined,
+      shared: agent.kind === "main" ? null : sharedIn(agent.id),
     };
     return { listed, at: agent.lastActivity };
   });
@@ -100,6 +104,7 @@ export function spadeListRows(
       state: row.state,
       line: row.line,
       pinned: group.pinnedAt !== undefined,
+      shared: null,
     };
     return { listed, at: group.lastActivity };
   });
@@ -157,6 +162,8 @@ export type SpadeBubbleRow =
       detail: string | null;
       reason: string | null;
       always: boolean;
+      /** A shared bot's request: who may answer it (ADR 0206 §2.3); null for one's own bot. */
+      approvers: string | null;
     }
   /** A card of questions the bot asks (ADR 0154). */
   | SpadeQuestionCardRow
@@ -238,6 +245,7 @@ export function spadeBubbleRow(
         detail: spadeDetailText(card.detail),
         reason: bubble.reason ?? null,
         always: card.always,
+        approvers: null,
       };
     }
     case "other":
@@ -271,9 +279,11 @@ export function spadeConversationRows(
   view: SpadeView,
   who: string,
   workers: SpadeWorkerFacts = unknownWorkers,
+  approvers: string | null = null,
 ): { key: string; row: SpadeBubbleRow }[] {
   return spadeBubbles(view).flatMap((bubble) => {
     const row = spadeBubbleRow(bubble, who, workers);
+    if (row?.kind === "ask") return [{ key: bubble.key, row: { ...row, approvers } }];
     return row ? [{ key: bubble.key, row }] : [];
   });
 }
