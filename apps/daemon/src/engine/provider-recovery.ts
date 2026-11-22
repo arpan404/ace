@@ -215,7 +215,7 @@ export class ProviderRecovery {
       const opened = recent.findIndex((row, index) => index > sent && row.kind === "open");
       const start = sent >= 0 ? sent : recent.length - 1;
       let record: AttemptRecord | undefined = older && sent < 0 ? olderRecord : undefined;
-      for (const row of recent.slice(0, sent + 1).reverse())
+      for (const row of recent.slice(0, sent + 1).toReversed())
         record = noteAttempt(record, {
           kind: row.kind,
           operationId: row.operationId,

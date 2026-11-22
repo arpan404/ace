@@ -268,7 +268,8 @@ test("an idle thread's settled frames go a bounded batch per sweep, with no new 
 
 test("the idle sweep finds threads with frames to delete without reading every thread's records", async () => {
   const h = await thread();
-  new ProviderRecovery(h.store);
+  // Its first sweep, on a store with nothing to prune.
+  new ProviderRecovery(h.store).pruneIdle();
   const plan = h.store
     .statement(`EXPLAIN QUERY PLAN ${idleSweepQuery}`)
     .all(4)

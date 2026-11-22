@@ -24,6 +24,8 @@ const deliver = (context: SessionContext, value: CursorEnvelope, seq: number) =>
 };
 const threadId = ThreadId.parse("crashed-thread");
 
+const nothing = () => {};
+
 /**
  * Kills a daemon (a real process) at `window` of its first send, then starts a new one on the
  * same database with a fake Cursor host that speaks the host's frames, and lets the person
@@ -55,7 +57,7 @@ async function crashAt(
   const { stored = "finished", openFails = false, resume = true, attemptAdmitted = false } = host;
   let busy = host.busyOpens ?? 0;
   let runCreated = false;
-  let pressResume = () => {};
+  let pressResume = nothing;
   /** The thread's state each time an open found the store busy. */
   const whileBusy: (string | undefined)[] = [];
   const root = await mkdtemp(join(tmpdir(), "cursor-daemon-recovery-"));
@@ -189,7 +191,7 @@ async function crashAt(
     },
   });
   pressResume = () => {
-    pressResume = () => {};
+    pressResume = nothing;
     const accepted = engine.handler.handle(
       Command.parse({
         id: "resume-mid-reconcile",
