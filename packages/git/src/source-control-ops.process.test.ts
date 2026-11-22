@@ -147,6 +147,45 @@ describe("source control git operations", () => {
     }
   });
 
+  it("Unstage all unstages every staged path, renames too, without moving ORIG_HEAD", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      const first = runGit(repo, ["rev-parse", "HEAD"]);
+      await writeFile(join(repo, "b.txt"), "b\n");
+      runGit(repo, ["add", "b.txt"]);
+      runGit(repo, ["commit", "-m", "b"]);
+      // A merge or rebase left its recovery pointer: unstaging must not overwrite it.
+      runGit(repo, ["update-ref", "ORIG_HEAD", first]);
+      runGit(repo, ["mv", "b.txt", "renamed.txt"]);
+      await writeFile(join(repo, "a.txt"), "edit\n");
+      await writeFile(join(repo, "new.txt"), "new\n");
+      runGit(repo, ["add", "a.txt", "new.txt"]);
+
+      await git.unstage({ worktree: repo });
+      expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("");
+      expect(runGit(repo, ["rev-parse", "ORIG_HEAD"])).toBe(first);
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("edit\n");
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("Unstage all works before the first commit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ace-sc-unborn-"));
+    tempDirs.push(dir);
+    runGit(dir, ["init", "-q", "-b", "main"]);
+    const git = new GitService();
+    try {
+      await writeFile(join(dir, "a.txt"), "a\n");
+      runGit(dir, ["add", "a.txt"]);
+      await git.unstage({ worktree: dir });
+      expect(runGit(dir, ["status", "--porcelain"])).toBe("?? a.txt");
+    } finally {
+      await git.close();
+    }
+  });
+
   it("rejects paths that escape the repository or target .git", async () => {
     const repo = await createRepo();
     const git = new GitService();

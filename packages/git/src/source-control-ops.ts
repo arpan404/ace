@@ -88,33 +88,44 @@ export async function stagePaths(
   });
 }
 
-/** Unstage specified paths, or every staged change when `paths` is omitted. */
+/**
+ * Unstage specified paths, or every staged change when `paths` is omitted. Always path-limited:
+ * a reset without paths would move ORIG_HEAD, a merge's or rebase's recovery pointer.
+ */
 export async function unstagePaths(
   repository: Repository,
   options: { worktree: string; paths?: readonly string[] | undefined },
 ): Promise<void> {
   const root = await repository.root(options.worktree);
-  const paths = options.paths ? validateRepoPaths(root, options.paths) : undefined;
+  const requested = options.paths ? validateRepoPaths(root, options.paths) : undefined;
   await repository.serial(root, async () => {
-    const info = await repository.info(root);
-    if (info.head === null) {
-      const args = paths
-        ? ["rm", "--cached", "-r", "--ignore-unmatch", "--", ...paths]
-        : ["rm", "--cached", "-r", "--ignore-unmatch", "--", "."];
-      await repository.cli.call(root, args, {
-        write: true,
-        timeoutMs: longWriteTimeoutMs,
-        captureBytes: 65_536,
-        env: literalEnv,
-      });
-      return;
-    }
-    const args = paths ? ["reset", "HEAD", "--", ...paths] : ["reset", "HEAD", "--"];
+    const { status, branch } = await repository.state(root);
+    const paths = requested ?? [
+      ...new Set(
+        status.staged.flatMap((entry) =>
+          entry.oldPath ? [entry.path, entry.oldPath] : [entry.path],
+        ),
+      ),
+    ];
+    if (paths.length === 0) return;
+    const args =
+      branch.head === null
+        ? [
+            "rm",
+            "--cached",
+            "-r",
+            "-q",
+            "--ignore-unmatch",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+          ]
+        : ["reset", "-q", "HEAD", "--pathspec-from-file=-", "--pathspec-file-nul"];
     await repository.cli.call(root, args, {
       write: true,
       timeoutMs: longWriteTimeoutMs,
       captureBytes: 65_536,
       env: literalEnv,
+      input: `${paths.join("\0")}\0`,
     });
   });
 }
