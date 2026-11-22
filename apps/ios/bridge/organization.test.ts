@@ -14,6 +14,8 @@ import {
  * host's audit log, newest first, filtered by person and kind, exported whole.
  */
 
+type AuditRead = Extract<OrganizationAudit, { ok: true }>;
+
 function bindToAcme(fake: FakeSpadeApi) {
   fake.org.binding = { org: "org_acme", name: "Acme", host: "host_1", policy: 1, auditKey: "k1" };
 }
@@ -113,7 +115,7 @@ test("the host's log lists newest first, and narrows to one person and one kind"
     );
   });
 
-  const all = (await ask({ op: "audit" })) as OrganizationAudit;
+  const all = (await ask({ op: "audit" })) as AuditRead;
   expect(all.rows.map((row) => row.seq)).toEqual([3, 2, 1]);
   expect(all.people).toEqual(["Dana", "Sam"]);
   expect(all.kinds).toEqual([
@@ -122,7 +124,7 @@ test("the host's log lists newest first, and narrows to one person and one kind"
   ]);
   expect(all).toMatchObject({ ok: true, key: "k1", checkpoints: 1, total: 3 });
 
-  const sams = (await ask({ op: "audit", person: "Sam", kind: "bot.effect" })) as OrganizationAudit;
+  const sams = (await ask({ op: "audit", person: "Sam", kind: "bot.effect" })) as AuditRead;
   expect(sams.rows.map((row) => row.seq)).toEqual([3]);
   expect(sams.total).toBe(3);
 });
@@ -133,7 +135,7 @@ test("the list shows the newest fifty, and Export carries every line of the log"
     for (let seq = 1; seq <= 60; seq += 1) fake.org.audit.push(entry(seq, "bot.effect", "Dana"));
   });
 
-  const listed = (await ask({ op: "audit" })) as OrganizationAudit;
+  const listed = (await ask({ op: "audit" })) as AuditRead;
   expect(listed.rows).toHaveLength(50);
   expect(listed.rows[0]?.seq).toBe(60);
 
@@ -153,10 +155,10 @@ test("a filter change reads the log once, and a pull reads what came since", asy
   await ask({ op: "audit" });
   fake?.org.audit.push(entry(2, "bot.effect", "Dana"));
 
-  const filtered = (await ask({ op: "audit", person: "Dana" })) as OrganizationAudit;
+  const filtered = (await ask({ op: "audit", person: "Dana" })) as AuditRead;
   expect(filtered.total).toBe(1);
 
-  const pulled = (await ask({ op: "audit", fresh: true })) as OrganizationAudit;
+  const pulled = (await ask({ op: "audit", fresh: true })) as AuditRead;
   expect(pulled.total).toBe(2);
 });
 
