@@ -135,3 +135,38 @@ test("an automation that isn't a webhook, or is gone, gets no secret", async () 
   const missing = await ask({ type: "automations.webhook", automationId: "gone" });
   expect(missing).toMatchObject({ ok: false, error: expect.any(String) });
 });
+
+test("Create secret never replaces a secret made elsewhere since the page was read", async () => {
+  const { ask, client } = await fixture({ automations: [hook] }, {}, { settings: ways });
+  const shown = await ask({ type: "automations.webhook", automationId: "deploys" });
+  expect(view(shown).active).toBe(false);
+  // Meanwhile the web makes a secret, and its sender starts using it.
+  const web = await client.request({ type: "automation.webhook", id: "deploys", action: "rotate" });
+  const live = web.ok ? web.secret : undefined;
+  expect(live).toMatch(/^whsec_/);
+
+  const create = await ask({
+    type: "automations.webhook.secret",
+    automationId: "deploys",
+    action: "create",
+  });
+  expect(create).toMatchObject({
+    ok: false,
+    exists: true,
+    error: "A secret was created elsewhere. Rotate it instead?",
+  });
+  expect(create).not.toHaveProperty("secret");
+  // The phone now draws the live secret's address, with Rotate behind its confirm.
+  expect(view(create)).toMatchObject({ active: true, gap: null });
+});
+
+test("Create secret makes the first secret when there is none", async () => {
+  const { ask } = await fixture({ automations: [hook] }, {}, { settings: ways });
+  const created = await ask({
+    type: "automations.webhook.secret",
+    automationId: "deploys",
+    action: "create",
+  });
+  expect(created).toMatchObject({ ok: true, secret: expect.stringMatching(/^whsec_/) });
+  expect(view(created).active).toBe(true);
+});

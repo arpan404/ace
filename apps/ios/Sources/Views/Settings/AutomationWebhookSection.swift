@@ -22,7 +22,8 @@ struct AutomationWebhookSection: View {
     @State private var copied: String?
     @State private var copies = 0
 
-    private enum Action: String, Identifiable { case rotate, revoke; var id: String { rawValue } }
+    /// `create` makes a secret only while there is none; Rotate and Revoke ask first.
+    private enum Action: String, Identifiable { case create, rotate, revoke; var id: String { rawValue } }
 
     var body: some View {
         Section {
@@ -58,7 +59,7 @@ struct AutomationWebhookSection: View {
         switch confirming {
         case .rotate: view?.confirms.rotate
         case .revoke: view?.confirms.revoke
-        case nil: nil
+        case .create, nil: nil
         }
     }
 
@@ -114,8 +115,9 @@ struct AutomationWebhookSection: View {
                 .disabled(disabled)
                 .accessibilityIdentifier("webhook.revoke")
         } else {
-            // A first secret replaces nothing, so it needs no confirm, as on the web.
-            Button("Create secret") { Task { await send(.rotate) } }
+            // A first secret replaces nothing, so it needs no confirm, as on the web. The bridge
+            // refuses it if one was made elsewhere meanwhile, and the Rotate confirm opens.
+            Button("Create secret") { Task { await send(.create) } }
                 .disabled(disabled)
                 .accessibilityIdentifier("webhook.create")
         }
@@ -181,6 +183,13 @@ struct AutomationWebhookSection: View {
         payload["action"] = action.rawValue
         do {
             let reply = try await model.service(payload, as: AutomationWebhookReply.self)
+            if reply.exists == true, let webhook = reply.webhook {
+                // A secret made elsewhere since this page read it: show it, then offer Rotate.
+                view = webhook
+                problem = reply.error
+                confirming = .rotate
+                return
+            }
             guard reply.ok else { problem = reply.error ?? "Couldn't change the webhook's secret."; return }
             problem = nil
             if let webhook = reply.webhook { view = webhook }

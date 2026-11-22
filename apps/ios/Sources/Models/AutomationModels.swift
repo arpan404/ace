@@ -271,4 +271,6 @@ struct AutomationWebhookReply: Decodable, Sendable {
     let secret: String?
     /// "Copy it now: it won't be shown again…", beside the secret.
     let note: String?
+    /// Create was refused because a secret was made elsewhere meanwhile; Rotate replaces it.
+    let exists: Bool?
 }
