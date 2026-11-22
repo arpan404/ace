@@ -3,6 +3,7 @@ import { seedFakeCards } from "./fake-spade-cards.ts";
 import { seedFakeAgentCards } from "./fake-spade-agent-cards.ts";
 import { seedFakeAgentPanels } from "./fake-spade-agent-panels.ts";
 import { seedFakeSuggest } from "./fake-spade-suggest.ts";
+import { seedFakeNotion } from "./fake-spade-notion.ts";
 import { seedFakeApps } from "./fake-spade-apps.ts";
 import { seedFakeCreate } from "./fake-spade-create.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
@@ -564,6 +565,7 @@ export function seedFakeSpade(
   seedFakeAgentCards(here);
   seedFakeAgentPanels(here);
   seedFakeSuggest(here);
+  seedFakeNotion(here);
   seedFakeApps(here);
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);

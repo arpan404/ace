@@ -335,7 +335,7 @@ async fn classifier(w: &World, on: bool) -> Result {
 }
 
 #[tokio::test]
-async fn in_full_access_an_app_tool_that_declares_nothing_asks_on_its_first_call_even_with_the_classifier_off_and_content_untrusted()
+async fn in_full_access_an_app_tool_that_declares_nothing_asks_the_person_with_untrusted_content_in_view()
 -> Result {
     let page = FakeTool::new(
         "read_page",
@@ -370,7 +370,12 @@ async fn in_full_access_an_app_tool_that_declares_nothing_asks_on_its_first_call
         .collect();
     assert_eq!(asked.len(), 1, "{events:?}");
     assert_eq!(asked[0]["call_id"], "c2");
-    assert_eq!(asked[0]["ask"], "undeclared");
+    assert!(
+        asked[0]["reviewer_reason"]
+            .as_str()
+            .is_some_and(|line| line.contains("untrusted content is in view")),
+        "{events:?}"
+    );
     assert_eq!(sends.lock().map(|c| c.len()).unwrap_or(0), 0);
     Ok(())
 }

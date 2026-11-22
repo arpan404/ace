@@ -172,8 +172,15 @@ type SpadeBubbleOf =
       ask?: SpadeAskKind;
       /** Which of Spade's judges stopped it and put it to the person (ADR 0163, amendment 3). */
       stopped?: SpadeStoppedKind;
-      /** For a driving step, the app or site the card offers to allow for the bot. */
+      /**
+       * For a driving step, the app or site the card offers to allow for the bot; for a connected
+       * app's write (`ask: "app"`), the connection whose writes it offers to allow always.
+       */
       app?: string;
+      /** What the gate read the call as doing; absent: undeclared (ADR 0202, amendment 5). */
+      effect?: string;
+      /** For a connected app's tool, the definition the person is shown. */
+      definition?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
       state: "open";
@@ -442,6 +449,10 @@ function askBubble(
       ? { stopped: waiting.stopped ?? request.stopped }
       : {}),
     ...((waiting.app ?? request.app) ? { app: waiting.app ?? request.app } : {}),
+    ...((waiting.effect ?? request.effect) ? { effect: waiting.effect ?? request.effect } : {}),
+    ...((waiting.definition ?? request.definition)
+      ? { definition: waiting.definition ?? request.definition }
+      : {}),
     helper: waiting.helper ?? request.helper,
     state: "open",
   };

@@ -395,14 +395,21 @@ export class FakeSpadeSecurity {
     if (grant === undefined && method === "GET")
       return reply({ grants: settings.grants, effective: settings.grants });
     if (grant === undefined && method === "POST") {
+      // Every grant loosens the bot: ace's daemon forwards it only with the person's stamp.
+      const refused = this.permissions.refusal();
+      if (refused) return refused;
       const kind = String(body.kind ?? "");
-      if (!["folder", "tool", "git_push", "pr_comment"].includes(kind))
+      // An app's Always allow names the tools it covers, as Spade requires.
+      if (kind === "app" && Object.keys((body.tools as object | undefined) ?? {}).length === 0)
+        return problem(422, "an app's Always allow names the tools it covers");
+      if (!["folder", "tool", "git_push", "pr_comment", "app"].includes(kind))
         return problem(400, `unknown variant \`${kind}\``);
       if (kind === "folder" && !String(body.path ?? "").startsWith("/"))
         return problem(400, "the folder must be an absolute path");
       const made: FakeSpadeGrant = {
         ...body,
         ...(kind === "folder" ? { write: body.write === true } : {}),
+        ...(kind === "app" ? { writes: body.writes === true, tools: body.tools ?? {} } : {}),
         id: `gr${++this.next}`,
         kind,
         by: "person",

@@ -17,6 +17,7 @@ import {
   useSpadeConnectors,
 } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { removeGrant, securityKey, useBotSecurity } from "./spade-security-api.ts";
 import { fault } from "./spade-profile-actions.ts";
 import { ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 import { SuggestedApps } from "./spade-suggested-apps.tsx";
@@ -33,7 +34,9 @@ function allowedOf(access: SpadeConnectorAccess, connectors: readonly SpadeConne
  * Apps (ADR 0131), a section of Details: one row per connected app this bot may use, its account
  * under it, with Remove; then Add an app, a menu of the connected apps it doesn't have yet, by
  * name (no new sign-in) and a way to connect another; then the apps that fit its task, each
- * a click from connected (ADR 0131, amendment 1). Each change is saved as it is made. Spade may use every app unless
+ * a click from connected (ADR 0131, amendment 1). An app whose changes the person allowed always
+ * for this bot says so on its row, with Ask again to take that back (ADR 0202, amendment 5).
+ * Each change is saved as it is made. Spade may use every app unless
  * narrowed; a new bot none until given one.
  */
 export function ProfileApps(props: { bot: RosterBot }) {
@@ -47,6 +50,27 @@ export function ProfileApps(props: { bot: RosterBot }) {
   const [saving, setSaving] = useState(false);
   const connectors = catalogue.data?.connectors ?? [];
   const access = stored.data;
+  // "Always allow for <app>" the person gave this bot (ADR 0202, amendment 5), revoked here.
+  const security = useBotSecurity(bot.id);
+  const appGrants = (app: string) =>
+    security.data?.grants.filter(
+      (grant) => grant.kind === "app" && grant.app === app && grant.writes,
+    ) ?? [];
+  const alwaysFor = (app: string) => appGrants(app).length > 0;
+  const askAgain = async (app: string) => {
+    const grants = appGrants(app);
+    if (!grants.length) return;
+    setSaving(true);
+    setProblem(undefined);
+    try {
+      for (const grant of grants) await removeGrant(client, bot.id, grant.id);
+      await cache.invalidateQueries({ queryKey: securityKey });
+    } catch (error) {
+      setProblem(fault(error));
+    } finally {
+      setSaving(false);
+    }
+  };
   const save = async (next: SpadeConnectorAccess) => {
     setSaving(true);
     setProblem(undefined);
@@ -97,7 +121,24 @@ export function ProfileApps(props: { bot: RosterBot }) {
             {connector.account && (
               <span className="truncate text-xs text-subtle-foreground">{connector.account}</span>
             )}
+            {alwaysFor(connector.id) && (
+              <span className="truncate text-xs text-subtle-foreground">
+                Its changes run without asking
+              </span>
+            )}
           </div>
+          {alwaysFor(connector.id) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className={rowPill}
+              aria-label={`Ask again before ${bot.name} changes things in ${connector.name}`}
+              disabled={saving}
+              onClick={() => void askAgain(connector.id)}
+            >
+              Ask again
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
