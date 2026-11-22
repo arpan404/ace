@@ -124,7 +124,7 @@ struct SpadeModelsPage: View {
     }
 }
 
-/// Whose key the sheet takes: an endpoint's, or Brave Search's.
+/// Whose key the sheet takes: an endpoint's, or an app's token.
 struct SpadeKeyTarget: Identifiable, Hashable {
     let id: String
     let name: String

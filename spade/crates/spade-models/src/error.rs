@@ -79,6 +79,14 @@ fn unknown_model(reference: &str) -> String {
 }
 
 impl ModelError {
+    /// The HTTP status the endpoint refused the call with, when it answered with one.
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            Self::Unanswered { status, .. } => *status,
+            _ => None,
+        }
+    }
+
     /// Tokens the endpoint charged for a call that still failed, so it can be paid for.
     pub fn usage(&self) -> Option<Usage> {
         match self {

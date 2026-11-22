@@ -35,9 +35,9 @@ struct BackgroundLine: View {
             }
             HStack(spacing: AceDesign.Space.related) {
                 // The command, drawn as the work log's target chips are.
-                Text(line.command).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                ExpandableText(line.command, id: "background:\(line.taskId)", lines: 1)
+                    .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.foreground)
-                    .lineLimit(1).truncationMode(.tail)
                     .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
                     .background(AceTheme.Colours.fill, in: AceShape.capsule)
                 Spacer(minLength: AceDesign.Space.related)

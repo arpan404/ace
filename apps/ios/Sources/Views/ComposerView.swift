@@ -29,6 +29,8 @@ struct ComposerView<Top: View, Leading: View>: View {
     var recall: ((Int) async -> String?)? = nil
     /// Files on the next message: with any, the message can go without words.
     var files = 0
+    /// Why Send waits for those files (one still uploading or failed); nil once they are all on.
+    var filesWait: String? = nil
     /// Chips on the next message (line comments, drawings): with any, the message can go without
     /// words. They sit above the capsule; its shape never changes for them.
     var chips = 0
@@ -207,7 +209,7 @@ struct ComposerView<Top: View, Leading: View>: View {
             }
         }
         .contextMenu {
-            if !empty, adding == 0, let alternate = controls?.alternate {
+            if !empty, adding == 0, filesWait == nil, let alternate = controls?.alternate {
                 Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowBendUpRight : .queue) { submit(alternate: true) }
             }
         }
@@ -225,13 +227,14 @@ struct ComposerView<Top: View, Leading: View>: View {
         if draft.saving { return true }
         switch trailing {
         case .stop: return stopping
-        case .send: return empty || adding > 0
+        case .send: return empty || adding > 0 || filesWait != nil
         case .dictate, .listening: return false
         }
     }
     private var label: String {
         if draft.saving { return "Sending your message" }
         if adding > 0, trailing == .send { return "Adding paste…" }
+        if let filesWait, trailing == .send { return filesWait }
         switch trailing {
         case .dictate: return "Dictate"
         case .listening: return "Stop dictating"

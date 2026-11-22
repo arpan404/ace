@@ -31,7 +31,7 @@ mod recipes;
 mod routines;
 mod routing;
 mod running;
-mod search;
+mod search_usage;
 mod security;
 mod skills;
 mod teams;
@@ -85,7 +85,7 @@ pub struct AppState {
     pub skill_store: Option<Arc<crate::skill_store::SkillStore>>,
     /// The person's connected apps (ADR 0131).
     pub connectors: Option<Arc<spade_connect::Connectors>>,
-    /// Web search's backends, whose settings the person changes (docs/design.md, Web search).
+    /// ace cloud search, asked for this month's use (docs/design.md, Web search).
     pub search: Option<Arc<spade_search::Search>>,
 }
 
@@ -202,11 +202,7 @@ pub fn router(state: AppState) -> Router {
         .route("/models", get(endpoints::models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
-        .route("/search", get(search::read).put(search::change))
-        .route(
-            "/search/brave-key",
-            put(search::set_brave_key).delete(search::delete_brave_key),
-        )
+        .route("/usage/search", get(search_usage::read))
         .route("/ace", get(ace_state).put(set_grant).delete(forget_grant))
         .route(
             "/maintenance",

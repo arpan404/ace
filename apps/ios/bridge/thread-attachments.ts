@@ -11,6 +11,7 @@ import { z } from "zod";
 import { call } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { pictureLine } from "./attachment-picture.ts";
+import { ProgressThrottle } from "./progress-throttle.ts";
 
 /*
  * Files and photos for a message: the open thread's next one, or New thread's first. Swift keeps
@@ -37,6 +38,8 @@ export type TrayRow = Record<string, unknown>;
 export type TrayEmit = (rows: TrayRow[], locked: string | undefined) => void;
 
 export const chunkBytes = 48 * 1024;
+/** Daemon refusals that trying the same file again would meet again: no Retry. */
+const final = new Set(["quota", "invalid_image", "forbidden", "unsupported"]);
 
 /** Staged files are read from Swift a chunk at a time (`Sources/Bridge/AttachmentStaging`). */
 export const nativeChunks: ChunkReader = (localId, offset, limit) =>
@@ -60,6 +63,8 @@ interface Staged extends Picked {
   carried: { itemId: string; thumbnail: boolean } | undefined;
   progress: number;
   error: string;
+  /** Refused before uploading (a limit, a locked tray): trying again would be refused again. */
+  refused: boolean;
   uploadId: string | undefined;
   /** The draft scope it uploaded into, once made. */
   draftId: string | undefined;
@@ -72,6 +77,7 @@ export class AttachmentTray {
   #signal: AbortSignal;
   #emit: TrayEmit;
   readonly #read: ChunkReader;
+  readonly #throttle: ProgressThrottle;
   readonly #files = new Map<string, Staged>();
   #locked: string | undefined;
 
@@ -81,12 +87,14 @@ export class AttachmentTray {
     signal: AbortSignal,
     emit: TrayEmit,
     read: ChunkReader,
+    now: () => number = () => performance.now(),
   ) {
     this.#client = client;
     this.#target = target;
     this.#signal = signal;
     this.#emit = emit;
     this.#read = read;
+    this.#throttle = new ProgressThrottle(now, () => this.#publish());
     this.#publish();
   }
 
@@ -113,6 +121,7 @@ export class AttachmentTray {
       state: problem ? "failed" : "uploading",
       progress: 0,
       error: problem ?? "",
+      refused: problem !== undefined,
       uploadId: undefined,
       draftId: undefined,
       carried: undefined,
@@ -141,6 +150,7 @@ export class AttachmentTray {
         state: "ready",
         progress: 1,
         error: "",
+        refused: false,
         uploadId: undefined,
         draftId: undefined,
         // Drawn as its message draws it (`attachment-picture.ts`).
@@ -167,6 +177,27 @@ export class AttachmentTray {
         dropped = true;
       }
     if (dropped) this.#publish();
+  }
+
+  /** Upload again a file whose upload broke; one refused for a limit stays as it is. */
+  retry(localId: string): void {
+    const file = this.#files.get(localId);
+    if (!file || file.state !== "failed" || file.refused || this.#locked) return;
+    // The broken upload is cancelled first: the daemon won't start a thread from a draft that
+    // still holds an unfinished one.
+    const broken = file.uploadId;
+    Object.assign(file, {
+      state: "uploading",
+      progress: 0,
+      error: "",
+      uploadId: undefined,
+      abort: new AbortController(),
+    } satisfies Partial<Staged>);
+    this.#publish();
+    void (async () => {
+      if (broken) await this.#ask({ op: "upload.cancel", uploadId: broken }).catch(() => {});
+      if (!file.abort.signal.aborted) await this.#upload(file);
+    })();
   }
 
   /** Take a file off the message: an upload stops, a held file is released. */
@@ -254,6 +285,7 @@ export class AttachmentTray {
 
   /** Stop every upload: the screen holding the tray went away. */
   dispose(): void {
+    this.#throttle.stop();
     for (const file of this.#files.values()) file.abort.abort();
   }
 
@@ -304,7 +336,7 @@ export class AttachmentTray {
         if (next.offset <= offset) throw new ContextError("The upload stopped making progress.");
         offset = next.offset;
         file.progress = Math.min(0.99, offset / Math.max(1, file.bytes));
-        this.#publish();
+        this.#throttle.progressed();
       }
       expectContext(
         await this.#ask({ op: "upload.commit", uploadId: begun.uploadId }, signal),
@@ -316,6 +348,7 @@ export class AttachmentTray {
     } catch (error) {
       if (signal.aborted || this.#signal.aborted) return;
       file.state = "failed";
+      file.refused = error instanceof ContextError && final.has(error.code ?? "");
       file.error = preview(
         error instanceof ContextError ? error.message : "Connection lost. Remove it and try again.",
         256,
@@ -333,6 +366,7 @@ export class AttachmentTray {
   }
 
   #publish(): void {
+    this.#throttle.sent();
     this.#emit(
       [...this.#files.values()].map((file) => ({
         id: file.localId,
@@ -343,6 +377,7 @@ export class AttachmentTray {
         state: file.state,
         progress: file.progress,
         error: file.error,
+        retry: file.state === "failed" && !file.refused,
         /** Where a carried file is read from (`native.attachment`), as its message shows it. */
         carried: file.carried
           ? { itemId: file.carried.itemId, ref: file.sha256, thumbnail: file.carried.thumbnail }

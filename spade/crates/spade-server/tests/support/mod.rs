@@ -372,8 +372,8 @@ pub struct Options {
     pub before_work: Option<BeforeWork>,
     /// Sending a model step again; quick waits when absent, so a failing endpoint is not slow.
     pub model_retry: Option<spade_server::engine::Retry>,
-    /// The real `web_search` over these backends, with Brave's key from the mock keychain.
-    pub search: Option<spade_search::SearchConfig>,
+    /// The real `web_search` over this ace search (a fake cloud in tests).
+    pub search: Option<Arc<spade_search::Search>>,
     /// The model that reviews held calls (ADR 0144, 0163). By default [`UNREACHABLE_REVIEWER`], whose
     /// endpoint refuses every connection: the review can't run, so every held call goes to the
     /// person and tests of approvals keep their script. `None` reviews on the default model
@@ -550,6 +550,16 @@ impl Spade {
         let fake = FakeProvider::start_sequence(scripts).await?;
         let dir = Arc::new(tempfile::tempdir()?);
         Self::serve(fake, dir, tools, options).await
+    }
+
+    /// Like `start_with`, in a data folder a test prepared (an older Spade's files, say).
+    pub async fn start_in(
+        dir: tempfile::TempDir,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, Arc::new(dir), Vec::new(), options).await
     }
 
     /// Like `start`, with each streamed request (a turn's model step) taking the next of `turns`
@@ -748,26 +758,13 @@ impl Spade {
         if let Some(link) = &ace {
             link.act_for(bots.clone());
         }
-        let search = match options.search.clone() {
-            Some(config) => {
-                let lookup = keys.clone();
-                let search = Arc::new(spade_search::Search::new(
-                    config,
-                    Keys::keychain_then_env(
-                        move |backend| lookup.search_key(backend).ok().flatten(),
-                        |_| None,
-                    ),
-                    Duration::from_secs(5),
-                )?);
-                tools = tools.with_tool(Arc::new(spade_server::tools::WebSearch {
-                    search: search.clone(),
-                    ace_fallback: false,
-                    bots: bots.clone(),
-                }));
-                Some(search)
-            }
-            None => None,
-        };
+        let search = options.search.clone();
+        if let Some(search) = &search {
+            tools = tools.with_tool(Arc::new(spade_server::tools::WebSearch {
+                search: search.clone(),
+                bots: bots.clone(),
+            }));
+        }
         let engine = Engine::open(Setup {
             store,
             models,
@@ -818,9 +815,6 @@ impl Spade {
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);
-        }
-        if let (Some(search), Ok(url)) = (&search, engine.searxng_url()) {
-            search.set_searxng(url.as_deref())?;
         }
         let state = AppState {
             engine: engine.clone(),

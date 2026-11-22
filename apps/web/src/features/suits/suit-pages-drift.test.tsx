@@ -86,7 +86,6 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/spade/apps": ["/settings/spade/apps", "settings"],
   "/settings/spade/security": ["/settings/spade/security", "settings"],
   "/settings/spade/models": ["/settings/spade/models", "settings"],
-  "/settings/spade/search": ["/settings/spade/search", "settings"],
   "/settings/storage": ["/settings/storage", "settings"],
   "/settings/advanced": ["/settings/advanced", "settings"],
   "/settings/beta": ["/settings/beta", "settings"],

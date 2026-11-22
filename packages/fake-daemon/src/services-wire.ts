@@ -61,6 +61,8 @@ export interface ServicesSeed extends AutomationSeed {
   /** Seed the small PNG fixture for scoped client attachment reads. */
   notificationPublicKey?: string;
   attachmentImages?: { threadId: string; name?: string }[];
+  /** The daemon can't make the previews it advertises (no ace-media), or is too busy to. */
+  previewRefusal?: "unsupported" | "busy";
   /** Text attachments with precomputed hashes, such as published HTML visualizations. */
   attachmentTexts?: {
     threadId: string;
@@ -165,6 +167,7 @@ export class FakeServicesWire {
     this.notificationPublicKey = seed.notificationPublicKey ?? null;
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
+    this.context.previewRefusal = seed.previewRefusal;
     for (const text of seed.attachmentTexts ?? []) this.context.seedText(text.threadId, text);
     if (seed.settings) this.settings.seed(seed.settings);
     this.automations.seed(seed);

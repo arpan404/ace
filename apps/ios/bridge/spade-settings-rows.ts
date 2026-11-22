@@ -11,14 +11,13 @@ import {
   type SpadeEndpoint,
   type SpadeModelSources,
   type SpadeModels,
-  type SpadeSearchSettings,
   type SpadeSkillStore,
 } from "@ace/ui-core/spade-chat";
 import { utf8Bytes } from "./spade-profile.ts";
 
 /*
  * Settings › Spade's pages as the phone draws them (web's Settings › Spade): General's models,
- * Models and keys, Web search and Apps, every word decided here. Pure. A key's value never
+ * Models and keys, and Apps, every word decided here. Pure. A key's value never
  * appears in any row: Spade only says whether one is set, and where it comes from (ADR 0119).
  */
 
@@ -204,33 +203,6 @@ export function spadeModelsPage(models: SpadeModels): SpadeModelsPageRow {
     note: models.keychain
       ? "Keys stay in this machine's keychain. You can replace or remove one from here, but never read it back."
       : "This machine has no keychain to keep keys in. Set each key in Spade's environment on the machine instead.",
-  };
-}
-
-export interface SpadeSearchPageRow {
-  searxng: string | null;
-  /** Remove only for a key in the keychain: one from the environment stays (ADR 0119). */
-  brave: { set: boolean; words: string; canSet: boolean; canRemove: boolean };
-  keychain: boolean;
-}
-
-export function spadeSearchPage(settings: SpadeSearchSettings): SpadeSearchPageRow {
-  const source = settings.braveKeySet ? settings.braveKeySource : undefined;
-  return {
-    searxng: settings.searxngUrl,
-    brave: {
-      set: settings.braveKeySet,
-      words: !settings.braveKeySet
-        ? "Not set"
-        : source === "environment"
-          ? "From environment"
-          : source === "keychain"
-            ? "In keychain"
-            : "Set",
-      canSet: settings.keychain,
-      canRemove: source === "keychain" && settings.keychain,
-    },
-    keychain: settings.keychain,
   };
 }
 

@@ -13,6 +13,8 @@ struct RequestStrip: View {
     let openBrowser: () -> Void
     @State private var index = 0
     @State private var sheet: RequestSheetItem?
+    /// The strip opened in place; it stays open while paging between the requests.
+    @State private var open = false
 
     var body: some View {
         let shown = min(index, max(0, requests.count - 1))
@@ -24,7 +26,7 @@ struct RequestStrip: View {
                       },
                       actions: actions(for: request),
                       openDetails: { sheet = RequestSheetItem(id: request.id) },
-                      identifier: "request.\(request.kind)", sentenceIdentifier: "request.details")
+                      identifier: "request.\(request.kind)", sentenceIdentifier: "request.details", open: $open)
                 .id(request.id)
                 .transition(.opacity)
                 .sensoryFeedback(AceDesign.Haptic.approve, trigger: model.approvalSubmissions[request.id]?.requestId)

@@ -26,9 +26,12 @@ export function contextErrorMessage(failure: Pick<ContextFailure, "code" | "mess
 
 /** A context request that failed, worded for the person. */
 export class ContextError extends Error {
-  constructor(message: string) {
+  /** The daemon's code, when the daemon refused; undefined for a failure the client found. */
+  readonly code: ContextFailure["code"] | undefined;
+  constructor(message: string, code?: ContextFailure["code"]) {
     super(message);
     this.name = "ContextError";
+    this.code = code;
   }
 }
 
@@ -42,7 +45,7 @@ export function expectContext<K extends Result["kind"]>(
   result: Result,
   kind: K,
 ): Extract<Result, { kind: K }> {
-  if (result.kind === "error") throw new ContextError(contextErrorMessage(result));
+  if (result.kind === "error") throw new ContextError(contextErrorMessage(result), result.code);
   if (!isKind(result, kind)) throw new ContextError("ace answered something unexpected.");
   return result;
 }
