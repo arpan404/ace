@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import {
-  newestSpadeHost,
   spadeRoster,
+  spadeShownMain,
   spadeWithLive,
   type SpadeAgent,
   type SpadeMainState,
@@ -127,24 +127,26 @@ export function useSpadeRoster(ready: boolean) {
           unavailable,
         });
     });
-    const mainOn = (machine: Machine) =>
-      all.find((agent) => agent.kind === "main" && agent.machine.key === spadeMachineKey(machine));
     // Spade is the main bot of the machine the fleet chose, read last time if it is away now.
-    // Before any choice, the oldest main of those answering, as each machine still decides.
-    const choice = newestSpadeHost(records.map((main) => main?.host));
-    const chosen = choice && machines.find((machine) => machine.id === choice.host);
-    const shown = choice
-      ? chosen && mainOn(chosen)
-      : all
-          .filter(
-            (agent) =>
-              agent.kind === "main" &&
-              machines.some(
-                (machine, index) =>
-                  answering[index] && spadeMachineKey(machine) === agent.machine.key,
-              ),
-          )
-          .toSorted((a, b) => a.createdAt - b.createdAt || order(a.machine.key, b.machine.key))[0];
+    const candidates = all.flatMap((agent) => {
+      const index = machines.findIndex((machine) => spadeMachineKey(machine) === agent.machine.key);
+      const machine = machines[index];
+      return agent.kind === "main" && machine
+        ? [
+            {
+              agent,
+              machine: agent.machine.key,
+              host: machine.id,
+              createdAt: agent.createdAt,
+              answering: answering[index] === true,
+            },
+          ]
+        : [];
+    });
+    const shown = spadeShownMain(
+      candidates,
+      records.map((main) => main?.host),
+    )?.agent;
     return spadeRoster(all.filter((agent) => agent.kind !== "main" || agent === shown));
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed by answerKey and recordKey
   }, [machines, results, answerKey, recordKey, live]);
@@ -184,8 +186,6 @@ export function useSpadeRoster(ready: boolean) {
     refetch: () => void primary?.refetch(),
   };
 }
-
-const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Each machine and its Spade's agents while it answers, and whether every machine has. */
 export interface SpadeHosting {
