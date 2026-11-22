@@ -1,4 +1,4 @@
-import type { MarketScanReport } from "@ace/protocol/marketplace";
+import type { MarketScanFinding, MarketScanReport } from "@ace/protocol/marketplace";
 import { MarketErrorCode } from "@ace/protocol/marketplace";
 import { sentence } from "./words.ts";
 
@@ -83,11 +83,29 @@ export class MarketFailure extends Error {
   }
 }
 
-/** A scan's findings as the sentences the person reads, blocks first. */
-export function findingSentences(scan: MarketScanReport | undefined): string[] {
+const levelWords = { block: "Blocks it", warn: "Warning", note: "Note" } as const;
+
+/** One finding of a scan as the person reads it: its level, in a word, and its sentence. */
+export interface FindingRow {
+  level: MarketScanFinding["level"];
+  levelWord: string;
+  sentence: string;
+}
+
+/** A scan's findings with their levels, blocks first, then warnings, then notes. */
+export function findingRows(scan: MarketScanReport | undefined): FindingRow[] {
   if (!scan) return [];
   const order = { block: 0, warn: 1, note: 2 } as const;
   return scan.findings
     .toSorted((a, b) => order[a.level] - order[b.level])
-    .map((finding) => sentence(finding.message));
+    .map((finding) => ({
+      level: finding.level,
+      levelWord: levelWords[finding.level],
+      sentence: sentence(finding.message),
+    }));
+}
+
+/** A scan's findings as the sentences the person reads, blocks first. */
+export function findingSentences(scan: MarketScanReport | undefined): string[] {
+  return findingRows(scan).map((row) => row.sentence);
 }

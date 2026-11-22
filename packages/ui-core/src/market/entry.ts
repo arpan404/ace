@@ -1,4 +1,4 @@
-import type { MarketEntryDetail } from "@ace/protocol/marketplace";
+import type { MarketEntryDetail, MarketInstalled } from "@ace/protocol/marketplace";
 import { sentence } from "./words.ts";
 
 /* How a type is named, what keeps an entry from installing, and the action at its title row. */
@@ -26,5 +26,13 @@ export function installBlock(entry: MarketEntryDetail): string | undefined {
 export function entryAction(entry: MarketEntryDetail): "install" | "update" | "installed" | "none" {
   if (installBlock(entry) && !entry.installed) return "none";
   if (!entry.installed) return "install";
-  return entry.installed.update ? "update" : "installed";
+  return offeredUpdate(entry.installed) ? "update" : "installed";
+}
+
+/**
+ * The update an install offers: none while one the person already accepted waits for its bot's
+ * turn to end (ADR 0200), so the count, the list and the entry page never offer it twice.
+ */
+export function offeredUpdate(item: Pick<MarketInstalled, "update" | "held">): string | undefined {
+  return item.update && item.update !== item.held?.version ? item.update : undefined;
 }

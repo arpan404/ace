@@ -46,23 +46,33 @@ extension ClientModel {
     var marketGeneration: Int { familyGeneration("market") }
 
     // Browse (#2500).
-    func marketDiscover() async throws -> MarketDiscover { try await market(["op": "discover"], as: MarketDiscover.self) }
+    func marketDiscover(fresh: Bool = false) async throws -> MarketDiscover {
+        try await market(["op": "discover"], as: MarketDiscover.self, fresh: fresh)
+    }
+    var keptMarketDiscover: MarketDiscover? { keptMarket(["op": "discover"], as: MarketDiscover.self) }
     func marketHome(fresh: Bool = false) async throws -> MarketHome { try await market(["op": "home"], as: MarketHome.self, fresh: fresh) }
     var keptMarketHome: MarketHome? { keptMarket(["op": "home"], as: MarketHome.self) }
-    func marketSearch(query: String, type: String? = nil, category: String? = nil, offset: Int = 0) async throws -> MarketSearchPage {
+    func marketSearch(query: String, type: String? = nil, category: String? = nil, offset: Int = 0,
+                      fresh: Bool = false) async throws -> MarketSearchPage {
         var operation: [String: Any] = ["op": "search", "query": query, "offset": offset]
         if let type { operation["type"] = type }
         if let category { operation["category"] = category }
-        return try await market(operation, as: MarketSearchPage.self)
+        return try await market(operation, as: MarketSearchPage.self, fresh: fresh)
     }
-    func marketPublisher(_ handle: String) async throws -> MarketPublisherPage {
-        try await market(["op": "publisher", "handle": handle], as: MarketPublisherPage.self)
+    func marketPublisher(_ handle: String, fresh: Bool = false) async throws -> MarketPublisherPage {
+        try await market(["op": "publisher", "handle": handle], as: MarketPublisherPage.self, fresh: fresh)
+    }
+    func keptMarketPublisher(_ handle: String) -> MarketPublisherPage? {
+        keptMarket(["op": "publisher", "handle": handle], as: MarketPublisherPage.self)
     }
     /// A listing picture or an avatar by its hash; `kind` is `preview` or `avatar`.
     func marketPicture(_ hash: String, kind: String) async throws -> MarketPicture {
         try await market(["op": "picture", "kind": kind, "hash": hash], as: MarketPicture.self)
     }
-    func marketSources() async throws -> MarketSources { try await market(["op": "sources"], as: MarketSources.self) }
+    func marketSources(fresh: Bool = false) async throws -> MarketSources {
+        try await market(["op": "sources"], as: MarketSources.self, fresh: fresh)
+    }
+    var keptMarketSources: MarketSources? { keptMarket(["op": "sources"], as: MarketSources.self) }
     func marketAddSource(_ address: String) async throws -> MarketSources {
         try await market(["op": "addSource", "address": address], as: MarketSources.self)
     }
