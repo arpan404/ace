@@ -8,7 +8,7 @@ import {
   NotePencilIcon,
 } from "@ace/icons";
 import { expect, test } from "vitest";
-import { assetSvg, clippedSvg, filledAssetSvg } from "./icon-svg.ts";
+import { assetSvg, clippedSvg, filledAssetSvg, spadeTabSvg } from "./icon-svg.ts";
 
 /** Every `clip-path` an element points at, and the clip each one names. */
 function clipsOf(svg: string) {
@@ -224,4 +224,43 @@ test("a filled status mark keeps its check cut out of the solid circle, where a 
   expect(svg).toContain(`mask="url(#${id})"`);
   expect(svg).toMatch(/<mask[^>]*>.*stroke="black".*<\/mask>/);
   expect(svg).toContain('width="20" height="20"');
+});
+
+test("Spade's tab face cuts its eyes out of the head and fills the pupils inside, with no mask", () => {
+  const svg = spadeTabSvg(
+    {
+      eyes: [
+        { x: 8, y: 12 },
+        { x: 16, y: 12 },
+      ],
+      eye: { rx: 2, ry: 3 },
+      pupil: { rx: 1, ry: 1.5 },
+      pupilAt: (eye) => ({ x: eye.x, y: eye.y + 1 }),
+      tilt: 0,
+      egg: (x, y, rx, ry) =>
+        `M${x} ${y - ry}C${x + rx} ${y - ry} ${x + rx} ${y + ry} ${x} ${y + ry}Z`,
+    },
+    26,
+  );
+  expect(svg).not.toContain("<mask");
+  expect(svg).toContain('width="26" height="26"');
+  const d = /fill-rule="evenodd" d="([^"]+)"/.exec(svg)?.[1] ?? "";
+  // The head, two eye holes and two pupils: five closed shapes in one even-odd path.
+  expect(d.split("Z").filter(Boolean)).toHaveLength(5);
+  // Untilted, a pupil sits where the face asks: an eye's centre, one unit down.
+  expect(d).toContain("M8 11.5C");
+});
+
+test("Spade's tab face turns its eyes with the face's tilt", () => {
+  const face = {
+    eyes: [{ x: 8, y: 12 }],
+    eye: { rx: 2, ry: 3 },
+    pupil: { rx: 1, ry: 1.5 },
+    pupilAt: (eye: { x: number; y: number }) => eye,
+    egg: (x: number, y: number, _rx: number, ry: number) => `M${x} ${y - ry}Z`,
+  };
+  const still = spadeTabSvg({ ...face, tilt: 0 }, 26);
+  const tilted = spadeTabSvg({ ...face, tilt: -4 }, 26);
+  expect(still).toContain("M8 9Z");
+  expect(tilted).not.toContain("M8 9Z");
 });
