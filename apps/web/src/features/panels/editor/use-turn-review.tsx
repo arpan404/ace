@@ -46,6 +46,8 @@ export interface TurnReviewView {
   /** Shown side by side instead of inline: the turn's diff of the file, in place of the editor. */
   side: { diff: FileDiff; where: string; onInline(): void } | undefined;
   peek: { after: number; content: ReactNode } | undefined;
+  /** No change of the turn can be shown in this file now: words, and Done to end the review. */
+  idle: { words: string; onDone(): void } | undefined;
   onKey(event: KeyboardEvent): boolean;
 }
 
@@ -138,25 +140,38 @@ export function useTurnReview(input: {
     const wrap = located.findIndex((hunk, at) => hunk !== undefined && !finished.has(at));
     const at = located[wrap];
     setState({ index: Math.max(0, wrap), done: finished });
-    if (at) reveal(at);
+    if (at) return reveal(at);
+    // Nothing left to keep here and no file after this one: the review is over.
+    if (finished.size >= hunks.length) endReview(threadId);
   };
   // Keep acts on the change where it is at the press: found again in the text now, it must be
   // where the peek shows it. If the text moved and the review hasn't looked again yet, nothing is
   // kept and the review stays put (it shows the change in its new place after the pause).
-  const keep = () => {
+  /** The change where it is at the press, if it is where the peek shows it; else undefined. */
+  const atPress = (): ChangeHunk | undefined => {
     const text = buffer.document();
     const turnHunk = hunks[index];
-    if (!text || !turnHunk || !current) return;
-    const now = keepAt(turnHunk, current, (line) => text.line(line), text.lenLines());
-    if (!now) return gutter.edited();
-    gutter.keep(now.start - 1, now.start - 1 + Math.max(1, now.added.length));
-    step(1, new Set(done).add(index));
+    if (!text || !turnHunk || !current) return undefined;
+    return keepAt(turnHunk, current, (line) => text.line(line), text.lenLines());
   };
+  // Recorded, and the review moves on, only once the gutter has accepted the Keep: work the text
+  // moved under before it ran is refused, and then nothing is recorded.
+  const keep = () => {
+    const now = atPress();
+    if (!now) return gutter.edited();
+    void gutter.keep(now.start - 1, now.start - 1 + Math.max(1, now.added.length)).then((kept) => {
+      if (!kept) return;
+      step(1, new Set(progress.get(key)?.done ?? done).add(index));
+    });
+  };
+  // Comment attaches to the change where it is at the press, checked as Keep is.
   const comment =
     layer?.annotate &&
-    (() =>
-      current &&
-      layer.annotate?.(current.start - 1, current.start - 2 + Math.max(1, current.added.length)));
+    (() => {
+      const now = atPress();
+      if (!now) return gutter.edited();
+      layer.annotate?.(now.start - 1, now.start - 2 + Math.max(1, now.added.length));
+    });
 
   const label = `${agent} changed this in turn ${turn.number}`;
   const agentMarks: AgentMark[] = [];
@@ -190,12 +205,24 @@ export function useTurnReview(input: {
           ),
         }
       : undefined;
+  // Nothing of the turn can be shown here (all kept, or the rest edited away): say so, offer
+  // Done, and leave F7 to the gutter.
+  const showable = located.some((hunk, at) => hunk !== undefined && !done.has(at));
+  const idle =
+    peek || showable
+      ? undefined
+      : {
+          words: `No change of turn ${turn.number} to show here.`,
+          onDone: () => endReview(threadId),
+        };
   return {
     agentMarks,
     side: state?.side ? { diff, where, onInline: () => sideBySide(false) } : undefined,
     peek,
+    idle,
     onKey: (event) => {
-      if (event.key !== "F7" || event.altKey || event.metaKey || event.ctrlKey) return false;
+      if (idle || event.key !== "F7" || event.altKey || event.metaKey || event.ctrlKey)
+        return false;
       step(event.shiftKey ? -1 : 1);
       return true;
     },

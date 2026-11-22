@@ -121,3 +121,57 @@ test("a two-file turn: keeping a file's last change moves on, and coming back fi
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(screen.queryByRole("group", { name: /^Review change at line/ })).toBeNull();
 });
+
+const keepNow = async () =>
+  userEvent.click(within(await peekOf()).getByRole("button", { name: "Keep" }));
+
+test("keeping the last change ends the review, and F7 goes back to the gutter", async () => {
+  await reviewTurnOne();
+  await keepNow();
+  await waitFor(async () => expect((await peekOf()).textContent).toContain("2 of 3"));
+  await keepNow();
+  await waitFor(async () => expect((await peekOf()).textContent).toContain("3 of 3"));
+  await keepNow();
+
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: /^Review change at line/ })).toBeNull(),
+  );
+  expect(screen.queryByRole("status", { name: "Review" })).toBeNull();
+  expect(within(view()).queryAllByTitle("Claude Code changed this in turn 1")).toHaveLength(0);
+  // Not taken by a review that is over: the key reaches the editor's own handling.
+  expect(fireEvent.keyDown(within(view()).getByRole("textbox"), { key: "F7" })).toBe(true);
+});
+
+test("when no change left can be shown, a bar offers Done and F7 isn't taken", async () => {
+  await reviewTurnOne();
+  await keepNow();
+  await waitFor(async () => expect((await peekOf()).textContent).toContain("2 of 3"));
+  await keepNow();
+  await waitFor(async () => expect((await peekOf()).textContent).toContain("3 of 3"));
+  // The last change's lines are edited (the caret sits at its first line): it can't be found now.
+  const field = within(view()).getByRole("textbox");
+  fireEvent.input(field, {
+    target: { value: "edited " },
+    data: "edited ",
+    inputType: "insertText",
+  });
+
+  const bar = await screen.findByRole("status", { name: "Review" });
+  expect(bar.textContent).toContain("No change of turn 1 to show here");
+  expect(fireEvent.keyDown(within(view()).getByRole("textbox"), { key: "F7" })).toBe(true);
+  await userEvent.click(within(bar).getByRole("button", { name: "Done" }));
+  expect(screen.queryByRole("status", { name: "Review" })).toBeNull();
+});
+
+test("a Keep the gutter refuses (the text moved before it ran) is not recorded", async () => {
+  await reviewTurnOne();
+  const keep = within(await peekOf()).getByRole("button", { name: "Keep" });
+  fireEvent.click(keep);
+  // A line typed at the top before the gutter's work on that Keep ran.
+  const field = within(view()).getByRole("textbox");
+  fireEvent.keyDown(field, { key: "Home", ctrlKey: true });
+  fireEvent.input(field, { target: { value: "x\n" }, data: "x\n", inputType: "insertText" });
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  expect((await peekOf()).textContent).toContain("1 of 3");
+});

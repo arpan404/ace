@@ -156,3 +156,22 @@ export function ReviewPeek(props: {
     />
   );
 }
+
+/**
+ * A review with no change of its turn left to show in this file (all kept, or edited away): what
+ * that means, in words, and Done to end it.
+ */
+export function ReviewIdle(props: { words: string; onDone(): void }) {
+  return (
+    <div
+      role="status"
+      aria-label="Review"
+      className="flex h-8 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3 text-xs text-muted-foreground"
+    >
+      <span className="min-w-0 flex-1 truncate">{props.words}</span>
+      <Button size="sm" variant="ghost" onClick={props.onDone}>
+        Done
+      </Button>
+    </div>
+  );
+}

@@ -101,6 +101,7 @@ import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
 import { useChangeGutter } from "./use-change-gutter.tsx";
 import { useTurnReview } from "./use-turn-review.tsx";
+import { ReviewIdle } from "./hunk-peek.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
 
 /*
@@ -667,6 +668,7 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
           if (review?.onKey(event) || gutter.onKey(event)) event.preventDefault();
         }}
       >
+        {review?.idle && <ReviewIdle {...review.idle} />}
         {review?.side ? (
           <Suspense fallback={null}>
             <ReviewSideBySide {...review.side} />
