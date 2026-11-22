@@ -66,15 +66,23 @@ struct MarketReviewState: Equatable {
 
     /// Starts reading the next page when one is due, giving the offset to read from: the first
     /// page at once, each later one when the end of what's shown is in view. Nil while a page is
-    /// being read or once every page is.
+    /// being read, once every page is, and while a refusal stands: a failed page waits for the
+    /// person's Retry (`retryRead`), however often the end comes back into view.
     mutating func beginRead(endInView: Bool) -> Int? {
-        guard review != nil, let offset = nextOffset, !loadingMore, endInView || rows.isEmpty else { return nil }
+        guard review != nil, refusal == nil, let offset = nextOffset, !loadingMore, endInView || rows.isEmpty else { return nil }
         loadingMore = true
         return offset
     }
 
-    /// The read came back without a page that landed (it failed with nothing to say, or the page
-    /// was stale): it stops, and the next time the end comes into view it is tried again.
+    /// The person pressed Retry on a page that failed: the refusal goes and the same page is read.
+    mutating func retryRead() -> Int? {
+        guard refusal?.way == .retry, !complete else { return nil }
+        refusal = nil
+        return beginRead(endInView: true)
+    }
+
+    /// The read came back without a page that landed (the page was stale): it stops, and the
+    /// next time the end comes into view the page is read again.
     mutating func readEnded() { loadingMore = false }
 
     /// One page read, in order; a page of another review, or out of order, is ignored.

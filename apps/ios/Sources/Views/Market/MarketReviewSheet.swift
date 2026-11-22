@@ -52,16 +52,17 @@ struct MarketReviewSheet: View {
             .background(AceDesign.Surface.background)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { foot }
             // Where the person has scrolled, not what has rendered: the end counts only once it
-            // is in view above the foot, with every row shown so far.
-            .onScrollGeometryChange(for: ReviewScrollEnd.self) { geometry in
+            // is in view above the foot, with every row shown so far. `shown` is the rows this
+            // layout drew, read where the geometry is, so rows still arriving never count as seen.
+            .onScrollGeometryChange(for: ReviewScrollEnd.self) { [shown = state.rows.count] geometry in
                 ReviewScrollEnd(atEnd: MarketReviewState.atEnd(offsetY: geometry.contentOffset.y,
                                                          containerHeight: geometry.containerSize.height,
                                                          insetBottom: geometry.contentInsets.bottom,
                                                          contentHeight: geometry.contentSize.height),
-                          height: geometry.contentSize.height)
+                          height: geometry.contentSize.height, shown: shown)
             } action: { _, end in
                 endInView = end.atEnd
-                if end.atEnd { reachedEnd() }
+                if end.atEnd { reachedEnd(shown: end.shown) }
             }
             .navigationTitle(state.review?.heading ?? "Review")
             .navigationBarTitleDisplayMode(.inline)
@@ -99,9 +100,9 @@ struct MarketReviewSheet: View {
 
     /// The scroll reached the end of what the page shows: it counts as seen, and the next page,
     /// if any, is fetched.
-    private func reachedEnd() {
+    private func reachedEnd(shown: Int) {
         guard let review = state.review else { return }
-        state.reachedEnd(of: review.id, shown: state.rows.count)
+        state.reachedEnd(of: review.id, shown: shown)
         readNext(endInView: true)
     }
 
@@ -156,7 +157,10 @@ struct MarketReviewSheet: View {
             // Whatever failed runs again: the prepare, the page, or Install.
             guard let review = state.review else { return { Task { await prepare() } } }
             if state.complete { return { install(review) } }
-            return { readNext(endInView: true) }
+            return {
+                guard let offset = state.retryRead() else { return }
+                Task { await readPage(review, from: offset) }
+            }
         default: return nil
         }
     }
@@ -186,7 +190,11 @@ struct MarketReviewSheet: View {
         } catch let refusal as MarketRefusal {
             state.refused(refusal)
             return
-        } catch {}
+        } catch {
+            // Said with Retry, like any refusal, so the page waits for the person.
+            state.refused(MarketRefusal(code: "failed", message: "Part of the review didn't load.", way: .retry, offline: false))
+            return
+        }
         state.readEnded()
         // A page that landed and left the end in view: the scroll won't move to say so, so the
         // next one is read now. Only after a page landed, so a failing read never repeats itself.
@@ -216,9 +224,11 @@ struct MarketReviewSheet: View {
 
 /// Whether the content's end is in view, and how tall the content is: rows arriving change the
 /// height, so they are reported even while the end stays in view, and count as seen only then.
+/// `shown` is how many rows the layout measured had drawn.
 private struct ReviewScrollEnd: Equatable {
     let atEnd: Bool
     let height: CGFloat
+    let shown: Int
 }
 
 /// The review this sheet holds on the machine, kept by reference so it outlives the sheet: closed

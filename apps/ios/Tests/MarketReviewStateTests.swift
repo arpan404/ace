@@ -103,7 +103,7 @@ import Testing
         #expect(!state.loadingMore)
     }
 
-    @Test func aPageThatFailsStopsLoadingAndClearsOnceItIsReadAgain() throws {
+    @Test func aFailedPageStopsLoadingAndItsProblemClearsOnceRetryReadsIt() throws {
         var state = MarketReviewState()
         let review = try Self.review()
         state.opened(review)
@@ -111,15 +111,37 @@ import Testing
         state.refused(Self.busy)
         #expect(!state.loadingMore)
         #expect(state.refusal == Self.busy)
-        // Try again reads the same page; once it lands the problem is gone.
-        #expect(state.beginRead(endInView: true) == 0)
+        // Retry reads the same page; once it lands the problem is gone.
+        #expect(state.retryRead() == 0)
         state.read(try Self.page(review, rows: 1, next: nil), from: 0)
         #expect(state.refusal == nil)
-        // A read that fails for no stated reason stops loading too.
+        #expect(state.rows.count == 1)
+        #expect(!state.loadingMore)
+        // A read that brings back a stale page stops loading, and the page can be read again.
         state.opened(review)
         _ = state.beginRead(endInView: true)
+        state.read(try Self.page(review, rows: 1, next: nil), from: 5)
         state.readEnded()
         #expect(!state.loadingMore)
+        #expect(state.beginRead(endInView: true) == 0)
+    }
+
+    @Test func aFailedPageIsNotReadAgainUntilThePersonRetries() throws {
+        var state = MarketReviewState()
+        let review = try Self.review()
+        state.opened(review)
+        state.read(try Self.page(review, rows: 2, next: 2), from: 0)
+        #expect(state.beginRead(endInView: true) == 2)
+        state.refused(Self.busy)
+        // The loading rows go and the end is in view again, many times over: no read goes out.
+        for _ in 0..<3 { #expect(state.beginRead(endInView: true) == nil) }
+        #expect(!state.loadingMore)
+        #expect(state.refusal == Self.busy)
+        // Retry reads that same page, once.
+        #expect(state.retryRead() == 2)
+        #expect(state.loadingMore)
+        #expect(state.retryRead() == nil)
+        #expect(state.beginRead(endInView: true) == nil)
     }
 
     @Test func theEndIsInViewOnlyWhenTheContentsLastPointIsAboveTheFoot() {
