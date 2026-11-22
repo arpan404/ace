@@ -457,3 +457,31 @@ test("hunks worked out against the old commit are never published as the new com
   expect(gutter.state().hunks).toEqual([]);
   gutter.dispose();
 });
+
+test("the hunks are current only for the text as it is and the read of git's diff that is in", async () => {
+  const { buffer, gutter, pause } = await opened("one\nTWO\nthree\nfour\n");
+  gutter.setHead(committed, "c1", "a".repeat(40));
+  await pause();
+  expect(gutter.current()).toBe(true);
+
+  // A save sends a new read out: listeners hear it, and the hunks stop holding.
+  let told = 0;
+  const off = gutter.subscribe(() => told++);
+  gutter.unsettle();
+  expect(told).toBe(1);
+  expect(gutter.current()).toBe(false);
+
+  // The read lands with the committed text for the new disk version: current once worked out.
+  gutter.setHead(committed, "c1-v2", "a".repeat(40));
+  expect(gutter.current()).toBe(false);
+  await pause();
+  expect(gutter.current()).toBe(true);
+
+  // Typing moves the text past the hunks until the pause.
+  type(buffer, 0, "ONE");
+  gutter.edited();
+  expect(gutter.current()).toBe(false);
+  await pause();
+  expect(gutter.current()).toBe(true);
+  off();
+});

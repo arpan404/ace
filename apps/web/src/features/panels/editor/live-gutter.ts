@@ -179,7 +179,30 @@ export class LiveGutter {
 
   /** A new read of git's diff is under way (a commit, a new disk version): Revert waits for it. */
   unsettle(): void {
+    if (!this.#settled) return;
     this.#settled = false;
+    // Whoever maps lines through the hunks (blame) must stop until the new read's are in.
+    for (const listener of this.#listeners) listener();
+  }
+
+  /**
+   * The hunks hold now: worked out on the text as it is, against the committed text of the read
+   * that is in (settled), for the commit and read named. Only then do they map a line of the
+   * text to its line in that commit.
+   */
+  current(): boolean {
+    const doc = this.#buffer.document();
+    const basis = this.#state.basis;
+    return (
+      doc !== undefined &&
+      basis !== undefined &&
+      this.#settled &&
+      basis.doc === doc &&
+      basis.version === doc.version() &&
+      basis.generation === this.#generation &&
+      basis.commit === this.#commit &&
+      basis.head === (this.#head ?? this.#buffer.baseText())
+    );
   }
 
   /** The text changed (a view's edit): the marks are worked out again once typing pauses. */

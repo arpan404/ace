@@ -91,12 +91,20 @@ function fakeBuffer() {
   };
 }
 
-/** The live gutter as blame reads it: hunks worked out on the document at its version. */
+/**
+ * The live gutter as blame reads it: hunks worked out on the document at its version, against
+ * a commit, current only once the read they were worked out for is settled.
+ */
 function fakeGutter(doc: { version(): number }) {
   const listeners = new Set<() => void>();
   let state: GutterState = { hunks: [], marks: undefined, agent: [] };
+  let settled = false;
+  const tell = () => {
+    for (const listener of listeners) listener();
+  };
   const gutter: BlameGutter = {
     state: () => state,
+    current: () => settled && state.basis?.version === doc.version(),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => void listeners.delete(listener);
@@ -104,13 +112,14 @@ function fakeGutter(doc: { version(): number }) {
   };
   return {
     gutter,
-    /** The gutter worked the hunks out again on the text as it is now. */
+    /** The gutter worked the hunks out again on the text as it is now, for a settled read. */
     settle(
       lines: readonly string[],
       changes: readonly WholeLineChange[],
       agent: AgentBlock[] = [],
       commit: string = headSha,
     ) {
+      settled = true;
       state = {
         hunks: hunksFromChanges(changes, (line) => lines[line] ?? "", lines.length),
         marks: undefined,
@@ -123,7 +132,12 @@ function fakeGutter(doc: { version(): number }) {
           commit,
         },
       };
-      for (const listener of listeners) listener();
+      tell();
+    },
+    /** A new read of git's diff is out (a save, a commit): the hunks are not current. */
+    unsettle() {
+      settled = false;
+      tell();
     },
   };
 }
@@ -194,9 +208,11 @@ async function connected(daemon: FakeDaemon) {
   return { client, blameRequests };
 }
 
+/** A clean buffer whose gutter has settled with no changes against `headSha`. */
 function setup() {
   const typing = fakeBuffer();
   const gutter = fakeGutter(typing.doc);
+  gutter.settle([], []);
   const statusStore = createStatusStore();
   statusStore.report("g1", statusAt(1));
   return { typing, gutter, statusStore };
@@ -289,6 +305,54 @@ describe("Inline git blame", () => {
     expect(screen.getByText("You · not committed yet")).toBeTruthy();
     // Typing never asks git again: the blame is of the commit, which does not change.
     expect(blameRequests()).toHaveLength(1);
+  });
+
+  test("a saved insertion above the caret shows no author until the working-tree diff settles", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitBlame(threadId, path, {
+      commits: [
+        author(olderSha, "Robin", "First line"),
+        author(headSha, "Sam", "Second line"),
+        author(nextHeadSha, "Kai", "Third line"),
+      ],
+      lines: [
+        { line: 1, sha: olderSha },
+        { line: 2, sha: headSha },
+        { line: 3, sha: nextHeadSha },
+      ],
+    });
+    const { client, blameRequests } = await connected(daemon);
+    const { typing, gutter, statusStore } = setup();
+    // A line was inserted at the top and saved: the caret, on what was line 2, is now line 3.
+    // The read of git's diff for the saved text is still out; no hunks hold for it yet.
+    gutter.unsettle();
+    statusStore.report("g1", statusAt(3));
+    render(
+      <ClientProvider client={client}>
+        <BlameProbe
+          enabled
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
+          statusStore={statusStore}
+        />
+      </ClientProvider>,
+    );
+    // Even with blame answered, nothing is said: line 3 is not committed line 3 (Kai).
+    await act(async () => {});
+    expect(screen.getByTestId("caret-line").textContent).toBe("");
+    expect(blameRequests()).toHaveLength(0);
+
+    // The diff settles: the inserted line is the only change, so line 3 is committed line 2.
+    act(() => gutter.settle(["new", "first", "second", "third"], [{ start: 0, end: 1, text: "" }]));
+    expect(
+      await screen.findByRole("button", { name: "Sam, 3 days ago · Second line" }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Kai/)).toBeNull();
+
+    // A later save sends a new read out: the badge goes until its hunks are in.
+    act(() => gutter.unsettle());
+    expect(screen.getByTestId("caret-line").textContent).toBe("");
   });
 
   test("lines an agent wrote say the agent's name", async () => {

@@ -135,9 +135,11 @@ export interface VisibleRange {
   lineCount: number;
 }
 
-/** The live gutter's store, as blame reads it: its hunks against `commit` and when they hold. */
+/** The live gutter's store, as blame reads it: its hunks against a commit, and when they hold. */
 export interface BlameGutter {
   state(): GutterState;
+  /** The hunks were worked out on the text as it is now, for the read of git's diff that is in. */
+  current(): boolean;
   subscribe(listener: () => void): () => void;
 }
 
@@ -148,28 +150,15 @@ const inertStatusStore: StatusStore = {
 };
 
 /**
- * The gutter's state while its hunks were worked out on the buffer's text as it is now and
- * against `commit`; undefined while typing has moved past them or they are of another commit
- * (the lines can't be mapped to the blamed commit then, and nothing is said).
+ * The gutter's state when its hunks are proven to map the text to `commit`: current for this
+ * text and the settled read, and of that very commit. Otherwise undefined, and nothing is said
+ * or asked: no basis (a clean buffer included), a read still out, typing past the hunks, or
+ * hunks of another commit.
  */
-function currentGutter(
-  gutter: BlameGutter,
-  buffer: TextBuffer,
-  commit: string | undefined,
-): GutterState | undefined {
+function currentGutter(gutter: BlameGutter, commit: string | undefined): GutterState | undefined {
+  if (commit === undefined || !gutter.current()) return undefined;
   const state = gutter.state();
-  const basis = state.basis;
-  // No committed text to compare with yet (an untracked file, or a read still out): lines map
-  // to themselves only while the text is what is on disk.
-  if (!basis) return state.hunks.length === 0 && !buffer.snapshot().dirty ? state : undefined;
-  const doc = buffer.document();
-  // Hunks against another commit than the one blamed would map lines to the wrong file.
-  return doc !== undefined &&
-    basis.doc === doc &&
-    basis.version === doc.version() &&
-    basis.commit === commit
-    ? state
-    : undefined;
+  return state.basis?.commit === commit ? state : undefined;
 }
 
 /**
@@ -213,7 +202,7 @@ export function useInlineBlame(input: {
     },
     [gutter, buffer],
   );
-  const view = useSyncExternalStore(subscribeView, () => currentGutter(gutter, buffer, commit));
+  const view = useSyncExternalStore(subscribeView, () => currentGutter(gutter, commit));
   const report = useStatusReport(statusStore ?? inertStatusStore, group);
   const caretLine = report?.status.line;
 
