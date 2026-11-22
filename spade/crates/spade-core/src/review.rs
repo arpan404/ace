@@ -81,6 +81,61 @@ pub fn person_words(events: &[Event]) -> Vec<String> {
     words
 }
 
+/// The most of the bot's own earlier steps the reviewer reads.
+const RECENT_STEPS: usize = 12;
+/// The most of one earlier step's arguments the reviewer reads.
+const STEP_CHARS: usize = 300;
+
+/// The bot's own latest calls that ran and finished cleanly, oldest first, each as its tool and
+/// arguments cut short: context on what the bot has been doing for the task. A call only
+/// proposed, refused, still running, failed or of uncertain outcome is left out, and so is
+/// `call_id` itself. Calls are the bot's, never a tool's output, and they prove nothing about
+/// where a value in them came from.
+pub fn recent_steps(events: &[Event], call_id: &str) -> Vec<String> {
+    let mut started = std::collections::HashSet::new();
+    let mut finished = std::collections::HashSet::new();
+    for event in events {
+        match event {
+            Event::Known(Known::ToolStarted { call_id, .. }) => {
+                started.insert(call_id.as_str());
+            }
+            Event::Known(Known::ToolFinished {
+                call_id,
+                is_error: false,
+                uncertain: false,
+                ..
+            }) => {
+                finished.insert(call_id.as_str());
+            }
+            _ => {}
+        }
+    }
+    let mut steps: Vec<String> = events
+        .iter()
+        .rev()
+        .filter_map(|event| match event {
+            Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
+            _ => None,
+        })
+        .flat_map(|calls| calls.iter().rev())
+        .filter(|call| {
+            call.id != call_id
+                && started.contains(call.id.as_str())
+                && finished.contains(call.id.as_str())
+        })
+        .take(RECENT_STEPS)
+        .map(|call| {
+            format!(
+                "{} {}",
+                call.name,
+                cut(&call.arguments.to_string(), STEP_CHARS)
+            )
+        })
+        .collect();
+    steps.reverse();
+    steps
+}
+
 /// The person's latest messages across a worker's tree (ADR 0161): `conversations` are the
 /// root's events first, then each worker down to the one under review. Only the person's own
 /// messages count, never a maker bot's brief or message; the latest ones are kept, oldest first.
@@ -210,6 +265,115 @@ mod tests {
         assert!(!reviewed(Risk::Destructive, Decision::Ask));
         assert!(!reviewed(Risk::Read, Decision::Run));
         assert!(!reviewed(Risk::Memory, Decision::Run));
+    }
+
+    #[test]
+    fn the_reviewer_reads_the_bots_latest_own_steps_before_the_call_oldest_first() {
+        let step = |calls: &[(&str, &str, serde_json::Value)]| {
+            Event::Known(Known::StepFinished {
+                reply: "r".into(),
+                text: String::new(),
+                calls: calls
+                    .iter()
+                    .map(|(id, name, arguments)| crate::event::Call {
+                        id: (*id).into(),
+                        name: (*name).into(),
+                        arguments: arguments.clone(),
+                    })
+                    .collect(),
+                thoughts: Vec::new(),
+                usage: Default::default(),
+                cost_micros: 0,
+                seen: None,
+            })
+        };
+        let ran = |id: &str, is_error: bool| {
+            [
+                Event::Known(Known::ToolStarted {
+                    reply: "r".into(),
+                    call_id: id.into(),
+                    name: "t".into(),
+                    risk: None,
+                    background: false,
+                    effect: None,
+                }),
+                Event::Known(Known::ToolFinished {
+                    reply: "r".into(),
+                    call_id: id.into(),
+                    name: "t".into(),
+                    content: "ok".into(),
+                    is_error,
+                    uncertain: false,
+                    images: Vec::new(),
+                    untrusted: false,
+                }),
+            ]
+        };
+        let mut events = vec![Event::user_message("Put the plan in Notion")];
+        for at in 0..20 {
+            let id = format!("c{at}");
+            events.push(step(&[(
+                &id,
+                "notion-fetch",
+                serde_json::json!({ "id": format!("page-{at}") }),
+            )]));
+            events.extend(ran(&id, false));
+        }
+        // Proposed and refused (no start), failed, then the call under review and a sibling
+        // proposed after it: none is the bot's done work.
+        events.push(step(&[(
+            "refused",
+            "notion-fetch",
+            serde_json::json!({ "id": "from-a-web-page" }),
+        )]));
+        events.push(Event::Known(Known::ToolFinished {
+            reply: "r".into(),
+            call_id: "refused".into(),
+            name: "notion-fetch".into(),
+            content: "Not run: the person said no.".into(),
+            is_error: false,
+            uncertain: false,
+            images: Vec::new(),
+            untrusted: false,
+        }));
+        events.push(step(&[(
+            "failed",
+            "notion-fetch",
+            serde_json::json!({ "id": "page-gone" }),
+        )]));
+        events.extend(ran("failed", true));
+        events.push(step(&[(
+            "made",
+            "notion-create-pages",
+            serde_json::json!({ "title": "x".repeat(900) }),
+        )]));
+        events.extend(ran("made", false));
+        events.push(step(&[
+            (
+                "now",
+                "notion-update-page",
+                serde_json::json!({ "page_id": "page-19" }),
+            ),
+            (
+                "next",
+                "notion-move-pages",
+                serde_json::json!({ "page_id": "from-a-web-page" }),
+            ),
+        ]));
+        let steps = recent_steps(&events, "now");
+        assert_eq!(steps.len(), RECENT_STEPS);
+        assert_eq!(steps[0], r#"notion-fetch {"id":"page-9"}"#);
+        let made = steps.last().map(String::as_str).unwrap_or_default();
+        assert!(made.starts_with("notion-create-pages "), "{made}");
+        assert!(made.chars().count() < 400, "{made}");
+        for left_out in [
+            "notion-update-page",
+            "notion-move-pages",
+            "from-a-web-page",
+            "page-gone",
+        ] {
+            assert!(!steps.iter().any(|s| s.contains(left_out)), "{left_out}");
+        }
     }
 
     #[test]

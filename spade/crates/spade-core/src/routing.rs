@@ -202,13 +202,21 @@ impl<M: Models> Routing<'_, M> {
                 };
             }
         }
-        let default = match role {
-            Role::Verify => self.strongest_other(),
-            _ => self
-                .defaults
+        let fast = || {
+            self.defaults
                 .fast
                 .clone()
-                .filter(|fast| fast != self.own && self.usable_for(role, fast)),
+                .filter(|fast| fast != self.own && self.usable_for(role, fast))
+        };
+        let default = match role {
+            // A checker is never weaker than the bot it checks: a reviewer a bot can talk past
+            // asks the person about everything, or lets through what it shouldn't.
+            Role::Verify => self.strongest_other(role),
+            // The reviewer runs on an endpoint: a bot that can't be compared (a subscription, an
+            // unpriced model) keeps the fast model rather than one the reviewer can't call.
+            Role::Review if self.models.strength(self.own).is_some() => self.strongest_other(role),
+            Role::Review => fast(),
+            _ => fast(),
         };
         match default {
             Some(model) => Choice {
@@ -262,11 +270,11 @@ impl<M: Models> Routing<'_, M> {
 
     /// The strongest model the person already uses that lists at least the bot's own price and
     /// is not the bot's model.
-    fn strongest_other(&self) -> Option<String> {
+    fn strongest_other(&self, role: Role) -> Option<String> {
         let floor = self.models.strength(self.own)?;
         let mut best: Option<(f64, &String)> = None;
         for model in self.defaults.in_use.iter().chain(&self.defaults.fast) {
-            if model == self.own || !self.usable_for(Role::Verify, model) {
+            if model == self.own || !self.usable_for(role, model) {
                 continue;
             }
             let Some(strength) = self.models.strength(model) else {
