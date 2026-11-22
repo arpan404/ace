@@ -88,8 +88,9 @@ export function storedMessage(payload: unknown): unknown {
 /**
  * The run's stored events ace's record lacks: those after the last one its frames cover, less
  * the ones whose updates ace already has but whose events came later (`pending`, oldest first).
- * Events after the covered point are this run's in order, so the first content events there are
- * exactly those pending updates': each is matched by its place, and its identity confirms it.
+ * Events after the covered point are this run's in order, and so are the pending updates: each
+ * event is paired with the next pending update of its identity, and a pending update passed over
+ * is one whose write the SDK lost.
  */
 async function tail(
   store: LocalAgentStore,
@@ -119,9 +120,14 @@ async function tail(
       if (event.seq <= through) continue;
       const message = storedMessage(event.payload);
       const identity = storedIdentity(message);
-      if (identity !== undefined && waiting < pending.length) {
-        const expected = pending[waiting++];
-        if (identity === expected) continue;
+      // Paired forward by identity: pending updates passed over had their write lost by the SDK,
+      // and ace has them, so they are never replayed, and they shift nothing after them.
+      if (identity !== undefined) {
+        const match = pending.indexOf(identity, waiting);
+        if (match >= 0) {
+          waiting = match + 1;
+          continue;
+        }
       }
       push(message, event.seq);
     }

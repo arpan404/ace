@@ -88,7 +88,7 @@ function stored(update: Record<string, unknown>, runId: string): unknown {
 type Order = "callback-first" | "write-first";
 
 /** A fake SDK whose runs write the store as SDK 1.0.35 does, in either order per update. */
-function fakeSdk(order: Order): RuntimeSdkBoundary {
+function fakeSdk(order: Order, dropAppend?: number): RuntimeSdkBoundary {
   let store: LocalAgentStore | undefined;
   const append = (runId: string, message: unknown) =>
     store!.runEvents.append({
@@ -130,8 +130,9 @@ function fakeSdk(order: Order): RuntimeSdkBoundary {
           run_id: runId,
           status: "RUNNING",
         });
-        for (const update of updates) {
-          const message = stored(update, runId);
+        for (const [index, update] of updates.entries()) {
+          // The SDK swallows a failed write: that update's event is simply never stored.
+          const message = index === dropAppend ? undefined : stored(update, runId);
           if (order === "write-first" && message) await append(runId, message);
           await options?.onDelta?.({ update });
           if (order === "callback-first" && message) await append(runId, message);
@@ -265,12 +266,22 @@ function reopen(boundary: RuntimeSdkBoundary, home: string, record: CursorEnvelo
   });
 }
 
-it.each(["callback-first", "write-first"] as const)(
-  "a recovered tail is exact at every crash point, %s, and through a second crash mid-recovery",
-  async (order) => {
+/** The index of a text update in the middle of the run whose stored event the SDK loses. */
+const lostAppend = updates.findIndex(
+  (update) => update.type === "text-delta" && update.text === "good ",
+);
+
+it.each([
+  ["callback-first", undefined],
+  ["write-first", undefined],
+  ["callback-first", lostAppend],
+  ["write-first", lostAppend],
+] as const)(
+  "a recovered tail is exact at every crash point, %s (lost write at %s), and through a second crash mid-recovery",
+  async (order, drop) => {
     const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-")));
     try {
-      const boundary = fakeSdk(order);
+      const boundary = fakeSdk(order, drop);
       let reopened = 0;
       const frames = await host(boundary, home, "live", async (runtime, published) => {
         await runtime.open({
@@ -296,10 +307,23 @@ it.each(["callback-first", "write-first"] as const)(
       // before that leaves no run, which the attempt tests cover. Cuts start after it.
       const first = live.findIndex((frame) => frame.kind === "run") + 1;
       expect(first).toBeGreaterThan(0);
+      // The update whose write the SDK lost exists only in ace's frames: a crash before ace
+      // committed it leaves it nowhere, so only those cuts miss it, and only it.
+      const lostFrame =
+        drop === undefined
+          ? -1
+          : live.findIndex((frame) => JSON.stringify(frame.body).includes("good "));
+      const expected = (cut: number) =>
+        drop !== undefined && cut <= lostFrame
+          ? whole.map((line) => line.replace("All good good here.", "All good here."))
+          : whole;
       for (let cut = first; cut <= live.length; cut++) {
         const committed = live.slice(0, cut);
         const recovery = await reopen(boundary, home, committed, ++reopened);
-        expect({ cut, shown: shown([...committed, ...recovery]) }).toEqual({ cut, shown: whole });
+        expect({ cut, shown: shown([...committed, ...recovery]) }).toEqual({
+          cut,
+          shown: expected(cut),
+        });
         // The reopen dies after storing only some of what it read back; the next one goes on.
         for (let kept = 1; kept < recovery.length; kept++) {
           const partial = [...committed, ...recovery.slice(0, kept)];
@@ -307,7 +331,7 @@ it.each(["callback-first", "write-first"] as const)(
           expect({ cut, kept, shown: shown([...partial, ...again]) }).toEqual({
             cut,
             kept,
-            shown: whole,
+            shown: expected(cut),
           });
         }
       }

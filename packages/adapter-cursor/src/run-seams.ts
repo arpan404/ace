@@ -17,8 +17,9 @@ export interface Coverage {
 /**
  * Pairs each update the host frames with the event the SDK stores for it, in either order the
  * SDK may do them (onDelta then store, or store then onDelta), so a frame can say exactly which
- * stored events it covers. Pairing is first in, first out by identity; bookkeeping events
- * (request, status), which no update has, cover themselves.
+ * stored events it covers. Pairing is by identity, in order, so an update whose write the SDK
+ * lost (it swallows those) never shifts the pairs after it; bookkeeping events (request, status),
+ * which no update has, cover themselves.
  */
 export class EventCoverage {
   private through = 0;
@@ -34,7 +35,10 @@ export class EventCoverage {
     this.last = Math.max(this.last, seq);
     const identity = storedIdentity(message);
     if (identity !== undefined) {
-      if (this.pending[0] === identity) this.pending.shift();
+      // Paired by identity, in order: updates framed before the one this event is for, whose
+      // events never came, had their write lost by the SDK. Ace has them; they stay covered.
+      const framed = this.pending.indexOf(identity);
+      if (framed >= 0) this.pending.splice(0, framed + 1);
       else if (this.stored.length < 1024) this.stored.push({ seq, identity });
     }
     this.advance();
@@ -43,8 +47,13 @@ export class EventCoverage {
   framed(update: unknown): void {
     const identity = updateIdentity(update);
     if (identity === undefined) return;
-    if (this.stored[0]?.identity === identity) this.stored.shift();
-    else if (this.pending.length < 64) this.pending.push(identity);
+    const stored = this.stored.findIndex((event) => event.identity === identity);
+    if (stored >= 0) {
+      this.stored.splice(stored, 1);
+      // An update framed before this one whose event was not stored first never will be: the SDK
+      // stores events in update order, and this one's is already there.
+      this.pending = [];
+    } else if (this.pending.length < 64) this.pending.push(identity);
     this.advance();
   }
   coverage(): Coverage {
