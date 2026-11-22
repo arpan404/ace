@@ -18,7 +18,13 @@ import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
-import { nativeTransport, socketEvent, type PairedStanding } from "./socket.ts";
+import {
+  nativeTransport,
+  socketEvent,
+  type PairedStanding,
+  type StandingRoute,
+} from "./socket.ts";
+import { StandingBook } from "./standing-book.ts";
 import {
   accountCredential,
   accountGate,
@@ -174,6 +180,8 @@ let services: NativeServices | undefined;
 let pairedStanding: PairedStanding | undefined;
 /** Which route this runtime's socket proves standing on: a pairing's key, or the account's grant. */
 let standingRoute: "paired" | "account" = "paired";
+/** What each socket to this machine proved; the newest verdict is the one reported. */
+const standings = new StandingBook();
 let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
@@ -257,9 +265,22 @@ async function start(json: string): Promise<void> {
   const paired = config.paired;
   pairedStanding = undefined;
   standingRoute = paired || !config.account ? "paired" : "account";
-  const standing = (state: PairedStanding | undefined) => {
-    pairedStanding = state;
-    pump.put("standing", () => ({ type: "standing", state }));
+  standings.clear();
+  const standing = (
+    state: PairedStanding | undefined,
+    source: { socket: string; route: StandingRoute },
+  ) => {
+    standings.set(source.socket, state, source.route);
+    const active = standings.active();
+    pairedStanding = active?.state;
+    // The route the verdict went over, once one has: a paired machine on its relay fallback
+    // proves as the account's device, not with its paired key.
+    if (active) standingRoute = active.route === "relay" ? "account" : "paired";
+    pump.put("standing", () => ({
+      type: "standing",
+      state: active?.state,
+      route: active?.route,
+    }));
   };
   const account = config.account ? accountGate(() => call("credential")) : undefined;
   gate = account;

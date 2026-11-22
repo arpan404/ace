@@ -67,6 +67,29 @@ test("a socket's standing is cleared when Swift says it ran out and when the soc
   expect(heard).toEqual(["proven", undefined, "proven", undefined]);
 });
 
+test("a socket the client closes itself no longer holds its standing", () => {
+  let id = "";
+  native.socket = (socket, action) => {
+    if (action === "open") id = socket;
+  };
+  const heard: [string | undefined, string][] = [];
+  const transport = nativeTransport(undefined, undefined, (standing, { route }) =>
+    heard.push([standing, route]),
+  );
+  transport.open({ open() {}, message() {}, close() {} });
+  socketEvent(id, "standing", "proven relay");
+  // An orderly reconnect, a refused grant or a route switch: Swift sends no close event back.
+  transport.close();
+  expect(heard).toEqual([
+    ["proven", "relay"],
+    [undefined, "relay"],
+  ]);
+  // A direct socket's verdict names the direct route.
+  transport.open({ open() {}, message() {}, close() {} });
+  socketEvent(id, "standing", "missing");
+  expect(heard.at(-1)).toEqual(["missing", "direct"]);
+});
+
 test("a media connection opens natively at its address, sends its hello as bytes and hears text", () => {
   const asked: [string, string, string][] = [];
   native.socket = (id, action, value) => asked.push([id, action, value]);
