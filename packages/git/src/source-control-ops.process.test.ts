@@ -443,7 +443,7 @@ describe("source control git operations", () => {
     try {
       await writeFile(join(repo, "a.txt"), "reviewed\n");
       await git.stage({ worktree: repo, paths: ["a.txt"] });
-      const reviewed = await git.sourceControlStatus(repo);
+      const shown = await git.sourceControlStatus(repo);
       const head = runGit(repo, ["rev-parse", "HEAD"]);
       // Another client stages more after the person's view read the status.
       await writeFile(join(repo, "b.txt"), "slipped in\n");
@@ -454,7 +454,7 @@ describe("source control git operations", () => {
           message: "only a",
           expectedHead: head,
           stagedOnly: true,
-          expectedIndex: reviewed.index,
+          expectedIndex: shown.index,
         }),
         "index_moved",
       );
@@ -462,7 +462,7 @@ describe("source control git operations", () => {
 
       runGit(repo, ["reset", "-q", "HEAD", "--", "b.txt"]);
       const again = await git.sourceControlStatus(repo);
-      expect(again.index).toBe(reviewed.index);
+      expect(again.index).toBe(shown.index);
       // The message was generated for the staged files; committing it untouched works.
       const draft = await git.writingContext(repo, { kind: "commit", paths: ["a.txt"] });
       await git.commit({
