@@ -403,3 +403,49 @@ fn the_persons_no_for_an_app_tool_still_refuses_it() {
     };
     assert_eq!(route(declined), Route::Refuse(DECLINED_TOOL.to_owned()));
 }
+
+#[test]
+fn only_an_answer_kept_for_the_tools_whole_definition_still_says_yes() {
+    // Kept for this very definition: it counts, yes or no.
+    assert_eq!(kept_answer(Some(true), None), Some(true));
+    assert_eq!(kept_answer(Some(false), Some(true)), Some(false));
+    // Kept only under an older identity, which left its description out: a "no" still holds,
+    // a "yes" doesn't, since the tool may have changed since.
+    assert_eq!(kept_answer(None, Some(false)), Some(false));
+    assert_eq!(kept_answer(None, Some(true)), None);
+    assert_eq!(kept_answer(None, None), None);
+}
+
+#[test]
+fn a_write_the_classifier_raises_to_a_send_is_shown_and_offered_as_a_send() {
+    // What a request says the call does: the most serious of the gate's reading and what the
+    // classifier raised.
+    assert_eq!(
+        asked_effect(None, Some(Effect::SendAsPerson)),
+        Some(Effect::SendAsPerson)
+    );
+    assert_eq!(
+        asked_effect(Some(Effect::Network), Some(Effect::Pay)),
+        Some(Effect::Pay)
+    );
+    assert_eq!(
+        asked_effect(Some(Effect::Network), None),
+        Some(Effect::Network)
+    );
+    assert_eq!(asked_effect(None, None), None);
+    // An ordinary write is offered its app's Always allow only while that is still all it is.
+    assert!(app_always_offered(true, asked_effect(None, None)));
+    assert!(app_always_offered(true, Some(Effect::Network)));
+    for raised in [
+        Effect::SendAsPerson,
+        Effect::Pay,
+        Effect::ChangeAccess,
+        Effect::Publish,
+    ] {
+        assert!(
+            !app_always_offered(true, asked_effect(None, Some(raised))),
+            "{raised:?}"
+        );
+    }
+    assert!(!app_always_offered(false, None));
+}

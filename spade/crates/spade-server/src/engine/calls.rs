@@ -204,6 +204,22 @@ pub(super) async fn handle_calls(
             Status::Answered if super::apps::held_for_reconnect(events, &pending.call.id) => {
                 match super::apps::after_reconnect(events, &pending.call.id) {
                     super::apps::AfterReconnect::RunAgain => {
+                        // On the session the person's reconnect opened, sent again only while
+                        // the tool is still the definition it was approved as (ADR 0202,
+                        // amendment 5): what its verdict recorded, else what is pinned.
+                        let key = format!("{id}.{}", pending.call.id);
+                        if let Some(app) = engine.app_call(id, &name, &arguments) {
+                            let approved = review::bound(events, &pending.call.id)
+                                .and_then(|bound| bound.strip_prefix(APP_BOUND).map(str::to_owned));
+                            if app.changed
+                                || approved.is_some_and(|approved| approved != app.definition)
+                            {
+                                let changed = ToolOutput::ok(autonomy::refused(DEFINITION_CHANGED));
+                                finish_tool(engine, id, reply, &pending.call, &name, changed).await;
+                                continue;
+                            }
+                            engine.bind_app(&key, &app);
+                        }
                         if let Some(raised) = review::raised(events, &pending.call.id) {
                             raised_at.insert(pending.call.id.clone(), raised);
                         }
@@ -327,6 +343,20 @@ pub(super) async fn handle_calls(
                     // A connected app's tool, read for this call with its definition pinned
                     // (ADR 0202, amendment 5).
                     let app_call = engine.app_call(id, &name, &arguments);
+                    // A verdict stored for this call (before a restart) holds only for the
+                    // definition it was given on.
+                    let app_bound = app_call
+                        .as_ref()
+                        .map(|app| format!("{APP_BOUND}{}", app.definition));
+                    if let Some(now) = &app_bound
+                        && let Some(stored) = review::bound(events, &pending.call.id)
+                        && stored.starts_with(APP_BOUND)
+                        && &stored != now
+                    {
+                        let changed = ToolOutput::ok(autonomy::refused(DEFINITION_CHANGED));
+                        finish_tool(engine, id, reply, &pending.call, &name, changed).await;
+                        continue;
+                    }
                     // What it does, as the tool declares it once, or as Spade reads an app's.
                     let declared = match &app_call {
                         Some(app) => app.reading.effect,
@@ -356,13 +386,27 @@ pub(super) async fn handle_calls(
                             .get_for(id, &name)
                             .map(|tool| engine.tool_key(id, tool.identity())),
                     };
-                    let remembered = tool_key.as_deref().and_then(|key| {
+                    let kept = |key: &str| {
                         effect::remembered(since_arrival(events), key).or_else(|| {
                             bot_events
                                 .as_deref()
                                 .and_then(|owned| effect::remembered(since_arrival(owned), key))
                         })
-                    });
+                    };
+                    // Only an answer kept for its whole definition says yes; one kept under an
+                    // older identity, which left its description out, can only say no.
+                    let legacy_key = match declared {
+                        Some(_) => None,
+                        None => engine
+                            .tools
+                            .get_for(id, &name)
+                            .and_then(|tool| tool.legacy_identity())
+                            .map(|identity| engine.tool_key(id, identity)),
+                    };
+                    let remembered = effect::kept_answer(
+                        tool_key.as_deref().and_then(kept),
+                        legacy_key.as_deref().and_then(kept),
+                    );
                     let target = spade_core::outward::target(&name, &arguments);
                     // The bot's Permissions, and the apps no bot uses (ADR 0171, amendment 7).
                     let (permits, never_apps) = engine.permits(id);
@@ -588,8 +632,9 @@ pub(super) async fn handle_calls(
                                 Verdict::Escalate,
                                 &reason,
                                 // Bound to the files it runs as they are now: a command the
-                                // person allows outside the sandbox runs only if they still are.
-                                read_bound.stored(),
+                                // person allows outside the sandbox runs only if they still are;
+                                // an app's tool, to its definition now.
+                                read_bound.stored().or_else(|| app_bound.clone()),
                                 limit,
                             ) {
                                 Ok(true) => {}
@@ -655,7 +700,7 @@ pub(super) async fn handle_calls(
                                         arguments: &arguments,
                                         def: &def,
                                         shown: &classed.shown,
-                                        bound: read_bound.stored(),
+                                        bound: read_bound.stored().or_else(|| app_bound.clone()),
                                         concern: concern.as_deref(),
                                         acts_in: acts_in.as_ref(),
                                         launch: limit,
@@ -696,6 +741,9 @@ pub(super) async fn handle_calls(
                         && mode == Mode::AutoReview
                         && (place != Place::Sandbox || remote)
                         && review::reviewed(def.risk, decision)
+                        // What the gate resolved the call as, not the tool's listed risk: a read
+                        // it let run (an app's unannotated one too) gets no second review.
+                        && declared != Some(effect::Effect::Read)
                         && engine.review_on(id)
                     {
                         let def = def.clone();
@@ -725,10 +773,15 @@ pub(super) async fn handle_calls(
                     }
                     match decision {
                         Decision::Run => {
-                            // A changed app tool the reviewer (or a grant of the person's)
-                            // approved is reviewed again no more: its new definition is pinned.
-                            if let Some(app) = app_call.as_ref().filter(|app| app.changed) {
-                                engine.pin(&app.app, &name, &app.definition);
+                            // A connected app's call is sent only as approved here: this
+                            // definition, on this session (ADR 0202, amendment 5). A changed tool
+                            // a judge approved (never the rules alone, never an answer kept from
+                            // before) is pinned as it is now.
+                            if let Some(app) = &app_call {
+                                if app.changed && !rule_ran {
+                                    engine.pin(&app.app, &name, &app.definition);
+                                }
+                                engine.bind_app(&key, app);
                             }
                             // What "always" allowed, checked again where it runs (ADR 0142).
                             if let Some(scope) = &scope {
@@ -787,13 +840,19 @@ pub(super) async fn handle_calls(
                             if driven.is_some() {
                                 ask = Some(effect::Ask::Drive);
                             }
-                            // A connected app's ordinary write offers an Always allow for the
-                            // app (ADR 0202, amendment 5), where one could cover it: no package or
+                            // What the request says it does: the gate's reading, raised by
+                            // what the classifier read. A connected app's ordinary write offers
+                            // an Always allow for the app (ADR 0202, amendment 5) only while that
+                            // is still all it is, and where one could cover it: no package or
                             // organization.
+                            let asked_effect = effect::asked_effect(declared, raised);
                             let app = match &app_call {
                                 Some(call)
                                     if ask.is_none()
-                                        && call.reading.grantable
+                                        && effect::app_always_offered(
+                                            call.reading.grantable,
+                                            asked_effect,
+                                        )
                                         && ceiling.is_none()
                                         && org.is_none() =>
                                 {
@@ -825,7 +884,7 @@ pub(super) async fn handle_calls(
                                 // the binding of the verdict stored just before, which asked.
                                 launch: Some(limit),
                                 stopped,
-                                effect: declared,
+                                effect: asked_effect,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             let recorded = match &helper {
@@ -881,8 +940,12 @@ pub(super) async fn handle_calls(
                             finish_tool(engine, id, reply, &pending.call, &name, changed).await;
                             continue;
                         }
-                        _ => engine.pin(&app.app, &name, &app.definition),
+                        Some(_) => engine.pin(&app.app, &name, &app.definition),
+                        // Asked by an older build, which showed no definition: allowed as it is
+                        // now, never pinned on that answer.
+                        None => {}
                     }
+                    engine.bind_app(&key, &app);
                 }
                 // The person's answer's warrant: the launch they were asked about, and what the
                 // command ran then, as the verdict that asked them recorded it (every ask stores
@@ -1029,6 +1092,9 @@ fn allowed_always_for(
         _ => false,
     })
 }
+
+/// How a verdict on a connected app's call records the definition it was given on.
+const APP_BOUND: &str = "app:";
 
 /// What the person is told when an app changed a tool after they allowed a call of it.
 const DEFINITION_CHANGED: &str = "The app changed this tool's name, description or inputs after the person allowed it, so \

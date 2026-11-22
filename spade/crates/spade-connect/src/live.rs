@@ -172,11 +172,49 @@ impl Connectors {
         arguments: serde_json::Value,
         asker: Option<Arc<dyn Asker>>,
     ) -> Result<McpToolResult, CallError> {
+        self.send(connector, tool, arguments, asker, None).await
+    }
+
+    /// [`Connectors::call_asking`] for a call the gate approved as `expect`: sent only on the
+    /// session it was approved on, while that session lists the tool with the definition it was
+    /// approved for, checked right before each send (`pinned`).
+    pub async fn call_expecting(
+        self: &Arc<Self>,
+        connector: &str,
+        tool: &str,
+        arguments: serde_json::Value,
+        asker: Option<Arc<dyn Asker>>,
+        expect: &crate::pinned::Expect,
+    ) -> Result<McpToolResult, CallError> {
+        self.send(connector, tool, arguments, asker, Some(expect))
+            .await
+    }
+
+    async fn send(
+        self: &Arc<Self>,
+        connector: &str,
+        tool: &str,
+        arguments: serde_json::Value,
+        asker: Option<Arc<dyn Asker>>,
+        expect: Option<&crate::pinned::Expect>,
+    ) -> Result<McpToolResult, CallError> {
         let record = self
             .record(connector)
             .ok_or_else(|| CallError::NotRun(format!("{connector} is not connected")))?;
         if record.needs_reconnect {
             return Err(CallError::NeedsReconnect(record.name));
+        }
+        // The session the call was approved on, before this call renews anything itself.
+        if let Some(expect) = expect
+            && let Some(refused) = self.unlike(
+                &record.id,
+                &record.name,
+                tool,
+                expect,
+                self.generation(&record.id),
+            )
+        {
+            return Err(refused);
         }
         let (client, generation) = match self.client(&record).await {
             Ok(ready) => ready,
@@ -188,6 +226,15 @@ impl Connectors {
                 return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
             }
         };
+        // Right before the send, on the sending session: still the tool it was approved as.
+        if let Some(expect) = expect
+            && !self.still_listed(&record.id, tool, expect)
+        {
+            return Err(CallError::NotRun(format!(
+                "{} changed this tool since the call was approved, so it wasn't sent",
+                record.name
+            )));
+        }
         let mut answer = client
             .call_asking(tool, arguments.clone(), Map::new(), asker.clone())
             .await;
@@ -196,6 +243,17 @@ impl Connectors {
         if matches!(answer, Err(ToolsError::Refused)) {
             match self.renew(&record, generation).await {
                 Ok(()) => match self.client(&record).await {
+                    // Renewed by this call, which never ran: the definition is checked again
+                    // on the renewed session before the one send it gets.
+                    Ok(_)
+                        if expect
+                            .is_some_and(|expect| !self.still_listed(&record.id, tool, expect)) =>
+                    {
+                        return Err(CallError::NotRun(format!(
+                            "{} changed this tool since the call was approved, so it wasn't sent",
+                            record.name
+                        )));
+                    }
                     Ok((renewed, _)) => {
                         answer = renewed
                             .call_asking(tool, arguments, Map::new(), asker)

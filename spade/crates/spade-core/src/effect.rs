@@ -867,6 +867,32 @@ pub fn remembered(events: &[crate::Event], key: &str) -> Option<bool> {
     })
 }
 
+/// What a request says its call does: the gate's reading, raised by what Spade's classifier
+/// read in it when it raised it to the person (ADR 0202, amendment 5). A card is headed by this,
+/// and an app's Always allow is offered by it, never by the tool's name alone.
+pub fn asked_effect(declared: Option<Effect>, raised: Option<Effect>) -> Option<Effect> {
+    match (declared, raised) {
+        (Some(declared), Some(raised)) => Some(declared.max(raised)),
+        (declared, raised) => declared.or(raised),
+    }
+}
+
+/// Whether a request offers its app's Always allow: its tool is an ordinary write by name
+/// (`grantable`, [`AppReading::grantable`]) and what the request says it does (`asked`,
+/// [`asked_effect`]) is still only a write: never once the classifier raised a send, a payment
+/// or anything else.
+pub fn app_always_offered(grantable: bool, asked: Option<Effect>) -> bool {
+    grantable && matches!(asked, None | Some(Effect::Network | Effect::WriteLocal))
+}
+
+/// The person's answer kept for a tool that declares nothing, from what is kept under its whole
+/// definition now (`full`: its name, description and input) and under an older identity that
+/// left its description out (`legacy`). A change to what the tool says stops a "yes" from
+/// counting; a "no" holds either way (ADR 0202, amendment 5).
+pub fn kept_answer(full: Option<bool>, legacy: Option<bool>) -> Option<bool> {
+    full.or(legacy.filter(|allowed| !allowed))
+}
+
 /// Why a tool can never be granted (ADR 0167 decision 5), from what it declares: payments,
 /// sends in the person's name, access changes, secrets and anything Spade can't name are the
 /// person's alone, and a tool that declares nothing is too. A driving tool is granted one app

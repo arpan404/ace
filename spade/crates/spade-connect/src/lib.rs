@@ -16,6 +16,7 @@ pub mod fit;
 mod hub;
 mod live;
 pub mod oauth;
+pub mod pinned;
 pub mod records;
 mod secrets;
 
@@ -38,6 +39,7 @@ pub use live::{CallError, ConnectorTool, RELIST, SEPARATOR};
 pub use oauth::Addresses;
 pub use oauth::cimd::CLIENT_METADATA_URL;
 pub use oauth::pkce::{OsRandom, Random};
+pub use pinned::{Expect, definition};
 pub use records::Access;
 use records::Record;
 

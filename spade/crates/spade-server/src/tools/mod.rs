@@ -265,12 +265,22 @@ pub trait Tool: Send + Sync {
     fn definition(&self) -> Option<String> {
         None
     }
+    /// For a connected app's tool, the generation of its connection's session now: a call is
+    /// sent only on the session it was approved on.
+    fn app_session(&self) -> Option<u64> {
+        None
+    }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the
     /// server and its version, the tool's own name and its schema, so an answer kept for it never
     /// carries over to another tool offered under the same name (ADR 0171, amendment 1).
     fn identity(&self) -> String {
         let def = self.def();
         format!("{}#{}", def.spec.name, schema_hash(&def.spec.schema))
+    }
+    /// The identity an older build kept answers under, when it differs: only a "no" kept under
+    /// it still counts.
+    fn legacy_identity(&self) -> Option<String> {
+        None
     }
 }
 

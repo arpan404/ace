@@ -569,3 +569,43 @@ async fn an_allowed_call_doesnt_run_once_its_app_redescribed_the_tool() -> Resul
     assert_eq!(app.tool_runs(), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn with_the_model_review_on_a_clean_app_read_still_runs_with_no_card() -> Result {
+    let app = FakeConnector::start(vec![tool_with("list_pages", "Lists pages.", &["limit"])]).await;
+    app.accept_token("api-key-1");
+    let world = world_with_options(
+        Options {
+            connectors: true,
+            reviewer: None,
+            ..Options::default()
+        },
+        false,
+        |_| {
+            vec![
+                call_with("c1", "list_pages", json!({ "limit": 10 })),
+                Script::reply("Here."),
+                Script::reply("").plain(r#"{"title":"Notion"}"#),
+            ]
+        },
+    )
+    .await?;
+    let spade = &world.spade;
+    let (status, body) = spade
+        .put("/v1/oversight", json!({ "review_default": true }))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let (_, conversation) = connected(spade, &app).await?;
+    spade.say(&conversation, "what pages are there").await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    assert!(
+        of_type(&events, "approval_requested").is_empty(),
+        "{events:?}"
+    );
+    assert!(
+        !reviewed(&events, "c1"),
+        "the model review looked at a clean read"
+    );
+    assert!(ran(&events, "c1"));
+    Ok(())
+}

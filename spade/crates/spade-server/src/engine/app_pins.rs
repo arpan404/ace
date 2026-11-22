@@ -19,6 +19,8 @@ pub(crate) struct AppCall {
     pub definition: String,
     /// It differs from the one pinned for the tool.
     pub changed: bool,
+    /// Its connection's session generation now.
+    pub generation: u64,
     pub reading: AppReading,
 }
 
@@ -48,8 +50,9 @@ impl Engine {
         let reading = found.app_reading(arguments, changed)?;
         Some(AppCall {
             app,
-            definition,
             changed,
+            generation: found.app_session().unwrap_or_default(),
+            definition,
             reading,
         })
     }
@@ -70,6 +73,28 @@ impl Engine {
         if let Err(error) = self.store.set_setting(&seeded, Some("1")) {
             tracing::warn!(%error, app, "an app's tool definitions couldn't be pinned");
         }
+    }
+
+    /// Binds the call `key` to what the gate approved it as, for its send.
+    pub(crate) fn bind_app(&self, key: &str, call: &AppCall) {
+        self.app_bindings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                key.to_owned(),
+                spade_connect::Expect {
+                    definition: call.definition.clone(),
+                    generation: call.generation,
+                },
+            );
+    }
+
+    /// What the call `key` was approved as, taken: each approval sends once.
+    pub(crate) fn take_app_binding(&self, key: &str) -> Option<spade_connect::Expect> {
+        self.app_bindings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(key)
     }
 
     /// Pins `definition` for `app`'s `tool`: on first use, or once a call of a changed one was

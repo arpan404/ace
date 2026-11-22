@@ -205,26 +205,35 @@ impl Tool for ConnectorCall {
     }
 
     fn definition(&self) -> Option<String> {
-        use sha2::{Digest, Sha256};
-        let tool = &self.tool.tool;
-        let text = serde_json::json!([tool.name, tool.description, tool.input_schema]).to_string();
-        Some(
-            Sha256::digest(text.as_bytes())
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
-        )
+        Some(spade_connect::definition(&self.tool.tool))
+    }
+
+    fn app_session(&self) -> Option<u64> {
+        Some(self.hub.generation(&self.tool.connector))
     }
 
     /// The connection, its server's address, the server's own tool name and its schema.
+    /// The connection, its server's address, the server's own tool name and its whole
+    /// definition (name, description, input schema): an answer kept for it holds only while
+    /// the tool says the same about itself.
     fn identity(&self) -> String {
         format!(
+            "connector:{}@{}:{}#def:{}",
+            self.tool.connector,
+            self.tool.server,
+            self.tool.tool.name,
+            spade_connect::definition(&self.tool.tool)
+        )
+    }
+
+    fn legacy_identity(&self) -> Option<String> {
+        Some(format!(
             "connector:{}@{}:{}#{}",
             self.tool.connector,
             self.tool.server,
             self.tool.tool.name,
             super::schema_hash(&self.tool.tool.input_schema)
-        )
+        ))
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
@@ -242,10 +251,21 @@ impl Tool for ConnectorCall {
         let key = key.to_owned();
         let tool = self.tool.tool.clone();
         Box::pin(async move {
-            let answer = hub
-                .call_asking(&connector, &name, arguments.clone(), asker)
-                .await;
             let engine = forms.as_ref().and_then(EngineHandle::get);
+            // Sent only as the gate approved it: that definition, on that session, checked right
+            // before each send (ADR 0202, amendment 5). A call with no approval bound to it is
+            // never sent.
+            let Some(expect) = engine
+                .as_ref()
+                .and_then(|engine| engine.take_app_binding(&key))
+            else {
+                return output(CallError::NotRun(format!(
+                    "{app} has no approved definition of this tool for this call"
+                )));
+            };
+            let answer = hub
+                .call_expecting(&connector, &name, arguments.clone(), asker, &expect)
+                .await;
             let secret = engine
                 .as_ref()
                 .is_some_and(|engine| engine.asked_for_secret(&key));
