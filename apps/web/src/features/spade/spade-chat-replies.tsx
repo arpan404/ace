@@ -73,8 +73,7 @@ export function QuoteLine(props: { quote: SpadeQuote; side: "bot" | "mine" }) {
  * Inside the composer, above the words, while the person replies: who they answer and one line
  * of it on the quote's 2px rule, with × to stop replying. One sentence-like line, no tint
  * (design-language §2.3). It is the composer's own top line (its `heading`), so it never floats
- * over the transcript, and the transcript's room under the composer grows with it. It starts
- * 24px down: Scroll to end rests on the composer's top edge in that room, above the line.
+ * over the transcript, and the transcript's room under the composer grows with it.
  */
 export function ReplyStrip(props: { quote: SpadeQuote; botName: string; onClear(): void }) {
   const name = spadeQuoteName(props.quote.who, props.botName);
@@ -82,7 +81,7 @@ export function ReplyStrip(props: { quote: SpadeQuote; botName: string; onClear(
     <div
       role="status"
       aria-label={`Replying to ${name}`}
-      className="flex min-w-0 items-center gap-2 pt-6 pr-2 pl-4"
+      className="flex min-w-0 items-center gap-2 pt-3 pr-2 pl-4"
     >
       <p className="min-w-0 flex-1 truncate border-l-2 border-border-strong pl-2.5 text-ui text-muted-foreground">
         <span className="font-medium text-foreground">Replying to {name}</span>
