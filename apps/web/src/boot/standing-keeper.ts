@@ -10,6 +10,7 @@ export type StandingProver = (
 ) => Promise<
   | { type: "account.standing"; grant: string; proof: string }
   | { type: "device.standing"; proof: string }
+  | { type: "account.standing.app"; key: string; proof: string }
   | undefined
 >;
 
@@ -22,13 +23,16 @@ export const STANDING_REPROVE_MS = 4 * 60_000;
  * Keeps `client`'s socket proving the person's standing (ADR 0190): on each new socket (a new
  * nonce), every few minutes while it lasts, and when asked (`proveNow`, after a sign-in). It runs
  * in the tab, which holds the key and the session; a worker-hosted client mirrors its socket's
- * challenge here. A proof for a socket that has since been replaced is not sent.
+ * challenge here. A proof for a socket that has since been replaced is not sent. When `prove`
+ * can't and `fallback` can, `afterFallback` runs on that socket (the desktop app keeps its key
+ * then, so the next socket proves without the fallback).
  */
 export function keepStanding(
   client: Pick<ClientApi, "request" | "state"> & Pick<Partial<ClientApi>, "standingChallenge">,
   prove: StandingProver,
   timers: { set(delayMs: number, callback: () => void): () => void },
   fallback?: StandingProver,
+  afterFallback?: (challenge: StandingChallenge) => Promise<unknown>,
 ): { proveNow(): Promise<boolean>; stop(): void } {
   const selection = client.standingChallenge?.();
   let stopped = false;
@@ -44,7 +48,10 @@ export function keepStanding(
       const reply = await client.request(proven).catch(() => undefined);
       return reply?.result.ok === true && reply.result.member === undefined && current();
     };
-    return (await send(prove)) || (fallback !== undefined && current() && (await send(fallback)));
+    if (await send(prove)) return true;
+    if (fallback === undefined || !current() || !(await send(fallback))) return false;
+    await afterFallback?.(challenge).catch(() => undefined);
+    return true;
   };
   const schedule = () => {
     cancel();

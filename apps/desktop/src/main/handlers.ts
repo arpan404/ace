@@ -1,7 +1,8 @@
 import { writableFolder } from "./browser/download-folder.ts";
 import { aceClientName, namedFetch } from "@ace/client/ace-client";
 import { ACE_CLIENT_DEVELOPMENT } from "@ace/protocol/ace-client";
-import { accountSecrets } from "./account-secrets.ts";
+import { accountSecrets, safeStorageSealer } from "./account-secrets.ts";
+import { standingKeys } from "./standing-key.ts";
 import { followDaemonAccount } from "./account-follow.ts";
 import { accountSync } from "./account-sync.ts";
 import { aceAccountClient } from "@ace/client/ace-account";
@@ -124,6 +125,7 @@ export function createHandlers(options: {
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
+  const standing = standingKeys(app.getPath("userData"), safeStorageSealer);
   const accountOf = accountReader(options.info);
   // A daemon that starts or restarts signed out follows the app's account (never switching one
   // that is signed in); the app's sign-in and sign-out follow `account-write.ts`. One queue for
@@ -153,11 +155,15 @@ export function createHandlers(options: {
     "account.read": (origin) => account.read(origin),
     "account.write": async ({ origin, token }) => {
       await account.write(origin, token);
+      // Signed out: the person's standing key goes with the session (ADR 0190, amendment 1).
+      if (token === null) await standing.forget(origin);
       // The machine follows the app's account only where that moves no one's own sign-in
       // (`account-write.ts`); a failure here leaves the app signed in.
       void daemonAccount.followApp(origin).catch(() => {});
       return undefined;
     },
+    "standing.key": ({ origin, account: id }) => standing.key(origin, id),
+    "standing.sign": ({ origin, account: id, text }) => standing.sign(origin, id, text),
     "daemon.account": async (request) =>
       machineAccount(await options.connection(), request, (origin) => account.read(origin)),
     "keymap.update": (bindings) => {

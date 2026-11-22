@@ -70,6 +70,12 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       /** This computer's daemon's ace account and machine code. */
       machine: (request: MachineAccountRequest) => call("daemon.account", request),
     },
+    /** The person's standing key main keeps in the keychain (ADR 0190, amendment 1). */
+    standing: {
+      key: (origin: string, account: string) => call("standing.key", { origin, account }),
+      sign: (origin: string, account: string, text: string) =>
+        call("standing.sign", { origin, account, text }),
+    },
     version: info.version,
     platform: info.platform,
     arch: info.arch,

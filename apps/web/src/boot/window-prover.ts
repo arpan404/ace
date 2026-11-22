@@ -1,11 +1,13 @@
 import type { StandingChallenge } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
 import {
+  appStandingChallenge,
   makeStandingKey,
   provePaired,
   proveStanding,
   type StandingKey,
 } from "@ace/client/standing";
+import { appStandingKey, type AppStandingKey } from "./app-standing-key.ts";
 import { accountFetch, accountOrigin, windowAccountSession } from "./account-config.ts";
 import { keepStanding, type StandingProver } from "./standing-keeper.ts";
 import { windowSessionStorage } from "./window-session.ts";
@@ -46,6 +48,45 @@ const pairedProver: StandingProver = async (challenge) => {
   return { type: "device.standing", proof: await provePaired({ challenge, key }) };
 };
 
+/**
+ * The desktop app's own windows prove with the key its main process keeps in the OS keychain
+ * (ADR 0190, amendment 1), on the loopback socket to the daemon beside it: no browser and no
+ * backend round trip, for as long as the socket lasts. Undefined on a relayed socket (it has a
+ * channel binding), outside the desktop app, and before the app keeps a key.
+ */
+export function appProver(
+  app: AppStandingKey,
+  origin: string | undefined,
+  account: () => string | undefined,
+): StandingProver {
+  return async (challenge) => {
+    // The window's own account: a key another account's sign-in left signs nothing.
+    const id = account();
+    if (!origin || !id || challenge.binding !== undefined) return undefined;
+    const signed = await app.sign(origin, id, appStandingChallenge(challenge));
+    return signed ? { type: "account.standing.app", ...signed } : undefined;
+  };
+}
+
+/**
+ * Once a desktop window proved the owner's grant on its loopback socket, the app keeps a key
+ * for that account and the daemon takes it as the owner's (ADR 0190, amendment 1). The first
+ * Confirm it's you is the only one: every window after proves with the key.
+ */
+export function keepAppKey(
+  client: Pick<ClientApi, "request">,
+  app: AppStandingKey,
+  origin: string | undefined,
+  account: () => string | undefined,
+) {
+  return async (challenge: StandingChallenge): Promise<void> => {
+    const id = account();
+    if (!origin || !id || challenge.binding !== undefined) return;
+    const key = await app.key(origin, id);
+    await client.request({ type: "account.owner.key", key });
+  };
+}
+
 const timers = {
   set(delayMs: number, callback: () => void) {
     const timer = setTimeout(callback, delayMs);
@@ -58,9 +99,21 @@ const timers = {
  * connects as a device this browser paired.
  */
 export function proveFromWindow(client: ClientApi, paired = false): ClientApi {
+  const app = paired ? undefined : appStandingKey();
+  const origin = accountOrigin();
+  const account = () =>
+    origin ? windowAccountSession(windowSessionStorage(), origin)?.account.id : undefined;
   const keeper = paired
     ? keepStanding(client, pairedProver, timers, windowProver)
-    : keepStanding(client, windowProver, timers);
+    : app
+      ? keepStanding(
+          client,
+          appProver(app, origin, account),
+          timers,
+          windowProver,
+          keepAppKey(client, app, origin, account),
+        )
+      : keepStanding(client, windowProver, timers);
   keepers.set(client, keeper.proveNow);
   return client;
 }

@@ -21,18 +21,35 @@ import { z } from "zod";
  * organization's, or a local reset) hands the machine on.
  */
 
-const PersonOwner = z.object({ account: z.string().min(1).max(256) });
+/** The most app keys the owner keeps: one per desktop app install, a few reinstalls over. */
+const maxAppKeys = 8;
+const AppKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/);
+const PersonOwner = z.object({
+  account: z.string().min(1).max(256),
+  /**
+   * The public halves of the owner's desktop app keys (ADR 0190, amendment 1). Only the key's
+   * signature counts, so reading them proves nothing; a key that doesn't parse is dropped.
+   */
+  appKeys: z.array(z.unknown()).max(64).optional(),
+});
 /** An organization's host (ADR 0206 §2.1): its members' grants carry standing, nobody's person's. */
 const OrgOwner = z.object({
   kind: z.literal("org"),
   org: z.string().regex(/^org_[A-Za-z0-9]{1,64}$/),
 });
-type Owner = { kind: "person"; account: string } | { kind: "org"; org: string };
+type Owner =
+  | { kind: "person"; account: string; appKeys: readonly string[] }
+  | { kind: "org"; org: string };
 const file = (dataDir: string) => join(dataDir, "ace-owner.json");
 const parseOwner = (raw: unknown): Owner => {
   const org = OrgOwner.safeParse(raw);
   if (org.success) return { kind: "org", org: org.data.org };
-  return { kind: "person", account: PersonOwner.parse(raw).account };
+  const person = PersonOwner.parse(raw);
+  const appKeys = (person.appKeys ?? []).flatMap((key) => {
+    const parsed = AppKey.safeParse(key);
+    return parsed.success ? [parsed.data] : [];
+  });
+  return { kind: "person", account: person.account, appKeys: appKeys.slice(-maxAppKeys) };
 };
 
 export function machineOwner(dataDir: string) {
@@ -49,7 +66,13 @@ export function machineOwner(dataDir: string) {
   const write = async (next: Owner) => {
     await mkdir(dataDir, { recursive: true, mode: 0o700 });
     const temporary = `${file(dataDir)}.${randomUUID()}`;
-    const body = next.kind === "org" ? { kind: "org", org: next.org } : { account: next.account };
+    const body =
+      next.kind === "org"
+        ? { kind: "org", org: next.org }
+        : {
+            account: next.account,
+            ...(next.appKeys.length ? { appKeys: [...next.appKeys] } : {}),
+          };
     await writeFile(temporary, JSON.stringify(body), { mode: 0o600 });
     await rename(temporary, file(dataDir));
   };
@@ -97,7 +120,25 @@ export function machineOwner(dataDir: string) {
         if (changing || seen !== generation) return false;
         if (owner !== undefined) return owner.kind === "person" && owner.account === account;
         // Nothing was proven without an owner, so no standing needs to end here.
-        const next: Owner = { kind: "person", account };
+        const next: Owner = { kind: "person", account, appKeys: [] };
+        await write(next);
+        owner = next;
+        return true;
+      });
+    },
+    /** The owner's desktop app keys (ADR 0190, amendment 1); none on an org's host. */
+    appKeys: (): readonly string[] => (owner?.kind === "person" ? owner.appKeys : []),
+    /**
+     * Keeps `key` as one of `account`'s app keys, proven under `seen`: false unless they still
+     * own the machine and nothing changed since. The oldest goes past the limit.
+     */
+    addAppKey(account: string, key: string, seen: number): Promise<boolean> {
+      return exclusive(async () => {
+        if (changing || seen !== generation) return false;
+        if (owner?.kind !== "person" || owner.account !== account) return false;
+        if (!AppKey.safeParse(key).success) return false;
+        if (owner.appKeys.includes(key)) return true;
+        const next: Owner = { ...owner, appKeys: [...owner.appKeys, key].slice(-maxAppKeys) };
         await write(next);
         owner = next;
         return true;

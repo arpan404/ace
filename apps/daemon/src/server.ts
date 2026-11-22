@@ -991,6 +991,52 @@ export async function startServer(options: ServerOptions): Promise<{
             });
           return;
         }
+        case "account.standing.app": {
+          // The owner's own desktop app on this machine (ADR 0190, amendment 1): a key the owner
+          // registered from a socket that proved their grant, signing this socket's challenge.
+          // Loopback with the host's credential only: the app's own windows, never a relayed or
+          // paired socket. The host token alone still proves nothing; the key's signature does.
+          const { requestId } = message;
+          const checked =
+            hostCredential() && stillAdmitted()
+              ? await options.machineAccount?.proveAppStanding({
+                  key: message.key,
+                  proof: message.proof,
+                  nonce: standingNonce,
+                  binding: channelBinding,
+                  deviceId: actor,
+                })
+              : undefined;
+          // It lasts as long as this socket, under this owner.
+          const ok =
+            checked !== undefined && proved(Number.MAX_SAFE_INTEGER, checked.generation, "account");
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({
+              type: "account.standing.result",
+              requestId,
+              result: ok
+                ? { ok: true, until: Number.MAX_SAFE_INTEGER }
+                : {
+                    ok: false,
+                    code: "unauthorized",
+                    message: "That doesn't prove the person on this connection.",
+                  },
+            });
+          return;
+        }
+        case "account.owner.key": {
+          // Only the owner's own desktop app keeps a key here: a loopback socket that proved the
+          // owner's grant on it (ADR 0190, amendment 1).
+          const { requestId } = message;
+          const ok =
+            hostCredential() &&
+            personProven() &&
+            provenBy === "account" &&
+            (await options.machineAccount?.addAppKey(message.key, provenUnder)) === true;
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({ type: "account.owner.key.result", requestId, ok });
+          return;
+        }
         case "account.owner.release": {
           // Only a socket that proved the owner's own grant hands the machine on (ADR 0190 §3a),
           // never a paired device; every standing proven under it, and every person's pairing,

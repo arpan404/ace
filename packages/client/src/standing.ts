@@ -1,4 +1,6 @@
-import { pairedStandingText, standingProofText } from "@ace/account-grant";
+import { appStandingText, pairedStandingText, standingProofText } from "@ace/account-grant";
+
+export { appStandingText, isAppStandingText } from "@ace/account-grant";
 import type { StandingChallenge } from "./api.ts";
 import type { aceAccountClient } from "./ace-account.ts";
 
@@ -101,4 +103,17 @@ export async function provePaired(input: {
       deviceId: challenge.device,
     }),
   );
+}
+
+/**
+ * The text the owner's desktop app signs with the key it keeps in the OS keychain to prove the
+ * person's standing on one loopback socket (ADR 0190, amendment 1).
+ */
+export function appStandingChallenge(challenge: StandingChallenge): string {
+  return appStandingText({
+    host: challenge.host,
+    nonce: challenge.nonce,
+    binding: challenge.binding,
+    deviceId: challenge.device,
+  });
 }
