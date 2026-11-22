@@ -161,6 +161,8 @@ export async function reconcileCursorRestart(
 export class CursorReconciles {
   private marked = new Set<ThreadId>();
   private running = new Set<Promise<void>>();
+  /** Threads marked or reconciling: no other work of theirs starts until it ends. */
+  private held = new Set<ThreadId>();
   private report: (error: unknown) => void;
   private dependencies: () => ReconcileDependencies;
   constructor(report: (error: unknown) => void, dependencies: () => ReconcileDependencies) {
@@ -169,6 +171,15 @@ export class CursorReconciles {
   }
   add(id: ThreadId): void {
     this.marked.add(id);
+    this.held.add(id);
+  }
+  /**
+   * True while `id` waits for or runs its reconcile, busy retries included. The thread's
+   * delivery, control and steer lanes stay shut meanwhile, so a Resume can't open a second
+   * session that fences the reconcile's; they wake once it ends.
+   */
+  holds(id: ThreadId): boolean {
+    return this.held.has(id);
   }
   start(): void {
     const ids = [...this.marked];
@@ -178,7 +189,11 @@ export class CursorReconciles {
       const running = Promise.resolve()
         .then(() => reconcileCursorRestart(this.dependencies(), id))
         .catch((error: unknown) => this.report(error))
-        .finally(() => this.running.delete(running));
+        .finally(() => {
+          this.running.delete(running);
+          this.held.delete(id);
+          this.dependencies().wake(id);
+        });
       this.running.add(running);
     }
   }

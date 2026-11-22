@@ -44,6 +44,8 @@ async function crashAt(
     attemptAdmitted?: boolean;
     /** The dying host creates the attempted send's run while the process check waits. */
     runAppearsDuringProof?: boolean;
+    /** The person presses Resume while the reconcile waits on a busy store. */
+    resumeWhileBusy?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
     openFails?: boolean;
     /** Whether the person presses Resume; without it only ace acts. */
@@ -53,6 +55,7 @@ async function crashAt(
   const { stored = "finished", openFails = false, resume = true, attemptAdmitted = false } = host;
   let busy = host.busyOpens ?? 0;
   let runCreated = false;
+  let pressResume = () => {};
   /** The thread's state each time an open found the store busy. */
   const whileBusy: (string | undefined)[] = [];
   const root = await mkdtemp(join(tmpdir(), "cursor-daemon-recovery-"));
@@ -87,11 +90,14 @@ async function crashAt(
         if (openFails) throw new Error("Cursor SDK host could not start");
         if (busy-- > 0) {
           whileBusy.push(store.getThread(threadId)?.status.state);
+          if (host.resumeWhileBusy) pressResume();
           // As the Cursor adapter marks it (store-fence.ts).
           throw Object.assign(new Error("SQLITE_BUSY: database is locked"), {
             code: sessionStoreBusy,
           });
         }
+        // The reconcile's read of Cursor's store takes a while: room for a racing open.
+        if (host.resumeWhileBusy) await new Promise((settle) => setTimeout(settle, 50));
         let seq = 0;
         let operationId = "open";
         const emit = (kind: string, body: unknown, extra: Partial<CursorEnvelope> = {}) =>
@@ -182,6 +188,22 @@ async function crashAt(
       return true;
     },
   });
+  pressResume = () => {
+    pressResume = () => {};
+    const accepted = engine.handler.handle(
+      Command.parse({
+        id: "resume-mid-reconcile",
+        deviceId: "device",
+        payload: {
+          type: "thread.resume",
+          threadId,
+          expectedRevision: engine.queue(threadId).revision,
+        },
+      }),
+      store,
+    );
+    if (!accepted.ok) throw new Error(`Resume refused: ${accepted.error}`);
+  };
   await engine.flush();
   const held = engine.queue(threadId);
   const runs = store
@@ -465,6 +487,21 @@ it("a busy Cursor store at reconcile is tried again, and the thread shows workin
   expect(crash.whileBusy).toEqual(["working", "working"]);
   expect(crash.runs).toEqual(["completed"]);
   expect(crash.status).toBe("done");
+});
+
+it("a Resume pressed while the reconcile waits on a busy store leaves one reconcile and one outcome", async () => {
+  await using crash = await crashAt("admitted", {
+    stored: "finished",
+    resume: false,
+    busyOpens: 1,
+    retryMs: [40],
+    resumeWhileBusy: true,
+  });
+  // Only the reconcile opens the host: the busy try, then the one that reads the store.
+  expect(crash.opened).toHaveLength(2);
+  expect(crash.runs).toEqual(["completed"]);
+  expect(crash.sent).toEqual([]);
+  expect(crash.statusAfter()).toBe("done");
 });
 
 it("a store still busy when the retries run out fails the turn and keeps what waits in the queue", async () => {

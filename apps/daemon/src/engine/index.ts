@@ -510,7 +510,7 @@ export class Engine {
   private flushDepth = 0;
   /** A wake that outlived its thread's slot (it went dormant meanwhile) has nothing to run. */
   private async slotted(id: ThreadId, run: (actor: ThreadActor) => Promise<void>) {
-    if (!this.actors.has(id) && !this.repo.reservedSlot(id)) return;
+    if (this.reconciles.holds(id) || (!this.actors.has(id) && !this.repo.reservedSlot(id))) return;
     await run(this.actor(id));
   }
   private actor(id: ThreadId): ThreadActor {
@@ -1259,6 +1259,7 @@ export class Engine {
     const actor = this.actors.get(id);
     if (
       actor?.session ||
+      this.reconciles.holds(id) ||
       this.sessions.isClosing(id) ||
       this.repo.sessionOpening(id) ||
       this.repo.pending.running(id)
@@ -1286,7 +1287,7 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (this.closing || this.repo.cleaning(id)) return;
+    if (this.closing || this.repo.cleaning(id) || this.reconciles.holds(id)) return;
     const thread = this.repo.store.readThread(id);
     if (thread?.deletedAt !== undefined || thread?.continuation) return;
     if (this.repo.store.isHistoryWriting()) {
