@@ -43,13 +43,19 @@ import {
   type NativeSpadeSettingsRequest,
   type SpadeSettingsAnswer,
 } from "./spade-settings.ts";
+import {
+  answerSpadeOnboarding,
+  spadeOnboardingRequests,
+  type NativeSpadeOnboardingRequest,
+  type SpadeOnboardingAnswer,
+} from "./spade-onboarding.ts";
 import type { NativeSpade } from "./spade.ts";
 import { segment, spadeText } from "./spade-text.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on: send a message, stop a reply,
  * answer an approval or a card of questions, turn Spade on, and Settings › Spade and New bot
- * (`spade-settings.ts`, `spade-new-bot.ts`). Every answer is `{ok: true}` or
+ * (`spade-settings.ts`, `spade-new-bot.ts`), and first run (`spade-onboarding.ts`). Every answer is `{ok: true}` or
  * `{ok: false, title, message}` in the person's words; a card's also says which question
  * (`at`) needs more.
  */
@@ -117,6 +123,7 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
   SpadeAudioRequest,
   ...spadeSettingsRequests,
   ...spadeNewBotRequests,
+  ...spadeOnboardingRequests,
 ]);
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
@@ -128,12 +135,18 @@ type Answer =
   | { ok: true; task: string }
   | ({ ok: true } & NativeAttachment)
   | SpadeSettingsAnswer
-  | SpadeNewBotAnswer;
+  | SpadeNewBotAnswer
+  | SpadeOnboardingAnswer;
 
 const settingsTypes = new Set<string>(spadeSettingsRequests.map((each) => each.shape.type.value));
 const newBotTypes = new Set<string>(spadeNewBotRequests.map((each) => each.shape.type.value));
 const isSettings = (request: NativeSpadeRequest): request is NativeSpadeSettingsRequest =>
   settingsTypes.has(request.type);
+const onboardingTypes = new Set<string>(
+  spadeOnboardingRequests.map((each) => each.shape.type.value),
+);
+const isOnboarding = (request: NativeSpadeRequest): request is NativeSpadeOnboardingRequest =>
+  onboardingTypes.has(request.type);
 const isNewBot = (request: NativeSpadeRequest): request is NativeSpadeNewBotRequest =>
   newBotTypes.has(request.type);
 
@@ -159,6 +172,12 @@ export async function answerSpade(
   ) => spadeText(owner, deps.id, method, route, body, signal, timeoutMs);
   if (isSettings(request)) return answerSpadeSettings(owner, spade, request, deps, ask, signal);
   if (isNewBot(request)) return answerSpadeNewBot(spade, request, ask);
+  if (isOnboarding(request)) {
+    const answer = await answerSpadeOnboarding(request, ask);
+    // Spade's model or first run moved: the list shows it at once.
+    if (answer.ok && request.type !== "spade.onboarding.read") spade.refresh();
+    return answer;
+  }
   switch (request.type) {
     case "spade.send": {
       // Words alone show at once; a message carrying files waits until all of it is read.

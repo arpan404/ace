@@ -1,6 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import {
   parseSpadeConnectors,
+  parseSpadeEndpoint,
   parseSpadeModels,
   parseSpadeSearchUsage,
   parseSpadeSkillStore,
@@ -238,20 +239,27 @@ export async function answerSpadeSettings(
   }
 }
 
-/** An endpoint as a preset describes it; its key is set on its own, once it is added. */
-async function addFromPreset(ask: Ask, presetId: string) {
+/**
+ * An endpoint as a preset describes it; its key is set on its own, once it is added. Answers the
+ * endpoint Spade made, or undefined when its answer didn't say.
+ */
+export async function addFromPreset(
+  ask: (method: "GET" | "POST", route: string, body?: unknown) => Promise<string>,
+  presetId: string,
+) {
   const models = sure(parseSpadeModels(await ask("GET", "/v1/models")), "models");
   const choice = spadePresetChoices(models.presets).find((each) => each.preset.id === presetId);
   const preset = choice?.preset;
   if (!choice || !preset?.format)
     throw new Error("This machine's Spade doesn't offer that service any more.");
-  await ask("POST", "/v1/endpoints", {
+  const made = await ask("POST", "/v1/endpoints", {
     name: choice.label,
     format: preset.format,
     base_url: preset.baseUrl,
     preset: preset.id,
     ...(preset.sessionHeader ? { session_header: preset.sessionHeader } : {}),
   });
+  return parseSpadeEndpoint(made);
 }
 
 async function readPage(
