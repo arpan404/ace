@@ -359,3 +359,109 @@ Nothing else is the person:
 - Unit tests: `device-grant.test.ts`, `grant.test.ts`, `answer-gate.test.ts`,
   `fresh-sign-in.test.ts`, `directory.test.ts`, `standing-keeper.test.ts`,
   `window-session.test.ts`, `diagnostic.test.ts`.
+
+## Amendment 1 (2026-11-21): the owner's own Mac asks once
+
+### What went wrong
+
+On the owner's own Mac, signed in, turning a Spade bot's Computer use on said "Confirm it's
+you", and confirming changed nothing. The desktop app sends Spade requests straight to Spade
+(ADR 0123) unless a list says the change is the person's. That list, in the web app, was a
+hand-kept copy of the daemon's and named only autonomy and move acceptance. ADR 0171 amendment 7
+added the Permissions switches, the never-use list and the loosening routes to the daemon's copy
+only. They went to Spade unstamped, Spade refused them, and proving standing on the daemon socket
+couldn't help because the retry went the same direct way. Now both sides read one list
+(`@ace/client/spade-person-only`). A direct reply that is Spade's standing refusal is also sent
+again through the daemon, so a route missing from the list costs one round trip instead of a
+dead end.
+
+The confirm flow also opened a browser sign-in before trying anything else, even for a window that
+already held the person's session.
+
+### The rule this keeps
+
+**An agent can never loosen its own permissions.** An agent here is anything holding only the
+daemon token, an MCP lease or a provider process. Everything else gets out of the way.
+
+### Decision
+
+1. **The app's standing key.** The first time a desktop window proves the owner's grant (§3) on
+   its loopback socket, the app's main process makes a P-256 key for that account
+   (`apps/desktop/src/main/standing-key.ts`). It keeps the key encrypted with `safeStorage` in
+   `<userData>/ace-standing-key.enc`, never in `ACE_HOME`. The window registers the public half
+   (`account.owner.key`), and the daemon keeps it with the owner in `ace-owner.json`
+   (`appKeys`, at most eight).
+2. **Every window proves with it.** On each new loopback socket, the window asks main to sign
+   `appStandingText` (the host, the socket's nonce, `none` for the binding, the window's device id)
+   and sends `account.standing.app { key, proof }`. The daemon takes it only when all of these hold:
+   - the socket is on loopback with the host's credential (no relayed or paired socket);
+   - the key is one the current owner registered;
+   - the signature verifies over this socket's challenge;
+   - the machine isn't an organization's host.
+
+   The standing lasts as long as the socket, under this owner. There is no browser round trip and
+   no backend round trip, and no re-proof every few minutes.
+
+3. **Main signs nothing else.** The IPC (`standing.key`, `standing.sign`) answers only the app's
+   own top-level window at the app's URL (`ipc.ts` `trusted`). It signs only text of the
+   app-standing shape (`isAppStandingText`), and only for the account the window says it is
+   signed in to. It is never a general signing oracle.
+4. **How long it lasts.** Signing out of the app (`account.write` with no token) deletes the key.
+   A different account signing in gets a new key, and the old one signs nothing. A change of owner
+   (§3a: "Let it go", the local reset, becoming an org's host) drops every app key with the owner
+   file.
+5. **No per-control re-asks.** A refused person-only change is proved again on that socket
+   (`withStanding`) and sent once more before anything is shown. Confirm it's you tries the
+   window's own proof first and opens a browser only when that fails. A window with standing never
+   sees it.
+
+Unchanged: remote and relayed clients (one proof per socket, §3), paired devices (§7),
+organization hosts (ADR 0209), and agents.
+
+### Threat model
+
+**Held against the reader of §Threat model** (a process of the same user that reads any file and
+talks to any socket):
+
+- `ace-owner.json` holds only public keys, so reading it proves nothing.
+- On macOS the key file is sealed with a key the Keychain releases only to ace's signed app. A
+  reader gets ciphertext.
+- A proof names one socket's nonce, so a captured proof proves nothing on another socket.
+- The daemon token, an MCP lease or a provider process can't register a key: that takes a socket
+  that already proved the owner's grant. They can't sign with the registered key either: that
+  takes main's IPC, which only the app's own window can call.
+
+The tests that guard this: `machine-owner.process.test.ts` (a token holder's own key, the
+owner's public key without its private half, a replayed proof), `spade-person-only.test.ts` and
+`standing-key.test.ts`.
+
+**What gets weaker, honestly:**
+
+- **Linux and Windows.** Secret Service and DPAPI release `safeStorage`'s key to any process of the
+  user, so a reader there can decrypt the key file and prove the person on loopback. That is the
+  same exposure the app's saved session already had (`ace-account.enc`, which can mint person's
+  grants), and it stays a residual (§Residuals). On those platforms the rule holds only for agents
+  that can't read the user's keyring, such as Spade's sandboxed commands (ADR 0167). A coding agent
+  running unsandboxed as the user can, there.
+- **macOS builds that aren't signed** (development, ad-hoc) bind the Keychain item to that
+  signature only. Released builds are signed.
+- **Longer standing.** A socket proven with the key keeps the standing until it closes, where a
+  grant ran out in minutes. Signing out deletes the key but doesn't end standing already proven
+  on an open socket; it ends when the window reloads or the socket drops.
+- **Driving the app's UI or its renderer** was already out of scope, and is not weaker: such a
+  process could already mint grants with the window's restored session.
+
+**Offline.** The window signs for the account its restored session names, and restoring checks
+the session with the backend once. A window that can't reach the backend at start falls back to
+Confirm it's you.
+
+### Tests
+
+- `apps/daemon/src/machine-owner.process.test.ts`: one grant proof, then every new window proves
+  with the kept key; a daemon-token holder can neither keep a key nor prove with one, even the
+  owner's; letting the machine go ends the key.
+- `apps/daemon/src/services/spade-person-only.test.ts`: a daemon-token socket's Computer use
+  switch reaches Spade unstamped.
+- `apps/web/src/features/spade/spade-transport.test.ts`: every person-only route goes through the
+  daemon in the desktop app, and a direct standing refusal is sent again that way.
+- `apps/web/src/boot/app-standing.test.ts`, `apps/desktop/src/main/standing-key.test.ts`.
